@@ -18,3 +18,12 @@
 #compile_fail("type mismatch")
 #compile_fail(code: "E2002")
 @t_multi tests _ () -> void = 42;
+
+#compile_fail(code: "E2001", message: "expected \"quote\" then\ttab")
+@t_escaping tests _ () -> void = 42;
+
+#skip("reason with \"quote\"")
+@t_skip_escape tests _ () -> void = 42;
+
+#fail("panic with \"quote\"")
+@t_fail_escape tests _ () -> void = panic(msg: "x");

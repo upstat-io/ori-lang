@@ -288,7 +288,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         reason = "field/element count bounded by aggregate definition"
     )]
     fn dec_aggregate_fields(&mut self, val: super::ValueId, owner: Idx, field_types: &[Idx]) {
-        for (i, &field_ty) in field_types.iter().enumerate() {
+        // Walk fields in REVERSE declaration order (LIFO) per
+        // `drop-trait-proposal.md §Drop and panic` — matches the heap drop-fn
+        // walk (`emit_drop_fields`) so user `@drop` side effects observe the
+        // same field-teardown order on both the heap-RC and buffer-element
+        // paths. Order is unobservable for fields without a user `@drop`.
+        for (i, &field_ty) in field_types.iter().enumerate().rev() {
             if !self.classifier.needs_rc(field_ty) {
                 continue;
             }
@@ -300,9 +305,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 continue;
             };
             if is_boxed_enum_field(self.pool, owner, field_ty) {
+                // Boxed field: its own `_ori_drop$<field_ty>` (which carries
+                // the field type's user `@drop`, if any) runs inside the dec.
                 let drop_fn = self.get_or_generate_drop_fn(field_ty);
                 self.call_rc_dec_all(&[fv], drop_fn);
             } else {
+                // Inline nested struct/enum field: run its user `@drop` (if any)
+                // before recursing into its own field walk. The boxed branch
+                // above already routes through the field's `_ori_drop$<idx>`.
+                self.emit_user_drop_for_inline_value(field_ty, fv);
                 self.dec_value_rc(fv, field_ty);
             }
         }

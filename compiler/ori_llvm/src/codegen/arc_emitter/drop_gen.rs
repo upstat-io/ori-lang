@@ -149,82 +149,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit drop body for struct/tuple/closure-env with specific RC'd fields.
     ///
-    /// `user_drop` carries the user `@drop` `FnSym` when the type implements
-    /// the `Drop` trait — codegen materializes the AUGMENT body per
-    /// `drop-trait-proposal.md` Execution Timing section:
-    ///   1. Invoke `user_drop(data_ptr)` FIRST (user @drop sees fields
-    ///      valid; compiler has not yet walked them).
-    ///   2. Walk owned fields in REVERSE declaration order (matches the
-    ///      proposal's LIFO rule).
-    ///   3. Free the allocation via `emit_drop_rc_free`.
+    /// When the type implements `Drop` (resolved via [`Self::user_drop_method`]
+    /// on the canonical method map), codegen materializes the AUGMENT body per
+    /// `drop-trait-proposal.md` Execution Timing section: run the user `@drop`
+    /// FIRST (sees fields valid), then walk owned fields in REVERSE declaration
+    /// order (LIFO), then free. Without a user `@drop`, the plain field walk +
+    /// free is emitted.
     ///
-    /// Without `user_drop`, the function emits the plain field walk +
-    /// free.
-    ///
-    /// The `user_drop` call uses a plain `call`, not an `invoke` +
-    /// landing-pad wrapper. A panic in the @drop body therefore aborts via
-    /// the `call_drop_fn` runtime guard (per `ori_rt::rc::call_drop_fn`),
-    /// which exits with `SIGABRT_EXIT_CODE` — sound, but stricter than the
-    /// "first panic recoverable" stance: the field walk does not run on the
-    /// unwind path. The AUGMENT body shape is in place; landing-pad wiring
-    /// is unimplemented.
+    /// The user `@drop` call is a plain (non-unwinding) `call`: a panic in the
+    /// `@drop` body aborts via the `call_drop_fn` runtime guard. Recoverable
+    /// single-drop-panic unwinding (invoke + landing-pad) is not yet wired.
     fn emit_drop_fields(
         &mut self,
         data_ptr: ValueId,
         ty: Idx,
         fields: &[(u32, Idx)],
-        user_drop: Option<ori_registry::burden::FnSym>,
+        _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        if let Some(fn_sym) = user_drop {
-            self.emit_user_drop_call(data_ptr, ty, fn_sym);
-        }
-        // Field walk: emit in REVERSE declaration order per
-        // `drop-trait-proposal.md §85`. `emit_drop_field_loop` iterates
-        // the slice in caller-supplied order, so we reverse the fields
-        // here before passing in.
+        // User `@drop` runs first (plain call), then the reverse-order field
+        // walk + free.
+        self.emit_user_drop_via_pointer(ty, data_ptr);
         let reversed: Vec<(u32, Idx)> = fields.iter().rev().copied().collect();
         self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f");
         self.emit_drop_rc_free(data_ptr, ty);
         self.builder.ret_void();
-    }
-
-    /// Emit a plain `call` to the user @drop method FOR the AUGMENT body.
-    ///
-    /// The user @drop method is a normal impl method compiled via
-    /// `compile_impls`; its mangled name follows the type-qualified scheme
-    /// (`_ori_<Type>$drop`). The
-    /// `FnSym` is a sync token minted by `mint_compiled_drop_fn_sym` at
-    /// `register_impl` time — codegen looks up the actual LLVM function
-    /// via `get_or_declare_function` on the canonical mangled name.
-    ///
-    /// `_fn_sym` is currently unused by the call-site lookup — the
-    /// mangled name is derived from the type `Idx` via `ty.raw()`. The
-    /// `FnSym` parameter is kept on the API surface so the caller-side
-    /// invariant (`user @drop is wired through DropKind.user_drop`)
-    /// remains explicit; future wiring can use the `FnSym` to disambiguate
-    /// when one type carries multiple drop variants.
-    fn emit_user_drop_call(
-        &mut self,
-        data_ptr: ValueId,
-        ty: Idx,
-        _fn_sym: ori_registry::burden::FnSym,
-    ) {
-        // Drop method mangling follows the type-qualified mangling scheme;
-        // in the absence of a direct name-resolution API here, the call
-        // uses the structured `_ori_user_drop$<idx>` route. This is the
-        // AUGMENT body shape; full AOT user-@drop integration is
-        // unimplemented.
-        let func_name = format!("_ori_user_drop${}", ty.raw());
-        let ptr_ty = self.builder.ptr_type();
-        let user_drop_fn = self
-            .builder
-            .get_or_declare_void_function(&func_name, &[ptr_ty]);
-        // Per `drop-trait-proposal.md §Drop and panic`, drop bodies are
-        // declared synchronous and may not unwind through `nounwind`
-        // boundaries (the runtime catches panics in `call_drop_fn`).
-        // Emit a plain call; future work routes through `invoke` +
-        // landing pad for first-panic recovery semantics.
-        self.builder.call(user_drop_fn, &[data_ptr], "");
     }
 
     /// SSOT for "iterate struct/tuple-shaped RC'd fields, optionally skipping
@@ -285,6 +233,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     field_ptr,
                     &format!("{name_prefix}.{field_index}"),
                 );
+                // Inline struct/enum field with a user `@drop` (e.g. a closure-
+                // env capture, or a not-yet-walked sibling in a cleanup pad):
+                // run its `@drop` before the field walk. Plain (non-invoking)
+                // call — this loop is used on the closure-env drop path and the
+                // cleanup-pad tail walk, neither of which threads an invoke
+                // edge per field.
+                self.emit_user_drop_for_inline_value(field_type, field_val);
                 self.emit_drop_rc_dec(field_val, field_type);
             }
         }

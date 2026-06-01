@@ -44,6 +44,7 @@ pub(crate) use parsed_types::format_parsed_type;
 use crate::comments::CommentIndex;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
+use crate::formatter::emit_escaped_str;
 use crate::width::WidthCalculator;
 use ori_ir::ast::items::{Module, ReprAttrKind};
 use ori_ir::{CommentList, ExprArena, FileAttr, Name, Spanned, StringLookup};
@@ -304,9 +305,9 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.ctx.emit(", ");
             }
             self.ctx.emit(key);
-            self.ctx.emit(": \"");
-            self.ctx.emit(self.interner.lookup(name));
-            self.ctx.emit("\"");
+            self.ctx.emit(": ");
+            let s = self.interner.lookup(name);
+            emit_escaped_str(&mut self.ctx, s);
             *first = false;
         }
     }
@@ -323,9 +324,8 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 if i > 0 {
                     self.ctx.emit(", ");
                 }
-                self.ctx.emit("\"");
-                self.ctx.emit(self.interner.lookup(*name));
-                self.ctx.emit("\"");
+                let s = self.interner.lookup(*name);
+                emit_escaped_str(&mut self.ctx, s);
             }
             self.ctx.emit("]");
             *first = false;

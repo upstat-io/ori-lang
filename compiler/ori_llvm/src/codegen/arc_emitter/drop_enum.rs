@@ -40,34 +40,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         data_ptr: ValueId,
         ty: Idx,
         variants: &[Vec<(u32, Idx)>],
-        user_drop: Option<ori_registry::burden::FnSym>,
+        _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        if let Some(fn_sym) = user_drop {
-            self.emit_user_drop_call_enum(data_ptr, ty, fn_sym);
-        }
+        // Run the user `@drop` first when the enum implements `Drop`. The
+        // helper self-gates on the canonical method map (the upstream burden
+        // `FnSym` is not threaded onto this path), so call it unconditionally.
+        self.emit_user_drop_via_pointer(ty, data_ptr);
         self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
         self.emit_drop_rc_free(data_ptr, ty);
         self.builder.ret_void();
-    }
-
-    /// Same shape as [`emit_user_drop_call`] but on the enum drop path.
-    ///
-    /// Kept as a sibling to mirror the struct-side helper while preserving
-    /// the per-DropKind separation. Future AUGMENT-body wiring (invoke +
-    /// landing pad per `drop-trait-proposal.md §Drop and panic`) will
-    /// share the underlying lookup helper between both call sites.
-    fn emit_user_drop_call_enum(
-        &mut self,
-        data_ptr: ValueId,
-        ty: Idx,
-        _fn_sym: ori_registry::burden::FnSym,
-    ) {
-        let func_name = format!("_ori_user_drop${}", ty.raw());
-        let ptr_ty = self.builder.ptr_type();
-        let user_drop_fn = self
-            .builder
-            .get_or_declare_void_function(&func_name, &[ptr_ty]);
-        self.builder.call(user_drop_fn, &[data_ptr], "");
     }
 
     /// Per-variant burden walk SSOT (3-encoding dispatch: tagged-pointer,

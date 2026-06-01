@@ -377,7 +377,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
                 .unwrap_or_default();
 
-            for &(field_index, field_type) in fields {
+            // Dec walks payload fields in REVERSE declaration order (LIFO) per
+            // `drop-trait-proposal.md §Drop and panic` — matching the struct
+            // field walk so user `@drop` side effects observe consistent
+            // teardown order. Inc keeps forward order (order is unobservable
+            // for inc). Collect into an owned Vec so the reversed dec iteration
+            // does not borrow `cases`.
+            let ordered: Vec<(u32, Idx)> = if is_inc {
+                fields.to_vec()
+            } else {
+                fields.iter().rev().copied().collect()
+            };
+            for &(field_index, field_type) in &ordered {
                 if matches!(pool_tag, Tag::Result | Tag::Option) {
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
@@ -407,6 +418,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         if is_inc {
                             self.inc_value_rc(field_val, field_type, count);
                         } else {
+                            // Inline struct/enum payload field: run its user
+                            // `@drop` (if any) before the field walk.
+                            self.emit_user_drop_for_inline_value(field_type, field_val);
                             self.dec_value_rc(field_val, field_type);
                         }
                     }
@@ -447,6 +461,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     if is_inc {
                         self.inc_value_rc(field_val, field_type, count);
                     } else {
+                        // Inline struct/enum payload field: run its user
+                        // `@drop` (if any) before the field walk.
+                        self.emit_user_drop_for_inline_value(field_type, field_val);
                         self.dec_value_rc(field_val, field_type);
                     }
                 }

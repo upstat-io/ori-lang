@@ -2,9 +2,9 @@
 //!
 //! Formatting for test function declarations.
 
-use crate::formatter::Formatter;
+use crate::formatter::{emit_escaped_str, Formatter};
 use crate::width::ALWAYS_STACKED;
-use ori_ir::ast::items::TestDef;
+use ori_ir::ast::items::{ExpectedError, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
 use super::function_body;
@@ -16,31 +16,26 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     pub fn format_test(&mut self, test: &TestDef) {
         // Skip attribute
         if let Some(reason) = test.skip_reason {
-            self.ctx.emit("#skip(\"");
-            self.ctx.emit(self.interner.lookup(reason));
-            self.ctx.emit("\")");
+            self.ctx.emit("#skip(");
+            let s = self.interner.lookup(reason);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
             self.ctx.emit_newline();
         }
 
-        // Compile fail attribute
-        if !test.expected_errors.is_empty() {
-            self.ctx.emit("#compile_fail");
-            // Only emit details if there's a message
-            if let Some(first_err) = test.expected_errors.first() {
-                if let Some(msg) = first_err.message {
-                    self.ctx.emit("(\"");
-                    self.ctx.emit(self.interner.lookup(msg));
-                    self.ctx.emit("\")");
-                }
-            }
+        // Compile-fail attributes — one per ExpectedError, faithfully
+        // round-tripping the keyed fields (each entry parsed one attribute).
+        for err in &test.expected_errors {
+            self.emit_compile_fail_attr(err);
             self.ctx.emit_newline();
         }
 
         // Fail attribute
         if let Some(expected) = test.fail_expected {
-            self.ctx.emit("#fail(\"");
-            self.ctx.emit(self.interner.lookup(expected));
-            self.ctx.emit("\")");
+            self.ctx.emit("#fail(");
+            let s = self.interner.lookup(expected);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
             self.ctx.emit_newline();
         }
 
@@ -70,6 +65,56 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
         // Body - use similar logic to format_function_body
         self.format_test_body(test.body);
+    }
+
+    /// Emit a single `#compile_fail(...)` attribute, faithfully round-tripping
+    /// the keyed `ExpectedError` fields. Shorthand `#compile_fail("msg")` is used
+    /// only when `message` is the sole set field; otherwise the keyed form in the
+    /// canonical order `code, message, line, column` (only set fields emitted).
+    fn emit_compile_fail_attr(&mut self, err: &ExpectedError) {
+        let message_only = err.message.is_some()
+            && err.code.is_none()
+            && err.line.is_none()
+            && err.column.is_none();
+        self.ctx.emit("#compile_fail(");
+        if message_only {
+            if let Some(msg) = err.message {
+                let s = self.interner.lookup(msg);
+                emit_escaped_str(&mut self.ctx, s);
+            }
+            self.ctx.emit(")");
+            return;
+        }
+        let mut first = true;
+        if let Some(code) = err.code {
+            self.ctx.emit("code: ");
+            let s = self.interner.lookup(code);
+            emit_escaped_str(&mut self.ctx, s);
+            first = false;
+        }
+        if let Some(msg) = err.message {
+            if !first {
+                self.ctx.emit(", ");
+            }
+            self.ctx.emit("message: ");
+            let s = self.interner.lookup(msg);
+            emit_escaped_str(&mut self.ctx, s);
+            first = false;
+        }
+        if let Some(line) = err.line {
+            if !first {
+                self.ctx.emit(", ");
+            }
+            self.ctx.emit(&format!("line: {line}"));
+            first = false;
+        }
+        if let Some(column) = err.column {
+            if !first {
+                self.ctx.emit(", ");
+            }
+            self.ctx.emit(&format!("column: {column}"));
+        }
+        self.ctx.emit(")");
     }
 
     /// Format a test body, breaking to new line if it doesn't fit after `= `.

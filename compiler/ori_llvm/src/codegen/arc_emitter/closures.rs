@@ -307,6 +307,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let field_val =
                 self.builder
                     .load(field_llvm_ty, field_ptr, &format!("cap.{capture_index}"));
+            // A captured struct/enum value with a user `@drop` runs its
+            // `@drop` at closure-env teardown before the field walk.
+            self.emit_user_drop_for_inline_value(field_type, field_val);
             self.dec_value_rc(field_val, field_type);
         }
     }

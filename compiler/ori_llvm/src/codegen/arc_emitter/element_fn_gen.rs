@@ -16,6 +16,97 @@ use super::ArcIrEmitter;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Look up the user `@drop` method for a type when it implements `Drop`.
+    ///
+    /// Consults the canonical method map: `type_idx_to_name` resolves the
+    /// type's `Name`, then `method_functions[(type_name, "drop")]` resolves
+    /// the compiled `_ori_<Type>$drop` method. Returns `None` when the type
+    /// does not implement `Drop`. This is the codegen-side SSOT for "does
+    /// this type have a user `@drop`" — independent of the upstream burden
+    /// registry, which is not threaded onto the codegen path.
+    pub(super) fn user_drop_method(&self, ty: Idx) -> Option<FunctionId> {
+        let type_name = self.drop_type_name(ty)?;
+        let drop_name = self.interner.intern("drop");
+        let (func_id, _abi) = self.ctx.method_functions.get(&(type_name, drop_name))?;
+        Some(*func_id)
+    }
+
+    /// Resolve a type `Idx` to its registered type `Name` for method lookup.
+    ///
+    /// `type_idx_to_name` is keyed by the `@drop` self-param `Idx` recorded at
+    /// `compile_impls` time, which may be the unresolved `Named` form while a
+    /// drop-fn / elem-dec generation site holds the resolved `Struct`/`Enum`
+    /// form (or vice versa). Try both keys so the lookup is robust to the
+    /// resolve-state mismatch.
+    pub(super) fn drop_type_name(&self, ty: Idx) -> Option<ori_ir::Name> {
+        if let Some(&n) = self.ctx.type_idx_to_name.get(&ty) {
+            return Some(n);
+        }
+        if ty.raw() as usize >= self.pool.len() {
+            return None;
+        }
+        let resolved = self.pool.resolve_fully(ty);
+        self.ctx.type_idx_to_name.get(&resolved).copied()
+    }
+
+    /// Emit the user `@drop` invocation for an inline struct/enum VALUE (not a
+    /// pointer), when the type implements `Drop`.
+    ///
+    /// The value-traversal dec path (`dec_value_rc`) holds a loaded LLVM
+    /// aggregate value, but `@drop` receives `self` by pointer. Materialize a
+    /// pointer via an entry alloca + store, then forward to
+    /// [`Self::emit_user_drop_via_pointer`]. No-op when the type has no user
+    /// `@drop`. Plain (non-invoking) call — the value-traversal dec path is
+    /// reached from runtime-driven buffer-dec loops where a nested panic
+    /// aborts via the runtime drop guard.
+    pub(super) fn emit_user_drop_for_inline_value(&mut self, ty: Idx, val: ValueId) {
+        if self.user_drop_method(ty).is_none() {
+            return;
+        }
+        let resolved = self.pool.resolve_fully(ty);
+        let llvm_ty = self.resolve_type(resolved);
+        let slot = self
+            .builder
+            .create_entry_alloca(self.current_function, "udrop.slot", llvm_ty);
+        self.builder.store(val, slot);
+        self.emit_user_drop_via_pointer(ty, slot);
+    }
+
+    /// Emit the user `@drop` invocation for a Drop type, given a pointer to
+    /// the value (`data_ptr`).
+    ///
+    /// The `@drop` method receives `self` per its impl-method ABI. For a
+    /// pass-by-pointer (`Reference` / `Indirect`) receiver (heap or
+    /// over-16-byte Drop types) `data_ptr` is forwarded directly. For a
+    /// pass-by-value (`Direct`) receiver (a small non-`Value` Drop type) the
+    /// value is loaded from `data_ptr` first. Borrows `self`; the drop
+    /// function still owns the field walk that follows.
+    pub(super) fn emit_user_drop_via_pointer(&mut self, ty: Idx, data_ptr: ValueId) {
+        let Some(type_name) = self.drop_type_name(ty) else {
+            return;
+        };
+        let resolved = self.pool.resolve_fully(ty);
+        let drop_name = self.interner.intern("drop");
+        let Some((func_id, passing)) = self
+            .ctx
+            .method_functions
+            .get(&(type_name, drop_name))
+            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
+        else {
+            return;
+        };
+        let arg = match passing {
+            crate::codegen::abi::ParamPassing::Direct => {
+                let self_ty = self.resolve_type(resolved);
+                self.builder.load(self_ty, data_ptr, "udrop.self")
+            }
+            crate::codegen::abi::ParamPassing::Indirect { .. }
+            | crate::codegen::abi::ParamPassing::Reference => data_ptr,
+            crate::codegen::abi::ParamPassing::Void => return,
+        };
+        self.emit_rt_call(func_id, &[arg], "");
+    }
+
     /// Get or generate the drop function for a type.
     ///
     /// Returns a function pointer `ValueId` suitable for passing to
@@ -135,6 +226,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.current_function = func_id;
 
         let elem_ptr = self.builder.get_param(func_id, 0);
+
+        // User `@drop` AUGMENT for the buffer element: when the element type
+        // implements `Drop`, run its `@drop` FIRST (before the compiler walks
+        // owned fields), passing the in-buffer element pointer. This is the
+        // top-level element drop; NESTED struct/enum fields get their `@drop`
+        // from `dec_aggregate_fields` below (so there is no double call on the
+        // top-level value). The buffer-dec loop that calls this thunk is
+        // runtime-driven (`ori_buffer_rc_dec` / `ori_buffer_drop_unique` via
+        // `call_drop_fn`), so this is a plain (non-invoking) call — a panic in
+        // a collection element's `@drop` aborts via the runtime drop guard.
+        self.emit_user_drop_via_pointer(element_type, elem_ptr);
 
         // Load the element value from the pointer
         let elem_llvm_ty = self.resolve_type(element_type);
