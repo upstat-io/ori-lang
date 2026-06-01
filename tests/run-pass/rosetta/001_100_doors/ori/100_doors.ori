@@ -1,0 +1,32 @@
+// 100 Doors — microbenchmark variant (PLAY/EXPERIMENT, not skill-wired)
+//
+// Core simulate() is identical to ../001_100_doors.ori, plus:
+//   - a `salt` parameter toggling one extra door (salt % 100) so the
+//     result depends on the loop counter — this defeats compiler
+//     hoisting of the otherwise loop-invariant call (same trick applied
+//     identically to the C++ baseline, so the comparison stays fair).
+//   - main loops simulate() N times and prints a checksum used as the
+//     cross-language correctness gate (Ori checksum MUST equal C++).
+
+@simulate (salt: int) -> [int] = {
+    let doors = for _ in 0..100 yield false;
+    for pass in 1..=100 do {
+        for idx in (pass - 1)..100 by pass do {
+            doors[idx] = !doors[idx]
+        }
+    };
+    let s = salt % 100;
+    doors[s] = !doors[s];
+
+    for i in 0..100 if doors[i] yield i + 1
+}
+
+@main () -> void = {
+    let acc = 0;
+    for n in 0..50000 do {
+        let result = simulate(salt: n);
+        acc = acc + len(collection: result)
+    };
+
+    print(msg: `{acc}`)
+}
