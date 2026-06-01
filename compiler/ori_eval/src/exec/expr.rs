@@ -89,10 +89,15 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
                 .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))
         }
         (Value::Map(map), key) => {
-            // Map indexing returns Option<V>: Some(value) if found, None if not
-            // Convert the key to a map key string (type-prefixed for uniqueness)
+            // Map indexing returns Option<V>: Some(value) if found, None if not.
+            // Primitive keys probe the bucket string directly; non-primitive
+            // (user-Hashable) keys require @hash/@eq and use `.get()` (method
+            // dispatch has interpreter access), not the index operator.
             match key.to_map_key() {
-                Ok(key_str) => Ok(map.get(&key_str).cloned().map_or(Value::None, Value::some)),
+                Ok(key_str) => Ok(map
+                    .get_primitive(&key_str)
+                    .cloned()
+                    .map_or(Value::None, Value::some)),
                 Err(_) => Err(cannot_index("map", key.type_name()).into()),
             }
         }

@@ -522,6 +522,11 @@ pub(super) fn synthesize_closure_env_burden(
 /// surface). When §06 lands the full BurdenRegistry-driven dispatch the
 /// legacy `compute_drop_kind` retires and this helper can move up.
 fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
+    // Out-of-bounds idx has no resolvable tag — opaque leaf (mirrors
+    // `Pool::resolve_fully`'s bounds guard; `pool.tag` would panic).
+    if ty.raw() as usize >= pool.len() {
+        return (ty, Tag::Error);
+    }
     let tag = pool.tag(ty);
     match tag {
         Tag::Named | Tag::Applied | Tag::Alias => match pool.resolve(ty) {

@@ -186,11 +186,10 @@ pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
                     result.push_str(", ");
                 }
                 first = false;
-                let decoded = Value::from_map_key(k);
                 let _ = write!(
                     result,
                     "{}: {}",
-                    debug_value(&decoded, interner),
+                    debug_value(k, interner),
                     debug_value(v, interner)
                 );
             }

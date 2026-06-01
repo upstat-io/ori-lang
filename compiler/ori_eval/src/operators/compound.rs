@@ -5,7 +5,7 @@
 //! directly without consulting `OpDefs`.
 
 use ori_ir::BinaryOp;
-use ori_patterns::{invalid_binary_op_for, EvalResult, Heap, Value};
+use ori_patterns::{invalid_binary_op_for, EvalResult, Heap, MapData, Value};
 
 use super::evaluate_binary;
 
@@ -28,11 +28,7 @@ pub(super) fn eval_list_binary(
 }
 
 /// Binary operations on sets.
-pub(super) fn eval_set_binary(
-    a: &Heap<std::collections::BTreeMap<String, Value>>,
-    b: &Heap<std::collections::BTreeMap<String, Value>>,
-    op: BinaryOp,
-) -> EvalResult {
+pub(super) fn eval_set_binary(a: &Heap<MapData>, b: &Heap<MapData>, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
         BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),

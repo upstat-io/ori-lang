@@ -405,6 +405,12 @@ pub fn collect_drop_infos(
 /// any burden (iterator drops are emitted inline by the ARC emitter, not
 /// per-type drop functions).
 fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
+    // Out-of-bounds idx (e.g. a Var resolving to a synthetic out-of-pool index)
+    // has no resolvable tag — treat as an opaque leaf (no drop, no unwind),
+    // mirroring `Pool::resolve_fully`'s bounds guard. `pool.tag` would panic.
+    if ty.raw() as usize >= pool.len() {
+        return (ty, Tag::Error);
+    }
     let tag = pool.tag(ty);
     match tag {
         Tag::Named | Tag::Applied | Tag::Alias => match pool.resolve(ty) {

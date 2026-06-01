@@ -25,10 +25,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// this type have a user `@drop`" — independent of the upstream burden
     /// registry, which is not threaded onto the codegen path.
     pub(super) fn user_drop_method(&self, ty: Idx) -> Option<FunctionId> {
-        let type_name = self.drop_type_name(ty)?;
         let drop_name = self.interner.intern("drop");
-        let (func_id, _abi) = self.ctx.method_functions.get(&(type_name, drop_name))?;
-        Some(*func_id)
+        self.user_method(ty, drop_name)
+            .map(|(func_id, _abi)| func_id)
+    }
+
+    /// Resolve a user trait-method impl for `ty` by interned method `Name`.
+    ///
+    /// Codegen SSOT for "does this type have a user `@<method>` impl + what is
+    /// its ABI". Consulted by `user_drop_method` (`"drop"`) and the map/set
+    /// `key_hash` / `key_eq` thunk generators (`"hash"` / `"eq"` — user-Hashable
+    /// / user-Eq collection keys). Returns the `FunctionAbi` so callers read
+    /// per-param `passing` to thread self/operands by-value (`Direct`) vs
+    /// by-pointer (`Indirect` / `Reference`). Manual `impl T: Trait` and
+    /// `#derive(Trait)` both register in `method_functions`, so one lookup
+    /// serves both. `Name`-keyed (not `&str`) so callers intern once.
+    pub(super) fn user_method(
+        &self,
+        ty: Idx,
+        method_name: ori_ir::Name,
+    ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        let type_name = self.drop_type_name(ty)?;
+        let (func_id, abi) = self.ctx.method_functions.get(&(type_name, method_name))?;
+        Some((*func_id, abi.clone()))
     }
 
     /// Does refcount-zero teardown of `ty` transitively run a user `@drop`
@@ -67,7 +86,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let resolved = self.pool.resolve_fully(ty);
-        self.ctx.type_idx_to_name.get(&resolved).copied()
+        if let Some(&n) = self.ctx.type_idx_to_name.get(&resolved) {
+            return Some(n);
+        }
+        // `resolve_fully` returns the input unchanged for out-of-bounds indices
+        // (and a Var may resolve to a synthetic out-of-pool idx), so re-check
+        // before indexing via `pool.tag`.
+        if resolved.raw() as usize >= self.pool.len() {
+            return None;
+        }
+        // `type_idx_to_name` is keyed by each impl method's self-param Idx, which
+        // is often the unresolved `Named` form. A receiver arriving as the
+        // resolved `Struct`/`Enum` form (e.g. a map key type at a hash/eq thunk
+        // site) is unreachable from that key via raw/resolve_fully lookup.
+        // Resolve the nominal name straight from the pool descriptor as the
+        // final tier.
+        match self.pool.tag(resolved) {
+            ori_types::Tag::Struct => Some(self.pool.struct_name(resolved)),
+            ori_types::Tag::Enum => Some(self.pool.enum_name(resolved)),
+            ori_types::Tag::Named => Some(self.pool.named_name(resolved)),
+            ori_types::Tag::Applied => Some(self.pool.applied_name(resolved)),
+            _ => None,
+        }
     }
 
     /// Emit the user `@drop` invocation for an inline struct/enum VALUE (not a

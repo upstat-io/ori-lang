@@ -158,6 +158,8 @@ pub(crate) struct OpNames {
     pub(crate) bit_not: Name,
     pub(crate) index: Name,
     pub(crate) compare: Name,
+    pub(crate) eq: Name,
+    pub(crate) hash: Name,
 }
 
 impl OpNames {
@@ -181,6 +183,8 @@ impl OpNames {
             bit_not: interner.intern("bit_not"),
             index: interner.intern("index"),
             compare: interner.intern("compare"),
+            eq: interner.intern("eq"),
+            hash: interner.intern("hash"),
         }
     }
 }

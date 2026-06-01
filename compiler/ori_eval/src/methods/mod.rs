@@ -147,9 +147,14 @@ pub(crate) fn dispatch_builtin_method(
         Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args, ctx),
         Value::List(_) => list::dispatch_list_method(receiver, method, args, ctx),
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
-        Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
-        Value::Set(_) => collections::dispatch_set_method(receiver, method, args, ctx),
+        // Map/Set route through Interpreter::dispatch_{map,set}_method (key handling
+        // may invoke user @hash/@eq), intercepted before this free-function path.
+        Value::Map(_) | Value::Set(_) => {
+            unreachable!(
+                "Map/Set dispatch routes through interpreter methods, not dispatch_builtin_method"
+            )
+        }
         // Iterator methods are dispatched by CollectionMethodResolver (priority 1),
         // not the builtin resolver. See interpreter/method_dispatch/iterator.rs.
         Value::Some(_) | Value::None => {
@@ -179,12 +184,32 @@ pub(crate) fn dispatch_builtin_method(
 ///
 /// Internally delegates to [`dispatch_builtin_method`] with a freshly-built
 /// `DispatchCtx`, so dispatch behavior is identical to the production path.
+///
+/// Map/Set receivers route through [`Interpreter::dispatch_map_method`] /
+/// [`Interpreter::dispatch_set_method`] in production (key handling may invoke
+/// user `@hash`/`@eq`, which needs interpreter access). This convenience cannot
+/// build an interpreter, so for Map/Set it reports handler existence statically
+/// via the dispatch-check method sets — a handled method returns a benign
+/// argument error; an unhandled one returns `UndefinedMethod`.
 pub fn dispatch_builtin_method_str(
     receiver: Value,
     method: &str,
     args: Vec<Value>,
     interner: &StringInterner,
 ) -> EvalResult {
+    if matches!(receiver, Value::Map(_) | Value::Set(_)) {
+        let tag = match receiver {
+            Value::Map(_) => ori_registry::TypeTag::Map,
+            _ => ori_registry::TypeTag::Set,
+        };
+        return if dispatch_check::is_map_set_dispatched_for_tag(tag, method) {
+            // Handler exists — return a benign (non-UndefinedMethod) arg error.
+            Err(ori_patterns::wrong_arg_type(method, "map/set (handler exists)").into())
+        } else {
+            Err(no_such_method(method, receiver.type_name()).into())
+        };
+    }
+
     let names = BuiltinMethodNames::new(interner);
     let ctx = DispatchCtx {
         names: &names,

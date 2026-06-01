@@ -114,6 +114,23 @@ impl Interpreter<'_> {
             };
         }
 
+        // Equality operators on nominal user types: dispatch through the `eq`
+        // method (user `@eq` impl, or derived structural eq). LLVM calls the user
+        // `@eq` for `==` on these types; structural `evaluate_binary` here would
+        // diverge for a non-structural manual `@eq` (e.g. compares a subset of
+        // fields). The type checker requires `Eq` for `==`, so a registered `eq`
+        // always resolves. `!=` negates the `eq` result.
+        if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+            && matches!(left_val, Value::Struct(_) | Value::Variant { .. })
+        {
+            let eq_result = self.eval_method_call(left_val, self.op_names.eq, vec![right_val]);
+            return match eq_result {
+                Ok(Value::Bool(b)) => Ok(Value::Bool(if op == BinaryOp::NotEq { !b } else { b })),
+                Ok(_) => Err(EvalError::new("eq method must return bool".to_string()).into()),
+                Err(e) => Err(e),
+            };
+        }
+
         evaluate_binary(left_val, right_val, op).map_err(|e| Self::attach_span(e, span))
     }
 

@@ -55,20 +55,21 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a canonical map literal: `{ k: v, ... }`.
+    ///
+    /// Primitive keys bucket by `to_map_key()`; non-primitive (user-`Hashable`)
+    /// keys bucket by the user `@hash` with `@eq` collision resolution.
     pub(super) fn eval_can_map(&mut self, can_id: CanId, entries: CanMapEntryRange) -> EvalResult {
         let span = self.can_span(can_id);
         let entry_list: SmallVec<[_; 8]> =
             SmallVec::from_slice(self.canon_ref().arena.get_map_entries(entries));
-        let mut map = std::collections::BTreeMap::new();
+        let mut map = ori_patterns::MapData::new();
         for entry in &entry_list {
             let key = self.eval_can(entry.key)?;
             let value = self.eval_can(entry.value)?;
-            let key_str = key
-                .to_map_key()
+            self.bucket_insert(&mut map, key, value, "map literal")
                 .map_err(|_| Self::attach_span(map_key_not_hashable().into(), span))?;
-            map.insert(key_str, value);
         }
-        Ok(Value::map(map))
+        Ok(Value::map_data(map))
     }
 
     /// Evaluate a canonical struct literal: `Point { x: 0, y: 0 }`.

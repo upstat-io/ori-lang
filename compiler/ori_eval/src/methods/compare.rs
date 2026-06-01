@@ -169,23 +169,9 @@ pub(crate) fn equals_values(
             }
             Ok(true)
         }
-        // Map/Set — same keys with same values (order-independent, BTreeMap-based)
-        (Value::Map(a), Value::Map(b)) | (Value::Set(a), Value::Set(b)) => {
-            if a.len() != b.len() {
-                return Ok(false);
-            }
-            for (key, a_val) in a.iter() {
-                match b.get(key.as_str()) {
-                    Some(b_val) => {
-                        if !equals_values(a_val, b_val, interner)? {
-                            return Ok(false);
-                        }
-                    }
-                    None => return Ok(false),
-                }
-            }
-            Ok(true)
-        }
+        // Map/Set — same multiset of entries (order-independent, structural over
+        // stored key+value Values). The bucketed MapData PartialEq encodes this.
+        (Value::Map(a), Value::Map(b)) | (Value::Set(a), Value::Set(b)) => Ok(**a == **b),
         _ => Err(EvalError::new(format!(
             "cannot compare {} with {} for equality",
             a.type_name(),
@@ -273,7 +259,7 @@ pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, Ev
         Value::Map(map) => {
             let mut h = 0_i64;
             for (key, val) in map.iter() {
-                let key_hash = fnv1a_hash(key.as_bytes());
+                let key_hash = hash_value(key, interner)?;
                 let val_hash = hash_value(val, interner)?;
                 h ^= hash_combine(key_hash, val_hash);
             }

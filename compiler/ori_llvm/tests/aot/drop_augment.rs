@@ -548,8 +548,12 @@ type Wrap = { m: {str: Boom} }
 /// corresponding/remaining VALUES and free BOTH buffers (no value leak when
 /// the panic originates on the key channel).
 #[test]
-#[ignore = "BUG-05-007: a may-unwind map KEY needs a custom-Hashable struct key, which segfaults at construction (null key_hash thunk for user-Hashable keys) before reaching teardown. The two-channel key-channel drop codegen is built + symmetric to the value channel (proven by drop_map_value_panic); un-ignore once BUG-05-007 wires user-Hashable key thunks."]
 fn drop_map_key_panic_two_channel_cleanup_frees_values() {
+    // Construction uses a type-annotated empty map + `.insert` rather than the
+    // `{[k]: v}` computed-key literal form, which is a separate not-yet-shipped
+    // surface (computed-map-keys-proposal) that parses the bracketed key as a
+    // list literal. The insert path produces a genuine `{BoomKey: Val}` map so
+    // the BoomKey key reaches the two-channel drop teardown.
     let source = r#"
 type BoomKey = { tag: str }
 
@@ -561,7 +565,7 @@ impl BoomKey: Drop {
 }
 
 impl BoomKey: Eq {
-    @equals (self, other: BoomKey) -> bool = self.tag == other.tag;
+    @eq (self, other: BoomKey) -> bool = self.tag == other.tag;
 }
 
 impl BoomKey: Hashable {
@@ -578,7 +582,9 @@ type Wrap = { m: {BoomKey: Val} }
 
 @main () -> void = {
     let k = BoomKey { tag: "k" };
-    let w = [Wrap { m: {[k]: Val { tag: "v" }} }]
+    let m: {BoomKey: Val} = {};
+    let m2 = m.insert(key: k, value: Val { tag: "v" });
+    let w = [Wrap { m: m2 }]
 }
 "#;
     let (exit_code, stdout, stderr) = compile_and_run_capture(source);

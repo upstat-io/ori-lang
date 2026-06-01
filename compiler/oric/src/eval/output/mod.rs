@@ -76,7 +76,7 @@ pub enum EvalOutput {
         fields: Vec<EvalOutput>,
     },
     /// Map (stored as key-value pairs).
-    Map(Vec<(String, EvalOutput)>),
+    Map(Vec<(EvalOutput, EvalOutput)>),
     /// Set of unique values.
     Set(Vec<EvalOutput>),
     /// Error during evaluation.
@@ -194,7 +194,7 @@ impl EvalOutput {
             Value::Map(map) => {
                 let entries: Vec<_> = map
                     .iter()
-                    .map(|(k, v)| (k.clone(), Self::from_value(v, interner)))
+                    .map(|(k, v)| (Self::from_value(k, interner), Self::from_value(v, interner)))
                     .collect();
                 EvalOutput::Map(entries)
             }
@@ -290,7 +290,7 @@ impl EvalOutput {
             EvalOutput::Map(entries) => {
                 let inner: Vec<_> = entries
                     .iter()
-                    .map(|(k, v)| format!("\"{}\": {}", k, v.display(interner)))
+                    .map(|(k, v)| format!("{}: {}", k.display(interner), v.display(interner)))
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }

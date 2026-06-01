@@ -44,6 +44,15 @@ pub fn can_dispatch_builtin(tag: TypeTag, method: &str, interner: &StringInterne
         return true;
     }
 
+    // Map/Set BuiltinMethodResolver path — static method set check.
+    // Map/Set dispatch routes through `Interpreter::dispatch_{map,set}_method`
+    // (key handling may invoke user `@hash`/`@eq`), which `dispatch_builtin_method_str`
+    // does NOT exercise (it lacks interpreter access). Mirror the interpreter
+    // dispatchers' handled method sets statically.
+    if is_map_set_dispatched_for_tag(tag, method) {
+        return true;
+    }
+
     // BuiltinMethodResolver path — try dispatch with minimal value.
     // Returns true if the handler exists (any result except UndefinedMethod).
     let Some(receiver) = minimal_value_for_tag(tag) else {
@@ -52,6 +61,58 @@ pub fn can_dispatch_builtin(tag: TypeTag, method: &str, interner: &StringInterne
 
     let result = dispatch_builtin_method_str(receiver, method, vec![], interner);
     !is_undefined_method_error(&result)
+}
+
+/// Check if a method is handled by `Interpreter::dispatch_{map,set}_method`.
+///
+/// Map/Set dispatch requires interpreter access (non-primitive keys invoke user
+/// `@hash`/`@eq`), so it cannot be exercised via `dispatch_builtin_method_str`.
+/// Must stay in sync with `dispatch_map_method` / `dispatch_set_method` in
+/// `methods/collections.rs`.
+pub(crate) fn is_map_set_dispatched_for_tag(tag: TypeTag, method: &str) -> bool {
+    match tag {
+        TypeTag::Map => matches!(
+            method,
+            "len"
+                | "length"
+                | "is_empty"
+                | "contains_key"
+                | "contains"
+                | "get"
+                | "insert"
+                | "remove"
+                | "keys"
+                | "values"
+                | "entries"
+                | "iter"
+                | "equals"
+                | "hash"
+                | "clone"
+                | "debug"
+                | "merge"
+                | "update"
+        ),
+        TypeTag::Set => matches!(
+            method,
+            "iter"
+                | "len"
+                | "length"
+                | "is_empty"
+                | "contains"
+                | "insert"
+                | "remove"
+                | "union"
+                | "intersection"
+                | "difference"
+                | "to_list"
+                | "into"
+                | "clone"
+                | "equals"
+                | "hash"
+                | "debug"
+        ),
+        _ => false,
+    }
 }
 
 /// Check if a method is handled by the `CollectionMethodResolver`.

@@ -95,8 +95,7 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    let decoded = Value::from_map_key(k);
-                    write!(f, "{decoded}: {v}")?;
+                    write!(f, "{k}: {v}")?;
                 }
                 write!(f, "}}")
             }
@@ -258,12 +257,7 @@ impl PartialEq for Value {
                 Value::NewtypeConstructor { type_name: t1 },
                 Value::NewtypeConstructor { type_name: t2 },
             ) => t1 == t2,
-            (Value::Map(a), Value::Map(b)) => {
-                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
-            }
-            (Value::Set(a), Value::Set(b)) => {
-                a.len() == b.len() && a.keys().all(|k| b.contains_key(k))
-            }
+            (Value::Map(a), Value::Map(b)) | (Value::Set(a), Value::Set(b)) => **a == **b,
             _ => false,
         }
     }
@@ -298,22 +292,7 @@ impl std::hash::Hash for Value {
                     item.hash(state);
                 }
             }
-            Value::Map(m) => {
-                // Hash length for consistency
-                m.len().hash(state);
-                // BTreeMap iterates in sorted key order, so no sorting needed
-                for (k, v) in m.iter() {
-                    k.hash(state);
-                    v.hash(state);
-                }
-            }
-            Value::Set(s) => {
-                s.len().hash(state);
-                // BTreeMap iterates in sorted key order, so no sorting needed
-                for k in s.keys() {
-                    k.hash(state);
-                }
-            }
+            Value::Map(m) | Value::Set(m) => m.hash(state),
             Value::Struct(s) => {
                 s.type_name.hash(state);
                 for v in s.fields.iter() {

@@ -299,7 +299,7 @@ impl Interpreter<'_> {
 
     fn eval_set_fold(
         &mut self,
-        items: &crate::Heap<std::collections::BTreeMap<String, Value>>,
+        items: &crate::Heap<ori_patterns::MapData>,
         args: &[Value],
     ) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;

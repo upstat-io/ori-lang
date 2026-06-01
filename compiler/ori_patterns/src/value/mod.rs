@@ -33,6 +33,7 @@ mod error_value;
 mod heap;
 pub(crate) mod iterator;
 mod list_data;
+mod map_data;
 mod scalar_int;
 mod traits;
 
@@ -47,6 +48,7 @@ pub use error_value::{ErrorValue, TraceEntryData};
 pub use heap::Heap;
 pub use iterator::IteratorValue;
 pub use list_data::ListData;
+pub use map_data::MapData;
 pub use scalar_int::ScalarInt;
 
 /// Ordering value representing comparison results.
@@ -144,17 +146,18 @@ pub enum Value {
     /// Uses `ListData` for zero-copy slicing: `slice`/`take`/`skip` share
     /// the backing Arc buffer instead of copying elements.
     List(ListData),
-    /// Map from string keys to values.
+    /// Map from keys to values.
     ///
-    /// Uses `BTreeMap` for deterministic iteration order, which enables
-    /// efficient hashing without needing to sort keys.
-    Map(Heap<BTreeMap<String, Value>>),
+    /// Uses `MapData` (bucketed by a string bucket key) for deterministic
+    /// iteration order. Primitive keys bucket by `to_map_key()`; non-primitive
+    /// user-`Hashable` keys bucket by `@hash` with `@eq` collision resolution.
+    Map(Heap<MapData>),
     /// Set of unique values.
     ///
-    /// Uses `BTreeMap<String, Value>` keyed by `to_map_key()` for deterministic
-    /// iteration order and O(log n) membership testing. The String key is the
-    /// type-prefixed key from `to_map_key()`, the Value is the actual element.
-    Set(Heap<BTreeMap<String, Value>>),
+    /// Uses `MapData` where each entry is `(element, element)` — the element is
+    /// both the key and the stored value. Primitive elements bucket by
+    /// `to_map_key()`; non-primitive user-`Hashable` elements bucket by `@hash`.
+    Set(Heap<MapData>),
     /// Tuple of values.
     Tuple(Heap<Vec<Value>>),
 
@@ -289,9 +292,10 @@ impl Value {
         Value::List(ListData::owned(items))
     }
 
-    /// Create a map value with String keys from a `BTreeMap`.
+    /// Create a map value from primitive `to_map_key()` string entries.
     ///
-    /// Uses `BTreeMap` for deterministic iteration order.
+    /// Each entry becomes a single-entry bucket. For non-primitive (user-`Hashable`)
+    /// keys, build a `MapData` via the bucketed API and use `Value::map_data`.
     ///
     /// # Example
     ///
@@ -300,7 +304,13 @@ impl Value {
     /// ```
     #[inline]
     pub fn map(entries: BTreeMap<String, Value>) -> Self {
-        Value::Map(Heap::new(entries))
+        Value::Map(Heap::new(MapData::from_primitive_entries(entries)))
+    }
+
+    /// Create a map value from already-bucketed `MapData`.
+    #[inline]
+    pub fn map_data(data: MapData) -> Self {
+        Value::Map(Heap::new(data))
     }
 
     /// Create a map value from a `HashMap` by converting to `BTreeMap`.
@@ -308,16 +318,25 @@ impl Value {
     /// This preserves backwards compatibility while ensuring deterministic iteration.
     #[inline]
     pub fn map_from_hashmap(entries: std::collections::HashMap<String, Value>) -> Self {
-        Value::Map(Heap::new(entries.into_iter().collect()))
+        Value::Map(Heap::new(MapData::from_primitive_entries(
+            entries.into_iter().collect(),
+        )))
     }
 
-    /// Create a set value from a keyed `BTreeMap`.
+    /// Create a set value from primitive `to_map_key()` string entries.
     ///
-    /// The map keys are `to_map_key()` strings for O(log n) deduplication.
-    /// The map values are the actual `Value` elements.
+    /// Each entry becomes a single-entry bucket whose stored value is the element.
+    /// For non-primitive (user-`Hashable`) elements, build a `MapData` via the
+    /// bucketed API and use `Value::set_data`.
     #[inline]
     pub fn set(items: BTreeMap<String, Value>) -> Self {
-        Value::Set(Heap::new(items))
+        Value::Set(Heap::new(MapData::from_primitive_entries(items)))
+    }
+
+    /// Create a set value from already-bucketed `MapData`.
+    #[inline]
+    pub fn set_data(data: MapData) -> Self {
+        Value::Set(Heap::new(data))
     }
 
     /// Create a tuple value.

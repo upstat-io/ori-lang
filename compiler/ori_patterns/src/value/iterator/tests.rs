@@ -1,7 +1,9 @@
 #![expect(clippy::expect_used, reason = "Tests use expect for clarity")]
 
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
+use super::super::map_data::MapData;
 use super::*;
 
 #[test]
@@ -136,7 +138,7 @@ fn map_iterator_basic() {
     let mut map = BTreeMap::new();
     map.insert("a".to_string(), Value::int(1));
     map.insert("b".to_string(), Value::int(2));
-    let iter = IteratorValue::from_map(&map);
+    let iter = IteratorValue::from_map(&MapData::from_primitive_entries(map));
 
     // BTreeMap iterates in sorted key order
     let (val, iter) = iter.next();
@@ -1065,7 +1067,7 @@ fn is_double_ended_source_variants() {
     // Map and Set are NOT double-ended
     let mut map = BTreeMap::new();
     map.insert("a".to_string(), Value::int(1));
-    assert!(!IteratorValue::from_map(&map).is_double_ended());
+    assert!(!IteratorValue::from_map(&MapData::from_primitive_entries(map)).is_double_ended());
 
     let set_items = Heap::new(vec![Value::int(1)]);
     assert!(!IteratorValue::from_set(set_items).is_double_ended());

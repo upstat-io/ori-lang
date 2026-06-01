@@ -115,13 +115,19 @@ impl Interpreter<'_> {
             MethodResolution::Collection(collection_method) => {
                 self.eval_collection_method(receiver, collection_method, &args)
             }
-            MethodResolution::Builtin => {
-                let ctx = DispatchCtx {
-                    names: &self.builtin_method_names,
-                    interner: self.interner,
-                };
-                dispatch_builtin_method(receiver, method, args, &ctx)
-            }
+            MethodResolution::Builtin => match receiver {
+                // Map/Set key handling may invoke user `@hash`/`@eq`, which needs
+                // interpreter access; route to the interpreter-method dispatchers.
+                Value::Map(_) => self.dispatch_map_method(receiver, method, args),
+                Value::Set(_) => self.dispatch_set_method(receiver, method, args),
+                _ => {
+                    let ctx = DispatchCtx {
+                        names: &self.builtin_method_names,
+                        interner: self.interner,
+                    };
+                    dispatch_builtin_method(receiver, method, args, &ctx)
+                }
+            },
             MethodResolution::NotFound => {
                 let method_str = self.interner.lookup(method);
                 let type_str = self.interner.lookup(type_name);
