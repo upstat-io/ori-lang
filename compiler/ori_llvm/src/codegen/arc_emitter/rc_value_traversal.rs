@@ -287,10 +287,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         clippy::cast_possible_truncation,
         reason = "field/element count bounded by aggregate definition"
     )]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "field/element count bounded by aggregate definition"
-    )]
     fn dec_aggregate_fields(&mut self, val: super::ValueId, owner: Idx, field_types: &[Idx]) {
         // Build the REVERSE declaration-order (LIFO) RC-field walk per
         // `drop-trait-proposal.md §Drop and panic` — matches the heap drop-fn

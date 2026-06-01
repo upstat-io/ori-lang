@@ -244,6 +244,7 @@ pub fn compute_drop_info(
 /// is permanent (may-unwind is monotone-`OR`), and `false` is cached only
 /// when the subtree consumed no cycle-break (else it could under-approximate
 /// a member whose truth comes from a sibling branch resolved after it cached).
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn type_drop_may_unwind(
     ty: Idx,
     classifier: &dyn ArcClassification,

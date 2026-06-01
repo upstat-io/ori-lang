@@ -376,7 +376,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// channel (no dec needed). Layout offsets come from the
     /// `HashTableLayout::for_map` SSOT accessors. Leaves the builder positioned
     /// at the post-free continuation block for the caller.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "Map-buffer drop-on-unwind is one indivisible IR-emission sequence; the 8 params are the buffer-drop descriptor"
+    )]
     fn emit_codegen_buffer_drop_map_unwind(
         &mut self,
         data: super::ValueId,

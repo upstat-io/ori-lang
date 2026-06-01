@@ -52,7 +52,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // → SIGSEGV.
         let eq_name = self.interner.intern("eq");
         if let Some((eq_fid, eq_abi)) = self.user_method(elem_ty, eq_name) {
-            return self.gen_user_eq_thunk(elem_ty, eq_fid, eq_abi);
+            return self.gen_user_eq_thunk(elem_ty, eq_fid, &eq_abi);
         }
 
         let type_suffix = match &elem_info {
@@ -148,7 +148,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         elem_ty: Idx,
         eq_fid: FunctionId,
-        eq_abi: crate::codegen::abi::FunctionAbi,
+        eq_abi: &crate::codegen::abi::FunctionAbi,
     ) -> Option<ValueId> {
         use crate::codegen::abi::ParamPassing;
         let ptr_ty = self.builder.ptr_type();
@@ -176,9 +176,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let pa = eq_abi
             .params
             .first()
-            .map(|p| p.passing)
-            .unwrap_or(ParamPassing::Reference);
-        let pb = eq_abi.params.get(1).map(|p| p.passing).unwrap_or(pa);
+            .map_or(ParamPassing::Reference, |p| p.passing);
+        let pb = eq_abi.params.get(1).map_or(pa, |p| p.passing);
         let a_arg = match pa {
             ParamPassing::Direct => self.builder.load(self_ty, a_ptr, "eq.a"),
             _ => a_ptr,
@@ -235,7 +234,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // key_hash → SIGSEGV in ori_map_literal_put / set ops / collect_set.
         let hash_name = self.interner.intern("hash");
         if let Some((hash_fid, hash_abi)) = self.user_method(elem_ty, hash_name) {
-            return self.gen_user_hash_thunk(elem_ty, hash_fid, hash_abi);
+            return self.gen_user_hash_thunk(elem_ty, hash_fid, &hash_abi);
         }
 
         let type_suffix = match &elem_info {
@@ -330,7 +329,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         elem_ty: Idx,
         hash_fid: FunctionId,
-        hash_abi: crate::codegen::abi::FunctionAbi,
+        hash_abi: &crate::codegen::abi::FunctionAbi,
     ) -> Option<ValueId> {
         use crate::codegen::abi::ParamPassing;
         let ptr_ty = self.builder.ptr_type();
@@ -356,8 +355,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let pa = hash_abi
             .params
             .first()
-            .map(|p| p.passing)
-            .unwrap_or(ParamPassing::Reference);
+            .map_or(ParamPassing::Reference, |p| p.passing);
         let arg = match pa {
             ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
             _ => key_ptr,
