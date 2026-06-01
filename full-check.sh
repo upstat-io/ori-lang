@@ -108,9 +108,25 @@ if [[ "${ORI_COMMIT_SCOPE:-}" == "staged" ]]; then
 fi
 
 if [[ $RUN_CLIPPY -eq 1 ]]; then
+    # Auto-fix machine-applicable clippy lints first, then enforce. Anything not
+    # auto-fixable still fails the blocking check below (autofix-first, manual on
+    # the remainder). Stage only files the fix actually changed, so unrelated
+    # working-tree edits are not swept into the commit.
+    if [[ ${#CLIPPY_SCOPE_ARGS[@]} -gt 0 ]]; then
+        CLIPPY_FIX_TARGET=("${CLIPPY_SCOPE_ARGS[@]}")
+    else
+        CLIPPY_FIX_TARGET=("--workspace")
+    fi
+    CLIPPY_PRE_FIX="$(git -C "$SCRIPT_DIR" diff --name-only | sort)"
+    cargo clippy --fix --allow-dirty --allow-staged --all-targets "${CLIPPY_FIX_TARGET[@]}" 2>/dev/null || true
+    comm -13 <(printf '%s\n' "$CLIPPY_PRE_FIX") <(git -C "$SCRIPT_DIR" diff --name-only | sort) \
+        | while IFS= read -r f; do
+            [[ -n "$f" ]] && git -C "$SCRIPT_DIR" add -- "$f" 2>/dev/null || true
+        done
+
     if ! "$SCRIPT_DIR/clippy-all.sh" "${CLIPPY_SCOPE_ARGS[@]}"; then
         echo ""
-        echo -e "${RED}${BOLD}=== Clippy failed (after $(($(date +%s) - PHASE1_START))s) — skipping tests ===${NC}"
+        echo -e "${RED}${BOLD}=== Clippy failed after auto-fix (after $(($(date +%s) - PHASE1_START))s) — remaining lints need a manual fix; skipping tests ===${NC}"
         exit 1
     fi
 fi

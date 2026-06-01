@@ -12,7 +12,55 @@ use ori_ir::{FIELD_CAP, FIELD_DATA};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
+use crate::codegen::value_id::ValueId;
+
+/// [`FieldWalkOps`] for an inline aggregate VALUE (struct / tuple field, or
+/// enum-payload inline field reached via the value-traversal dec path).
+///
+/// `base` is the loaded aggregate value; `owner` parameterizes boxed-field
+/// detection. Fields are accessed via `extract_value` at the memory-order
+/// index carried in `walk`, and dec'd via `dec_value_rc` (value traversal).
+pub(super) struct InlineAggregateOps {
+    pub(super) base: ValueId,
+    pub(super) owner: Idx,
+}
+
+impl FieldWalkOps for InlineAggregateOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (mem_i, field_ty) = walk[idx];
+        let fv = emitter
+            .builder
+            .extract_value(self.base, mem_i, &format!("rc_dec.f.{mem_i}"))?;
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner, field_ty);
+        Some((fv, boxed))
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.call_rc_dec_all(&[rc_ptr], drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        emitter.dec_value_rc(field_value, field_type);
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Increment RC for a value of known type.
@@ -24,7 +72,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// struct/tuple field traversal. This replaces the
     /// `extract_rc_data_ptrs` → `ori_rc_inc` loop pattern for RC
     /// operations. Pool queries are used for type tags and field
-    /// enumeration; these will be eliminated in Section 01.4.
+    /// enumeration.
     pub(super) fn inc_value_rc(&mut self, val: super::ValueId, ty: ori_types::Idx, count: u32) {
         ori_stack::ensure_sufficient_stack(|| self.inc_value_rc_inner(val, ty, count));
     }
@@ -113,8 +161,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             // Option: recurse into inner type at field 1
             // NOTE: latent bug — doesn't check runtime tag. If value is None,
-            // field 1 is uninitialized. This matches the existing behavior and
-            // is tracked in the plan (Section 01.5 test items).
+            // field 1 is uninitialized. Matches existing behavior; tracked as
+            // BUG-04-130 (tag-blind Option RC walk).
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
@@ -300,100 +348,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));
         }
         let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
-        self.dec_field_walk(val, owner, &walk, 0);
-    }
-
-    /// Drop the aggregate's RC fields `walk[start..]` with PER-FIELD
-    /// sibling-continue: when a field's own user `@drop` may unwind (Itanium),
-    /// it is `invoke`d so a panic routes to a cleanup pad that still drops the
-    /// panicking field's children + every remaining sibling field, then
-    /// `resume`s the foreign exception. A field whose `@drop` cannot unwind
-    /// (scalar/no-`@drop`/non-Itanium) takes the plain path.
-    fn dec_field_walk(
-        &mut self,
-        val: super::ValueId,
-        owner: Idx,
-        walk: &[(u32, Idx)],
-        start: usize,
-    ) {
-        let mut j = start;
-        while j < walk.len() {
-            let (mem_i, field_ty) = walk[j];
-            let Some(fv) = self
-                .builder
-                .extract_value(val, mem_i, &format!("rc_dec.f.{mem_i}"))
-            else {
-                j += 1;
-                continue;
-            };
-            if is_boxed_enum_field(self.pool, owner, field_ty) {
-                // Boxed field: its `_ori_drop$<field_ty>` carries the @drop.
-                let drop_fn = self.get_or_generate_drop_fn(field_ty);
-                self.call_rc_dec_all(&[fv], drop_fn);
-                j += 1;
-                continue;
-            }
-            let unwinds = self.user_drop_method(field_ty).is_some()
-                && self.drop_may_unwind(field_ty)
-                && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
-            if unwinds {
-                let cont = self.builder.append_block(self.current_function, "fld.cont");
-                let cleanup = self
-                    .builder
-                    .append_block(self.current_function, "fld.cleanup");
-                if self.invoke_user_drop_for_inline_value(field_ty, fv, cont, cleanup) {
-                    // Cleanup pad: drop the panicking field's own RC children +
-                    // every remaining sibling field (plain — a nested panic
-                    // aborts via the drop-cleanup-depth guard), then resume.
-                    self.builder.position_at_end(cleanup);
-                    let personality = self.builder.runtime_fn("ori_eh_personality");
-                    let lp = self.builder.landingpad(personality, true, "fld.lp");
-                    let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
-                    self.builder.call(enter, &[], "");
-                    self.dec_value_rc(fv, field_ty);
-                    self.dec_field_walk_plain(val, owner, walk, j + 1);
-                    let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
-                    self.builder.call(exit, &[], "");
-                    self.builder.resume(lp);
-                    // Normal continuation: this field's children, then advance.
-                    self.builder.position_at_end(cont);
-                    self.dec_value_rc(fv, field_ty);
-                    j += 1;
-                    continue;
-                }
-            }
-            // Plain field: run its user `@drop` (if any, non-unwinding) before
-            // recursing into its own field walk.
-            self.emit_user_drop_for_inline_value(field_ty, fv);
-            self.dec_value_rc(fv, field_ty);
-            j += 1;
-        }
-    }
-
-    /// Plain (non-`invoke`) drop of `walk[start..]` — used inside a cleanup pad
-    /// where a further (nested) panic must abort via the depth guard, not
-    /// re-enter sibling-continue.
-    fn dec_field_walk_plain(
-        &mut self,
-        val: super::ValueId,
-        owner: Idx,
-        walk: &[(u32, Idx)],
-        start: usize,
-    ) {
-        for &(mem_i, field_ty) in &walk[start..] {
-            let Some(fv) = self
-                .builder
-                .extract_value(val, mem_i, &format!("rc_dec.cl.f.{mem_i}"))
-            else {
-                continue;
-            };
-            if is_boxed_enum_field(self.pool, owner, field_ty) {
-                let drop_fn = self.get_or_generate_drop_fn(field_ty);
-                self.call_rc_dec_all(&[fv], drop_fn);
-            } else {
-                self.emit_user_drop_for_inline_value(field_ty, fv);
-                self.dec_value_rc(fv, field_ty);
-            }
-        }
+        let ops = InlineAggregateOps { base: val, owner };
+        self.dec_fields_may_unwind(&ops, &walk, 0);
     }
 }

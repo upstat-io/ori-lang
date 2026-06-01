@@ -1,0 +1,7 @@
+# Single source of truth for the Rust toolchain, shared by local `cargo`
+# (auto-respected by rustup) and CI (parsed by the `setup` job in
+# .github/workflows/ci.yml). Keep `channel` and the CI toolchain in sync via
+# this file only — do not hardcode the version in the workflow.
+[toolchain]
+channel = "1.93.1"
+components = ["clippy", "rustfmt"]

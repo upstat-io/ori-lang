@@ -468,6 +468,112 @@ type Wrapper = Both(loud: Loud, quiet: Quiet);
     );
 }
 
+/// Multi-variant (tagged general enum) payload field-drop panics on the
+/// FIRST-walked field → the remaining LATER-walked sibling payload field of
+/// the SAME variant must still drop via the per-field cleanup pad. The
+/// single-variant tagless cell above
+/// (`drop_enum_variant_payload_panic_cleans_remaining_payload_fields`) does not
+/// cover this: a tagless enum has no discriminant switch, and its panicking
+/// field was the last-walked (no later sibling to leak). Here the panicking
+/// `Loud` field is declared LAST, so reverse-decl LIFO walks it FIRST; the
+/// earlier-declared `Quiet` sibling must still drop on the unwind path (its
+/// `quiet-Q` sentinel proves the sibling's heap `str` was freed — without the
+/// per-field cleanup pad the sibling silently leaks).
+#[test]
+fn drop_tagged_enum_variant_payload_panic_cleans_remaining_sibling() {
+    let source = r#"
+type Loud = { tag: str }
+
+impl Loud: Drop {
+    @drop (self) -> void = {
+        print(msg: `loud-{self.tag}`);
+        panic(msg: "loud-boom")
+    }
+}
+
+type Quiet = { tag: str }
+
+impl Quiet: Drop {
+    @drop (self) -> void = print(msg: `quiet-{self.tag}`);
+}
+
+type Wrapper = Solo(only: Loud) | Pair(quiet: Quiet, loud: Loud);
+
+@main () -> void = {
+    let w = [Pair(
+        quiet: Quiet { tag: "Q" },
+        loud: Loud { tag: "L" },
+    )]
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert!(
+        stdout.contains("loud-L"),
+        "panicking payload field-drop must run; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("quiet-Q"),
+        "later-walked sibling payload field must still drop via the per-field cleanup pad; stdout:\n{stdout}"
+    );
+    assert_eq!(
+        exit_code, 1,
+        "tagged-enum payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
+    );
+}
+
+/// Boxed-recursive (heap drop-fn) enum payload: EVERY node's payload fields'
+/// user `@drop` MUST run on teardown, in reverse declaration order, across the
+/// recursive chain. The heap drop-fn path (`_ori_drop$<Enum>`) is distinct from
+/// the inline value-traversal path covered by
+/// `drop_tagged_enum_variant_payload_panic_cleans_remaining_sibling` — a
+/// genuinely boxed-recursive `next` field forces every node through
+/// `emit_drop_enum`/`emit_drop_enum_variant_fields`. Before the canonical
+/// field-walk consolidation, that heap path only dec'd each payload field's RC
+/// child (the inner `str`) and NEVER ran the inline struct payload's user
+/// `@drop` — so the inner node's `quiet-inner-*` sentinels silently vanished.
+/// Each node has TWO Drop-impl payload fields so the per-node multi-field walk
+/// (the IH-06-001 surface) is exercised: both fields' `@drop` must run.
+#[test]
+fn drop_boxed_recursive_enum_runs_every_node_payload_drop_in_reverse_order() {
+    let source = r#"
+type Logged = { tag: str }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
+
+@main () -> void = {
+    let c = Link(
+        a: Logged { tag: "outer-a" },
+        b: Logged { tag: "outer-b" },
+        next: Link(
+            a: Logged { tag: "inner-a" },
+            b: Logged { tag: "inner-b" },
+            next: Nil,
+        ),
+    )
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    // Both payload fields of BOTH nodes (outer + boxed inner) must run their
+    // user @drop — the heap drop-fn path previously skipped inline-payload @drop
+    // entirely. Each node walks its payload in reverse decl order (b before a).
+    for tag in [
+        "drop-outer-a",
+        "drop-outer-b",
+        "drop-inner-a",
+        "drop-inner-b",
+    ] {
+        assert!(
+            stdout.contains(tag),
+            "every node payload field @drop must run via the heap drop-fn path; missing {tag}; stdout:\n{stdout}"
+        );
+    }
+}
+
 /// Collection element @drop panics mid-walk → remaining elements still
 /// dropped; the cleanup pad drops only indices > cursor (no double-free of the
 /// already-walked element).

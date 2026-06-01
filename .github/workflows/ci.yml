@@ -3,11 +3,15 @@ name: CI
 on:
   pull_request:
     branches: [main, master]
+  # Per-commit lint gate on dev: format + clippy run on every dev push so a
+  # lint failure surfaces immediately, not at the nightly dev->master PR.
+  # The heavy test + cross-platform jobs stay PR-only (see their `if:` guards).
+  push:
+    branches: [dev]
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  RUST_VERSION: "1.93.1"
   ORI_VERIFY_ARC: "1"
   ORI_VERIFY_EACH: "1"
 
@@ -17,6 +21,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Resolve the pinned toolchain from rust-toolchain.toml so CI and local
+  # `cargo` share one source of truth. Downstream jobs consume the output
+  # instead of a hardcoded version.
+  setup:
+    name: Resolve toolchain
+    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust_version: ${{ steps.tc.outputs.rust_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tc
+        run: |
+          V=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          if [ -z "$V" ]; then
+            echo "could not parse channel from rust-toolchain.toml" >&2
+            exit 1
+          fi
+          echo "rust_version=$V" >> "$GITHUB_OUTPUT"
+
   # Fast checks - run first, fail fast
   version-check:
     name: Version Sync
@@ -30,6 +55,7 @@ jobs:
 
   format:
     name: Format
+    needs: setup
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -37,12 +63,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
           components: rustfmt
       - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
+    needs: setup
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -60,7 +87,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -69,10 +96,12 @@ jobs:
         env:
           LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
-  # Main test suite
+  # Main test suite - PR-only (skipped on dev push; the nightly dev->master PR
+  # runs it before release).
   test:
     name: Test
-    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    needs: setup
+    if: "github.event_name == 'pull_request' && !startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -89,7 +118,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
@@ -192,10 +221,11 @@ jobs:
         run: exit 1
 
 
-  # Cross-platform — full test suite including AOT
+  # Cross-platform — full test suite including AOT. PR-only (skipped on dev push).
   cross-platform:
     name: ${{ matrix.os }}
-    # No needs — format/clippy are platform-independent, don't gate cross-platform builds
+    needs: setup
+    if: "github.event_name == 'pull_request' && !startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -228,7 +258,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
@@ -245,18 +275,25 @@ jobs:
   # Single status check for branch protection
   ci-success:
     name: CI Success
-    needs: [version-check, format, clippy, test, cross-platform]
+    needs: [setup, version-check, format, clippy, test, cross-platform]
     runs-on: ubuntu-latest
     if: "always() && !startsWith(github.event.head_commit.message, 'chore: release v')"
     steps:
       - name: Check all jobs passed
         run: |
+          # Lint + version jobs are required on every trigger (PR and dev push).
           if [[ "${{ needs.version-check.result }}" != "success" ]] || \
              [[ "${{ needs.format.result }}" != "success" ]] || \
-             [[ "${{ needs.clippy.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.cross-platform.result }}" != "success" ]]; then
-            echo "One or more required jobs failed"
+             [[ "${{ needs.clippy.result }}" != "success" ]]; then
+            echo "A required lint/version job failed"
             exit 1
+          fi
+          # Heavy jobs are required only on pull_request; they are skipped on dev push.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "${{ needs.test.result }}" != "success" ]] || \
+               [[ "${{ needs.cross-platform.result }}" != "success" ]]; then
+              echo "A required test/cross-platform job failed"
+              exit 1
+            fi
           fi
           echo "All required checks passed!"

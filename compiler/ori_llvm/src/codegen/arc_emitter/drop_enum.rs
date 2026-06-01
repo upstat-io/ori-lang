@@ -14,9 +14,94 @@
 use ori_types::{Idx, Pool, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
-use crate::codegen::value_id::{FunctionId, ValueId};
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+
+/// [`FieldWalkOps`] for a HEAP enum variant payload reached via the drop-fn
+/// path (`emit_drop_enum` → `_ori_drop$<Enum>`, e.g. a boxed-recursive enum
+/// node).
+///
+/// `data_ptr` points at the heap-allocated enum. Option/Result payloads are
+/// typed fields at struct index `1 + field_index`; general-enum payloads live
+/// at byte offsets within the `[M x i64]` payload area. `dec_children` is the
+/// drop-fn dispatch (`emit_drop_rc_dec`), which dec's the inline field VALUE's
+/// own RC children after the field's user `@drop` has run via the canonical
+/// walk.
+struct HeapEnumPayloadOps {
+    data_ptr: ValueId,
+    enum_llvm_ty: LLVMTypeId,
+    owner_ty: Idx,
+    /// Option/Result: typed payload field at struct index `1 + field_index`.
+    /// `false` for general enum: byte-offset GEP into the payload array.
+    is_option_result: bool,
+    /// Byte offsets (general-enum payload only); empty for Option/Result.
+    offsets: Vec<u64>,
+}
+
+impl FieldWalkOps for HeapEnumPayloadOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (field_index, field_type) = walk[idx];
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner_ty, field_type);
+        let field_ptr = if self.is_option_result {
+            emitter.builder.struct_gep(
+                self.enum_llvm_ty,
+                self.data_ptr,
+                1 + field_index,
+                "payload.ptr",
+            )
+        } else {
+            let payload_ptr =
+                emitter
+                    .builder
+                    .struct_gep(self.enum_llvm_ty, self.data_ptr, 1, "payload");
+            let i8_ty = emitter.builder.i8_type();
+            let byte_off = self.offsets.get(field_index as usize).copied().unwrap_or(0);
+            let off = emitter.builder.const_i64(byte_off as i64);
+            emitter
+                .builder
+                .gep(i8_ty, payload_ptr, &[off], &format!("f{field_index}.ptr"))
+        };
+        if boxed {
+            let ptr_ty = emitter.builder.ptr_type();
+            let rc_ptr = emitter
+                .builder
+                .load(ptr_ty, field_ptr, &format!("f{field_index}.rc"));
+            Some((rc_ptr, true))
+        } else {
+            let field_llvm_ty = emitter.resolve_type(field_type);
+            let fv = emitter
+                .builder
+                .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
+            Some((fv, false))
+        }
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        emitter.emit_drop_rc_dec(field_value, field_type);
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit drop body for an enum type (switch on tag, per-variant cleanup).
@@ -141,33 +226,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let variant_fields = case_fields[idx];
             self.builder.position_at_end(block);
 
-            match pool_tag {
-                // Option/Result: payload is a typed field at struct index 1
-                Tag::Option | Tag::Result => {
-                    for &(field_index, field_type) in variant_fields {
-                        let struct_idx = 1 + field_index; // field 0 = tag
-                        let field_llvm_ty = self.resolve_type(field_type);
-                        let field_ptr = self.builder.struct_gep(
-                            enum_llvm_ty,
-                            data_ptr,
-                            struct_idx,
-                            "payload.ptr",
-                        );
-                        let field_val = self.builder.load(field_llvm_ty, field_ptr, "payload");
-                        self.emit_drop_rc_dec(field_val, field_type);
-                    }
-                }
-
-                // General enum: payload is [M x i64] at struct field 1
-                _ => {
-                    self.emit_drop_enum_variant_fields(
-                        data_ptr,
-                        ty,
-                        variant_fields,
-                        case_variant_indices[idx],
-                    );
-                }
-            }
+            self.emit_drop_enum_variant_fields(
+                data_ptr,
+                ty,
+                variant_fields,
+                case_variant_indices[idx],
+                matches!(pool_tag, Tag::Option | Tag::Result),
+            );
 
             self.builder.br(drop_done);
         }
@@ -176,92 +241,60 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(drop_done);
     }
 
-    /// Emit RC dec for fields within a general enum variant.
+    /// Emit RC dec for the payload fields of a heap enum variant via the
+    /// canonical may-unwind field-walk SSOT.
     ///
-    /// General enums store payload as `[M x i64]` at struct field 1.
-    /// Fields are accessed via byte-offset GEP into the payload area.
-    ///
-    /// `variant_idx` identifies which variant in the Pool's variant list
-    /// this cleanup block corresponds to, so field offsets are computed
-    /// from the correct variant's field types.
+    /// Option/Result payloads are typed fields at struct index `1 +
+    /// field_index`; general-enum payloads live at byte offsets within the
+    /// `[M x i64]` payload area at struct field 1. `variant_idx` identifies
+    /// which variant's field types drive the byte-offset computation. Routing
+    /// through the SSOT runs each inline payload field's user `@drop` (in
+    /// reverse-declaration teardown order) and threads the per-field cleanup
+    /// pad so a panicking field's `@drop` still frees the later-walked siblings.
     pub(super) fn emit_drop_enum_variant_fields(
         &mut self,
         data_ptr: ValueId,
         ty: Idx,
         rc_fields: &[(u32, Idx)],
         variant_idx: usize,
+        is_option_result: bool,
     ) {
         let enum_llvm_ty = self.resolve_type(ty);
-        let payload_ptr = self
-            .builder
-            .struct_gep(enum_llvm_ty, data_ptr, 1, "payload");
-
-        // Try to get full variant field types from Pool for offset computation
         let (resolved_ty, resolved_tag) = resolve_type_through_aliases(ty, self.pool);
 
-        if resolved_tag == Tag::Enum {
-            // Get all variant field types to compute byte offsets
+        let offsets = if is_option_result {
+            // Option/Result: typed field access, no byte offsets needed.
+            Vec::new()
+        } else if resolved_tag == Tag::Enum {
             let all_variants = self.pool.enum_variants(resolved_ty);
-            let all_field_lists: Vec<Vec<Idx>> =
-                all_variants.into_iter().map(|(_, fields)| fields).collect();
-
-            // Use the correct variant's field list for offset computation
-            let variant_fields = all_field_lists
-                .get(variant_idx)
-                .map_or(&[] as &[Idx], Vec::as_slice);
-
-            // Compute byte offsets (fields packed at i64 alignment)
-            let offsets = compute_variant_field_offsets(variant_fields, resolved_ty, self);
-
-            let i8_ty = self.builder.i8_type();
-            for &(field_index, field_type) in rc_fields {
-                let byte_offset = offsets.get(field_index as usize).copied().unwrap_or(0);
-                let offset_val = self.builder.const_i64(byte_offset as i64);
-                let field_ptr = self.builder.gep(
-                    i8_ty,
-                    payload_ptr,
-                    &[offset_val],
-                    &format!("f{field_index}.ptr"),
-                );
-
-                if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
-                    // Recursive field: stored as RC pointer. Load and dec.
-                    let ptr_ty = self.builder.ptr_type();
-                    let rc_ptr =
-                        self.builder
-                            .load(ptr_ty, field_ptr, &format!("f{field_index}.rc"));
-                    let drop_fn = self.get_or_generate_drop_fn(field_type);
-                    self.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
-                } else {
-                    let field_llvm_ty = self.resolve_type(field_type);
-                    let field_val =
-                        self.builder
-                            .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
-                    self.emit_drop_rc_dec(field_val, field_type);
-                }
-            }
+            let variant_field_types: Vec<Idx> = all_variants
+                .into_iter()
+                .nth(variant_idx)
+                .map(|(_, fields)| fields)
+                .unwrap_or_default();
+            compute_variant_field_offsets(&variant_field_types, resolved_ty, self)
         } else {
-            // Fallback: treat field_index as i64 slot offset
+            // Fallback: non-Enum tag for a general enum — treat field_index as
+            // an i64 slot index (offset = field_index * 8). Build a dense vec
+            // indexed by field_index so `HeapEnumPayloadOps::load` resolves the
+            // right offset per field.
             tracing::warn!(
                 ?resolved_tag,
                 "drop_gen: non-Enum tag for general enum — using slot access"
             );
-            let i64_ty = self.builder.i64_type();
-            for &(field_index, field_type) in rc_fields {
-                let field_llvm_ty = self.resolve_type(field_type);
-                let slot_val = self.builder.const_i64(i64::from(field_index));
-                let field_ptr = self.builder.gep(
-                    i64_ty,
-                    payload_ptr,
-                    &[slot_val],
-                    &format!("f{field_index}.ptr"),
-                );
-                let field_val =
-                    self.builder
-                        .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
-                self.emit_drop_rc_dec(field_val, field_type);
-            }
-        }
+            let max_fi = rc_fields.iter().map(|&(fi, _)| fi).max().unwrap_or(0);
+            (0..=max_fi).map(|fi| u64::from(fi) * 8).collect()
+        };
+
+        let walk = super::emitter_utils::field_rc_walk_order(rc_fields, true);
+        let ops = HeapEnumPayloadOps {
+            data_ptr,
+            enum_llvm_ty,
+            owner_ty: resolved_ty,
+            is_option_result,
+            offsets,
+        };
+        self.dec_fields_may_unwind(&ops, &walk, 0);
     }
     /// §07.2: Emit drop body for a niche-encoded enum.
     ///

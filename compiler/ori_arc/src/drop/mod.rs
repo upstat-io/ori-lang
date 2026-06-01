@@ -21,13 +21,6 @@
 //!   `(int, str)`, custom structs). Codegen emits inline destructure +
 //!   Dec children. The drop descriptor is the same — the codegen layer
 //!   decides the emission strategy based on `TypeInfo`.
-//!
-//! # Reference Compilers
-//!
-//! - **Lean 4** `src/Lean/Compiler/IR/RC.lean` — type-specific cleanup
-//!   in `addDec`, object header carries layout metadata
-//! - **Roc** `crates/compiler/mono/src/code_gen_help/refcount.rs` —
-//!   per-layout refcount helpers, specialized drop per type
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

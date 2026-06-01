@@ -5,7 +5,6 @@ use super::IteratorValue;
 impl IteratorValue {
     /// Returns `(lower_bound, Option<upper_bound>)` for remaining items.
     ///
-    /// Mirrors Rust's `Iterator::size_hint()` contract:
     /// - `lower` is a guaranteed minimum
     /// - `upper` is `Some(n)` when the exact or maximum count is known
     /// - `None` upper means unbounded or unknown

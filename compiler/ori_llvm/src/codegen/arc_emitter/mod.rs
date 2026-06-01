@@ -51,6 +51,7 @@ mod emit_function;
 mod emit_function_setup;
 mod emitter_utils;
 mod field_scan;
+mod field_walk;
 mod instr_dispatch;
 mod narrowing_codegen;
 mod narrowing_local;

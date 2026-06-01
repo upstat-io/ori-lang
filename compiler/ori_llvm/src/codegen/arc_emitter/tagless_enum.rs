@@ -15,8 +15,65 @@ use ori_arc::ir::ArcVarId;
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{LLVMTypeId, ValueId};
+
+/// [`FieldWalkOps`] for a tagless single-variant enum payload reached via the
+/// value-traversal dec path. Fields are accessed at the LLVM struct index
+/// carried in `walk` (void fields are already excluded), and dec'd via
+/// `dec_value_rc`.
+struct TaglessPayloadOps {
+    alloca: ValueId,
+    enum_llvm_ty: LLVMTypeId,
+    owner_ty: Idx,
+}
+
+impl FieldWalkOps for TaglessPayloadOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (struct_index, field_type) = walk[idx];
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner_ty, field_type);
+        let gep = emitter.builder.struct_gep(
+            self.enum_llvm_ty,
+            self.alloca,
+            struct_index,
+            "tagless.dec.f.ptr",
+        );
+        if boxed {
+            let ptr_ty = emitter.builder.ptr_type();
+            let rc_ptr = emitter.builder.load(ptr_ty, gep, "tagless.dec.f.rc");
+            Some((rc_ptr, true))
+        } else {
+            let field_llvm_ty = emitter.resolve_type(field_type);
+            let fv = emitter.builder.load(field_llvm_ty, gep, "tagless.dec.f");
+            Some((fv, false))
+        }
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.call_rc_dec_all(&[rc_ptr], drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        emitter.dec_value_rc(field_value, field_type);
+    }
+}
 
 /// One non-void payload field of a tagless single-variant enum.
 struct TaglessField {
@@ -218,61 +275,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, &format!("{dir}.tagless"));
         self.builder.store(val, alloca);
 
-        // Dec walks payload fields in REVERSE declaration order (LIFO) per
-        // `drop-trait-proposal.md §Drop and panic` — matching the struct field
-        // walk (`dec_aggregate_fields`) so a user `@drop` on a payload field
-        // observes consistent teardown order (and a sibling already dropped
-        // before a later field's `@drop` panics). Inc keeps forward order
-        // (unobservable for inc).
-        // Order per the `emitter_utils::field_rc_walk_order` LIFO contract
-        // (borrowed-field variant — collects `&TaglessField`, so it keeps its
-        // own collect rather than the `Copy`-bounded helper).
-        let ordered: Vec<&TaglessField> = if is_inc {
-            rc_fields.iter().collect()
-        } else {
-            rc_fields.iter().rev().collect()
-        };
-        for field in ordered {
-            let gep = self.builder.struct_gep(
-                enum_llvm_ty,
-                alloca,
-                field.struct_index,
-                &format!("{dir}.tagless.f{}.ptr", field.decl_index),
-            );
-            if is_boxed_enum_field(self.pool, ty, field.field_type) {
-                let ptr_ty = self.builder.ptr_type();
-                let rc_ptr = self.builder.load(
-                    ptr_ty,
-                    gep,
-                    &format!("{dir}.tagless.f{}.rc", field.decl_index),
+        if is_inc {
+            // Inc keeps forward declaration order (unobservable for inc).
+            for field in &rc_fields {
+                let gep = self.builder.struct_gep(
+                    enum_llvm_ty,
+                    alloca,
+                    field.struct_index,
+                    &format!("{dir}.tagless.f{}.ptr", field.decl_index),
                 );
-                if is_inc {
+                if is_boxed_enum_field(self.pool, ty, field.field_type) {
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr = self.builder.load(
+                        ptr_ty,
+                        gep,
+                        &format!("{dir}.tagless.f{}.rc", field.decl_index),
+                    );
                     self.call_rc_inc_all(&[rc_ptr], count);
                 } else {
-                    // Boxed field: its `_ori_drop$<field_ty>` carries the field
-                    // type's user `@drop` (if any) inside the dec.
-                    let drop_fn = self.get_or_generate_drop_fn(field.field_type);
-                    self.call_rc_dec_all(&[rc_ptr], drop_fn);
-                }
-            } else {
-                let field_llvm_ty = self.resolve_type(field.field_type);
-                let fval = self.builder.load(
-                    field_llvm_ty,
-                    gep,
-                    &format!("{dir}.tagless.f{}", field.decl_index),
-                );
-                if is_inc {
+                    let field_llvm_ty = self.resolve_type(field.field_type);
+                    let fval = self.builder.load(
+                        field_llvm_ty,
+                        gep,
+                        &format!("{dir}.tagless.f{}", field.decl_index),
+                    );
                     self.inc_value_rc(fval, field.field_type, count);
-                } else {
-                    // Inline payload field with a user `@drop` (e.g. a Drop
-                    // struct in a single-variant enum payload): run its `@drop`
-                    // before recursing into its own field walk — matching
-                    // `dec_aggregate_fields`. A panic here propagates through
-                    // the (may-unwind) enclosing drop/elem-dec fn's cleanup pad.
-                    self.emit_user_drop_for_inline_value(field.field_type, fval);
-                    self.dec_value_rc(fval, field.field_type);
                 }
             }
+            return;
         }
+
+        // Teardown (dec) walks payload fields in REVERSE declaration order
+        // (LIFO) per `drop-trait-proposal.md §Drop and panic` and routes through
+        // the canonical may-unwind field-walk SSOT, so a panicking payload
+        // field's `@drop` still frees the later-walked sibling payload fields
+        // via the per-field cleanup pad (matching the struct path). The walk
+        // carries `(struct_index, field_type)` (void fields already excluded).
+        let decl_walk: Vec<(u32, Idx)> = rc_fields
+            .iter()
+            .map(|f| (f.struct_index, f.field_type))
+            .collect();
+        let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
+        let ops = TaglessPayloadOps {
+            alloca,
+            enum_llvm_ty,
+            owner_ty: resolved_ty,
+        };
+        self.dec_fields_may_unwind(&ops, &walk, 0);
     }
 }

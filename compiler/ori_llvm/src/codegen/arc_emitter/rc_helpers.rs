@@ -13,8 +13,88 @@ use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
 use super::drop_enum::compute_variant_field_offsets;
+use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
-use crate::codegen::value_id::{BlockId, ValueId};
+use crate::codegen::value_id::{BlockId, LLVMTypeId, ValueId};
+
+/// [`FieldWalkOps`] for an inline tagged-enum variant payload reached via the
+/// value-traversal dec path (`dec_value_rc` → `emit_inline_enum_dec`).
+///
+/// The enum value is stored to `alloca`; the active variant's payload fields
+/// are accessed either as typed struct fields at index `1 + field_index`
+/// (Option/Result) or via byte-offset GEP into the `[M x i64]` payload area
+/// (general enum). `dec_children` is value traversal (`dec_value_rc`).
+struct TaggedEnumPayloadOps {
+    alloca: ValueId,
+    enum_llvm_ty: LLVMTypeId,
+    owner_ty: Idx,
+    /// Option/Result: typed payload field at struct index `1 + field_index`.
+    /// `false` for general enum: byte-offset GEP into the payload array.
+    is_option_result: bool,
+    /// Byte offsets (general-enum payload only); empty for Option/Result.
+    offsets: Vec<u64>,
+}
+
+impl FieldWalkOps for TaggedEnumPayloadOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (field_index, field_type) = walk[idx];
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner_ty, field_type);
+        let field_ptr = if self.is_option_result {
+            emitter.builder.struct_gep(
+                self.enum_llvm_ty,
+                self.alloca,
+                1 + field_index,
+                "dec.payload.ptr",
+            )
+        } else {
+            let payload_ptr =
+                emitter
+                    .builder
+                    .struct_gep(self.enum_llvm_ty, self.alloca, 1, "dec.payload");
+            let i8_ty = emitter.builder.i8_type();
+            let byte_off = self.offsets.get(field_index as usize).copied().unwrap_or(0);
+            let off = emitter.builder.const_i64(byte_off as i64);
+            emitter
+                .builder
+                .gep(i8_ty, payload_ptr, &[off], "dec.field.ptr")
+        };
+        if boxed {
+            let ptr_ty = emitter.builder.ptr_type();
+            let rc_ptr = emitter.builder.load(ptr_ty, field_ptr, "dec.payload.rc");
+            Some((rc_ptr, true))
+        } else {
+            let field_llvm_ty = emitter.resolve_type(field_type);
+            let fv = emitter
+                .builder
+                .load(field_llvm_ty, field_ptr, "dec.payload");
+            Some((fv, false))
+        }
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.call_rc_dec_all(&[rc_ptr], drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        emitter.dec_value_rc(field_value, field_type);
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract the RC-managed data pointer(s) from a value based on its type.
@@ -369,6 +449,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .collect();
         self.builder.switch(tag_val, done_block, &switch_cases);
 
+        let is_option_result = matches!(pool_tag, Tag::Result | Tag::Option);
         for &(_, block, fields, variant_idx) in &cases {
             self.builder.position_at_end(block);
 
@@ -377,99 +458,85 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
                 .unwrap_or_default();
 
-            // Dec walks payload fields in REVERSE declaration order (LIFO) per
-            // `drop-trait-proposal.md §Drop and panic` — matching the struct
-            // field walk so user `@drop` side effects observe consistent
-            // teardown order. Inc keeps forward order (order is unobservable
-            // for inc). Collect into an owned Vec so the reversed dec iteration
-            // does not borrow `cases`.
+            // Teardown (dec) walks payload fields in REVERSE declaration order
+            // (LIFO) per `drop-trait-proposal.md §Drop and panic`; inc keeps
+            // forward order (unobservable for inc). Collect into an owned Vec so
+            // the iteration does not borrow `cases`.
             let ordered: Vec<(u32, Idx)> =
                 super::emitter_utils::field_rc_walk_order(fields, !is_inc);
-            for &(field_index, field_type) in &ordered {
-                if matches!(pool_tag, Tag::Result | Tag::Option) {
-                    let struct_idx = 1 + field_index;
-                    let field_ptr = self.builder.struct_gep(
-                        enum_llvm_ty,
-                        alloca,
-                        struct_idx,
-                        &format!("{dir}.payload.ptr"),
-                    );
-                    if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
-                        // Boxed recursive inner: payload slot holds the RC box
-                        // pointer — load the ptr and inc/dec directly.
-                        let ptr_ty = self.builder.ptr_type();
-                        let rc_ptr =
-                            self.builder
-                                .load(ptr_ty, field_ptr, &format!("{dir}.payload.rc"));
-                        if is_inc {
-                            self.call_rc_inc_all(&[rc_ptr], count);
-                        } else {
-                            let drop_fn = self.get_or_generate_drop_fn(field_type);
-                            self.call_rc_dec_all(&[rc_ptr], drop_fn);
-                        }
-                    } else {
-                        let field_llvm_ty = self.resolve_type(field_type);
-                        let field_val =
-                            self.builder
-                                .load(field_llvm_ty, field_ptr, &format!("{dir}.payload"));
-                        if is_inc {
-                            self.inc_value_rc(field_val, field_type, count);
-                        } else {
-                            // Inline struct/enum payload field: run its user
-                            // `@drop` (if any) before the field walk.
-                            self.emit_user_drop_for_inline_value(field_type, field_val);
-                            self.dec_value_rc(field_val, field_type);
-                        }
-                    }
-                } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
-                    let payload_ptr =
-                        self.builder
-                            .struct_gep(enum_llvm_ty, alloca, 1, &format!("{dir}.payload"));
-                    let i8_ty = self.builder.i8_type();
-                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
-                    let idx = self.builder.const_i64(byte_off as i64);
-                    let field_ptr =
-                        self.builder
-                            .gep(i8_ty, payload_ptr, &[idx], &format!("{dir}.field.ptr"));
-                    let ptr_ty = self.builder.ptr_type();
-                    let rc_ptr = self
-                        .builder
-                        .load(ptr_ty, field_ptr, &format!("{dir}.field.rc"));
-                    if is_inc {
-                        self.call_rc_inc_all(&[rc_ptr], count);
-                    } else {
-                        let drop_fn = self.get_or_generate_drop_fn(field_type);
-                        self.call_rc_dec_all(&[rc_ptr], drop_fn);
-                    }
-                } else {
-                    let field_llvm_ty = self.resolve_type(field_type);
-                    let payload_ptr =
-                        self.builder
-                            .struct_gep(enum_llvm_ty, alloca, 1, &format!("{dir}.payload"));
-                    let i8_ty = self.builder.i8_type();
-                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
-                    let idx = self.builder.const_i64(byte_off as i64);
-                    let field_ptr =
-                        self.builder
-                            .gep(i8_ty, payload_ptr, &[idx], &format!("{dir}.field.ptr"));
-                    let field_val =
-                        self.builder
-                            .load(field_llvm_ty, field_ptr, &format!("{dir}.field"));
-                    if is_inc {
-                        self.inc_value_rc(field_val, field_type, count);
-                    } else {
-                        // Inline struct/enum payload field: run its user
-                        // `@drop` (if any) before the field walk.
-                        self.emit_user_drop_for_inline_value(field_type, field_val);
-                        self.dec_value_rc(field_val, field_type);
-                    }
-                }
+
+            if is_inc {
+                self.inc_enum_payload_fields(
+                    &ordered,
+                    enum_llvm_ty,
+                    alloca,
+                    resolved_ty,
+                    is_option_result,
+                    &offsets,
+                    count,
+                );
+            } else {
+                // Dec routes through the canonical may-unwind field-walk SSOT so
+                // a panicking payload field's user `@drop` still frees the
+                // later-walked sibling payload fields via the per-field cleanup
+                // pad (matching the struct path).
+                let ops = TaggedEnumPayloadOps {
+                    alloca,
+                    enum_llvm_ty,
+                    owner_ty: resolved_ty,
+                    is_option_result,
+                    offsets,
+                };
+                self.dec_fields_may_unwind(&ops, &ordered, 0);
             }
 
             self.builder.br(done_block);
         }
 
         self.builder.position_at_end(done_block);
+    }
+
+    /// Inc the RC children of a tagged-enum variant's payload fields (forward
+    /// order; inc has no user `@drop` and no unwind, so order is unobservable).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors the inline-enum payload access surface; grouping adds indirection"
+    )]
+    fn inc_enum_payload_fields(
+        &mut self,
+        ordered: &[(u32, Idx)],
+        enum_llvm_ty: LLVMTypeId,
+        alloca: ValueId,
+        owner_ty: Idx,
+        is_option_result: bool,
+        offsets: &[u64],
+        count: u32,
+    ) {
+        for &(field_index, field_type) in ordered {
+            let boxed = is_boxed_enum_field(self.pool, owner_ty, field_type);
+            let field_ptr = if is_option_result {
+                self.builder
+                    .struct_gep(enum_llvm_ty, alloca, 1 + field_index, "inc.payload.ptr")
+            } else {
+                let payload_ptr = self
+                    .builder
+                    .struct_gep(enum_llvm_ty, alloca, 1, "inc.payload");
+                let i8_ty = self.builder.i8_type();
+                let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                let off = self.builder.const_i64(byte_off as i64);
+                self.builder
+                    .gep(i8_ty, payload_ptr, &[off], "inc.field.ptr")
+            };
+            if boxed {
+                let ptr_ty = self.builder.ptr_type();
+                let rc_ptr = self.builder.load(ptr_ty, field_ptr, "inc.payload.rc");
+                self.call_rc_inc_all(&[rc_ptr], count);
+            } else {
+                let field_llvm_ty = self.resolve_type(field_type);
+                let field_val = self.builder.load(field_llvm_ty, field_ptr, "inc.payload");
+                self.inc_value_rc(field_val, field_type, count);
+            }
+        }
     }
 
     /// §07.2: Shared niche-aware RC inc/dec for enum values.

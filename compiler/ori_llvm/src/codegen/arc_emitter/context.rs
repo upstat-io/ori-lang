@@ -173,8 +173,6 @@ pub(crate) fn intercepted_is_nounwind(callee_name: &str) -> bool {
 /// [`ValueRepr`]. This prevents the "did I load this already?" and
 /// "is this a pointer or a scalar?" class of bugs by making the value's
 /// representation explicit at the type level.
-///
-/// Inspired by Rust's `OperandValue` in `rustc_codegen_llvm`.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum EmittedValue {
     /// Register scalar: i64, f64, i1, i8, i32.

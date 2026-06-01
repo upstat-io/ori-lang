@@ -134,8 +134,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// LIMITATION: This is a global heuristic — it applies to ALL `List<int>` in
     /// the function, including those created by `collect()` which may have
-    /// canonical (non-narrowed) stride. See BUG-04-072 for the collect output
-    /// boundary mismatch.
+    /// canonical (non-narrowed) stride, a collect-output boundary mismatch.
     pub(super) fn narrowed_int_collection_element_width(&self) -> Option<ori_repr::IntWidth> {
         use ori_repr::{FatRepr, IntWidth, MachineRepr};
         let plan = self.repr_plan?;

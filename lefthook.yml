@@ -22,9 +22,12 @@ output:
 pre-commit:
   commands:
     fmt:
+      # fmt-all.sh formats the whole workspace and stages exactly the files it
+      # reformats (whole-tree, not just already-staged). Do NOT add stage_fixed
+      # here — it only re-stages already-staged files and would re-open the
+      # unstaged-reformat hole.
       glob: "*.{rs,toml,ori,sh,json,yml,yaml,js,ts}"
       run: ./fmt-all.sh
-      stage_fixed: true
     full-check:
       glob: "*.{rs,toml,ori,sh,json,yml,yaml,js,ts}"
       run: ./full-check.sh
