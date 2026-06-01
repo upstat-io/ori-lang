@@ -5,6 +5,20 @@
 #   Any:    go install github.com/evilmartians/lefthook@latest
 # Then run: lefthook install
 
+# Output set. lefthook's default omits `execution_out`, so a failed hook prints
+# only its name marker and never its captured stdout/stderr — the fail reason.
+# Listing all eight types = default set + `execution_out`, so a hook failure
+# shows WHY inline. Do NOT drop `execution_out`.
+output:
+  - meta
+  - summary
+  - success
+  - failure
+  - execution
+  - execution_out
+  - execution_info
+  - skips
+
 pre-commit:
   commands:
     fmt:
