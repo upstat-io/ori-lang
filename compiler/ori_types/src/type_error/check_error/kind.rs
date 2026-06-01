@@ -61,7 +61,7 @@ pub enum TypeErrorKind {
     /// An `impl Type: Trait` references a trait that is not registered in the
     /// `TraitRegistry` — either the prelude is unavailable (a prelude trait like
     /// `Eq`/`Drop` was never registered) or the trait name is a typo. Guards the
-    /// `validate_assoc_types` / `check_conflicting_defaults` ICE (BUG-02-034).
+    /// `validate_assoc_types` / `check_conflicting_defaults` ICE.
     UnresolvedTrait {
         /// The unresolved trait name (rendered with an interner at a higher layer).
         trait_name: Name,

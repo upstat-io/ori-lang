@@ -4,7 +4,7 @@
 // resolved its trait_idx to an unregistered Named idx and `validate_assoc_types`
 // ICE'd (debug_assert at ori_types/check/registration/impls.rs:445). This pins the
 // Drop-declaration half: the impl type-checks + the type is usable. (Eval ignores
-// the user @drop body; AOT drop-unwind codegen is BUG-04-125, out of scope here.)
+// the user @drop body; AOT drop-unwind codegen is a separate concern, out of scope here.)
 
 use std.testing { assert_eq }
 
@@ -22,8 +22,8 @@ impl Resource: Drop {
 
 // (Generic `impl<T> Box<T>: Drop` cell removed: it type-checks fine, but building
 // ANY generic struct — even with no Drop impl — trips a pre-existing, orthogonal
-// LLVM codegen bug, ori_rc_dec(i64, ...) malformed on a scalar monomorphized field
-// BUG-04-127. Re-add this cell once that codegen bug is fixed. Drop registration
+// LLVM codegen bug: ori_rc_dec(i64, ...) malformed on a scalar monomorphized field.
+// Re-add this cell once that codegen bug is fixed. Drop registration
 // + the generic self_type type-check path are unaffected.)
 
 // Newtype subject: trait_idx resolves; no ICE.

@@ -101,8 +101,8 @@ fn register_impl(
     // 4b. Inherit unoverridden default methods (direct + transitive from super-traits).
     //
     // `ImplBuildContext` bundles the three co-varying impl-instance fields
-    // (`type_params`, `self_type`, `trait_type_args`)
-    // §PARAM_SPRAWL :domain-fragment. `trait_type_args` is required so
+    // (`type_params`, `self_type`, `trait_type_args`) into one parameter object.
+    // `trait_type_args` is required so
     // direct-default inheritance can build the trait→impl binder substitution
     // map (e.g. `F → X` for `impl<X> Reducer<X>` over `trait Reducer<F>`) —
     // without it, the inherited default's `op: (T, F) -> T` body would carry
@@ -143,10 +143,10 @@ fn register_impl(
 
     // 7. Validate associated types, check conflicting defaults, check coherence.
     //
-    // BUG-02-034: when `trait_idx` resolves to a Named idx that has no
-    // `TraitEntry` (the prelude is unavailable, or the trait name is a typo),
-    // `validate_assoc_types` / `check_conflicting_defaults` would hit
-    // `debug_assert!(false)` and ICE. Guard the block: emit a clean E2003
+    // When `trait_idx` resolves to a Named idx that has no `TraitEntry` (the
+    // prelude is unavailable, or the trait name is a typo), `validate_assoc_types`
+    // / `check_conflicting_defaults` would hit `debug_assert!(false)` and ICE.
+    // Guard the block: emit a clean E2003
     // unresolved-trait diagnostic and SKIP validation (the impl still registers
     // structurally below so other diagnostics flow). A registered trait takes
     // the normal validation path.
@@ -578,9 +578,9 @@ fn has_coherence_violation(
 /// fn_type)`. The scheme's body carries fresh `Tag::Var` Idx values (one per
 /// method-level type-generic) whose `var_id`s match `scheme_var_ids`. At
 /// call-site, `resolve_impl_signature` invokes `engine.instantiate(...)` —
-/// the standard `GN-2` (`typeck.md §GN-2`) instantiation pattern — so each
-/// call gets fresh unification vars that DO unify with concrete types per
-/// `UN-6`. Without this wrapping, method-level binders in the registered sig
+/// the standard generalization-instantiation pattern — so each
+/// call gets fresh unification vars that DO unify with concrete types.
+/// Without this wrapping, method-level binders in the registered sig
 /// would either be bare `Tag::Var`s (which lower-rank generalization would
 /// incorrectly capture) or unresolved `Tag::Named` (which fails to unify
 /// against function-typed arguments).
@@ -588,7 +588,7 @@ fn has_coherence_violation(
 /// Body-checking (`check/bodies/impls.rs::check_impl_method`) allocates a
 /// SEPARATE set of `Tag::RigidVar`s per method-level binder via
 /// `pool.rigid_var(name)` — those `RigidVars` enforce body-internal
-/// parametricity (the §B.3 negative pin `shadow_negative_binder_identity.ori`).
+/// parametricity (the negative pin `shadow_negative_binder_identity.ori`).
 /// Registration's fresh-Var-in-Scheme and body-check's `RigidVars` are distinct
 /// pool entries serving distinct purposes; no sharing is required.
 fn build_impl_method(

@@ -103,7 +103,7 @@ impl TypeCheckError {
 
     /// Create an unresolved-trait error for an `impl Type: Trait` whose trait
     /// has no `TraitEntry` (prelude unavailable, or a typo'd trait name). Guards
-    /// the `validate_assoc_types` ICE (BUG-02-034).
+    /// the `validate_assoc_types` ICE.
     pub fn unresolved_trait(span: Span, trait_name: Name) -> Self {
         Self {
             span,
