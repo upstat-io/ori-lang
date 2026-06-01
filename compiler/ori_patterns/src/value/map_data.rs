@@ -195,10 +195,21 @@ impl PartialEq for MapData {
             if bucket.len() != other_bucket.len() {
                 return false;
             }
+            // Multiset equality: each `other_bucket` entry may satisfy at most
+            // ONE `self` entry. Consuming matched entries (vs a plain `.any()`)
+            // keeps eq sound independent of the unique-key invariant — a bucket
+            // with collision entries `[(a,1),(b,1)]` must not compare equal to
+            // `[(a,1),(a,1)]` by double-matching the same `(a,1)`.
+            let mut consumed = vec![false; other_bucket.len()];
             for (k, v) in bucket {
-                let found = other_bucket
-                    .iter()
-                    .any(|(ok, ov)| k.equals(ok) && v.equals(ov));
+                let mut found = false;
+                for (i, (ok, ov)) in other_bucket.iter().enumerate() {
+                    if !consumed[i] && k.equals(ok) && v.equals(ov) {
+                        consumed[i] = true;
+                        found = true;
+                        break;
+                    }
+                }
                 if !found {
                     return false;
                 }

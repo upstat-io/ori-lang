@@ -184,7 +184,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         fields: &[(u32, Idx)],
         _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        let reversed: Vec<(u32, Idx)> = fields.iter().rev().copied().collect();
+        let reversed: Vec<(u32, Idx)> = super::emitter_utils::field_rc_walk_order(fields, true);
 
         // Recoverable path: the type's OWN `@drop` may unwind (a panicking
         // user `@drop`). A field-only may-unwind (no own `@drop`) takes the

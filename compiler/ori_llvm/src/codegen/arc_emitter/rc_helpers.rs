@@ -383,11 +383,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // teardown order. Inc keeps forward order (order is unobservable
             // for inc). Collect into an owned Vec so the reversed dec iteration
             // does not borrow `cases`.
-            let ordered: Vec<(u32, Idx)> = if is_inc {
-                fields.to_vec()
-            } else {
-                fields.iter().rev().copied().collect()
-            };
+            let ordered: Vec<(u32, Idx)> =
+                super::emitter_utils::field_rc_walk_order(fields, !is_inc);
             for &(field_index, field_type) in &ordered {
                 if matches!(pool_tag, Tag::Result | Tag::Option) {
                     let struct_idx = 1 + field_index;

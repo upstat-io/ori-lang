@@ -292,13 +292,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // `drop-trait-proposal.md §Drop and panic` — matches the heap drop-fn
         // walk (`emit_drop_fields`) so user `@drop` side effects observe the
         // same field-teardown order. `(memory_index, field_type)` per field.
-        let mut walk: Vec<(u32, Idx)> = Vec::new();
-        for (i, &field_ty) in field_types.iter().enumerate().rev() {
+        let mut decl_walk: Vec<(u32, Idx)> = Vec::new();
+        for (i, &field_ty) in field_types.iter().enumerate() {
             if !self.classifier.needs_rc(field_ty) {
                 continue;
             }
-            walk.push((self.remap_struct_field(owner, i as u32), field_ty));
+            decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));
         }
+        let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
         self.dec_field_walk(val, owner, &walk, 0);
     }
 

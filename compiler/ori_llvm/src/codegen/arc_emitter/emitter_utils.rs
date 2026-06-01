@@ -17,6 +17,27 @@ use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
+/// Canonical home for the field/variant RC-walk ORDER decision.
+///
+/// Teardown (dec/drop) walks reverse-declaration (LIFO) per
+/// drop-trait-proposal §Drop and panic, so a user `@drop` side effect observes
+/// a consistent field-teardown order across every emission path: the heap
+/// drop-fn walk (`drop_gen::emit_drop_fields`), the inline-aggregate dec walk
+/// (`rc_value_traversal::dec_aggregate_fields`), and the struct/Result/Option
+/// payload walk (`rc_helpers`). Inc keeps forward declaration order (order is
+/// unobservable for inc). The tagless-enum payload walk
+/// (`tagless_enum`) consumes the same LIFO contract over borrowed fields.
+///
+/// Consolidating the order decision here means a change to the teardown order
+/// is made in ONE place; the walks cannot drift on the LIFO invariant.
+pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], is_teardown: bool) -> Vec<T> {
+    if is_teardown {
+        decl_order.iter().rev().copied().collect()
+    } else {
+        decl_order.to_vec()
+    }
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Get the current instruction's COW mode as an LLVM `i32` constant.
     ///

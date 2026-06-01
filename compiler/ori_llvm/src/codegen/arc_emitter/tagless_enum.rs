@@ -224,6 +224,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // observes consistent teardown order (and a sibling already dropped
         // before a later field's `@drop` panics). Inc keeps forward order
         // (unobservable for inc).
+        // Order per the `emitter_utils::field_rc_walk_order` LIFO contract
+        // (borrowed-field variant — collects `&TaglessField`, so it keeps its
+        // own collect rather than the `Copy`-bounded helper).
         let ordered: Vec<&TaglessField> = if is_inc {
             rc_fields.iter().collect()
         } else {

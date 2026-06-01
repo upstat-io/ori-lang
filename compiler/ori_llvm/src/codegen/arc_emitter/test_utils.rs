@@ -1,10 +1,9 @@
 //! `#[cfg(test)]` fixtures for `arc_emitter::tests`.
 //!
-//! Cycle 50a adds `entry_block` / `burden_dec_field_first` / `set_first`
-//! constructors that hide the canonical zero defaults (`params: vec![]`,
-//! `field: 0`) used by every `ArcBlock` / `ArcInstr::BurdenDecField` /
-//! `ArcInstr::Set` fixture in `arc_emitter/tests.rs`. Per
-//! `impl-hygiene.md §PARAM_SPRAWL cure 4 — side-table by existing key`: the
+//! `entry_block` / `burden_dec_field_first` / `set_first` constructors hide the
+//! canonical zero defaults (`params: vec![]`, `field: 0`) used by every
+//! `ArcBlock` / `ArcInstr::BurdenDecField` / `ArcInstr::Set` fixture in
+//! `arc_emitter/tests.rs` — a PARAM_SPRAWL side-table-by-existing-key cure: the
 //! literal defaults move out of construction sites into named helpers.
 //!
 //! Sibling to `compiler/ori_arc/src/lower/test_utils.rs` (which serves
@@ -15,7 +14,7 @@ use ori_arc::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId};
 
 /// Canonical `ArcBlock` constructor for single-entry-block fixtures: hides the
 /// `id: ArcBlockId::new(0)` and `params: vec![]` literals every fixture
-/// repeats. Per `impl-hygiene.md §PARAM_SPRAWL:zero-default-proliferation`.
+/// repeats. PARAM_SPRAWL:zero-default-proliferation cure.
 pub(crate) fn entry_block(body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(0),
