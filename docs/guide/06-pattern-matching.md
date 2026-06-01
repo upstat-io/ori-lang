@@ -407,13 +407,13 @@ match option {
 
 ### Lists are Refutable
 
-List patterns in `let` can panic:
+List patterns that fix element positions are refutable — they cannot appear in a `let`:
 
 ```ori
-let [first, second] = items;   // PANIC if items doesn't have exactly 2 elements
+let [first, second] = items;   // error E2001: refutable pattern in let-binding
 ```
 
-Use `match` for safe list patterns:
+Use `match` for list patterns:
 
 ```ori
 let first_two = match items {

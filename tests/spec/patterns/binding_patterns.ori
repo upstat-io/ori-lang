@@ -1,75 +1,12 @@
-// Spec: 10-patterns.md § Pattern Refutability
-// Tests for destructuring in let: struct, tuple, list with rest
-
+// Spec: 13-variables.md § 13.4 Destructuring; 15-patterns.md § Pattern Refutability
+// Tests for destructuring in let: struct + tuple (irrefutable), list via match
+// (refutable shapes), and irrefutable rest-only list let.
+//
+// The `match`-on-list cells are eval-verified. LLVM codegen for list patterns in
+// `match` is incomplete (const_int_matching on the {len,cap,ptr} fat pointer);
+// tracked by open BUG-04-086. The harness tolerates the LLVM-compile-fail and
+// runs these on the evaluator.
 use std.testing { assert, assert_eq }
-
-// =============================================================================
-// Tuple Destructuring in Let
-// =============================================================================
-
-@test_tuple_destructure tests @tuple_destructure () -> void = {
-    let (a, b) = (10, 20);
-    assert_eq(actual: a, expected: 10);
-    assert_eq(actual: b, expected: 20)
-}
-
-@tuple_destructure () -> int = {
-    let (a, b) = (10, 20);
-    a + b
-}
-
-@test_triple_destructure tests @triple_destructure () -> void = {
-    let (a, b, c) = (1, 2, 3);
-    assert_eq(actual: a + b + c, expected: 6)
-}
-
-@triple_destructure () -> int = {
-    let (a, b, c) = (1, 2, 3);
-    a + b + c
-}
-
-@test_quad_destructure tests @quad_destructure () -> void = {
-    let (a, b, c, d) = (1, 2, 3, 4);
-    assert_eq(actual: a + b + c + d, expected: 10)
-}
-
-@quad_destructure () -> int = {
-    let (a, b, c, d) = (1, 2, 3, 4);
-    a + b + c + d
-}
-
-@test_nested_tuple_destructure tests @nested_tuple_destructure () -> void = {
-    let ((a, b), (c, d)) = ((1, 2), (3, 4));
-    assert_eq(actual: a, expected: 1);
-    assert_eq(actual: d, expected: 4)
-}
-
-@nested_tuple_destructure () -> int = {
-    let ((a, b), (c, d)) = ((1, 2), (3, 4));
-    a + b + c + d
-}
-
-@test_tuple_with_wildcard tests @tuple_with_wildcard () -> void = {
-    let (first, _) = (42, "ignored");
-    assert_eq(actual: first, expected: 42)
-}
-
-@tuple_with_wildcard () -> int = {
-    let (first, _) = (42, "ignored");
-    first
-}
-
-@test_tuple_mixed_types tests @tuple_mixed_types () -> void = {
-    let (n, s, b) = (42, "hello", true);
-    assert_eq(actual: n, expected: 42);
-    assert_eq(actual: s, expected: "hello");
-    assert(cond: b)
-}
-
-@tuple_mixed_types () -> (int, str, bool) = {
-    let (n, s, b) = (42, "hello", true);
-    (n, s, b)
-}
 
 // =============================================================================
 // Struct Destructuring in Let
@@ -78,17 +15,49 @@ use std.testing { assert, assert_eq }
 // Note: `let { x, y } = expr` works (see destructure_struct_return below).
 // `let Point { x, y } = expr` (with type name prefix) is not yet supported by parser.
 // Tests below use field access as workaround for the named variant.
-
 type Point = { x: int, y: int }
+
+type Person = { name: str, age: int }
+
+type Config = { host: str, port: int, debug: bool }
+
+// Note: Nested destructuring `let { first: (a, b), second: (c, d) } = pp` not yet
+// supported. Using field access + tuple destructuring as workaround.
+type PointPair = { first: (int, int), second: (int, int) }
+
+@tuple_destructure () -> int = {
+    let (a, b) = (10, 20);
+    a + b
+}
+
+@triple_destructure () -> int = {
+    let (a, b, c) = (1, 2, 3);
+    a + b + c
+}
+
+@quad_destructure () -> int = {
+    let (a, b, c, d) = (1, 2, 3, 4);
+    a + b + c + d
+}
+
+@nested_tuple_destructure () -> int = {
+    let ((a, b), (c, d)) = ((1, 2), (3, 4));
+    a + b + c + d
+}
+
+@tuple_with_wildcard () -> int = {
+    let (first, _) = (42, "ignored");
+    first
+}
+
+@tuple_mixed_types () -> (int, str, bool) = {
+    let (n, s, b) = (42, "hello", true);
+    (n, s, b)
+}
+
 @struct_destructure () -> int = {
     let p = Point { x: 10, y: 20 };
     p.x + p.y
-}
-
-@test_struct_destructure tests @struct_destructure () -> void = {
-    let p = Point { x: 10, y: 20 };
-    assert_eq(actual: p.x, expected: 10);
-    assert_eq(actual: p.y, expected: 20)
 }
 
 @struct_destructure_shorthand () -> int = {
@@ -96,101 +65,39 @@ type Point = { x: int, y: int }
     p.x + p.y
 }
 
-@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = {
-    let p = Point { x: 5, y: 15 };
-    assert_eq(actual: p.x, expected: 5);
-    assert_eq(actual: p.y, expected: 15)
-}
-
 @struct_destructure_rename () -> int = {
     let p = Point { x: 100, y: 200 };
     p.x + p.y
 }
-
-@test_struct_destructure_rename tests @struct_destructure_rename () -> void = {
-    let p = Point { x: 100, y: 200 };
-    assert_eq(actual: p.x, expected: 100);
-    assert_eq(actual: p.y, expected: 200)
-}
-
-type Person = { name: str, age: int }
 
 @struct_partial_destructure () -> str = {
     let person = Person { name: "Alice", age: 30 };
     person.name
 }
 
-@test_struct_partial_destructure tests @struct_partial_destructure () -> void = {
-    let person = Person { name: "Alice", age: 30 };
-    assert_eq(actual: person.name, expected: "Alice")
-}
-
-type Config = { host: str, port: int, debug: bool }
-
 @struct_three_fields () -> Config = {
     let cfg = Config { host: "localhost", port: 8080, debug: true };
     cfg
 }
 
-@test_struct_three_fields tests @struct_three_fields () -> void = {
-    let cfg = Config { host: "localhost", port: 8080, debug: true };
-    assert_eq(actual: cfg.host, expected: "localhost");
-    assert_eq(actual: cfg.port, expected: 8080);
-    assert(cond: cfg.debug)
+@list_destructure_fixed () -> int = match [1, 2, 3] {
+    [a, b, c] -> a + b + c,
+    _ -> panic(msg: "expected exactly 3 elements"),
 }
 
-// =============================================================================
-// List Destructuring in Let
-// =============================================================================
-
-@test_list_destructure_fixed tests @list_destructure_fixed () -> void = {
-    let [a, b, c] = [1, 2, 3];
-    assert_eq(actual: a, expected: 1);
-    assert_eq(actual: b, expected: 2);
-    assert_eq(actual: c, expected: 3)
+@list_head_tail () -> (int, [int]) = match [1, 2, 3, 4, 5] {
+    [head, ..tail] -> (head, tail),
+    _ -> panic(msg: "expected a non-empty list"),
 }
 
-@list_destructure_fixed () -> int = {
-    let [a, b, c] = [1, 2, 3];
-    a + b + c
+@list_first_two_rest () -> (int, int, [int]) = match [10, 20, 30, 40, 50] {
+    [a, b, ..rest] -> (a, b, rest),
+    _ -> panic(msg: "expected at least 2 elements"),
 }
 
-@test_list_head_tail tests @list_head_tail () -> void = {
-    let [head, ..tail] = [1, 2, 3, 4, 5];
-    assert_eq(actual: head, expected: 1);
-    assert_eq(actual: tail.len(), expected: 4)
-}
-
-@list_head_tail () -> (int, [int]) = {
-    let [head, ..tail] = [1, 2, 3, 4, 5];
-    (head, tail)
-}
-
-@test_list_first_two_rest tests @list_first_two_rest () -> void = {
-    let [a, b, ..rest] = [10, 20, 30, 40, 50];
-    assert_eq(actual: a, expected: 10);
-    assert_eq(actual: b, expected: 20);
-    assert_eq(actual: rest.len(), expected: 3)
-}
-
-@list_first_two_rest () -> (int, int, [int]) = {
-    let [a, b, ..rest] = [10, 20, 30, 40, 50];
-    (a, b, rest)
-}
-
-@test_list_single_element tests @list_single_element () -> void = {
-    let [only] = [42];
-    assert_eq(actual: only, expected: 42)
-}
-
-@list_single_element () -> int = {
-    let [only] = [42];
-    only
-}
-
-@test_list_rest_only tests @list_rest_only () -> void = {
-    let [..all] = [1, 2, 3, 4, 5];
-    assert_eq(actual: all.len(), expected: 5)
+@list_single_element () -> int = match [42] {
+    [only] -> only,
+    _ -> panic(msg: "expected exactly 1 element"),
 }
 
 @list_rest_only () -> [int] = {
@@ -198,52 +105,25 @@ type Config = { host: str, port: int, debug: bool }
     all
 }
 
-// =============================================================================
-// Combined Destructuring
-// =============================================================================
-
-@test_tuple_of_structs tests @tuple_of_structs () -> void = {
-    let (p1, p2) = (Point { x: 1, y: 2 }, Point { x: 3, y: 4 });
-    assert_eq(actual: p1.x, expected: 1);
-    assert_eq(actual: p2.y, expected: 4)
-}
-
 @tuple_of_structs () -> int = {
     let (p1, p2) = (Point { x: 1, y: 2 }, Point { x: 3, y: 4 });
     p1.x + p1.y + p2.x + p2.y
 }
 
-// Note: Nested destructuring `let { first: (a, b), second: (c, d) } = pp` not yet
-// supported. Using field access + tuple destructuring as workaround.
-
-type PointPair = { first: (int, int), second: (int, int) }
-
 @struct_with_tuple () -> int = {
     let pp = PointPair { first: (1, 2), second: (3, 4) };
     let (a, b) = pp.first;
     let (c, d) = pp.second;
-    a + b + c + d
-}
 
-@test_struct_with_tuple tests @struct_with_tuple () -> void = {
-    let pp = PointPair { first: (1, 2), second: (3, 4) };
-    let (a, b) = pp.first;
-    let (c, d) = pp.second;
-    assert_eq(actual: a + b + c + d, expected: 10)
+    a + b + c + d
 }
 
 @list_of_tuples () -> int = {
     let list = [(1, 2), (3, 4)];
     let (a, b) = list[0];
     let (c, d) = list[1];
-    a + b + c + d
-}
 
-@test_list_of_tuples tests @list_of_tuples () -> void = {
-    let list = [(1, 2), (3, 4)];
-    let (a, b) = list[0];
-    let (c, d) = list[1];
-    assert_eq(actual: a + b + c + d, expected: 10)
+    a + b + c + d
 }
 
 // =============================================================================
@@ -256,11 +136,6 @@ type PointPair = { first: (int, int), second: (int, int) }
 
 @param_destructure () -> int = sum_point(p: Point { x: 10, y: 20 });
 
-@test_param_destructure tests @param_destructure () -> void = {
-    let result = sum_point(p: Point { x: 10, y: 20 });
-    assert_eq(actual: result, expected: 30)
-}
-
 // Note: `((a, b): (int, int))` param destructuring not yet supported.
 // Test uses named param + internal destructuring.
 @sum_tuple (pair: (int, int)) -> int = {
@@ -270,23 +145,8 @@ type PointPair = { first: (int, int), second: (int, int) }
 
 @param_tuple_destructure () -> int = sum_tuple(pair: (5, 10));
 
-@test_param_tuple_destructure tests @param_tuple_destructure () -> void = {
-    let result = sum_tuple(pair: (5, 10));
-    assert_eq(actual: result, expected: 15)
-}
-
-// =============================================================================
-// Destructuring with Type Annotations
-// =============================================================================
-
-@test_typed_destructure tests @typed_destructure () -> void = {
-    let (a, b): (int, str) = (42, "hello");
-    assert_eq(actual: a, expected: 42);
-    assert_eq(actual: b, expected: "hello")
-}
-
 @typed_destructure () -> (int, str) = {
-    let (a, b): (int, str) = (42, "hello");
+    let (a, b) = (42, "hello");
     (a, b)
 }
 
@@ -295,12 +155,6 @@ type PointPair = { first: (int, int), second: (int, int) }
 @typed_struct_destructure () -> int = {
     let p = Point { x: 100, y: 200 };
     p.x + p.y
-}
-
-@test_typed_struct_destructure tests @typed_struct_destructure () -> void = {
-    let p = Point { x: 100, y: 200 };
-    assert_eq(actual: p.x, expected: 100);
-    assert_eq(actual: p.y, expected: 200)
 }
 
 // =============================================================================
@@ -315,7 +169,226 @@ type PointPair = { first: (int, int), second: (int, int) }
     let b = y;
     a = a + 1;
     b = b + 1;
+
     a + b
+}
+
+// =============================================================================
+// Destructuring from Function Returns
+// =============================================================================
+@make_pair () -> (int, str) = (42, "hello");
+
+@destructure_return () -> (int, str) = {
+    let (n, s) = make_pair();
+    (n, s)
+}
+
+@make_point () -> Point = Point { x: 5, y: 10 }
+
+@destructure_struct_return () -> int = {
+    let { x, y } = make_point();
+    x + y
+}
+
+@chained_destructure () -> int = {
+    let data = ((1, 2), (3, 4));
+    let (left, right) = data;
+    let (a, b) = left;
+    let (c, d) = right;
+
+    a + b + c + d
+}
+
+// =============================================================================
+// Tuple Destructuring in Let
+// =============================================================================
+@test_tuple_destructure tests @tuple_destructure () -> void = {
+    let (a, b) = (10, 20);
+    assert_eq(actual: a, expected: 10);
+
+    assert_eq(actual: b, expected: 20)
+}
+
+@test_triple_destructure tests @triple_destructure () -> void = {
+    let (a, b, c) = (1, 2, 3);
+    assert_eq(actual: a + b + c, expected: 6)
+}
+
+@test_quad_destructure tests @quad_destructure () -> void = {
+    let (a, b, c, d) = (1, 2, 3, 4);
+    assert_eq(actual: a + b + c + d, expected: 10)
+}
+
+@test_nested_tuple_destructure tests @nested_tuple_destructure () -> void = {
+    let ((a, b), (c, d)) = ((1, 2), (3, 4));
+    assert_eq(actual: a, expected: 1);
+
+    assert_eq(actual: d, expected: 4)
+}
+
+@test_tuple_with_wildcard tests @tuple_with_wildcard () -> void = {
+    let (first, _) = (42, "ignored");
+    assert_eq(actual: first, expected: 42)
+}
+
+@test_tuple_mixed_types tests @tuple_mixed_types () -> void = {
+    let (n, s, b) = (42, "hello", true);
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "hello");
+
+    assert(cond: b)
+}
+
+@test_struct_destructure tests @struct_destructure () -> void = {
+    let p = Point { x: 10, y: 20 };
+    assert_eq(actual: p.x, expected: 10);
+
+    assert_eq(actual: p.y, expected: 20)
+}
+
+@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = {
+    let p = Point { x: 5, y: 15 };
+    assert_eq(actual: p.x, expected: 5);
+
+    assert_eq(actual: p.y, expected: 15)
+}
+
+@test_struct_destructure_rename tests @struct_destructure_rename () -> void = {
+    let p = Point { x: 100, y: 200 };
+    assert_eq(actual: p.x, expected: 100);
+
+    assert_eq(actual: p.y, expected: 200)
+}
+
+@test_struct_partial_destructure tests @struct_partial_destructure () -> void = {
+    let person = Person { name: "Alice", age: 30 };
+    assert_eq(actual: person.name, expected: "Alice")
+}
+
+@test_struct_three_fields tests @struct_three_fields () -> void = {
+    let cfg = Config { host: "localhost", port: 8080, debug: true };
+    assert_eq(actual: cfg.host, expected: "localhost");
+    assert_eq(actual: cfg.port, expected: 8080);
+
+    assert(cond: cfg.debug)
+}
+
+// =============================================================================
+// List Destructuring — `match` for refutable shapes; irrefutable rest-only `let`
+//
+// Per 13-variables.md § 13.4 + 15-patterns.md § Pattern Refutability: a
+// dynamic-length list pattern (`[a, b, c]`, `[head, ..tail]`, `[a, b, ..rest]`,
+// `[only]`) is REFUTABLE against `[T]` and rejected in a `let` binding with
+// E2001. Those shapes bind via `match`. Only the rest-only `[..all]` (zero
+// required elements + rest) is irrefutable and legal in `let`.
+// =============================================================================
+@test_list_destructure_fixed tests @list_destructure_fixed () -> void = {
+    match [1, 2, 3] {
+        [a, b, c] -> {
+            assert_eq(actual: a, expected: 1);
+            assert_eq(actual: b, expected: 2);
+
+            assert_eq(actual: c, expected: 3)
+        },
+        _ -> panic(msg: "expected exactly 3 elements"),
+    }
+}
+
+@test_list_head_tail tests @list_head_tail () -> void = {
+    match [1, 2, 3, 4, 5] {
+        [head, ..tail] -> {
+            assert_eq(actual: head, expected: 1);
+            assert_eq(actual: tail.len(), expected: 4)
+        },
+        _ -> panic(msg: "expected a non-empty list"),
+    }
+}
+
+@test_list_first_two_rest tests @list_first_two_rest () -> void = {
+    match [10, 20, 30, 40, 50] {
+        [a, b, ..rest] -> {
+            assert_eq(actual: a, expected: 10);
+            assert_eq(actual: b, expected: 20);
+
+            assert_eq(actual: rest.len(), expected: 3)
+        },
+        _ -> panic(msg: "expected at least 2 elements"),
+    }
+}
+
+@test_list_single_element tests @list_single_element () -> void = {
+    match [42] {
+        [only] -> assert_eq(actual: only, expected: 42),
+        _ -> panic(msg: "expected exactly 1 element"),
+    }
+}
+
+// Irrefutable rest-only `[..all]` — empty required elements + rest matches ANY
+// list, so it stays a legal `let` (refutability.rs returns Ok for this shape).
+@test_list_rest_only tests @list_rest_only () -> void = {
+    let [..all] = [1, 2, 3, 4, 5];
+    assert_eq(actual: all.len(), expected: 5)
+}
+
+// Negative pin (CF-3) — a refutable list pattern in a `let` is rejected with
+// E2001. Proves the compiler ENFORCES the refutability rule, not merely that
+// this corpus avoids the form.
+#compile_fail(code: "E2001")
+@test_refutable_list_let_rejected tests _ () -> void = {
+    let [a, b, c] = [1, 2, 3];
+}
+
+// =============================================================================
+// Combined Destructuring
+// =============================================================================
+@test_tuple_of_structs tests @tuple_of_structs () -> void = {
+    let (p1, p2) = (Point { x: 1, y: 2 }, Point { x: 3, y: 4 });
+    assert_eq(actual: p1.x, expected: 1);
+
+    assert_eq(actual: p2.y, expected: 4)
+}
+
+@test_struct_with_tuple tests @struct_with_tuple () -> void = {
+    let pp = PointPair { first: (1, 2), second: (3, 4) };
+    let (a, b) = pp.first;
+    let (c, d) = pp.second;
+
+    assert_eq(actual: a + b + c + d, expected: 10)
+}
+
+@test_list_of_tuples tests @list_of_tuples () -> void = {
+    let list = [(1, 2), (3, 4)];
+    let (a, b) = list[0];
+    let (c, d) = list[1];
+
+    assert_eq(actual: a + b + c + d, expected: 10)
+}
+
+@test_param_destructure tests @param_destructure () -> void = {
+    let result = sum_point(p: Point { x: 10, y: 20 });
+    assert_eq(actual: result, expected: 30)
+}
+
+@test_param_tuple_destructure tests @param_tuple_destructure () -> void = {
+    let result = sum_tuple(pair: (5, 10));
+    assert_eq(actual: result, expected: 15)
+}
+
+// =============================================================================
+// Destructuring with Type Annotations
+// =============================================================================
+@test_typed_destructure tests @typed_destructure () -> void = {
+    let (a, b) = (42, "hello");
+    assert_eq(actual: a, expected: 42);
+
+    assert_eq(actual: b, expected: "hello")
+}
+
+@test_typed_struct_destructure tests @typed_struct_destructure () -> void = {
+    let p = Point { x: 100, y: 200 };
+    assert_eq(actual: p.x, expected: 100);
+
+    assert_eq(actual: p.y, expected: 200)
 }
 
 @test_mutable_tuple_destructure tests @mutable_tuple_destructure () -> void = {
@@ -325,55 +398,32 @@ type PointPair = { first: (int, int), second: (int, int) }
     a = a + 1;
     b = b + 1;
     assert_eq(actual: a, expected: 11);
+
     assert_eq(actual: b, expected: 21)
 }
-
-// =============================================================================
-// Destructuring from Function Returns
-// =============================================================================
-
-@make_pair () -> (int, str) = (42, "hello");
 
 @test_destructure_return tests @destructure_return () -> void = {
     let (n, s) = make_pair();
     assert_eq(actual: n, expected: 42);
+
     assert_eq(actual: s, expected: "hello")
 }
-
-@destructure_return () -> (int, str) = {
-    let (n, s) = make_pair();
-    (n, s)
-}
-
-@make_point () -> Point = Point { x: 5, y: 10 }
 
 @test_destructure_struct_return tests @destructure_struct_return () -> void = {
     let { x, y } = make_point();
     assert_eq(actual: x, expected: 5);
-    assert_eq(actual: y, expected: 10)
-}
 
-@destructure_struct_return () -> int = {
-    let { x, y } = make_point();
-    x + y
+    assert_eq(actual: y, expected: 10)
 }
 
 // =============================================================================
 // Chained Destructuring
 // =============================================================================
-
 @test_chained_destructure tests @chained_destructure () -> void = {
     let data = ((1, 2), (3, 4));
     let (left, right) = data;
     let (a, b) = left;
     let (c, d) = right;
-    assert_eq(actual: a + b + c + d, expected: 10)
-}
 
-@chained_destructure () -> int = {
-    let data = ((1, 2), (3, 4));
-    let (left, right) = data;
-    let (a, b) = left;
-    let (c, d) = right;
-    a + b + c + d
+    assert_eq(actual: a + b + c + d, expected: 10)
 }

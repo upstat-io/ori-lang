@@ -1766,7 +1766,7 @@ Width-based. One element per line when broken. Rest patterns `..rest` and `..$re
 // Inline
 let (x, y) = get_point();
 let { name, age } = get_user();
-let [$head, ..tail] = items;
+let [..rest] = items;
 
 // Broken — one per line
 let {

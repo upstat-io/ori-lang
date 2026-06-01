@@ -103,12 +103,22 @@ let { $x, y } = point;                 // x immutable, y mutable
 let { x: px, y: py } = point;          // rename, both mutable
 let (a, b) = pair;                     // both mutable
 let ($a, $b) = pair;                   // both immutable
-let [head, ..tail] = list;             // head mutable, tail mutable
-let [$head, ..tail] = list;            // head immutable, tail mutable
+let [..all] = list;                    // rest-only: binds every element
 let { position: { x, y } } = entity;   // nested destructure
 ```
 
 Pattern shall match value structure.
+
+A list pattern that fixes one or more element positions — `[a, b, c]`, `[head, ..tail]`, `[a, b, ..rest]`, `[only]` — is _refutable_ against a dynamic-length list `[T]`, because the list may have a different length, and shall not appear in a `let` binding; such a binding is an `error` (E2001). The rest-only pattern `[..all]` binds every element and is _irrefutable_. Refutable list shapes shall be bound through `match`. See [15 Patterns](15-patterns.md).
+
+```ori
+match list {                           // refutable shapes bind via match
+    [head, ..tail] -> head,
+    _ -> 0,
+}
+```
+
+NOTE  A fixed-capacity list type `[T, max N]` has static arity, so a fully-positional pattern against it is irrefutable and may bind in a `let`; this is reserved pending the capacity-aware pattern encoding.
 
 ## 13.5 Function Parameters
 
