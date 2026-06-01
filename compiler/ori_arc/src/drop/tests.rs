@@ -1039,3 +1039,117 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
         }
     );
 }
+
+// type_drop_may_unwind — predicate (BUG-04-125 Step 1).
+//
+// The local "@drop" fact is parameterized via `has_user_drop`, so the drop-tree
+// recursion + cycle-soundness are exercised white-box here, independent of the
+// codegen `method_functions` map (the real local-check SSOT on the codegen
+// path). `drop_types` is the set of Idxs that carry a user `@drop`.
+//
+// KNOWN LIMITATION (consistent with Step-0 emission, NOT a new unsoundness):
+// `compute_drop_info` is RC-filtered — an all-scalar-field Drop struct reports
+// no RC need and is omitted from a parent's child list, so a NESTED all-scalar
+// Drop type is not reached through the structure walk. The top-level local
+// check still catches an all-scalar Drop type directly. Realistic Drop types
+// own heap/str fields (RC'd) and are fully covered. The nested-all-scalar gap
+// is a facet of the burden-registry-not-threaded condition owned by the
+// aims-burden-tracking plan (§06); Step-0 `@drop` emission shares the same
+// RC-filtered structure, so the predicate matches emission reality.
+
+fn may_unwind(ty: Idx, pool: &Pool, drop_types: &[Idx]) -> bool {
+    let c = cls(pool);
+    let mut memo: rustc_hash::FxHashMap<Idx, bool> = rustc_hash::FxHashMap::default();
+    let has_user_drop = |t: Idx| drop_types.contains(&t);
+    type_drop_may_unwind(ty, &c, pool, &has_user_drop, &mut memo)
+}
+
+#[test]
+fn may_unwind_scalar_and_trivial_never_unwind() {
+    let pool = Pool::new();
+    assert!(!may_unwind(Idx::INT, &pool, &[]));
+    assert!(!may_unwind(Idx::FLOAT, &pool, &[]));
+    assert!(!may_unwind(Idx::STR, &pool, &[])); // str: Trivial, no @drop
+}
+
+#[test]
+fn may_unwind_list_of_scalar_does_not_unwind() {
+    let mut pool = Pool::new();
+    let list = pool.list(Idx::INT);
+    assert!(!may_unwind(list, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_top_level_all_scalar_drop_type_is_caught_by_local_check() {
+    // An all-scalar Drop struct collapses to Trivial/None in compute_drop_info
+    // (user_drop hardcoded None); the local-check-first path catches it.
+    let mut pool = Pool::new();
+    let s = pool.struct_type(Name::from_raw(700), &[(Name::from_raw(701), Idx::INT)]);
+    assert!(may_unwind(s, &pool, &[s])); // s itself carries @drop
+    assert!(!may_unwind(s, &pool, &[])); // no @drop anywhere
+}
+
+#[test]
+fn may_unwind_struct_with_drop_field_unwinds() {
+    // Realistic shape: the inner Drop type owns a `str` (RC'd, so it appears in
+    // the outer struct's drop-tree). Outer has no @drop of its own.
+    let mut pool = Pool::new();
+    let inner = pool.struct_type(Name::from_raw(710), &[(Name::from_raw(711), Idx::STR)]);
+    let outer = pool.struct_type(Name::from_raw(712), &[(Name::from_raw(713), inner)]);
+    assert!(may_unwind(outer, &pool, &[inner])); // reached via the inner field
+    assert!(!may_unwind(outer, &pool, &[])); // str-only drop tree, no @drop
+}
+
+#[test]
+fn may_unwind_collection_of_drop_element_unwinds() {
+    // `[DropElem]` where DropElem owns a str and carries @drop.
+    let mut pool = Pool::new();
+    let elem = pool.struct_type(Name::from_raw(720), &[(Name::from_raw(721), Idx::STR)]);
+    let list = pool.list(elem);
+    assert!(may_unwind(list, &pool, &[elem]));
+    assert!(!may_unwind(list, &pool, &[])); // list of non-@drop structs
+}
+
+#[test]
+fn may_unwind_map_value_drop_unwinds_keys_do_not_when_scalar() {
+    let mut pool = Pool::new();
+    let val = pool.struct_type(Name::from_raw(730), &[(Name::from_raw(731), Idx::STR)]);
+    let map = pool.map(Idx::INT, val); // scalar key, Drop value
+    assert!(may_unwind(map, &pool, &[val])); // reached via dec_values
+    assert!(!may_unwind(map, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_map_key_drop_unwinds() {
+    let mut pool = Pool::new();
+    let key = pool.struct_type(Name::from_raw(740), &[(Name::from_raw(741), Idx::STR)]);
+    let map = pool.map(key, Idx::INT); // Drop key, scalar value
+    assert!(may_unwind(map, &pool, &[key])); // reached via dec_keys
+}
+
+#[test]
+fn may_unwind_enum_variant_payload_drop_unwinds() {
+    // Option<DropElem> — the Some payload reaches a @drop type.
+    let mut pool = Pool::new();
+    let elem = pool.struct_type(Name::from_raw(750), &[(Name::from_raw(751), Idx::STR)]);
+    let opt = pool.option(elem);
+    assert!(may_unwind(opt, &pool, &[elem]));
+    assert!(!may_unwind(opt, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_negative_pin_plain_str_struct_does_not_unwind() {
+    // Negative pin: a struct owning only str/list (Trivial element drops) with
+    // NO @drop anywhere must NOT be classified may-unwind — else every
+    // collection-bearing function would get spurious landing pads.
+    let mut pool = Pool::new();
+    let list_str = pool.list(Idx::STR);
+    let s = pool.struct_type(
+        Name::from_raw(760),
+        &[
+            (Name::from_raw(761), Idx::STR),
+            (Name::from_raw(762), list_str),
+        ],
+    );
+    assert!(!may_unwind(s, &pool, &[]));
+}

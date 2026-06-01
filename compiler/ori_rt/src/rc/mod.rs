@@ -258,6 +258,46 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// May-unwind RC decrement — `extern "C-unwind"` variant of [`ori_rc_dec`] for
+/// types whose drop transitively runs a user `@drop` (per
+/// `ori_arc::type_drop_may_unwind`). The drop function is called DIRECTLY (no
+/// `call_drop_fn` `catch_unwind` guard), so a foreign Ori exception raised by
+/// the user `@drop` unwinds THROUGH this `extern "C-unwind"` frame to the
+/// caller's cleanup landing pad instead of aborting at the `nounwind`
+/// boundary. Codegen routes here via `invoke` only at may-unwind `RcDec`
+/// sites; the nounwind [`ori_rc_dec`] stays for scalar / trivial-drop /
+/// nounwind-drop-fn paths (its `catch_unwind` abort is the safety net for
+/// drop fns that must never unwind). A nested panic during the drop fn's own
+/// cleanup walk aborts via `ori_drop_double_panic_abort` (raised from the
+/// drop fn's cleanup pad), not here.
+#[no_mangle]
+pub extern "C-unwind" fn ori_rc_dec_unwind(
+    data_ptr: *mut u8,
+    drop_fn: Option<extern "C-unwind" fn(*mut u8)>,
+) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_dec_unwind");
+    }
+
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec_unwind");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec_unwind");
+
+    // SAFETY: data_ptr is non-null (checked above) and was returned by ori_rc_alloc.
+    if unsafe { rc_dec_to_zero(data_ptr) } {
+        if let Some(f) = drop_fn {
+            // Direct call (NO catch_unwind): a foreign Ori exception from the
+            // user `@drop` unwinds through this `extern "C-unwind"` frame to
+            // the caller's cleanup pad — the recoverable-drop-panic path.
+            f(data_ptr);
+        }
+    }
+}
+
 /// Core RC decrement protocol. Returns `true` if RC reached zero and
 /// the caller should perform type-specific cleanup.
 ///

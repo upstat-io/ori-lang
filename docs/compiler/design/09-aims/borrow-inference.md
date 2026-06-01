@@ -15,7 +15,7 @@ The question is: how does the compiler know which parameters are merely borrowed
 
 AIMS answers this question through **interprocedural contracts** — a `MemoryContract` per function computed via SCC-based fixpoint iteration over the module's call graph. Each contract describes not just ownership (borrowed vs owned), but a rich multi-dimensional summary of how each parameter is used: access pattern, consumption mode, usage count, escape behavior, and uniqueness requirements. The unified realization step reads these contracts to skip RC operations at call sites for borrowed parameters and to make precise ownership decisions at every call.
 
-The concept originates from [Lean 4](https://github.com/leanprover/lean4)'s compiler (`src/Lean/Compiler/IR/Borrow.lean`), which pioneered SCC-based interprocedural borrow inference for a functional language with reference counting. AIMS extends Lean's binary (Borrowed/Owned) classification to a multi-dimensional contract covering all seven lattice dimensions.
+The interprocedural-contract shape drew on [Lean 4](https://github.com/leanprover/lean4)'s compiler (`src/Lean/Compiler/IR/Borrow.lean`), which pioneered SCC-based interprocedural borrow inference for a functional language with reference counting, as a historical influence. AIMS is Ori's own memory model: it composes that binary (Borrowed/Owned) classification SHAPE into a multi-dimensional contract covering all seven lattice dimensions, proven sound independently (see Spec: Annex E §AIMS).
 
 ### Why Interprocedural?
 
@@ -164,7 +164,7 @@ Contracts are recomputed per pipeline invocation — `analyze_program()` runs fr
 
 ## Prior Art
 
-**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/Borrow.lean`) is the direct inspiration. Lean's borrow inference uses the same SCC-based fixed-point approach with monotonic promotion from Borrowed to Owned. AIMS extends Lean's binary classification to multi-dimensional contracts that cover consumption, cardinality, locality, and uniqueness in addition to access.
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/Borrow.lean`) is the historical influence. Lean's borrow inference uses the same SCC-based fixed-point approach with monotonic promotion from Borrowed to Owned. AIMS is Ori's own model: it composes that binary-classification SHAPE into multi-dimensional contracts covering consumption, cardinality, locality, and uniqueness in addition to access — proven sound independently (see Spec: Annex E §AIMS).
 
 **[Koka](https://github.com/koka-lang/koka)** (`src/Core/Borrowed.hs`) performs a similar analysis as part of its Perceus implementation. Koka's approach is simpler — it does not perform full SCC decomposition but instead uses a two-pass strategy — which works for Koka's effect-handler-based architecture but would miss opportunities in Ori's more general call graph.
 

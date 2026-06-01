@@ -9,11 +9,12 @@
 //! Only the argument annotation logic remains, as it is shared by both
 //! the AIMS pipeline and external callers.
 //!
-//! # References
+//! # Historical design influences
 //!
-//! - Lean 4: `src/Lean/Compiler/IR/RC.lean`
-//! - Koka: Perceus paper §3.2
-//! - Swift: `lib/SILOptimizer/ARC/`
+//! The RC-insertion SHAPE drew on prior work as historical influences;
+//! Ori's formulation is its own (see Spec: Annex E §AIMS).
+//! Influence shapes: Lean 4 LCNF RC insertion; Koka Perceus (Reinking et al.,
+//! PLDI 2021) §3.2; Swift ARC optimizer.
 
 mod annotate;
 pub(crate) mod closure_resolve;

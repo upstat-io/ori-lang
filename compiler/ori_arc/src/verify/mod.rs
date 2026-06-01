@@ -1,8 +1,8 @@
 //! ARC IR structural verification.
 //!
 //! Validates invariants of [`ArcFunction`] that must hold after lowering
-//! and throughout the pipeline. Inspired by Lean 4's `Compiler/IR/Checker.lean`
-//! and Rust's `rustc_mir_transform/src/check_*.rs`.
+//! and throughout the pipeline. Historical influence: Lean 4's `Compiler/IR/Checker.lean`
+//! and Rust's `rustc_mir_transform/src/check_*.rs` SHAPE.
 //!
 //! Checks are grouped into two categories:
 //!

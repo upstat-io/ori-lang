@@ -70,7 +70,7 @@ impl Consumption {
 
 // Cardinality dimension (forward usage count)
 
-/// Forward usage count. Inspired by GHC demand analysis (POPL 2014).
+/// Forward usage count. Historical influence: GHC demand analysis (POPL 2014) SHAPE.
 ///
 /// Ordered: `Absent < Once < Many`. Chain height: 2.
 ///

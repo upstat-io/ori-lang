@@ -25,8 +25,8 @@ use crate::ir::ArcVarId;
 /// in a single forward pass over SSA blocks (no fixed-point needed since
 /// each variable is defined exactly once in SSA form).
 ///
-/// Inspired by Lean 4's per-variable borrow tracking (`Lean.Compiler.IR.Borrow`)
-/// and Swift's ownership SSA (`OwnershipKind`).
+/// Historical influence: Lean 4's per-variable borrow tracking (`Lean.Compiler.IR.Borrow`)
+/// and Swift's ownership SSA (`OwnershipKind`) SHAPE.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum DerivedOwnership {
@@ -46,7 +46,7 @@ pub enum DerivedOwnership {
 
 /// Ownership classification for a function parameter.
 ///
-/// Inspired by Lean 4's borrow inference: parameters are either borrowed
+/// Historical influence: Lean 4's borrow-inference SHAPE: parameters are either borrowed
 /// (callee promises not to store the reference) or owned (callee may retain,
 /// requiring the caller to increment the reference count).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

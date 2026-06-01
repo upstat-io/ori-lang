@@ -60,7 +60,21 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     }
 
     emitter.builder.set_ccc(func_id);
-    emitter.builder.add_nounwind_attribute(func_id);
+    // A may-unwind drop fn (its drop tree reaches a user `@drop` that may raise
+    // a foreign Ori exception) MUST NOT be `nounwind` — it threads the
+    // exception out via a cleanup landing pad (the AUGMENT body runs the field
+    // walk + free on the unwind path, then `resume`s). Itanium only for now;
+    // SEH funclet EH for the drop-fn cleanup pad is anchored in §05. A
+    // non-may-unwind drop fn (scalar/trivial children, no `@drop`) stays
+    // `nounwind` (the prior contract — its callers keep the fast path).
+    let drop_unwinds = emitter.drop_may_unwind(ty)
+        && emitter.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+    if drop_unwinds {
+        let personality = emitter.builder.runtime_fn("ori_eh_personality");
+        emitter.builder.set_personality(func_id, personality);
+    } else {
+        emitter.builder.add_nounwind_attribute(func_id);
+    }
     emitter.builder.add_cold_attribute(func_id);
     emitter.builder.add_uwtable_attribute(func_id);
     // noundef on data pointer param — Ori never passes poison pointers.
@@ -156,9 +170,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// order (LIFO), then free. Without a user `@drop`, the plain field walk +
     /// free is emitted.
     ///
-    /// The user `@drop` call is a plain (non-unwinding) `call`: a panic in the
-    /// `@drop` body aborts via the `call_drop_fn` runtime guard. Recoverable
-    /// single-drop-panic unwinding (invoke + landing-pad) is not yet wired.
+    /// When the type's own `@drop` may unwind (Itanium), the user `@drop` is
+    /// emitted as an `invoke`: on normal return the reverse field walk + free
+    /// run in the continuation block; on a `@drop` panic the cleanup landing
+    /// pad re-runs the field walk + free (so owned fields are freed — no leak),
+    /// then `resume`s the foreign exception to the caller. Otherwise the user
+    /// `@drop` is a plain `call` (a panic aborts via the `call_drop_fn` runtime
+    /// guard on the non-unwinding path).
     fn emit_drop_fields(
         &mut self,
         data_ptr: ValueId,
@@ -166,10 +184,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         fields: &[(u32, Idx)],
         _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        // User `@drop` runs first (plain call), then the reverse-order field
-        // walk + free.
-        self.emit_user_drop_via_pointer(ty, data_ptr);
         let reversed: Vec<(u32, Idx)> = fields.iter().rev().copied().collect();
+
+        // Recoverable path: the type's OWN `@drop` may unwind (a panicking
+        // user `@drop`). A field-only may-unwind (no own `@drop`) takes the
+        // plain field-walk path — the per-field drops propagate through this
+        // frame's personality without a local landing pad.
+        let own_drop_unwinds = self.user_drop_method(ty).is_some()
+            && self.drop_may_unwind(ty)
+            && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+
+        if own_drop_unwinds {
+            let cont_bb = self
+                .builder
+                .append_block(self.current_function, "udrop.cont");
+            let cleanup_bb = self
+                .builder
+                .append_block(self.current_function, "udrop.cleanup");
+            // invoke @drop → cont_bb (normal) / cleanup_bb (unwind)
+            if self.invoke_user_drop_via_pointer(ty, data_ptr, cont_bb, cleanup_bb) {
+                // Normal continuation: field walk + free + ret.
+                self.builder.position_at_end(cont_bb);
+                self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f");
+                self.emit_drop_rc_free(data_ptr, ty);
+                self.builder.ret_void();
+
+                // Cleanup pad: field walk + free still run (no leak), then
+                // re-raise the foreign exception to the caller's cleanup pad.
+                self.builder.position_at_end(cleanup_bb);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self.builder.landingpad(personality, true, "udrop.lp");
+                self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f.cl");
+                self.emit_drop_rc_free(data_ptr, ty);
+                self.builder.resume(lp);
+                return;
+            }
+            // No user `@drop` resolved after all — fall through to plain path.
+        }
+
+        // Plain path: user `@drop` (if any) as a plain call, then field walk.
+        self.emit_user_drop_via_pointer(ty, data_ptr);
         self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f");
         self.emit_drop_rc_free(data_ptr, ty);
         self.builder.ret_void();

@@ -6,7 +6,7 @@
 //! reuse). This helps developers understand where heap allocation can be
 //! avoided and why.
 //!
-//! Inspired by Koka's `CheckFBIP.hs` — a read-only diagnostic pass that
+//! Historical influence: Koka's `CheckFBIP.hs` SHAPE — a read-only diagnostic pass that
 //! reports on the effectiveness of Perceus reference counting.
 //!
 //! # Usage

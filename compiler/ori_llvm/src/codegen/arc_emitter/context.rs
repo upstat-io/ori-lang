@@ -328,6 +328,14 @@ pub struct CodegenContext {
     /// Known read-only function names (reads memory, no writes). These get
     /// the LLVM `memory(read)` attribute. Strictly weaker than `pure_functions`.
     pub readonly_functions: FxHashSet<Name>,
+    /// Memoized `ori_arc::type_drop_may_unwind` results keyed by type `Idx`.
+    ///
+    /// Interior-mutable so the nounwind analysis (`is_arc_function_nounwind`,
+    /// `&self`) and the `RcDec` emitter share one cache. A `RcDec` of a type
+    /// whose drop transitively runs a user `@drop` may raise a foreign Itanium
+    /// exception, so its dec site is may-unwind (needs an `invoke` + cleanup
+    /// pad). Stable per compilation — the type pool is frozen.
+    pub drop_unwind_memo: std::cell::RefCell<FxHashMap<Idx, bool>>,
 }
 
 // Re-export convenience method on ArcIrEmitter for use by submodules

@@ -29,7 +29,7 @@
 //! - **Roc** `crates/compiler/mono/src/code_gen_help/refcount.rs` —
 //!   per-layout refcount helpers, specialized drop per type
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::{Idx, Pool, Tag};
 
@@ -213,6 +213,116 @@ pub fn compute_drop_info(
             kind: DropKind::Trivial,
         }),
     }
+}
+
+/// Does refcount-zero teardown of `ty` transitively run a user `@drop`?
+///
+/// `true` iff dropping `ty` reaches a user `@drop` on `ty` itself or on any
+/// transitively-owned field / variant payload / collection element /
+/// map key-or-value / closure capture. A user `@drop` may panic (raise a
+/// foreign Itanium exception via `_Unwind_RaiseException`), so a scope-exit
+/// `RcDec` of a may-unwind type cannot be `nounwind`: the nounwind analysis
+/// (`is_arc_function_nounwind`) and the `RcDec` emitter (`emit_rc_dec`) both
+/// gate on this predicate to decide whether the dec site needs an `invoke` +
+/// cleanup landing pad threading the exception toward the `@main` catch-all.
+///
+/// `has_user_drop(node_ty)` is the LOCAL "does this exact type carry a user
+/// `@drop`" check, supplied by the caller. On the codegen path the SSOT is
+/// `CodegenContext.method_functions` (`ArcIrEmitter::user_drop_method`); the
+/// burden-registry `user_drop` field on [`DropKind`] is hardcoded `None` by
+/// the pool-walk synthesizer and is NOT consulted here. The local check runs
+/// BEFORE [`compute_drop_info`] because an all-scalar-field Drop type
+/// collapses to `Trivial`/`None` under that hardcoded `None`, so the
+/// structure result alone would miss it. [`compute_drop_info`] supplies only
+/// the child drop-tree structure (fields / variants / element / key-value /
+/// captures). Scalars / iterators with no local `@drop` never unwind.
+///
+/// `memo` is a caller-owned cache keyed by `Idx`; the pool is frozen per
+/// compilation, so a result is stable across queries. Cycle-sound: a fresh
+/// on-stack set breaks recursive-type back-edges (an on-stack edge yields a
+/// provisional `false`); only fully-resolved results are memoized — `true`
+/// is permanent (may-unwind is monotone-`OR`), and `false` is cached only
+/// when the subtree consumed no cycle-break (else it could under-approximate
+/// a member whose truth comes from a sibling branch resolved after it cached).
+pub fn type_drop_may_unwind(
+    ty: Idx,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+    has_user_drop: &dyn Fn(Idx) -> bool,
+    memo: &mut FxHashMap<Idx, bool>,
+) -> bool {
+    let mut on_stack = FxHashSet::default();
+    drop_may_unwind_rec(ty, classifier, pool, has_user_drop, memo, &mut on_stack).0
+}
+
+/// Returns `(may_unwind, consumed_cycle_break)`. `consumed_cycle_break` is
+/// `true` when the subtree result depended on an on-stack back-edge (which
+/// contributes a provisional `false`); such a `false` is an under-
+/// approximation and MUST NOT be memoized.
+fn drop_may_unwind_rec(
+    ty: Idx,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+    has_user_drop: &dyn Fn(Idx) -> bool,
+    memo: &mut FxHashMap<Idx, bool>,
+    on_stack: &mut FxHashSet<Idx>,
+) -> (bool, bool) {
+    if let Some(&cached) = memo.get(&ty) {
+        return (cached, false);
+    }
+    // Local `@drop` short-circuits to `true` — checked BEFORE compute_drop_info
+    // so an all-scalar-field Drop type (which collapses to Trivial/None under
+    // the hardcoded-None burden synthesizer) is still detected.
+    if has_user_drop(ty) {
+        memo.insert(ty, true);
+        return (true, false);
+    }
+    if on_stack.contains(&ty) {
+        return (false, true);
+    }
+    on_stack.insert(ty);
+
+    // Child drop-tree structure only — the `user_drop` field is ignored
+    // (always `None` on this path; the local check above is authoritative).
+    let kids: Vec<Idx> = match compute_drop_info(ty, classifier, pool) {
+        None => Vec::new(),
+        Some(info) => match info.kind {
+            DropKind::Trivial => Vec::new(),
+            DropKind::Fields { fields, .. } => fields.iter().map(|(_, t)| *t).collect(),
+            DropKind::Enum { variants, .. } => variants.iter().flatten().map(|(_, t)| *t).collect(),
+            DropKind::Collection { element_type } => vec![element_type],
+            DropKind::Map {
+                key_type,
+                value_type,
+                dec_keys,
+                dec_values,
+            } => {
+                let mut k = Vec::new();
+                if dec_keys {
+                    k.push(key_type);
+                }
+                if dec_values {
+                    k.push(value_type);
+                }
+                k
+            }
+            DropKind::ClosureEnv(captures) => captures.iter().map(|(_, t)| *t).collect(),
+        },
+    };
+
+    let mut any = false;
+    let mut cyclic = false;
+    for kid in kids {
+        let (r, c) = drop_may_unwind_rec(kid, classifier, pool, has_user_drop, memo, on_stack);
+        any |= r;
+        cyclic |= c;
+    }
+
+    on_stack.remove(&ty);
+    if any || !cyclic {
+        memo.insert(ty, any);
+    }
+    (any, cyclic)
 }
 
 /// Compute a drop descriptor for a closure environment.

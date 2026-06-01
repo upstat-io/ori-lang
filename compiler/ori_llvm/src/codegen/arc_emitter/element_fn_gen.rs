@@ -31,6 +31,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(*func_id)
     }
 
+    /// Does refcount-zero teardown of `ty` transitively run a user `@drop`
+    /// (which may raise a foreign Ori exception)?
+    ///
+    /// Codegen-side consumer of `ori_arc::type_drop_may_unwind`: supplies the
+    /// `method_functions`-based local `@drop` check ([`Self::user_drop_method`]
+    /// — the codegen SSOT, since the burden-registry `user_drop` is hardcoded
+    /// `None` on this path) + the per-type memo on `CodegenContext`. Gates the
+    /// may-unwind drop-fn shape (skip `nounwind` + set personality + `invoke`
+    /// the user `@drop`) and the may-unwind `RcDec` routing (`ori_rc_dec_unwind`
+    /// via `invoke` + cleanup pad).
+    pub(super) fn drop_may_unwind(&self, ty: Idx) -> bool {
+        let has_user_drop = |t: Idx| self.user_drop_method(t).is_some();
+        ori_arc::type_drop_may_unwind(
+            ty,
+            self.classifier,
+            self.pool,
+            &has_user_drop,
+            &mut self.ctx.drop_unwind_memo.borrow_mut(),
+        )
+    }
+
     /// Resolve a type `Idx` to its registered type `Name` for method lookup.
     ///
     /// `type_idx_to_name` is keyed by the `@drop` self-param `Idx` recorded at
@@ -105,6 +126,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             crate::codegen::abi::ParamPassing::Void => return,
         };
         self.emit_rt_call(func_id, &[arg], "");
+    }
+
+    /// Emit the user `@drop` invocation for a Drop type as an `invoke` (the
+    /// recoverable-panic path), routing the foreign Ori exception to a cleanup
+    /// landing pad instead of aborting.
+    ///
+    /// Mirrors [`Self::emit_user_drop_via_pointer`]'s ABI resolution, but emits
+    /// `invoke @drop → normal_bb / cleanup_bb` (Itanium). On normal return the
+    /// caller continues the field walk in `normal_bb`; on a `@drop` panic the
+    /// caller's cleanup pad in `cleanup_bb` re-runs the field walk + free, then
+    /// `resume`s. Returns `true` when an `invoke` was emitted (the current block
+    /// is now terminated), `false` when there is no user `@drop` (caller emits
+    /// the plain field walk).
+    pub(super) fn invoke_user_drop_via_pointer(
+        &mut self,
+        ty: Idx,
+        data_ptr: ValueId,
+        normal_bb: crate::codegen::value_id::BlockId,
+        cleanup_bb: crate::codegen::value_id::BlockId,
+    ) -> bool {
+        let Some(type_name) = self.drop_type_name(ty) else {
+            return false;
+        };
+        let resolved = self.pool.resolve_fully(ty);
+        let drop_name = self.interner.intern("drop");
+        let Some((func_id, passing)) = self
+            .ctx
+            .method_functions
+            .get(&(type_name, drop_name))
+            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
+        else {
+            return false;
+        };
+        let arg = match passing {
+            crate::codegen::abi::ParamPassing::Direct => {
+                let self_ty = self.resolve_type(resolved);
+                self.builder.load(self_ty, data_ptr, "udrop.self")
+            }
+            crate::codegen::abi::ParamPassing::Indirect { .. }
+            | crate::codegen::abi::ParamPassing::Reference => data_ptr,
+            crate::codegen::abi::ParamPassing::Void => return false,
+        };
+        self.builder
+            .invoke(func_id, &[arg], normal_bb, cleanup_bb, "");
+        true
     }
 
     /// Get or generate the drop function for a type.

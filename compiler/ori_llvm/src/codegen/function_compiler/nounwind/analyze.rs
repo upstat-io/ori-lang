@@ -169,6 +169,25 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
         use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
 
+        // Local "does this exact type carry a user `@drop`" check — the
+        // codegen SSOT (`CodegenContext.method_functions`, mirror of
+        // `ArcIrEmitter::user_drop_method`). Supplied to
+        // `ori_arc::type_drop_may_unwind`, which recurses the drop tree.
+        let drop_name = self.interner.intern("drop");
+        let ctx = &self.codegen_ctx;
+        let pool = self.pool;
+        let has_user_drop = |ty: ori_types::Idx| -> bool {
+            let type_name = ctx
+                .type_idx_to_name
+                .get(&ty)
+                .copied()
+                .or_else(|| ctx.type_idx_to_name.get(&pool.resolve_fully(ty)).copied());
+            match type_name {
+                Some(n) => ctx.method_functions.contains_key(&(n, drop_name)),
+                None => false,
+            }
+        };
+
         func.blocks.iter().all(|block| {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke {
@@ -242,6 +261,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 // for a LOW-severity finding. The pessimistic result (using
                 // invoke instead of call) is always safe.
                 ori_arc::ir::ArcInstr::ApplyIndirect { .. } => false,
+                // A scope-exit `RcDec` whose drop tree transitively reaches a
+                // user `@drop` may raise a foreign Itanium exception, so the
+                // function is may-unwind: it needs an `invoke` + cleanup pad
+                // (emitted at the dec site) to thread the exception toward the
+                // `@main` catch-all. Treating it as nounwind (the prior catch-
+                // all below) elides the landing pad → abort on the recoverable
+                // path. `ori_rc_inc`/scalar/`Trivial`-drop decs stay nounwind.
+                ori_arc::ir::ArcInstr::RcDec { var, .. } => !ori_arc::type_drop_may_unwind(
+                    func.var_type(*var),
+                    self.arc_classifier as &dyn ori_arc::ArcClassification,
+                    self.pool,
+                    &has_user_drop,
+                    &mut self.codegen_ctx.drop_unwind_memo.borrow_mut(),
+                ),
                 _ => true,
             });
             term_ok && instrs_ok

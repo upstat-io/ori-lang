@@ -1170,6 +1170,17 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
+    // May-unwind RC dec: drop fn called directly (no catch_unwind), so a
+    // foreign Ori exception from a user @drop unwinds through to the caller's
+    // cleanup pad. extern "C-unwind" → NO Nounwind (per RT-1 + runtime.md
+    // §Unwinding ABI). Routed via `invoke` at may-unwind RcDec sites only.
+    RtFn {
+        name: "ori_rc_dec_unwind",
+        params: &[Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::MemArgmemRW],
+        jit_allowed: true,
+    },
     // Slice-aware string RC inc: handles SSO, heap, and seamless slices.
     RtFn {
         name: "ori_str_rc_inc",

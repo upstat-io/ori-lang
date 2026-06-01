@@ -26,11 +26,13 @@
 //! tracked. Scalar variables are excluded because they never need
 //! `RcInc`/`RcDec`.
 //!
-//! # References
+//! # Historical design influences
 //!
-//! - Lean 4: `src/Lean/Compiler/IR/LiveVars.lean`
-//! - Koka: Perceus paper §3.2 (liveness-based RC insertion)
-//! - Appel: "Modern Compiler Implementation" §10.1 (dataflow analysis)
+//! The liveness-based RC-insertion SHAPE drew on prior work as historical
+//! influences; Ori's formulation is its own (see Spec: Annex E §AIMS).
+//! Influence shapes: Lean 4 LCNF liveness-driven RC insertion; Koka Perceus
+//! (Reinking et al., PLDI 2021) §3.2; Appel, "Modern Compiler Implementation"
+//! §10.1 (dataflow analysis).
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -224,8 +226,8 @@ fn needs_rc_var(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassific
 /// a variable that is only live-for-drop can be safely reset without risking
 /// a use-after-free, whereas a variable that is live-for-use cannot.
 ///
-/// Inspired by Lean 4's distinction between "consumed" and "dropped" in
-/// `Lean.Compiler.IR.RC` and Koka's `CheckFBIP.hs` ownership analysis.
+/// Historical influence: Lean 4's distinction between "consumed" and "dropped" in
+/// `Lean.Compiler.IR.RC` and Koka's `CheckFBIP.hs` ownership-analysis SHAPE.
 pub struct RefinedLiveness {
     /// Variables live because they will be read as an operand (not just dropped).
     pub live_for_use: LiveSet,

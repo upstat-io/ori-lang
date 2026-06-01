@@ -263,10 +263,7 @@ fn real_main() {
             print_usage();
         }
         "version" | "--version" | "-v" => {
-            println!(
-                "Ori Compiler {}",
-                include_str!("../../../BUILD_NUMBER").trim(),
-            );
+            println!("Ori Compiler {}", oric::version::report_version());
         }
         "watch" => {
             if args.len() < 3 {
@@ -325,10 +322,7 @@ fn real_main() {
 }
 
 fn print_usage() {
-    println!(
-        "Ori Compiler {}",
-        include_str!("../../../BUILD_NUMBER").trim(),
-    );
+    println!("Ori Compiler {}", oric::version::report_version());
     println!();
     println!("Usage: ori <command> [options]");
     println!();

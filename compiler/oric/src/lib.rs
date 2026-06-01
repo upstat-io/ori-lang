@@ -92,6 +92,7 @@ pub mod test_support;
 pub mod testing;
 pub mod tracing_setup;
 pub mod typeck;
+pub mod version;
 
 // Re-exports: only types actually consumed by external crates (ori-lsp, benches)
 // and by internal modules via `oric::` paths. IR types are accessed internally
