@@ -254,7 +254,7 @@ impl TypeCheckError {
     ///
     /// `site` classifies the expression position so the consumer
     /// (`TypeCheckError::message()`) can dispatch on the `AmbiguousTypeSite`
-    /// variant and produce site-specific wording per plan §06.1. Callers in
+    /// variant and produce site-specific wording. Callers in
     /// the validator compute the site from the `ExprKind` at the error
     /// position; signature positions (no `ExprKind` in scope) pass
     /// `AmbiguousTypeSite::Expression`.

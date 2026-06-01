@@ -191,11 +191,11 @@ fn register_impl(
 
     checker.trait_registry_mut().register_impl(entry);
 
-    // 10. Drop trait wiring (§04.3): when this impl is `impl T: Drop`,
+    // 10. Drop trait wiring: when this impl is `impl T: Drop`,
     //     populate `UserBurdenSpec.user_drop = Some(FnSym)` AND mint
     //     `compiled_drop = Some(FnSym)` so codegen's refcount-zero path
     //     materializes the AUGMENT body (user @drop FIRST, then field
-    //     walk in reverse declaration order). Per the §04.1 decision
+    //     walk in reverse declaration order). The decision
     //     rule: `compiled_drop = Some(_) iff (in non-singleton SCC) OR
     //     (self-loop) OR (user_drop = Some(_))`. The third clause fires
     //     here for every Drop type, including non-recursive ones —
@@ -216,8 +216,8 @@ fn register_impl(
 ///
 /// `compiled_drop` is minted via the shared SCC `FnSym` helper so the
 /// codegen-side `_ori_drop$<idx_raw>` mangling stays consistent across
-/// the three populator sites (§04.1 recursive, §04.2 closure, §04.3
-/// Drop).
+/// the three populator sites (recursive, closure, and Drop
+/// populators).
 fn populate_drop_burden_if_applicable(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
@@ -598,10 +598,10 @@ fn build_impl_method(
     self_type: Idx,
     trait_substitutions: &FxHashMap<Name, Idx>,
 ) -> ImplMethodDef {
-    // Phase B Step 3: deep-copy method-level generics + where-clauses into
-    // arena-independent owned form for downstream bound enforcement.
-    // Phase B Step 5b: also collect the `Name → Idx` overlay for fresh-Var
-    // substitution of method-level type names in param/return resolution.
+    // Deep-copy method-level generics + where-clauses into arena-independent
+    // owned form for downstream bound enforcement. Also collect the
+    // `Name → Idx` overlay for fresh-Var substitution of method-level type
+    // names in param/return resolution.
     let (scheme_var_ids, scheme_overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata(
             checker,
@@ -626,7 +626,7 @@ fn build_impl_method(
     // not affected. (Where-clause resolution inside
     // `build_method_generic_metadata` still runs against `scheme_overlay`
     // only — inherited defaults whose where-clauses reference trait-level
-    // binders are tracked as a follow-up `- [ ]` in §05.)
+    // binders are a known follow-up.)
     let mut combined_overlay = scheme_overlay.clone();
     for (&tname, &tidx) in trait_substitutions {
         combined_overlay.entry(tname).or_insert(tidx);

@@ -9,7 +9,7 @@ use crate::type_error::{ContextKind, ExpectedOrigin, TypeProblem};
 use crate::{Idx, ObjectSafetyViolation};
 
 /// Classifies the expression position where an unresolved type variable was
-/// observed — drives specialized E2005 diagnostic wording per plan §06.1.
+/// observed — drives specialized E2005 diagnostic wording.
 ///
 /// The producer (`validate_body_types` in `check/validators/mod.rs`) inspects
 /// the `ExprKind` at the error site and selects the variant. The consumer
@@ -24,7 +24,7 @@ pub enum AmbiguousTypeSite {
     /// classified below.
     Expression,
     /// Empty list literal `[]` (or `ListWithSpread([])` — spec-canonical
-    /// forms for an empty-literal list site). Per plan §06.1, map/set
+    /// forms for an empty-literal list site). For map/set
     /// literals stay on the generic fallback; this variant is list-only.
     EmptyList,
     /// Closure parameter position within a `Lambda` expression whose
