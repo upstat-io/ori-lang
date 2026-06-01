@@ -516,7 +516,6 @@ type Mixed = { items: [Counted], trigger: Bomb }
 /// Map VALUE @drop panics mid-walk → remaining entries cleaned up; both key
 /// and value buffers freed.
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_map_value_panic_cleans_remaining_entries() {
     let source = r#"
 type Boom = { tag: str }
@@ -549,7 +548,7 @@ type Wrap = { m: {str: Boom} }
 /// corresponding/remaining VALUES and free BOTH buffers (no value leak when
 /// the panic originates on the key channel).
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
+#[ignore = "BUG-05-007: a may-unwind map KEY needs a custom-Hashable struct key, which segfaults at construction (null key_hash thunk for user-Hashable keys) before reaching teardown. The two-channel key-channel drop codegen is built + symmetric to the value channel (proven by drop_map_value_panic); un-ignore once BUG-05-007 wires user-Hashable key thunks."]
 fn drop_map_key_panic_two_channel_cleanup_frees_values() {
     let source = r#"
 type BoomKey = { tag: str }

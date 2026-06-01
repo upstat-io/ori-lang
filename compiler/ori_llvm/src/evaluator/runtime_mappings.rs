@@ -173,6 +173,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_rc_dec" => runtime::ori_str_rc_dec as *const () as usize,
         "ori_str_drop_buffer" => runtime::ori_str_drop_buffer as *const () as usize,
         "ori_rc_free" => runtime::ori_rc_free as *const () as usize,
+        "ori_rc_dec_to_zero" => runtime::ori_rc_dec_to_zero as *const () as usize,
         "ori_buffer_rc_dec" => runtime::ori_buffer_rc_dec as *const () as usize,
         "ori_buffer_drop_unique" => runtime::ori_buffer_drop_unique as *const () as usize,
         // RC utilities
@@ -198,6 +199,10 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_map_remove_cow" => runtime::map::cow::ori_map_remove_cow as *const () as usize,
         "ori_map_buffer_rc_dec" => runtime::ori_map_buffer_rc_dec as *const () as usize,
         "ori_map_buffer_drop_unique" => runtime::ori_map_buffer_drop_unique as *const () as usize,
+        "ori_map_keys_offset" => runtime::ori_map_keys_offset as *const () as usize,
+        "ori_map_vals_offset" => runtime::ori_map_vals_offset as *const () as usize,
+        "ori_map_total_size" => runtime::ori_map_total_size as *const () as usize,
+        "ori_map_bucket_occupied" => runtime::ori_map_bucket_occupied as *const () as usize,
         // Set operations
         "ori_set_contains" => runtime::set::ori_set_contains as *const () as usize,
         "ori_set_insert_cow" => runtime::set::cow::ori_set_insert_cow as *const () as usize,

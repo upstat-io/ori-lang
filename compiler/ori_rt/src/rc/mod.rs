@@ -258,6 +258,32 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// Atomic RC decrement-and-test for codegen-driven buffer teardown.
+///
+/// Performs the same decrement as [`ori_rc_dec`] but runs NO drop function —
+/// returns 1 if the refcount reached zero (caller runs cleanup + free), 0
+/// otherwise. Codegen uses this on the may-unwind collection rc_dec path so the
+/// per-element / per-bucket cleanup loop (with its own unwind landing pad)
+/// replaces the runtime `catch_unwind` cleanup that cannot catch a foreign Ori
+/// `@drop` exception. `extern "C"` + nounwind — the decrement never unwinds.
+#[no_mangle]
+pub extern "C" fn ori_rc_dec_to_zero(data_ptr: *mut u8) -> i8 {
+    if data_ptr.is_null() {
+        return 0;
+    }
+
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_dec_to_zero");
+    }
+
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec_to_zero");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec_to_zero");
+
+    // SAFETY: data_ptr is non-null (checked above), 8-aligned, from ori_rc_alloc.
+    i8::from(unsafe { rc_dec_to_zero(data_ptr) })
+}
+
 /// May-unwind RC decrement — `extern "C-unwind"` variant of [`ori_rc_dec`] for
 /// types whose drop transitively runs a user `@drop` (per
 /// `ori_arc::type_drop_may_unwind`). The drop function is called DIRECTLY (no

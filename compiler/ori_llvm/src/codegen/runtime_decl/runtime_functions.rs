@@ -1232,6 +1232,17 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // Atomic RC dec-and-test (no drop): 1 if RC hit zero, else 0. Codegen
+    // branches on this on the may-unwind collection rc_dec path so its own
+    // cleanup loop (with an unwind landing pad) runs instead of the runtime
+    // catch_unwind cleanup.
+    RtFn {
+        name: "ori_rc_dec_to_zero",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::I8),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Slice-aware RC inc for list/set data buffers.
     // If cap has slice flag, finds original buffer and inc's that.
     RtFn {
@@ -1275,6 +1286,37 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         ],
         ret: None,
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+        jit_allowed: true,
+    },
+    // Codegen map two-channel drop-loop layout accessors (HashTableLayout SSOT).
+    // (cap, key_size, val_size) -> byte offset / total size.
+    RtFn {
+        name: "ori_map_keys_offset",
+        params: &[Ty::I64, Ty::I64, Ty::I64],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_map_vals_offset",
+        params: &[Ty::I64, Ty::I64, Ty::I64],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_map_total_size",
+        params: &[Ty::I64, Ty::I64, Ty::I64],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    // (data, bucket) -> 1 if OCCUPIED else 0.
+    RtFn {
+        name: "ori_map_bucket_occupied",
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::I8),
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Collection buffer reuse: reset a list/set buffer for new elements.
