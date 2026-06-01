@@ -262,7 +262,7 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
 ///
 /// Performs the same decrement as [`ori_rc_dec`] but runs NO drop function —
 /// returns 1 if the refcount reached zero (caller runs cleanup + free), 0
-/// otherwise. Codegen uses this on the may-unwind collection rc_dec path so the
+/// otherwise. Codegen uses this on the may-unwind collection `rc_dec` path so the
 /// per-element / per-bucket cleanup loop (with its own unwind landing pad)
 /// replaces the runtime `catch_unwind` cleanup that cannot catch a foreign Ori
 /// `@drop` exception. `extern "C"` + nounwind — the decrement never unwinds.
