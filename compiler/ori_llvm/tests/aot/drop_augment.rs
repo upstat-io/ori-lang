@@ -583,11 +583,11 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
 ///
 /// For recovery, TWO cleanup pads must fire: (1) `emit_drop_enum` invoke-wraps
 /// the enum's OWN `@drop` so a panicking own-`@drop` still runs the variant walk
-/// + free; (2) the may-unwind FIELD WALK routes the boxed-`next` dec through
-/// `invoke ori_rc_dec_unwind` so a panic inside the boxed child's drop tree
-/// lands in a cleanup pad that drains remaining siblings + resumes, instead of
-/// aborting at the plain `ori_rc_dec` boundary ("Rust cannot catch foreign
-/// exceptions, aborting" → exit 134).
+/// plus free; (2) the may-unwind FIELD WALK routes the boxed-`next` dec through
+///   `invoke ori_rc_dec_unwind` so a panic inside the boxed child's drop tree
+///   lands in a cleanup pad that drains remaining siblings + resumes, instead of
+///   aborting at the plain `ori_rc_dec` boundary ("Rust cannot catch foreign
+///   exceptions, aborting" → exit 134).
 ///
 /// `@drop` matches `self` and panics ONLY on `Boom` — exactly ONE node panics
 /// (the boxed inner node), so it is a SINGLE recoverable drop-panic (exit 1),
