@@ -1,10 +1,13 @@
 # Proposal: Resolve `let`-Binding List-Pattern Refutability
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-05-31
-**Affects:** Spec (Clause 13 variables, Clause 15 patterns), type system (`ori_types` refutability check / E2001), evaluator + codegen (direction-dependent), test corpus
-**Resolves:** BUG-08-019 (spec-internal contradiction)
+**Approved:** 2026-05-31
+**Resolution:** A (STRICT) — `15-patterns.md` is authoritative; dynamic-length list patterns stay refutable; `let` stays irrefutable; E2001 is correct.
+**Affects:** Spec (Clause 13 variables, Clause 15 patterns), test corpus. Type checker / evaluator / codegen: NO change under Resolution A (E2001 unchanged).
+**Resolves:** Spec-internal contradiction between Clause 13 (variables) and Clause 15 (patterns) over whether list-destructuring patterns are legal in `let` bindings.
+**Amends:** simplified-bindings-proposal.md (errata — its `let [$head, ..tail] = list` example becomes invalid)
 
 ---
 
@@ -68,7 +71,7 @@ Dynamic-length list patterns stay refutable; `let` continues to require irrefuta
 - **Type checker:** no change. E2001 stays.
 - **Evaluator / codegen:** no change (no new runtime path).
 - **Corpus:** the `binding_patterns.ori` "List Destructuring in Let" tests are rewritten to `match`, or relocated to a `match`-based file. The irrefutable tuple/struct tests pass once the refutable list tests no longer poison the file.
-- **Irrefutable list path preserved:** `let [a, b, c] = v` remains legal when `v: [T, max 3]` (fixed-capacity) — static arity, irrefutable. List literals may be inferred as fixed-capacity in destructuring position (sub-option A1; see Alternatives).
+- **Irrefutable list path — target-only.** `let [a, b, c] = v` being legal when `v: [T, max 3]` (fixed-capacity, static arity, irrefutable) is the TARGET state, NOT current behavior. The refutability checker (`ori_types/src/infer/expr/refutability.rs`) currently rejects every non-empty list pattern regardless of scrutinee type, because `[T, max N]` is erased to `Tag::List` during type resolution (capacity-preserving encoding is target-only per `types.md PT-2`/`TL-2`). The static-arity-list-in-`let` path activates only when fixed-capacity erasure lifts — **blocked-by** the fixed-capacity-list encoding work (`fixed-capacity-list-proposal.md` implementation). Until then, ALL list patterns in `let` are refutable and fire E2001.
 
 ### Resolution B — ERGONOMIC (relax the rule)
 
@@ -88,9 +91,9 @@ Permit list-destructuring in `let` with **runtime** refutability — a length-mi
 
 ## Alternatives Considered
 
-### A1 — Infer list literals as fixed-capacity in destructuring position
+### A1 — Infer list literals as fixed-capacity in destructuring position (TARGET-ONLY, deferred)
 
-Under Resolution A, `let [a, b, c] = [1, 2, 3]` could be made legal by inferring the literal `[1, 2, 3]` as `[int, max 3]` (static arity) rather than `[int]` (dynamic). The fixed-arity pattern is then irrefutable. This makes the common literal case work without relaxing refutability, while `let [head, ..tail] = some_runtime_list` (RHS is dynamic `[T]`) stays refutable. A1 is a refinement of Resolution A, not a separate resolution.
+Under Resolution A, `let [a, b, c] = [1, 2, 3]` could be made legal by inferring the literal `[1, 2, 3]` as `[int, max 3]` (static arity) rather than `[int]` (dynamic). The fixed-arity pattern is then irrefutable. This makes the common literal case work without relaxing refutability, while `let [head, ..tail] = some_runtime_list` (RHS is dynamic `[T]`) stays refutable. A1 is a refinement of Resolution A, not a separate resolution — and it is **target-only, deferred**: it depends on capacity-aware refutability, which requires the fixed-capacity encoding (`types.md PT-2`/`TL-2` erasure) to ship first. A1 is NOT delivered by this proposal; it is **blocked-by** the fixed-capacity-list implementation and tracked separately when that lands.
 
 ### Rejected: leave the contradiction unresolved
 
@@ -106,11 +109,27 @@ Leaving both clauses as-is keeps `binding_patterns.ori` poisoned and the spec se
 
 ---
 
+## Resolution Selected — A (STRICT)
+
+The review gate selected **Resolution A**. Dynamic-length list patterns stay refutable; `let` continues to require irrefutable patterns; the compiler's E2001 is correct and unchanged. Rationale: Ori's conflict-resolution rule makes type safety non-negotiable and prefers explicit-over-implicit and one-way-to-do-things (`missions.md §Ori`); Resolution B's runtime-panic `let` injects an implicit panic edge into a previously panic-free context. The cross-language norm (Rust, Swift, Gleam, OCaml, Elm) is unanimously A.
+
+## Conflict Provenance — Two Approved Proposals
+
+The contradiction is not merely between two spec clauses — each clause faithfully implements a different **approved** proposal:
+
+- `pattern-matching-exhaustiveness-proposal.md` (Approved) is the SSOT `15-patterns.md` implements: "List with length `[a, b]` → Refutable" + "`let` binding → Must be irrefutable" + the explicit `let [a, b] = get_list()` → Error example. Resolution A keeps this intact.
+- `simplified-bindings-proposal.md` (Approved) is the SSOT `13-variables.md` implements: its `let [$head, ..tail] = list` example. Resolution A **invalidates** this example, requiring an errata block.
+
 ## Spec & Grammar Impact
 
-- `15-patterns.md` §Pattern Refutability (lines 259-281): unchanged under A; amended under B.
-- `13-variables.md` §Destructuring (lines 104-108): corrected under A; authoritative under B.
-- `grammar.ebnf`: no change either way — the syntax `let <pattern> = <expr>` already parses list patterns; refutability is a post-parse type-checker rule.
+- `15-patterns.md` §Pattern Refutability (lines 259-281): **unchanged** (Resolution A).
+- `13-variables.md` §13.4 Destructuring (lines 96-111): **corrected** — the `let [head, ..tail] = list` / `let [$head, ..tail] = list` examples are replaced with `match` (dynamic lists) or fixed-capacity `[T, max N]` destructuring (static arity).
+- `grammar.ebnf`: no change — `let <pattern> = <expr>` already parses list patterns; refutability is a post-parse type-checker rule.
+
+## Propagation Audit — Required Errata
+
+- **`simplified-bindings-proposal.md`** (Approved): add an `## Errata` block superseding its `let [$head, ..tail] = list` example, per `proposals.md §Errata`. Approved proposals are never silently rewritten — the errata records that dynamic-length list destructuring in `let` is now an error and directs readers to `match` / `[T, max N]`.
+- The test corpus header in `tests/spec/patterns/binding_patterns.ori` cites `10-patterns.md` (stale clause number; clauses renumbered to 13/15) — correct it during the corpus rewrite.
 
 ---
 
