@@ -100,6 +100,9 @@ impl<'a> TypeErrorRenderer<'a> {
                 )
             }
             TypeErrorKind::UnknownIdent { .. } => "not found in this scope".to_string(),
+            TypeErrorKind::UnresolvedTrait { trait_name } => {
+                format!("trait `{}` not registered", self.format_name(*trait_name))
+            }
             TypeErrorKind::UndefinedField { field, .. } => {
                 format!("unknown field `{}`", self.format_name(*field))
             }

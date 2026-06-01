@@ -1,0 +1,15 @@
+#compile_fail(code: "E2001")
+@t_code_only tests _ () -> void = 42;
+
+#compile_fail("type mismatch")
+@t_message_only tests _ () -> void = 42;
+
+#compile_fail(code: "E2001", message: "refutable pattern")
+@t_code_message tests _ () -> void = 42;
+
+#compile_fail(code: "E2001", line: 5, column: 9)
+@t_code_line_col tests _ () -> void = 42;
+
+#compile_fail("type mismatch")
+#compile_fail(code: "E2002")
+@t_multi tests _ () -> void = 42;
