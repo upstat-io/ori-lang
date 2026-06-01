@@ -6,14 +6,14 @@
 //! [`UserBurdenSpec`] to the legacy [`DropInfo`] shape so consumers
 //! ([`super::collect_drop_infos`] + the cross-crate
 //! `ori_llvm::codegen::arc_emitter::element_fn_gen`) keep the existing
-//! surface during the §02 → §06+§09 migration window.
+//! surface during the burden-pre-pass migration window.
 //!
 //! Inverse direction (synthesizing a [`UserBurdenSpec`] from the pool / tag
 //! walk that the legacy [`super::compute_drop_info`] performed) lives in
 //! [`synthesize_burden_from_pool`]. The two halves compose to make the lift
 //! lossless on every type the 25 existing tests exercise.
 //!
-//! Mapping rules per §02.3.A:
+//! Mapping rules:
 //! - `self_heap_alloc=false` + empty `owned_fields` + empty
 //!   `variant_burdens` + no `element_burden` ⟹ [`DropKind::Trivial`].
 //! - aggregate struct / tuple `OwnedField[]` ⟹ [`DropKind::Fields`].
@@ -50,8 +50,8 @@ use super::{DropInfo, DropKind};
 /// `UserBurdenSpec` is the shared SSOT shape consumed by Phase 5 emission;
 /// this discriminator is local to the drop bridge and never leaves the
 /// module. Adding fields to `UserBurdenSpec` to carry this information would
-/// be a §02.1 schema change — out of scope for §02.3.A's wrapper-transparency
-/// invariant.
+/// be a `UserBurdenSpec` schema change — out of scope for the bridge's
+/// wrapper-transparency invariant.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum SynthesizedShape {
     /// Aggregate struct / tuple — `owned_fields` lists each RC'd field in
@@ -181,9 +181,9 @@ fn owned_fields_to_pairs(fields: &[UserOwnedField]) -> Vec<(u32, Idx)> {
 /// emitter via `RcStrategy::Iterator`, never by per-type drop functions).
 ///
 /// Mirrors the pre-migration `compute_drop_kind`'s tag dispatch exactly so
-/// the §02.3 lift preserves the 25 existing tests' observable shapes. The
-/// wrapper at [`super::compute_drop_info`] composes this with
-/// [`burden_to_drop_info`] to realise the §02.3.A conversion.
+/// the burden-bridge lift preserves the 25 existing tests' observable shapes.
+/// The wrapper at [`super::compute_drop_info`] composes this with
+/// [`burden_to_drop_info`] to realise the conversion.
 pub(super) fn synthesize_burden_from_pool(
     ty: Idx,
     classifier: &dyn ArcClassification,
