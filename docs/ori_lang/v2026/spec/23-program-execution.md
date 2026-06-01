@@ -89,9 +89,10 @@ On panic, the runtime executes the following sequence:
 2. If an `@panic` handler is defined, call it (see 23.4)
 3. Print the error message to stderr
 4. Print the stack trace to stderr
-5. Exit with code 1
+5. Unwind the stack, running `Drop` implementations for all live values in reverse declaration order as each scope exits (see [Clause 21](21-memory-model.md) §21.3.4)
+6. Exit with code 1
 
-`Drop` implementations do _not_ run during panic. Ori uses an abort model: panics terminate immediately without unwinding the stack.
+`Drop` implementations run during stack unwinding (see [Clause 21](21-memory-model.md) §21.3.4). A panic raised by a `Drop` implementation while the stack is already unwinding (a _double panic_) aborts the process immediately with no further unwinding (see 23.4).
 
 NOTE  Panics represent bugs in the program. Use `Result` for recoverable errors. See [Clause 17](17-errors-and-panics.md) for the error handling model.
 
