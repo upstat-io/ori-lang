@@ -39,6 +39,7 @@ llvm-build.sh
 llvm-clippy.sh
 llvm-test.sh
 rebuild-playground.sh
+rust-toolchain.toml
 rustfmt.toml
 scripts
 setup.sh
