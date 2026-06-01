@@ -47,6 +47,8 @@ mod stacked;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use literals::emit_escaped_str;
+
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};

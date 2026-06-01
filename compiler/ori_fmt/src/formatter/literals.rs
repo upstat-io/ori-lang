@@ -5,7 +5,31 @@
 use ori_ir::{ParsedType, StringLookup};
 
 use super::Formatter;
+use crate::context::FormatContext;
 use crate::declarations::format_parsed_type;
+use crate::emitter::StringEmitter;
+
+/// Emit a string literal with surrounding quotes and escaped control / quote
+/// characters. Free function so non-`Formatter` emitters (the `ModuleFormatter`
+/// attribute sites in `declarations/`) share one escaping implementation.
+pub(crate) fn emit_escaped_str(ctx: &mut FormatContext<StringEmitter>, s: &str) {
+    ctx.emit("\"");
+    for c in s.chars() {
+        match c {
+            '\\' => ctx.emit("\\\\"),
+            '"' => ctx.emit("\\\""),
+            '\n' => ctx.emit("\\n"),
+            '\t' => ctx.emit("\\t"),
+            '\r' => ctx.emit("\\r"),
+            '\0' => ctx.emit("\\0"),
+            _ => {
+                let mut buf = [0; 4];
+                ctx.emit(c.encode_utf8(&mut buf));
+            }
+        }
+    }
+    ctx.emit("\"");
+}
 
 impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_int(&mut self, n: i64) {
@@ -23,22 +47,7 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     pub(super) fn emit_string(&mut self, s: &str) {
-        self.ctx.emit("\"");
-        for c in s.chars() {
-            match c {
-                '\\' => self.ctx.emit("\\\\"),
-                '"' => self.ctx.emit("\\\""),
-                '\n' => self.ctx.emit("\\n"),
-                '\t' => self.ctx.emit("\\t"),
-                '\r' => self.ctx.emit("\\r"),
-                '\0' => self.ctx.emit("\\0"),
-                _ => {
-                    let mut buf = [0; 4];
-                    self.ctx.emit(c.encode_utf8(&mut buf));
-                }
-            }
-        }
-        self.ctx.emit("\"");
+        emit_escaped_str(&mut self.ctx, s);
     }
 
     pub(super) fn emit_char(&mut self, c: char) {
