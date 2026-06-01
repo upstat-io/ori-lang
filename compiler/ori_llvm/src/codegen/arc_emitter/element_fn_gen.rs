@@ -128,6 +128,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(func_id, &[arg], "");
     }
 
+    /// Emit the user `@drop` for an inline struct/enum VALUE as an `invoke`
+    /// (recoverable-panic path): materialize a pointer (entry alloca + store)
+    /// then `invoke` the `@drop` → `normal_bb` / `cleanup_bb`. Returns `true`
+    /// when an `invoke` was emitted (current block terminated), `false` when the
+    /// type has no user `@drop` (caller falls back to the plain field walk).
+    pub(super) fn invoke_user_drop_for_inline_value(
+        &mut self,
+        ty: Idx,
+        val: ValueId,
+        normal_bb: crate::codegen::value_id::BlockId,
+        cleanup_bb: crate::codegen::value_id::BlockId,
+    ) -> bool {
+        if self.user_drop_method(ty).is_none() {
+            return false;
+        }
+        let resolved = self.pool.resolve_fully(ty);
+        let llvm_ty = self.resolve_type(resolved);
+        let slot = self
+            .builder
+            .create_entry_alloca(self.current_function, "udrop.slot", llvm_ty);
+        self.builder.store(val, slot);
+        self.invoke_user_drop_via_pointer(ty, slot, normal_bb, cleanup_bb)
+    }
+
     /// Emit the user `@drop` invocation for a Drop type as an `invoke` (the
     /// recoverable-panic path), routing the foreign Ori exception to a cleanup
     /// landing pad instead of aborting.

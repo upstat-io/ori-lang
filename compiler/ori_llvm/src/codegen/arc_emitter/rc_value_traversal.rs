@@ -287,32 +287,113 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         clippy::cast_possible_truncation,
         reason = "field/element count bounded by aggregate definition"
     )]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/element count bounded by aggregate definition"
+    )]
     fn dec_aggregate_fields(&mut self, val: super::ValueId, owner: Idx, field_types: &[Idx]) {
-        // Walk fields in REVERSE declaration order (LIFO) per
+        // Build the REVERSE declaration-order (LIFO) RC-field walk per
         // `drop-trait-proposal.md §Drop and panic` — matches the heap drop-fn
         // walk (`emit_drop_fields`) so user `@drop` side effects observe the
-        // same field-teardown order on both the heap-RC and buffer-element
-        // paths. Order is unobservable for fields without a user `@drop`.
+        // same field-teardown order. `(memory_index, field_type)` per field.
+        let mut walk: Vec<(u32, Idx)> = Vec::new();
         for (i, &field_ty) in field_types.iter().enumerate().rev() {
             if !self.classifier.needs_rc(field_ty) {
                 continue;
             }
-            let mem_i = self.remap_struct_field(owner, i as u32);
+            walk.push((self.remap_struct_field(owner, i as u32), field_ty));
+        }
+        self.dec_field_walk(val, owner, &walk, 0);
+    }
+
+    /// Drop the aggregate's RC fields `walk[start..]` with PER-FIELD
+    /// sibling-continue: when a field's own user `@drop` may unwind (Itanium),
+    /// it is `invoke`d so a panic routes to a cleanup pad that still drops the
+    /// panicking field's children + every remaining sibling field, then
+    /// `resume`s the foreign exception. A field whose `@drop` cannot unwind
+    /// (scalar/no-`@drop`/non-Itanium) takes the plain path.
+    fn dec_field_walk(
+        &mut self,
+        val: super::ValueId,
+        owner: Idx,
+        walk: &[(u32, Idx)],
+        start: usize,
+    ) {
+        let mut j = start;
+        while j < walk.len() {
+            let (mem_i, field_ty) = walk[j];
             let Some(fv) = self
                 .builder
-                .extract_value(val, mem_i, &format!("rc_dec.f.{i}"))
+                .extract_value(val, mem_i, &format!("rc_dec.f.{mem_i}"))
+            else {
+                j += 1;
+                continue;
+            };
+            if is_boxed_enum_field(self.pool, owner, field_ty) {
+                // Boxed field: its `_ori_drop$<field_ty>` carries the @drop.
+                let drop_fn = self.get_or_generate_drop_fn(field_ty);
+                self.call_rc_dec_all(&[fv], drop_fn);
+                j += 1;
+                continue;
+            }
+            let unwinds = self.user_drop_method(field_ty).is_some()
+                && self.drop_may_unwind(field_ty)
+                && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+            if unwinds {
+                let cont = self.builder.append_block(self.current_function, "fld.cont");
+                let cleanup = self
+                    .builder
+                    .append_block(self.current_function, "fld.cleanup");
+                if self.invoke_user_drop_for_inline_value(field_ty, fv, cont, cleanup) {
+                    // Cleanup pad: drop the panicking field's own RC children +
+                    // every remaining sibling field (plain — a nested panic
+                    // aborts via the drop-cleanup-depth guard), then resume.
+                    self.builder.position_at_end(cleanup);
+                    let personality = self.builder.runtime_fn("ori_eh_personality");
+                    let lp = self.builder.landingpad(personality, true, "fld.lp");
+                    let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                    self.builder.call(enter, &[], "");
+                    self.dec_value_rc(fv, field_ty);
+                    self.dec_field_walk_plain(val, owner, walk, j + 1);
+                    let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                    self.builder.call(exit, &[], "");
+                    self.builder.resume(lp);
+                    // Normal continuation: this field's children, then advance.
+                    self.builder.position_at_end(cont);
+                    self.dec_value_rc(fv, field_ty);
+                    j += 1;
+                    continue;
+                }
+            }
+            // Plain field: run its user `@drop` (if any, non-unwinding) before
+            // recursing into its own field walk.
+            self.emit_user_drop_for_inline_value(field_ty, fv);
+            self.dec_value_rc(fv, field_ty);
+            j += 1;
+        }
+    }
+
+    /// Plain (non-`invoke`) drop of `walk[start..]` — used inside a cleanup pad
+    /// where a further (nested) panic must abort via the depth guard, not
+    /// re-enter sibling-continue.
+    fn dec_field_walk_plain(
+        &mut self,
+        val: super::ValueId,
+        owner: Idx,
+        walk: &[(u32, Idx)],
+        start: usize,
+    ) {
+        for &(mem_i, field_ty) in &walk[start..] {
+            let Some(fv) = self
+                .builder
+                .extract_value(val, mem_i, &format!("rc_dec.cl.f.{mem_i}"))
             else {
                 continue;
             };
             if is_boxed_enum_field(self.pool, owner, field_ty) {
-                // Boxed field: its own `_ori_drop$<field_ty>` (which carries
-                // the field type's user `@drop`, if any) runs inside the dec.
                 let drop_fn = self.get_or_generate_drop_fn(field_ty);
                 self.call_rc_dec_all(&[fv], drop_fn);
             } else {
-                // Inline nested struct/enum field: run its user `@drop` (if any)
-                // before recursing into its own field walk. The boxed branch
-                // above already routes through the field's `_ori_drop$<idx>`.
                 self.emit_user_drop_for_inline_value(field_ty, fv);
                 self.dec_value_rc(fv, field_ty);
             }

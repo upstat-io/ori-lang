@@ -472,7 +472,6 @@ type Wrapper = Both(loud: Loud, quiet: Quiet);
 /// dropped; the cleanup pad drops only indices > cursor (no double-free of the
 /// already-walked element).
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_collection_element_panic_cleans_remaining_elements() {
     let source = r#"
 type Counted = { tag: str }
