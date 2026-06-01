@@ -427,7 +427,6 @@ impl Logged: Drop {
 /// up via the variant's per-field invoke cleanup (no leak, no double-free of
 /// already-walked payload fields).
 #[test]
-#[ignore = "BUG-04-125: recoverable drop-panic unwinding deferred — Ori panics are foreign Itanium exceptions; recovery needs whole-frame unwind threading + runtime catch-continue-reraise, beyond the drop-fn invoke/landing-pad"]
 fn drop_enum_variant_payload_panic_cleans_remaining_payload_fields() {
     let source = r#"
 type Loud = { tag: str }

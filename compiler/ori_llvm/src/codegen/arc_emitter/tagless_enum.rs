@@ -218,7 +218,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, &format!("{dir}.tagless"));
         self.builder.store(val, alloca);
 
-        for field in &rc_fields {
+        // Dec walks payload fields in REVERSE declaration order (LIFO) per
+        // `drop-trait-proposal.md §Drop and panic` — matching the struct field
+        // walk (`dec_aggregate_fields`) so a user `@drop` on a payload field
+        // observes consistent teardown order (and a sibling already dropped
+        // before a later field's `@drop` panics). Inc keeps forward order
+        // (unobservable for inc).
+        let ordered: Vec<&TaglessField> = if is_inc {
+            rc_fields.iter().collect()
+        } else {
+            rc_fields.iter().rev().collect()
+        };
+        for field in ordered {
             let gep = self.builder.struct_gep(
                 enum_llvm_ty,
                 alloca,
@@ -235,6 +246,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if is_inc {
                     self.call_rc_inc_all(&[rc_ptr], count);
                 } else {
+                    // Boxed field: its `_ori_drop$<field_ty>` carries the field
+                    // type's user `@drop` (if any) inside the dec.
                     let drop_fn = self.get_or_generate_drop_fn(field.field_type);
                     self.call_rc_dec_all(&[rc_ptr], drop_fn);
                 }
@@ -248,6 +261,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if is_inc {
                     self.inc_value_rc(fval, field.field_type, count);
                 } else {
+                    // Inline payload field with a user `@drop` (e.g. a Drop
+                    // struct in a single-variant enum payload): run its `@drop`
+                    // before recursing into its own field walk — matching
+                    // `dec_aggregate_fields`. A panic here propagates through
+                    // the (may-unwind) enclosing drop/elem-dec fn's cleanup pad.
+                    self.emit_user_drop_for_inline_value(field.field_type, fval);
                     self.dec_value_rc(fval, field.field_type);
                 }
             }
