@@ -27,6 +27,22 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an unresolved-trait error (E2003) for an `impl Type: Trait` whose
+    /// trait has no `TraitEntry` (prelude unavailable, or a typo'd trait name). Guards
+    /// the `validate_assoc_types` ICE.
+    pub fn unresolved_trait(span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnresolvedTrait { trait_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "is the prelude available (e.g. ORI_STDLIB set), or is the trait name a typo?"
+                    .to_string(),
+                1,
+            )],
+        }
+    }
+
     /// Create an "overlapping impls" error (E2021).
     ///
     /// Emitted when two impls with equal specificity could both apply.

@@ -22,8 +22,7 @@ fn test_typecheck_err_catches_mismatch() {
     typecheck_err("@main () -> int = \"hello\";", "mismatch");
 }
 
-// Regression: let bindings directly in function body (no run() wrapper)
-// Previously crashed with type_interner index out of bounds.
+// Regression: let bindings directly in a function body (no run() wrapper) must type-check.
 
 #[test]
 fn test_let_binding_in_main_body() {
@@ -55,18 +54,9 @@ fn test_let_binding_in_regular_function_body() {
     typecheck_ok("@f () -> void = let x: int = 42;");
 }
 
-// Regression: type-checking an `impl Type: Trait` whose trait is NOT registered
-// (unknown trait name, OR a prelude trait when no prelude is loaded — this harness
-// loads none) must emit a clean unresolved-trait diagnostic, NEVER panic. Pre-fix,
-// `validate_assoc_types` hit `debug_assert!(false)` (compiler/ori_types/src/check/
-// registration/impls.rs:445) and ICE'd; the fix adds a pre-block guard in
-// `register_impl` that emits E2003 and skips the trait-impl validation block.
-// regression guard for the impl-registration ICE-on-unregistered-trait fix.
-
-// `typecheck_err` matches against `TypeCheckError::message()`, which has no
-// interner and so renders the fixed "unresolved trait" text (the trait NAME is
-// rendered only by the interner-aware `format_message_rich` path). Assert on the
-// fixed substring.
+// Regression: an `impl Type: Trait` naming an unregistered trait (unknown name, or a
+// prelude trait under this no-prelude harness) must emit a clean E2003, never ICE.
+// `typecheck_err` matches the interner-free `message()` — assert the fixed substring.
 
 #[test]
 fn impl_with_unregistered_trait_emits_diagnostic_not_ice() {
@@ -79,9 +69,9 @@ fn impl_with_unregistered_trait_emits_diagnostic_not_ice() {
 
 #[test]
 fn impl_drop_without_prelude_registration_emits_diagnostic_not_ice() {
-    // Drop is unregistered in this no-prelude harness → must be a clean
-    // unresolved-trait error, never the debug_assert ICE. (With the prelude loaded
-    // + the Drop declaration, `impl Type: Drop` type-checks — see the spec test.)
+    // Negative pin: Drop unregistered in this no-prelude harness → asserts the clean
+    // "unresolved trait" diagnostic, never the debug_assert ICE. (With the prelude +
+    // the Drop declaration, `impl Type: Drop` type-checks — see the spec test.)
     typecheck_err(
         "type Resource = { id: int }\nimpl Resource: Drop {\n@drop (self) -> void = ();\n}\n",
         "unresolved trait",

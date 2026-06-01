@@ -142,14 +142,10 @@ fn register_impl(
         .collect();
 
     // 7. Validate associated types, check conflicting defaults, check coherence.
-    //
-    // When `trait_idx` resolves to a Named idx that has no `TraitEntry` (the
-    // prelude is unavailable, or the trait name is a typo), `validate_assoc_types`
-    // / `check_conflicting_defaults` would hit `debug_assert!(false)` and ICE.
-    // Guard the block: emit a clean E2003
-    // unresolved-trait diagnostic and SKIP validation (the impl still registers
-    // structurally below so other diagnostics flow). A registered trait takes
-    // the normal validation path.
+    // Why: an unregistered `trait_idx` (no `TraitEntry` — missing prelude or a typo'd
+    // trait name) would ICE the `validate_assoc_types` / `check_conflicting_defaults`
+    // debug_asserts; the guard emits a clean E2003 and skips validation, while the
+    // impl still registers structurally below so other diagnostics flow.
     if let Some(t_idx) = trait_idx {
         if checker.trait_registry().get_trait_by_idx(t_idx).is_none() {
             let trait_name = impl_def
