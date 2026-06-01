@@ -160,6 +160,26 @@ fn build_module_path(base: PathBuf, components: &[&str]) -> PathBuf {
     path.with_extension("ori")
 }
 
+/// Candidate library-root directories an `ORI_STDLIB` value may name.
+///
+/// `ORI_STDLIB` is the `library/` directory (the one containing `std/`):
+/// the prelude resolves at `<root>/std/prelude.ori`, modules at
+/// `<root>/std/<name>.ori`. A value pointing one level deeper — directly at
+/// the `std/` directory — is also accepted: its parent is returned as an
+/// additional root so `<parent>/std/...` resolves identically. Purely
+/// additive — the as-is value is always the first root, so a correctly-set
+/// `ORI_STDLIB` is unaffected and an over-deep one still resolves.
+pub(crate) fn ori_stdlib_library_roots(stdlib: &str) -> Vec<PathBuf> {
+    let p = PathBuf::from(stdlib);
+    let mut roots = vec![p.clone()];
+    if p.file_name() == Some(std::ffi::OsStr::new("std")) {
+        if let Some(parent) = p.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    roots
+}
+
 /// Check if a file is a test module.
 ///
 /// A test module is defined as:
@@ -410,9 +430,12 @@ fn generate_module_candidates(
 ) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // 1. Try ORI_STDLIB override (caller reads env var)
+    // 1. Try ORI_STDLIB override (caller reads env var). Both the `library/`
+    //    root and a value pointing directly at `library/std/` resolve.
     if let Some(stdlib_path) = stdlib_override {
-        candidates.push(build_module_path(PathBuf::from(stdlib_path), components));
+        for root in ori_stdlib_library_roots(stdlib_path) {
+            candidates.push(build_module_path(root, components));
+        }
     }
 
     // 2. Walk up directory tree looking for library/ directories

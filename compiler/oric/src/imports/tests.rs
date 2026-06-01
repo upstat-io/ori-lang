@@ -222,3 +222,44 @@ fn loading_context_cycle_error() {
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("circular import"));
 }
+
+#[test]
+fn ori_stdlib_library_roots_correct_layout_single_root() {
+    // ORI_STDLIB pointing at the `library/` root yields just that root.
+    let roots = ori_stdlib_library_roots("/w/library");
+    assert_eq!(roots, vec![PathBuf::from("/w/library")]);
+}
+
+#[test]
+fn ori_stdlib_library_roots_over_deep_adds_parent() {
+    // ORI_STDLIB pointing directly at `library/std/` (one level too deep)
+    // yields the as-is path AND its parent, so `<parent>/std/...` resolves.
+    let roots = ori_stdlib_library_roots("/w/library/std");
+    assert_eq!(
+        roots,
+        vec![PathBuf::from("/w/library/std"), PathBuf::from("/w/library")]
+    );
+}
+
+#[test]
+fn module_candidates_resolve_when_ori_stdlib_points_at_std_dir() {
+    // Regression: ORI_STDLIB set one level too deep (`library/std`) must still
+    // surface the correct `library/std/testing.ori` candidate for `std.testing`.
+    let current = PathBuf::from("/proj/main.ori");
+    let candidates =
+        generate_module_candidates(&["std", "testing"], &current, Some("/w/library/std"));
+    assert!(
+        candidates.contains(&PathBuf::from("/w/library/std/testing.ori")),
+        "over-deep ORI_STDLIB must still resolve the module; got {candidates:?}"
+    );
+}
+
+#[test]
+fn module_candidates_resolve_for_correct_ori_stdlib_layout() {
+    let current = PathBuf::from("/proj/main.ori");
+    let candidates = generate_module_candidates(&["std", "testing"], &current, Some("/w/library"));
+    assert!(
+        candidates.contains(&PathBuf::from("/w/library/std/testing.ori")),
+        "correct ORI_STDLIB layout must resolve the module; got {candidates:?}"
+    );
+}

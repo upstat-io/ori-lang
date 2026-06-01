@@ -34,16 +34,20 @@ use crate::parser::ParseOutput;
 /// Generate candidate paths for the prelude by walking up from the current file.
 ///
 /// Search order:
-/// 1. `$ORI_STDLIB/std/prelude.ori` (if env var set)
+/// 1. `$ORI_STDLIB/std/prelude.ori` (if env var set). A value pointing
+///    directly at `library/std/` also resolves (parent treated as the root).
 /// 2. Walk up from `current_file` looking for `<ancestor>/library/std/prelude.ori`
 /// 3. User-local install: `~/.local/share/ori/library/std/prelude.ori`
 /// 4. System locations: `/usr/local/lib/ori/stdlib/std/prelude.ori`
 pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // 1. ORI_STDLIB override
+    // 1. ORI_STDLIB override. Accept both the `library/` root and a value
+    //    pointing directly at `library/std/` (parent treated as the root).
     if let Ok(stdlib) = std::env::var("ORI_STDLIB") {
-        candidates.push(PathBuf::from(&stdlib).join("std").join("prelude.ori"));
+        for root in imports::ori_stdlib_library_roots(&stdlib) {
+            candidates.push(root.join("std").join("prelude.ori"));
+        }
     }
 
     // 2. Walk up directory tree
