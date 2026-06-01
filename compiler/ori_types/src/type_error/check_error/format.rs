@@ -61,6 +61,12 @@ impl TypeCheckError {
                 }
                 msg
             }
+            TypeErrorKind::UnresolvedTrait { trait_name } => {
+                format!(
+                    "unresolved trait `{}` — the trait is not registered (is the prelude available, or is the name a typo?)",
+                    format_name(*trait_name)
+                )
+            }
             TypeErrorKind::UndefinedField { ty, field, .. } => {
                 format!(
                     "no such field `{}` on type `{}`",

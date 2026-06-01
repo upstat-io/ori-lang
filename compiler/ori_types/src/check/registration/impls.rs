@@ -141,12 +141,29 @@ fn register_impl(
         })
         .collect();
 
-    // 7. Validate associated types, check conflicting defaults, check coherence
+    // 7. Validate associated types, check conflicting defaults, check coherence.
+    //
+    // BUG-02-034: when `trait_idx` resolves to a Named idx that has no
+    // `TraitEntry` (the prelude is unavailable, or the trait name is a typo),
+    // `validate_assoc_types` / `check_conflicting_defaults` would hit
+    // `debug_assert!(false)` and ICE. Guard the block: emit a clean E2003
+    // unresolved-trait diagnostic and SKIP validation (the impl still registers
+    // structurally below so other diagnostics flow). A registered trait takes
+    // the normal validation path.
     if let Some(t_idx) = trait_idx {
-        validate_assoc_types(checker, impl_def, t_idx, &assoc_types);
-        check_conflicting_defaults(checker, impl_def, t_idx, &explicit_methods);
-        if has_coherence_violation(checker, impl_def, t_idx, self_type, &trait_type_args) {
-            return;
+        if checker.trait_registry().get_trait_by_idx(t_idx).is_none() {
+            let trait_name = impl_def
+                .trait_path
+                .as_ref()
+                .and_then(|path| path.last().copied())
+                .unwrap_or_else(|| checker.interner().intern("<trait>"));
+            checker.push_error(TypeCheckError::unresolved_trait(impl_def.span, trait_name));
+        } else {
+            validate_assoc_types(checker, impl_def, t_idx, &assoc_types);
+            check_conflicting_defaults(checker, impl_def, t_idx, &explicit_methods);
+            if has_coherence_violation(checker, impl_def, t_idx, self_type, &trait_type_args) {
+                return;
+            }
         }
     }
 

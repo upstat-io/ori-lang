@@ -59,6 +59,14 @@ pub trait Clone {
     @clone (self) -> Self
 }
 
+// Runs at refcount-zero before deallocation (spec: drop-trait-proposal.md).
+// Declared here so `register_imported_traits` registers a TraitEntry, letting
+// `impl Type: Drop` resolve its trait_idx (BUG-02-034). AOT drop-unwind codegen
+// is BUG-04-125.
+pub trait Drop {
+    @drop (self) -> void
+}
+
 // Has a default value
 pub trait Default {
     @default () -> Self

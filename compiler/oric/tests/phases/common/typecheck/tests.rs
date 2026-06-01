@@ -61,14 +61,19 @@ fn test_let_binding_in_regular_function_body() {
 // `validate_assoc_types` hit `debug_assert!(false)` (compiler/ori_types/src/check/
 // registration/impls.rs:445) and ICE'd; the fix adds a pre-block guard in
 // `register_impl` that emits E2003 and skips the trait-impl validation block.
-// See: bug-tracker/plans/BUG-02-034/.
+// regression guard for the impl-registration ICE-on-unregistered-trait fix.
+
+// `typecheck_err` matches against `TypeCheckError::message()`, which has no
+// interner and so renders the fixed "unresolved trait" text (the trait NAME is
+// rendered only by the interner-aware `format_message_rich` path). Assert on the
+// fixed substring.
 
 #[test]
 fn impl_with_unregistered_trait_emits_diagnostic_not_ice() {
-    // Negative pin: the unresolved-trait diagnostic must name the offending trait.
+    // Negative pin: an unknown trait name in impl position → clean E2003, not ICE.
     typecheck_err(
         "type Foo = { x: int }\nimpl Foo: SomeUnknownTrait {\n@m (self) -> int = self.x;\n}\n",
-        "SomeUnknownTrait",
+        "unresolved trait",
     );
 }
 
@@ -79,7 +84,7 @@ fn impl_drop_without_prelude_registration_emits_diagnostic_not_ice() {
     // + the Drop declaration, `impl Type: Drop` type-checks — see the spec test.)
     typecheck_err(
         "type Resource = { id: int }\nimpl Resource: Drop {\n@drop (self) -> void = ();\n}\n",
-        "Drop",
+        "unresolved trait",
     );
 }
 
@@ -89,6 +94,6 @@ fn impl_eq_without_prelude_emits_diagnostic_not_ice() {
     // repro shape — clean diagnostic, not panic.
     typecheck_err(
         "type Point = { x: int, y: int }\nimpl Point: Eq {\n@equals (self, other: Self) -> bool = self.x == other.x;\n}\n",
-        "Eq",
+        "unresolved trait",
     );
 }

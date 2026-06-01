@@ -48,6 +48,11 @@ impl TypeCheckError {
                 // the full message (e.g., "unknown identifier `foo`").
                 "unknown identifier".to_string()
             }
+            TypeErrorKind::UnresolvedTrait { .. } => {
+                // trait_name is an interned ID; a caller with interner access
+                // renders the full "unresolved trait `Drop`" form.
+                "unresolved trait — the trait is not registered (is the prelude available, or is the trait name a typo?)".to_string()
+            }
             TypeErrorKind::UndefinedField { ty, .. } => {
                 format!("no such field on type {}", ty.display_name())
             }
@@ -325,6 +330,7 @@ impl TypeCheckError {
 
             // E2003: Unknown/undefined names and fields
             TypeErrorKind::UnknownIdent { .. }
+            | TypeErrorKind::UnresolvedTrait { .. }
             | TypeErrorKind::UndefinedField { .. }
             | TypeErrorKind::RigidMismatch { .. }
             | TypeErrorKind::ImportError { .. }
