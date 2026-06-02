@@ -374,7 +374,11 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
 
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let contracts = rustc_hash::FxHashMap::default();
+    // IC-1: pre-populate the synthetic function's contract (the production
+    // pipeline computes contracts via analyze_program before per-function work).
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(func.params.len()));
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
     let sigs = rustc_hash::FxHashMap::default();
@@ -383,6 +387,7 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
+        func_names: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -440,7 +445,10 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
 
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let contracts = rustc_hash::FxHashMap::default();
+    // IC-1: pre-populate the synthetic function's contract.
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(func.params.len()));
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
     let sigs = rustc_hash::FxHashMap::default();
@@ -449,6 +457,7 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
+        func_names: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -496,7 +505,10 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
 
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let contracts = rustc_hash::FxHashMap::default();
+    // IC-1: pre-populate the synthetic function's contract.
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(func.params.len()));
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
     let sigs = rustc_hash::FxHashMap::default();
@@ -505,6 +517,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
+        func_names: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -642,4 +655,96 @@ fn fip_second_pass_blocks_all_errors() {
             "all second-pass FIP errors should be FipStructural: {err}"
         );
     }
+}
+
+// ── IC-1 enforcement semantic pins ──
+
+/// INV1 (positive pin): the batch pipeline computes a contract for every
+/// analyzed function. After `run_arc_pipeline_all` over a single function,
+/// the IC-1 invariant holds — the `get_required` sites never panic on the
+/// computed contracts map.
+#[test]
+fn aims_pipeline_ic1_invariant_holds_end_to_end() {
+    let func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
+
+    let mut funcs = vec![func];
+    let result = crate::run_arc_pipeline_all(
+        &mut funcs,
+        &classifier,
+        &sigs,
+        &interner,
+        &pool,
+        &builtins,
+        &type_registry,
+        false,
+    );
+    assert!(
+        result.is_ok(),
+        "IC-1 invariant: batch pipeline computes a contract for every \
+         function — get_required sites must not panic"
+    );
+}
+
+/// INV2 (negative pin — load-bearing): invoking the per-function pipeline
+/// with an empty contracts map (synthetic IC-1 break — bypasses
+/// `analyze_program`) MUST panic at the first `get_required` site reached, not
+/// silently degrade. Reverting any site replacement to a silent
+/// `contracts.get(...).is_some()` fallback would make this test pass with no
+/// panic — the pin guards against that regression.
+#[test]
+#[should_panic(expected = "AIMS Invariant IC-1")]
+fn aims_pipeline_panics_on_synthetic_invariant_break() {
+    let mut func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    // Synthetic IC-1 break: empty contracts map, no analyze_program run.
+    let contracts = rustc_hash::FxHashMap::default();
+    let func_names = rustc_hash::FxHashSet::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        func_names: &func_names,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+        sigs: &sigs,
+        type_registry: &type_registry,
+    };
+
+    let _ = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
 }

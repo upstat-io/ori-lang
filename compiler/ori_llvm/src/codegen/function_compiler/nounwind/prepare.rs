@@ -293,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 Ok(pf) => prepared.push(pf),
                 Err(err) => {
                     // PC-2 contract violation — error already recorded via
-                    // `record_codegen_error()` inside the hook. Skip this
+                    // `record_codegen_error` inside the hook. Skip this
                     // function's emission; continue the batch.
                     debug!(
                         name = %self.interner.lookup(func.name),
@@ -418,7 +418,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // parent function's PartialApply references.
         //
         // A failing lambda fails the WHOLE parent: filter-out would leave a
-        // dangling PartialApply callee (plan §04.2 Hook 2 cascade note).
+        // dangling PartialApply callee (plan Hook 2 cascade note).
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         let mut prepared_lambdas: Vec<PreparedLambda> = Vec::with_capacity(lambdas.len());
         for lambda in lambdas {

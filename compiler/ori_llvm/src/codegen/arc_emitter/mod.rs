@@ -10,9 +10,9 @@
 //! # Architecture
 //!
 //! ```text
-//! CanExpr  →  ori_arc::lower  →  ArcFunction
-//!          →  ori_arc pipeline (borrow, RC, reuse, eliminate)
-//!          →  ArcIrEmitter    →  LLVM IR  (with RC lifecycle)
+//! CanExpr → ori_arc::lower → ArcFunction
+//!          → ori_arc pipeline (borrow, RC, reuse, eliminate)
+//!          → ArcIrEmitter → LLVM IR (with RC lifecycle)
 //! ```
 //!
 //! # Submodules
@@ -189,7 +189,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The function's sret pointer (parameter 0 when return uses `Sret`).
     /// Used by `call_with_sret` to forward the destination directly to a
     /// runtime function, avoiding an intermediate alloca+load+store.
-    /// `take()`-semantics: consumed on first use to prevent multiple calls
+    /// `take`-semantics: consumed on first use to prevent multiple calls
     /// from writing to the same sret pointer.
     current_sret_ptr: Option<ValueId>,
 
@@ -205,8 +205,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// (no visibility info in ARC IR — conservative safety).
     ///
     /// When a variable is in this map:
-    /// - `def_var_repr()` inserts `trunc i64 %val to i<width>` at definition
-    /// - `var()` inserts `sext i<width> %val to i64` at each use
+    /// - `def_var_repr` inserts `trunc i64 %val to i<width>` at definition
+    /// - `var` inserts `sext i<width> %val to i64` at each use
     /// - Phi nodes use the narrow type
     narrowed_vars: FxHashMap<ArcVarId, ori_repr::IntWidth>,
 
@@ -234,7 +234,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// the runtime list stride and LLVM GEP stride.
     for_yield_elem_size_types: FxHashMap<ArcVarId, Idx>,
 
-    /// §07.2: Niche-encoded enum tag tracking.
+    /// Niche-encoded enum tag tracking.
     ///
     /// When `Project { field: 0 }` extracts a tag from a niche-encoded enum,
     /// the destination variable holds the raw niche field value (not a logical
@@ -326,7 +326,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// bridges the two: if the type has a `StructRepr` in the `ReprPlan`, look
     /// up the memory position; otherwise return the original index unchanged.
     ///
-    /// §07.2: Compare a niche field value against the niche sentinel.
+    /// Compare a niche field value against the niche sentinel.
     ///
     /// Returns an `i1` that is `true` when the value IS the niche (e.g., None).
     /// Handles both integer niche fields (`icmp eq`) and pointer niche fields
@@ -348,7 +348,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    // §07.3.A — tagged pointer encoder/decoder helpers.
+    //.A — tagged pointer encoder/decoder helpers.
     //
     // A tagged-pointer enum value is a single `i64` slot containing
     // `(payload_ptr | variant_tag)`. The low 3 bits hold the variant
@@ -358,10 +358,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // These helpers mirror `niche_is_sentinel`'s pattern: pure LLVM IR
     // emission, no `EnumRepr`/`TagEncoding` dependency. Callers (Construct,
     // Project, Switch, RcInc/Dec, Drop) decide WHEN to use them based on
-    // `get_tagged_ptr_encoding()`.
+    // `get_tagged_ptr_encoding`.
     //
-    // Spec: §07.3 (tagged pointer encoding), §07.0 (codegen consumer
-    // inventory). The wired consumers in §07.3.A all flow through these
+    // Spec: (tagged pointer encoding), (codegen consumer
+    // inventory). The wired consumers.A all flow through these
     // three primitives — never re-derive the masks at call sites.
 
     /// Encode a payload pointer with a variant tag into the i64 slot.
@@ -379,7 +379,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Unit variants pass an integer zero (no payload to encode).
     #[allow(
         dead_code,
-        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+        reason = ".A — wired by codegen consumers in subsequent commits"
     )]
     pub(super) fn tagged_ptr_encode(
         &mut self,
@@ -419,7 +419,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// an `RcPointer` value through ARC IR).
     #[allow(
         dead_code,
-        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+        reason = ".A — wired by codegen consumers in subsequent commits"
     )]
     pub(super) fn tagged_ptr_decode_tag(
         &mut self,
@@ -452,7 +452,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `ptrtoint` first), matching `tagged_ptr_decode_tag`.
     #[allow(
         dead_code,
-        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+        reason = ".A — wired by codegen consumers in subsequent commits"
     )]
     pub(super) fn tagged_ptr_decode_ptr(
         &mut self,
@@ -475,7 +475,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.builder.int_to_ptr(cleared, name)
     }
 
-    /// §07.2: Get the `TagEncoding` for an enum type, if it uses niche encoding.
+    /// Get the `TagEncoding` for an enum type, if it uses niche encoding.
     ///
     /// Returns `Some(encoding)` ONLY for `EnumTag::Niche`. Tagless
     /// (`EnumTag::None`) is dispatched separately via [`get_tagless_encoding`]
@@ -497,7 +497,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 }
                 // Niche-only. `None` (tagless), `TaggedPtr`, and `Explicit`
                 // are each dispatched by their own query — niche-specific
-                // consumers (which `.unwrap()` the niche field) must not see
+                // consumers (which `.unwrap` the niche field) must not see
                 // a tagless or tagged-ptr encoding.
                 ori_repr::EnumTag::Explicit { .. }
                 | ori_repr::EnumTag::TaggedPtr
@@ -557,7 +557,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Look up the tagged-pointer encoding for an enum type, if present.
     ///
     /// Mirrors [`get_niche_encoding`] but returns `Some` only for
-    /// `EnumTag::TaggedPtr`. Used by §07.3.A codegen consumers to dispatch
+    /// `EnumTag::TaggedPtr`. Used by.A codegen consumers to dispatch
     /// to tagged-pointer encode/decode paths instead of struct-based GEP.
     ///
     /// Returns `None` when:
@@ -566,7 +566,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// - The enum uses `Explicit`, `Niche`, or `None` tagging.
     #[allow(
         dead_code,
-        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+        reason = ".A — wired by codegen consumers in subsequent commits"
     )]
     pub(super) fn get_tagged_ptr_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
         self.repr_plan?;

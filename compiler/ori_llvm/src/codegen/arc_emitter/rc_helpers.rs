@@ -105,19 +105,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// (struct, tuple, option, result, enum) that contain RC fields, we
     /// recursively extract from each RC'd field.
     ///
-    /// | Type   | Layout                         | Data Ptr Field(s)  |
+    /// | Type | Layout | Data Ptr Field(s) |
     /// |--------|--------------------------------|--------------------|
-    /// | List   | `{i64, i64, ptr}`              | field 2            |
-    /// | Set    | `{i64, i64, ptr}`              | field 2            |
-    /// | Str    | `{i64, i64, ptr}` (SSO union)  | field 2 (SSO→null) |
-    /// | Map    | `{i64, i64, ptr}`              | field 2            |
-    /// | Struct | `{field0, field1, ...}`         | recurse per field  |
-    /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
-    /// | Option  | `{i64 tag, T payload}`        | recurse into inner |
-    /// | Result  | `{i64 tag, payload}`          | recurse into ok/err|
-    /// | Enum    | `{i64 tag, payload}`          | recurse into fields|
-    /// | Function| `{ptr fn, ptr env}`           | env ptr (field 1)  |
-    /// | Other   | already a ptr                 | use directly       |
+    /// | List | `{i64, i64, ptr}` | field 2 |
+    /// | Set | `{i64, i64, ptr}` | field 2 |
+    /// | Str | `{i64, i64, ptr}` (SSO union) | field 2 (SSO→null) |
+    /// | Map | `{i64, i64, ptr}` | field 2 |
+    /// | Struct | `{field0, field1,...}` | recurse per field |
+    /// | Tuple | `{elem0, elem1,...}` | recurse per elem |
+    /// | Option | `{i64 tag, T payload}` | recurse into inner |
+    /// | Result | `{i64 tag, payload}` | recurse into ok/err|
+    /// | Enum | `{i64 tag, payload}` | recurse into fields|
+    /// | Function| `{ptr fn, ptr env}` | env ptr (field 1) |
+    /// | Other | already a ptr | use directly |
     pub(super) fn extract_rc_data_ptrs(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         // Resolve type variables and Named/Applied/Alias to get the concrete tag.
         // The type checker may leave unresolved Var indices in compound types
@@ -369,20 +369,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §07.3.A: Tagged-pointer enum — decode tag, dispatch per variant.
+        //.A: Tagged-pointer enum — decode tag, dispatch per variant.
         if self.get_tagged_ptr_encoding(resolved_ty).is_some() {
             self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, is_inc, count);
             return;
         }
 
-        // §07.2: Tagless single-variant enum — struct-like field RC, no tag,
+        // Tagless single-variant enum — struct-like field RC, no tag,
         // no niche, no switch.
         if self.is_tagless_enum(resolved_ty) {
             self.emit_inline_tagless_rc(val, resolved_ty, is_inc, count);
             return;
         }
 
-        // §07.2: Niche-encoded enum — conditional RC.
+        // Niche-encoded enum — conditional RC.
         if let Some(encoding) = self.get_niche_encoding(resolved_ty) {
             self.emit_niche_enum_rc(
                 val,
@@ -402,7 +402,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, &format!("{dir}.enum"));
         self.builder.store(val, alloca);
 
-        // Load tag (narrowed type at field 0 — §07.1)
+        // Load tag (narrowed type at field 0 —)
         let tag_ty = self
             .builder
             .struct_field_type(enum_llvm_ty, 0)
@@ -535,7 +535,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// §07.2: Shared niche-aware RC inc/dec for enum values.
+    /// Shared niche-aware RC inc/dec for enum values.
     ///
     /// For niche-encoded 2-variant enums: load the niche field, compare
     /// against `niche_value`, skip RC for the niche variant, emit RC for
@@ -629,7 +629,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(done_block);
     }
 
-    /// §07.3.A: RC inc/dec for tagged-pointer encoded enums.
+    ///.A: RC inc/dec for tagged-pointer encoded enums.
     ///
     /// The encoded value is a single i64. For each pointer-bearing variant,
     /// emit a switch case that decodes the pointer (high 61 bits) and

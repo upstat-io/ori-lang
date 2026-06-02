@@ -3,6 +3,8 @@
 //! Extracted from `realize/mod.rs` to stay under the 500-line file limit.
 //! Called by [`super::realize_rc_reuse()`] as Phase 1 sub-step B.
 
+use std::sync::LazyLock;
+
 use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -16,6 +18,12 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
 use super::metrics;
 use super::walk;
+
+/// `ORI_DISABLE_BURDEN_ELIM=1` bypasses Phase 2.5 burden-op elimination. Read
+/// once at first access; permanent isolation harness letting Phase 5 emission
+/// be evaluated alone (emission on, elimination off) for diagnostic bisection.
+static BURDEN_ELIM_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() == Ok("1"));
 
 /// Per-phase RC-op snapshot for post-walk pass debugging.
 ///
@@ -76,10 +84,6 @@ fn trace_phase_snapshot(
 /// 2. Dead Invoke cleanup (orphaned Invoke result variables)
 /// 3. Inter-block edge cleanup (with deferred parent decs)
 /// 4. RC coalescing peephole per block
-#[expect(
-    clippy::too_many_lines,
-    reason = "per-function realization orchestrator: setup, dec-emitter pre-pass, forward walk, edge cleanup, post-passes"
-)]
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -152,45 +156,32 @@ pub(super) fn emit_rc_unified(
     // balanced by the enclosing value's drop, so it is dropped from the map and
     // its class dedups normally; a copy that dies in-class keeps its own dec so
     // the class nets `1 + N` decs per path (rc_per_path_invariant).
-    let (global_pin4_emits, lineage_roots) = build_global_pin4_emits(
-        func,
+    let env = RealizeEnv {
         state_map,
         pool,
-        &post_doms,
-        &all_borrowed_defs,
-        &project_borrowed_defs,
-        &iter_element_defs,
-        &inline_enum_projected_defs,
-        &func_project_sources,
-        &take_move_facts,
-        &return_transfer_params,
-        &alias_to_param,
-        &return_project_inc_targets,
-        &same_alloc_reps,
+        post_doms: &post_doms,
+        all_borrowed_defs: &all_borrowed_defs,
+        project_borrowed_defs: &project_borrowed_defs,
+        iter_element_defs: &iter_element_defs,
+        inline_enum_projected_defs: &inline_enum_projected_defs,
+        func_project_sources: &func_project_sources,
+        take_move_facts: &take_move_facts,
+        return_transfer_params: &return_transfer_params,
+        alias_to_param: &alias_to_param,
+        return_project_inc_targets: &return_project_inc_targets,
+        same_alloc_reps: &same_alloc_reps,
         iter_fn_name,
-    );
+    };
+    let (global_pin4_emits, lineage_roots) = build_global_pin4_emits(func, &env);
 
     // Phase 1: per-block RC emission via unified forward walk.
     for block_idx in 0..func.blocks.len() {
         let (death_events, alloc_events, walk_metrics) = emit_block_rc(
             func,
             block_idx,
-            state_map,
-            pool,
-            &all_borrowed_defs,
-            &project_borrowed_defs,
-            &iter_element_defs,
-            &inline_enum_projected_defs,
-            &func_project_sources,
-            &take_move_facts,
-            &return_transfer_params,
+            &env,
             &global_pin4_emits,
-            &post_doms,
             &lineage_roots,
-            &alias_to_param,
-            &return_project_inc_targets,
-            &same_alloc_reps,
-            iter_fn_name,
             &predecessors,
             &mut block_deferred,
         );
@@ -235,10 +226,7 @@ pub(super) fn emit_rc_unified(
     // satisfies `is_rc_inc_elidable` / `is_rc_dec_unnecessary`. Runs
     // BEFORE Phase 3 coalesce so coalesce operates on the post-elimination
     // IR with redundant ops already removed.
-    // Why: ORI_DISABLE_BURDEN_ELIM=1 isolation harness lets Phase 5
-    // emission be evaluated alone (emission on, elimination off) for
-    // diagnostic bisection.
-    if std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() != Ok("1") {
+    if !*BURDEN_ELIM_DISABLED {
         super::eliminate_burden_ops(func, state_map);
     }
     trace_phase_snapshot("after_phase_2_5_burden_elim", func, interner);
@@ -253,32 +241,42 @@ pub(super) fn emit_rc_unified(
     (rc_count, all_death_events, all_alloc_events, synergy)
 }
 
+/// Function-wide realization-context borrows shared by the per-block RC
+/// emitters.
+///
+/// Bundles the converged analysis inputs that [`build_global_pin4_emits`]
+/// and [`emit_block_rc`] both read to build a [`BlockCtx`] per block: the
+/// state map, the pool, the borrowed/iter/inline-enum/project def sets, the
+/// take-project facts, the return-transfer sets, the alias/inc-target maps,
+/// the same-alloc reps, the post-dominator tree, and the interned `iter`
+/// name. Every field is a shared borrow read together by the per-block walk.
+#[derive(Clone, Copy)]
+struct RealizeEnv<'a> {
+    state_map: &'a AimsStateMap,
+    pool: &'a Pool,
+    post_doms: &'a crate::graph::PostDominatorTree,
+    all_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    project_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    iter_element_defs: &'a FxHashSet<ArcVarId>,
+    inline_enum_projected_defs: &'a FxHashSet<ArcVarId>,
+    func_project_sources: &'a FxHashMap<ArcVarId, ArcVarId>,
+    take_move_facts: &'a crate::aims::emit_rc::take_project::TakeMoveFacts,
+    return_transfer_params: &'a FxHashSet<ArcVarId>,
+    alias_to_param: &'a FxHashMap<ArcVarId, FxHashSet<usize>>,
+    return_project_inc_targets: &'a FxHashMap<ArcVarId, RcStrategy>,
+    same_alloc_reps: &'a FxHashMap<ArcVarId, ArcVarId>,
+    iter_fn_name: ori_ir::Name,
+}
+
 /// Emit RC operations for a single block via the unified forward walk.
 ///
 /// Returns `(death_events, alloc_events, walk_metrics)`.
 /// Build the function-level dec-emitter map: every emitting SSA-alias-class
 /// member tagged with its block index. Consumed by `class_member_suppresses`
 /// (with the post-dominator tree) so a class spanning blocks decs once per path.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "dec-emitter pre-pass builds a BlockCtx per block; needs the full per-function realization context"
-)]
 fn build_global_pin4_emits(
     func: &ArcFunction,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    post_doms: &crate::graph::PostDominatorTree,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    project_borrowed_defs: &FxHashSet<ArcVarId>,
-    iter_element_defs: &FxHashSet<ArcVarId>,
-    inline_enum_projected_defs: &FxHashSet<ArcVarId>,
-    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
-    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
-    return_transfer_params: &FxHashSet<ArcVarId>,
-    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
-    return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-    iter_fn_name: ori_ir::Name,
+    env: &RealizeEnv<'_>,
 ) -> (
     crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
     FxHashMap<ArcVarId, ArcVarId>,
@@ -288,6 +286,23 @@ fn build_global_pin4_emits(
         block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
         precompute_block_uses, BlockCtx,
     };
+
+    let RealizeEnv {
+        state_map,
+        pool,
+        post_doms,
+        all_borrowed_defs,
+        project_borrowed_defs,
+        iter_element_defs,
+        inline_enum_projected_defs,
+        func_project_sources,
+        take_move_facts,
+        return_transfer_params,
+        alias_to_param,
+        return_project_inc_targets,
+        same_alloc_reps,
+        iter_fn_name,
+    } = *env;
     let empty_global =
         crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits::default();
     // Empty placeholder for the ctx `lineage_roots` field during this pre-pass:
@@ -367,29 +382,12 @@ fn build_global_pin4_emits(
     (global, lineage_roots)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "block-level RC emission needs full context"
-)]
 fn emit_block_rc(
     func: &mut ArcFunction,
     block_idx: usize,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    project_borrowed_defs: &FxHashSet<ArcVarId>,
-    iter_element_defs: &FxHashSet<ArcVarId>,
-    inline_enum_projected_defs: &FxHashSet<ArcVarId>,
-    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
-    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
-    return_transfer_params: &FxHashSet<ArcVarId>,
+    env: &RealizeEnv<'_>,
     global_pin4_emits: &crate::aims::emit_rc::dead_cleanup::emission_site::GlobalPin4Emits,
-    post_doms: &crate::graph::PostDominatorTree,
     lineage_roots: &FxHashMap<ArcVarId, ArcVarId>,
-    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
-    return_project_inc_targets: &FxHashMap<ArcVarId, RcStrategy>,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-    iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
 ) -> (Vec<DeathEvent>, Vec<AllocEvent>, metrics::SynergyMetrics) {
@@ -397,6 +395,23 @@ fn emit_block_rc(
         block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
         emit_dead_at_entry_decs, emit_terminator_rc, precompute_block_uses, BlockCtx,
     };
+
+    let RealizeEnv {
+        state_map,
+        pool,
+        post_doms,
+        all_borrowed_defs,
+        project_borrowed_defs,
+        iter_element_defs,
+        inline_enum_projected_defs,
+        func_project_sources,
+        take_move_facts,
+        return_transfer_params,
+        alias_to_param,
+        return_project_inc_targets,
+        same_alloc_reps,
+        iter_fn_name,
+    } = *env;
 
     let blk = block_id(block_idx);
     let use_info = precompute_block_uses(&func.blocks[block_idx]);

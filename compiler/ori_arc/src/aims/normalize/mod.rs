@@ -76,7 +76,7 @@ pub struct NormalizationResult {
 /// # Effect purity gate (`may_share`)
 ///
 /// The `may_share` flag is NOT used as a gate. The `HeapEscaping →
-/// may_share` accumulation rule (Section 09.1) means every TRMC-eligible
+/// may_share` accumulation rule means every TRMC-eligible
 /// function has `may_share == true` (returning a Construct triggers
 /// `HeapEscaping`), so a `may_share` gate would block ALL candidates.
 /// Per-variable uniqueness alone is sound because Ori has no effect

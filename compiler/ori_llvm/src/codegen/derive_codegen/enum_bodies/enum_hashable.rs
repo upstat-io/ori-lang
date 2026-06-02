@@ -35,7 +35,7 @@ pub(super) fn emit_enum_hash_combine<'a>(
 
     let tag = fc.builder_mut().extract_value(self_val, 0, "hash.tag");
     if let Some(tag_val) = tag {
-        // §07.1: tag is narrowed (i8/i16/i32) — zext to i64 for hash arithmetic.
+        // tag is narrowed (i8/i16/i32) — zext to i64 for hash arithmetic.
         let i64_ty = fc.builder_mut().i64_type();
         let tag_i64 = fc.builder_mut().zext(tag_val, i64_ty, "hash.tag.ext");
         let xored = fc.builder_mut().xor(hash, tag_i64, "hash.xor.tag");
@@ -89,7 +89,7 @@ fn emit_enum_payload_hash<'a>(
     // Cannot use merge_bb as default — its PHI has no incoming from this edge.
     let default_bb = fc.builder_mut().append_block(func_id, "hash.default");
 
-    // Build switch cases — use const_int_matching for narrowed tag (§07.1).
+    // Build switch cases — use const_int_matching for narrowed tag.
     let mut cases = Vec::with_capacity(variants.len());
     let mut variant_bbs = Vec::with_capacity(variants.len());
     for (tag_idx, variant) in variants.iter().enumerate() {

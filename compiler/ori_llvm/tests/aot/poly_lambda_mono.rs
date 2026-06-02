@@ -89,11 +89,9 @@ fn test_poly_lambda_with_imported_assert_eq_str() {
     );
 }
 
-// ============================================================================
 // Imported-generic matrix — multi-file host calling a custom generic from
 // `fixtures/imported_generics/generics.ori`. Exercises the merged-pool
 // re-interning consumer in `multi.rs::compile_single_module` end-to-end.
-// ============================================================================
 
 const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/generics.ori");
 

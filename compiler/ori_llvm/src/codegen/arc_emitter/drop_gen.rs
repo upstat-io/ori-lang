@@ -7,14 +7,14 @@
 //!
 //! # Drop function variants
 //!
-//! | `DropKind`     | IR pattern                                       |
+//! | `DropKind` | IR pattern |
 //! |----------------|--------------------------------------------------|
-//! | `Trivial`      | `ori_rc_free(ptr, size, align)` + ret             |
-//! | `Fields`       | GEP+load+`ori_rc_dec` per RC'd field, then free  |
-//! | `ClosureEnv`   | Same as Fields (different naming)                 |
-//! | `Enum`         | Switch on tag → per-variant field drops, then free|
-//! | `Collection`   | Loop: dec each element, free buffer, then free    |
-//! | `Map`          | Loop: dec keys/values, free buffer, then free     |
+//! | `Trivial` | `ori_rc_free(ptr, size, align)` + ret |
+//! | `Fields` | GEP+load+`ori_rc_dec` per RC'd field, then free |
+//! | `ClosureEnv` | Same as Fields (different naming) |
+//! | `Enum` | Switch on tag → per-variant field drops, then free|
+//! | `Collection` | Loop: dec each element, free buffer, then free |
+//! | `Map` | Loop: dec keys/values, free buffer, then free |
 //!
 //! # Cycle safety
 //!
@@ -64,7 +64,7 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     // a foreign Ori exception) MUST NOT be `nounwind` — it threads the
     // exception out via a cleanup landing pad (the AUGMENT body runs the field
     // walk + free on the unwind path, then `resume`s). Itanium only for now;
-    // SEH funclet EH for the drop-fn cleanup pad is anchored in §05. A
+    // SEH funclet EH for the drop-fn cleanup pad is anchored. A
     // non-may-unwind drop fn (scalar/trivial children, no `@drop`) stays
     // `nounwind` (the prior contract — its callers keep the fast path).
     let drop_unwinds = emitter.drop_may_unwind(ty)

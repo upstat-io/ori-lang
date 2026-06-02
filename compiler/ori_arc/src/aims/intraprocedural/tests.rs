@@ -559,7 +559,7 @@ fn invoke_edge_state_tracks_per_edge_demand() {
     );
 }
 
-// Validation corpus tests (Section 02.7)
+// Validation corpus tests
 
 #[test]
 fn corpus_01_straight_line_single_use() {
@@ -1258,7 +1258,7 @@ fn sparse_events_local_alloc_for_function_local_variable() {
     }
 }
 
-// Section 09.2 Locality Activation tests
+// Locality Activation tests
 
 /// Construct in a single block with return: value escapes the function,
 /// so return widening forces `HeapEscaping` locality on the returned var.
@@ -1608,7 +1608,7 @@ fn callee_contract_function_local_preserves_arg() {
 fn block_local_value_gets_unique_without_runtime_check() {
     use super::super::lattice::Uniqueness;
 
-    // func():
+    // func:
     //   block 0: v0 = Construct(Struct); v1 = Project(v0, 0); return v1
     // v0 is block-local: constructed and fully consumed (Project) in same block.
     let func = ArcFunction {
@@ -1810,7 +1810,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
     assert!(!contract.params[0].may_escape);
 }
 
-// Section 09.1: Transfer Fusion — pure callee preserves caller uniqueness
+// Transfer Fusion — pure callee preserves caller uniqueness
 
 /// When callee has `may_share == false`, borrowed arguments preserve uniqueness.
 ///
@@ -1818,7 +1818,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
 /// the caller's uniqueness of a borrowed argument. The argument's pre-call
 /// uniqueness is preserved through the call.
 ///
-/// Section 09.1 Transfer Fusion rule.
+/// Transfer Fusion rule.
 #[test]
 fn pure_callee_preserves_borrowed_arg_uniqueness() {
     use super::super::contract::{
@@ -1896,7 +1896,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
 /// caller's uniqueness of a borrowed argument. The backward demand widens
 /// the argument's uniqueness to `MaybeShared`.
 ///
-/// Section 09.1 Transfer Fusion rule — contrast test.
+/// Transfer Fusion rule — contrast test.
 #[test]
 fn sharing_callee_widens_borrowed_arg_uniqueness() {
     use super::super::contract::{
@@ -1970,11 +1970,11 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
 
 /// Owned params are not affected by callee's `may_share` — only borrowed params.
 ///
-/// The uniqueness widening rule (Section 09.1) applies ONLY to borrowed
+/// The uniqueness widening rule applies ONLY to borrowed
 /// parameters. Owned parameters transfer ownership to the callee; the
 /// caller's pre-call uniqueness is independent of whether the callee shares.
 ///
-/// Section 09.1 Transfer Fusion rule — owned param contrast.
+/// Transfer Fusion rule — owned param contrast.
 #[test]
 fn owned_param_ignores_callee_may_share() {
     use super::super::contract::{
@@ -2046,12 +2046,12 @@ fn owned_param_ignores_callee_may_share() {
     );
 }
 
-// Section 09.1/09.2: Effect summary accumulation
+// Effect summary accumulation
 
 /// Non-scalar `Construct` sets `may_allocate = true` in effect summary.
 #[test]
 fn effect_summary_construct_sets_may_allocate() {
-    // func(): v0 = Construct(Struct, []); return v0
+    // func: v0 = Construct(Struct, []); return v0
     let func = ArcFunction {
         var_types: vec![ty(0)],
         params: vec![],
@@ -2082,7 +2082,7 @@ fn effect_summary_construct_sets_may_allocate() {
 }
 
 /// `Construct` storing an argument with non-`BlockLocal` locality sets
-/// `may_share = true` — Section 09.1 `HeapEscaping` → `may_share` rule.
+/// `may_share = true` — `HeapEscaping` → `may_share` rule.
 #[test]
 fn effect_summary_construct_heap_escaping_arg_sets_may_share() {
     // func(p0): v1 = Construct(Struct, [p0]); return v1
@@ -2122,7 +2122,7 @@ fn effect_summary_construct_heap_escaping_arg_sets_may_share() {
 /// `Construct` where all arguments are block-local does NOT set `may_share`.
 #[test]
 fn effect_summary_construct_block_local_args_no_may_share() {
-    // func(): v0 = Construct(Struct, []); v1 = Construct(Struct, [v0]);
+    // func: v0 = Construct(Struct, []); v1 = Construct(Struct, [v0]);
     // v2 = Project(v1, 0); return v2
     // v0 is created and immediately stored in v1, both in the same block.
     // v0's locality should be BlockLocal (never escapes the block).
@@ -2285,14 +2285,14 @@ fn effect_summary_apply_unions_callee_effects() {
     );
 }
 
-// Closure-capture locality and uniqueness (Section 09.1)
+// Closure-capture locality and uniqueness
 
 #[test]
 fn closure_capture_non_escaping_preserves_block_local() {
     // func(v0: ref):
-    //   v1 = PartialApply(f, [v0])   — captures v0
-    //   v2 = ApplyIndirect(v1, [])   — uses closure locally
-    //   return v2                     — v1 NOT returned (non-escaping)
+    //   v1 = PartialApply(f, [v0]) — captures v0
+    //   v2 = ApplyIndirect(v1, []) — uses closure locally
+    //   return v2 — v1 NOT returned (non-escaping)
     //
     // v0 is a parameter (captured by closure). The closure v1 is used once
     // locally via ApplyIndirect and never returned, so v1's demand locality
@@ -2350,8 +2350,8 @@ fn closure_capture_non_escaping_preserves_block_local() {
 #[test]
 fn once_closure_capture_preserves_cardinality() {
     // func(v0: ref):
-    //   v1 = PartialApply(f, [v0])   — captures v0
-    //   v2 = ApplyIndirect(v1, [])   — uses closure once (Once cardinality)
+    //   v1 = PartialApply(f, [v0]) — captures v0
+    //   v2 = ApplyIndirect(v1, []) — uses closure once (Once cardinality)
     //   return v2
     //
     // The closure v1 has cardinality Once (used once by ApplyIndirect).
@@ -2401,7 +2401,7 @@ fn once_closure_capture_preserves_cardinality() {
     );
 }
 
-// TRMC candidate detection (Section 09.2 Shape Activation)
+// TRMC candidate detection (Shape Activation)
 
 /// Recursive Construct → `ContextHole` when soundness conditions hold.
 ///
@@ -2662,12 +2662,12 @@ fn trmc_not_detected_for_tuple_constructor() {
     );
 }
 
-// Section 09.5: Convergence Feedback — cross-dimension detection
+// Convergence Feedback — cross-dimension detection
 
 #[test]
 fn cross_dimension_not_detected_for_straight_line() {
     // A simple straight-line function should not trigger cross-dimension
-    // detection. Section 09.5.
+    // detection (Convergence Feedback).
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
         params: vec![crate::ir::ArcParam {
@@ -2701,7 +2701,7 @@ fn cross_dimension_not_detected_for_straight_line() {
 #[test]
 fn cross_dimension_not_detected_for_branching() {
     // A function with control flow (Branch) should not trigger cross-dimension
-    // detection with current rules. Section 09.5.
+    // detection with current rules (Convergence Feedback).
     let func = ArcFunction {
         var_types: vec![ty(0), ty(1), ty(0)],
         params: vec![
@@ -2757,19 +2757,19 @@ fn cross_dimension_not_detected_for_branching() {
     );
 }
 
-// FIP call-site specialization (Section 09.2)
+// FIP call-site specialization
 
 #[test]
 fn conditional_fip_call_site_all_unique_no_widening() {
     // caller(x: T) -> T {
-    //   v1 = callee(x)       ← callee has Conditional { [true] }, may_share=true
+    //   v1 = callee(x) ← callee has Conditional { [true] }, may_share=true
     //   return v1
     // }
     //
     // callee's contract: may_share=true, FIP=Conditional{[true]}.
     // At the Apply, x (v0) has backward state Unique (only used once here).
     // Conditional precondition: all required-unique args are Unique → met.
-    // compute_effective_may_share() returns false → no uniqueness widening.
+    // compute_effective_may_share returns false → no uniqueness widening.
     // Result: v0 stays Unique at block entry (instead of MaybeShared).
     let callee_name = Name::from_raw(100);
 
@@ -2880,8 +2880,8 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
 #[test]
 fn conditional_fip_call_site_not_unique_widens() {
     // caller(x: T) -> T {
-    //   v1 = conditional_callee(x)   ← Conditional { [true] }
-    //   v2 = sharing_callee(x)       ← may_share=true, no FIP
+    //   v1 = conditional_callee(x) ← Conditional { [true] }
+    //   v2 = sharing_callee(x) ← may_share=true, no FIP
     //   return v2
     // }
     //
@@ -3202,7 +3202,7 @@ fn empty_context_regions_no_events() {
     );
 }
 
-// Section 13.2: Soundness gate reconciliation
+// Soundness gate reconciliation
 
 /// TRMC candidates are NOT rejected by `may_share` in v1 (logged, not enforced).
 ///
@@ -3511,8 +3511,8 @@ fn project_let_alias_cross_block_propagates_source_demand() {
     //
     // Block 0: v1 = Construct Struct; v2 = Project v1.0; v3 = Let Var(v2);
     //          Branch cond → block1, block2
-    // Block 1: return v3    (uses Let alias of Project result)
-    // Block 2: return v4    (doesn't use v1, v2, or v3)
+    // Block 1: return v3 (uses Let alias of Project result)
+    // Block 2: return v4 (doesn't use v1, v2, or v3)
     //
     // Without the fix: Block 1's entry would have demand for v3 but NOT v1,
     // causing edge cleanup to emit premature RcDec(v1) on the 0→1 edge.
@@ -3741,7 +3741,7 @@ fn compute_project_alias_sources_let_then_jump() {
 #[test]
 fn compute_project_alias_sources_loop_header_param() {
     // Block 0: v1 = Project v0.0; Jump block1, args=[v1]
-    // Block 1: params=[v2]; ... Jump block1, args=[v2] (back-edge)
+    // Block 1: params=[v2];... Jump block1, args=[v2] (back-edge)
     //
     // Loop header param v2 receives Project alias from entry AND back-edge.
     // Maps: v1 → v0, v2 → v0
@@ -4053,7 +4053,7 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
     );
 }
 
-// TF-6 contract-narrowed call-result side tables ( )
+// TF-6 contract-narrowed call-result side tables
 //
 // `populate_call_result_states` pass populates per-variable forward-state
 // side tables on `AimsStateMap` from each Apply/Invoke instruction's
@@ -4061,18 +4061,18 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
 // a contract; CONSERVATIVE for indirect calls per spec TF-5a/TF-6c).
 //
 // Pipeline order: position 1.5 (between `populate_borrow_sources` and
-// `populate_sparse_events`) — Plan TPR Round 0 F4. Side tables MUST be
+// `populate_sparse_events`) — Side tables MUST be
 // populated BEFORE consumers read them; locality narrowing in the side
 // table MUST reach `populate_sparse_events` for `LocalAllocCandidate`
 // emission.
 //
-// Sparse filter is BOTTOM-default per Plan TPR Round 1 F1: skip Unique /
+// Sparse filter is BOTTOM-default per skip Unique /
 // BlockLocal / NonReusable; store everything else (including CONSERVATIVE
 // values like MaybeShared / Unknown that override the optimistic lattice
 // default).
 //
-// Canonicalization (Plan TPR Round 5 F1): contract dimensions are written
-// to a temporary `AimsState`, `canonicalize()` runs to enforce CN-3 (Shared+
+// Canonicalization: contract dimensions are written
+// to a temporary `AimsState`, `canonicalize` runs to enforce CN-3 (Shared+
 // ReusableCtor → NonReusable) and CN-6 (HeapEscaping+Unique → MaybeShared),
 // then canonicalized values are written to side tables.
 
@@ -4191,7 +4191,7 @@ fn populate_call_result_states_apply_unique_contract_filtered() {
 }
 
 /// Apply WITHOUT contract receives CONSERVATIVE per spec TF-5
-/// (Plan TPR Round 1 codex F2 correction). CONSERVATIVE.uniqueness =
+/// . CONSERVATIVE.uniqueness =
 /// `MaybeShared` overrides optimistic lattice BOTTOM=Unique.
 #[test]
 fn populate_call_result_states_apply_no_contract_uses_conservative() {
@@ -4217,8 +4217,8 @@ fn populate_call_result_states_apply_no_contract_uses_conservative() {
     );
 }
 
-/// `ApplyIndirect` populates with CONSERVATIVE per spec TF-5a (Plan TPR Round 5
-/// F2 codex correction). Spec says indirect calls receive "Same as TF-5"
+/// `ApplyIndirect` populates with CONSERVATIVE per spec TF-5a.
+/// Spec says indirect calls receive "Same as TF-5"
 /// (CONSERVATIVE = `MaybeShared`), NOT excluded from the side table entirely.
 #[test]
 fn populate_call_result_states_apply_indirect_uses_conservative() {
@@ -4255,7 +4255,7 @@ fn populate_call_result_states_apply_indirect_uses_conservative() {
     assert_eq!(
         state_map.contract_uniqueness(var(2)),
         Some(Uniqueness::MaybeShared),
-        "ApplyIndirect: spec TF-5a CONSERVATIVE.uniqueness = MaybeShared per Round 5 F2"
+        "ApplyIndirect: spec TF-5a CONSERVATIVE.uniqueness = MaybeShared"
     );
     assert_eq!(
         state_map.contract_locality(var(2)),
@@ -4264,8 +4264,8 @@ fn populate_call_result_states_apply_indirect_uses_conservative() {
     );
 }
 
-/// Invoke with contract: symmetric to Apply (Plan TPR Round 2 F3 +
-/// Round 4 F2 — terminator path also walked by `populate_call_result_states`).
+/// Invoke with contract: symmetric to Apply (+
+/// F2 — terminator path also walked by `populate_call_result_states`).
 #[test]
 fn populate_call_result_states_invoke_with_contract_inserts_dst() {
     let callee_name = Name::from_raw(100);
@@ -4331,8 +4331,8 @@ fn populate_call_result_states_invoke_with_contract_inserts_dst() {
     );
 }
 
-/// Canonicalization fires before side-table writes (Plan TPR Round 5 F1
-/// codex critical correction). CN-3: Shared + `ReusableCtor` → `NonReusable`.
+/// Canonicalization fires before side-table writes.
+/// CN-3: Shared + `ReusableCtor` → `NonReusable`.
 /// Without canonicalization, the side table would store an infeasible
 /// (Shared, `ReusableCtor`) state, breaking AIMS Invariant 5 cross-dimensional
 /// feasibility (CN-3).
@@ -4342,7 +4342,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
     let func = func_with_apply_call(callee_name);
 
     // Contract: (Shared, BlockLocal, ReusableCtor(Struct))
-    // CN-3 forces shape := NonReusable.
+    // CN-3 forces shape:= NonReusable.
     let mut sigs = FxHashMap::default();
     sigs.insert(
         callee_name,
@@ -4379,7 +4379,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
     let func = func_with_apply_call(callee_name);
 
     // Contract: (Unique, HeapEscaping, NonReusable)
-    // CN-6 forces uniqueness := MaybeShared.
+    // CN-6 forces uniqueness:= MaybeShared.
     let mut sigs = FxHashMap::default();
     sigs.insert(
         callee_name,
@@ -4438,10 +4438,10 @@ fn populate_call_result_states_skips_scalar_dst() {
 }
 
 /// Pipeline ordering: `populate_call_result_states` runs BEFORE
-/// `populate_sparse_events` (Plan TPR Round 0 F4 + Round 2 F1 corrections).
+/// `populate_sparse_events`.
 /// `FunctionLocal` contract locality must reach `LocalAllocCandidate` event
 /// emission. `BlockLocal` alternative would be tautological under
-/// BOTTOM-default filter (Round 2 F1) — using `FunctionLocal` restores
+/// BOTTOM-default filter (F1) — using `FunctionLocal` restores
 /// discriminating power.
 #[test]
 fn populate_sparse_events_sees_function_local_contract_locality() {
@@ -4477,9 +4477,9 @@ fn populate_sparse_events_sees_function_local_contract_locality() {
     );
 }
 
-/// Round 2 F1 negative pin: `BlockLocal` contract does NOT insert into the
+/// F1 negative pin: `BlockLocal` contract does NOT insert into the
 /// side table (BOTTOM-default filter) — guards against the tautological
-/// pipeline-ordering test the prior Round 0 design used.
+/// pipeline-ordering test the prior design used.
 #[test]
 fn populate_call_result_states_block_local_filtered_no_event() {
     let callee_name = Name::from_raw(100);
@@ -4513,7 +4513,7 @@ fn populate_call_result_states_block_local_filtered_no_event() {
 /// MUST NOT be a `LocalAllocCandidate` — stack-promoting it would create a
 /// dangling stack-to-heap pointer.
 ///
-/// Pre-fix bug (Round 7+ verification): `var_state_at_block_exit(invoke_block, dst)`
+/// Pre-fix bug (+ verification): `var_state_at_block_exit(invoke_block, dst)`
 /// returned `BOTTOM` because the normal successor's strip
 /// (`block.rs` `compute_block_entry_state` "Invoke defs" branch) erased the
 /// dst from its entry state before the predecessor's exit JOIN read it.
@@ -4531,7 +4531,7 @@ fn populate_call_result_states_block_local_filtered_no_event() {
 fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidate() {
     let callee_name = Name::from_raw(100);
     // func(p0): block 0 → Invoke(callee, [p0]) normal=b1, unwind=b2
-    //           block 1 → Return v1   (returns the Invoke result)
+    //           block 1 → Return v1 (returns the Invoke result)
     //           block 2 → Resume
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
@@ -4618,7 +4618,7 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
 fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidate() {
     let callee_name = Name::from_raw(100);
     // func(p0): block 0 → Invoke(callee, [p0]) normal=b1, unwind=b2
-    //           block 1 → Unreachable  (does NOT return v1; v1 stays local)
+    //           block 1 → Unreachable (does NOT return v1; v1 stays local)
     //           block 2 → Resume
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
@@ -4684,7 +4684,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
         local_alloc_v1,
         "populate_sparse_events MUST record LocalAllocCandidate when an Invoke \
          result has FunctionLocal contract-narrowed locality AND does not escape \
-         via the normal successor — Plan TPR Round 4 F2 walks-Invoke-terminator \
+         via the normal successor — the walks-Invoke-terminator \
          requirement (preserves the precision improvement, just routes through \
          the corrected pre-strip demand path)."
     );
@@ -4755,7 +4755,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     );
 }
 
-/// TPR Round 0 codex F1 (critical INVERTED-TDD): the existing
+/// TPR (critical INVERTED-TDD): the existing
 /// `populate_sparse_events_sees_function_local_contract_locality` test passes
 /// regardless of pipeline ordering because BOTH `BlockLocal` (lattice BOTTOM
 /// fallback) and `FunctionLocal` (contract-narrowed) emit `LocalAllocCandidate`.
@@ -4794,9 +4794,9 @@ fn populate_sparse_events_no_event_for_no_contract_apply_pins_ordering() {
     );
 }
 
-/// TPR Round 0 codex F2 + opencode F2 (AGREEMENT, GAP): `InvokeIndirect` terminator
-/// CONSERVATIVE branch — symmetric to `ApplyIndirect` (Round 5 F2) but tests the
-/// terminator-walking arm of `populate_call_result_states`. Plan TPR §02 §6.12.2.
+/// TPR + (AGREEMENT, GAP): `InvokeIndirect` terminator
+/// CONSERVATIVE branch — symmetric to `ApplyIndirect` (F2) but tests the
+/// terminator-walking arm of `populate_call_result_states`.
 #[test]
 fn populate_call_result_states_invoke_indirect_uses_conservative() {
     // func(p0): v1 = PartialApply(f, [p0]); block 0 ends with InvokeIndirect on v1.
@@ -4845,7 +4845,7 @@ fn populate_call_result_states_invoke_indirect_uses_conservative() {
     assert_eq!(
         state_map.contract_uniqueness(var(2)),
         Some(Uniqueness::MaybeShared),
-        "InvokeIndirect: spec TF-6c CONSERVATIVE.uniqueness = MaybeShared per Round 5 F2"
+        "InvokeIndirect: spec TF-6c CONSERVATIVE.uniqueness = MaybeShared"
     );
     assert_eq!(
         state_map.contract_locality(var(2)),
@@ -4854,7 +4854,7 @@ fn populate_call_result_states_invoke_indirect_uses_conservative() {
     );
 }
 
-/// TPR Round 0 opencode F1 (GAP): Invoke without contract — TF-6b CONSERVATIVE
+/// TPR (GAP): Invoke without contract — TF-6b CONSERVATIVE
 /// path, symmetric to the body-Apply no-contract case. Pins that the terminator
 /// arm of `populate_call_result_states` applies the same fallback logic as the
 /// body arm.
@@ -4918,7 +4918,7 @@ fn populate_call_result_states_invoke_no_contract_uses_conservative() {
 ///
 /// `InvokeEdgeState` is the per-edge demand state captured for terminators
 /// with both a normal and an unwind successor. Pre-fix, the worklist's
-/// `if let ArcTerminator::Invoke { .. }` arm matched only `Invoke`, so
+/// `if let ArcTerminator::Invoke {.. }` arm matched only `Invoke`, so
 /// `InvokeIndirect` terminators left `state_map.invoke_edge_state(block)`
 /// returning `None` — the per-edge cleanup machinery had no entry-state to
 /// consult on the unwind path, and a borrowed closure receiver dying on
@@ -4991,9 +4991,9 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
 /// suppression for `ApplyIndirect` closure receivers); the LATTICE
 /// (TF-11 backward demands + TF-13 capture state update) MUST stay
 /// unchanged so multi-call closures still promote captures to
-/// `Cardinality::Many` per `aims-rules.md §1.3` and §3 TF-13.
+/// `Cardinality::Many` and §3 TF-13.
 ///
-/// Round 1 of the /tp-help loop entertained an alternative fix:
+/// An alternative fix was entertained:
 /// remove the `(closure, Once, Linear)` demand TF-11 emits for
 /// `ApplyIndirect`. That alternative would have made the closure
 /// receiver appear non-demanding, suppressing the spurious `RcInc` as a
@@ -5008,14 +5008,12 @@ fn invoke_indirect_records_edge_state_for_normal_and_unwind() {
 /// captured var at `Cardinality::Many` AND `Consumption::Unrestricted`.
 /// If any future change collapses TF-11's `ApplyIndirect` closure demand,
 /// this assertion fails immediately.
-///
-/// Ref: consensus + §03:87 capture-promotion pin.
 #[test]
 fn apply_indirect_multi_call_promotes_captures_to_many() {
     // func(v0: ref):
-    //   v1 = PartialApply(f, [v0])     — captures v0 in closure env
-    //   v2 = ApplyIndirect(v1, [])     — first invocation
-    //   v3 = ApplyIndirect(v1, [])     — second invocation
+    //   v1 = PartialApply(f, [v0]) — captures v0 in closure env
+    //   v2 = ApplyIndirect(v1, []) — first invocation
+    //   v3 = ApplyIndirect(v1, []) — second invocation
     //   return v3
     //
     // Two ApplyIndirect calls drive the closure cardinality to Many.
@@ -5078,7 +5076,7 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
     );
 }
 
-// ─── §02.4.A ContextHole shape inheritance ──────────────────────────────
+// ───.A ContextHole shape inheritance ──────────────────────────────
 //
 // ContextHole-shaped variables (per `aims/lattice/dimensions.rs:213` +
 // `aims/intraprocedural/post_convergence.rs:445`) inherit their BurdenSpec
@@ -5095,7 +5093,7 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
 #[test]
 fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
     // Positive: a variable shape-annotated `ContextHole` whose underlying
-    // TypeId is a primitive (`Idx::INT`) still routes to the empty §01
+    // TypeId is a primitive (`Idx::INT`) still routes to the empty
     // BuiltinBurdenSpec via the existing BurdenRegistry lookup — the
     // shape annotation does NOT redirect the lookup.
     use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
@@ -5129,7 +5127,7 @@ fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
     assert_eq!(underlying, Idx::INT);
 
     // Existing BurdenRegistry lookup for `int`'s primitive TypeId returns
-    // the §01 empty BuiltinBurdenSpec. The ShapeClass::ContextHole annotation
+    // the empty BuiltinBurdenSpec. The ShapeClass::ContextHole annotation
     // has zero effect on this lookup — no fresh registration, no synthetic
     // TypeId.
     let spec = BurdenRegistry::lookup_builtin(burden_type_id(TypeTag::Int))
@@ -5143,7 +5141,7 @@ fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
 fn context_hole_shape_inherits_underlying_typeid_for_heap_type() {
     // Positive: a variable shape-annotated `ContextHole` whose underlying
     // TypeId is a heap-allocated type (`Idx::STR`) routes to the existing
-    // §01 BuiltinBurdenSpec for `str` (self_heap_alloc = true). The
+    // BuiltinBurdenSpec for `str` (self_heap_alloc = true). The
     // ContextHole shape inherits the same lookup, NOT a fresh registration.
     use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
     use ori_registry::TypeTag;
@@ -5185,8 +5183,8 @@ fn context_hole_shape_inherits_underlying_typeid_for_heap_type() {
 fn context_hole_shape_does_not_register_synthetic_typeid_in_type_registry() {
     // Positive (no fictional registration): annotating a variable with
     // `ShapeClass::ContextHole` MUST NOT mutate `TypeRegistry::burden` to
-    // produce a fresh entry. The codex blind-spot's hallucinated "register
-    // UserBurdenSpec on synthetic ContextHole TypeId" must NOT manifest.
+    // produce a fresh entry. A "register UserBurdenSpec on synthetic
+    // ContextHole TypeId" path must NOT manifest.
     //
     // We construct an empty TypeRegistry, run the lattice analysis with
     // ContextHole annotation applied post-convergence, and verify:
@@ -5283,11 +5281,10 @@ fn context_hole_shape_lookup_path_unchanged_by_annotation() {
 
 #[test]
 fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
-    // Negative pin (anti-hallucination): there is NO public API on
+    // Negative pin: there is NO public API on
     // `AimsStateMap`, `ArcFunction`, or `TypeRegistry` that mints a
-    // synthetic TypeId carrying a "ContextHole" tag. The hallucinated
-    // codex blind-spot Critical #1 fix would have added such an API; this
-    // test pins its absence.
+    // synthetic TypeId carrying a "ContextHole" tag. Such an API must NOT
+    // exist; this test pins its absence.
     //
     // The verification is structural: we exercise every shape-related
     // surface on `AimsStateMap` and confirm none returns a synthetic Idx.

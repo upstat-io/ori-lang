@@ -12,33 +12,39 @@ fn date(year: i64, month: i64, day: i64) -> CivilDate {
 
 // civil_from_days — calendar conversion across boundaries.
 
+/// Epoch day 0 maps to 1970-01-01.
 #[test]
-fn civil_from_days_at_epoch_returns_1970_01_01() {
+fn civil_from_days_at_epoch_returns_epoch_date() {
     assert_eq!(civil_from_days(0), date(1970, 1, 1));
 }
 
+/// A mid-range positive count (day 20605) maps to its calendar date 2026-06-01.
 #[test]
-fn civil_from_days_for_20605_returns_2026_06_01() {
+fn civil_from_days_positive_count_returns_calendar_date() {
     assert_eq!(civil_from_days(20_605), date(2026, 6, 1));
 }
 
+/// Day 19782 lands on the leap day 2024-02-29.
 #[test]
-fn civil_from_days_for_leap_day_returns_2024_02_29() {
+fn civil_from_days_on_leap_day_returns_feb_29() {
     assert_eq!(civil_from_days(19_782), date(2024, 2, 29));
 }
 
+/// The day after the leap day (19783) advances to 2024-03-01.
 #[test]
-fn civil_from_days_day_after_leap_returns_2024_03_01() {
+fn civil_from_days_after_leap_day_returns_march_first() {
     assert_eq!(civil_from_days(19_783), date(2024, 3, 1));
 }
 
+/// Day 10956 lands on the year boundary 1999-12-31.
 #[test]
-fn civil_from_days_for_year_end_returns_1999_12_31() {
+fn civil_from_days_at_year_end_returns_dec_31() {
     assert_eq!(civil_from_days(10_956), date(1999, 12, 31));
 }
 
+/// Day 10957 crosses the century boundary to 2000-01-01.
 #[test]
-fn civil_from_days_for_century_rollover_returns_2000_01_01() {
+fn civil_from_days_at_century_rollover_returns_jan_first() {
     assert_eq!(civil_from_days(10_957), date(2000, 1, 1));
 }
 

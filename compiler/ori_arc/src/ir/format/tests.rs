@@ -136,7 +136,7 @@ fn format_function_with_rc_ops_includes_rc_inc_and_dec_in_output() {
     );
 }
 
-/// §03.1 of aims-burden-tracking: BurdenInc/BurdenDec format as
+/// of aims-burden-tracking: BurdenInc/BurdenDec format as
 /// `burden_inc %N` / `burden_dec %N` (parallel to `RcInc %N [strategy]`
 /// but no strategy slot — burden ops are trivial side-effect markers).
 #[test]

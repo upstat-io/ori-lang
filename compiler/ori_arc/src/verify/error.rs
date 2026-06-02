@@ -68,9 +68,8 @@ pub enum VerifyError {
     UnresolvedTypeVar(crate::ir::validate::UnresolvedTypeVar),
 
     /// A lambda parameter's type is `Tag::BoundVar` at codegen entry — a
-    /// monomorphization-resolution invariant violation (sibling to PC-2;
-    /// `types.md §SC-1` + `typeck.md §GN-2`). Wraps
-    /// [`crate::ir::validate::UnresolvedBoundVar`].
+    /// monomorphization-resolution invariant violation (sibling to PC-2).
+    /// Wraps [`crate::ir::validate::UnresolvedBoundVar`].
     UnresolvedBoundVar(crate::ir::validate::UnresolvedBoundVar),
 
     /// Function-exit burden-balance violation: the algebraic sum

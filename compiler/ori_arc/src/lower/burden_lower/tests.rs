@@ -1,5 +1,5 @@
-//! Tests for `emit_burden_ops` walker. Cycle 2 ships boundary + iteration
-//! pin; subsequent cycles add owned-filter + matrix coverage per `tests.md
+//! Tests for `emit_burden_ops` walker. ships boundary + iteration
+//! pin; subsequent cycles add owned-filter + matrix coverage per `
 //! §Matrix Testing Rule` once the `DerivedOwnership` access path is wired.
 
 use ori_ir::Name;
@@ -47,7 +47,7 @@ fn empty_function_collects_no_burdens() {
 
 #[test]
 fn construct_emits_one_transfer_point_per_owned_arg() {
-    // §03.2 checkbox 2: "For each transfer point that consumes v, emit
+    // checkbox 2: "For each transfer point that consumes v, emit
     // BurdenInc(v) immediately before." Construct with 1 arg ⇒ 1 transfer-
     // point entry. Semantic pin: would FAIL if Construct walk is reverted to
     // no-op or if transfer_points field is not populated.
@@ -80,10 +80,10 @@ fn construct_emits_one_transfer_point_per_owned_arg() {
 
 #[test]
 fn apply_with_one_owned_arg_emits_one_transfer_point() {
-    // §03.2 success_criterion 1 enumerates Apply with Owned param as a
-    // transfer point per `ArcInstr::is_owned_position`. Cycle 6 generic
-    // walk via `used_vars()` + `is_owned_position()` mechanically extends
-    // cycle 5's coverage. Semantic pin: would FAIL if Apply branch in
+    // success_criterion 1 enumerates Apply with Owned param as a
+    // transfer point per `ArcInstr::is_owned_position`. generic
+    // walk via `used_vars` + `is_owned_position` mechanically extends
+    // this coverage. Semantic pin: would FAIL if Apply branch in
     // is_owned_position is reverted to `_ => false`.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -116,8 +116,8 @@ fn apply_with_one_owned_arg_emits_one_transfer_point() {
 
 #[test]
 fn set_emits_one_transfer_point_for_owned_value() {
-    // §03.2 success_criterion 1: "Set with Owned value (per aims-rules.md §3
-    // TF-15 — value.access := Owned unconditional via IA-5 step (1); NOT
+    // success_criterion 1: "Set with Owned value (per
+    // TF-15 — value.access:= Owned unconditional via IA-5 step (1); NOT
     // covered by is_owned_position per the _ => false catch-all)". Semantic
     // pin: would FAIL if Set carve-out is reverted (Set falls through the
     // generic walk because is_owned_position returns false). Pin asserts
@@ -151,7 +151,7 @@ fn set_emits_one_transfer_point_for_owned_value() {
 
 #[test]
 fn borrowed_params_skipped_owned_params_collected() {
-    // §03.2 checkbox 1: "For each owned ArcVarId v in the function ...".
+    // checkbox 1: "For each owned ArcVarId v in the function...".
     // Semantic pin: would FAIL if filter is reverted to walk all vars
     // unconditionally — Borrowed param at var(1) MUST be absent from
     // collected_burdens; Owned param at var(0) MUST be present.
@@ -191,10 +191,10 @@ fn borrowed_params_skipped_owned_params_collected() {
 
 #[test]
 fn construct_emits_burden_inc_immediately_before_consuming_construct() {
-    // §03.2 success_criterion 1 + §04A.5 ITEM-3: Construct with Owned arg
+    // success_criterion 1 +: Construct with Owned arg
     // gets BurdenInc(arg) emitted immediately before — UNLESS the arg's
     // last-use is at this Construct (the matching Dec would be transfer-
-    // suppressed per `aims-rules.md §8 RL-2`, producing VF-1 imbalance).
+    // suppressed per `RL-2`, producing VF-1 imbalance).
     // This test pins the owned-pos Inc emission for the case where arg(0)
     // has a follow-up use (Let-Var alias keeps it alive past the Construct).
     let registry = TypeRegistry::new();
@@ -265,15 +265,15 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
 
 #[test]
 fn apply_emits_burden_inc_immediately_before_consuming_apply() {
-    // §03.2 success_criterion 1 + §04A.5 ITEM-3: Apply with Owned arg gets
+    // success_criterion 1 +: Apply with Owned arg gets
     // BurdenInc(arg) emitted immediately before — UNLESS the arg's last-use
     // is at this Apply, in which case the matching Dec would be transfer-
-    // suppressed per `aims-rules.md §8 RL-2` and emitting the Inc would
+    // suppressed per `RL-2` and emitting the Inc would
     // produce a `Σ Inc - Σ Dec = +1` VF-1 imbalance per
     // `aims/verify/burden_balance.rs`. This test pins the owned-pos Inc
     // emission for the case where arg(0) has a follow-up use (Let-Var
     // alias keeps it alive past the Apply), so Inc IS emitted. Uses
-    // Idx::STR (heap-burden) per cycle-24 VF-1 RcOnScalar mirror.
+    // Idx::STR (heap-burden) per VF-1 RcOnScalar mirror.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
@@ -291,7 +291,7 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
                 },
                 // Follow-up alias keeps var(0) live past the Apply so its
                 // last-use is at the Let, not at the Apply. The Apply's
-                // owned-pos Inc on var(0) IS emitted per the §03.2 rule.
+                // owned-pos Inc on var(0) IS emitted rule.
                 ArcInstr::Let {
                     dst: ArcVarId::new(2),
                     ty: Idx::STR,
@@ -346,13 +346,13 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
 
 #[test]
 fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
-    // §03.2 sc 1 + RL-2 symmetric pin for TF-15 carve-out:
+    //  + RL-2 symmetric pin for TF-15 carve-out:
     // (a) Set with Owned non-scalar value gets BurdenInc(value) emitted
-    //     immediately before (cycle 12 BurdenInc carve-out half).
-    // (b) Set value as last use does NOT receive BurdenDec after (cycle 12
+    //     immediately before.
+    // (b) Set value as last use does NOT receive BurdenDec after (
     //     transfer_vars carve-out half — value is ownership-transferring
-    //     per aims-rules.md §RL-2; emitting BurdenDec would double-release).
-    // §04A.5 ITEM-3 audit conclusion: instruction-level transfer
+    //     per -2; emitting BurdenDec would double-release).
+    //  audit conclusion: instruction-level transfer
     // suppression preserved. The owned-position BurdenInc is a VF-1
     // accounting marker; codegen's predicate-stack realize walk owns
     // physical RC for vars consumed at instruction-level owned positions
@@ -361,7 +361,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
     // `populate_class_covered`, and suppress predicate-stack RC emission —
     // causing real-world RC leaks. Test uses Idx::STR (heap-burden) for
     // value — Idx::INT's lookup_burden returns Some(EMPTY_SPEC) per
-    // BURDEN_TABLE, so the cycle-21 `burden_carries_rc` filter at
+    // BURDEN_TABLE, so the `burden_carries_rc` filter at
     // owned_vars_needing_rc rejects it.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -396,7 +396,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
     // Expected: BurdenInc(var(1)) before Set (TF-15 value carve-out), Set,
     // and possibly BurdenDec(var(0)) after (var(0) is `base` — non-transfer
     // last-use per RL-2; only Set `value` is in the ownership-transferring
-    // list, NOT Set `base`). The cycle-12 RL-2 pin is value-specific:
+    // list, NOT Set `base`). The RL-2 pin is value-specific:
     // BurdenDec(var(1)) MUST NOT appear (value is at TF-15 transfer
     // position).
     let body = &func.blocks[0].body;
@@ -417,30 +417,30 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
         "BurdenInc(value) MUST appear BEFORE Set; body={body:?}",
     );
     // Pin 2: BurdenDec(var(1)) MUST NOT appear (RL-2 transfer skip).
-    // §04A.5 ITEM-3 audit: predicate-stack owns physical RC for Set.value
-    // per the §04A.3 coexistence handshake; symmetric Dec emission here
+    //  audit: predicate-stack owns physical RC for Set.value
+    //  coexistence handshake; symmetric Dec emission here
     // would mark var(1) in burden_emitted and break class_covered.
     let dec_value_present = body
         .iter()
         .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)));
     assert!(
         !dec_value_present,
-        "Set value (var 1) MUST NOT receive BurdenDec at last-use (RL-2 transfer-point exception per §04A.3 coexistence); body={body:?}",
+        "Set value (var 1) MUST NOT receive BurdenDec at last-use (RL-2 transfer-point exception per coexistence handshake); body={body:?}",
     );
 }
 
 #[test]
 fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4() {
-    // §03.4 cycle 47 positive pin per plan body line 1943 + navigator-verdict
-    // (proceed verdict, cycle 47): Set with heap-burden base MUST emit
+    // positive pin per plan body line 1943 + navigator-verdict
+    // (proceed verdict,): Set with heap-burden base MUST emit
     // BurdenDecField(base, field) BEFORE BurdenInc(value) BEFORE the Set
     // instruction. BurdenDecField releases the prior field value's burden;
     // symmetric with BurdenInc(value) which transfers ownership of the new
-    // value INTO the field position. Both precede Set so codegen at cycle 48
+    // value INTO the field position. Both precede Set so codegen
     // can GEP+load the prior value BEFORE the store clobbers it. Per
-    // `aims-rules.md §3 TF-15` + `§8 RL-2` ownership-transfer rules, plus
-    // AIMS Invariant 5 unified-model preservation (cycle 47 extends
-    // ArcInstr enum on the same dimension as cycle-46 BurdenDecPartial).
+    // `TF-15` + `§8 RL-2` ownership-transfer rules, plus
+    // AIMS Invariant 5 unified-model preservation (extends
+    // ArcInstr enum on the same dimension as BurdenDecPartial).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![
@@ -473,10 +473,10 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
     );
     assert!(
         dec_field_pos.is_some(),
-        "expected BurdenDecField(base=var(0), field=0) per §03.4 cycle 47; body={body:?}",
+        "expected BurdenDecField(base=var(0), field=0) ; body={body:?}",
     );
 
-    // Pin 2: BurdenInc(value=var(1)) appears in body (cycle 12+24 carve-out).
+    // Pin 2: BurdenInc(value=var(1)) appears in body.
     let inc_value_pos = body
         .iter()
         .position(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(1)));
@@ -492,7 +492,7 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
         .unwrap_or_else(|| panic!("Set MUST appear in body"));
 
     // Pin 4: Ordering — BurdenDecField BEFORE BurdenInc(value) BEFORE Set.
-    // Codegen at cycle 48 reads the prior field value via GEP+load BEFORE
+    // Codegen reads the prior field value via GEP+load BEFORE
     // the store clobbers it; this ordering is the load-bearing invariant.
     let dec_field = dec_field_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
     let inc_value = inc_value_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
@@ -508,16 +508,16 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
 
 #[test]
 fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
-    // §03.4 cycle 50b positive pin per `aims-rules.md §3 TF-15a` + `§8 RL-10`:
+    // positive pin per `TF-15a` + `§8 RL-10`:
     // SetTag with heap-burden base MUST emit BurdenDecVariant(var=base) BEFORE
     // the SetTag instruction. BurdenDecVariant is the whole-var sibling to
-    // cycle-47 BurdenDecField — SetTag invalidates ALL payload fields of the
-    // OLD variant (RL-10), so codegen at cycle 50c walks the entire variant
+    // BurdenDecField — SetTag invalidates ALL payload fields of the
+    // OLD variant (RL-10), so codegen walks the entire variant
     // before the tag store clobbers the discriminant. AIMS Invariant 5
     // case (b) — extends ArcInstr enum on the same dimension as
     // BurdenDecPartial / BurdenDec; no parallel emission, no shadow tracker.
     // SetTag's TF-15a backward demand is `(base, Once)` only — no value
-    // operand — so unlike cycle-47 Set, no symmetric BurdenInc(value).
+    // operand — so unlike Set, no symmetric BurdenInc(value).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -546,7 +546,7 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
         .position(|i| matches!(i, ArcInstr::BurdenDecVariant { var } if *var == ArcVarId::new(0)));
     assert!(
         dec_variant_pos.is_some(),
-        "expected BurdenDecVariant(var=var(0)) per §03.4 cycle 50b; body={body:?}",
+        "expected BurdenDecVariant(var=var(0)) ; body={body:?}",
     );
 
     // Pin 2: SetTag appears in body.
@@ -555,9 +555,9 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
         .position(|i| matches!(i, ArcInstr::SetTag { .. }))
         .unwrap_or_else(|| panic!("SetTag MUST appear in body"));
 
-    // Pin 3: Ordering — BurdenDecVariant BEFORE SetTag. Codegen at cycle 50c
+    // Pin 3: Ordering — BurdenDecVariant BEFORE SetTag. Codegen
     // reads the current discriminant via GEP+load BEFORE the store clobbers
-    // it; this ordering is the load-bearing invariant per `aims-rules.md
+    // it; this ordering is the load-bearing invariant per `
     // §8 RL-10` (tag change invalidates ALL payload fields).
     let dec_variant = dec_variant_pos.unwrap_or_else(|| unreachable!("checked is_some above"));
     assert!(
@@ -565,7 +565,7 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
         "BurdenDecVariant MUST precede SetTag; body={body:?}",
     );
 
-    // Pin 4: round-trip through SSOT walk helpers per `impl-hygiene.md §SSOT`.
+    // Pin 4: round-trip through SSOT walk helpers.
     // Use `BurdenDecVariant` reflectively via the canonical helpers so the
     // four arms (defined_var/used_vars/uses_var/substitute_var) are
     // mechanically exercised and any future enum-variant grouping drift is
@@ -600,15 +600,15 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
 
 #[test]
 fn settag_emits_no_burden_dec_variant_when_base_not_in_owned_vars_per_03_4_cycle_50b_negative() {
-    // §03.4 cycle 50b negative pin (clamps positive pin from below per
-    // `tests.md §Matrix Clamping`): SetTag on a base var whose burden is
+    // negative pin (clamps positive pin from below per
+    //): SetTag on a base var whose burden is
     // EMPTY (scalar / no owned fields — fails `burden_carries_rc` filter at
     // `compute_owned_vars_needing_rc`) MUST NOT emit BurdenDecVariant.
-    // Mirrors cycle-47 BurdenDecField's gate via
+    // Mirrors BurdenDecField's gate via
     // `owned_vars_needing_rc.contains(base)` — same gate, same filter.
-    // Per `aims-rules.md §VF-1 RcOnScalar` (no RC ops on scalars):
+    //  (no RC ops on scalars):
     // BurdenDecVariant on a scalar would be a structural violation. Idx::INT
-    // is the canonical scalar negative-pin type per cycle-47's
+    // is the canonical scalar negative-pin type per this
     // `set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter`.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -645,8 +645,8 @@ fn settag_emits_no_burden_dec_variant_when_base_not_in_owned_vars_per_03_4_cycle
 
 #[test]
 fn burden_dec_emitted_after_non_transfer_last_use() {
-    // §03.2 sc 2: BurdenDec(v) emits immediately following last-use UNLESS
-    // last-use is ownership-transferring per RL-2. Cycle 11 ships filtered
+    // : BurdenDec(v) emits immediately following last-use UNLESS
+    // last-use is ownership-transferring per RL-2. ships filtered
     // BurdenDec emission. Positive pin: var(0):str (heap-burden type) used
     // ONLY at IsShared (non-transfer per is_owned_position `_ => false`)
     // ⇒ BurdenDec(var(0)) MUST emit after the IsShared instr.
@@ -693,9 +693,9 @@ fn burden_dec_emitted_after_non_transfer_last_use() {
 
 #[test]
 fn partial_apply_emits_burden_inc_for_captured_var() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: PartialApply captures emit BurdenInc when
+    //  +: PartialApply captures emit BurdenInc when
     // the captured var has a follow-up use (Let-Var alias keeps it alive past
-    // the PartialApply). Last-use at this instr would suppress per §04A.5
+    // the PartialApply). Last-use at this instr would suppress
     // ITEM-3 to preserve VF-1 balance.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -743,10 +743,10 @@ fn partial_apply_emits_burden_inc_for_captured_var() {
 
 #[test]
 fn collection_reuse_emits_burden_inc_for_owned_arg() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: CollectionReuse with Owned arg emits
+    //  +: CollectionReuse with Owned arg emits
     // BurdenInc when arg has a follow-up use (Let-Var keeps it alive past
     // the CollectionReuse). Last-use at this instr would suppress per
-    // §04A.5 ITEM-3 to preserve VF-1 balance.
+    //  to preserve VF-1 balance.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
@@ -803,7 +803,7 @@ fn collection_reuse_emits_burden_inc_for_owned_arg() {
 
 #[test]
 fn apply_indirect_emits_burden_inc_for_owned_arg_not_closure() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: ApplyIndirect emits BurdenInc for Owned
+    //  +: ApplyIndirect emits BurdenInc for Owned
     // arg when arg has follow-up use (Let-Var keeps it alive past the
     // ApplyIndirect). Closure at pos 0 always Borrowed, no Inc.
     let registry = TypeRegistry::new();
@@ -865,7 +865,7 @@ fn apply_indirect_emits_burden_inc_for_owned_arg_not_closure() {
 
 #[test]
 fn apply_mixed_owned_borrowed_args_emits_burden_inc_per_position() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: per-position arg_ownership filter +
+    //  +: per-position arg_ownership filter +
     // last-use check. Owned arg(0) with follow-up Let-Var alias keeps it
     // alive past Apply, so BurdenInc(arg=0) IS emitted. Borrowed arg(1)
     // never receives Inc regardless of last-use.
@@ -928,7 +928,7 @@ fn apply_mixed_owned_borrowed_args_emits_burden_inc_per_position() {
 
 #[test]
 fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
-    // §03.2 success_criterion 1: ApplyIndirect's empty arg_ownership defaults
+    // success_criterion 1: ApplyIndirect's empty arg_ownership defaults
     // to all-Borrowed per `is_some_and(Owned)` (instr.rs:367-380) — CONSERVATIVE
     // for unknown callees; caller retains cleanup. This is the load-bearing
     // safety distinction from Apply (instr.rs:381-390) whose empty default is
@@ -936,7 +936,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
     // unifying the two predicates (copy-paste from Apply arm) would silently
     // break ApplyIndirect's conservative semantics — unannotated callsites
     // would receive spurious BurdenInc, doubling refcount and leaking.
-    // Per `aims-rules.md §8 RL-2` ownership-transferring exception.
+    // Per `RL-2` ownership-transferring exception.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
@@ -965,7 +965,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
         ..ArcFunction::default()
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
-    // §04A.5 ITEM-2: post-emission body is [BurdenInc(dst=2) [FRESH-site —
+    // : post-emission body is [BurdenInc(dst=2) [FRESH-site —
     // ApplyIndirect lowers to TF-5a CONSERVATIVE MaybeShared return],
     // ApplyIndirect]. The PER-ARG BurdenInc loop emits zero entries because
     // empty arg_ownership defaults all positions to Borrowed (instr.rs:367-
@@ -996,14 +996,14 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
 
 #[test]
 fn multi_block_last_use_pinned_per_block_pending_cross_block() {
-    // INTENTIONAL §03.2 intra-block scope per `burden_lower.rs:128` comment.
-    // §03.3 cross-block CFG-aware last-use will collapse this to ONE entry
-    // — that change IS the desired §03.3 cell flip, not a regression.
+    // INTENTIONAL intra-block scope per `burden_lower.rs:128` comment.
+    // cross-block CFG-aware last-use will collapse this to ONE entry
+    // — that change IS the desired cell flip, not a regression.
     //
-    // §03.2 walker (burden_lower.rs:132-141) does per-block backward walks:
+    // walker (burden_lower.rs:132-141) does per-block backward walks:
     // `seen: FxHashSet` declared INSIDE the block loop, so a variable used
     // in BOTH blocks produces TWO `last_use_points` entries — one per block.
-    // Cross-block liveness via block-param handoffs lands in §03.3.
+    // Cross-block liveness via block-param handoffs lands.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![Idx::STR],
@@ -1045,7 +1045,7 @@ fn multi_block_last_use_pinned_per_block_pending_cross_block() {
     assert_eq!(
         var0_entries.len(),
         2,
-        "§03.2 per-block walk MUST identify var(0) last-use in EACH block separately (intra-block scope); §03.3 cross-block will collapse to 1 — that IS the desired §03.3 flip. last_use_points={:?}",
+        "per-block walk MUST identify var(0) last-use in EACH block separately (intra-block scope); cross-block last-use will collapse to 1. last_use_points={:?}",
         ctx.last_use_points(),
     );
     // Verify one entry per block.
@@ -1060,7 +1060,7 @@ fn multi_block_last_use_pinned_per_block_pending_cross_block() {
 
 #[test]
 fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: emission loop iterates ALL owned positions
+    //  +: emission loop iterates ALL owned positions
     // in declaration order. Args with follow-up Let-Var aliases keep them
     // alive past the Construct, so per-arg BurdenInc IS emitted.
     let registry = TypeRegistry::new();
@@ -1115,8 +1115,8 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
-    // §04A.5 ITEM-2: BurdenInc(dst=3) [FRESH-site, TF-3] precedes the per-arg
-    // BurdenIncs (cycle 20 pinned the per-arg ordering); all Incs precede
+    // : BurdenInc(dst=3) [FRESH-site, TF-3] precedes the per-arg
+    // BurdenIncs; all Incs precede
     // Construct.
     let expected = [
         ArcVarId::new(3),
@@ -1153,18 +1153,18 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
 
 #[test]
 fn scalar_int_var_emits_no_burden_dec_at_last_use() {
-    // §03.2 sc 2 + `aims-rules.md §4 DP-1` (is_rc_needed: ... ∧ ¬is_scalar)
+    //  + `DP-1` (is_rc_needed:... ∧ ¬is_scalar)
     // + `§9 VF-1 RcOnScalar`. A var typed `Idx::INT` (scalar) MUST NOT
     // receive BurdenDec emission even at non-transfer last-use.
     //
-    // This test surfaces the cycle-21 filter fix: `lookup_burden(Idx::INT)`
+    // This test surfaces the filter fix: `lookup_burden(Idx::INT)`
     // returns `Some(BurdenRef)` carrying `BuiltinBurdenSpec::EMPTY` (per
     // `BURDEN_TABLE` at `ori_registry/src/burden/table.rs:184-193`), NOT
-    // None. A naive filter `burden.as_ref().map(|_| *var)` admits EMPTY
-    // and emits BurdenDec on scalars (RcOnScalar violation). The cycle-21
+    // None. A naive filter `burden.as_ref.map(|_| *var)` admits EMPTY
+    // and emits BurdenDec on scalars (RcOnScalar violation). The
     // fix at `burden_lower.rs:154-178` checks BurdenRef contents via the
-    // `Burden` trait: `self_heap_alloc() || element_burden().is_some() ||
-    // variant_burdens().next().is_some() || owned_fields().next().is_some()`.
+    // `Burden` trait: `self_heap_alloc || element_burden.is_some ||
+    // variant_burdens.next.is_some || owned_fields.next.is_some`.
     //
     // Test fixture: var(0) = Idx::INT (scalar), used at IsShared { var } —
     // a non-transfer last-use (IsShared has no owned positions per
@@ -1197,21 +1197,21 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
 
 #[test]
 fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
-    // §03.2 checkbox 1: ownership filter MUST skip Borrowed params BEFORE
+    // checkbox 1: ownership filter MUST skip Borrowed params BEFORE
     // `lookup_burden` is consulted. This is the load-bearing early-skip
     // for heap-burden Borrowed params: per `burden_lower.rs:111-113`,
     // `matches!(param_ownership.get(&var), Some(Ownership::Borrowed))
     // → continue` short-circuits the param loop before push to ctx.collected.
     //
-    // Distinct from cycle-4 borrowed_params_skipped_owned_params_collected
+    // Distinct from borrowed_params_skipped_owned_params_collected
     // which uses Idx::INT (scalar — burden=EMPTY, fails burden_carries_rc
     // anyway). This cell tests the realistic heap-burden case: Idx::STR
     // carries self_heap_alloc=true per BURDEN_TABLE, so without the early-
     // skip, var(1)=STR/Borrowed would flow into ctx.collected, pass
     // burden_carries_rc (self_heap_alloc=true), enter owned_vars_needing_rc,
-    // and emit spurious BurdenInc/BurdenDec violating §03.2 checkbox 1.
+    // and emit spurious BurdenInc/BurdenDec violating checkbox 1.
     // A future refactor removing the ownership filter would still pass the
-    // scalar Idx::INT test (cycle 4) AND the scalar VF-1 test (cycle 21) —
+    // scalar Idx::INT test AND the scalar VF-1 test —
     // this heap-burden Idx::STR test would FAIL, surfacing the regression.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -1270,7 +1270,7 @@ fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
 
 #[test]
 fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned() {
-    // §03.2 sc 1 + §04A.5 ITEM-3: per-position arg_ownership filter MUST
+    //  +: per-position arg_ownership filter MUST
     // continue past Borrowed positions. Args with follow-up Let-Var aliases
     // keep them alive past Apply, so per-arg BurdenInc IS emitted.
     let registry = TypeRegistry::new();
@@ -1332,7 +1332,7 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
             _ => None,
         })
         .collect();
-    // §04A.5 ITEM-2: BurdenInc(dst=3) [FRESH-site, Apply with no contract
+    // : BurdenInc(dst=3) [FRESH-site, Apply with no contract
     // defaults to MaybeShared return per TF-5] precedes the per-arg
     // BurdenIncs. Per-arg filter still pins [Owned, Borrowed, Owned] →
     // BurdenInc(0), BurdenInc(2); BurdenInc(1) still skipped.
@@ -1359,14 +1359,14 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
 
 #[test]
 fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
-    // §03.2 sc 1 + `aims-rules.md §9 VF-1 RcOnScalar` mirror to BurdenInc
+    //  + `VF-1` RcOnScalar` mirror to BurdenInc
     // emission. PartialApply args=[STR, INT]: STR carries heap-burden
     // (passes burden_carries_rc); INT carries EMPTY burden (per BURDEN_TABLE
-    // at `ori_registry/src/burden/table.rs:184-193`) — cycle-24 filter MUST
+    // at `ori_registry/src/burden/table.rs:184-193`) — filter MUST
     // admit STR and reject INT.
     //
-    // This is the BurdenInc symmetric pin to cycle-21's BurdenDec scalar
-    // exclusion. Without the cycle-24 filter, `lookup_burden(Idx::INT)`
+    // This is the BurdenInc symmetric pin to this BurdenDec scalar
+    // exclusion. Without the filter, `lookup_burden(Idx::INT)`
     // returns `Some(EMPTY_SPEC)` and the unfiltered BurdenInc loop would
     // emit BurdenInc on the scalar arg — RcOnScalar violation per IR
     // variant doc ("BurdenInc parallels RcInc; tracks burden lattice").
@@ -1420,15 +1420,15 @@ fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
 
 #[test]
 fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
-    // §03.2 sc 1 + cycle-24 VF-1 RcOnScalar mirror — cross-instr coverage.
+    //  + VF-1 RcOnScalar mirror — cross-instr coverage.
     // ApplyIndirect with arg_ownership=[Owned] + arg=Idx::INT (scalar) MUST
     // emit ZERO BurdenInc. Per instr.rs:367-380 ApplyIndirect arm: closure
     // at pos 0 always borrowed; arg at pos 1 owned iff arg_ownership[0]=Owned.
-    // Per cycle-24 filter (burden_lower.rs:171-175): owned_vars_needing_rc
+    // Per filter (burden_lower.rs:171-175): owned_vars_needing_rc
     // rejects Idx::INT (EMPTY burden) so no BurdenInc emits.
     //
-    // Cycle 24's partial_apply_mixed_str_int test covered PartialApply;
-    // cycle 25 extends VF-1 BurdenInc-side coverage to ApplyIndirect via
+    // this partial_apply_mixed_str_int test covered PartialApply;
+    // extends VF-1 BurdenInc-side coverage to ApplyIndirect via
     // the SAME single generic emission loop. A regression that re-introduces
     // a per-variant unfiltered emission path for ApplyIndirect specifically
     // (e.g., bypassing owned_vars_needing_rc) would FAIL this pin while
@@ -1461,9 +1461,9 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
         ..ArcFunction::default()
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
-    // §04A.5 ITEM-2: ApplyIndirect dst=2 is STR (heap) → FRESH-site
+    // : ApplyIndirect dst=2 is STR (heap) → FRESH-site
     // BurdenInc(dst=2) emits per TF-5a CONSERVATIVE MaybeShared return.
-    // The per-arg loop still emits ZERO Incs for var(1)=Idx::INT (cycle-24
+    // The per-arg loop still emits ZERO Incs for var(1)=Idx::INT (
     // VF-1 filter excludes EMPTY-spec scalars from owned_vars_needing_rc).
     let body = &func.blocks[0].body;
     let inc_vars: Vec<ArcVarId> = body
@@ -1489,20 +1489,20 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
 
 #[test]
 fn set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter() {
-    // §03.2 sc 1 + `aims-rules.md §3 TF-15` + `§9 VF-1 RcOnScalar`. Set's
+    //  + `TF-15` + `§9 VF-1 RcOnScalar`. Set's
     // `value` is owned via IA-5 alias-transfer step (1) per TF-15 carve-out;
     // NOT covered by `is_owned_position`'s `_ => false` catch-all. The
     // BurdenInc emission for Set's value happens in a SEPARATE if-let block
     // (burden_lower.rs:217-225) distinct from the main owned-position loop.
     //
-    // Cycle 24 added `owned_vars_needing_rc.contains(value)` to BOTH the
+    // added `owned_vars_needing_rc.contains(value)` to BOTH the
     // main loop AND the Set carve-out. This test closes the LAST unclamped
-    // path of cycle-24's filter: a regression reverting only the Set-path
-    // filter (e.g., copy-paste from a different file or pre-cycle-24 logic
+    // path of this filter: a regression reverting only the Set-path
+    // filter (e.g., copy-paste from a different file or pre-logic
     // restored) would pass all current Apply/PartialApply/CollectionReuse/
     // ApplyIndirect scalar pins (cycles 21+24+25) but FAIL this Set pin.
     //
-    // Cycle 12 already covers the positive case (Idx::STR value emits
+    // already covers the positive case (Idx::STR value emits
     // BurdenInc); this is the symmetric Idx::INT scalar negative pin.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -1538,15 +1538,15 @@ fn set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter() {
 
 #[test]
 fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() {
-    // §03.2 sc 1: cross-dimension matrix cell — multi-arg Construct with
-    // scalar in non-edge (middle) position. Combines cycle-20 multi-arg
-    // ordering coverage with cycle-24 scalar-filter coverage; distinct from
-    // both: cycle 20 uses all-STR (no filter exercise per-position), cycle
+    // : cross-dimension matrix cell — multi-arg Construct with
+    // scalar in non-edge (middle) position. Combines multi-arg
+    // ordering coverage with scalar-filter coverage; distinct from
+    // both: uses all-STR (no filter exercise per-position), cycle
     // 24 uses 2-arg edge-only [STR, INT] on PartialApply.
     //
     // Defends per-position filter correctness against a regression that
     // would blanket-apply burden_carries_rc across all args (passes cycle
-    // 20 + cycle 24 but fails cycle 27).
+    // 20 + but fails).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![
@@ -1600,7 +1600,7 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
             _ => None,
         })
         .collect();
-    // §04A.5 ITEM-2 + ITEM-3: FRESH-site BurdenInc(dst=3) precedes per-arg
+    //  + ITEM-3: FRESH-site BurdenInc(dst=3) precedes per-arg
     // Incs. var(0) and var(2) (STR, follow-up Let-Var aliases) emit owned-
     // pos BurdenInc; var(1) (INT) excluded per VF-1 RcOnScalar.
     assert!(
@@ -1623,10 +1623,10 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
 
 #[test]
 fn apply_all_borrowed_args_emits_zero_burden_inc() {
-    // §03.2 sc 1: all-Borrowed corner cell. Matrix has all-Owned (cycle 6
-    // updated), [Owned,Borrowed] mixed (cycle 17), [Owned,Borrowed,Owned]
-    // non-adjacent (cycle 23); all-Borrowed is the missing corner per
-    // tests.md §Matrix Clamping clamp-from-all-sides.
+    // : all-Borrowed corner cell. Matrix has all-Owned (
+    // updated), [Owned,Borrowed] mixed, [Owned,Borrowed,Owned]
+    // non-adjacent; all-Borrowed is the missing corner per
+    //  Clamping clamp-from-all-sides.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
@@ -1659,7 +1659,7 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
-    // §04A.5 ITEM-2: per-arg loop still emits ZERO Incs (both args Borrowed).
+    // : per-arg loop still emits ZERO Incs (both args Borrowed).
     // FRESH-site BurdenInc(dst=2) emits because dst=STR is heap and Apply
     // with no contract defaults to MaybeShared return (TF-5 CONSERVATIVE).
     let inc_vars: Vec<ArcVarId> = body
@@ -1682,11 +1682,11 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
 
 #[test]
 fn partial_apply_empty_args_emits_zero_burden_inc() {
-    // §03.2 sc 1: empty-args boundary cell. PartialApply with args=[]:
-    // is_owned_position(pos) = pos < 0 = false for all pos; used_vars()
+    // : empty-args boundary cell. PartialApply with args=[]:
+    // is_owned_position(pos) = pos < 0 = false for all pos; used_vars
     // returns empty SmallVec; emission loop body never executes. Pins
-    // off-by-one (loop ends args.len()-1) + unconditional-emit + hardcoded
-    // pos==0 shortcut regressions per tests.md §TDD step 3 (edge cases:
+    // off-by-one (loop ends args.len-1) + unconditional-emit + hardcoded
+    // pos==0 shortcut regressions per step 3 (edge cases:
     // empty, single-element, boundary).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -1719,7 +1719,7 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
-    // §04A.5 ITEM-2: per-arg loop emits zero Incs (args=[] → no positions).
+    // : per-arg loop emits zero Incs (args=[] → no positions).
     // FRESH-site BurdenInc(dst=0) emits because PartialApply dst is heap
     // per TF-7 FRESH(NonReusable).
     let inc_vars: Vec<ArcVarId> = body
@@ -1743,9 +1743,9 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
 
 #[test]
 fn construct_empty_args_emits_zero_burden_inc() {
-    // §03.2 sc 1: empty-args boundary mirror to cycle 29's PartialApply
+    // : empty-args boundary mirror to this PartialApply
     // empty-args pin. Shared is_owned_position branch at instr.rs:352:
-    // `Construct { args, .. } | PartialApply { args, .. } => pos < args.len()`.
+    // `Construct { args,.. } | PartialApply { args,.. } => pos < args.len`.
     // args=[] → predicate false for all pos → zero BurdenInc.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -1775,7 +1775,7 @@ fn construct_empty_args_emits_zero_burden_inc() {
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
-    // §04A.5 ITEM-2: per-arg loop emits zero Incs (args=[] → no positions).
+    // : per-arg loop emits zero Incs (args=[] → no positions).
     // FRESH-site BurdenInc(dst=0) emits because Construct dst is heap per
     // TF-3 FRESH.
     let inc_vars: Vec<ArcVarId> = body
@@ -1798,8 +1798,8 @@ fn construct_empty_args_emits_zero_burden_inc() {
 
 #[test]
 fn last_use_detected_at_single_block_use_position() {
-    // §03.2 success_criterion 2: "BurdenDec(v) emits immediately following
-    // EVERY last-use of v along EVERY reachable CFG path." Cycle 8 ships
+    // success_criterion 2: "BurdenDec(v) emits immediately following
+    // EVERY last-use of v along EVERY reachable CFG path." ships
     // per-block backward-walk scaffold. Semantic pin: var(0) is used once
     // (as Apply arg at block 0, instr 0); last_use_points MUST contain
     // exactly one entry pinning that position.
@@ -1834,7 +1834,7 @@ fn last_use_detected_at_single_block_use_position() {
 #[test]
 fn iteration_produces_one_entry_per_var_type() {
     // Semantic pin: would FAIL if iteration body is reverted to no-op or
-    // todo!() — collected_burdens length must match var_types length.
+    // todo! — collected_burdens length must match var_types length.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(3);
     let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
@@ -1853,15 +1853,15 @@ fn iteration_produces_one_entry_per_var_type() {
 
 #[test]
 fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
-    // §03.3 first rule positive pin: Return transfers ownership per
-    // `aims-rules.md §8 RL-2` — Return's `value` is a terminator-transfer
+    // first rule positive pin: Return transfers ownership per
+    // `RL-2` — Return's `value` is a terminator-transfer
     // point. When `value` is also used at an earlier instruction (here as
     // IsShared's `var` operand at non-owned position), the terminator-position
     // last-use registration takes precedence over the prior-instruction-position
     // entry (terminator scans first in backward walk; first-seen-wins). At
     // emission time the terminator-position entry hits terminator_transfer_vars
     // and is filtered out — no BurdenDec emits anywhere for `value`. Without
-    // the §03.3 terminator-walking last-use scan + Return-transfer-var filter,
+    // the terminator-walking last-use scan + Return-transfer-var filter,
     // the prior-instruction last-use would emit BurdenDec(0) after IsShared,
     // double-releasing the value Return transfers to the caller.
     let registry = TypeRegistry::new();
@@ -1890,7 +1890,7 @@ fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body = &func.blocks[0].body;
     // Pin 1: NO BurdenInc on var(0) — IsShared is not owned-position; Return
-    // is a transfer (not a BurdenInc site per §03.3 first rule).
+    // is a transfer (not a BurdenInc site first rule).
     let inc_present = body
         .iter()
         .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)));
@@ -1919,15 +1919,15 @@ fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
 
 #[test]
 fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() {
-    // §03.4 negative pin: a function with NO Project instructions MUST yield
-    // an empty `moved_out_fields` map after cycle 42's Pass 1/Pass 2 population.
+    // negative pin: a function with NO Project instructions MUST yield
+    // an empty `moved_out_fields` map after this Pass 1/Pass 2 population.
     // Pass 1 finds zero Project tuples → project_origins empty → Pass 2's
     // transfer-var lookups all miss → map stays empty. Clamps the population
     // logic from below: a reversion that erroneously populates on every
     // transferred var (regardless of project_origins membership) would fire
-    // here. Per impl-hygiene.md §INVERTED-TDD pseudo-tested-method ban —
+    // here. Per -TDD pseudo-tested-method ban —
     // assert the SPECIFIC expected state (empty map) rather than mere data-
-    // structure-existence. Preserves cycle-40 skeleton intent post-population.
+    // structure-existence. Preserves skeleton intent post-population.
     let registry = TypeRegistry::new();
     let mut func = func_with_n_vars(2);
     let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
@@ -1940,13 +1940,13 @@ fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() 
 
 #[test]
 fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_positive() {
-    // §03.4 cycle 42 positive pin (two-stage rule): `%1 = Project %0.0` followed
+    // positive pin (two-stage rule): `%1 = Project %0.0` followed
     // by `Construct(args=[%1])` MUST set bit `0` on `%0` in `moved_out_fields`.
     // Pass 1 collects (%1 → (%0, 0)); Pass 2 sees Construct's owned-position arg
     // %1, looks up project_origins[%1] = (%0, 0), inserts 0 into
-    // moved_out_fields[%0]. Per `aims-rules.md §3 TF-3` Construct args at
+    // moved_out_fields[%0]. Per `TF-3` Construct args at
     // owned positions (per `instr.rs:352-354 is_owned_position` returns true
-    // for `pos < args.len()`). Construct is the canonical transfer-point
+    // for `pos < args.len`). Construct is the canonical transfer-point
     // consumer that fires the two-stage rule.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -1989,11 +1989,11 @@ fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_posit
 
 #[test]
 fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_positive() {
-    // §03.4 cycle 42 positive pin (Set-value TF-15 carve-out): `%1 = Project %0.0`
+    // positive pin (Set-value TF-15 carve-out): `%1 = Project %0.0`
     // followed by `Set { base: %2, field: 0, value: %1 }` MUST set bit `0` on `%0`
     // in `moved_out_fields`. Pass 1 collects (%1 → (%0, 0)); Pass 2's
     // `instr_transfer_vars` honors the Set-value carve-out per
-    // `aims-rules.md §3 TF-15` + IA-5 step (1) — `value` is Owned via alias
+    // `TF-15` + IA-5 step (1) — `value` is Owned via alias
     // transfer despite `is_owned_position`'s `_ => false`. Clamps the
     // Set-value carve-out symmetry with the existing transfer_points /
     // emit_instr_burdens carve-outs at `burden_lower.rs:231-236,463-466,490-491`.
@@ -2038,12 +2038,12 @@ fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_posi
 
 #[test]
 fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
-    // §03.4 cycle 42 negative pin (two-stage rule clamp from below): `%1 = Project %0.0`
+    // negative pin (two-stage rule clamp from below): `%1 = Project %0.0`
     // with NO downstream transfer-point consumer MUST leave `moved_out_fields[%0]`
-    // unset. Per `aims-rules.md §3 TF-4`, Project produces Borrowed; per
+    // unset. Per `TF-4`, Project produces Borrowed; per
     // `instr.rs:391 _ => false`, Project is NOT an owned position itself.
     // The two-stage rule fires only when a Project dst is THEN consumed at
-    // a transfer point. This pin clamps the cycle-40 unsound-aggressive
+    // a transfer point. This pin clamps the unsound-aggressive
     // failure mode (`populate on every Project`) — a reversion of Pass 1/Pass 2
     // to single-pass-on-every-Project would set the bit here and FAIL.
     let registry = TypeRegistry::new();
@@ -2073,7 +2073,7 @@ fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
 #[test]
 fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed_position_negative()
 {
-    // §03.4 cycle 42 negative pin (borrowed-position clamp): `%1 = Project %0.0`
+    // negative pin (borrowed-position clamp): `%1 = Project %0.0`
     // followed by `IsShared(%1)` MUST leave `moved_out_fields[%0]` unset. Per
     // `instr.rs:391 _ => false`, IsShared falls through `is_owned_position`'s
     // catch-all → NOT an owned position → `instr_transfer_vars` does NOT
@@ -2081,7 +2081,7 @@ fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed
     // Clamps the Pass 2 logic from below: a reversion that erroneously
     // treats every `used_vars` member as a transfer (ignoring
     // `is_owned_position`) would set the bit here and FAIL. Per
-    // `aims-rules.md §3 TF-10`, IsShared produces SCALAR (boolean) — no
+    // `TF-10`, IsShared produces SCALAR (boolean) — no
     // ownership transfer happens.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -2115,21 +2115,21 @@ fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed
 
 #[test]
 fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl2_negative() {
-    // §03.3 rule 3 negative pin (cycle 39): clamps cycle-37's
+    //  negative pin: clamps this
     // `if matches!(ownership, DerivedOwnership::Owned)` guard at
     // `burden_lower.rs:273` from below. When target block param's
     // `DerivedOwnership` is `BorrowedFrom(...)` (NOT Owned), Jump.args[i]
     // MUST NOT enter terminator_transfer_vars — the prior-instruction /
     // terminator-position last-use of arg DOES receive BurdenDec because
     // Jump-to-Borrowed-param is a borrow (not an ownership transfer) per
-    // `aims-rules.md §8 RL-2` ownership-transferring exception list.
+    // `RL-2` ownership-transferring exception list.
     // Production borrow inference at `borrow/derived.rs:60` currently marks
     // all block params Owned, so this case is structurally unreachable in
     // shipped code — BUT the guard itself is load-bearing (a reversion that
     // always treats Jump.args as transfer would silently miscompile when
     // block-param borrow inference distinguishes Borrowed). Test constructs
     // explicit `&[DerivedOwnership::BorrowedFrom(...)]` to exercise the
-    // negative path per `tests.md §Matrix Clamping` completeness rule.
+    // negative path completeness rule.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -2159,7 +2159,7 @@ fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl
         name: Name::from_raw(0),
         ..ArcFunction::default()
     };
-    // Block 1's param var(1) is BorrowedFrom var(0) — clamps cycle-37's
+    // Block 1's param var(1) is BorrowedFrom var(0) — clamps this
     // DerivedOwnership::Owned guard; transfer set MUST exclude var(0).
     let derived = vec![
         DerivedOwnership::Owned,
@@ -2177,7 +2177,7 @@ fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl
         dec_present,
         "Jump.args[0] (var(0)) to Borrowed-target-block-param MUST receive BurdenDec at terminator-position (NOT a transfer per RL-2; cycle-37 guard load-bearing); block 0 body={body_0:?}",
     );
-    // §03.3 rule 3 emission-side negative pin per `tests.md §Matrix Clamping`:
+    //  emission-side negative pin:
     // BurdenInc MUST NOT fire when target-block-param is Borrowed (clamps the
     // emission-side ownership guard from below — a reversion that always
     // emitted BurdenInc at Jump.args would silently over-emit).
@@ -2192,15 +2192,15 @@ fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl
 
 #[test]
 fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscalar() {
-    // §03.3 rule 5 negative pin (cycle 39, VF-1 RcOnScalar mirror per
-    // `aims-rules.md §9`): scalar-typed Invoke arg at owned position MUST
+    //  negative pin (, VF-1 RcOnScalar mirror per
+    //): scalar-typed Invoke arg at owned position MUST
     // NOT receive BurdenInc/BurdenDec even though terminator_transfer_per_block
     // marks it as transfer. The `owned_vars_needing_rc` filter at
     // `burden_lower.rs:225-234` rejects scalars (Idx::INT carries
     // `BuiltinBurdenSpec::EMPTY` per `BURDEN_TABLE` at
     // `ori_registry/src/burden/table.rs:184-193`); `burden_carries_rc`
     // returns false → var excluded from owned_vars_needing_rc → no
-    // emission. Clamps cycle-38's Invoke transfer logic from below.
+    // emission. Clamps this Invoke transfer logic from below.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -2246,15 +2246,15 @@ fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscala
 
 #[test]
 fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_balance() {
-    // §03.3 rule 5 InvokeIndirect positive pin + §04A.5 ITEM-3 terminator-
+    //  InvokeIndirect positive pin + terminator-
     // level VF-1 symmetry: canonical `ArcTerminator::is_owned_position(pos)`
     // at `terminator.rs:117-126` encodes closure-pos-0-always-Borrowed
-    // semantics. used_vars = [closure, ...args]; closure at pos 0 →
+    // semantics. used_vars = [closure,...args]; closure at pos 0 →
     // is_owned_position(0) == false; args at pos 1+ checked against
     // arg_ownership[pos-1]. Test: closure var(0) + args [var(1)] with
     // arg_ownership=[Owned] → var(1) gets BurdenInc at terminator AND
     // symmetric BurdenDec at terminator to balance VF-1 intraprocedural
-    // net per `aims-rules.md §9 VF-1`. The terminator-level symmetric Dec
+    // net per `VF-1`. The terminator-level symmetric Dec
     // is safe (does NOT cause class_covered to fire for body-internal vars,
     // since the var's last-use IS the terminator); the instruction-level
     // case keeps transfer-suppression per `emit_instr_burdens`. BurdenDec
@@ -2303,8 +2303,8 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
-    // §04A.5 ITEM-3 — Pin: BurdenDec on var(1) MUST appear, paired with the
-    // BurdenInc to preserve VF-1 intraprocedural balance per `aims-rules.md
+    //  — Pin: BurdenDec on var(1) MUST appear, paired with the
+    // BurdenInc to preserve VF-1 intraprocedural balance per `
     // §9 VF-1`. Codegen does NOT emit a real RcDec — BurdenDec is a TF-N/A
     // metadata annotation per `aims/realize/walk.rs:75-93`, so the
     // ownership-transfer semantic at the runtime layer is unaffected.
@@ -2313,10 +2313,10 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
         .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)));
     assert!(
         dec_arg_present,
-        "§04A.5 ITEM-3: InvokeIndirect.args[0] at owned position 1 MUST receive symmetric BurdenDec at terminator for VF-1 balance; body={body_0:?}",
+        "InvokeIndirect.args[0] at owned position 1 MUST receive symmetric BurdenDec at terminator for VF-1 balance; body={body_0:?}",
     );
-    // §03.3 rule 5 emission-side positive pin: BurdenInc(var(1)) fires at
-    // owned position 1 per `aims-rules.md §8 RL-1`. Conservative Phase 5
+    //  emission-side positive pin: BurdenInc(var(1)) fires at
+    // owned position 1 per `RL-1`. Conservative Phase 5
     // emission mirroring instruction-level pattern.
     let inc_arg_present = body_0
         .iter()
@@ -2325,7 +2325,7 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
         inc_arg_present,
         "InvokeIndirect.args[0] at owned position 1 MUST receive BurdenInc at terminator (rule 5 emission-side per RL-1); body={body_0:?}",
     );
-    // §03.3 rule 5 emission-side negative pin per `tests.md §Matrix Clamping`:
+    //  emission-side negative pin:
     // closure at position 0 is ALWAYS Borrowed per is_owned_position(0)
     // returning false. Clamps the SSOT helper's closure-Borrowed semantic;
     // a reversion that emitted BurdenInc on the closure would over-emit.
@@ -2340,11 +2340,11 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
 
 #[test]
 fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1() {
-    // §03.3 rule 5 (Tail-call) positive pin + §04A.5 ITEM-3 terminator-
+    //  (Tail-call) positive pin + terminator-
     // level VF-1 symmetry: `ArcTerminator::Invoke` args at owned positions
-    // transfer ownership per `aims-rules.md §8 RL-2` AND receive symmetric
-    // BurdenInc + BurdenDec pair at the terminator per `aims-rules.md §9
-    // VF-1` intraprocedural balance. Cycle-38 extended
+    // transfer ownership per `RL-2` AND receive symmetric
+    // BurdenInc + BurdenDec pair at the terminator per `
+    // VF-1` intraprocedural balance. extended
     // `terminator_transfer_per_block` with `Invoke + InvokeIndirect`
     // match-arms using canonical SSOT helper `is_owned_position(pos)`.
     // With empty `arg_ownership`, is_owned_position defaults to all-Owned
@@ -2353,7 +2353,7 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
     // a real RcDec, preserving the runtime transfer semantic. The
     // terminator-level symmetric Dec is safe (does NOT trigger
     // class_covered suppression of predicate-stack RC for body-internal
-    // vars per §04A.3 coexistence handshake).
+    // vars coexistence handshake).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -2391,18 +2391,18 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
-    // §04A.5 ITEM-3 — Pin: BurdenDec on var(0) MUST appear, paired with the
+    //  — Pin: BurdenDec on var(0) MUST appear, paired with the
     // terminator-position BurdenInc to preserve VF-1 intraprocedural net-zero.
     let dec_present = body_0
         .iter()
         .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
     assert!(
         dec_present,
-        "§04A.5 ITEM-3: Invoke.args[0] at owned position MUST receive symmetric BurdenDec at terminator for VF-1 balance; body={body_0:?}",
+        "Invoke.args[0] at owned position MUST receive symmetric BurdenDec at terminator for VF-1 balance; body={body_0:?}",
     );
-    // §03.3 rule 5 emission-side: Invoke.args at owned positions receive
-    // BurdenInc per `aims-rules.md §8 RL-1` — conservative Phase 5 emission
-    // mirroring `emit_instr_burdens` instruction-level pattern; §05 lattice
+    //  emission-side: Invoke.args at owned positions receive
+    // BurdenInc per `RL-1` — conservative Phase 5 emission
+    // mirroring `emit_instr_burdens` instruction-level pattern; lattice
     // rewrite eliminates redundant Incs.
     let incs: Vec<&ArcInstr> = body_0
         .iter()
@@ -2422,19 +2422,19 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
 
 #[test]
 fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator_for_vf1() {
-    // §03.3 rule 3 positive pin + §04A.5 ITEM-3 terminator-level VF-1
+    //  positive pin + terminator-level VF-1
     // symmetry: Jump.args at positions whose target-block params have
     // `DerivedOwnership::Owned` transfer ownership to the target block
-    // param per `aims-rules.md §8 RL-2` AND receive symmetric BurdenInc +
-    // BurdenDec pair per `aims-rules.md §9 VF-1` intraprocedural balance.
-    // Cycle-37 terminator-transfer pre-computation marks Jump.args[i] as
+    // param per `RL-2` AND receive symmetric BurdenInc +
+    // BurdenDec pair per `VF-1` intraprocedural balance.
+    // terminator-transfer pre-computation marks Jump.args[i] as
     // transfer when target_block.params[i].0 looked up in derived_ownership
     // returns Owned. BurdenDec is a TF-N/A metadata annotation per
     // `aims/realize/walk.rs:75-93`; codegen does NOT emit a real RcDec,
     // preserving Jump's runtime transfer semantic to the target block
     // param. The terminator-level symmetric Dec is safe (does NOT cause
     // class_covered suppression of predicate-stack RC for body-internal
-    // vars per §04A.3 coexistence handshake).
+    // vars coexistence handshake).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -2467,7 +2467,7 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
     let derived = vec![DerivedOwnership::Owned, DerivedOwnership::Owned];
     let _ctx = emit_burden_ops(&mut func, &registry, &derived, &[], &FxHashMap::default());
     let body_0 = &func.blocks[0].body;
-    // §04A.5 ITEM-3 — Pin 1: BurdenDec on var(0) MUST appear at terminator,
+    //  — Pin 1: BurdenDec on var(0) MUST appear at terminator,
     // paired with the BurdenInc to preserve VF-1 intraprocedural balance.
     // BurdenDec is a TF-N/A metadata annotation per
     // `aims/realize/walk.rs:75-93`; codegen does NOT emit a real RcDec,
@@ -2477,13 +2477,13 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
         .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)));
     assert!(
         dec_present,
-        "§04A.5 ITEM-3: Jump.args[0] (var(0)) to Owned-target-block-param MUST receive symmetric BurdenDec at terminator for VF-1 balance; block 0 body={body_0:?}",
+        "Jump.args[0] (var(0)) to Owned-target-block-param MUST receive symmetric BurdenDec at terminator for VF-1 balance; block 0 body={body_0:?}",
     );
     // Pin 2: Block 0 body contains EXACTLY ONE BurdenInc(var(0)) —
-    // §03.3 rule 3 emission-side per `aims-rules.md §8 RL-1` (RC inc emitted
+    //  emission-side per `RL-1` (RC inc emitted
     // at every ownership-transfer point on owned non-scalar SSA values).
-    // Conservative Phase 5 emission per `§03 goal:` ban on lattice
-    // consultation (RC traffic overcounted but balanced); §05 lattice
+    // Conservative Phase 5 emission per ` goal:` ban on lattice
+    // consultation (RC traffic overcounted but balanced); lattice
     // rewrite eliminates redundant Incs. Mirrors instruction-level pattern
     // at `emit_instr_burdens` line ~966.
     let incs: Vec<&ArcInstr> = body_0
@@ -2504,8 +2504,8 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
 
 #[test]
 fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
-    // §03.3 first rule negative pin (VF-1 RcOnScalar mirror per
-    // `aims-rules.md §9`): scalar-typed Return value MUST NOT receive
+    // first rule negative pin (VF-1 RcOnScalar mirror per
+    //): scalar-typed Return value MUST NOT receive
     // BurdenInc or BurdenDec, regardless of terminator-position registration.
     // `lookup_burden(Idx::INT)` returns `Some(BurdenRef)` carrying
     // `BuiltinBurdenSpec::EMPTY` (per `BURDEN_TABLE` at
@@ -2545,7 +2545,7 @@ fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
 
 #[test]
 fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
-    // §03.4 cycle 46 positive pin — partial-move emission. Construct a 2-field
+    // positive pin — partial-move emission. Construct a 2-field
     // user-defined struct `{ data: str, name: str }` with UserBurdenSpec naming
     // BOTH fields as owned. Function body projects ONLY field 0 (data) and
     // transfers it via Construct (records moved_out_fields[parent] = {0}); a
@@ -2557,9 +2557,9 @@ fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
     //   - partial_move_vars contains parent with skip_fields = [0]
     //   - → BurdenDecPartial { var: parent, skip_fields: vec![0] } emitted
     //
-    // Negative pin clamping the cycle-43 full-move case lives in the existing
-    // cycle 43 test (full-move asserts zero BurdenDec / zero BurdenDecPartial);
-    // cycle 46 inherits that suppression branch unchanged. Per `aims-rules.md
+    // Negative pin clamping the full-move case lives in the existing
+    // test (full-move asserts zero BurdenDec / zero BurdenDecPartial);
+    // inherits that suppression branch unchanged. Per `
     // §8 RL-2` partial-transfer semantics (partial-move = partial-transfer;
     // non-moved fields still need drop; skip_fields names transferred subset).
     //
@@ -2632,7 +2632,7 @@ fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
     );
 }
 
-/// Match-destructuring positive pin for the §03.4 partial-move emission path.
+/// Match-destructuring positive pin for the partial-move emission path.
 ///
 /// Exercises `populate_moved_out_fields` walker on `Project` instructions
 /// living in a NON-block-0 arm body, plus `compute_partial_move_vars` deriving
@@ -2645,11 +2645,11 @@ fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
 /// arm body that lives in a separate block from the dispatch entry):
 ///
 /// - block 0 (entry, fn param var(0) = `Pair { data: str, name: str }`):
-///   * `let var(1) = Literal(Int 0)`  (synthetic scalar discriminant)
+///   * `let var(1) = Literal(Int 0)` (synthetic scalar discriminant)
 ///   * `Switch { scrutinee: var(1), cases: [(0, block1)], default: block1 }`
 /// - block 1 (arm body):
 ///   * `let var(2) = Project { value: var(0), field: 0 }` (a: str)
-///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }` (transfers field 0)
 ///   * `let var(4) = Project { value: var(0), field: 1 }` (b: str — LAST USE
 ///     of var(0); Project is `_ => false` for `is_owned_position` so it is NOT
 ///     a transfer point)
@@ -2759,7 +2759,7 @@ fn match_destructuring_partial_move_at_last_use_emits_burden_dec_partial() {
     );
 
     // Cross-block soundness: NO conservative full BurdenDec for var(0) in
-    // either block — partial-drop replaces, not augments. Cycle-46 invariant
+    // either block — partial-drop replaces, not augments. invariant
     // preserved across the Switch-dispatched shape.
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let parent_full_decs: Vec<&ArcInstr> = block
@@ -2788,7 +2788,7 @@ fn match_destructuring_partial_move_at_last_use_emits_burden_dec_partial() {
     );
 }
 
-/// CFG-diamond positive pin for the §03.4 INTERSECT-merge path.
+/// CFG-diamond positive pin for the INTERSECT-merge path.
 ///
 /// Exercises forward dataflow `entry(B) = INTERSECT over P: exit(P)` at a
 /// merge block whose two predecessors symmetrically move the SAME top-level
@@ -2804,14 +2804,14 @@ fn match_destructuring_partial_move_at_last_use_emits_burden_dec_partial() {
 ///   * `Switch { scrutinee: var(1), cases: [(0, block1)], default: block2 }`
 /// - block 1 (case 0):
 ///   * `let var(2) = Project { value: var(0), field: 0 }`
-///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }` (transfers field 0)
 ///   * `Jump block 3`
 /// - block 2 (case 1):
-///   * `let var(4) = Project { value: var(0), field: 0 }`  (SYMMETRIC)
-///   * `Construct { dst: var(5), Tuple, args: [var(4)] }`  (transfers field 0)
+///   * `let var(4) = Project { value: var(0), field: 0 }` (SYMMETRIC)
+///   * `Construct { dst: var(5), Tuple, args: [var(4)] }` (transfers field 0)
 ///   * `Jump block 3`
 /// - block 3 (merge):
-///   * `let var(6) = Project { value: var(0), field: 1 }`  (last use of var(0))
+///   * `let var(6) = Project { value: var(0), field: 1 }` (last use of var(0))
 ///   * `Unreachable`
 ///
 /// Expected outcome:
@@ -2968,7 +2968,7 @@ fn match_branches_with_symmetric_partial_move_intersect_emits_burden_dec_partial
     }
 }
 
-/// Loop-entry positive pin for the §03.4 INTERSECT-merge fixpoint path.
+/// Loop-entry positive pin for the INTERSECT-merge fixpoint path.
 ///
 /// Exercises bounded fixpoint iteration over a CFG with a back edge. Pre-
 /// loop block unconditionally moves a field; loop header has two
@@ -2982,13 +2982,13 @@ fn match_branches_with_symmetric_partial_move_intersect_emits_burden_dec_partial
 ///
 /// - block 0 (entry, pre-loop):
 ///   * `let var(2) = Project { value: var(0), field: 0 }`
-///   * `Construct { dst: var(3), Tuple, args: [var(2)] }`  (transfers field 0)
+///   * `Construct { dst: var(3), Tuple, args: [var(2)] }` (transfers field 0)
 ///   * `let var(4) = Literal(Bool false)` (loop continuation flag)
 ///   * `Jump block 1`
 /// - block 1 (loop header):
 ///   * `Branch { cond: var(4), then: block 1 (back), else: block 2 (exit) }`
 /// - block 2 (post-loop):
-///   * `let var(5) = Project { value: var(0), field: 1 }`  (last use of var(0))
+///   * `let var(5) = Project { value: var(0), field: 1 }` (last use of var(0))
 ///   * `Unreachable`
 ///
 /// Expected outcome (optimistic-⊤ seeding + worklist fixpoint):
@@ -3122,7 +3122,7 @@ fn loop_back_edge_partial_move_intersect_with_entry_emits_burden_dec_partial() {
     }
 }
 
-/// Nested-join positive pin for the §03.4 INTERSECT-merge composition path.
+/// Nested-join positive pin for the INTERSECT-merge composition path.
 ///
 /// Exercises INTERSECT at a 3-predecessor join whose predecessors include
 /// a 2-predecessor inner merge. Pins compositionality: INTERSECT must
@@ -3135,8 +3135,8 @@ fn loop_back_edge_partial_move_intersect_with_entry_emits_burden_dec_partial() {
 /// - block 0 (outer scrutinee): Switch → block 1 (case 0), block 4 (default)
 /// - block 1 (outer case 0, inner scrutinee): Switch → block 2 (case 0), block 3 (default)
 /// - block 2 (inner case 0): Project var(0).0 → Construct → Jump block 5
-/// - block 3 (inner case 1): Project var(0).0 → Construct → Jump block 5  (symmetric)
-/// - block 4 (outer case 1):  Project var(0).0 → Construct → Jump block 5  (symmetric)
+/// - block 3 (inner case 1): Project var(0).0 → Construct → Jump block 5 (symmetric)
+/// - block 4 (outer case 1): Project var(0).0 → Construct → Jump block 5 (symmetric)
 /// - block 5 (outer merge): Project var(0).1 → Unreachable (last use of var(0))
 ///
 /// Expected outcome:
@@ -3321,37 +3321,37 @@ fn nested_match_with_inner_diamond_partial_move_emits_burden_dec_partial() {
     }
 }
 
-// ─── §04.2 Closure capture composition — burden_lower emission pins ──────
+// ─── Closure capture composition — burden_lower emission pins ──────
 //
-// Tests below pin the §04.2 closure-capture-composition story at the
+// Tests below pin the closure-capture-composition story at the
 // burden_lower layer: registered closure `UserBurdenSpec` (composed via
 // `ori_types::burden_compose::closure::compose_closure_burden_spec`)
 // flows correctly through the existing trivial-emission walker. PartialApply
-// IS the capture-time transfer point per §03.3 Rule 5 (already shipped); §04.2
+// IS the capture-time transfer point Rule 5 (already shipped);
 // adds the spec-population side so the walker sees a non-empty burden for
 // closure types and emits BurdenInc at PartialApply args.
 //
-// Burden-spec-registration discipline at the test layer mirrors §03 fixtures
+// Burden-spec-registration discipline at the test layer mirrors fixtures
 // (`registered_struct_with_two_owned_str_fields`) — the closure's Idx is
 // registered as a struct shell with a closure-shaped burden via
 // `compose_closure_burden_spec`. Production wiring lives at the lambda
 // type-check site (`infer_lambda` at `compiler_repo/compiler/ori_types/src/
-// infer/expr/blocks.rs:223`); the §04.2 deliverable shipped here pins the
+// infer/expr/blocks.rs:223`); the deliverable shipped here pins the
 // spec composer + wires the burden walker to consume registered closure
 // burdens without changes to the walker itself.
 
 #[test]
 fn closure_capture_by_value_of_owned_str_emits_burden_inc_at_partial_apply() {
-    // §04.2 success_criterion (positive — capture by value of Owned binding):
-    // `let s = "hello"; let c = (() -> s.length())` — capture site IS
-    // PartialApply IS transfer point per §03.3 Rule 5. With the closure's
+    // success_criterion (positive — capture by value of Owned binding):
+    // `let s = "hello"; let c = (-> s.length)` — capture site IS
+    // PartialApply IS transfer point Rule 5. With the closure's
     // UserBurdenSpec composed via compose_closure_burden_spec (self_heap_alloc=
     // true, owned_fields=[STR]), the existing trivial-emission walker emits
     // BurdenInc on the captured arg before the PartialApply instruction.
     //
-    // The existing `partial_apply_emits_burden_inc_for_captured_var` cycle-13
+    // The existing `partial_apply_emits_burden_inc_for_captured_var`
     // pin uses Idx::STR for the closure result type — exercising the SAME code
-    // path as §04.2 (PartialApply args owned-position emission + the cycle-24
+    // path as (PartialApply args owned-position emission + the
     // VF-1 RcOnScalar filter). This pin is the closure-burden-aware variant:
     // it composes + registers the closure's spec at the closure's Idx so the
     // walker sees the closure type as carrying heap burden.
@@ -3437,13 +3437,13 @@ fn closure_capture_by_value_of_owned_str_emits_burden_inc_at_partial_apply() {
 
 #[test]
 fn closure_capture_by_reference_emits_no_burden_inc() {
-    // §04.2 success_criterion (negative — capture by reference): borrow stored
+    // success_criterion (negative — capture by reference): borrow stored
     // in borrowed_fields[i]; no drop on env field (borrows do not own). The
     // burden walker MUST NOT emit BurdenInc for a borrowed capture at the
     // PartialApply site.
     //
     // The Tag::Borrowed target type is target-only in the shipped pool; per
-    // §03.3 + the §04.2 design the borrowed-capture's CAPTURED VARIABLE is
+    // + the design the borrowed-capture's CAPTURED VARIABLE is
     // typed as a borrow target (modeled here as Idx::STR with the closure
     // taking a borrowed view). The existing PartialApply branch in
     // `is_owned_position` (`instr.rs:350-393`) treats args as owned-position
@@ -3456,10 +3456,10 @@ fn closure_capture_by_reference_emits_no_burden_inc() {
     // borrowed_fields-only burden shape — verified at the registry-side
     // (compose) level rather than the emission-side.
     //
-    // Negative-pin discipline per `tests.md §Matrix Clamping`: the assertion
-    // tier matches the §04.2 success_criterion exactly — the burden spec
+    // Negative-pin discipline: the assertion
+    // tier matches the success_criterion exactly — the burden spec
     // populates borrowed_fields, NOT owned_fields, and the registered spec's
-    // owned_fields.is_empty() guarantees no BurdenInc fires from the
+    // owned_fields.is_empty guarantees no BurdenInc fires from the
     // closure's burden walk at codegen.
     use ori_types::burden_compose::closure::{compose_closure_burden_spec, ClosureCapture};
 
@@ -3483,7 +3483,7 @@ fn closure_capture_by_reference_emits_no_burden_inc() {
     // populated + owned_fields empty. The trivial-emission walker reads
     // owned_fields from the closure's burden at codegen time; an empty
     // owned_fields list means no BurdenInc is emitted from the closure-burden
-    // walk (the §04.2 design intent for borrow captures).
+    // walk (the design intent for borrow captures).
     let spec = registry
         .burden(closure_idx)
         .unwrap_or_else(|| panic!("closure burden MUST be registered"));
@@ -3501,15 +3501,15 @@ fn closure_capture_by_reference_emits_no_burden_inc() {
 
 #[test]
 fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
-    // §04.2 success_criterion (positive — captures-of-captures): outer env
+    // success_criterion (positive — captures-of-captures): outer env
     // field IS Closure<...> with its OWN UserBurdenSpec.compiled_drop.
-    // Recursion is handled identically to recursive types per §04.1 — outer
+    // Recursion is handled identically to recursive types — outer
     // closure's drop body recursively invokes inner closure's compiled_drop
     // via the inner field's UserBurdenSpec lookup at codegen.
     //
     // Composition records the inner closure's Idx in
     // outer.owned_fields[0].field_type; outer + inner each carry their own
-    // distinct compiled_drop FnSyms per the per-Idx mangling shared with §04.1.
+    // distinct compiled_drop FnSyms per the per-Idx mangling shared with.
     use ori_types::burden_compose::closure::{compose_closure_burden_spec, ClosureCapture};
 
     let mut registry = TypeRegistry::new();
@@ -3568,7 +3568,7 @@ fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
 
     // Positive emission: PartialApply capturing the inner closure into the
     // outer's env emits BurdenInc(inner) before PartialApply. Follow-up Let-
-    // Var keeps var(0) alive past the PartialApply per §04A.5 ITEM-3.
+    // Var keeps var(0) alive past the PartialApply.
     let mut func = ArcFunction {
         var_types: vec![inner_idx, outer_idx, inner_idx],
         blocks: vec![ArcBlock {
@@ -3615,7 +3615,7 @@ fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
 
 #[test]
 fn closure_capture_of_projection_emits_borrowed_field_with_parent_lifetime() {
-    // §04.2 success_criterion (positive — capture of projection): treated as
+    // success_criterion (positive — capture of projection): treated as
     // borrowed_fields entry with parent variable's lifetime tied — the
     // projection itself does not own; parent owns.
     //
@@ -3667,21 +3667,21 @@ fn closure_capture_of_projection_emits_borrowed_field_with_parent_lifetime() {
 
 #[test]
 fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_03_3_rule_5() {
-    // §04.2 specific PartialApply matrix pin per success_criterion 5: binding
+    // specific PartialApply matrix pin per success_criterion 5: binding
     // consumed by PartialApply AND passed to Owned callee in same expr →
-    // transfer-count 2 → one BurdenInc lands (zero-net per §03.3 Rule 5).
+    // transfer-count 2 → one BurdenInc lands (zero-net Rule 5).
     //
-    // The shipped §03.3 Rule 5 invariant is: each captured arg gets ONE
+    // The shipped Rule 5 invariant is: each captured arg gets ONE
     // transfer-point per consumption site; PartialApply + Owned callee = 2
     // transfer points = 2 BurdenInc emissions on the captured variable. The
-    // §04.2 closure-burden composition does NOT change this — the closure's
+    // closure-burden composition does NOT change this — the closure's
     // own burden walk emits BurdenInc on the CLOSURE's env-field side (NOT
     // the captured variable side); the captured-side BurdenInc count comes
-    // from `is_owned_position` at the PartialApply + Apply sites per §03.2 +
-    // §03.3.
+    // from `is_owned_position` at the PartialApply + Apply sites +
+    //.
     //
-    // This pin verifies the §03.3 Rule 5 invariant holds UNCHANGED under
-    // §04.2 closure-burden registration: registering a closure burden on the
+    // This pin verifies the Rule 5 invariant holds UNCHANGED under
+    // closure-burden registration: registering a closure burden on the
     // closure type's Idx does NOT alter the captured-variable transfer-count.
     use ori_types::burden_compose::closure::{compose_closure_burden_spec, ClosureCapture};
 
@@ -3701,7 +3701,7 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_
         )),
     );
 
-    // §04A.5 ITEM-3: Build with follow-up Let-Var keeping var(0) alive past
+    // : Build with follow-up Let-Var keeping var(0) alive past
     // BOTH owned-position consumption sites — var(0)'s last-use is the Let,
     // not PartialApply or Apply, so both owned-pos Incs are emitted.
     let mut func = ArcFunction {
@@ -3745,7 +3745,7 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_
         .count();
     assert_eq!(
         inc_count, 2,
-        "§03.3 Rule 5: captured arg consumed by PartialApply AND Owned callee MUST get 2 transfer-point BurdenInc emissions on var(0); got {inc_count} in body={body:?}",
+        "RL-2 Rule 5: captured arg consumed by PartialApply AND Owned callee MUST get 2 transfer-point BurdenInc emissions on var(0); got {inc_count} in body={body:?}",
     );
 
     // Both BurdenInc emissions precede their respective consumption sites.

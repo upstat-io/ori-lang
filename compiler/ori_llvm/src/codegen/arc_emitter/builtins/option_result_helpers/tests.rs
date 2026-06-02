@@ -12,7 +12,7 @@
 //! end-to-end requires a niche layout the rest of the codegen pipeline does
 //! not yet produce. Behavioral verification rides on the
 //! `<!-- blocked-by:NICHE_CODEGEN_READY gate -->` items already tracked in
-//! §07.2 — when the gate flips,
+//! when the gate flips,
 //! the niche spec tests under `tests/spec/types/enum/niche/` will exercise
 //! these helpers end-to-end.
 //!
@@ -58,7 +58,7 @@ fn extract_arm_body<'a>(src: &'a str, start_after: &str, arm_label: &str) -> &'a
         .unwrap_or_else(|| panic!("missing function start marker `{start_after}`"));
     let region = &src[after_start..];
 
-    // Find the arm header. Accept both `"unwrap" =>` and `"unwrap" if ... =>`.
+    // Find the arm header. Accept both `"unwrap" =>` and `"unwrap" if... =>`.
     let arm_start = region
         .find(arm_label)
         .unwrap_or_else(|| panic!("missing arm `{arm_label}` in region after `{start_after}`"));
@@ -107,15 +107,15 @@ fn option_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
-        "Option.unwrap niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
+        "Option.unwrap() niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
     );
     assert!(
         body.contains("inc_value_rc"),
-        "Option.unwrap niche arm must call inc_value_rc on the extracted payload (RC retain)\nbody:\n{body}",
+        "Option.unwrap() niche arm must call inc_value_rc on the extracted payload (RC retain)\nbody:\n{body}",
     );
     assert!(
         body.contains("`Option.unwrap()` on a `None` value"),
-        "Option.unwrap niche panic message must match the explicit-tag wording\nbody:\n{body}",
+        "Option.unwrap() niche panic message must match the explicit-tag wording\nbody:\n{body}",
     );
 }
 
@@ -156,20 +156,20 @@ fn result_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
-        "Result.unwrap niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
+        "Result.unwrap() niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
     );
     assert!(
         body.contains("inc_value_rc"),
-        "Result.unwrap niche arm must call inc_value_rc on the extracted Ok payload (RC retain)\nbody:\n{body}",
+        "Result.unwrap() niche arm must call inc_value_rc on the extracted Ok payload (RC retain)\nbody:\n{body}",
     );
     assert!(
         body.contains("`Result.unwrap()` on an `Err` value"),
-        "Result.unwrap niche panic message must match the explicit-tag wording\nbody:\n{body}",
+        "Result.unwrap() niche panic message must match the explicit-tag wording\nbody:\n{body}",
     );
     // Must use the Ok type for the retain (not Err).
     assert!(
         body.contains("ok: ok_ty"),
-        "Result.unwrap niche arm must extract ok_ty from TypeInfo::Result for the retain\nbody:\n{body}",
+        "Result.unwrap() niche arm must extract ok_ty from TypeInfo::Result for the retain\nbody:\n{body}",
     );
 }
 
@@ -183,24 +183,24 @@ fn result_niche_unwrap_err_is_distinct_from_unwrap() {
     assert_ne!(
         unwrap_body.trim(),
         unwrap_err_body.trim(),
-        "Result.unwrap and Result.unwrap_err must be SEPARATE arms with distinct bodies — collapsed-arm regression",
+        "Result.unwrap() and Result.unwrap_err() must be SEPARATE arms with distinct bodies — collapsed-arm regression",
     );
     assert!(
         unwrap_err_body.contains("emit_unwrap_branch"),
-        "Result.unwrap_err niche arm must call emit_unwrap_branch (panic on Ok)\nbody:\n{unwrap_err_body}",
+        "Result.unwrap_err() niche arm must call emit_unwrap_branch (panic on Ok)\nbody:\n{unwrap_err_body}",
     );
     assert!(
         unwrap_err_body.contains("inc_value_rc"),
-        "Result.unwrap_err niche arm must call inc_value_rc on the extracted Err payload\nbody:\n{unwrap_err_body}",
+        "Result.unwrap_err() niche arm must call inc_value_rc on the extracted Err payload\nbody:\n{unwrap_err_body}",
     );
     // Must use the Err type, not the Ok type.
     assert!(
         unwrap_err_body.contains("err: err_ty"),
-        "Result.unwrap_err niche arm must extract err_ty from TypeInfo::Result for the retain\nbody:\n{unwrap_err_body}",
+        "Result.unwrap_err() niche arm must extract err_ty from TypeInfo::Result for the retain\nbody:\n{unwrap_err_body}",
     );
     assert!(
         unwrap_err_body.contains("`Result.unwrap_err()` on an `Ok` value"),
-        "Result.unwrap_err niche panic message must match the explicit-tag wording\nbody:\n{unwrap_err_body}",
+        "Result.unwrap_err() niche panic message must match the explicit-tag wording\nbody:\n{unwrap_err_body}",
     );
 }
 

@@ -11,7 +11,7 @@
 //! - **`FunctionAbi`** = *physical*: passing modes, calling convention, alignment
 //!
 //! Codegen only sees `FunctionAbi`. The semantic signature is consumed once
-//! by `compute_function_abi()` and never referenced again during IR emission.
+//! by `compute_function_abi` and never referenced again during IR emission.
 //!
 //! # References
 //!
@@ -94,7 +94,7 @@ pub struct ReturnAbi {
 
 /// Complete physical ABI for a function.
 ///
-/// Computed once from `ori_types::FunctionSig` via `compute_function_abi()`.
+/// Computed once from `ori_types::FunctionSig` via `compute_function_abi`.
 /// All downstream codegen (declaration, body emission, call sites) uses this
 /// instead of querying types ad-hoc.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,26 +111,26 @@ pub struct FunctionAbi {
 
 /// Compute the ABI size of a type in bytes.
 ///
-/// For types where `TypeInfo::size()` returns `None` (Tuple, Struct, Enum),
+/// For types where `TypeInfo::size` returns `None` (Tuple, Struct, Enum),
 /// walks child types recursively via the store to compute the total size.
 /// Recursive types (e.g., `type Expr = Leaf(int) | Binop(Expr, Expr)`) are
 /// detected via a visiting set and treated as pointer-sized (8 bytes).
 ///
 /// When `repr_plan` is provided, consults it for niche-encoded Option/Result
-/// types (§07.2) — niche layouts omit the tag field, reducing ABI size.
+/// types — niche layouts omit the tag field, reducing ABI size.
 pub fn abi_size(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> u64 {
     let mut visiting = FxHashSet::default();
     abi_size_inner(ty, store, repr_plan, &mut visiting)
 }
 
-/// §07.2: Check if a type has niche encoding in the `ReprPlan`.
+/// Check if a type has niche encoding in the `ReprPlan`.
 fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
     repr_plan
         .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
         .is_some_and(|e| e.tag.is_niche())
 }
 
-/// §07.3.A: Check if a type has tagged-pointer encoding in the `ReprPlan`.
+///.A: Check if a type has tagged-pointer encoding in the `ReprPlan`.
 ///
 /// Tagged-pointer enums are exactly 8 bytes (one i64 slot). The ABI passes
 /// them as a single Direct register, identical to a regular pointer or i64.
@@ -140,7 +140,7 @@ fn is_tagged_ptr_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&
         .is_some_and(|e| e.tag.is_tagged_ptr())
 }
 
-/// §07.2: Check if an enum type (Option/Result/user-defined) has niche or tagless
+/// Check if an enum type (Option/Result/user-defined) has niche or tagless
 /// encoding in the `ReprPlan`. Returns `Some(size)` if an optimized layout applies,
 /// `None` to fall through to the explicit tag computation.
 fn niche_enum_size(
@@ -210,7 +210,7 @@ fn abi_size_inner(
     // here, but LLVM lays it out as 24 bytes (1+7 padding + 8 + 1+7 padding).
     // This can misclassify as Direct (≤16) when Indirect (>16) is needed.
     // Currently safe because built-in composite types (Range, Option, etc.)
-    // use pre-computed TypeInfo::size() that accounts for LLVM layout.
+    // use pre-computed TypeInfo::size that accounts for LLVM layout.
     // Needs LLVM TargetData query when user-defined structs land in Pool.
     // Also safe for dereferenceable(N) — underestimating is legal (minimum).
     let result = match &info {
@@ -241,7 +241,7 @@ fn abi_size_inner(
             .map(|&(_, ty)| abi_size_inner(ty, store, repr_plan, visiting))
             .sum(),
         TypeInfo::Enum { variants } => {
-            // §07.3.A: Tagged-pointer enums are a single 8-byte slot
+            //.A: Tagged-pointer enums are a single 8-byte slot
             // regardless of variant count or payload size. Check before the
             // niche/explicit-tag computation since the encoding is uniform.
             if is_tagged_ptr_encoded(ty, store, repr_plan) {
@@ -253,9 +253,9 @@ fn abi_size_inner(
                 return size;
             }
             // Enum layout: {tag, [M x i64] payload} — tag width varies
-            // per enum via min_tag_width (§07.1 discriminant narrowing).
+            // per enum via min_tag_width.
             // Each variant field occupies at least one full i64 slot (8 bytes),
-            // matching resolve_enum() in layout_resolver.rs.
+            // matching resolve_enum in layout_resolver.rs.
             let tag_size = u64::from(ori_repr::min_tag_width(variants.len()).size_bytes());
             let max_payload: u64 = variants
                 .iter()
@@ -415,7 +415,7 @@ pub fn compute_param_passing_with_ownership(
 /// (pointer, no RC at call site). All other parameters use the standard
 /// size-based passing mode.
 ///
-/// When `annotated_sig` is `None`, falls through to `compute_function_abi()`.
+/// When `annotated_sig` is `None`, falls through to `compute_function_abi`.
 pub fn compute_function_abi_with_ownership(
     sig: &FunctionSig,
     store: &TypeInfoStore<'_>,

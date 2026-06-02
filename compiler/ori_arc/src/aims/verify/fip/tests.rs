@@ -274,7 +274,7 @@ fn recompute_certified_without_may_deallocate_unchanged() {
     assert_eq!(contract.fip, FipContract::Certified);
 }
 
-// Second-pass recomputation scenarios (Section 12.1)
+// Second-pass recomputation scenarios
 //
 // These tests validate the functions used by `run_aims_pipeline_all()`'s
 // second pass: `verify_fip_contract()` and `recompute_fip_for_may_deallocate()`.

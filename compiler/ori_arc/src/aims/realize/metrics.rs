@@ -3,8 +3,6 @@
 //! Quantifies how much value the product lattice provides over any single
 //! dimension alone. Accumulated during realization (Phases 1+2) and reported
 //! via `tracing::info!` and [`RealizationResult::synergy_metrics`].
-//!
-//! References: Section 11.2 of the AIMS plan.
 
 /// Metrics tracking cross-dimensional decision contributions.
 ///

@@ -48,7 +48,7 @@ pub(crate) type ProjectSources = SmallVec<[ArcVarId; 1]>;
 /// shipped transitivity Rules 2/3/4/6 (§1.9 `project_alias_sources` preamble —
 /// Rules 5/7 are unshipped, folding through them is dead code) carry the
 /// Apply-result allocation-identity through Let/Jump/CFG-merge/nested-Project
-/// alias chains. When `%4 = Apply ...` and `apply_result_aliases[%4] =
+/// alias chains. When `%4 = Apply...` and `apply_result_aliases[%4] =
 /// Direct(%3)`, Step 1b seeds `alias_sources[%4] = [%3]`; downstream `%5 = Let
 /// Var(%4)` then transitively maps `%5 → [%3]` via the existing Step 2
 /// worklist without any per-rule code change.
@@ -90,8 +90,8 @@ pub(crate) fn compute_project_alias_sources(
     // arg(s) as the alias source lets Step 2's Let/Jump/CFG-merge transitivity
     // propagate the alias through downstream chains without re-coding the
     // worklist. Variants:
-    //   - Direct(arg)        → seed alias_sources[apply_dst] = [arg]
-    //   - Project { arg, .. } → seed alias_sources[apply_dst] = [arg]
+    //   - Direct(arg) → seed alias_sources[apply_dst] = [arg]
+    //   - Project { arg,.. } → seed alias_sources[apply_dst] = [arg]
     //                          (variable-level only — field info not tracked
     //                          here; field-level discrimination happens at
     //                          File 13 walk.rs realization)
@@ -104,13 +104,13 @@ pub(crate) fn compute_project_alias_sources(
                 smallvec![*arg]
             }
             ApplyAliasSource::Wrapped(_) => {
-                // BUG-04-118 §05 Round 4 Option B: Wrapped is NOT seeded into
+                // BUG-04-118 Option B: Wrapped is NOT seeded into
                 // project_alias_sources. Containment (`wrap_ok(m) = Ok(m)`)
                 // is NOT a projection-derived alias chain — `extracted = inner
                 // = Project result.payload[0]` accesses dst's payload via
                 // structural projection, but `extracted`'s class must NOT
                 // inherit `m`'s alias chain (which would over-suppress
-                // extracted's canonical dec, the Round 2 failure mode).
+                // extracted's canonical dec, the failure mode).
                 // Wrapped's only effect is per-var dec-suppression on arg
                 // via `should_suppress_apply_aliased_dec`; downstream
                 // projections of dst follow Step 1 (Project-from-dst → dst)
@@ -155,7 +155,7 @@ pub(crate) fn compute_project_alias_sources(
                 }
             }
 
-            // BUG-04-118 §05 Round 5 Rule 6 (per aims-rules.md §1.9 nested
+            // BUG-04-118 Rule 6 (per nested
             // Project transitivity): `%dst = Project %src.field`, where %src
             // has sources S → `%dst → [%src] ∪ S`. Step 1 only seeded
             // `%dst → [%src]` (the direct value); the transitive ∪ S
@@ -179,8 +179,8 @@ pub(crate) fn compute_project_alias_sources(
                 }
             }
 
-            // BUG-04-118 §05 Round 5 Rule 5 (Select alias propagation per
-            // aims-rules.md §1.9): DEFERRED. Initial implementation
+            // BUG-04-118 Rule 5 (Select alias propagation per
+            // ): DEFERRED. Initial implementation
             // empirically regressed `generics::test_path_sensitive_select_*`
             // tests (12 failures vs 11 baseline). Select propagation
             // over-extends the alias chain in path-sensitive shapes where
@@ -188,7 +188,7 @@ pub(crate) fn compute_project_alias_sources(
             // aggregates; the predicate then over-triggers SKIP on edges
             // that should record. Needs narrower trigger condition (e.g.,
             // restrict to Selects whose operands trace to the same parent
-            // aggregate). Tracked in §05 HISTORY for follow-up.
+            // aggregate). Tracked HISTORY for follow-up.
 
             // Jump arg → target block param edges (phi-like renaming).
             if let ArcTerminator::Jump { target, args } = &block.terminator {

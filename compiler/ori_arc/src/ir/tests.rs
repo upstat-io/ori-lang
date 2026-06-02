@@ -588,7 +588,7 @@ fn defined_var_rc_dec_is_none() {
     assert_eq!(instr.defined_var(), None);
 }
 
-// BurdenInc / BurdenDec (§03.1) — trivial Phase 5 burden markers.
+// BurdenInc / BurdenDec — trivial Phase 5 burden markers.
 
 #[test]
 fn defined_var_burden_inc_is_none() {
@@ -642,7 +642,7 @@ fn uses_var_burden_dec() {
 }
 
 /// BurdenInc/BurdenDec are RC-class operations on `var`, NOT transfer
-/// points. Per §03.1: the var is the SUBJECT of the burden op, not an
+/// points.: the var is the SUBJECT of the burden op, not an
 /// ownership transfer slot, so `is_owned_position` returns false for
 /// every queried position (mirrors `RcInc` / `RcDec` semantics).
 #[test]
@@ -693,17 +693,17 @@ fn substitute_var_burden_dec() {
 
 #[test]
 fn burden_dec_partial_construction_and_used_vars_per_03_4_cycle_44a_scaffold() {
-    // §03.4 cycle 44a scaffold pin: `BurdenDecPartial { var, skip_fields }`
+    // scaffold pin: `BurdenDecPartial { var, skip_fields }`
     // exists as a sibling to `BurdenDec` and threads through every consumer
     // match-arm ladder (used_vars / uses_var / is_owned_position /
     // substitute_var / defined_var / Debug / validator) with semantics
-    // identical to `BurdenDec` for cycle 44a. Cycle 44b/44c wire emission
+    // identical to `BurdenDec` for. /44c wire emission
     // (in burden_lower) + codegen (in ori_llvm) respectively to differentiate
     // field-aware partial-drop behavior.
     //
     // Pin checks: (a) construction with non-empty skip_fields compiles,
     // (b) used_vars returns the var (parity with BurdenDec per
-    // `aims-rules.md §3 TF-N/A` — side-effect-only annotation, var IS the
+    // — side-effect-only annotation, var IS the
     // subject of the burden op), (c) defined_var returns None (no dst),
     // (d) is_owned_position returns false (parity with BurdenDec; not a
     // transfer point — fields named in skip_fields were ALREADY moved out at
@@ -1402,7 +1402,7 @@ fn is_owned_position_construct_all_owned() {
 
 #[test]
 fn is_owned_position_apply_indirect_with_ownership() {
-    // ApplyIndirect used_vars = [closure, ...args] → pos 0 = closure (always borrowed),
+    // ApplyIndirect used_vars = [closure,...args] → pos 0 = closure (always borrowed),
     // pos 1 = args[0], pos 2 = args[1]. arg_ownership parallels args with +1 offset.
     let instr = ArcInstr::ApplyIndirect {
         dst: ArcVarId::new(5),
@@ -1454,7 +1454,7 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
     };
     assert!(!instr.is_owned_position(0), "closure");
     assert!(instr.is_owned_position(1), "args[0] is Owned");
-    assert!(!instr.is_owned_position(2), "beyond args.len()");
+    assert!(!instr.is_owned_position(2), "beyond args.len");
     assert!(!instr.is_owned_position(100), "way beyond");
 }
 
@@ -1462,7 +1462,7 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
 
 #[test]
 fn is_owned_position_invoke_indirect_with_ownership() {
-    // InvokeIndirect used_vars = [closure, ...args] — closure FIRST
+    // InvokeIndirect used_vars = [closure,...args] — closure FIRST
     // (matches ApplyIndirect). pos=0 is closure (always borrowed).
     // arg_ownership[i] corresponds to used_vars position i+1.
     let term = ArcTerminator::InvokeIndirect {

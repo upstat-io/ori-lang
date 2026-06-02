@@ -44,7 +44,7 @@ impl ArcLowerer<'_> {
     /// Returns `Some(id)` when the canon-side `mono_dispatch_map_can` carries
     /// an entry for `call_expr_id` (populated during canon lowering by
     /// `Lowerer::record_mono_dispatch_if_present`); `None` otherwise.
-    /// The map is sorted by `CanId.raw()` per `lower/mod.rs:367`, enabling
+    /// The map is sorted by `CanId.raw` per `lower/mod.rs:367`, enabling
     /// O(log n) binary search lookup.
     fn lookup_mono_dispatch(&self, call_expr_id: CanId) -> Option<MonoInstanceId> {
         let key = call_expr_id.raw();
@@ -140,7 +140,7 @@ impl ArcLowerer<'_> {
     /// so the IR emits `Let { Var(arg) }` with no additional storage or
     /// allocation. This dispatch fires before the indirect-call wildcard so
     /// newtype constructor names never reach `lower_ident`'s `Tag::Function`
-    /// arm, which would emit unresolvable `PartialApply` (plan §08.3c).
+    /// arm, which would emit unresolvable `PartialApply` (plan).
     fn try_emit_newtype_ctor(
         &mut self,
         name: Name,
@@ -257,7 +257,7 @@ impl ArcLowerer<'_> {
                 // a newtype). The newtype ctor dispatch must fire here too —
                 // otherwise the wildcard arm below would lower the `TypeRef`
                 // via `lower_ident`, which routes through the `Tag::Function`
-                // arm and emits unresolvable `PartialApply` (plan §08.3c root
+                // arm and emits unresolvable `PartialApply` (plan root
                 // cause).
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
@@ -291,7 +291,7 @@ impl ArcLowerer<'_> {
     /// `CanonResult.mono_dispatch_map_can` to recover the abstract dispatch
     /// index for generic-instantiated method calls.
     ///
-    /// For type-qualified calls (receiver is `TypeRef`, e.g. `Point.default()`),
+    /// For type-qualified calls (receiver is `TypeRef`, e.g. `Point.default`),
     /// the receiver is NOT passed as an argument — these are static/associated
     /// methods with no `self` parameter.
     pub(crate) fn lower_method_call(
@@ -317,10 +317,10 @@ impl ArcLowerer<'_> {
                 return var;
             }
             // Newtype `unwrap` is layout-transparent — emit
-            // identity wrap. Without this, `id.unwrap()` lowers as `Apply`
+            // identity wrap. Without this, `id.unwrap` lowers as `Apply`
             // with method name `unwrap`, which the codegen treats as a
             // monomorphization lookup miss (`unresolved function 'unwrap' in
-            // apply — missing mono instance?` per plan §08.3c). Newtype
+            // apply — missing mono instance?` per plan). Newtype
             // accessors have no compiled function — they are pure type-level
             // erasure of the newtype tag.
             if let Some(var) = self.try_lower_newtype_unwrap(receiver, method, ty, span) {
@@ -331,7 +331,7 @@ impl ArcLowerer<'_> {
         let arg_ids: Vec<_> = self.arena.get_expr_list(args).to_vec();
 
         let mut all_args = if is_type_qualified {
-            // Type-qualified call (e.g., `Point.default()`) — no self argument.
+            // Type-qualified call (e.g., `Point.default`) — no self argument.
             Vec::with_capacity(arg_ids.len())
         } else {
             let recv_var = self.lower_expr(receiver);
@@ -415,7 +415,7 @@ impl ArcLowerer<'_> {
         self.emit_tag_check(method, recv_var, recv_ty, span)
     }
 
-    /// Try to lower a newtype `.unwrap()` method call as a transparent wrap.
+    /// Try to lower a newtype `.unwrap` method call as a transparent wrap.
     ///
     /// Returns `Some(var)` iff the receiver type is a registered newtype
     /// (per `Pool::is_newtype_ctor`) AND the method is `unwrap`. The wrap

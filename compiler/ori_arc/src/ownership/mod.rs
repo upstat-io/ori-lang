@@ -1,11 +1,11 @@
 //! Ownership annotations for ARC borrow inference.
 //!
-//! After borrow inference (Section 06.2), every parameter in every function
+//! After borrow inference, every parameter in every function
 //! gets an [`Ownership`] annotation: either [`Borrowed`](Ownership::Borrowed)
 //! (callee will not retain) or [`Owned`](Ownership::Owned) (callee may retain,
 //! caller must increment RC).
 //!
-//! These annotations drive RC insertion (Section 07) — borrowed parameters
+//! These annotations drive RC insertion — borrowed parameters
 //! skip `rc_inc` at call sites, reducing runtime overhead.
 
 use ori_ir::Name;
@@ -63,8 +63,8 @@ pub enum Ownership {
 
 /// A function parameter annotated with its ownership.
 ///
-/// Produced by borrow inference (Section 06.2) and consumed by
-/// RC insertion (Section 07) to decide where to place `rc_inc`/`rc_dec`.
+/// Produced by borrow inference and consumed by
+/// RC insertion to decide where to place `rc_inc`/`rc_dec`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnnotatedParam {

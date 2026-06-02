@@ -1,8 +1,8 @@
-//! Backward dataflow liveness analysis on ARC IR (Section 07.1).
+//! Backward dataflow liveness analysis on ARC IR.
 //!
 //! Computes which variables are **live** (will be read in the future) at
-//! every basic block boundary. This information drives RC insertion
-//! (Section 07.2): a variable's last use is where its `RcDec` goes, and
+//! every basic block boundary. This information drives RC insertion:
+//! a variable's last use is where its `RcDec` goes, and
 //! additional uses require `RcInc`.
 //!
 //! # Algorithm

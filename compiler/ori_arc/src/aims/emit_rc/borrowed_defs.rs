@@ -34,7 +34,7 @@ use crate::ownership::Ownership;
 /// encoding and calls `ori_iter_drop` on the same (now-freed) pointer
 /// → double-free.
 ///
-/// The architectural fix (Codex / prior art from Swift SIL, Lean 4
+/// The architectural fix (prior art from Swift SIL, Lean 4
 /// LCNF, Koka Perceus) is to distinguish "borrow projection" from
 /// "consuming projection" at the AIMS classification layer. A take-
 /// project:

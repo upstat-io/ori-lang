@@ -63,6 +63,7 @@ pub mod recursive_derive;
 pub mod recursive_drop;
 pub mod recursive_feature;
 pub mod repr;
+pub mod rl31_co_verification;
 pub mod scoping;
 pub mod sets;
 pub mod slices;
@@ -75,6 +76,7 @@ pub mod tagless_enum;
 pub mod traits;
 pub mod trmc;
 pub mod tuples;
+pub mod value_empty_burden;
 pub mod wasm;
 pub mod wrapper_rc_retain;
 

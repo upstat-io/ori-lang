@@ -8,7 +8,7 @@
 //!
 //! [`FipGateRecord`]s are emission-phase artifacts (NOT stored in the
 //! `AimsStateMap`) tracking FIP-influenced reuse decisions. Consumed
-//! by verification (Section 08).
+//! by verification.
 
 use crate::aims::contract::FipContract;
 use crate::ir::{ArcBlockId, ArcVarId};
@@ -19,7 +19,7 @@ use super::ReuseOpportunity;
 ///
 /// Produced during reuse emission (step 7) when the function's `FipContract`
 /// influences whether a reuse opportunity uses static-unique or dynamic
-/// emission. Consumed by verification (Section 08).
+/// emission. Consumed by verification.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FipGateRecord {
     /// The source variable whose reuse was influenced by FIP.
@@ -47,17 +47,16 @@ pub enum FipGateDecision {
 ///   (all code paths are allocation-free, so uniqueness is guaranteed).
 /// - [`FipContract::Conditional`]: record gate but keep dynamic reuse
 ///   (the function may hit slow paths on non-unique inputs).
-/// - [`FipContract::Never`] or absent: no change.
+/// - [`FipContract::Never`]: no change. Absorbs the pre-IC-1 "absent
+///   contract" semantics — IC-1 now guarantees every function carries a
+///   contract, so the absent case is unrepresentable; `Never` is its
+///   one-to-one replacement.
 ///
 /// Returns the (possibly modified) opportunities and FIP gate records.
 pub(super) fn apply_fip_upgrades(
     opportunities: Vec<ReuseOpportunity>,
-    fip: Option<&FipContract>,
+    fip: &FipContract,
 ) -> (Vec<ReuseOpportunity>, Vec<FipGateRecord>) {
-    let Some(fip) = fip else {
-        return (opportunities, Vec::new());
-    };
-
     match fip {
         FipContract::Never => (opportunities, Vec::new()),
         FipContract::Certified => apply_certified_upgrades(opportunities),

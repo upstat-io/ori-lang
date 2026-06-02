@@ -100,6 +100,22 @@ struct RewriteInput {
     rec_args: Vec<ArcVarId>,
 }
 
+/// Fresh context vars + entry block threaded into the recursive-path rewrite.
+///
+/// Bundles the TRMC context-state triple (`ctx_has`, `ctx_res`,
+/// `ctx_hole_obj`), the loop-back result + flag vars (`new_res`, `true_var`),
+/// and the loop-header `entry_block`. All six are allocated together in
+/// `rewrite_single_region` and consumed together by `emit_recursive_path`.
+#[derive(Clone, Copy)]
+struct RecursivePathVars {
+    ctx_has: ArcVarId,
+    ctx_res: ArcVarId,
+    ctx_hole_obj: ArcVarId,
+    new_res: ArcVarId,
+    true_var: ArcVarId,
+    entry_block: ArcBlockId,
+}
+
 /// Run admission checks and extract metadata for the rewrite.
 ///
 /// Returns `None` if any gate fails.
@@ -228,12 +244,14 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
         func,
         region,
         &input,
-        ctx_has,
-        ctx_res,
-        ctx_hole_obj,
-        new_res,
-        true_var,
-        entry_block,
+        RecursivePathVars {
+            ctx_has,
+            ctx_res,
+            ctx_hole_obj,
+            new_res,
+            true_var,
+            entry_block,
+        },
     );
 
     // Step 5: Rewrite base-case returns.
@@ -331,21 +349,20 @@ fn emit_prologue(
 }
 
 /// Rewrite the recursive site and emit compose/first-call/loop-back blocks.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal helper, all params needed"
-)]
 fn emit_recursive_path(
     func: &mut ArcFunction,
     region: &ContextRegion,
     input: &RewriteInput,
-    ctx_has: ArcVarId,
-    ctx_res: ArcVarId,
-    ctx_hole_obj: ArcVarId,
-    new_res: ArcVarId,
-    true_var: ArcVarId,
-    entry_block: ArcBlockId,
+    vars: RecursivePathVars,
 ) {
+    let RecursivePathVars {
+        ctx_has,
+        ctx_res,
+        ctx_hole_obj,
+        new_res,
+        true_var,
+        entry_block,
+    } = vars;
     let return_ty = func.return_type;
 
     // Build new body: instructions before call, between call and construct.

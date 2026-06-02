@@ -518,8 +518,8 @@ pub(super) fn synthesize_closure_env_burden(
 ///
 /// Mirror of `compute_drop_kind`'s helper (intentional algorithmic
 /// duplication — the legacy function is also a consumer of this resolution
-/// step, and centralising it would broaden the §02.3 lift past the wrapper
-/// surface). When §06 lands the full BurdenRegistry-driven dispatch the
+/// step, and centralising it would broaden the lift past the wrapper
+/// surface). When lands the full BurdenRegistry-driven dispatch the
 /// legacy `compute_drop_kind` retires and this helper can move up.
 fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
     // Out-of-bounds idx has no resolvable tag — opaque leaf (mirrors

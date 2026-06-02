@@ -8,7 +8,7 @@ use std.testing { assert_eq, assert }
 @mk_ok (v: int) -> Result<int, Error> = Ok(v);
 
 // Error type works with Err()
-@test_err tests @err () -> void = {
+@err_result_reports_is_err tests @err () -> void = {
     let r = mk_err(msg: "hello");
     assert(cond: r.is_err())
 }
@@ -19,7 +19,7 @@ use std.testing { assert_eq, assert }
 }
 
 // has_trace callable on Result<T, Error>
-@test_has tests @has () -> void = {
+@err_result_has_no_trace tests @has () -> void = {
     let r = mk_err(msg: "test");
     assert_eq(
         actual: r.has_trace(),
@@ -33,7 +33,7 @@ use std.testing { assert_eq, assert }
 }
 
 // trace() callable on Result<T, Error>
-@test_trace tests @trace () -> void = {
+@err_result_trace_is_empty tests @trace () -> void = {
     let r = mk_err(msg: "test");
     assert_eq(
         actual: r.trace(),
@@ -47,7 +47,7 @@ use std.testing { assert_eq, assert }
 }
 
 // trace_entries() callable
-@test_entries tests @entries () -> void = {
+@err_result_has_zero_trace_entries tests @entries () -> void = {
     let r = mk_err(msg: "test");
     assert_eq(
         actual: r.trace_entries().len(),
@@ -61,7 +61,7 @@ use std.testing { assert_eq, assert }
 }
 
 // All methods work on Ok variant
-@test_ok tests @ok () -> void = {
+@ok_variant_has_no_trace tests @ok () -> void = {
     let r = mk_ok(v: 42);
     assert_eq(
         actual: r.has_trace(),

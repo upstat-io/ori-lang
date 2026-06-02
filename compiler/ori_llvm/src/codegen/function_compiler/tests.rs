@@ -465,6 +465,13 @@ fn compile_impls_populates_method_functions_map() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    // IC-1: `compile_impls` runs each impl method through `run_arc_pipeline`,
+    // which requires a `MemoryContract` for the method's ARC-function name.
+    // Production computes these via `compute_aims_contracts`; this declaration-
+    // only test bypasses that step, so pre-populate the contract for the
+    // `distance` method (both impls share the method name).
+    let mut aims_contracts: FxHashMap<Name, ori_arc::MemoryContract> = FxHashMap::default();
+    aims_contracts.insert(distance_name, ori_arc::MemoryContract::conservative(1));
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -476,7 +483,7 @@ fn compile_impls_populates_method_functions_map() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
+        aims_contracts,
         false,
     );
 
@@ -487,7 +494,7 @@ fn compile_impls_populates_method_functions_map() {
     // resolved exclusively via the type-qualified method_functions map.
     // If they were in functions, an unresolved `distance` call on a field
     // of the wrong type would resolve to the last registered impl method
-    // (wrong-function dispatch bug, ).
+    // (wrong-function dispatch bug,).
     assert!(
         !fc.function_map().contains_key(&distance_name),
         "impl methods must NOT be in the bare functions map"
@@ -592,7 +599,7 @@ fn module_path_appears_in_mangled_name() {
     assert!(scx.llmod.get_function("add").is_none());
 }
 
-// Noundef attribute tests (§02.6)
+// Noundef attribute tests
 
 #[test]
 fn scalar_params_have_noundef() {
@@ -1799,7 +1806,7 @@ fn main_wrapper_has_noundef_return() {
 
     let main_name = interner.intern("main");
 
-    // Declare @main () -> void (simplest signature)
+    // Declare @main -> void (simplest signature)
     let sig = make_sig(main_name, vec![], vec![], Idx::UNIT, true);
 
     let classifier = ArcClassifier::new(&pool);
@@ -1844,7 +1851,7 @@ fn main_wrapper_has_noundef_return() {
     );
 }
 
-/// PC-2 seam pin (§04.4 row 9): `process_arc_function` short-circuits with
+/// PC-2 seam pin: `process_arc_function` short-circuits with
 /// `Err(VerifyError::UnresolvedTypeVar(_))` and records a codegen error when
 /// the ARC IR carries a raw `Tag::Var`, WITHOUT invoking `run_arc_pipeline`.
 ///

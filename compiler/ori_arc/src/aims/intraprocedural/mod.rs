@@ -53,12 +53,12 @@ use crate::ArcClassification;
 use super::contract::{ContextRegion, MemoryContract};
 use super::lattice::AimsState;
 
-/// §04A.1 ITEM-3 — IC-7 convergence bound counter (debug-only).
+///  — IC-7 convergence bound counter (debug-only).
 ///
 /// Records the max iteration count observed across `analyze_function` calls
 /// during the current process. Used by the burden-lattice smoke harness to
 /// verify burden-emitted IR does not inflate iteration count beyond
-/// `CHAIN_HEIGHT × |vars| × |blocks|` per `aims-rules.md §6 IA-7`.
+/// `CHAIN_HEIGHT × |vars| × |blocks|` per `IA-7`.
 /// Release builds skip the counter (zero overhead).
 #[cfg(debug_assertions)]
 static MAX_ITERATIONS_OBSERVED: std::sync::atomic::AtomicUsize =
@@ -114,7 +114,7 @@ fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlock
 ///
 /// - `func` — the ARC IR function to analyze
 /// - `classifier` — type classification (scalar filtering)
-/// - `sigs` — interprocedural contracts (from Section 03; empty when no interprocedural info available)
+/// - `sigs` — interprocedural contracts (empty when no interprocedural info available)
 /// - `context_regions` — TRMC metadata (from normalize pass; empty when no TRMC candidates detected)
 ///
 /// # Convergence
@@ -131,7 +131,7 @@ fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlock
 /// needs `reuseEnv` and weak-demand splitting to improve convergence in lazy
 /// contexts; AIMS's strict evaluation model avoids these because all demands
 /// are strict by definition.
-/// (See: Literature Review §09 — GHC Demand Analysis)
+/// (See: Literature Review GHC Demand Analysis)
 #[expect(
     clippy::implicit_hasher,
     reason = "FxHashMap is the project-wide hasher; no generic needed"
@@ -170,7 +170,7 @@ pub fn analyze_function(
     // a block's exit/entry state.
     let postorder = crate::graph::compute_postorder(func);
 
-    // Collect invoke definitions: Invoke { dst, normal, .. } defines `dst`
+    // Collect invoke definitions: Invoke { dst, normal,.. } defines `dst`
     // at the entry of the `normal` successor only (not unwind). We need to
     // remove these from the normal successor's entry state.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
@@ -194,7 +194,7 @@ pub fn analyze_function(
     // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
     // unions the apply-alias edges into the classes) and BEFORE the worklist
     // (read-only thereafter). The same pre-walk also populates the PIN-6
-    // `class_payload_of` inter-class payload-of relation per §2.6.2.
+    // `class_payload_of` inter-class payload-of relation.
     // RcStrategy queries during the PIN-6 population pass consult the
     // `func.var_rc_strategies` cache populated at Step 3 alongside
     // `func.var_reprs` (no pool dep at analyze-time).
@@ -212,7 +212,7 @@ pub fn analyze_function(
     let project_alias_sources =
         project_aliases::compute_project_alias_sources(func, state_map.apply_result_aliases());
 
-    // BUG-04-118 §05 Round 3 Option A: persist the project_alias_sources side-
+    // BUG-04-118 Option A: persist the project_alias_sources side-
     // table on AimsStateMap so the post-convergence pass
     // `populate_class_payload_of_with_liveness` can widen its A-live witness
     // set with Project-derived aliases. The local map remains for
@@ -279,7 +279,7 @@ pub fn analyze_function(
             }
 
             // Compute the block's entry state by walking instructions backward.
-            // Also accumulates block-level effects (Section 09.2).
+            // Also accumulates block-level effects.
             let result = block::compute_block_entry_state(
                 func,
                 block_id,
@@ -307,7 +307,7 @@ pub fn analyze_function(
         if state_map.is_converged() {
             #[cfg(debug_assertions)]
             {
-                // §04A.1 ITEM-3 — record watermark for IC-7 bound assertion.
+                //  — record watermark for IC-7 bound assertion.
                 let prev = MAX_ITERATIONS_OBSERVED.load(std::sync::atomic::Ordering::Relaxed);
                 if iteration > prev {
                     MAX_ITERATIONS_OBSERVED.store(iteration, std::sync::atomic::Ordering::Relaxed);
@@ -338,7 +338,7 @@ pub fn analyze_function(
     }
 
     // Post-convergence: verify canonical fixed point and detect
-    // cross-dimension chaining (Section 09.5 Convergence Feedback).
+    // cross-dimension chaining (Convergence Feedback).
     verify_canonical_fixed_point(&mut state_map, func);
 
     tracing::debug!(
@@ -354,19 +354,19 @@ pub fn analyze_function(
     // Position-load-bearing ordering — `populate_call_result_states` MUST
     // run BEFORE `populate_sparse_events` so the side tables are populated
     // when sparse_events queries `effective_locality_at_block_exit` for
-    // `LocalAllocCandidate` emission. Plan TPR Round 0 F4..
+    // `LocalAllocCandidate` emission.
     //
-    // BUG-04-118 §05.5 — `populate_class_payload_of_with_liveness` runs
+    // BUG-04-118 — `populate_class_payload_of_with_liveness` runs
     // FIRST so subsequent post-convergence passes see the path-sensitive
     // edge map (none read it today, but ordering is defensive).
     post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
-    // §04A.3 ITEM-2 — coexistence handshake class_covered computation. Runs
+    //  — coexistence handshake class_covered computation. Runs
     // AFTER `populate_class_payload_of_with_liveness` so the path-sensitive
     // payload map is in place; runs BEFORE downstream consumers of
-    // `class_covered` (today: `decide()` at realization). Empty when
+    // `class_covered` (today: `decide` at realization). Empty when
     // `func.burden_emitted` is empty (pre-Step-4b functions); cheap then.
     post_convergence::populate_class_covered(&mut state_map, func);
-    // BUG-04-118 §05 Round 2 /tp-help: typed same-class dec obligation table
+    // BUG-04-118: typed same-class dec obligation table
     // for path-sensitive same-slot dec dedup across Let{Var} / Jump arg /
     // Conditional alias chains. Mirrors class_payload_of's path-sensitive
     // analysis but operates on intra-class member liveness rather than
@@ -377,7 +377,7 @@ pub fn analyze_function(
     post_convergence::populate_sparse_events(&mut state_map, func);
     post_convergence::populate_var_shapes(&mut state_map, func);
 
-    // Section 13.2: effect_summary().may_share is available post-convergence.
+    // effect_summary.may_share is available post-convergence.
     // Passed to TRMC gates for logging (not enforced in v1).
     let may_share = state_map.effect_summary().may_share;
     post_convergence::detect_trmc_candidates(&mut state_map, func, may_share);
@@ -393,13 +393,13 @@ pub fn analyze_function(
 /// Runs [`AimsState::canonicalize_with_feedback`] on every block entry/exit
 /// state. Converged states should already be canonical (`rounds == 0`).
 /// If any state is NOT canonical (`rounds > 0`), this indicates a bug in
-/// the analysis — some path didn't call `canonicalize()` after a state
+/// the analysis — some path didn't call `canonicalize` after a state
 /// update. If cross-dimension chaining is detected (`rounds > 1`), the
 /// `cross_dimension_detected` flag is set.
 ///
-/// With current rules (Section 09.3), this should always pass.
+/// With current rules, this should always pass.
 ///
-/// Section 09.5 Convergence Feedback.
+/// Convergence Feedback.
 fn verify_canonical_fixed_point(state_map: &mut AimsStateMap, func: &ArcFunction) {
     let mut max_rounds: u8 = 0;
 

@@ -3,7 +3,9 @@
 use super::*;
 use crate::ir::{ArcParam, ArcVarId};
 use crate::ownership::Ownership;
+use ori_ir::Name;
 use ori_types::Idx;
+use rustc_hash::FxHashMap;
 
 fn var(n: u32) -> ArcVarId {
     ArcVarId::new(n)
@@ -404,4 +406,60 @@ fn context_behavior_conservative_constructor_safe() {
     assert!(!c.context_behavior.preserves_context);
     assert!(!c.context_behavior.consumes_hole);
     assert!(!c.context_behavior.may_resume_nonlinearly);
+}
+
+// ContractMapExt — IC-1 enforcement helpers (get_required / get_mut_required)
+//
+// Per AIMS Invariant IC-1: the contracts map MUST cover every function after
+// the interprocedural fixpoint completes. These helpers panic on absence
+// (pipeline-ordering bug) rather than silently degrading via a default.
+
+#[test]
+fn test_get_required_returns_contract_when_present() {
+    let mut map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let name = Name::from_raw(1);
+    let contract = MemoryContract::conservative(0);
+    map.insert(name, contract.clone());
+
+    let got = map.get_required(&name, "test_site");
+    assert_eq!(got, &contract);
+}
+
+#[test]
+#[should_panic(expected = "test_site_tag_marker")]
+fn test_get_required_panics_on_missing_with_site_tag() {
+    let map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let _ = map.get_required(&Name::from_raw(2), "test_site_tag_marker");
+}
+
+#[test]
+#[should_panic(expected = "AIMS Invariant IC-1")]
+fn test_get_required_panics_message_includes_invariant_label() {
+    let map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let _ = map.get_required(&Name::from_raw(3), "any_site");
+}
+
+#[test]
+fn test_get_mut_required_returns_mut_ref_when_present() {
+    let mut map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let name = Name::from_raw(4);
+    map.insert(name, MemoryContract::conservative(0));
+
+    let got = map.get_mut_required(&name, "test_mut_site");
+    got.effects.may_deallocate = true;
+    assert!(map.get(&name).is_some_and(|c| c.effects.may_deallocate));
+}
+
+#[test]
+#[should_panic(expected = "mut_test_site_tag_marker")]
+fn test_get_mut_required_panics_on_missing_with_site_tag() {
+    let mut map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let _ = map.get_mut_required(&Name::from_raw(5), "mut_test_site_tag_marker");
+}
+
+#[test]
+#[should_panic(expected = "AIMS Invariant IC-1")]
+fn test_get_mut_required_panics_message_includes_invariant_label() {
+    let mut map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let _ = map.get_mut_required(&Name::from_raw(6), "any_mut_site");
 }

@@ -7,43 +7,35 @@
 //! - **Range**: Iterator-based loop with `ori_list_new` + `ori_list_push`.
 //! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
 
-use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
 
-use super::super::expr::{ArcLowerer, ForYieldContext, LoopContext};
+use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 
 impl ArcLowerer<'_> {
     /// Dispatch for-yield to the appropriate strategy based on iterable type.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "lowering params are all semantically distinct"
-    )]
     pub(crate) fn lower_for_yield(
         &mut self,
-        pattern: CanBindingPatternId,
+        shape: ForYieldShape,
         iter_val: ArcVarId,
         iter_ty: Idx,
         tag: Tag,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
     ) -> ArcVarId {
         tracing::debug!(
-            pattern = ?pattern,
+            pattern = ?shape.pattern,
             ?tag,
-            has_guard = guard.is_valid(),
+            has_guard = shape.guard.is_valid(),
             "for_yield: enter"
         );
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_option(shape, iter_val, elem_ty)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_iterator(shape, iter_handle, elem_ty)
         }
     }
 
@@ -120,13 +112,16 @@ impl ArcLowerer<'_> {
     )]
     fn lower_for_yield_iterator(
         &mut self,
-        pattern: CanBindingPatternId,
+        shape: ForYieldShape,
         iter_val: ArcVarId,
         elem_ty: Idx,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
     ) -> ArcVarId {
+        let ForYieldShape {
+            pattern,
+            guard,
+            body,
+            result_ty,
+        } = shape;
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let exit_block = self.builder.new_block();

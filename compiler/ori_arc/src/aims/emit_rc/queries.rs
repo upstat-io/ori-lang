@@ -16,7 +16,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 /// - Every block parameter that receives an incremented variable through
 ///   a `Jump { target, args }` terminator (phi-edge propagation)
 /// - Every Select operand (`true_val` / `false_val`) when the `dst` is
-///   incremented (BUG-04-090 §05 E-mat fix). At runtime, `Select dst` IS
+///   incremented (BUG-04-090 E-mat fix). At runtime, `Select dst` IS
 ///   one of `{true_val, false_val}` — the Session H/I compensating Inc on
 ///   `dst` bumps the chosen operand's allocation RC, so the AIMS-side
 ///   `Unique` classification on those operands no longer reflects physical
@@ -96,10 +96,10 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
     // dst is also incremented (shares the same object).
     // Fixed-point loop handles chains like %11 = %8 = %6 (where %6 has RcInc).
     //
-    // Select propagation (BUG-04-090 §05 E-mat): for each Select instruction
-    // `dst = Select cond ? true_val : false_val`, if `dst` is incremented,
+    // Select propagation (BUG-04-090 E-mat): for each Select instruction
+    // `dst = Select cond ? true_val: false_val`, if `dst` is incremented,
     // BOTH operands are incremented (at runtime dst aliases one of them, with
-    // the bumped RC). Conservative two-way propagation matches `aims-rules.md
+    // the bumped RC). Conservative two-way propagation matches `
     // §1.9 Rule 5` for the `project_alias_sources` Select case.
     loop {
         let mut changed = false;

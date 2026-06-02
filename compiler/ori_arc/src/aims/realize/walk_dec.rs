@@ -40,6 +40,31 @@ use super::decide::{
     ReuseDecision,
 };
 
+/// Per-instruction shared realization context for the dec-emission walk.
+///
+/// Bundles the per-block [`BlockCtx`], the current instruction index, and the
+/// pre-collected `classes_dying_here` map (PIN-6 same-emission signal). Every
+/// field is a shared borrow read together by the three dec-emission helpers.
+#[derive(Clone, Copy)]
+struct DecWalkEnv<'a> {
+    ctx: &'a BlockCtx<'a>,
+    instr_idx: usize,
+    classes_dying_here: &'a FxHashMap<u32, FxHashSet<ArcVarId>>,
+}
+
+/// Per-instruction mutable emission state for the dec-emission walk.
+///
+/// Bundles the three emission sinks (`new_body`, `deferred`, `death_events`)
+/// with the PIN-5 same-instruction suppression sets (`emitted_classes`,
+/// `emitted_vars`). All five travel together through the emission pass.
+struct InstrEmitState<'a> {
+    new_body: &'a mut Vec<ArcInstr>,
+    deferred: &'a mut Vec<(ArcVarId, RcStrategy, LastUse)>,
+    death_events: &'a mut Vec<DeathEvent>,
+    emitted_classes: FxHashSet<u32>,
+    emitted_vars: FxHashSet<ArcVarId>,
+}
+
 /// Post-instruction: `RcDec` for defined-dead and last-use variables.
 ///
 /// Routes decisions through `decide()` with `DecisionSite::DefinedDead`
@@ -63,34 +88,38 @@ pub(super) fn emit_post_instr_decs_unified(
     // PIN-5: per-instruction class-id set. After a class emits its first
     // RcDec at this instruction, subsequent same-class same-instr emissions
     // are suppressed.
-    let mut emitted_classes_this_instr: FxHashSet<u32> = FxHashSet::default();
+    let emitted_classes_this_instr: FxHashSet<u32> = FxHashSet::default();
     // Parallel per-var set: PIN-5 for retained-copy classes (inc_count >= 1)
     // suppresses only a true same-var double-use, not distinct same-instr
     // operands. Kept alongside the class set so PIN-6 + non-inc PIN-5 are
     // unchanged.
-    let mut emitted_vars_this_instr: FxHashSet<ArcVarId> = FxHashSet::default();
+    let emitted_vars_this_instr: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    // PIN-6 (BUG-04-104 §2.6.3): pre-collect the set of classes whose canonical
+    // PIN-6 (BUG-04-104): pre-collect the set of classes whose canonical
     // dec will fire at this instruction. The same-emission branch of
     // `pin6_any_ancestor_will_cover` queries this map to detect parents whose
     // PIN-5-batched dec covers a child class's RC slot at the SAME instruction.
-    // Per the §2.6.3 STRENGTHENED GATE annotation: skipping this pre-collection
+    // Per the STRENGTHENED GATE annotation: skipping this pre-collection
     // silently breaks the same_emission branch — the streaming
-    // `emitted_classes_this_instr` cannot serve PIN-6 because it tracks
+    // `emitted_classes` set cannot serve PIN-6 because it tracks
     // AFTER-emit, while PIN-6 needs BEFORE-emit signal.
     let classes_dying_here = collect_classes_dying_here(ctx, instr, instr_idx);
 
-    // DefinedDead: variable defined by this instruction but never used.
-    emit_defined_dead(
+    let env = DecWalkEnv {
         ctx,
-        instr,
         instr_idx,
+        classes_dying_here: &classes_dying_here,
+    };
+    let mut state = InstrEmitState {
         new_body,
-        &mut emitted_classes_this_instr,
-        &mut emitted_vars_this_instr,
-        &classes_dying_here,
-        metrics,
-    );
+        deferred,
+        death_events,
+        emitted_classes: emitted_classes_this_instr,
+        emitted_vars: emitted_vars_this_instr,
+    };
+
+    // DefinedDead: variable defined by this instruction but never used.
+    emit_defined_dead(env, instr, &mut state, metrics);
 
     // Skip last-use decs for consuming PrimOps and ownership transfers.
     // These instructions handle operand RC internally.
@@ -99,35 +128,22 @@ pub(super) fn emit_post_instr_decs_unified(
     }
 
     // LastUse: variables whose last use is this instruction and dead at exit.
-    emit_last_use_decs(
-        ctx,
-        instr,
-        instr_idx,
-        new_body,
-        deferred,
-        death_events,
-        &mut emitted_classes_this_instr,
-        &mut emitted_vars_this_instr,
-        &classes_dying_here,
-        metrics,
-    );
+    emit_last_use_decs(env, instr, &mut state, metrics);
 }
 
 /// Emit `RcDec` for a defined-but-dead variable.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "post-instruction dec emission needs the full per-block realization context + PIN-4/5/6 class-suppression sets"
-)]
 fn emit_defined_dead(
-    ctx: &BlockCtx<'_>,
+    env: DecWalkEnv<'_>,
     instr: &ArcInstr,
-    instr_idx: usize,
-    new_body: &mut Vec<ArcInstr>,
-    emitted_classes_this_instr: &mut FxHashSet<u32>,
-    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
-    classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
+    state: &mut InstrEmitState<'_>,
     metrics: &mut super::metrics::SynergyMetrics,
 ) {
+    let DecWalkEnv {
+        ctx,
+        instr_idx,
+        classes_dying_here,
+    } = env;
+
     let Some(dst) = instr.defined_var() else {
         return;
     };
@@ -181,7 +197,7 @@ fn emit_defined_dead(
         return;
     }
 
-    // §04A.3 ITEM-3 — coexistence handshake. Defer to the burden walk
+    // Coexistence handshake. Defer to the burden walk
     // when dst's SSA-alias class is fully burden-covered.
     let class_covered = ctx
         .state_map
@@ -197,16 +213,16 @@ fn emit_defined_dead(
     }
 
     if decision.rc == RcDecision::Dec {
-        // Take-projected payloads (TPR-07-013) transferred ownership OUT of
-        // the parent sum type; the parent's scope-exit drop is suppressed
-        // (TPR-07-011), so NO ancestor covers this binding's RC slot — it MUST
-        // get its own drop. PIN-6 inter-class payload-of suppression assumes
+        // Take-projected payloads transferred ownership OUT of the parent sum
+        // type; the parent's scope-exit drop is suppressed, so NO ancestor
+        // covers this binding's RC slot — it MUST get its own drop. PIN-6
+        // inter-class payload-of suppression assumes
         // the parent's drop covers the projected child, which is false for a
         // take-project (the payload was moved out). Skip PIN-6 for take-
         // projects so the moved-out binding drops at scope exit (RL-2).
         let is_take = is_take_project(instr, ctx.func, ctx.pool);
-        // PIN-6 (BUG-04-104 §2.6.3): inter-class payload-of suppression. Runs
-        // BEFORE PIN-4 + PIN-5 per §2.6.6 Q3 — a positive PIN-6 hit makes
+        // PIN-6 (BUG-04-104): inter-class payload-of suppression. Runs
+        // BEFORE PIN-4 + PIN-5 — a positive PIN-6 hit makes
         // the per-class checks below redundant (parent's drop covers
         // regardless of whether the dst is also an apply-alias source).
         if is_take {
@@ -221,7 +237,7 @@ fn emit_defined_dead(
             .get(&dst)
             .is_some_and(|s| !s.is_empty())
         {
-            // BUG-04-118 §05 — Project-alias-singleton fallback. Pure
+            // BUG-04-118 — Project-alias-singleton fallback. Pure
             // Project destinations are PIN-2 singletons: ssa_alias_class_of
             // returns None for them. The existing pin6 entry skips. But
             // their project_alias_sources may surface a transitive-drop
@@ -240,16 +256,16 @@ fn emit_defined_dead(
             ctx,
             dst,
             instr_idx,
-            emitted_classes_this_instr,
-            emitted_vars_this_instr,
+            &state.emitted_classes,
+            &state.emitted_vars,
         ) {
             return;
         }
         if let Some(strategy) = rc_strategy(ctx.func, dst, ctx.pool) {
-            new_body.push(ArcInstr::RcDec { var: dst, strategy });
-            emitted_vars_this_instr.insert(dst);
+            state.new_body.push(ArcInstr::RcDec { var: dst, strategy });
+            state.emitted_vars.insert(dst);
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
-                emitted_classes_this_instr.insert(class_id);
+                state.emitted_classes.insert(class_id);
             }
         }
     }
@@ -258,19 +274,14 @@ fn emit_defined_dead(
 /// Emit `RcDec` (or defer) for variables at their last use.
 ///
 /// Also collects death events for reuse-candidate variables.
-#[expect(clippy::too_many_arguments, reason = "pre-existing")]
 fn emit_last_use_decs(
-    ctx: &BlockCtx<'_>,
+    env: DecWalkEnv<'_>,
     instr: &ArcInstr,
-    instr_idx: usize,
-    new_body: &mut Vec<ArcInstr>,
-    deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
-    death_events: &mut Vec<DeathEvent>,
-    emitted_classes_this_instr: &mut FxHashSet<u32>,
-    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
-    classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
+    state: &mut InstrEmitState<'_>,
     metrics: &mut super::metrics::SynergyMetrics,
 ) {
+    let ctx = env.ctx;
+    let instr_idx = env.instr_idx;
     for (pos, var) in instr.used_vars().into_iter().enumerate() {
         if !is_rc_managed(ctx, var) {
             continue;
@@ -295,7 +306,7 @@ fn emit_last_use_decs(
         let has_deferred_children = has_live_borrowed_children(ctx, var, instr_idx);
         let reuse_ctx = build_reuse_context(ctx, var);
 
-        // §04A.3 ITEM-3 — coexistence handshake.
+        // Coexistence handshake.
         let class_covered = ctx
             .state_map
             .is_class_covered(ctx.state_map.class_id_of(var));
@@ -318,19 +329,7 @@ fn emit_last_use_decs(
             metrics.reuse_decisions += 1;
         }
 
-        apply_last_use_decision(
-            ctx,
-            var,
-            &decision,
-            last_use,
-            instr_idx,
-            new_body,
-            deferred,
-            death_events,
-            emitted_classes_this_instr,
-            emitted_vars_this_instr,
-            classes_dying_here,
-        );
+        apply_last_use_decision(env, var, &decision, last_use, &mut *state);
     }
 }
 
@@ -342,20 +341,19 @@ fn emit_last_use_decs(
 /// aware logic must not undermine), and BEFORE the actual `new_body.push`.
 /// Class membership tracked in `emitted_classes_this_instr` for PIN-5
 /// dedup; class-liveness consulted via `class_dec_should_emit` for PIN-4.
-#[expect(clippy::too_many_arguments, reason = "pre-existing")]
 fn apply_last_use_decision(
-    ctx: &BlockCtx<'_>,
+    env: DecWalkEnv<'_>,
     var: ArcVarId,
     decision: &InstructionDecisions,
     last_use: LastUse,
-    instr_idx: usize,
-    new_body: &mut Vec<ArcInstr>,
-    deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
-    death_events: &mut Vec<DeathEvent>,
-    emitted_classes_this_instr: &mut FxHashSet<u32>,
-    emitted_vars_this_instr: &mut FxHashSet<ArcVarId>,
-    classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
+    state: &mut InstrEmitState<'_>,
 ) {
+    let DecWalkEnv {
+        ctx,
+        instr_idx,
+        classes_dying_here,
+    } = env;
+
     match decision.rc {
         RcDecision::Dec => {
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
@@ -372,8 +370,8 @@ fn apply_last_use_decision(
                     return;
                 }
 
-                // PIN-6 (BUG-04-104 §2.6.3): inter-class payload-of suppression.
-                // Runs BEFORE PIN-4 + PIN-5 per §2.6.6 Q3 — when class B's
+                // PIN-6 (BUG-04-104): inter-class payload-of suppression.
+                // Runs BEFORE PIN-4 + PIN-5 — when class B's
                 // transitive drop covers class A's RC slot at-or-after this
                 // instr (alive-after parent OR same-emission parent), class A's
                 // canonical dec is suppressed to avoid double-free. The pre-
@@ -395,7 +393,7 @@ fn apply_last_use_decision(
                     .get(&var)
                     .is_some_and(|s| !s.is_empty())
                 {
-                    // BUG-04-118 §05 — Project-alias-singleton fallback (see
+                    // BUG-04-118 — Project-alias-singleton fallback (see
                     // walk_dec.rs:155+ for full rationale).
                     if pin6_any_ancestor_will_cover(
                         ctx,
@@ -413,20 +411,21 @@ fn apply_last_use_decision(
                     ctx,
                     var,
                     instr_idx,
-                    emitted_classes_this_instr,
-                    emitted_vars_this_instr,
+                    &state.emitted_classes,
+                    &state.emitted_vars,
                 ) {
                     return;
                 }
 
-                new_body.push(ArcInstr::RcDec { var, strategy });
-                emitted_vars_this_instr.insert(var);
+                state.new_body.push(ArcInstr::RcDec { var, strategy });
+                state.emitted_vars.insert(var);
                 if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
-                    emitted_classes_this_instr.insert(class_id);
+                    state.emitted_classes.insert(class_id);
                 }
 
                 if decision.reuse != ReuseDecision::None {
-                    record_death_event(ctx, var, new_body.len() - 1, death_events);
+                    let at = state.new_body.len() - 1;
+                    record_death_event(ctx, var, at, state.death_events);
                 }
             }
         }
@@ -437,7 +436,7 @@ fn apply_last_use_decision(
                     .get(&var)
                     .copied()
                     .unwrap_or(last_use);
-                deferred.push((var, strategy, effective));
+                state.deferred.push((var, strategy, effective));
             }
         }
         _ => {}
@@ -517,13 +516,13 @@ fn class_dec_should_emit(
 
 /// PIN-4 class-liveness primitive: returns true if a DIFFERENT class member
 /// is the canonical-rep emitter for this class per the SSOT
-/// `pin4_class_emits_dec_set` (BUG-04-111 §05 Step 4.5).
+/// `pin4_class_emits_dec_set` (BUG-04-111).
 ///
 /// Pre-fix logic checked syntactic `is_live_after` — but a borrowed live use
 /// emits no dec, so the suppression fired even when no class member would
 /// actually emit, leaving the dec unbalanced (BUG-04-111 leak shape). The
-/// canonical-rep query identifies the LATEST-emitting member per gemini
-/// Round 2 F1; non-canonical members suppress.
+/// canonical-rep query identifies the LATEST-emitting member;
+/// non-canonical members suppress.
 ///
 /// When `canonical_rep_for` returns `None` (no class member is in
 /// `pin4_class_emits_dec_set` for this block), no class member will emit a
@@ -533,10 +532,9 @@ fn class_dec_should_emit(
 /// constitute an RC-obligation that should suppress the canonical emitter's
 /// dec — Let aliases are RC-inert per the AIMS lattice. The previous
 /// syntactic-`is_live_after` fallback was over-firing on this case, leaving
-/// the dec unbalanced. See `bug-tracker/plans/BUG-04-111/section-05-implementation.md`
-/// HISTORY block for empirical fix delta + remaining-failure classification.
+/// the dec unbalanced.
 fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: ArcVarId) -> bool {
-    // First: existing BUG-04-111 §05 Step 4.5 PIN-4 canonical-rep logic.
+    // First: existing BUG-04-111 PIN-4 canonical-rep logic.
     // Preserves the generics::* WIN delta — when pin4_class_emits_dec_set
     // identifies a canonical emitter for this class, defer to it: suppress
     // when var != canonical, fire when var == canonical.
@@ -556,12 +554,12 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
         return suppressed;
     }
 
-    // BUG-04-118 §05 Round 2 /tp-help (Option A refined): when pin4
-    // returns no canonical, consult the typed class_dec_obligations
-    // side-table for same-class dedup. This is the case BUG-04-111 §05
-    // Step 4.5's fix returns false on (preserving its narrow correctness)
-    // but where multi-member SSA alias classes from Let{Var} / Jump arg /
-    // Conditional chains DO have RC obligations that need scheduling.
+    // BUG-04-118: when pin4 returns no canonical, consult the typed
+    // class_dec_obligations side-table for same-class dedup. This is the
+    // case BUG-04-111's fix returns false on (preserving its narrow
+    // correctness) but where multi-member SSA alias classes from
+    // Let{Var} / Jump arg / Conditional chains DO have RC obligations
+    // that need scheduling.
     //
     // Returns true (suppress) when this class has an intra-block
     // obligation point LATER than instr_idx — the later member's dec
@@ -584,7 +582,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // consultation over-suppresses by treating syntactic last-uses
     // (borrow positions) as if they were real RC-dec obligations.
     //
-    // Param-member case (BUG-04-118 §05 Round 2 refinement):
+    // Param-member case (BUG-04-118):
     // `borrow_list_int_project_consumer_then_return_no_leak` callee
     // forms class {%0(param), %1, %6, %8, %14} via pure Let{Var}
     // chains of param %0. None of these vars are Apply destinations,
@@ -594,7 +592,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // suppress the legitimate canonical dec emission, leaking 2 RCs
     // back to the caller via Return %14.
     //
-    // Direct-apply-alias case (BUG-04-118 §05 Round 2 original):
+    // Direct-apply-alias case (BUG-04-118):
     // `apply_result_aliases[%6] = Direct(%5)` triggers `uf.union(%5, %6)`
     // forming class {%3, %5, %6, ...}. Same RC-inert semantics —
     // existing return-transfer + pin4 handle dec scheduling.
@@ -619,7 +617,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
         // allocations (e.g. loop-carried `s` old-value alloc A with the
         // concat-result alloc B via the back-edge Jump-arg → block-param
         // edge); alloc B's later obligation must NOT suppress alloc A's dec,
-        // or alloc A leaks every iteration (RL-4 P1 + §10 under-elim
+        // or alloc A leaks every iteration (RL-4 P1 + under-elim
         // per-path-net-0). `same_alloc` excludes the phi edge.
         let later_obligation_exists =
             entry
@@ -636,12 +634,12 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     }
 
     // No pin4 canonical AND no later obligation → no PIN-4 suppression
-    // (BUG-04-111 §05 Step 4.5 fallback — Let aliases RC-inert per AIMS
+    // (BUG-04-111 fallback — Let aliases RC-inert per AIMS
     // lattice when no class member actually emits).
     false
 }
 
-/// BUG-04-118 §05 Round 2 obligation-table filter: detect classes formed
+/// BUG-04-118 obligation-table filter: detect classes formed
 /// via `Direct` apply-result-alias union (caller-arg unioned with call
 /// result). Returns true when ANY class member has an
 /// `apply_result_aliases` entry with `ApplyAliasSource::Direct(_)` shape.
@@ -661,7 +659,7 @@ fn class_uses_direct_apply_alias_union(ctx: &BlockCtx<'_>, class_id: u32) -> boo
         .any(|m| matches!(aliases.get(m), Some(ApplyAliasSource::Direct(_))))
 }
 
-/// BUG-04-118 §05 Round 2 obligation-table filter: detect classes
+/// BUG-04-118 obligation-table filter: detect classes
 /// containing a function parameter member. Such classes are formed by
 /// Let{Var} aliases of the param, transitive-alias chains, or both —
 /// per AIMS §3 TF-11 these are transparent-alias semantics, RC-inert.
@@ -684,7 +682,7 @@ fn class_uses_direct_apply_alias_union(ctx: &BlockCtx<'_>, class_id: u32) -> boo
 /// the callee `@borrow_project_then_return(xs: [int]) -> [int]` — class
 /// {%0, %1, %6, %8, %14} contains param %0; obligations [(%1, `idx_3`),
 /// (%8, terminator)] are both borrow-position phantoms. The pin4-based
-/// emission machinery (BUG-04-111 §05 Step 4.5 SSOT) correctly handles
+/// emission machinery (BUG-04-111 SSOT) correctly handles
 /// these classes without obligation-table input.
 fn class_contains_param_member(ctx: &BlockCtx<'_>, class_id: u32) -> bool {
     let Some(members) = ctx.state_map.class_members(class_id) else {
@@ -761,9 +759,9 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
 }
 
 /// Pre-collect the set of classes whose canonical dec will fire at this
-/// instruction (BUG-04-104 §2.6.3 STRENGTHENED GATE).
+/// instruction (BUG-04-104 STRENGTHENED GATE).
 ///
-/// Per §2.6.3, the same-emission branch of `pin6_any_ancestor_will_cover`
+/// The same-emission branch of `pin6_any_ancestor_will_cover`
 /// queries this map to detect parent classes whose PIN-5-batched dec covers
 /// a child class's RC slot at the SAME instruction. The streaming
 /// `emitted_classes_this_instr` cannot serve PIN-6's needs because it tracks
@@ -771,7 +769,7 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
 /// die at `instr_idx`, populated BEFORE the per-var emission loop's first
 /// iteration.
 ///
-/// Walks `instr.used_vars()` ∪ {`instr.defined_var()`} per §2.6.3, filters to
+/// Walks `instr.used_vars()` ∪ {`instr.defined_var()`}, filters to
 /// classes whose absolute last-use is THIS instruction (no class member alive
 /// after `instr_idx` per PIN-4 class-liveness), and collects var members per
 /// class id.
@@ -805,10 +803,10 @@ pub(super) fn collect_classes_dying_here(
     result
 }
 
-/// PIN-6 (BUG-04-104 §2.6.3) inter-class payload-of suppression predicate.
+/// PIN-6 (BUG-04-104) inter-class payload-of suppression predicate.
 ///
 /// Walks the transitive `class_payload_of` ancestor chain via BFS from
-/// `class_id` (sketch v2 per Plan TPR Round 19 — handles singleton parents,
+/// `class_id` (handles singleton parents,
 /// same-emission parent drops via PIN-5 batching, nested transitive-drop
 /// chains, AND cross-block coverage via `is_live_after` fallthrough to
 /// `is_live_at_exit`). Returns `true` when ANY ancestor class B is:
@@ -822,7 +820,7 @@ pub(super) fn collect_classes_dying_here(
 ///
 /// Cycle prevention via `visited` set; defensive grandparent walk on
 /// `class_members == None` covers the case where the singleton-class
-/// population invariant from §2.6.2 was violated (no false-suppression
+/// population invariant was violated (no false-suppression
 /// guarantee — chain walk continues to a covering grandparent).
 pub(super) fn pin6_any_ancestor_will_cover(
     ctx: &BlockCtx<'_>,
@@ -837,8 +835,8 @@ pub(super) fn pin6_any_ancestor_will_cover(
     if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
     }
-    // BUG-04-118 §05 — Project-alias seed (codex Q2 architectural cure for
-    // nested Project chain RED shapes). Narrowed trigger: only fire when
+    // BUG-04-118 — Project-alias seed (architectural cure for nested
+    // Project chain RED shapes). Narrowed trigger: only fire when
     // class_payload_of(class_id) is empty — Direct apply-alias union shapes
     // populate class_payload_of and are handled by the existing pin4 +
     // obligation-table machinery; additional seeds there over-suppress.
@@ -892,7 +890,7 @@ pub(super) fn pin6_any_ancestor_will_cover(
         }
 
         // Resolve parent's representative var (PIN-6 singleton invariant per
-        // §2.6.2: population MUST ensure class_members is populated for every
+        // population MUST ensure class_members is populated for every
         // class with a class_payload_of entry — including singletons).
         let Some(parent_members) = ctx.state_map.class_members(parent_class) else {
             // Singleton invariant violated — defensively continue chain walk
@@ -919,7 +917,7 @@ pub(super) fn pin6_any_ancestor_will_cover(
             let alive_after = parent_members
                 .iter()
                 .any(|&v| ctx.is_live_after(instr_idx, v));
-            // R19 Codex F2 — same-emission parent (PIN-5 batching at this instr).
+            // Same-emission parent (PIN-5 batching at this instr).
             // class_dec_should_emit will fire parent's canonical dec AT THIS
             // instruction since parent_class is in classes_dying_here. The dec
             // walks parent's transitive payload (including class A's slot),
@@ -937,7 +935,7 @@ pub(super) fn pin6_any_ancestor_will_cover(
             // Defensively continue the chain walk in case some grandparent
             // still covers.
         }
-        // R19 Codex F3 — non-transitive-drop parent OR transitive-drop-but-
+        // Non-transitive-drop parent OR transitive-drop-but-
         // dead parent: walk further up the chain. Nested case: A → B → C
         // where B is non-transitive (e.g., FatPointer) but C is transitive
         // (InlineEnum) — C still covers A through B's chain.

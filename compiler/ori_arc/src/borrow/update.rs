@@ -132,7 +132,7 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 ///
 /// Dispatches through three strategies in order:
 /// 1. **Known callee signature** (local SCC or external) — use per-param ownership.
-/// 2. **Protocol builtin** — use `ProtocolBuiltin::arg_ownership()` data.
+/// 2. **Protocol builtin** — use `ProtocolBuiltin::arg_ownership` data.
 /// 3. **Unknown, non-borrowing callee** — conservatively promote all args to owned.
 ///
 /// Callees in the `borrowing` set are assumed to borrow all arguments (no promotion).
@@ -249,7 +249,7 @@ pub(super) fn update_ownership_inner(
 
                 // Select reads vars without consuming — no ownership propagation.
                 // RC/reset/reuse instructions are handled by the ARC pass itself.
-                // BurdenInc/BurdenDec (§03.1) are trivial Phase 5 markers —
+                // BurdenInc/BurdenDec are trivial Phase 5 markers —
                 // their var is the subject of a burden op, not an ownership
                 // transfer point, so they contribute no borrow-promotion signal.
                 ArcInstr::Let { .. }

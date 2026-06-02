@@ -8,7 +8,7 @@
 //!
 //! - **Option/Result**: `{i64 tag, T payload}` — payload at struct index 1
 //! - **General enum**: `{tag, [M x i64] payload}` — tag is narrowed via
-//!   `min_tag_width()` (i8 for ≤256 variants, §07.1); fields at byte offsets
+//!   `min_tag_width` (i8 for ≤256 variants,); fields at byte offsets
 //!   within the payload array
 
 use ori_types::{Idx, Pool, Tag};
@@ -277,7 +277,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         variants: &[Vec<(u32, Idx)>],
     ) {
-        // §07.3.A: Tagged-pointer enum drop — load the encoded i64, decode
+        //.A: Tagged-pointer enum drop — load the encoded i64, decode
         // the tag, dispatch to per-variant pointer dec. Tagged-pointer enums
         // are 8 bytes, so the heap-allocated case is rare (the encoding
         // typically lives inline in a parent struct), but the drop path
@@ -287,14 +287,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §07.2: Tagless single-variant enum drop — struct-like field walk,
+        // Tagless single-variant enum drop — struct-like field walk,
         // no tag, no niche, no switch.
         if self.is_tagless_enum(ty) {
             self.emit_drop_tagless(ty, data_ptr);
             return;
         }
 
-        // §07.2: Niche-encoded enum drop — conditional skip instead of switch.
+        // Niche-encoded enum drop — conditional skip instead of switch.
         if let Some(encoding) = self.get_niche_encoding(ty) {
             self.emit_drop_enum_niche(func_id, data_ptr, ty, variants, &encoding);
             return;
@@ -302,7 +302,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let enum_llvm_ty = self.resolve_type(ty);
 
-        // Load tag (narrowed type at field 0 — §07.1 discriminant narrowing)
+        // Load tag (narrowed type at field 0 — discriminant narrowing)
         let tag_ty = self
             .builder
             .struct_field_type(enum_llvm_ty, 0)
@@ -419,7 +419,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
         self.dec_fields_may_unwind(&ops, &walk, 0);
     }
-    /// §07.2: Emit drop body for a niche-encoded enum.
+    /// Emit drop body for a niche-encoded enum.
     ///
     /// For 2-variant niche enums (Option/Result): load the niche field,
     /// compare against `niche_value`, skip drop for the niche variant (no
@@ -479,7 +479,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(drop_done);
     }
 
-    /// §07.3.A: Emit drop body for a tagged-pointer encoded enum.
+    ///.A: Emit drop body for a tagged-pointer encoded enum.
     ///
     /// Loads the 8-byte encoded value from `data_ptr`, decodes the tag bits,
     /// and dispatches to per-variant pointer dec via a switch. Pointer-bearing

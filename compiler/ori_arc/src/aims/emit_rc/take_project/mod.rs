@@ -98,14 +98,6 @@
 //!   the bypass-safe region for `var`'s lineage. Source 1 emits the
 //!   scope-exit drop here exactly once per CFG path; downstream
 //!   bypass-safe blocks inherit the dec via SSA flow.
-//!
-//! # Reference
-//!
-//!: initial function-global suppression, double-free fix.
-//!: conditional-consume path-sensitivity fix.
-//!: per-class partitioning via union-find.
-//!: membership / lineage split — this module's current
-//!   design. See `plans/repr-opt/section-07-enum-repr.md` §07.R.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

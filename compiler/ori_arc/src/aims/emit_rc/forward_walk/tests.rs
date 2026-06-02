@@ -2,7 +2,7 @@
 //!
 //! Regression coverage for a latent double-free: duplicate terminator uses
 //! (the same RC-managed variable appearing multiple times in a terminator's
-//! `used_vars()` multiset, e.g. `Jump { args: [v, v] }`) previously produced
+//! `used_vars` multiset, e.g. `Jump { args: [v, v] }`) previously produced
 //! zero `RcInc` emissions because the gate only checked `is_live_at_exit`
 //! instead of per-use future liveness. The formula emitted by
 //! `emit_terminator_rc` is now:
@@ -398,16 +398,16 @@ fn invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs() {
 
 // InvokeIndirect — closure receiver filtered, args count normally
 
-/// Pin: edit site 3a invariant — `used_vars()` for `InvokeIndirect`
-/// returns `[closure, ...args]` (per `ir/terminator.rs:30`). The closure
-/// receiver at position 0 is filtered from `term_counts` (BUG-04-106 §05
+/// Pin: edit site 3a invariant — `used_vars` for `InvokeIndirect`
+/// returns `[closure,...args]` (per `ir/terminator.rs:30`). The closure
+/// receiver at position 0 is filtered from `term_counts` (BUG-04-106
 /// edit site 3a); the arg occurrence at position 1 still counts normally.
 /// When `closure == args[0] == v(0)`, the var appears twice in `used_vars`
 /// but only the arg occurrence reaches `term_counts` → k=1, live=0,
 /// `(1 + 0) - 1 = 0` incs.
 ///
 /// Pre-BUG-04-106-fix: comment claimed `[...args, closure]` (incorrect)
-/// and counted closure → k=2 → 1 inc. Renamed + inverted per §03:100-101.
+/// and counted closure → k=2 → 1 inc. Renamed + inverted:100-101.
 #[test]
 fn invoke_indirect_closure_receiver_filtered_args_count_normally() {
     let term = ArcTerminator::InvokeIndirect {
@@ -492,7 +492,7 @@ fn jump_with_scalar_duplicated_arg_emits_zero_rc_incs() {
 //
 // The terminator duplicate-use algebra must hold for every RcStrategy,
 // not just HeapPointer. Each test below uses a different `VarKind` to
-// exercise the strategy dispatch inside `rc_strategy()`. The expected
+// exercise the strategy dispatch inside `rc_strategy`. The expected
 // count is the same for all strategies because the formula
 // `(k + live).saturating_sub(1)` is strategy-agnostic — the formula
 // operates at the IR level, above the LLVM codegen's per-strategy
@@ -592,7 +592,7 @@ fn jump_with_iterator_dup_arg_pins_algebra_not_semantic_validity() {
 fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
     // Body has one `Apply { args: [v(0)] }` (using v(0) as a borrowed
     // arg). Terminator duplicates v(0) twice. The terminator-phase
-    // emission must see k=2 from its own scan of `terminator.used_vars()`
+    // emission must see k=2 from its own scan of `terminator.used_vars`
     // and emit one RcInc — the body use is irrelevant to terminator-phase
     // counting because `emit_terminator_rc` no longer receives
     // `uses_so_far` as an argument (it was removed as dead cross-phase
@@ -611,7 +611,7 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
     };
     let fx = TerminatorFixture::new(2, term, &[], body);
     let out = fx.run();
-    // `emit_terminator_rc` is invoked directly via `TerminatorFixture::run()`
+    // `emit_terminator_rc` is invoked directly via `TerminatorFixture::run`
     // without running the body walk, so all `RcInc` instructions in `out`
     // come from the terminator phase. The terminator phase must emit
     // exactly ONE RcInc for v(0) regardless of body use.
@@ -622,21 +622,21 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
     );
 }
 
-// BUG-04-106 §03 — InvokeIndirect closure-receiver filter + project-borrowed off-by-one
+// BUG-04-106 — InvokeIndirect closure-receiver filter + project-borrowed off-by-one
 
 /// Pin: edit site 3a (`forward_walk::emit_terminator_duplicate_use_incs`).
-/// `InvokeIndirect`'s `used_vars()` returns `[closure, ...args]`. The closure
+/// `InvokeIndirect`'s `used_vars` returns `[closure,...args]`. The closure
 /// receiver position (pos 0) is always borrowed at the call site, so it MUST
 /// be filtered from the duplicate-use count — counting it produces a spurious
 /// `RcInc` between repeated calls of the same closure (the `closure_env_alias`
 /// leak symptom).
 ///
 /// Synthesis: `InvokeIndirect closure=v(0), args=[v(0), v(0)]`. v(0) appears
-/// THREE times in `used_vars()` (closure + 2 args). Pre-fix: closure receiver
+/// THREE times in `used_vars` (closure + 2 args). Pre-fix: closure receiver
 /// counts → k=3 → dead at exit `(3 + 0) - 1 = 2` incs. Post-fix: pos 0
 /// filtered → k=2 → dead at exit `(2 + 0) - 1 = 1` inc.
 ///
-/// Ref: BUG-04-106 §03:77 + §05 edit site 3a.
+/// Ref: BUG-04-106:77 + edit site 3a.
 #[test]
 fn invoke_indirect_closure_filtered_from_term_counts() {
     let term = ArcTerminator::InvokeIndirect {
@@ -661,19 +661,19 @@ fn invoke_indirect_closure_filtered_from_term_counts() {
 }
 
 /// Pin: edit site 3b (`forward_walk::emit_invoke_project_borrowed_owned_incs`
-/// off-by-one fix). `InvokeIndirect`'s `used_vars()` is `[closure, ...args]`,
+/// off-by-one fix). `InvokeIndirect`'s `used_vars` is `[closure,...args]`,
 /// so an args-relative position N maps to `is_owned_position(pos + 1)`.
 /// Pre-fix code used `pos` directly, causing args[0] to map to
 /// `is_owned_position(0)` which is always false (closure pos is borrowed) —
 /// the first project-borrowed arg silently failed the owned check, missing
 /// its compensating `RcInc` and producing a soundness defect (potential
-/// double-free per opencode round-0 finding).
+/// double-free).
 ///
 /// Synthesis: `InvokeIndirect closure=v(0), args=[v(1)]` with
 /// `arg_ownership=[Owned]`, `v(1)` registered as project-borrowed.
 /// Pre-fix: `count_inc(body`, v(1)) == 0. Post-fix: `count_inc(body`, v(1)) >= 1.
 ///
-/// Ref: BUG-04-106 §03:78 + §05 edit site 3b.
+/// Ref: BUG-04-106:78 + edit site 3b.
 #[test]
 fn invoke_indirect_project_borrowed_first_arg_emits_inc() {
     let term = ArcTerminator::InvokeIndirect {

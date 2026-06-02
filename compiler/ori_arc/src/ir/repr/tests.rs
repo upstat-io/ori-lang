@@ -411,7 +411,7 @@ fn rc_strategy_set_is_heap_pointer() {
     );
 }
 
-// §02.3 regression: trivial compound types get Scalar repr after triviality unification.
+// regression: trivial compound types get Scalar repr after triviality unification.
 
 #[test]
 fn compute_var_reprs_trivial_compounds_are_scalar() {

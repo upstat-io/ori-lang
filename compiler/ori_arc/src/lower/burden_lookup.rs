@@ -59,7 +59,7 @@ pub fn lookup_burden(ty: TypeRef, type_registry: &TypeRegistry) -> Option<Burden
 
 /// Classify a raw `Idx` into a `TypeRef` for `lookup_burden` dispatch.
 ///
-/// Pre-interned primitive `Idx` values (per `types.md §TY-5` Appendix A) map to
+/// Pre-interned primitive `Idx` values map to
 /// `TypeRef::Builtin(burden_type_id(tag))` via the `Idx → TypeTag` translation
 /// chain. The two namespaces have DIFFERENT orderings (e.g., `Idx::STR` is at
 /// raw 3 but `TypeTag::Str` is at discriminant 10) — naive raw-value punning
@@ -86,8 +86,8 @@ pub fn idx_to_type_ref(idx: Idx, _type_registry: &TypeRegistry) -> TypeRef {
         Idx::DURATION => TypeTag::Duration,
         Idx::SIZE => TypeTag::Size,
         Idx::ORDERING => TypeTag::Ordering,
-        // Idx::ERROR (raw 8) is poison per types.md §TK-3 — no burden entry;
-        // reserved primitive slots 12..=63 (per types.md §TY-5) likewise.
+        // Idx::ERROR (raw 8) is poison — no burden entry;
+        // reserved primitive slots 12..=63 likewise.
         _ => return TypeRef::User(idx),
     };
     TypeRef::Builtin(burden_type_id(tag))

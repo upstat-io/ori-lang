@@ -2,7 +2,7 @@
 //!
 //! Contains helper functions used by `realize/` for COW annotation decisions.
 //! The legacy `compute_aims_cow_annotations()` entry point has been removed —
-//! COW annotations are now computed by `realize_annotations()` (Section 10).
+//! COW annotations are now computed by `realize_annotations()`.
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{BorrowSource, Uniqueness};

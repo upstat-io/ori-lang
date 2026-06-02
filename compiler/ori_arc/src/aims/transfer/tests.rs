@@ -254,7 +254,7 @@ fn partial_apply_is_fresh_non_reusable() {
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     // PartialApply creates a closure → FRESH base with may_alloc effect
-    // (Section 09.2: precise effect computation).
+    // (precise effect computation).
     let expected = AimsState {
         effect: EffectClass {
             may_alloc: true,

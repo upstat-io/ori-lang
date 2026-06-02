@@ -58,7 +58,7 @@ fn contract_to_params(contract: &MemoryContract) -> Vec<AnnotatedParam> {
 /// [`crate::rc_insert::annotate_arg_ownership`]. This preserves the
 /// type-qualified builtin dispatch logic.
 ///
-/// Must be called **before** RC emission (pipeline step 4 in Section 06.2).
+/// Must be called **before** RC emission (pipeline step 4).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn emit_arg_ownership(
     func: &mut ArcFunction,

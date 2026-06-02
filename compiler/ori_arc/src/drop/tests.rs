@@ -770,7 +770,7 @@ fn result_of_scalars_returns_none() {
     assert!(compute_drop_info(res, &c, &pool).is_none());
 }
 
-// §02.3 regression: trivial compound types get no drop after triviality unification.
+// regression: trivial compound types get no drop after triviality unification.
 
 #[test]
 fn result_int_ordering_returns_none() {
@@ -820,7 +820,7 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
     );
 }
 
-// §02.3.A structural-equivalence pin
+//.A structural-equivalence pin
 //
 // For every concrete type currently exercised by the surrounding tests,
 // the BurdenSpec-lifted wrapper at `compute_drop_info` MUST produce the
@@ -960,7 +960,7 @@ fn drop_info_via_burden_matches_legacy() {
     assert_eq!(env_trivial, DropKind::Trivial);
 }
 
-// §02.3.A positive pin — `Option<str>` regression
+//.A positive pin — `Option<str>` regression
 //
 // The same observation as `option_str_is_enum_drop` above, but written
 // against the BurdenSpec-lifted wrapper specifically. Co-existing with
@@ -990,7 +990,7 @@ fn drop_info_via_burden_for_option_str() {
     );
 }
 
-// §02.3.A negative pin — newly-monomorphized generic
+//.A negative pin — newly-monomorphized generic
 //
 // Engineered fixture: intern a fresh `Result<List<str>, str>` AFTER the
 // pool already contains an unrelated `Result` cell, then call the
@@ -1054,7 +1054,7 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
 // check still catches an all-scalar Drop type directly. Realistic Drop types
 // own heap/str fields (RC'd) and are fully covered. The nested-all-scalar gap
 // is a facet of the burden-registry-not-threaded condition owned by the
-// aims-burden-tracking plan (§06); Step-0 `@drop` emission shares the same
+// aims-burden-tracking plan; Step-0 `@drop` emission shares the same
 // RC-filtered structure, so the predicate matches emission reality.
 
 fn may_unwind(ty: Idx, pool: &Pool, drop_types: &[Idx]) -> bool {

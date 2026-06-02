@@ -2,7 +2,7 @@
 //!
 //! Contains helper functions used by `realize/` for drop hint decisions.
 //! The legacy `compute_aims_drop_hints()` entry point has been removed —
-//! drop hints are now computed by `realize_annotations()` (Section 10).
+//! drop hints are now computed by `realize_annotations()`.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -42,6 +42,7 @@ pub(crate) fn collect_borrowed_call_args(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
+    func_names: &FxHashSet<Name>,
 ) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
@@ -61,7 +62,7 @@ pub(crate) fn collect_borrowed_call_args(
                     // borrowed args preserve uniqueness → safe for drop_unique.
                     // Builtin contracts are not trusted for this because their
                     // runtime implementations may do hidden RC ops.
-                    if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
+                    if !is_safe_non_sharing_callee(*callee, contracts, builtins, func_names) {
                         for (i, &arg) in args.iter().enumerate() {
                             if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
                                 borrowed.insert(arg);
@@ -97,7 +98,7 @@ pub(crate) fn collect_borrowed_call_args(
                 arg_ownership,
                 ..
             } => {
-                if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
+                if !is_safe_non_sharing_callee(*callee, contracts, builtins, func_names) {
                     for (i, &arg) in args.iter().enumerate() {
                         if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
                             borrowed.insert(arg);
@@ -177,13 +178,28 @@ fn is_safe_non_sharing_callee(
     callee: Name,
     contracts: &FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
+    func_names: &FxHashSet<Name>,
 ) -> bool {
     // If the callee is a known builtin, always conservative.
     if builtins.is_builtin(callee) {
         return false;
     }
-    // For user functions: trust the contract's may_share flag.
-    contracts.get(&callee).is_some_and(|c| !c.effects.may_share)
+    // For user functions: trust the contract's may_share flag. A None lookup
+    // is legitimate only for FFI / external / DCE'd callees not in this
+    // compilation unit; those are conservatively non-safe (may_share = true).
+    // Why: a callee present in func_names but missing from contracts is an
+    // IC-1 pipeline-ordering violation (every analyzed function gets a
+    // MemoryContract after the interprocedural fixpoint).
+    if let Some(c) = contracts.get(&callee) {
+        !c.effects.may_share
+    } else {
+        debug_assert!(
+            !func_names.contains(&callee),
+            "AIMS Invariant IC-1: callee {callee:?} is in func_names but \
+             missing from contracts map; pipeline ordering violation"
+        );
+        false
+    }
 }
 
 #[cfg(test)]

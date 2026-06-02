@@ -1,6 +1,6 @@
 //! Tests for [`super::super::TypeInfoStore`].
 //!
-//! §08.3b.1 Cell J — `Tag::BoundVar` at codegen is a defensive ICE signal.
+//! Cell J — `Tag::BoundVar` at codegen is a defensive ICE signal.
 //!
 //! Per, scheme bodies carry `Tag::BoundVar(var_id)` leaves
 //! post-generalization. Substitution to concrete types happens UPSTREAM in
@@ -12,7 +12,7 @@
 //! masking it, per AIMS Invariant 2 (no masking of upstream
 //! incorrectness).
 //!
-//! Plan anchor: §08.3b.1 Cell J — ICE-signal contract.
+//! Plan anchor: Cell J — ICE-signal contract.
 
 use ori_types::{Pool, Tag};
 
@@ -30,7 +30,7 @@ use super::super::TypeInfoStore;
 /// and the store returns `TypeInfo::Error` to surface the bug, not a
 /// fallback-to-int default.
 ///
-/// Plan anchor: §08.3b.1 Cell J.
+/// Plan anchor: Cell J.
 #[test]
 fn type_info_store_bound_var_surfaces_as_error_ice_signal() {
     let mut pool = Pool::new();

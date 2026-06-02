@@ -166,7 +166,7 @@ pub enum LitValue {
     /// Typed null reference — a zero-valued placeholder for reference fields
     /// that will be overwritten by `Set` before any read.
     ///
-    /// Used by the TRMC rewrite (Section 13.4) to fill constructor hole fields.
+    /// Used by the TRMC rewrite to fill constructor hole fields.
     /// The variable carrying this value has the field's declared type, but the
     /// runtime value is null (zero). RC operations on null are no-ops in the
     /// runtime (`ori_rc_inc`/`ori_buffer_rc_dec` check for null).
@@ -175,7 +175,7 @@ pub enum LitValue {
     ///
     /// A `Null` literal **must** be consumed by a `Construct` instruction whose
     /// corresponding field is overwritten by `Set` before any read of that field.
-    /// The post-rewrite verifier (Section 13.5) enforces this invariant.
+    /// The post-rewrite verifier enforces this invariant.
     Null,
 }
 
@@ -316,7 +316,7 @@ pub enum ArcTerminator {
         args: Vec<ArcVarId>,
         /// Per-argument ownership at this indirect invoke site.
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
-        /// Empty before annotation; populated by RC insertion (Section 02).
+        /// Empty before annotation; populated by RC insertion.
         /// Unlike `Invoke`, empty defaults to all-Borrowed (conservative for
         /// unknown callees — caller retains cleanup responsibility).
         arg_ownership: Vec<ArgOwnership>,

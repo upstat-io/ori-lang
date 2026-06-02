@@ -34,7 +34,7 @@ use super::state_map::{AimsEvent, AimsStateMap};
 /// Also records `AllocCreditBalance` events at Switch terminators for per-branch
 /// FIP checking (`FIPTree` DMATCH! rule).
 ///
-/// Section 09.2 Effect Activation.
+/// Effect Activation.
 pub(crate) fn populate_fip_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
     let construct_count = count_reusable_constructs(state_map, func);
     let consumed_count = count_consumed_params(state_map, func);
@@ -219,7 +219,7 @@ fn compute_block_fip_balance(
         }
     }
 
-    // Plan TPR Round 4 gemini F1 (high GAP, exposed by ): the
+    // the
     // body loop above does not visit `block.terminator`. Invoke is the
     // only terminator that defines a `dst` variable; before the prior change
     // an Invoke result's shape was always BOTTOM=NonReusable so missing
@@ -252,7 +252,7 @@ fn compute_block_fip_balance(
 /// by replaying the backward walk within each block (same technique as
 /// emission passes). Records events in the sparse event table.
 ///
-/// Section 09.2: sparse event table records FIP gates.
+/// Sparse event table records FIP gates.
 pub(crate) fn populate_fip_gate_events(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
@@ -315,12 +315,12 @@ pub(crate) fn populate_fip_gate_events(
             }
         }
 
-        // Plan TPR Round 4 gemini F2 (high GAP, exposed by ):
+        //
         // the body loop above only matches `ArcInstr::Apply`. Invoke
         // terminators with `FipContract::Conditional` and Unique args
         // also need FipGate events recorded; the body-only walk skips
         // them. Symmetric to populate_sparse_events' Invoke-terminator
-        // walk added in the prior change Round 0 + populate_call_result_states'
+        // walk added in the prior change + populate_call_result_states'
         // body+terminator coverage.
         if let ArcTerminator::Invoke {
             func: callee_name,

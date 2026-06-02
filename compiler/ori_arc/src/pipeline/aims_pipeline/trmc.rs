@@ -4,6 +4,7 @@
 //! verification (step 4a), and immortal variable detection (step 3.5).
 
 use super::AimsPipelineConfig;
+use crate::aims::contract::ContractMapExt;
 use crate::ir::ArcFunction;
 
 /// Steps 3–3a: compute `var_reprs`, detect immortals, normalize with TRMC.
@@ -21,7 +22,7 @@ pub(crate) fn normalize_with_trmc(
     bool,
     Option<ArcFunction>,
 ) {
-    let contract = config.contracts.get(&func.name);
+    let contract = config.contracts.get_required(&func.name, "trmc_entry");
     let mut did_trmc_transform = false;
     let mut pre_trmc_func: Option<ArcFunction> = None;
     let mut trmc_iterations: u32 = 0;
@@ -64,7 +65,7 @@ pub(crate) fn normalize_with_trmc(
         };
         let norm_result = {
             let _span = tracing::info_span!("normalize_function").entered();
-            crate::aims::normalize::normalize_function(func, contract)
+            crate::aims::normalize::normalize_function(func, Some(contract))
         };
         super::trace_pipeline_checkpoint(
             func,

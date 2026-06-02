@@ -229,6 +229,12 @@ pub trait Index<Key, Value> {
     @index (self, key: Key) -> Value
 }
 
+// Subscript assignment: x[k] = v -> x = x.updated(key: k, value: v)
+// Value-semantic write-side companion to Index: returns a new collection.
+pub trait IndexSet<Key, Value> {
+    @updated (self, key: Key, value: Value) -> Self
+}
+
 // =============================================================================
 // Conversion Traits
 // =============================================================================

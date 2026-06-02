@@ -2,16 +2,16 @@
 //!
 //! Lifts `test_name` and `registered_struct_with_burden` out of
 //! `burden_lookup/tests.rs` so `burden_lower/tests.rs` can consume the same
-//! user-defined-type fixture for §03.4 cycle-43 full-move-suppression pins.
+//! user-defined-type fixture for full-move-suppression pins.
 //!
-//! Cycle 50a adds `entry_block` / `project_first` / `set_first` constructors
-//! that hide canonical zero defaults (`params: Vec::new()`, `field: 0`) used
+//! adds `entry_block` / `project_first` / `set_first` constructors
+//! that hide canonical zero defaults (`params: Vec::new`, `field: 0`) used
 //! by every `ArcBlock` / `ArcInstr::Project` / `ArcInstr::Set` fixture in
-//! `burden_lower/tests.rs`. Per `impl-hygiene.md §PARAM_SPRAWL cure 4 —
+//! `burden_lower/tests.rs`. Per `_SPRAWL cure 4 —
 //! side-table by existing key`: the literal defaults move out of construction
 //! sites into named helpers.
 //!
-//! Single source of truth per `impl-hygiene.md §SSOT`; never duplicate.
+//! Single source of truth; never duplicate.
 
 use ori_ir::{Name, Span};
 use ori_types::burden::{UserBurdenSpec, UserOwnedField};
@@ -35,7 +35,7 @@ pub(crate) fn test_name(s: &str) -> Name {
 /// `TypeRegistry` under `name` at `idx`, optionally bound to a `UserBurdenSpec`.
 ///
 /// Mirrors the original site at
-/// `lower/burden_lookup/tests.rs::registered_struct_with_burden` (pre-cycle-44a);
+/// `lower/burden_lookup/tests.rs::registered_struct_with_burden` (pre-);
 /// callers in both `burden_lookup/tests.rs` and `burden_lower/tests.rs` consume
 /// this fixture via `crate::lower::test_utils::registered_struct_with_burden`.
 pub(crate) fn registered_struct_with_burden(
@@ -67,7 +67,7 @@ pub(crate) fn registered_struct_with_burden(
 /// BOTH fields heap-burden-typed and a `UserBurdenSpec` naming BOTH as owned.
 ///
 /// Sibling to `registered_struct_with_burden` (preserved single-field variant
-/// for `burden_lookup/tests.rs`); cycle 46 introduces this multi-field shape so
+/// for `burden_lookup/tests.rs`); introduces this multi-field shape so
 /// `burden_lower/tests.rs` can exercise the partial-move emission path — a
 /// single-field fixture cannot distinguish full-move from partial-move because
 /// moving the lone owned field equals "all owned fields moved".
@@ -125,8 +125,8 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
 }
 
 /// Canonical `ArcBlock` constructor for single-entry-block fixtures: hides the
-/// `id: ArcBlockId::new(0)` and `params: Vec::new()` literals every fixture
-/// repeats. Per `impl-hygiene.md §PARAM_SPRAWL:zero-default-proliferation`.
+/// `id: ArcBlockId::new(0)` and `params: Vec::new` literals every fixture
+/// repeats..
 pub(crate) fn entry_block(body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(0),

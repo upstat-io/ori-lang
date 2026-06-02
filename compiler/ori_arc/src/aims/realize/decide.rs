@@ -1,10 +1,10 @@
 //! Unified decision functions for AIMS realization.
 //!
-//! `decide()` (Phase 1) makes RC and reuse decisions from one state query.
-//! `decide_annotations()` (Phase 2) makes COW and drop hint decisions.
+//! `decide` (Phase 1) makes RC and reuse decisions from one state query.
+//! `decide_annotations` (Phase 2) makes COW and drop hint decisions.
 //!
 //! These replace the scattered decision logic across `emit_rc/`, `emit_reuse/`,
-//! `cow.rs`, and `drop_hints.rs`. The unified `realize()` calls these
+//! `cow.rs`, and `drop_hints.rs`. The unified `realize` calls these
 //! functions directly, replacing the 4+ separate traversals with two phases.
 
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
@@ -54,22 +54,22 @@ pub enum ReuseDecision {
 /// Pre-computed context for a per-variable RC/reuse decision.
 ///
 /// The forward walk computes these facts for each (var, instruction) pair
-/// and calls [`decide()`] to get the unified decision. This replaces the
-/// scattered decision logic in `emit_pre_instr_incs()`,
-/// `emit_post_instr_decs()`, and `collect_death_events()`.
+/// and calls [`decide`] to get the unified decision. This replaces the
+/// scattered decision logic in `emit_pre_instr_incs`,
+/// `emit_post_instr_decs`, and `collect_death_events`.
 pub struct DecisionContext {
     /// What kind of decision site this is.
     pub site: DecisionSite,
     /// Whether the variable is RC-managed (owned, non-scalar, non-excluded).
     pub is_rc_managed: bool,
-    /// §04A.3 ITEM-3 — coexistence handshake. `true` when the target var's
+    ///  — coexistence handshake. `true` when the target var's
     /// SSA-alias class is fully burden-covered per
     /// `AimsStateMap::is_class_covered(class_id_of(var))`. Forces
     /// [`RcDecision::None`] (the burden walk owns this var's inc/dec).
     ///
     /// Callers compute via
     /// `state_map.is_class_covered(state_map.class_id_of(var))`; default
-    /// `false` for pre-§04A pipelines (empty `class_covered` set ⇒ field
+    /// `false` for pre- pipelines (empty `class_covered` set ⇒ field
     /// always reads `false`, preserving baseline behavior).
     pub class_covered: bool,
 }
@@ -77,7 +77,7 @@ pub struct DecisionContext {
 /// Classification of the instruction site for RC decisions.
 ///
 /// The forward walk determines this by inspecting use counts, liveness,
-/// and instruction semantics before calling [`decide()`].
+/// and instruction semantics before calling [`decide`].
 pub enum DecisionSite {
     /// A use of the variable before the instruction executes.
     ///
@@ -120,7 +120,7 @@ pub enum DecisionSite {
 /// `Let { Var }` aliases — use Normal semantics with standard
 /// `has_future_use` checks.
 ///
-/// Let aliases are handled on the Dec side by `is_ownership_transfer()`,
+/// Let aliases are handled on the Dec side by `is_ownership_transfer`,
 /// which suppresses the source's last-use `RcDec` at the alias instruction.
 ///
 /// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — `proj i x` borrows `x`;
@@ -167,11 +167,11 @@ pub struct ReuseContext {
 
 /// Make unified Phase 1 RC/reuse decisions for a single (var, instruction) site.
 ///
-/// This is the Phase 1 counterpart of [`decide_annotations()`] (Phase 2).
+/// This is the Phase 1 counterpart of [`decide_annotations`] (Phase 2).
 /// The forward walk pre-computes a [`DecisionContext`] for each relevant
 /// (var, instruction) pair and calls this function, replacing the scattered
-/// decision logic in `emit_pre_instr_incs()`, `emit_post_instr_decs()`,
-/// and `collect_death_events()`.
+/// decision logic in `emit_pre_instr_incs`, `emit_post_instr_decs`,
+/// and `collect_death_events`.
 ///
 /// # RC decisions
 ///
@@ -194,7 +194,7 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
         };
     }
 
-    // §04A.3 ITEM-3 — coexistence handshake: when the target var's class is
+    //  — coexistence handshake: when the target var's class is
     // fully burden-covered, the burden walk owns the inc/dec; predicate
     // stack defers.
     if ctx.class_covered {
@@ -222,7 +222,7 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
                 // ApplyIndirect/InvokeIndirect closure receiver: borrowed
                 // at the call site, so the use does not need a pre-instr
                 // RcInc. The closure's LastUse Dec frees the env at scope
-                // exit. Ref: BUG-04-106 §05 edit site 1.
+                // exit. Ref: BUG-04-106.
                 UseSemantics::BorrowingProject
                 | UseSemantics::TransferProject
                 | UseSemantics::BorrowingApplyClosure => RcDecision::None,
@@ -341,9 +341,9 @@ pub struct AnnotationDecisions {
 
 /// Context for Phase 2 annotation decisions at a single instruction site.
 ///
-/// Provides the instruction-site facts needed by [`decide_annotations()`].
+/// Provides the instruction-site facts needed by [`decide_annotations`].
 /// All fields are pre-computed by the caller (`realize_annotations` walk)
-/// from the state map and IR — [`decide_annotations()`] is a pure function.
+/// from the state map and IR — [`decide_annotations`] is a pure function.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each bool represents an independent binary property of the instruction site"
@@ -377,7 +377,7 @@ pub struct AnnotationSiteContext<'a> {
     /// Shape class from state map (for cross-dimensional COW proofs).
     pub shape: ShapeClass,
     /// Whether this variable's borrow is disjoint from all sibling borrows
-    /// (uniqueness-preserving borrows, Section 07.3.2).
+    /// (uniqueness-preserving borrows).
     pub is_borrow_disjoint: bool,
     /// Whether any borrow from this variable (as an aggregate source) exists
     /// anywhere in the function. Used by DP-5/DP-9: Unique aggregates with
@@ -394,7 +394,7 @@ pub struct AnnotationSiteContext<'a> {
 ///
 /// Combines COW and drop hint decisions from one `AnnotationSiteContext`.
 /// This is the unified Phase 2 decision entry point — callers should prefer
-/// this over calling `decide_cow()` and `decide_drop_hint()` separately.
+/// this over calling `decide_cow` and `decide_drop_hint` separately.
 ///
 /// `is_cow_site` indicates whether this instruction is a COW method call
 /// (Apply/Invoke targeting a COW builtin). When false, `cow` is `None`.
@@ -432,7 +432,7 @@ pub fn decide_annotations(
 /// 3. `Unique` → `StaticUnique`
 /// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §DP-5/§RL-10 —
 ///    source uniqueness at the receiver's block is enforced by
-///    `is_borrow_disjoint_from_siblings()`)
+///    `is_borrow_disjoint_from_siblings`)
 /// 5. `MaybeShared` → `Dynamic` (runtime `IsShared` check)
 /// 6. `Shared` → `StaticShared`
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
@@ -463,7 +463,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
             // Uniqueness-preserving local mutation (spec §DP-5/§RL-10):
             // receiver's borrow is disjoint from all sibling borrows of
             // the SAME source, AND the source itself is `Uniqueness::Unique`
-            // at the receiver's block (enforced by `is_borrow_disjoint_from_siblings()`).
+            // at the receiver's block (enforced by `is_borrow_disjoint_from_siblings`).
             if ctx.is_borrow_disjoint {
                 return CowMode::StaticUnique;
             }
@@ -478,7 +478,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 /// Make Phase 2 annotation decisions for a drop hint site.
 ///
 /// Returns `true` if the variable is eligible for unique-drop fast path.
-/// Matches the logic in `drop_hints.rs::compute_aims_drop_hints()`:
+/// Matches the logic in `drop_hints.rs::compute_aims_drop_hints`:
 ///
 /// 1. Excluded variables (scalar, immortal) → not eligible
 /// 2. Non-collection types → not eligible (drop hints are for buffer cleanup)

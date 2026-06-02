@@ -64,8 +64,8 @@ pub(crate) fn emit_dead_at_entry_decs(
     let predecessors = crate::graph::compute_predecessors(ctx.func);
     let pred_count = predecessors.get(ctx.blk.index()).map_or(0, Vec::len);
 
-    // BUG-04-090 §05 Step 8: pre-compute whether this block is an unwind
-    // block. Unwind paths always emit cleanup decs per `arc.md §RL-4`; the
+    // BUG-04-090: pre-compute whether this block is an unwind
+    // block. Unwind paths always emit cleanup decs; the
     // suppression helper short-circuits when `is_unwind_block = true`.
     let is_unwind_block = matches!(
         ctx.func.blocks[ctx.blk.index()].terminator,
@@ -167,7 +167,7 @@ pub(crate) fn emit_dead_at_entry_decs(
                 if let Some(rep) = ctx.take_move_facts.let_alias_rep(var) {
                     if let_reps_dec_emitted.insert(rep) {
                         if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                            // BUG-04-090 §05 Step 8: suppress dec on params
+                            // BUG-04-090: suppress dec on params
                             // that flow to a Return on this path.
                             if !super::should_suppress_return_transfer_dec(
                                 ctx,
@@ -224,7 +224,7 @@ pub(crate) fn emit_dead_at_entry_decs(
                 }
                 continue;
             }
-            // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+            // BUG-04-090 (Session H wiring):
             // suppress dec on vars whose ownership was transferred to an
             // Apply/Invoke result via `apply_result_aliases`. Without this
             // gate, downstream block-entry dead-cleanup emits decs on
@@ -236,8 +236,8 @@ pub(crate) fn emit_dead_at_entry_decs(
             if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
                 continue;
             }
-            // BUG-04-111 §05 Step 3 (replaces BUG-04-104 PIN-4): canonical-rep
-            // selection per gemini Round 2 F1's latest-emission-site rule.
+            // BUG-04-111 (replaces BUG-04-104 PIN-4): canonical-rep
+            // selection per the latest-emission-site rule.
             // Suppress this var's dec if a different class member is the
             // canonical-rep emitter (per `pin4_class_emits_dec_set` SSOT).
             // Pre-fix logic checked "any other class member is USED in body
@@ -282,12 +282,12 @@ pub(crate) fn emit_dead_at_entry_decs(
 fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
-    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // BUG-04-090 (Session H wiring):
     // unwind-block awareness for the apply-aliased gate. Resume blocks
-    // always emit cleanup decs per `arc.md §RL-4`.
+    // always emit cleanup decs.
     let is_unwind_block = matches!(block.terminator, crate::ir::ArcTerminator::Resume,);
 
-    // BUG-04-104 PIN-6 (§2.6.3) cross-param same-emission: when MULTIPLE block
+    // BUG-04-104 PIN-6 cross-param same-emission: when MULTIPLE block
     // params land here as candidates for canonical dec, they all fire at the
     // same conceptual boundary (block entry). PIN-6's same_emission check
     // needs to see all classes whose params will fire here so a child class's
@@ -391,23 +391,23 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         if ctx.take_move_facts.is_in_class(param_var) {
             continue;
         }
-        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // BUG-04-090 (Session H wiring):
         // suppress dec on block params whose ownership was transferred
         // to an Apply/Invoke result via `apply_result_aliases`. Same
         // rationale as the Source 1 gate above.
         if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
             continue;
         }
-        // BUG-04-111 §05 Step 4 (replaces BUG-04-104 PIN-4): canonical-rep
+        // BUG-04-111 (replaces BUG-04-104 PIN-4): canonical-rep
         // selection consuming the SSOT `pin4_class_emits_dec_set`. Same
-        // rationale as Source 1's refactor — see §05 Step 3 comment in
+        // rationale as Source 1's refactor — comment in
         // `emit_dead_at_entry_decs`.
         if let Some(class_id) = ctx.state_map.ssa_alias_class_of(param_var) {
             if pin4_suppressed(ctx, class_id, param_var) {
                 continue;
             }
         }
-        // BUG-04-104 PIN-6 (§2.6.3): inter-class payload-of suppression at
+        // BUG-04-104 PIN-6: inter-class payload-of suppression at
         // the dead-block-param emission site, restricted to SAME-EMISSION
         // only (NOT alive-after). The dead-block-param case fires at block
         // entry; any "alive_after" parent class member is just "used in the
@@ -468,7 +468,7 @@ fn pin6_same_emission_covers(
     if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
     }
-    // BUG-04-118 §05 — Project-alias seed (companion to walk_dec.rs).
+    // BUG-04-118 — Project-alias seed (companion to walk_dec.rs).
     // Narrowed trigger matches body walker: class_payload_of empty AND
     // var is the dead-block-param being decremented. Strategy gate
     // (InlineEnum-only) preserved. PIN-2 preserved (no class merge). See
@@ -499,7 +499,7 @@ fn pin6_same_emission_covers(
         if classes_dying_here.contains_key(&parent_class) {
             // Verify parent's strategy is transitive-drop. Resolve via
             // class_members representative (singleton-class invariant per
-            // §2.6.2 ensures class_members has an entry).
+            // ensures class_members has an entry).
             //
             // Strategy gate: dead-block-param scope intentionally narrower than
             // body-level pin6_any_ancestor_will_cover (which uses the full

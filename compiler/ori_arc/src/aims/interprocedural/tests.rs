@@ -291,7 +291,7 @@ fn analyze_program_callee_before_caller() {
     );
 }
 
-// Section 09.2: Effect Activation tests
+// Effect Activation tests
 
 #[test]
 fn pure_function_call_preserves_caller_uniqueness() {
@@ -548,7 +548,7 @@ fn effect_propagation_through_scc_converges() {
     );
 }
 
-// Demand propagation: linear consumption tightens callee uniqueness (Section 09.1)
+// Demand propagation: linear consumption tightens callee uniqueness
 
 #[test]
 fn demand_propagation_single_caller_owned_linear_once() {
@@ -1051,7 +1051,7 @@ fn demand_propagation_construct_var_with_burden_op_use_stays_maybe_shared() {
     );
 }
 
-// FIP contract classification (Section 09.2)
+// FIP contract classification
 
 #[test]
 fn extract_contract_fbip_still_certified() {
@@ -1278,7 +1278,7 @@ fn extract_contract_conditional_requires_unique_vector() {
     }
 }
 
-// Section 13.1: ContextBehavior interprocedural inference
+// ContextBehavior interprocedural inference
 
 #[test]
 fn extract_contract_no_trmc_has_default_context_behavior() {
@@ -1403,9 +1403,9 @@ fn extract_contract_with_trmc_computes_context_behavior() {
     // Modulo-cons always requires uniqueness.
     assert!(cb.requires_unique_context, "modulo-cons → requires unique");
     // TRMC functions return a Construct → HeapEscaping → may_share = true.
-    // This is the design tension described in Section 13.2: the
+    // This is a design tension: the
     // HeapEscaping → may_share rule makes ALL TRMC candidates trigger
-    // may_resume_nonlinearly. Section 13.2 will refine this gate.
+    // may_resume_nonlinearly. A future refinement will tighten this gate.
     assert!(
         cb.may_resume_nonlinearly,
         "HeapEscaping return → may_share → non-linear"

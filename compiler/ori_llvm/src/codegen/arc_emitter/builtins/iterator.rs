@@ -262,7 +262,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Use canonical element size/type — narrowing is confined to the
         // list storage boundary (emit_list_iter), never the iterator pipeline.
-        // Spec: fix consensus.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 

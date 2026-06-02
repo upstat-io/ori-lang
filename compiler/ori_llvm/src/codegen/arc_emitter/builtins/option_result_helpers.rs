@@ -17,7 +17,7 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Niche-encoded Option dispatch (§07.2).
+    /// Niche-encoded Option dispatch.
     ///
     /// **fix (2026-04-07)**: `unwrap`/`expect`/`unwrap_or` now mirror
     /// the explicit-tag pattern from `option_result.rs` — tag guard via
@@ -130,7 +130,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.select(is_niche, f, t, "is_some"))
     }
 
-    /// Niche-encoded Result dispatch (§07.2).
+    /// Niche-encoded Result dispatch.
     ///
     /// **fix (2026-04-07)**: Previously, `unwrap`/`unwrap_err`/`unwrap_or`
     /// were collapsed into a single match arm that ignored the method name and

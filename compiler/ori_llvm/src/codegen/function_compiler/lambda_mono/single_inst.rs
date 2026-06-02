@@ -71,7 +71,7 @@ pub(super) fn build_single_inst_mappings(
             // the function type, which may still contain unresolved Vars inside
             // containers like Option<Var>, Result<Var>).
             //
-            // §08.3b.1 — the gate widened from `contains_var` to also detect
+            // the gate widened from `contains_var` to also detect
             // `Tag::BoundVar` at any nesting depth. Post-normalization
             //  scheme-var leaves in curried closure return
             // types are `Tag::BoundVar`, not `Tag::Var`; without this widening

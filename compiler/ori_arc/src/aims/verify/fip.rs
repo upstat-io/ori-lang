@@ -142,7 +142,7 @@ fn verify_certified(
         });
     }
 
-    // Section 12.2: constant stack.
+    // Constant stack.
     if contract.effects.has_unbounded_stack {
         errors.push(FipVerificationError::CertifiedButUnboundedStack {
             function: func_name,

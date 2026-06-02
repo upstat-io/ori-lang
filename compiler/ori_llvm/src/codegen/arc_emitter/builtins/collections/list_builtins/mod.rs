@@ -237,7 +237,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `ori_buffer_rc_dec` to release this reference.
     ///
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
-    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
+    /// `elem_dec_fn` from the V5 RC header at cleanup time.
     ///
     /// **Narrowing boundary:** when the list has narrowed int
     /// elements (i8/i16/i32 via repr-opt), the list iterator yields narrowed

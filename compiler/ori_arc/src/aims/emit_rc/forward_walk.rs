@@ -2,12 +2,12 @@
 //!
 //! Contains [`emit_terminator_rc`] (Phase C), which handles terminator uses —
 //! emitting `RcInc` for variables that are live at exit, variables that
-//! appear multiple times in the terminator's `used_vars()` multiset (each
+//! appear multiple times in the terminator's `used_vars` multiset (each
 //! additional owned transfer needs its own reference), and `RcDec` for
 //! `Branch`/`Switch` scrutinees that are not ownership-transferred.
 //!
 //! The legacy body forward walk (Phase B) has been removed — body RC emission
-//! is now handled by `realize/walk.rs` via the unified `decide()` surface.
+//! is now handled by `realize/walk.rs` via the unified `decide` surface.
 
 use rustc_hash::FxHashMap;
 
@@ -39,14 +39,14 @@ fn emit_invoke_project_borrowed_owned_incs(
     terminator: &ArcTerminator,
     new_body: &mut Vec<ArcInstr>,
 ) {
-    // For Invoke, used_vars() == args, so args-relative pos N maps directly
-    // to is_owned_position(pos). For InvokeIndirect, used_vars() ==
-    // [closure, ...args], so args-relative pos N maps to
+    // For Invoke, used_vars == args, so args-relative pos N maps directly
+    // to is_owned_position(pos). For InvokeIndirect, used_vars ==
+    // [closure,...args], so args-relative pos N maps to
     // is_owned_position(pos + 1) — the +1 skips the closure receiver
     // position (which is always borrowed). Pre-fix used pos directly for
     // both, causing the FIRST arg of every InvokeIndirect to silently fail
     // the is_owned check, missing its compensating Inc — soundness bug
-    // (potential double-free). Ref: BUG-04-106 §05 edit site 3b.
+    // (potential double-free). Ref: BUG-04-106.
     let (args, used_vars_offset) = match terminator {
         ArcTerminator::Invoke { args, .. } => (args, 0),
         ArcTerminator::InvokeIndirect { args, .. } => (args, 1),
@@ -74,7 +74,7 @@ fn emit_invoke_project_borrowed_owned_incs(
 /// `RcInc` for terminator uses: aggregate per distinct var.
 ///
 /// Counts how many times each RC-managed var appears in the terminator's
-/// `used_vars()` multiset. For `k` occurrences of var `v` with
+/// `used_vars` multiset. For `k` occurrences of var `v` with
 /// `is_live_at_exit == L`, emits `(k + L).saturating_sub(1)` `RcInc`
 /// operations (coalesced into a single `RcInc { count }` for efficiency).
 ///
@@ -99,14 +99,14 @@ fn emit_terminator_duplicate_use_incs(
     #[cfg(debug_assertions)]
     let term_phase_start = new_body.len();
 
-    // For InvokeIndirect, used_vars() returns [closure, ...args]. The
+    // For InvokeIndirect, used_vars returns [closure,...args]. The
     // closure receiver position (pos 0) is borrowed by the call site —
     // it MUST be filtered from term_counts so it does not contribute to
     // the duplicate-use Inc count. If the same var also appears as an
     // arg (positions >= 1), the arg occurrences still count normally.
     // Pre-fix counted the closure occurrence, producing a spurious Inc
     // between repeated calls of the same closure (the closure_env_alias
-    // leak surface). Ref: BUG-04-106 §05 edit site 3a.
+    // leak surface). Ref: BUG-04-106.
     let closure_receiver_var = match terminator {
         ArcTerminator::InvokeIndirect { closure, .. } => Some(*closure),
         _ => None,
@@ -130,14 +130,14 @@ fn emit_terminator_duplicate_use_incs(
         *term_counts.entry(var).or_insert(0) += 1;
     }
 
-    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // BUG-04-090 (Session H wiring):
     // unwind-block awareness for the apply-aliased gate.
     let is_unwind_block = matches!(
         ctx.func.blocks[ctx.blk.index()].terminator,
         crate::ir::ArcTerminator::Resume,
     );
     for (&var, &k) in &term_counts {
-        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // BUG-04-090 (Session H wiring):
         // suppress the terminator-duplicate-use Inc on vars whose
         // ownership is being transferred to an Apply/Invoke result via
         // `apply_result_aliases`. The Inc's purpose is unwind-cleanup
@@ -156,7 +156,7 @@ fn emit_terminator_duplicate_use_incs(
         let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) else {
             continue;
         };
-        // Terminator arg multiplicity is bounded by `terminator.used_vars()`
+        // Terminator arg multiplicity is bounded by `terminator.used_vars`
         // length (a `SmallVec<[ArcVarId; 4]>`) — always well under `u32::MAX`.
         // `try_from` documents the bound explicitly instead of relying on it.
         let count_u32 = u32::try_from(count).unwrap_or(u32::MAX);
@@ -188,7 +188,7 @@ fn assert_terminator_rc_balance(
             *actual.entry(*var).or_insert(0) += u64::from(*count);
         }
     }
-    // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+    // BUG-04-090 (Session H wiring):
     // unwind-block awareness mirrors the suppression-site formula.
     let is_unwind_block = matches!(
         ctx.func.blocks[ctx.blk.index()].terminator,
@@ -199,7 +199,7 @@ fn assert_terminator_rc_balance(
         if rc_strategy(ctx.func, var, ctx.pool).is_none() {
             continue;
         }
-        // BUG-04-090 §05 Hypothesis D component #4 (Session H wiring):
+        // BUG-04-090 (Session H wiring):
         // skip vars whose Inc was suppressed by the apply-aliased gate.
         // Mirrors the suppression formula in `emit_terminator_duplicate_use_incs`.
         if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
@@ -235,10 +235,10 @@ fn emit_branch_switch_cond_dec(ctx: &BlockCtx<'_>, block_idx: usize, new_body: &
         return;
     }
     if let Some(strategy) = rc_strategy(ctx.func, cond, ctx.pool) {
-        // BUG-04-090 §05 Step 8: defensive parity gate. Branch/Switch
+        // BUG-04-090: defensive parity gate. Branch/Switch
         // scrutinees are typically scalars (booleans/enums) which never
         // hit `transfers_through_return`, but the four-emitter coverage
-        // rule (TPR-04-005) gates every RcDec emitter against the helper.
+        // rule gates every RcDec emitter against the helper.
         let is_unwind_block = matches!(
             ctx.func.blocks[ctx.blk.index()].terminator,
             crate::ir::ArcTerminator::Resume

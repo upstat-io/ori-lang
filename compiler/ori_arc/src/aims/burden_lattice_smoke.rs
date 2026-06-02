@@ -89,7 +89,7 @@ fn drive_steps_4_and_4b(
     let _pre = analyze_function(func, &classifier, &sigs, &[], Vec::new());
     // Step 4b — emit burden ops.
     let _ctx = emit_burden_ops(func, registry, &[], &[], &rustc_hash::FxHashMap::default());
-    // Re-run Step 4 over burden-emitted IR. Per §03's shipped TF-N/A
+    // Re-run Step 4 over burden-emitted IR. 's shipped TF-N/A
     // treatment (`aims/transfer/mod.rs:94-104` forward, `:287-297` backward)
     // burden ops contribute zero forward state + zero backward demand, so
     // the converged state should be IDENTICAL to the pre-burden run.

@@ -1,16 +1,16 @@
-//! Tag encoding/decoding abstraction for enum representation optimization (§07).
+//! Tag encoding/decoding abstraction for enum representation optimization.
 //!
-//! Active since §07.2 — consumed by niche-aware `SetTag`, `Project`, `Switch`,
+//! Active since consumed by niche-aware `SetTag`, `Project`, `Switch`,
 //! drop, and RC codegen paths.
 //!
 //! [`TagEncoding`] encapsulates the logic of how an enum's discriminant is
 //! physically encoded in memory. All codegen consumers use this instead of
-//! hardcoding `const_i64(tag)` / `struct_gep(ptr, 0)` / `load(i64, ...)`.
+//! hardcoding `const_i64(tag)` / `struct_gep(ptr, 0)` / `load(i64,...)`.
 //!
 //! Four encoding strategies:
 //! - **Explicit** — dedicated tag field at GEP index 0 (current default)
 //! - **Niche** — tag encoded as an invalid bit pattern in a payload field
-//! - **`TaggedPtr`** — tag stored in low 3 bits of an aligned pointer (§07.3)
+//! - **`TaggedPtr`** — tag stored in low 3 bits of an aligned pointer
 //! - **None** — single-variant enum, no tag needed
 //!
 //! `TaggedPtr` enums are special: they have NO struct layout. The entire
@@ -28,14 +28,14 @@ use ori_repr::{EnumRepr, EnumTag, IntWidth};
 /// read, write, and switch on the discriminant. Codegen consumers query this
 /// instead of making assumptions about tag layout.
 ///
-/// Used by all `arc_emitter` consumers starting in §07.1 (discriminant narrowing).
+/// Used by all `arc_emitter` consumers starting (discriminant narrowing).
 #[derive(Debug, Clone)]
 pub(crate) struct TagEncoding {
     tag: EnumTag,
     variant_count: u32,
 }
 
-#[allow(dead_code, reason = "§07.3/§07.4 will consume remaining methods")]
+#[allow(dead_code, reason = "/ will consume remaining methods")]
 impl TagEncoding {
     /// Create a `TagEncoding` from an `EnumRepr`.
     pub(crate) fn from_enum_repr(repr: &EnumRepr) -> Self {
@@ -53,7 +53,7 @@ impl TagEncoding {
     /// The integer width of the explicit tag, if any.
     ///
     /// - `Explicit { width }` → `Some(width)`
-    /// - `Niche { .. }` → `None` (no separate tag field)
+    /// - `Niche {.. }` → `None` (no separate tag field)
     /// - `TaggedPtr` → `None` (tag is in pointer alignment bits, not a field)
     /// - `None` → `None` (no tag at all)
     pub(crate) fn tag_width(&self) -> Option<IntWidth> {
@@ -146,7 +146,7 @@ impl TagEncoding {
         matches!(&self.tag, EnumTag::Niche { .. })
     }
 
-    /// Whether this is a tagged-pointer enum (§07.3).
+    /// Whether this is a tagged-pointer enum.
     ///
     /// Tagged-pointer enums have NO struct layout — the entire enum is a
     /// single 64-bit value. Consumers must check this BEFORE any GEP-based

@@ -1,7 +1,7 @@
 //! Pool-based type store-size computation.
 //!
 //! Computes type sizes with trailing alignment padding. Must stay in sync with
-//! `TypeLayoutResolver::type_store_size()` in `ori_llvm` — both compute the
+//! `TypeLayoutResolver::type_store_size` in `ori_llvm` — both compute the
 //! same logical size for every type, just at different abstraction levels
 //! (Pool indices here vs LLVM `BasicTypeEnum` there).
 //!
@@ -12,9 +12,9 @@ use ori_types::{Idx, Tag};
 /// Recursive store-size computation from Pool type information.
 ///
 /// TODO(type_strategy_registry/section-11): Extract shared type layout logic to `ori_ir`.
-/// This function duplicates `ori_llvm::codegen::type_info::TypeLayoutResolver::type_store_size()`.
+/// This function duplicates `ori_llvm::codegen::type_info::TypeLayoutResolver::type_store_size`.
 ///
-/// **Sync point**: Must agree with `TypeLayoutResolver::type_store_size()` in `ori_llvm`
+/// **Sync point**: Must agree with `TypeLayoutResolver::type_store_size` in `ori_llvm`
 /// (`compiler/ori_llvm/src/codegen/type_info/mod.rs`). Both compute the same logical size
 /// for every type.
 pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
@@ -47,8 +47,8 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Str | Tag::List | Tag::Set | Tag::Map => 24,
         // Composite types: walk fields with inter-field alignment padding,
         // then round up to max alignment for trailing padding (array stride).
-        // Must match the ABI layout in ori_repr::layout::compute_field_layout()
-        // and ori_llvm's type_store_size (which uses LLVM's size_of()).
+        // Must match the ABI layout in ori_repr::layout::compute_field_layout
+        // and ori_llvm's type_store_size (which uses LLVM's size_of).
         Tag::Struct => {
             let fields = pool.struct_fields(ty);
             aggregate_size_with_padding(fields.iter().map(|(_, field_ty)| *field_ty), pool, depth)
@@ -73,7 +73,7 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             round_up_i64(8 + ok_size.max(err_size), 8)
         }
         Tag::Enum => {
-            // §07.1: Enum tags are narrowed by variant count (i8/i16/i32/i64).
+            // Enum tags are narrowed by variant count (i8/i16/i32/i64).
             // Enum payloads use [M x i64] array layout where each field
             // occupies ceil(field_size / 8) * 8 bytes (at least one i64 slot).
             // This differs from struct/tuple natural alignment padding.
@@ -122,7 +122,7 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
 /// Alignment of a Pool type in bytes.
 ///
 /// Recursively computes alignment for composite types (struct/tuple) as the
-/// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
+/// max field alignment, matching `type_alignment` in `ori_llvm`. Without
 /// recursion, nested aggregates of small fields (e.g., `(char, char)`) would
 /// incorrectly default to alignment 8 instead of their actual max alignment.
 fn pool_type_alignment(ty: Idx, pool: &ori_types::Pool) -> i64 {
@@ -155,7 +155,7 @@ fn pool_type_alignment_inner(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64
                 .unwrap_or(1)
         }
         Tag::Enum => {
-            // §07.1: all-unit enums have narrowed tag alignment.
+            // all-unit enums have narrowed tag alignment.
             // Check actual payload size, not just field presence.
             // Variants with only void/unit fields have zero payload size.
             let variants = pool.enum_variants(resolved);
@@ -177,7 +177,7 @@ fn pool_type_alignment_inner(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64
 /// with proper inter-field alignment padding.
 ///
 /// Each field is aligned to its natural alignment before placement, matching
-/// the ABI layout in `ori_repr::layout::compute_field_layout()` and LLVM's
+/// the ABI layout in `ori_repr::layout::compute_field_layout` and LLVM's
 /// own struct size computation. The result includes trailing padding to the
 /// max field alignment (correct array element stride).
 fn aggregate_size_with_padding(
@@ -200,7 +200,7 @@ fn aggregate_size_with_padding(
 ///
 /// Enum payloads are stored as `[M x i64]` arrays in LLVM. Each field occupies
 /// at least one full i64 slot (8 bytes), regardless of its natural alignment.
-/// This matches `compute_variant_field_offsets()` in the LLVM emitter.
+/// This matches `compute_variant_field_offsets` in the LLVM emitter.
 fn enum_payload_size(fields: impl Iterator<Item = Idx>, pool: &ori_types::Pool, depth: u32) -> i64 {
     fields
         .map(|field_ty| {

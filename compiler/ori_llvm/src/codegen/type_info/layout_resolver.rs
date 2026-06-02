@@ -95,7 +95,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     /// Resolve an `Idx` to its LLVM type, handling recursive types correctly.
     ///
-    /// For non-recursive types this delegates to `TypeInfo::storage_type()`.
+    /// For non-recursive types this delegates to `TypeInfo::storage_type`.
     /// For structs and enums it uses two-phase creation with cycle detection.
     /// Maximum recursion depth for type resolution.
     ///
@@ -111,7 +111,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
         // Canonicalize: resolve through Pool links (Var chains, Applied→Struct
         // resolutions) so that multiple Idx values for the same concrete type
-        // share a single LLVM struct type.  Without this, the caller's
+        // share a single LLVM struct type. Without this, the caller's
         // `Applied(Pair, [Var→Int, Var→Int])` and the mono function's concrete
         // `Struct(Pair, [Int, Int])` would create distinct LLVM named structs
         // despite being the same type.
@@ -145,7 +145,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Inner resolve implementation, separated for depth guard.
     #[expect(
         clippy::too_many_lines,
-        reason = "§07.2 niche checks on Option/Result add 30 lines to dispatch"
+        reason = " niche checks on Option/Result add 30 lines to dispatch"
     )]
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Cycle detection: if we're already resolving this type, we've
@@ -185,7 +185,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         let info = self.store.get(idx);
         let result = match &info {
             // Primitives, collections, handles: no recursion possible.
-            // Delegate to the standalone storage_type() method.
+            // Delegate to the standalone storage_type method.
             TypeInfo::Int
             | TypeInfo::Float
             | TypeInfo::Bool
@@ -208,7 +208,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
             // Tagged unions with possible recursive payloads.
             TypeInfo::Option { inner } => {
-                // §07.2: Check ReprPlan for niche encoding.
+                // Check ReprPlan for niche encoding.
                 let resolved_idx = self.store.pool().resolve_fully(idx);
                 let repr_entry = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx));
                 if let Some(enum_repr) = repr_entry {
@@ -239,7 +239,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     .into()
             }
             TypeInfo::Result { ok, err } => {
-                // §07.2: Check ReprPlan for niche encoding.
+                // Check ReprPlan for niche encoding.
                 let resolved_idx = self.store.pool().resolve_fully(idx);
                 if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
                 {
@@ -347,7 +347,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
         // If the struct is reordered, build LLVM type in memory order.
         // Match fields by NAME (not original_index) to handle Pool entries
-        // where struct_fields() returns fields in a different order than
+        // where struct_fields returns fields in a different order than
         // the canonical entry that was optimized. A field the ReprPlan marks
         // RcPointer is a boxed `ptr` (recursive back-edge), decided
         // order-independently from the marker rather than the resolving-stack.

@@ -28,8 +28,8 @@ use super::extract::extract_contract;
 ///
 /// - `functions` — all ARC IR functions in the program
 /// - `classifier` — type classification (scalar vs ref)
-/// - `builtins` — builtin ownership sets (Section 03.4 uses these)
-/// - `interner` — string interner for builtin name lookup (Section 03.4)
+/// - `builtins` — builtin ownership sets
+/// - `interner` — string interner for builtin name lookup
 pub fn analyze_program(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
@@ -68,7 +68,7 @@ pub fn analyze_program(
         // at call sites via `apply_callee_contract`.
     }
 
-    // Section 09.1: Post-fixpoint demand propagation. Tighten a callee
+    // Post-fixpoint demand propagation. Tighten a callee
     // parameter's uniqueness to Unique when every caller passes a fresh,
     // single-use Construct argument (BUG-04-069).
     tighten_uniqueness_from_callers(functions, classifier, &mut all_sigs);
@@ -127,7 +127,7 @@ fn analyze_scc_fixpoint(
     classifier: &dyn ArcClassification,
     external_sigs: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<Name, MemoryContract> {
-    // Build the SCC peer set for constant-stack analysis (Section 12.2).
+    // Build the SCC peer set for constant-stack analysis.
     let scc_peers: rustc_hash::FxHashSet<Name> = scc_funcs.iter().map(|f| f.name).collect();
 
     // Initialize all SCC members to most-optimistic contracts.

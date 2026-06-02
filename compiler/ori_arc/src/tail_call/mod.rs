@@ -1,7 +1,7 @@
 //! Tail call detection pass for ARC IR.
 //!
 //! Identifies self-recursive tail calls and annotates them on
-//! [`ArcFunction::tail_calls`] for the loop-lowering rewrite pass (§09.2).
+//! [`ArcFunction::tail_calls`] for the loop-lowering rewrite pass.
 //!
 //! # Pipeline placement
 //!
@@ -43,7 +43,7 @@ use rustc_hash::FxHashSet;
 /// A detected self-recursive tail call site.
 ///
 /// Stores the block and the kind of call (body `Apply` or terminator
-/// `Invoke`). The rewrite pass (§09.2) uses this to replace the call
+/// `Invoke`). The rewrite pass uses this to replace the call
 /// with a loop back-edge.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TailCallSite {
@@ -66,7 +66,7 @@ pub enum TailCallKind {
 
 /// Detect self-recursive tail calls in an ARC function.
 ///
-/// Returns a list of tail call sites. The rewrite pass (§09.2) consumes
+/// Returns a list of tail call sites. The rewrite pass consumes
 /// these to perform loop lowering.
 ///
 /// Only self-recursion is detected (`Apply.func == func.name`). Mutual
@@ -223,7 +223,7 @@ fn find_tail_apply_in_block(
 ///
 /// bb_normal:
 ///   [optional RcDec ops]
-///   Jump bb_merge([dst])   — or —   Return dst
+///   Jump bb_merge([dst]) — or — Return dst
 ///
 /// bb_merge: (%param)
 ///   Return %param
@@ -312,7 +312,7 @@ fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<T
     }
 }
 
-// Pre-emission tail-position analysis (Section 12.2)
+// Pre-emission tail-position analysis
 
 /// Check whether a function has any non-tail recursive calls to SCC peers.
 ///

@@ -4,12 +4,14 @@
 //! into both the Pool (for type interning) and `TypeRegistry` (for field access
 //! and type checking).
 
+use rustc_hash::FxHashSet;
+
 use super::burden_compute::{compute_enum_burden, compute_newtype_burden, compute_struct_burden};
 use super::type_resolution::{collect_generic_params, convert_visibility, resolve_field_type};
 use crate::registry::burden::UserBurdenSpec;
 use crate::{
-    EnumVariant, FieldDef, Idx, ModuleChecker, TypeCheckError, VariantDef, VariantFields,
-    Visibility,
+    EnumVariant, FieldDef, Idx, ModuleChecker, Pool, Tag, TypeCheckError, TypeRegistry, VariantDef,
+    VariantFields, Visibility,
 };
 use ori_ir::ReprAttrKind;
 
@@ -254,6 +256,17 @@ fn populate_value_burden_if_applicable(
         }
     }
 
+    // Field-constraint enforcement (Spec Annex E §Built-in Type
+    // Representations + `ori-syntax.md §Prelude`: `Value` requires all fields
+    // to be `Value`). Walk every declared field; a non-`Value` field
+    // (`str`/`[T]`/`{K:V}`/`Set<T>` or any heap-bearing user type) is the
+    // latent silent-RC-drop — registering an empty `UserBurdenSpec` for a
+    // type with a heap-bearing field would drop that field's RC obligation.
+    // E2032 (field missing required trait) names the offending field + the
+    // `Value` trait it fails to satisfy. The empty-burden registration below
+    // is sound ONLY when this guard holds.
+    enforce_value_field_constraint(checker, decl, idx);
+
     // Empty UserBurdenSpec — Value types have no heap, no owned fields,
     // no variant payloads, no compiled drop, no user drop. The default
     // `UserBurdenSpec` already satisfies these zeros; we register it
@@ -269,6 +282,126 @@ fn populate_value_burden_if_applicable(
     // late-arriving `impl T: Drop` blocks and emit E2049 at that
     // registration site (order-independent enforcement).
     checker.type_registry_mut().record_value_marker(idx);
+}
+
+/// Reject a `Value`-marked type whose declared fields are not all `Value`.
+///
+/// Reads the just-registered `TypeEntry` for `decl_idx` (registration ran
+/// before this site), walks each field's resolved `Idx`, and emits E2032
+/// (field missing required trait) naming the first non-`Value` field per
+/// declaration position. The declaring type's own `Idx` is seeded into the
+/// visited set as `Value`-in-progress so a self-referential `Value` struct
+/// terminates without infinite recursion (Spec Annex E §Built-in Type
+/// Representations).
+fn enforce_value_field_constraint(
+    checker: &mut ModuleChecker<'_>,
+    decl: &ori_ir::TypeDecl,
+    decl_idx: Idx,
+) {
+    let value_name = checker.interner().intern("Value");
+
+    // Collect the (field_name, parsed_type, span) triples to walk, cloning the
+    // parsed types out of the borrowed decl so the resolver can take a mutable
+    // pool borrow without conflicting with an outstanding `&decl` borrow. Order
+    // matches the source declaration so the FIRST offending field is reported.
+    let raw_fields: Vec<(ori_ir::Name, ori_ir::ParsedType, ori_ir::Span)> = match &decl.kind {
+        ori_ir::TypeDeclKind::Struct(struct_fields) => struct_fields
+            .iter()
+            .map(|f| (f.name, f.ty.clone(), f.span))
+            .collect(),
+        ori_ir::TypeDeclKind::Sum(variants) => variants
+            .iter()
+            .flat_map(|v| v.fields.iter().map(|f| (f.name, f.ty.clone(), f.span)))
+            .collect(),
+        // Newtypes are layout-transparent (`RP-24`); the `Value` field
+        // constraint applies to the single wrapped type. Use the decl name +
+        // span as the offending-field label since a newtype has no field name.
+        ori_ir::TypeDeclKind::Newtype(underlying) => {
+            vec![(decl.name, underlying.clone(), decl.span)]
+        }
+    };
+
+    // Resolve each parsed field type to its pool Idx (same Idx the marker
+    // lookup keys on), then test Value-membership.
+    let fields: Vec<(ori_ir::Name, Idx, ori_ir::Span)> = raw_fields
+        .into_iter()
+        .map(|(name, parsed, span)| (name, resolve_field_type(checker, &parsed), span))
+        .collect();
+
+    for (field_name, field_idx, field_span) in fields {
+        let mut visited: FxHashSet<Idx> = FxHashSet::default();
+        // Seed the declaring type as Value-in-progress: a self-reference
+        // resolves as Value (the cycle the visited-set memo short-circuits).
+        visited.insert(decl_idx);
+        if !field_idx_is_value(
+            field_idx,
+            checker.pool(),
+            checker.type_registry(),
+            &mut visited,
+        ) {
+            checker.push_error(TypeCheckError::field_missing_trait_in_derive(
+                field_span, decl.name, value_name, field_name, field_idx,
+            ));
+        }
+    }
+}
+
+/// Cycle-aware `Value`-membership test for a single resolved field `Idx`.
+///
+/// `Value` (true): scalar primitives (`int`/`float`/`bool`/`char`/`byte`/
+/// `void`/`Duration`/`Size`/`Ordering`/`Never`) and any user type carrying
+/// the `Value` marker (including the declaring type itself via the seeded
+/// visited set). Compound `Value` aggregates are accepted by their marker —
+/// their own registration already validated their fields, so no re-descent is
+/// needed. NOT `Value` (false): `str`/`[T]`/`{K:V}`/`Set<T>`, function /
+/// channel / iterator types, and any user type lacking the marker.
+///
+/// `visited` is keyed on pool `Idx`; a revisited Idx is treated as resolved
+/// (membership already being computed) and short-circuits to `true`, so a
+/// recursive `Value`-marked type terminates.
+fn field_idx_is_value(
+    field_idx: Idx,
+    pool: &Pool,
+    type_registry: &TypeRegistry,
+    visited: &mut FxHashSet<Idx>,
+) -> bool {
+    // Revisit short-circuit: an Idx already in the visited set is being
+    // resolved (this includes the declaring type, which `enforce_*` seeds as
+    // Value-in-progress so a self-reference like `me: SelfRef` terminates) —
+    // treat as Value. This single memo IS the cycle guard.
+    if !visited.insert(field_idx) {
+        return true;
+    }
+    // A user type carrying the Value marker is Value (its own registration
+    // validated its fields). The marker is keyed on the unresolved nominal
+    // Idx — the same Idx `resolve_field_type` produced for the field.
+    if type_registry.carries_value_marker(field_idx) {
+        return true;
+    }
+    // Classify by tag. `pool.tag` reads the item directly (no resolution
+    // chase) so a nominal field is seen as `Tag::Named` and routed to the
+    // marker path above, not its boxed struct representation. Value is the
+    // closed set below (scalar primitives + Error-poison); everything else is
+    // NOT Value — heap-bearing builtins (`str`/`[T]`/`{K:V}`/`Set<T>`,
+    // channels, iterators, functions), nominal/applied types lacking the
+    // marker, and all type variables / projections / schemes / tuples.
+    match pool.tag(field_idx) {
+        // Scalar primitives are implicitly Value. `Error` joins them: a field
+        // whose type already failed resolution is poison and must not cascade
+        // a second diagnostic here (error-recovery monotonicity).
+        Tag::Int
+        | Tag::Float
+        | Tag::Bool
+        | Tag::Char
+        | Tag::Byte
+        | Tag::Unit
+        | Tag::Never
+        | Tag::Duration
+        | Tag::Size
+        | Tag::Ordering
+        | Tag::Error => true,
+        _ => false,
+    }
 }
 
 /// Validate and merge `#repr` attributes into a single resolved `ReprAttrKind`.

@@ -27,7 +27,7 @@ use super::{block_id, rc_strategy, should_suppress_apply_aliased_dec, DeferredDe
 /// successors, prefer the explicit `normal`/`unwind` field distinction —
 /// `is_unwind_succ_block` is a fallback when the explicit flag is unknown.
 ///
-/// Per BUG-04-090 §05 line 891, intermediate blocks reachable via Invoke
+/// Per BUG-04-090, intermediate blocks reachable via Invoke
 /// unwind-successor cluster may not have Resume terminators themselves; this
 /// shallow check under-detects unwind blocks for the cluster case. For the
 /// bug-pin scope this is sound because hop2/hop4/F-prj/E-mat exercise
@@ -150,6 +150,22 @@ pub(crate) fn same_alloc(reps: &FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: A
     reps.get(&a).copied().unwrap_or(a) == reps.get(&b).copied().unwrap_or(b)
 }
 
+/// Function-wide analysis context shared by the edge-dead-set collectors.
+///
+/// Bundles the `ArcFunction`, state map, type pool, borrowed-def set,
+/// take-move facts, and same-allocation reps. Every field is a shared borrow
+/// read together by `collect_branch_edge_decs` / `compute_branch_edge_dead_set`
+/// / `collect_invoke_edge_decs` / `compute_invoke_edge_dead_set`.
+#[derive(Clone, Copy)]
+pub(crate) struct EdgeCleanupEnv<'a> {
+    func: &'a ArcFunction,
+    state_map: &'a AimsStateMap,
+    pool: &'a Pool,
+    all_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    take_move_facts: &'a super::take_project::TakeMoveFacts,
+    same_alloc_reps: &'a FxHashMap<ArcVarId, ArcVarId>,
+}
+
 pub(crate) fn emit_edge_cleanup(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -166,22 +182,21 @@ pub(crate) fn emit_edge_cleanup(
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let blk = block_id(block_idx);
+        let env = EdgeCleanupEnv {
+            func,
+            state_map,
+            pool,
+            all_borrowed_defs,
+            take_move_facts,
+            same_alloc_reps: &same_alloc_reps,
+        };
 
         // Handle Invoke/InvokeIndirect separately — use InvokeEdgeState.
         if matches!(
             block.terminator,
             ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
         ) {
-            collect_invoke_edge_decs(
-                func,
-                block_idx,
-                state_map,
-                pool,
-                all_borrowed_defs,
-                take_move_facts,
-                &same_alloc_reps,
-                &mut edge_decs,
-            );
+            collect_invoke_edge_decs(env, block_idx, &mut edge_decs);
             // Add deferred decs to Invoke edges. target=None → both edges,
             // target=Some(succ) → only the matching edge.
             if let Some(decs) = deferred_parent_decs.get(&block_idx) {
@@ -246,55 +261,24 @@ pub(crate) fn emit_edge_cleanup(
         }
 
         // Multiple successors: check each edge for dead variables.
-        collect_branch_edge_decs(
-            func,
-            block_idx,
-            blk,
-            &successors,
-            state_map,
-            pool,
-            all_borrowed_defs,
-            take_move_facts,
-            &same_alloc_reps,
-            &mut edge_decs,
-        );
+        collect_branch_edge_decs(env, block_idx, blk, &successors, &mut edge_decs);
     }
 
     apply_edge_decs(func, &predecessors, edge_decs);
 }
 
-/// Collect edge-specific `RcDec` for multi-successor blocks (Branch/Switch).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "edge collection needs full analysis context"
-)]
 /// Collect branch/switch/jump edge `RcDec`s by mapping the shared edge-dead-set
 /// to `(pred, succ, var, RcStrategy)`. The dead-set itself is the SSOT consumed
 /// by both this predicate-stack emitter and burden-op emission.
 fn collect_branch_edge_decs(
-    func: &ArcFunction,
+    env: EdgeCleanupEnv<'_>,
     block_idx: usize,
     blk: ArcBlockId,
     successors: &[ArcBlockId],
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    take_move_facts: &super::take_project::TakeMoveFacts,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
-    for (pred, succ, var) in compute_branch_edge_dead_set(
-        func,
-        block_idx,
-        blk,
-        successors,
-        state_map,
-        pool,
-        all_borrowed_defs,
-        take_move_facts,
-        same_alloc_reps,
-    ) {
-        if let Some(strategy) = rc_strategy(func, var, pool) {
+    for (pred, succ, var) in compute_branch_edge_dead_set(env, block_idx, blk, successors) {
+        if let Some(strategy) = rc_strategy(env.func, var, env.pool) {
             edge_decs.push((pred, succ, var, strategy));
         }
     }
@@ -306,20 +290,23 @@ fn collect_branch_edge_decs(
 /// / per-edge-class-dedup suppression. SSOT consumed by both `edge_cleanup`
 /// (`RcDec`) and burden-op emission (`BurdenDec`); strategy re-derived per var.
 #[expect(
-    clippy::too_many_arguments,
-    reason = "pure edge-dead-set analysis needs the full per-block realization context (state map, pool, borrow + take-move + same-alloc facts)"
+    clippy::too_many_lines,
+    reason = "single edge-dead-set analysis pass — extracting would fragment the per-edge suppression logic"
 )]
 pub(crate) fn compute_branch_edge_dead_set(
-    func: &ArcFunction,
+    env: EdgeCleanupEnv<'_>,
     block_idx: usize,
     blk: ArcBlockId,
     successors: &[ArcBlockId],
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    take_move_facts: &super::take_project::TakeMoveFacts,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> Vec<(usize, usize, ArcVarId)> {
+    let EdgeCleanupEnv {
+        func,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+        same_alloc_reps,
+    } = env;
     let mut dead_set: Vec<(usize, usize, ArcVarId)> = Vec::new();
     let Some(exit_states) = state_map.block_exit_states(blk) else {
         return dead_set;
@@ -386,7 +373,7 @@ pub(crate) fn compute_branch_edge_dead_set(
                 ))
                 && rc_strategy(func, var, pool).is_some()
             {
-                // BUG-04-090 §05 Hypothesis D component #3: suppress
+                // BUG-04-090: suppress
                 // edge dec when `var` was consumed by an Apply/Invoke
                 // whose dst aliases it.
                 let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
@@ -535,30 +522,13 @@ fn apply_edge_decs(
 /// (2) borrowed `Invoke` args absent from `exit_states`, (3) unwind cleanup for
 /// ownership-transferred args. Categories 1-2 exclude `Owned` normal-path
 /// transfers; category 3 handles the unwind path for those same variables.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Invoke edge-dec collection needs the full per-block realization context"
-)]
 fn collect_invoke_edge_decs(
-    func: &ArcFunction,
+    env: EdgeCleanupEnv<'_>,
     block_idx: usize,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    take_move_facts: &super::take_project::TakeMoveFacts,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
-    for (pred, succ, var) in compute_invoke_edge_dead_set(
-        func,
-        block_idx,
-        state_map,
-        pool,
-        all_borrowed_defs,
-        take_move_facts,
-        same_alloc_reps,
-    ) {
-        if let Some(strategy) = rc_strategy(func, var, pool) {
+    for (pred, succ, var) in compute_invoke_edge_dead_set(env, block_idx) {
+        if let Some(strategy) = rc_strategy(env.func, var, env.pool) {
             edge_decs.push((pred, succ, var, strategy));
         }
     }
@@ -574,18 +544,21 @@ fn collect_invoke_edge_decs(
 )]
 #[expect(
     clippy::cognitive_complexity,
-    reason = "BUG-04-090 §05 Hypothesis D component #3 added per-category apply_result_aliases gates; \
+    reason = "BUG-04-090 added per-category apply_result_aliases gates; \
               splitting Cat 1/2/3 into helpers would obscure the unwind-vs-normal contract"
 )]
 pub(crate) fn compute_invoke_edge_dead_set(
-    func: &ArcFunction,
+    env: EdgeCleanupEnv<'_>,
     block_idx: usize,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    take_move_facts: &super::take_project::TakeMoveFacts,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> Vec<(usize, usize, ArcVarId)> {
+    let EdgeCleanupEnv {
+        func,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+        same_alloc_reps,
+    } = env;
     let mut edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)> = Vec::new();
     let blk = block_id(block_idx);
     let (ArcTerminator::Invoke {
@@ -719,9 +692,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             }
 
             // Check normal path.
-            // BUG-04-090 §05 Hypothesis D component #3: gate the normal
+            // BUG-04-090: gate the normal
             // edge dec via `apply_result_aliases`. The unwind edge above
-            // is unaffected per `aims-rules.md §8 RL-4` (unwind paths
+            // is unaffected per `RL-4` (unwind paths
             // always emit cleanup decs). Per component #2, the gate
             // cannot match a Let-alias var.
             let normal_state = edge_state
@@ -786,9 +759,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            // BUG-04-090 §05 Hypothesis D component #3: gate normal edge
+            // BUG-04-090: gate normal edge
             // dec via `apply_result_aliases`. Unwind edge always fires per
-            // `aims-rules.md §8 RL-4`.
+            // `RL-4`.
             if !should_suppress_apply_aliased_dec(state_map, arg, false) {
                 edge_decs.push((block_idx, normal.index(), arg, strategy));
             }

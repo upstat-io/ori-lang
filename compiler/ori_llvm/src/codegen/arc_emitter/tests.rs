@@ -34,7 +34,7 @@ impl ArcClassification for TestClassifier {
 }
 
 /// Classifier parameterised by an explicit set of heap-allocated Idx
-/// values + `Idx::STR`. Used by §04.1 recursive-drop codegen tests where
+/// values + `Idx::STR`. Used by recursive-drop codegen tests where
 /// the recursive type's Idx is created via `pool.named(...)` and
 /// therefore cannot be statically pre-classified by `TestClassifier`.
 struct IdxSetClassifier {
@@ -2591,7 +2591,7 @@ fn idx_to_type_tag_maps_dynamic_list_type() {
     drop(em);
 }
 
-// ─── §04.1 Recursive drop-fn codegen ─────────────────────────────────────
+// ─── Recursive drop-fn codegen ─────────────────────────────────────
 //
 // Cycle safety comes from the cache-before-body pattern at drop_gen.rs:69:
 // `drop_fn_cache.insert(ty, func_id)` runs BEFORE the body is generated, so
@@ -2606,7 +2606,7 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
     // field. Cycle safety: only ONE drop function definition appears,
     // even though the field type recurses.
     //
-    // Construct the "recursive" Idx through `pool.named()` so it is a
+    // Construct the "recursive" Idx through `pool.named` so it is a
     // well-formed pool entry; the field-type self-reference in DropKind
     // exercises the cache-before-body cycle-termination path at
     // drop_gen.rs:69 + the recursive emit_rc_dec → get_or_generate_drop_fn

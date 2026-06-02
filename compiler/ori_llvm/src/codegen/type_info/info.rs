@@ -208,7 +208,7 @@ impl TypeInfo {
     /// Returns `None` for types whose size depends on element types and
     /// can only be computed with a `TypeInfoStore` (which has Pool access).
     ///
-    /// Used by Section 04's `compute_param_passing()` and `compute_return_passing()`.
+    /// Used by `compute_param_passing()` and `compute_return_passing()`.
     pub fn size(&self) -> Option<u64> {
         match self {
             // 8-byte types: scalars, handles, error fallback

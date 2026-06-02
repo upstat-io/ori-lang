@@ -286,6 +286,9 @@ fn naked_some_with_empty_list_cascades_defaulting() {
 
 /// `default_unbound_vars_from_empty_literals` panics in debug builds when
 /// invoked before `mark_body_inference_complete` (pass-order inversion).
+/// Guarded to debug builds: the guard is a `debug_assert!`, stripped in
+/// release, so the panic only fires when `debug_assertions` is on.
+#[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "body_inference_complete invariant violated")]
 fn debug_assert_fires_on_pass_order_inversion() {

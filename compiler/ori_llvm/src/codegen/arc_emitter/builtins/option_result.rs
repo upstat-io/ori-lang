@@ -2,7 +2,7 @@
 //!
 //! ARC lowering convention (definition order):
 //! Option layout: `{i64 tag, T payload}` — tag 0=Some, 1=None
-//! Result layout: `{i64 tag, payload}`   — tag 0=Ok, 1=Err
+//! Result layout: `{i64 tag, payload}` — tag 0=Ok, 1=Err
 //!
 //! **Result payload caveat**: The payload slot is sized for the *larger*
 //! of Ok/Err. When extracting the smaller variant's payload, we must use
@@ -70,7 +70,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        // §07.2: Niche-encoded Option — payload IS the struct, no tag field.
+        // Niche-encoded Option — payload IS the struct, no tag field.
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
             return self.emit_option_niche(method, receiver, arg_vals, receiver_ty, &encoding);
         }
@@ -191,7 +191,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        // §07.2: Niche-encoded Result — check niche field instead of tag.
+        // Niche-encoded Result — check niche field instead of tag.
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
             return self.emit_result_niche(method, receiver, arg_vals, receiver_ty, &encoding);
         }
@@ -298,7 +298,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(llvm_payload_ty, gep, "res.payload"))
     }
 
-    /// `Result<T, E>.ok() -> Option<T>`
+    /// `Result<T, E>.ok -> Option<T>`
     ///
     /// Tag convention matches: Ok(0)→Some(0), Err(1)→None(1).
     /// Emits conditional RC retain on the Ok payload to prevent double-free
@@ -335,7 +335,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.build_option_struct(tag, payload, ok_ty)
     }
 
-    /// `Result<T, E>.err() -> Option<E>`
+    /// `Result<T, E>.err -> Option<E>`
     ///
     /// Tag must flip: Err(1)→Some(0), Ok(0)→None(1).
     /// Emits conditional RC retain on the Err payload to prevent double-free

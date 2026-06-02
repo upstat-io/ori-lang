@@ -634,7 +634,7 @@ mod aims_state_join {
         // Test all pairs from a subset (full cross-product is ~25M pairs)
         for (i, a) in states.iter().enumerate() {
             for b in states.iter().skip(i) {
-                assert_eq!(a.join(b), b.join(a), "commutative:\n  a={a:?}\n  b={b:?}");
+                assert_eq!(a.join(b), b.join(a), "commutative:\n a={a:?}\n b={b:?}");
             }
         }
     }
@@ -651,7 +651,7 @@ mod aims_state_join {
                 for c in &sample {
                     let ab_c = a.join(b).join(c);
                     let a_bc = a.join(&b.join(c));
-                    assert_eq!(ab_c, a_bc, "associative:\n  a={a:?}\n  b={b:?}\n  c={c:?}");
+                    assert_eq!(ab_c, a_bc, "associative:\n a={a:?}\n b={b:?}\n c={c:?}");
                 }
             }
         }
@@ -725,7 +725,7 @@ mod canonicalization {
         // `ReusableCtor(_)` and silently left `CollectionBuffer` alone —
         // a CN-3 violation that allowed Shared collections to claim
         // reusable shape, breaking the invariant that downstream reuse
-        // emission depends on. Round 8 codex F2 surfaced this; the fix
+        // emission depends on. surfaced this; the fix
         // broadened the canonicalize check to `shape != NonReusable`.
         //
         // See `canonicalize_cn3_shared_collection_buffer_demoted_to_nonreusable`
@@ -1693,7 +1693,7 @@ mod pairwise_interactions {
     }
 
     /// CN-3 explicit pin: Shared + `CollectionBuffer` → `NonReusable`.
-    /// Pre-fix bug (Round 8 codex F2): the canonicalize check used
+    /// Pre-fix bug: the canonicalize check used
     /// `matches!(self.shape, ShapeClass::ReusableCtor(_))` which only
     /// covered `ReusableCtor` variants, leaving `CollectionBuffer` + Shared
     /// uncanonicalized — a Shared collection's `var_shape` would still
@@ -2173,7 +2173,7 @@ fn fresh_is_optimistic_owned() {
     assert_eq!(f.consumption, Consumption::Linear);
     assert_eq!(f.cardinality, Cardinality::Once);
     assert_eq!(f.uniqueness, Uniqueness::Unique);
-    // Section 09.2: FRESH starts BlockLocal (hasn't escaped the block).
+    // FRESH starts BlockLocal (hasn't escaped the block).
     // Cross-block flow widens to FunctionLocal; return widens to HeapEscaping.
     assert_eq!(f.locality, Locality::BlockLocal);
     assert_eq!(f.shape, ShapeClass::NonReusable);
@@ -2183,7 +2183,7 @@ fn fresh_is_optimistic_owned() {
     assert!(!f.is_reuse_candidate()); // NonReusable shape
 }
 
-// Section 09.5: Convergence Feedback tests
+// Convergence Feedback tests
 
 mod convergence_feedback {
     use super::*;
@@ -2286,7 +2286,7 @@ mod convergence_feedback {
 
     #[test]
     fn feedback_no_cross_dimension_for_representative_states() {
-        // With current rules (Section 09.3), no cross-dimension chain
+        // With current rules, no cross-dimension chain
         // should fire (at most 1 changing round). This is the termination
         // guarantee.
         for mut s in representative_states() {
@@ -2421,7 +2421,7 @@ mod convergence_feedback {
 
     #[test]
     fn canonicalize_with_feedback_matches_canonicalize() {
-        // canonicalize() and canonicalize_with_feedback() must produce the
+        // canonicalize and canonicalize_with_feedback must produce the
         // same state.
         for s in representative_states() {
             let mut via_plain = s;

@@ -16,7 +16,7 @@
 //!
 //! # References
 //!
-//! - Invariant I4 (literature review §04.2): lifting precedes detection.
+//! - Invariant I4 (literature review): lifting precedes detection.
 //! - Leijen & Lorenzen, JFP 2025 — constructor argument normalization.
 
 use crate::ir::{ArcFunction, ArcInstr};

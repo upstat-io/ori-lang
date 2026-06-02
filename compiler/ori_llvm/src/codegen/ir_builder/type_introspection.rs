@@ -56,7 +56,7 @@ impl IrBuilder<'_, '_> {
         matches!(self.arena.get_value(val), BasicValueEnum::StructValue(_))
     }
 
-    /// Check if a value is a pointer (used by §07.2 niche switch for ptr niches).
+    /// Check if a value is a pointer (used by niche switch for ptr niches).
     pub fn is_pointer_value(&self, val: ValueId) -> bool {
         matches!(self.arena.get_value(val), BasicValueEnum::PointerValue(_))
     }
@@ -124,7 +124,7 @@ impl IrBuilder<'_, '_> {
     ///
     /// Returns `None` if the type is not a struct or the field index is
     /// out of bounds. Used by enum tag access to determine the tag's LLVM
-    /// type (i8/i16/i32/i64) after discriminant narrowing (§07.1).
+    /// type (i8/i16/i32/i64) after discriminant narrowing.
     pub fn struct_field_type(&mut self, ty: LLVMTypeId, field_index: u32) -> Option<LLVMTypeId> {
         let llvm_ty = self.arena.get_type(ty);
         let BasicTypeEnum::StructType(st) = llvm_ty else {
@@ -136,7 +136,7 @@ impl IrBuilder<'_, '_> {
 
     /// Create an integer constant whose type matches a struct's field at
     /// `field_index`. Used to build tag constants that match the narrowed
-    /// tag type (i8/i16/i32/i64) of enum structs (§07.1).
+    /// tag type (i8/i16/i32/i64) of enum structs.
     ///
     /// Falls back to `const_i64` if the struct type or field is unavailable.
     pub fn const_int_for_struct_field(
@@ -181,7 +181,7 @@ impl IrBuilder<'_, '_> {
         field_ty == val_ty
     }
 
-    // Safe value extraction — replaces panicking `into_*_value()`.
+    // Safe value extraction — replaces panicking `into_*_value`.
     //
     // Returns `ValueId` (not raw inkwell types) to avoid lifetime issues.
 

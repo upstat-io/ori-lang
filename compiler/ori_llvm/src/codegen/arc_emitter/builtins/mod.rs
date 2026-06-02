@@ -25,7 +25,7 @@
 
 /// Declare builtin methods for a submodule.
 ///
-/// Generates both a `dispatch()` function and a `REGISTERED` const from a
+/// Generates both a `dispatch` function and a `REGISTERED` const from a
 /// single list of entries, guaranteeing they can never drift apart.
 ///
 /// # Generated items
@@ -122,13 +122,13 @@ pub(crate) struct BuiltinRegistration {
 
 // BuiltinCtx
 
-/// Context passed to submodule `dispatch()` functions.
+/// Context passed to submodule `dispatch` functions.
 ///
 /// Carries all data any builtin handler might need. Handlers extract only
 /// what they require. This "superset context" pattern avoids per-handler
 /// signature variation — every handler sees the same interface.
 pub(super) struct BuiltinCtx<'a> {
-    /// Type name from `TypeInfo::builtin_type_name()` (e.g., `"int"`, `"Option"`).
+    /// Type name from `TypeInfo::builtin_type_name` (e.g., `"int"`, `"Option"`).
     pub type_name: &'static str,
     /// Method name from the string interner (e.g., `"abs"`, `"is_some"`).
     pub method: &'a str,
@@ -137,10 +137,10 @@ pub(super) struct BuiltinCtx<'a> {
     /// Type pool index of the receiver (for parametric type queries).
     pub receiver_ty: Idx,
     /// Type pool index of the destination variable (return type of the method).
-    /// Used by niche-aware codegen (§07.2) to determine the result type's layout.
+    /// Used by niche-aware codegen to determine the result type's layout.
     #[expect(
         dead_code,
-        reason = "§07.2: consumed when niche monadic methods are implemented"
+        reason = "consumed when niche monadic methods are implemented"
     )]
     pub dst_ty: Idx,
     /// Full type info (for extracting inner types, element types, etc.).
@@ -305,9 +305,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 return result;
             }
 
-            // Auto-iter promotion: collection.iter_method(...) → collection.iter().iter_method(...)
+            // Auto-iter promotion: collection.iter_method(...) → collection.iter.iter_method(...)
             // When a collection type (list, map, Set, str, range) has an unresolved method
-            // that IS a known iterator method, emit .iter() implicitly and forward.
+            // that IS a known iterator method, emit.iter implicitly and forward.
             if is_iterator_method(method_name) {
                 if let Some(iter_val) = self.emit_auto_iter(&type_info, arg_vals[0], receiver_ty) {
                     let iter_info = TypeInfo::Iterator {
@@ -353,7 +353,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// For List/Set: uses `ori_list_rc_inc(data, cap)` which handles
     /// seamless slices (where `data` is interior to another buffer).
     /// For Str: uses `ori_str_rc_inc(data, cap)` which handles SSO,
-    /// heap, and seamless slices from `str.split()`.
+    /// heap, and seamless slices from `str.split`.
     /// For other types: falls back to `ori_rc_inc(data)`.
     fn emit_slice_aware_rc_inc(&mut self, val: ValueId, ty: ori_types::Idx) {
         let resolved = self.pool.resolve_fully(ty);
@@ -371,7 +371,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             // Str: slice-aware RC inc via ori_str_rc_inc(data, cap).
-            // Handles SSO, heap, and seamless slices from str.split().
+            // Handles SSO, heap, and seamless slices from str.split.
             ori_types::Tag::Str => {
                 if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
                     let cap = self
@@ -405,10 +405,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(val)
     }
 
-    /// Emit an implicit `.iter()` call for a collection type.
+    /// Emit an implicit `.iter` call for a collection type.
     ///
     /// The iterator takes ownership of one RC reference. Since the caller
-    /// didn't account for this (no explicit `.iter()` in the ARC IR), we
+    /// didn't account for this (no explicit `.iter` in the ARC IR), we
     /// must `RcInc` the collection before creating the iterator.
     ///
     /// Returns the iterator pointer if the receiver is a collection that

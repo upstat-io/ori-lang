@@ -1,4 +1,4 @@
-//! Effect accumulation during backward analysis (Section 09.2).
+//! Effect accumulation during backward analysis.
 //!
 //! Computes per-block [`EffectSummary`] by accumulating effects from
 //! instructions and terminators during the backward walk. Effects are
@@ -29,7 +29,7 @@ pub(super) fn accumulate_instr_effects(
     match instr {
         // Construct (non-scalar): may_allocate. If destination demand has
         // locality > BlockLocal and the construct has args, may_share too
-        // (Section 09.1: HeapEscaping → may_share).
+        // (HeapEscaping → may_share).
         crate::ir::ArcInstr::Construct { dst, args, .. } => {
             if !state_map.is_excluded(*dst) {
                 effects.may_allocate = true;

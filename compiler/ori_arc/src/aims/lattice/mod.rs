@@ -5,9 +5,9 @@
 //! more dimensions simultaneously.
 //!
 //! **Core**: [`AccessClass`], [`Consumption`], [`Cardinality`], [`Uniqueness`]
-//! **Active auxiliary**: [`Locality`] (precise since Section 09.2),
-//!   [`EffectClass`] (precise since Section 09.2 Effect Activation),
-//!   [`ShapeClass`] (precise since Section 09.2 Shape Activation — per-variable
+//! **Active auxiliary**: [`Locality`] (precise),
+//!   [`EffectClass`] (precise — Effect Activation),
+//!   [`ShapeClass`] (precise — Shape Activation: per-variable
 //!   shape map, cross-dimensional reuse/COW, TRMC `ContextHole` detection)
 //!
 //! Lattice properties: commutative, associative, idempotent join; monotonic
@@ -35,12 +35,12 @@ pub use dimensions::*;
 use crate::ir::ArcVarId;
 use crate::ArcClass;
 
-// Canonicalize feedback (Section 09.5 Convergence Feedback)
+// Canonicalize feedback (Convergence Feedback)
 
-/// Feedback from multi-round canonicalize (Section 09.5).
+/// Feedback from multi-round canonicalize.
 ///
 /// Reports how many rounds of [`AimsState::canonicalize_single_pass`]
-/// actually changed the state. With current rules (Section 09.3), at most
+/// actually changed the state. With current rules, at most
 /// one round makes changes. If `rounds > 1`, a cross-dimension chain fired
 /// (one rule's output enabled another rule to fire in a subsequent pass).
 /// The multi-round loop is bounded at 3 rounds — sufficient for any chain
@@ -56,7 +56,7 @@ pub struct CanonicalizeFeedback {
     /// Cross-dimension rule firings (Rules 4-8, total across all rounds).
     ///
     /// Each firing represents a state change that required reasoning across
-    /// 2+ lattice dimensions. Used by `SynergyMetrics` (Section 11.2).
+    /// 2+ lattice dimensions. Used by `SynergyMetrics`.
     pub cross_dim_fires: u16,
 }
 
@@ -120,7 +120,7 @@ pub struct AimsState {
     pub locality: Locality,
     /// Structural shape (auxiliary, conservative in v1).
     pub shape: ShapeClass,
-    /// Memory effects (active since Section 09.2 Effect Activation).
+    /// Memory effects (active — Effect Activation).
     pub effect: EffectClass,
 }
 
@@ -181,7 +181,7 @@ impl AimsState {
     /// Locality starts at `BlockLocal`: a fresh allocation hasn't escaped
     /// its defining block. Cross-block flow widens to `FunctionLocal`;
     /// return or heap storage widens to `HeapEscaping`. This is the
-    /// precise locality computation from Section 09.2.
+    /// precise locality computation.
     pub const FRESH: Self = Self {
         access: AccessClass::Owned,
         consumption: Consumption::Linear,
@@ -225,7 +225,7 @@ impl AimsState {
     /// [`canonicalize_single_pass`](Self::canonicalize_single_pass) in a
     /// bounded loop (up to 3 rounds) until no further changes occur. This
     /// catches chain reasoning where one rule's output enables another rule
-    /// (e.g., locality→uniqueness→shape). With current rules (Section 09.3),
+    /// (e.g., locality→uniqueness→shape). With current rules,
     /// one pass always suffices; the multi-round loop is defensive
     /// infrastructure for future cross-dimension rules.
     ///
@@ -285,11 +285,11 @@ impl AimsState {
     /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
     ///    rule collapses shape here; documented for clarity)
     /// 6. `HeapEscaping` or `Unknown` → uniqueness ceiling `MaybeShared`
-    ///    (Section 09.3, widened from `== HeapEscaping` to `>= HeapEscaping`
+    ///    (widened from `== HeapEscaping` to `>= HeapEscaping`
     ///    by Rule 6 widening fix)
-    /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW (Section 09.3,
-    ///    enforced at query sites via `needs_cow_check()`)
-    /// 8. `Borrowed` → locality ceiling `FunctionLocal` (Section 09.3)
+    /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW
+    ///    (enforced at query sites via `needs_cow_check()`)
+    /// 8. `Borrowed` → locality ceiling `FunctionLocal`
     ///
     /// # Ordering and termination
     ///
@@ -333,7 +333,7 @@ impl AimsState {
             self.shape = ShapeClass::NonReusable;
         }
 
-        // Rule 8 (Section 09.3): Borrowed → locality <= FunctionLocal.
+        // Rule 8: Borrowed → locality <= FunctionLocal.
         // A borrowed reference cannot escape its defining function — it is a
         // temporary view. HeapEscaping locality is contradictory for Borrowed
         // values. Tightens locality down (toward bottom).
@@ -345,7 +345,7 @@ impl AimsState {
             cross_fires += 1; // Rule 8: Access → Locality (2 dimensions)
         }
 
-        // Rule 6 (Section 09.3): HeapEscaping or Unknown → uniqueness >= MaybeShared.
+        // Rule 6: HeapEscaping or Unknown → uniqueness >= MaybeShared.
         // A value whose locality is HeapEscaping or Unknown may be reachable
         // from the heap. Unless the containing structure is provably Unique
         // (checked in transfer, not canonicalize), the value cannot be assumed
@@ -374,7 +374,7 @@ impl AimsState {
         // is now established only by transfer functions and preserved
         // (or lost) through joins — never re-derived in canonicalize.
 
-        // Rule 5 (Section 09.3): Unique + Dead → preserve ReusableCtor.
+        // Rule 5: Unique + Dead → preserve ReusableCtor.
         // A unique dead value's memory IS reusable — don't collapse shape.
         // This is implicit: no active rule collapses shape for Unique+Dead.
         // Rule 3 only fires for Shared. This comment documents the invariant
@@ -424,7 +424,7 @@ impl AimsState {
     /// and the `RcInc` at entry is matched 1:1. Skip both — the value's
     /// lifetime is precisely the function's lifetime.
     ///
-    /// Requires precise locality (Section 09.2). `Unknown` locality never
+    /// Requires precise locality. `Unknown` locality never
     /// qualifies.
     #[must_use]
     pub fn is_rc_skip_eligible(&self) -> bool {
@@ -501,7 +501,7 @@ pub enum BorrowSource {
     ///
     /// `field` is `Some(idx)` when the borrow comes from a `Project` instruction,
     /// identifying which field of the source struct/enum was extracted. Used by
-    /// the disjoint-field COW optimization (Section 07.3.2) to prove that a COW
+    /// the disjoint-field COW optimization to prove that a COW
     /// mutation on a different field doesn't conflict with this borrow.
     Exact {
         source: ArcVarId,

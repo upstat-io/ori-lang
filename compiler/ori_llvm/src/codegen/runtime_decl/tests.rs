@@ -27,7 +27,7 @@ fn empty_module_has_no_runtime_declarations() {
     let scx = SimpleCx::new(&ctx, "test_empty");
     let _builder = IrBuilder::new(&scx);
 
-    // Without calling declare_runtime() or runtime_fn(), no functions exist
+    // Without calling declare_runtime or runtime_fn, no functions exist
     assert!(
         scx.llmod.get_first_function().is_none(),
         "empty module should have zero function declarations"
@@ -302,11 +302,11 @@ fn declared_functions_all_have_jit_classification() {
     assert!(aot_count > 0, "no AOT-only functions — likely a bug");
 }
 
-/// Verifies that `jit_symbol_mappings()` names exactly match
-/// `jit_allowed_names()` from `RT_FUNCTIONS`.
+/// Verifies that `jit_symbol_mappings` names exactly match
+/// `jit_allowed_names` from `RT_FUNCTIONS`.
 ///
 /// This catches drift where a new `jit_allowed: true` entry is added to
-/// `RT_FUNCTIONS` but not to `jit_symbol_mappings()` (or vice versa).
+/// `RT_FUNCTIONS` but not to `jit_symbol_mappings` (or vice versa).
 #[test]
 fn jit_symbol_mappings_match_jit_allowed() {
     use crate::evaluator::jit_symbol_mappings;
@@ -356,7 +356,7 @@ fn jit_symbols_include_elem_header_helpers() {
 /// Validates that every runtime function has either `Nounwind` or documented
 /// justification for omitting it.
 ///
-/// After the §02.4 audit, only `extern "C-unwind"` functions (assertions,
+/// After the audit, only `extern "C-unwind"` functions (assertions,
 /// `list_get`, and panic functions) should lack `Nounwind`. All `extern "C"`
 /// functions cannot unwind by ABI contract and must have `Nounwind`.
 #[test]
@@ -399,17 +399,17 @@ fn all_non_unwinding_functions_have_nounwind() {
 
     assert!(
         missing_nounwind.is_empty(),
-        "extern \"C\" runtime functions missing Nounwind (§02.4 audit): {missing_nounwind:?}"
+        "extern \"C\" runtime functions missing Nounwind: {missing_nounwind:?}"
     );
 }
 
 /// Ensures no production code uses raw `get_function("ori_*")` to look up
-/// runtime functions. All call sites should use `runtime_fn()` instead,
+/// runtime functions. All call sites should use `runtime_fn` instead,
 /// which lazily declares + caches. Raw `get_function` bypasses the cache,
 /// creates duplicate `FunctionId`s, and will break when AOT migrates to
 /// lazy declaration.
 ///
-/// Test files are excluded — they legitimately use `get_function()` to
+/// Test files are excluded — they legitimately use `get_function` to
 /// verify declarations exist.
 #[test]
 fn no_raw_get_function_for_runtime_fns() {

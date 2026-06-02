@@ -6,10 +6,10 @@
 
 use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::AimsPipelineConfig;
-use crate::aims::contract::{MemoryContract, ParamContract};
+use crate::aims::contract::{ContractMapExt, MemoryContract, ParamContract};
 use crate::aims::lattice::AccessClass;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
@@ -50,10 +50,16 @@ pub(crate) fn run_aims_pipeline_all(
         apply_aims_ownership(functions, &contracts);
     }
 
+    // Set of function names in this compilation unit (the analyzed set),
+    // sourced independently of the contracts map so the Site-8 IC-1
+    // debug_assert can catch a local function missing from contracts.
+    let func_names: FxHashSet<Name> = functions.iter().map(|f| f.name).collect();
+
     // Steps 3-14: per-function pipeline.
     let config = AimsPipelineConfig {
         classifier,
         contracts: &contracts,
+        func_names: &func_names,
         pool,
         interner,
         builtins,
@@ -98,22 +104,21 @@ pub(crate) fn run_aims_pipeline_all(
     if verify_arc {
         let _span = tracing::info_span!("contract_coherence_oracle").entered();
         for (func, &(_, missed_reuses)) in functions.iter().zip(reuse_updates.iter()) {
-            if let Some(contract) = contracts.get(&func.name) {
-                let mismatches = crate::aims::verify::oracle::verify_coherence(
-                    func,
-                    contract,
-                    u32::try_from(missed_reuses).unwrap_or(u32::MAX),
-                );
-                let unsafe_mismatches: Vec<_> = mismatches
-                    .into_iter()
-                    .filter(crate::aims::verify::oracle::CoherenceMismatch::is_unsafe)
-                    .collect();
-                if !unsafe_mismatches.is_empty() {
-                    all_problems.push(ArcProblem::ContractCoherenceViolation {
-                        func_name: interner.lookup(func.name).to_owned(),
-                        mismatches: unsafe_mismatches,
-                    });
-                }
+            let contract = contracts.get_required(&func.name, "contract_coherence_oracle");
+            let mismatches = crate::aims::verify::oracle::verify_coherence(
+                func,
+                contract,
+                u32::try_from(missed_reuses).unwrap_or(u32::MAX),
+            );
+            let unsafe_mismatches: Vec<_> = mismatches
+                .into_iter()
+                .filter(crate::aims::verify::oracle::CoherenceMismatch::is_unsafe)
+                .collect();
+            if !unsafe_mismatches.is_empty() {
+                all_problems.push(ArcProblem::ContractCoherenceViolation {
+                    func_name: interner.lookup(func.name).to_owned(),
+                    mismatches: unsafe_mismatches,
+                });
             }
         }
     }
@@ -171,15 +176,14 @@ fn run_second_pass(
                 &rustc_hash::FxHashSet::default(),
                 &context_regions,
             );
-            if let Some(old) = contracts.get_mut(&name) {
-                tracing::debug!(
-                    func = name.raw(),
-                    old_unbounded = old.effects.has_unbounded_stack,
-                    new_unbounded = new_contract.effects.has_unbounded_stack,
-                    "TRMC full contract refresh"
-                );
-                *old = new_contract;
-            }
+            let old = contracts.get_mut_required(&name, "trmc_contract_refresh");
+            tracing::debug!(
+                func = name.raw(),
+                old_unbounded = old.effects.has_unbounded_stack,
+                new_unbounded = new_contract.effects.has_unbounded_stack,
+                "TRMC full contract refresh"
+            );
+            *old = new_contract;
         }
     }
 
@@ -188,15 +192,14 @@ fn run_second_pass(
         let _span = tracing::info_span!("post_emission_fip_update").entered();
         let mut downgrades = 0u32;
         for (name, missed_reuses) in reuse_updates {
-            if let Some(contract) = contracts.get_mut(name) {
-                contract.effects.may_deallocate = *missed_reuses > 0;
-                if crate::aims::verify::fip::recompute_fip_for_may_deallocate(contract) {
-                    downgrades += 1;
-                    tracing::debug!(
-                        func = name.raw(),
-                        "FIP contract downgraded to Never after may_deallocate update"
-                    );
-                }
+            let contract = contracts.get_mut_required(name, "post_emission_fip_update");
+            contract.effects.may_deallocate = *missed_reuses > 0;
+            if crate::aims::verify::fip::recompute_fip_for_may_deallocate(contract) {
+                downgrades += 1;
+                tracing::debug!(
+                    func = name.raw(),
+                    "FIP contract downgraded to Never after may_deallocate update"
+                );
             }
         }
         if downgrades > 0 {
@@ -220,27 +223,26 @@ fn run_second_pass(
                 func.name, *update_name,
                 "reuse_updates order must match functions order"
             );
-            if let Some(contract) = contracts.get(&func.name) {
-                let evidence = crate::aims::realize::FipEvidence {
-                    fip_gates: vec![],
-                    missed_reuses: *missed_reuses,
-                };
-                let fip_errors =
-                    crate::aims::verify::fip::verify_fip_contract(func.name, contract, &evidence);
-                if !fip_errors.is_empty() {
-                    for e in &fip_errors {
-                        tracing::error!("FIP post-recompute verification failed: {e}");
-                    }
-                    if verify_arc {
-                        // Second pass: ALL FIP errors are blocking because
-                        // may_deallocate facts have been recomputed.
-                        return Err(fip_errors
-                            .into_iter()
-                            .map(|e| crate::verify::VerifyError::FipStructural {
-                                message: e.to_string(),
-                            })
-                            .collect());
-                    }
+            let contract = contracts.get_required(&func.name, "post_emission_fip_verify");
+            let evidence = crate::aims::realize::FipEvidence {
+                fip_gates: vec![],
+                missed_reuses: *missed_reuses,
+            };
+            let fip_errors =
+                crate::aims::verify::fip::verify_fip_contract(func.name, contract, &evidence);
+            if !fip_errors.is_empty() {
+                for e in &fip_errors {
+                    tracing::error!("FIP post-recompute verification failed: {e}");
+                }
+                if verify_arc {
+                    // Second pass: ALL FIP errors are blocking because
+                    // may_deallocate facts have been recomputed.
+                    return Err(fip_errors
+                        .into_iter()
+                        .map(|e| crate::verify::VerifyError::FipStructural {
+                            message: e.to_string(),
+                        })
+                        .collect());
                 }
             }
         }
@@ -257,9 +259,7 @@ pub(crate) fn apply_aims_ownership(
     contracts: &FxHashMap<Name, MemoryContract>,
 ) {
     for func in functions {
-        let Some(contract) = contracts.get(&func.name) else {
-            continue;
-        };
+        let contract = contracts.get_required(&func.name, "apply_aims_ownership");
         for (param, pc) in func.params.iter_mut().zip(&contract.params) {
             param.ownership = param_contract_to_ownership(*pc);
         }

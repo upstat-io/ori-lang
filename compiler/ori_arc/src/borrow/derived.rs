@@ -18,7 +18,7 @@ use crate::ownership::{AnnotatedSig, DerivedOwnership, Ownership};
 /// single forward pass (no fixed-point needed — SSA guarantees each variable
 /// is defined exactly once).
 ///
-/// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw()`,
+/// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw`,
 /// enabling RC insertion to skip `RcInc`/`RcDec` for:
 /// - Variables borrowed from a still-live owner (`BorrowedFrom`)
 /// - Freshly constructed values with refcount = 1 (`Fresh`)
@@ -149,7 +149,7 @@ pub fn infer_derived_ownership(
                 }
 
                 // RC/reuse ops define no new vars (or define a token always
-                // Owned). Burden* (§03.1+§03.4) are Phase 5 markers — no
+                // Owned). Burden* are Phase 5 markers — no
                 // dst, no ownership effect on derived ownership state.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }

@@ -136,7 +136,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         jit_allowed: false,
     },
     // Element header helpers — store elem_dec_fn and elem_count in RC header
-    // at collection construction time (Section 02 of rc-header-elem-dec plan).
+    // at collection construction time.
     RtFn {
         name: "ori_buffer_store_elem_dec",
         params: &[Ty::Ptr, Ty::Ptr],

@@ -27,16 +27,11 @@
 //!     partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_03_3_rule_5,
 //!   }` — burden-walker emission pins.
 //!
-//! The AOT slice below activates once the lambda-side wiring at
-//! `ori_types::infer::expr::infer_lambda` (`blocks.rs:223`) populates the
-//! closure's `UserBurdenSpec` via `compose_closure_burden_spec` at
-//! lambda-type-check time. Until that wiring lands (target-only — the
-//! composer + tests are §04.2; the lambda-side wiring is plan-tracked under
-//! BUG-04-118 closure-capture-burden registration follow-up; the
-//! recursive-drop AOT blocker BUG-04-043 also gates any closure capturing
-//! recursive struct types). The two AOT tests below scaffold the expected
-//! end-to-end shape; re-enable in the same commit that closes the lambda-
-//! side wiring blocker.
+//! The lambda-side wiring at `ori_types::infer::expr::infer_lambda` auto-registers
+//! each closure's `UserBurdenSpec` via `compose_closure_burden_spec` at
+//! lambda-type-check time, so the two AOT tests below exercise the full
+//! end-to-end drop: env owns a copy of every captured value and decrements it
+//! exactly once via the env-header `drop_fn` at refcount zero.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -50,15 +45,6 @@ use crate::util::assert_aot_success;
 /// captured env at closure scope exit without leak. `ORI_CHECK_LEAKS=1`
 /// reports zero leaks; `ORI_TRACE_RC=1` shows matching alloc/dec pairs for
 /// both the captured str and the closure env.
-///
-/// Blocked by the §04.2 lambda-side wiring follow-up: until
-/// `ori_types::infer::expr::infer_lambda` calls
-/// `compose_closure_burden_spec` + `register_user_burden` at lambda-type-
-/// check time, the closure type carries an empty `UserBurdenSpec` and the
-/// burden walker emits no `BurdenInc` for the captured str. The 5
-/// `burden_lower` matrix pins added in §04.2 cover the walker behavior with
-/// a registered closure burden; the AOT slice re-enables once the
-/// auto-registration wiring lands.
 #[test]
 fn test_closure_capture_by_value_str_drops_at_scope_exit() {
     let source = r#"
@@ -77,8 +63,6 @@ fn test_closure_capture_by_value_str_drops_at_scope_exit() {
 /// `ori_rc_dec` (via `emit_rc_dec_closure` at `rc_ops.rs:256-287`) loads the
 /// closure's `drop_fn` from `env_ptr` field 0 and invokes it to walk owned
 /// captures.
-///
-/// Blocked by the same §04.2 lambda-side wiring follow-up as the test above.
 #[test]
 fn test_closure_env_header_drop_fn_invokes_at_refcount_zero() {
     let source = r#"

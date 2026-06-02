@@ -1,4 +1,4 @@
-//! Tests for static RC coalescing (Section 07.2).
+//! Tests for static RC coalescing.
 
 use ori_ir::Name;
 use ori_types::Idx;

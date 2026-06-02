@@ -183,15 +183,12 @@ pub(super) enum EmittedValue {
     Aggregate(ValueId),
     /// Two-word split: {first, second} — str={len,ptr}, closure={fn,env}.
     /// The `second` component is typically the RC-managed pointer.
-    /// Used by Section 01.3 when RC operations need direct component access.
-    #[expect(dead_code, reason = "reserved for Section 01.3 RcStrategy split")]
+    /// Used when RC operations need direct component access.
+    #[expect(dead_code, reason = "reserved for the RcStrategy split")]
     Pair { first: ValueId, second: ValueId },
     /// No runtime representation (unit, never).
     /// Used when ZST values are tracked through the pipeline.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reserved for Section 01.3 ZST propagation")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "reserved for ZST propagation"))]
     ZeroSized,
 }
 
@@ -218,7 +215,7 @@ impl EmittedValue {
     /// - Others → `None`
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "reserved for Section 01.3 RC strategy dispatch")
+        expect(dead_code, reason = "reserved for RC strategy dispatch")
     )]
     pub(super) fn rc_data_ptr(self) -> Option<ValueId> {
         match self {
@@ -231,7 +228,7 @@ impl EmittedValue {
     /// True if this value contains a reference-counted component.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "reserved for Section 01.3 RC strategy dispatch")
+        expect(dead_code, reason = "reserved for RC strategy dispatch")
     )]
     pub(super) fn is_rc_managed(self) -> bool {
         matches!(self, Self::RcPointer(_) | Self::Pair { .. })

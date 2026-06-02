@@ -3,7 +3,7 @@
 //! Consumes semantic facts (death/alloc events) from AIMS analysis and
 //! validates them against CFG geometry (dominator/post-dominator trees).
 //!
-//! Runs as part of step 7 in the pipeline (Section 06.2), AFTER RC emission
+//! Runs as part of step 7 in the pipeline, AFTER RC emission
 //! (step 6) and BEFORE COW annotations (step 11a). This ordering is
 //! critical: RC emission may insert trampoline blocks (edge cleanup),
 //! which changes the CFG. The `ReusePlanner` must see the post-edge-cleanup
@@ -55,7 +55,7 @@ impl<'a> ReusePlanner<'a> {
 
     /// Find cross-block reuse opportunities from unmatched death/alloc events.
     ///
-    /// # Matching rule (Section 05.1)
+    /// # Matching rule
     ///
     /// For `DeathEvent d` and `AllocEvent a`:
     /// 1. `d.uniqueness` is `Unique` (v1: static-unique only)
@@ -97,7 +97,7 @@ impl<'a> ReusePlanner<'a> {
         }
 
         // Build dominator trees (lazy — only when needed).
-        // Spec: Section 05.1 — cost control: only build when candidates exist.
+        // Cost control: only build when candidates exist.
         let dom_tree = self
             .dom_tree
             .get_or_insert_with(|| DominatorTree::build(self.func));

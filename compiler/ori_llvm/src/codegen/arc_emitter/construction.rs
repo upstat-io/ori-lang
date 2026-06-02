@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // §07.3.A: Tagged-pointer enum — encode `(payload | tag)`
+                //.A: Tagged-pointer enum — encode `(payload | tag)`
                 // into a single i64 slot. Unit variants use `0 | tag = tag`;
                 // pointer variants use `(arg_ptr | tag)`. The eligibility
                 // check (`can_use_tagged_pointer`) guarantees each variant
@@ -85,20 +85,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     return self.tagged_ptr_encode(payload, *variant, "tagged.ctor");
                 }
 
-                // §07.2: Tagless single-variant enum — struct-like, no tag,
+                // Tagless single-variant enum — struct-like, no tag,
                 // no niche; box recursive back-edge fields directly.
                 if self.is_tagless_enum(ty) {
                     return self.emit_tagless_variant_construct(llvm_ty, ty, &arg_vals, args);
                 }
 
-                // §07.2: Niche-encoded enum — no tag field, payload at index 0.
+                // Niche-encoded enum — no tag field, payload at index 0.
                 if let Some(encoding) = self.get_niche_encoding(ty) {
                     return self
                         .emit_niche_variant_construct(llvm_ty, &arg_vals, &encoding, *variant);
                 }
 
                 // Explicit tag layout: { tag, [M x i64] payload } where the tag
-                // type is narrowed via min_tag_width (§07.1).
+                // type is narrowed via min_tag_width.
                 let tag_val =
                     self.builder
                         .const_int_for_struct_field(llvm_ty, 0, u64::from(*variant));
@@ -247,7 +247,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::MapLiteral => {
-                // Map literal: args are [key0, val0, key1, val1, ...]
+                // Map literal: args are [key0, val0, key1, val1,...]
                 // Hash table layout: [metadata | keys | values]
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
@@ -369,7 +369,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             CtorKind::Closure { .. } => {
                 // Closures are always emitted via `PartialApply` in ARC IR,
-                // which calls `emit_partial_apply()` → `build_closure_env()`.
+                // which calls `emit_partial_apply` → `build_closure_env`.
                 // `Construct { ctor: Closure }` is never produced by the lowerer.
                 unreachable!("closures use PartialApply, not Construct")
             }
@@ -489,7 +489,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .build_struct(llvm_ty, &[new_len_val, result_cap, new_data], "reuse.list")
     }
 
-    /// §07.2: Construct a niche-encoded enum variant.
+    /// Construct a niche-encoded enum variant.
     ///
     /// Niche layout has no tag field — payload fields start at struct index 0.
     /// For the niche variant (e.g., None): create a zeroinit struct; `SetTag`

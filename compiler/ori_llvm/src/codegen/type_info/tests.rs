@@ -59,7 +59,7 @@ fn heap_types_not_trivial() {
 /// stored in enum/struct/tuple/bare let. The SSOT in
 /// `ori_types::triviality::classify_triviality` and
 /// `ori_repr::layout::is_trivial_repr(UnmanagedPtr)` now agree that
-/// iterators are non-trivial, and `TypeInfo::is_trivial()` must match.
+/// iterators are non-trivial, and `TypeInfo::is_trivial` must match.
 #[test]
 fn iterator_types_are_non_trivial() {
     assert!(
@@ -1292,7 +1292,7 @@ fn integration_compile_through_type_system() {
     ];
 
     for &idx in &all_types {
-        // TypeInfoStore: get() must succeed
+        // TypeInfoStore: get must succeed
         let info = store.get(idx);
         assert!(
             !matches!(info, TypeInfo::Error),
@@ -1301,7 +1301,7 @@ fn integration_compile_through_type_system() {
             pool.tag(idx)
         );
 
-        // TypeLayoutResolver: resolve() must produce a valid LLVM type
+        // TypeLayoutResolver: resolve must produce a valid LLVM type
         let llvm_ty = resolver.resolve(idx);
         // All types should produce a non-void BasicTypeEnum
         let _ = black_box(llvm_ty);
@@ -1391,7 +1391,7 @@ fn integration_compile_through_type_system() {
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
 }
 
-// -- Phase A: ReprPlan integration tests (§01.8) --
+// -- Phase A: ReprPlan integration tests --
 
 /// Phase A fallback for 12 primitives: empty ReprPlan produces the same
 /// LLVM types as TypeInfoStore alone.
@@ -1638,13 +1638,13 @@ fn phase_a_semantic_pin_empty_plan_equals_no_plan() {
     }
 }
 
-/// Cross-crate parity: `compute_repr_plan()` canonical representations
+/// Cross-crate parity: `compute_repr_plan` canonical representations
 /// must produce the same LLVM types as the legacy TypeInfoStore path
 /// for all codegen-reachable types in the 29-type matrix.
 ///
 /// This is the live verification for the `ori_repr` ↔ `ori_llvm` contract.
 /// Unlike the empty-plan semantic pins above, this test exercises the
-/// *populated* ReprPlan (canonical decisions from `populate_canonical()`)
+/// *populated* ReprPlan (canonical decisions from `populate_canonical`)
 /// and verifies parity against TypeInfoStore for every type that reaches
 /// LLVM codegen.
 ///
@@ -1691,7 +1691,7 @@ fn repr_plan_canonical_parity_full_matrix() {
         ],
     );
 
-    // Populate a ReprPlan via the real compute_repr_plan() pipeline.
+    // Populate a ReprPlan via the real compute_repr_plan pipeline.
     let plan = ori_repr::compute_repr_plan(
         &pool,
         &[], // no arc_functions for canonical-only
@@ -1706,7 +1706,7 @@ fn repr_plan_canonical_parity_full_matrix() {
     // Baseline: TypeInfoStore only (no ReprPlan).
     let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
 
-    // Under test: populated ReprPlan from compute_repr_plan().
+    // Under test: populated ReprPlan from compute_repr_plan.
     let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
 
     // Primitives (12) — direct LLVM type comparison.
@@ -1759,7 +1759,7 @@ fn repr_plan_canonical_parity_full_matrix() {
         "Canonical parity failed for Map<str, int>"
     );
 
-    // §07.2: When NICHE_CODEGEN_READY is enabled, Result<int, str> will use
+    // When NICHE_CODEGEN_READY is enabled, Result<int, str> will use
     // niche encoding — the payload type directly (no tag, no wrapper).
     assert_eq!(
         with_plan.resolve(res_int_str),
@@ -1818,7 +1818,7 @@ fn repr_plan_canonical_parity_full_matrix() {
 
     // Verify the ReprPlan actually has decisions for the key types.
     // This guards against the test passing vacuously because
-    // populate_canonical() silently skipped all types.
+    // populate_canonical silently skipped all types.
     assert!(
         plan.get_repr(Idx::INT).is_some(),
         "ReprPlan should have a canonical decision for Int"
@@ -1841,9 +1841,9 @@ fn repr_plan_canonical_parity_full_matrix() {
     );
 }
 
-// -- §02 Iterator triviality convergence tests --
+// -- Iterator triviality convergence tests --
 
-/// classify_trivial() fallback (via TypeInfoStore::new())
+/// classify_trivial fallback (via TypeInfoStore::new)
 /// must classify Iterator/DoubleEndedIterator as NON-trivial — matching
 /// the production path through ReprPlan.
 ///
@@ -1868,7 +1868,7 @@ fn iterator_non_trivial_via_fallback_path() {
     );
 }
 
-/// Production path (via TypeInfoStore::new_with_plan()) must
+/// Production path (via TypeInfoStore::new_with_plan) must
 /// classify Iterator/DoubleEndedIterator as NON-trivial through ReprPlan.
 /// See the fallback-path test above for rationale.
 #[test]
@@ -1889,7 +1889,7 @@ fn iterator_non_trivial_via_production_path() {
     );
 }
 
-/// §02 Both paths must agree on Iterator triviality.
+/// Both paths must agree on Iterator triviality.
 /// This test creates both a fallback and production store and asserts they
 /// return the same result for Iterator and DoubleEndedIterator.
 #[test]

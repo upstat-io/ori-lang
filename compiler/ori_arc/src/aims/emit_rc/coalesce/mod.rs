@@ -2,7 +2,7 @@
 //!
 //! Post-emission peephole that merges adjacent `RcInc`/`RcDec` operations
 //! on the same variable within basic blocks. Runs after RC emission and
-//! edge cleanup (Section 07.2).
+//! edge cleanup.
 //!
 //! # Patterns
 //!
@@ -181,7 +181,7 @@ fn flush_entry(out: &mut Vec<ArcInstr>, var: ArcVarId, entry: &PendingRc) {
 /// Emits all net-Inc entries before all net-Dec entries. Within each phase,
 /// variables are sorted by index for deterministic output ordering.
 ///
-/// **Inc-before-Dec invariant** (BUG-04-090 §05 F-prj + E-mat fix): when the
+/// **Inc-before-Dec invariant** (BUG-04-090 F-prj + E-mat fix): when the
 /// pending map carries both a net-Inc on var `Y` and a net-Dec on var `X`
 /// where `Dec(X)` walks `X`'s fields and `Y`'s allocation lives in one of
 /// those fields (e.g., `RcDec b [AggFields]` walking `b.value` whose

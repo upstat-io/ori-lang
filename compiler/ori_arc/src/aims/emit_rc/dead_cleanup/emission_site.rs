@@ -1,28 +1,26 @@
-//! BUG-04-111 §05 Step 1 — Emission-disposition predicate SSOT.
+//! BUG-04-111 — Emission-disposition predicate SSOT.
 //!
 //! The `EmissionSite` enum classifies WHERE in a block a variable's `RcDec`
 //! would be emitted. The companion `var_emits_dec_in_block` helper (added
-//! incrementally in subsequent §05 steps) returns `Option<EmissionSite>`
+//! incrementally in subsequent steps) returns `Option<EmissionSite>`
 //! for each `(ctx, var, is_unwind_block)` triple — the SSOT predicate that
 //! all four PIN-4 gate sites consult.
 //!
 //! Variants carry `instr_idx` for body-position emission sites so
-//! canonical-rep selection (§05 Step 3) picks the LATEST-emitting class
-//! member by program order (gemini Round 2 F1).
+//! canonical-rep selection picks the LATEST-emitting class
+//! member by program order.
 //!
-//! See `bug-tracker/plans/BUG-04-111/section-05-implementation.md` Step 1
-//! for the gate table per variant + the bypass-safe-region carve-out.
+//! BUG-04-111: the gate table per variant + the bypass-safe-region carve-out.
 
 /// Where in a block's emission a variable's `RcDec` would actually fire.
 ///
 /// Pure classification — does NOT include sites mutated stateful by
 /// `let_reps_dec_emitted` (the Phase A bypass-safe inline-emit path is
-/// handled separately in §05 Step 1's Bypass-safe-region interaction
-/// guard at lines 148-156 of section-05-implementation.md).
+/// handled separately by its own bypass-safe-region interaction guard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     dead_code,
-    reason = "BUG-04-111 §05 Step 1 incremental landing — BodyWalkLastUse/DefinedDead/DeferredParent/MergeEdgeRouted variants land in subsequent §05 step commits when var_emits_dec_in_block grows their gate logic"
+    reason = "BUG-04-111 incremental landing — BodyWalkLastUse/DefinedDead/DeferredParent/MergeEdgeRouted variants land in subsequent step commits when var_emits_dec_in_block grows their gate logic"
 )]
 pub(crate) enum EmissionSite {
     /// Source 1 in `dead_cleanup/mod.rs:80-241` — dead-at-entry block-prepended
@@ -37,7 +35,7 @@ pub(crate) enum EmissionSite {
     /// position. `instr_idx` is the per-block instruction position.
     BodyWalkLastUse { instr_idx: usize },
 
-    /// Source 6 (codex F2) — `walk_dec.rs::emit_defined_dead` at the
+    /// Source 6 — `walk_dec.rs::emit_defined_dead` at the
     /// defining instruction position.
     DefinedDead { instr_idx: usize },
 
@@ -50,10 +48,9 @@ pub(crate) enum EmissionSite {
     /// variable is NOT defined in all predecessors. PIN-4 treats as
     /// out-of-intra-block-order: emission deferred to per-edge cleanup;
     /// classes whose ONLY coverage is `MergeEdgeRouted` DO NOT participate
-    /// in PIN-4 suppression of other class members (per codex F1 — edge-
-    /// cleanup gates run on their own; PIN-4 cannot predict whether the
-    /// per-edge fire will actually occur without inspecting successor
-    /// entry states).
+    /// in PIN-4 suppression of other class members — edge-cleanup gates run
+    /// on their own; PIN-4 cannot predict whether the per-edge fire will
+    /// actually occur without inspecting successor entry states.
     MergeEdgeRouted,
 }
 
@@ -70,33 +67,31 @@ use super::super::{
 
 /// Canonical map from SSA alias class id → set of (var, `EmissionSite`) pairs
 /// representing every class member that would emit a dec in this block,
-/// computed via the SSOT `var_emits_dec_in_block` predicate. Per §05 Step 2,
+/// computed via the SSOT `var_emits_dec_in_block` predicate.
 /// this pre-compute REPLACES the inline gate sequence at PIN-4 sites; the
-/// canonical-rep selection (§05 Step 3) picks ONE member per class to actually
+/// canonical-rep selection picks ONE member per class to actually
 /// emit, suppressing the others.
 pub(crate) type Pin4EmitsByClass = FxHashMap<u32, FxHashSet<(ArcVarId, EmissionSite)>>;
 
-/// Pure SSOT predicate per §05 Step 1: returns `Some(EmissionSite)` when
+/// Pure SSOT predicate: returns `Some(EmissionSite)` when
 /// `var` would emit a `RcDec` somewhere in `ctx.blk`'s realized output;
-/// `None` otherwise. Consumed by the (forthcoming, §05 Step 2)
+/// `None` otherwise. Consumed by the (forthcoming,)
 /// `pin4_class_emits_dec_set` pre-compute and by the canonical-rep selection
-/// logic that subsequent §05 Steps 3-5 wire into PIN-4 gate sites.
+/// logic that subsequent Steps 3-5 wire into PIN-4 gate sites.
 ///
 /// CRITICAL: this helper is the SSOT that PIN-4 *consumes*. It MUST NOT
 /// include any PIN-4 class-member gate in its own logic — doing so creates
-/// circular dependency per §05 Step 5 refactor analysis (lines 215+ of
-/// section-05-implementation.md).
+/// a circular dependency.
 ///
 /// Gate scope EXCLUDES the bypass-safe-entry path (stateful — mutates
 /// `let_reps_dec_emitted` across loop iterations + emits inline; cannot
-/// be modeled as a pure predicate per §05 Step 1 carve-out at lines 75-78
-/// of section-05-implementation.md). Returns `None` for bypass-safe-entry
-/// vars; the inline emission code at `dead_cleanup/mod.rs:99-164` handles
-/// them separately.
+/// be modeled as a pure predicate carve-out). Returns `None` for
+/// bypass-safe-entry vars; the inline emission code at
+/// `dead_cleanup/mod.rs:99-164` handles them separately.
 ///
 /// Currently implements `PhaseAEntry` and `PhaseABlockParam` variants.
 /// `BodyWalkLastUse`, `DefinedDead`, `DeferredParent`, `MergeEdgeRouted`
-/// land in subsequent §05 step commits.
+/// land in subsequent step commits.
 pub(crate) fn var_emits_dec_in_block(
     ctx: &BlockCtx<'_>,
     var: ArcVarId,
@@ -114,25 +109,25 @@ pub(crate) fn var_emits_dec_in_block(
     if let Some(site) = check_body_walk_last_use(ctx, var) {
         return Some(site);
     }
-    // DefinedDead and MergeEdgeRouted variants land in subsequent §05 step commits.
+    // DefinedDead and MergeEdgeRouted variants land in subsequent step commits.
     None
 }
 
 /// `BodyWalkLastUse` + `DeferredParent` case: mirrors `walk_dec.rs::emit_last_use_decs`
 /// (lines 180-246), with the same gate ordering. PIN-4 + PIN-5 class-aware
-/// suppression are EXCLUDED — they consume this helper. Per §05 Step 4.5,
+/// suppression are EXCLUDED — they consume this helper.
 /// the body-walk PIN-4 (`class_alive_after`) is replaced with a query against
 /// `pin4_class_emits_dec_set` (which itself depends on this helper modeling
 /// body-walk emissions).
 ///
-/// `decide()` machinery (consuming-primop, ownership-transfer, owned-call-position
+/// `decide` machinery (consuming-primop, ownership-transfer, owned-call-position
 /// detection) is NOT replicated here. The simpler approximation is: var emits
 /// a dec via body-walk iff its `LastUse` is `Body(instr_idx)`, var is at a
 /// non-owned position in that instruction, and the standard rc-managed +
 /// liveness gates pass. Classes whose body-walk emission depends on
 /// consuming-primop / ownership-transfer detection may have false-positive
 /// emissions in `pin4_emits`, leading to over-suppression. Those edge cases
-/// land in subsequent §05 step refinements.
+/// land in subsequent step refinements.
 fn check_body_walk_last_use(ctx: &BlockCtx<'_>, var: ArcVarId) -> Option<EmissionSite> {
     // is_rc_managed semantics — same as is_owned_at_entry per walk_dec.rs:402-411.
     if !is_owned_at_entry(
@@ -167,7 +162,7 @@ fn check_body_walk_last_use(ctx: &BlockCtx<'_>, var: ArcVarId) -> Option<Emissio
         return None;
     }
 
-    // BUG-04-111 §05 Step 4.5b: align prediction with actual emission gate.
+    // BUG-04-111b: align prediction with actual emission gate.
     // `emit_post_instr_decs_unified` (`walk_dec.rs:91-93`) returns early on
     // `is_consuming_primop` or `is_ownership_transfer` instructions, skipping
     // BOTH `emit_last_use_decs` (BodyWalkLastUse) AND deferral (DeferredParent
@@ -199,9 +194,9 @@ fn check_body_walk_last_use(ctx: &BlockCtx<'_>, var: ArcVarId) -> Option<Emissio
 
 /// `PhaseAEntry` case: mirrors `emit_dead_at_entry_decs` Source 1 path
 /// (mod.rs:80-241), with the same gate ordering. Bypass-safe-entry is
-/// EXCLUDED per the §05 Step 1 carve-out (stateful inline path). PIN-4
+/// EXCLUDED carve-out (stateful inline path). PIN-4
 /// class-member check is also EXCLUDED to avoid circular dependency on
-/// this helper (PIN-4 will *consume* this helper per §05 Step 5).
+/// this helper (PIN-4 will *consume* this helper).
 fn check_phase_a_entry(
     ctx: &BlockCtx<'_>,
     var: ArcVarId,
@@ -260,11 +255,11 @@ fn check_phase_a_entry(
     if ctx.child_effective_last_use.contains_key(&var) {
         return None;
     }
-    // Apply-aliased suppression (BUG-04-090 §05 Hypothesis D #4).
+    // Apply-aliased suppression (BUG-04-090).
     if should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
         return None;
     }
-    // Return-transfer suppression (BUG-04-090 §05 Step 8).
+    // Return-transfer suppression (BUG-04-090).
     if should_suppress_return_transfer_dec(ctx, var, ctx.blk, is_unwind_block) {
         return None;
     }
@@ -275,7 +270,7 @@ fn check_phase_a_entry(
 /// `PhaseABlockParam` case: mirrors `emit_dead_block_param_decs` (mod.rs:265-426)
 /// per-param gates. Gate ordering matches the live emission code. PIN-4
 /// class-member check + PIN-6 same-emission check are EXCLUDED — both consume
-/// this helper per §05 Steps 4 + 5.
+/// this helper Steps 4 + 5.
 fn check_phase_a_block_param(
     ctx: &BlockCtx<'_>,
     var: ArcVarId,
@@ -312,7 +307,7 @@ fn check_phase_a_block_param(
     rc_strategy(ctx.func, var, ctx.pool).map(|_| EmissionSite::PhaseABlockParam)
 }
 
-/// §05 Step 2: build the per-class emission map for this block.
+/// : build the per-class emission map for this block.
 ///
 /// Iterates over all `PhaseAEntry` candidates (vars in `entry_states`) and
 /// `PhaseABlockParam` candidates (block params not in `entry_states`),
@@ -320,7 +315,7 @@ fn check_phase_a_block_param(
 /// that would emit are grouped by SSA alias class id.
 ///
 /// Body-walk variants (`BodyWalkLastUse`, `DefinedDead`, `DeferredParent`) and
-/// `MergeEdgeRouted` are not yet covered by `var_emits_dec_in_block` per §05
+/// `MergeEdgeRouted` are not yet covered by `var_emits_dec_in_block`
 /// Step 1's incremental landing — class members emitting via those paths
 /// will be MISSED in this pre-compute. For BUG-04-111's (B-1)/(B-3) RED
 /// tests, the relevant emissions are PhaseAEntry/PhaseABlockParam so the
@@ -384,7 +379,7 @@ fn emission_site_order(site: EmissionSite) -> usize {
 /// Function-level analogue of [`Pin4EmitsByClass`]: every emitting class member
 /// tagged with its block index, so PIN-4 suppression can reason about which
 /// member's dec covers `var`'s RC slot ACROSS blocks, not just within one.
-/// `usize` = the member's block position (`ArcBlockId::index()`).
+/// `usize` = the member's block position (`ArcBlockId::index`).
 pub(crate) type GlobalPin4Emits = FxHashMap<u32, FxHashSet<(ArcVarId, usize, EmissionSite)>>;
 
 /// Cross-block PIN-4 suppression with post-dominance (BUG-04-123 cluster).

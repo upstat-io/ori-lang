@@ -1,4 +1,4 @@
-//! Post-fixpoint demand propagation (Section 09.1).
+//! Post-fixpoint demand propagation.
 //!
 //! After the SCC fixpoint converges, tighten a callee parameter's uniqueness
 //! to `Unique` when every call site passes a fresh, single-use `Construct`

@@ -13,7 +13,7 @@ use ori_types::Idx;
 
 use crate::ir::ArcVarId;
 
-use super::super::expr::{ArcLowerer, LoopContext};
+use super::super::expr::{ArcLowerer, ForYieldShape, LoopContext};
 
 impl ArcLowerer<'_> {
     // Loop
@@ -147,7 +147,13 @@ impl ArcLowerer<'_> {
         );
 
         if is_yield {
-            return self.lower_for_yield(pattern, iter_val, iter_ty, tag, guard, body, ty);
+            let shape = ForYieldShape {
+                pattern,
+                guard,
+                body,
+                result_ty: ty,
+            };
+            return self.lower_for_yield(shape, iter_val, iter_ty, tag);
         }
 
         if tag == ori_types::Tag::Range {

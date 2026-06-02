@@ -67,11 +67,6 @@ pub(crate) struct BlockCtx<'a> {
     ///   Source 1 emits the scope-exit drop here exactly once per
     ///   CFG path; downstream bypass-safe blocks inherit the dec via
     ///   SSA flow.
-    ///
-    /// See (initial take-project suppression),
-    /// (the first per-block fix), and (the
-    /// per-class partitioning + bypass-safe entry refinement) in
-    ///.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
     /// Set of parameter `ArcVarId`s whose `ParamContract.transfers_through_return`
     /// is `true` — params that flow directly to a `Return { value }` terminator.

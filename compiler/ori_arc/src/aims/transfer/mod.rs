@@ -6,7 +6,7 @@
 //! - **Forward (definition)**: what state does the destination variable get?
 //! - **Backward (demand)**: what cardinality demand does each use add?
 //!
-//! The dataflow analysis engine (Section 02) applies these functions in
+//! The dataflow analysis engine applies these functions in
 //! its worklist iteration. This module defines only the mathematical rules.
 //!
 //! References:
@@ -168,9 +168,9 @@ fn transfer_project(
 
 /// `Apply { func, args }` — direct function call (conservative).
 ///
-/// Without interprocedural information (Section 03), the return value
+/// Without interprocedural information, the return value
 /// is conservatively `(Owned, Unrestricted, Many, MaybeShared)`.
-/// Section 03 refines this using `MemoryContract`.
+/// Interprocedural analysis refines this using `MemoryContract`.
 fn transfer_apply_conservative() -> DefTransfer {
     let mut state = AimsState {
         access: AccessClass::Owned,
@@ -188,7 +188,7 @@ fn transfer_apply_conservative() -> DefTransfer {
 /// `PartialApply { func, args }` — create a closure capturing args.
 ///
 /// Destination gets `FRESH` with `may_alloc` effect (closure environment
-/// allocation). The analysis engine (Section 02) separately updates
+/// allocation). The analysis engine separately updates
 /// captured args' states via [`capture_state_update`].
 ///
 /// Per-variable effect: `may_alloc = true` — closure creation allocates.
@@ -429,8 +429,8 @@ pub fn cow_mode_from_uniqueness(uniqueness: Uniqueness) -> CowModeFromAims {
 
 /// COW mode as determined by AIMS analysis.
 ///
-/// Maps to [`crate::uniqueness::CowMode`] at pipeline integration
-/// (Section 06). Defined separately to avoid coupling the lattice
+/// Maps to [`crate::uniqueness::CowMode`] at pipeline integration.
+/// Defined separately to avoid coupling the lattice
 /// module to the existing uniqueness pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CowModeFromAims {

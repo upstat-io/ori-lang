@@ -4,35 +4,37 @@
 //! uniqueness, RC insertion, reset/reuse, RC elimination) with the unified
 //! AIMS analysis + emission pipeline.
 //!
-//! # Pipeline (Section 10 — unified realization)
+//! # Pipeline (unified realization)
 //!
 //! **Interprocedural** (once across all functions):
-//! 1. `aims::analyze_program()` — compute `MemoryContract` per function
-//! 2. `aims::apply_ownership()` — populate `ArcParam.ownership`
+//! 1. `aims::analyze_program` — compute `MemoryContract` per function
+//! 2. `aims::apply_ownership` — populate `ArcParam.ownership`
 //!
 //! **Per-function** (steps 3–12):
-//! 3. `compute_var_reprs()` — fill `ValueRepr` per variable
-//! 3a. `aims::normalize_function()` — TRMC context region detection
-//! 4. `aims::analyze_function()` — backward dataflow → converged state map
-//! 5. `aims::realize_rc_reuse()` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
-//! 5a. `aims::verify::fip::verify_fip_contract()` — FIP enforcement verification
-//! 6. `verify()` — ARC IR sanity check
-//! 7. `run_aims_verify()` — AIMS contract vs IR consistency
-//! 8. `detect_tail_calls()` + `rewrite_tail_calls()`
-//! 9. `merge_blocks()` — CFG cleanup
-//! 10. `aims::realize_annotations()` — Phase 2: COW + drop hints (post-merge)
-//! 11. `verify()` — final sanity check
+//! 3. `compute_var_reprs` — fill `ValueRepr` per variable
+//! 3a. `aims::normalize_function` — TRMC context region detection
+//! 4. `aims::analyze_function` — backward dataflow → converged state map
+//! 5. `aims::realize_rc_reuse` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
+//! 5a. `aims::verify::fip::verify_fip_contract` — FIP enforcement verification
+//! 6. `verify` — ARC IR sanity check
+//! 7. `run_aims_verify` — AIMS contract vs IR consistency
+//! 8. `detect_tail_calls` + `rewrite_tail_calls`
+//! 9. `merge_blocks` — CFG cleanup
+//! 10. `aims::realize_annotations` — Phase 2: COW + drop hints (post-merge)
+//! 11. `verify` — final sanity check
 //! 12. FBIP enforcement — read-only diagnostic
 
 mod batch;
 mod postprocess;
 mod trmc;
 
+use std::sync::LazyLock;
+
 use ori_ir::Name;
 use ori_types::TypeRegistry;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::MemoryContract;
+use crate::aims::contract::{ContractMapExt, MemoryContract};
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
@@ -42,6 +44,12 @@ use crate::ArcClassification;
 
 // Re-export batch entry points used by pipeline/mod.rs.
 pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
+
+/// `ORI_DISABLE_BURDEN_OPS=1` skips `emit_burden_ops` at Step 4b; the
+/// predicate-stack realization path runs as in the pre-burden baseline. Read
+/// once at first access; permanent empty-harness parity + bisection flag.
+static BURDEN_OPS_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
 
 /// Callback invoked at each pipeline checkpoint.
 ///
@@ -58,7 +66,7 @@ pub type CheckpointObserver<'a> = dyn Fn(&ArcFunction, &str /* phase */) + 'a;
 /// `trace_phase_snapshot` in `emit_unified.rs` which uses `trace!` on
 /// `ori_arc::aims::realize` for finer-grained realization-step snapshots.
 ///
-/// Uses existing `rc_count::count_rc_ops()` (SSOT for RC counting) plus
+/// Uses existing `rc_count::count_rc_ops` (SSOT for RC counting) plus
 /// structural metrics (`blocks`, `vars`) to detect phases that change
 /// CFG structure without altering RC totals.
 ///
@@ -72,7 +80,7 @@ pub(crate) fn trace_pipeline_checkpoint(
     observer: Option<&CheckpointObserver<'_>>,
 ) {
     // Early exit when the pipeline target is disabled — avoids the cost of
-    // count_rc_ops() and string lookup when tracing is off.
+    // count_rc_opsand string lookup when tracing is off.
     if tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
         let fn_name = interner.lookup(func.name);
         let rc = rc_count::count_rc_ops(func);
@@ -102,6 +110,14 @@ pub(crate) fn trace_pipeline_checkpoint(
 pub(crate) struct AimsPipelineConfig<'a> {
     pub classifier: &'a dyn ArcClassification,
     pub contracts: &'a FxHashMap<Name, MemoryContract>,
+    /// Names of the functions in this compilation unit (the analyzed set).
+    ///
+    /// Consumed by Site-8 `is_safe_non_sharing_callee` to distinguish a
+    /// local analyzed callee (which IC-1 guarantees has a `MemoryContract`)
+    /// from an FFI / external / DCE'd callee (legitimately absent). The
+    /// `debug_assert!` fires when a callee in this set is missing from
+    /// `contracts` — an IC-1 pipeline-ordering violation.
+    pub func_names: &'a FxHashSet<Name>,
     pub pool: &'a ori_types::Pool,
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
@@ -120,7 +136,7 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// ("unified model — new capabilities extend a lattice dimension OR a
     /// contract field OR feed the lattice-driven analysis as a typed pre-pass
     /// input"). Call sites pass either the live module `TypeRegistry` (`oric`
-    /// codegen path) or an empty placeholder (`TypeRegistry::default()`).
+    /// codegen path) or an empty placeholder (`TypeRegistry::default`).
     pub type_registry: &'a TypeRegistry,
 }
 
@@ -215,7 +231,7 @@ pub(crate) fn run_aims_pipeline(
     // ORI_DISABLE_BURDEN_OPS=1 skips emission entirely so the predicate-stack
     // realization path runs unchanged. Used for ITEM-4 empty-harness predicate
     // parity check.
-    if std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() != Ok("1") {
+    if !*BURDEN_OPS_DISABLED {
         let _span = tracing::info_span!("emit_burden_ops").entered();
         let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
         let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
@@ -288,15 +304,15 @@ fn apply_phase_2_annotations(
 ) {
     {
         let _span = tracing::info_span!("realize_annotations").entered();
-        crate::aims::realize::realize_annotations(
-            func,
+        let env = crate::aims::realize::AnnotationEnv {
             state_map,
-            config.interner,
-            config.pool,
-            config.contracts,
-            config.builtins,
-            result,
-        );
+            interner: config.interner,
+            pool: config.pool,
+            contracts: config.contracts,
+            builtins: config.builtins,
+            func_names: config.func_names,
+        };
+        crate::aims::realize::realize_annotations(func, &env, result);
     }
     trace_pipeline_checkpoint(
         func,
@@ -324,7 +340,7 @@ fn apply_phase_2_annotations(
     );
 }
 
-/// Step 5a: FIP enforcement pre-check (Section 12.3).
+/// Step 5a: FIP enforcement pre-check.
 ///
 /// Cross-checks `FipContract` against realization evidence. At this point,
 /// the contract has optimistic `may_deallocate=false` from interprocedural
@@ -337,9 +353,7 @@ fn fip_precheck(
     config: &AimsPipelineConfig<'_>,
     result: &crate::aims::realize::RealizationResult,
 ) -> Result<(), Vec<crate::verify::VerifyError>> {
-    let Some(contract) = config.contracts.get(&func.name) else {
-        return Ok(());
-    };
+    let contract = config.contracts.get_required(&func.name, "fip_precheck");
     let fip_errors =
         crate::aims::verify::fip::verify_fip_contract(func.name, contract, &result.fip_evidence);
     let mut structural_errors = Vec::new();

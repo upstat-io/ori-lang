@@ -4,6 +4,7 @@
 //! and the FBIP enforcement check.
 
 use super::AimsPipelineConfig;
+use crate::aims::contract::ContractMapExt;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
 
@@ -26,7 +27,10 @@ pub(crate) fn verify_and_merge(
         config.interner,
         config.observer,
     );
-    if let Some(contract) = config.contracts.get(&func.name) {
+    {
+        let contract = config
+            .contracts
+            .get_required(&func.name, "aims_verify_postprocess");
         let _span = tracing::info_span!("aims_verify").entered();
         crate::pipeline::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc)?;
     }
@@ -64,10 +68,10 @@ pub(crate) fn emit_postprocess(
     }
     super::trace_pipeline_checkpoint(func, "verify_final", config.interner, config.observer);
 
-    // VF-1 basic burden-balance check (§04A.4) — function-exit net = 0 for
+    // VF-1 basic burden-balance check — function-exit net = 0 for
     // every variable in `func.burden_emitted`. Errors join the same
     // `Vec<VerifyError>` channel used by Layer 1 structural verification
-    // per `arc.md §Verification Surface` Layer 1.
+    // Layer 1.
     run_burden_balance(func, config.verify_arc)?;
     super::trace_pipeline_checkpoint(
         func,
@@ -82,7 +86,7 @@ pub(crate) fn emit_postprocess(
 }
 
 /// Run the VF-1 burden-balance check. Mirrors the `verify`/`debug_assertions`
-/// gating used by `crate::pipeline::run_verify` per `arc.md §Verification
+/// gating used by `crate::pipeline::run_verify` per `
 /// Surface` Layer 1: under explicit verification mode the errors halt
 /// compilation; under debug-assertions-only mode the errors are logged as
 /// warnings but do not abort.

@@ -1424,6 +1424,253 @@ fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
     );
 }
 
+/// Helper: build a struct decl carrying the named derives with an explicit
+/// field list `(field_name, field_type)`. Mirrors `make_struct_decl_with_derives`
+/// but lets the caller pin field shapes for the transitive-Value field-walk pins.
+fn make_struct_decl_with_fields(
+    interner: &StringInterner,
+    type_name: &str,
+    derive_names: &[&str],
+    fields: Vec<(&str, ParsedType)>,
+) -> ori_ir::TypeDecl {
+    let derives: Vec<Name> = derive_names.iter().map(|n| interner.intern(n)).collect();
+    let struct_fields: Vec<ori_ir::StructField> = fields
+        .into_iter()
+        .map(|(fname, fty)| ori_ir::StructField {
+            name: interner.intern(fname),
+            ty: fty,
+            span: Span::DUMMY,
+        })
+        .collect();
+    ori_ir::TypeDecl {
+        name: interner.intern(type_name),
+        kind: ori_ir::TypeDeclKind::Struct(struct_fields),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives,
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Helper: `ParsedType::Named { name, type_args: [] }` — a nullary nominal
+/// reference (e.g. a field `inner: Pt`). Allocates the empty type-arg list.
+fn named_no_args(arena: &mut ExprArena, interner: &StringInterner, name: &str) -> ParsedType {
+    let empty_args = arena.alloc_parsed_type_list(vec![]);
+    ParsedType::Named {
+        name: interner.intern(name),
+        type_args: empty_args,
+    }
+}
+
+/// Positive (field-walk) — every field of a `Value`-marked type is itself
+/// `Value` (two `float` fields): registers the empty `UserBurdenSpec` with
+/// NO field-constraint diagnostic (E2032) and NO E2049.
+#[test]
+fn value_type_all_value_fields_registers_empty_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // type Pt: Value = { x: float, y: float }
+    let pt_decl = make_struct_decl_with_fields(
+        &interner,
+        "Pt",
+        &["Value"],
+        vec![
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))), // float
+            ("y", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))), // float
+        ],
+    );
+    let module = Module {
+        types: vec![pt_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "all-Value-fields type must NOT emit the field-constraint diagnostic, got: {errors:?}"
+    );
+
+    // Empty UserBurdenSpec still registered (the sound empty-burden path).
+    let pt_idx = checker
+        .type_registry()
+        .get_by_name(interner.intern("Pt"))
+        .unwrap()
+        .idx;
+    let burden = checker.type_registry().burden(pt_idx);
+    assert!(
+        burden.is_some(),
+        "all-Value-fields type must register the empty UserBurdenSpec"
+    );
+    assert!(
+        !burden.unwrap().self_heap_alloc,
+        "all-Value-fields Value spec self_heap_alloc must be false"
+    );
+}
+
+/// Negative (field-walk) — a `Value`-marked type with a `str` field is
+/// rejected with the field-constraint diagnostic (E2032) naming the
+/// offending `name: str` field. The empty `UserBurdenSpec` for a heap-bearing
+/// field would be the latent silent-RC-drop; the validator forbids it.
+#[test]
+fn value_type_with_str_field_rejected() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // type Bad: Value = { name: str }
+    let bad_decl = make_struct_decl_with_fields(
+        &interner,
+        "Bad",
+        &["Value"],
+        vec![("name", ParsedType::Primitive(ori_ir::TypeId::from_raw(3)))], // str
+    );
+    let module = Module {
+        types: vec![bad_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint: Vec<_> = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .collect();
+    assert_eq!(
+        field_constraint.len(),
+        1,
+        "Value type with a `str` field must emit exactly one field-constraint diagnostic, got: {errors:?}"
+    );
+    // The diagnostic names the offending field.
+    let name_field = interner.intern("name");
+    let names_field = matches!(
+        &field_constraint[0].kind,
+        crate::TypeErrorKind::FieldMissingTraitInDerive { field_name, .. } if *field_name == name_field
+    );
+    assert!(
+        names_field,
+        "field-constraint diagnostic must name the offending `name` field, got: {:?}",
+        field_constraint[0].kind
+    );
+}
+
+/// Transitive (field-walk) — a `Value`-marked type whose field is another
+/// `Value`-marked struct (`inner: Pt` where `Pt: Value`) is accepted via the
+/// transitive Value-membership lookup (the field's resolved Idx carries the
+/// Value marker). Pt is declared FIRST so its marker is recorded before Outer.
+#[test]
+fn value_type_with_nested_value_struct_field_accepts() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    // type Pt: Value = { x: float, y: float }
+    let pt_decl = make_struct_decl_with_fields(
+        &interner,
+        "Pt",
+        &["Value"],
+        vec![
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+            ("y", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+        ],
+    );
+    // type Outer: Value = { inner: Pt }
+    let inner_ty = named_no_args(&mut arena, &interner, "Pt");
+    let outer_decl =
+        make_struct_decl_with_fields(&interner, "Outer", &["Value"], vec![("inner", inner_ty)]);
+
+    // Declaration order: Pt FIRST (marker recorded), then Outer.
+    let module = Module {
+        types: vec![pt_decl, outer_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "Value type with a nested Value-struct field must be accepted transitively, got: {errors:?}"
+    );
+
+    // Outer still gets its empty UserBurdenSpec.
+    let outer_idx = checker
+        .type_registry()
+        .get_by_name(interner.intern("Outer"))
+        .unwrap()
+        .idx;
+    assert!(
+        checker.type_registry().burden(outer_idx).is_some(),
+        "transitively-Value Outer must register the empty UserBurdenSpec"
+    );
+}
+
+/// Cycle (field-walk) — a `Value`-marked type whose field-walk transitively
+/// revisits the same type `Idx` (a self-referential Value struct) terminates
+/// via the visited-set memo: no infinite recursion, no stack overflow. The
+/// self-reference resolves as Value-in-progress (treated as Value), so the
+/// walk accepts without the field-constraint diagnostic.
+#[test]
+fn value_type_with_recursive_value_field_terminates() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    // type SelfRef: Value = { me: SelfRef, x: float }
+    // A field referencing the declaring type itself — the cycle the
+    // visited-set memo must short-circuit. `x: float` keeps a genuine
+    // Value field alongside the self-reference.
+    let self_ty = named_no_args(&mut arena, &interner, "SelfRef");
+    let self_decl = make_struct_decl_with_fields(
+        &interner,
+        "SelfRef",
+        &["Value"],
+        vec![
+            ("me", self_ty),
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+        ],
+    );
+    let module = Module {
+        types: vec![self_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    // Must terminate — a non-cycle-aware walk would recurse forever on `me`.
+    register_user_types(&mut checker, &module);
+
+    // The walk terminated (we reached here). The self-referential field
+    // resolves as Value-in-progress, so no field-constraint diagnostic fires.
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "recursive Value field must terminate via the visited-set memo with no field-constraint diagnostic, got: {errors:?}"
+    );
+}
+
 /// Negative — `impl T: Drop` on a NON-Value type registers `user_drop`
 /// AND emits no E2049 (the conflict requires BOTH markers).
 #[test]

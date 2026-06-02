@@ -545,7 +545,7 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
 
 // pool_type_store_size — cross-phase size agreement
 //
-// These values must match `TypeLayoutResolver::type_store_size()` in ori_llvm.
+// These values must match `TypeLayoutResolver::type_store_size` in ori_llvm.
 // If a new type is added and these constants differ, for-yield element
 // buffers will be mis-sized, causing memory corruption.
 
@@ -697,7 +697,7 @@ fn type_store_size_extended_types() {
 
 /// Regression: Option/Result trailing alignment padding.
 /// `Option<T>` is `{i64 tag, T payload}` in LLVM. Store size must include
-/// trailing alignment padding to match LLVM's `size_of()`. Without it,
+/// trailing alignment padding to match LLVM's `size_of`. Without it,
 /// outer aggregates containing Option/Result fields are undersized.
 #[test]
 fn type_store_size_option_result_trailing_padding() {
@@ -773,7 +773,7 @@ fn type_store_size_option_result_trailing_padding() {
 }
 
 /// Regression: inter-field alignment padding was missing.
-/// `pool_type_store_size()` summed field sizes without aligning each field,
+/// `pool_type_store_size` summed field sizes without aligning each field,
 /// undercounting aggregates with mixed-alignment fields.
 #[test]
 fn type_store_size_inter_field_padding() {
@@ -918,8 +918,8 @@ fn type_store_size_enum_payload_slots() {
 }
 
 /// Regression: nested aggregates with sub-8-byte alignment.
-/// `pool_type_alignment()` must recurse into struct/tuple fields to compute
-/// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
+/// `pool_type_alignment` must recurse into struct/tuple fields to compute
+/// max field alignment, matching `type_alignment` in `ori_llvm`. Without
 /// recursion, all struct/tuple types default to alignment 8, which over-sizes
 /// aggregates like `((char, char), bool)` (12 bytes, not 16).
 #[test]
@@ -981,10 +981,10 @@ fn type_store_size_nested_low_alignment() {
     );
 }
 
-/// Regression: all-unit enums use narrowed i8 tags after §07.1.
+/// Regression: all-unit enums use narrowed i8 tags after.
 ///
-/// `pool_type_store_size()` was hardcoding 8-byte (i64) enum tags for all enums,
-/// but §07.1 narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
+/// `pool_type_store_size` was hardcoding 8-byte (i64) enum tags for all enums,
+/// but narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
 /// over all-unit enums to allocate 8 bytes per element in `ori_list_new` /
 /// `ori_list_push`, but LLVM lowered them as 1-byte `{ i8 }` structs — resulting
 /// in out-of-bounds reads/writes and segfaults.
@@ -1019,7 +1019,7 @@ fn type_store_size_all_unit_enum_narrowed_tag() {
     assert_eq!(
         pool_type_store_size(dir_enum, &pool, 0),
         1,
-        "All-unit enum (4 variants) = {{i8}} = 1 byte after §07.1 narrowing"
+        "All-unit enum (4 variants) = {{i8}} = 1 byte after discriminant narrowing"
     );
 
     // Semantic pin: 2-variant all-unit enum → still i8 tag → 1 byte
@@ -1081,7 +1081,7 @@ fn type_store_size_all_unit_enum_narrowed_tag() {
 
 /// Regression: all-unit enum as field in struct/tuple.
 ///
-/// `pool_type_alignment_inner()` returned 8 for all enums, but all-unit enums
+/// `pool_type_alignment_inner` returned 8 for all enums, but all-unit enums
 /// with narrowed tags have alignment 1. This over-sizes containing aggregates.
 #[test]
 fn type_store_size_all_unit_enum_in_aggregate() {

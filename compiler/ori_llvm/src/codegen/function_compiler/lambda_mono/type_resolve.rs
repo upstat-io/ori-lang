@@ -57,7 +57,7 @@ pub(super) fn is_polymorphic_lambda(lambda: &ori_arc::ArcFunction, pool: &ori_ty
     // The nested check is essential for Generalized vars in container types
     // that need resolution via map_types_structural or call-site extraction.
     //
-    // §08.3b.1 — `contains_bound_var` added for params: post-normalization,
+    // `contains_bound_var` added for params: post-normalization,
     // scheme-var leaves in param types are `Tag::BoundVar` (not `Tag::Var`).
     // Without this, polymorphic lambdas with BoundVar params bypass the
     // mono pipeline, leaving unresolved types in ARC IR.
@@ -67,7 +67,7 @@ pub(super) fn is_polymorphic_lambda(lambda: &ori_arc::ArcFunction, pool: &ori_ty
             || contains_bound_var(pool, p.ty)
     })
     // Return type: check BoundVar (top-level or nested).
-    // §08.3b.1 — post-normalization, scheme-var leaves are `Tag::BoundVar`.
+    // post-normalization, scheme-var leaves are `Tag::BoundVar`.
     || contains_bound_var(pool, lambda.return_type)
     // var_types: only check for BoundVar (original behavior).
     || lambda
@@ -249,7 +249,7 @@ pub(super) fn find_concrete_types_from_calls(
     pool: &ori_types::Pool,
 ) -> Option<(Vec<Idx>, Idx)> {
     // Collect all variables that are copies of the PartialApply result.
-    // Pattern: `Let { dst, value: Var(pa_dst), .. }`
+    // Pattern: `Let { dst, value: Var(pa_dst),.. }`
     let mut closure_vars: Vec<ori_arc::ir::ArcVarId> = vec![pa_dst];
     for block in &parent.blocks {
         for instr in &block.body {
@@ -396,7 +396,7 @@ pub(super) fn apply_call_site_types(
 /// INT would cause ABI mismatches (e.g., declaring a curried closure's return
 /// type as `i64` while the body emits `ret {ptr, ptr}`).
 ///
-/// §08.3b.1 — the `return_type` guard was tightened from the over-eager
+/// the `return_type` guard was tightened from the over-eager
 /// `contains_bound_var` walk to a top-level tag check for the same reason
 /// container return types must not collapse to `Idx::INT`.
 pub(super) fn fallback_bound_vars_to_int(
@@ -421,7 +421,7 @@ pub(super) fn fallback_bound_vars_to_int(
 /// Resolve a lambda's return type, `var_types`, and `Construct` / `PartialApply`
 /// instruction types from a schema->concrete mapping.
 ///
-/// §08.3b.1 — `PartialApply.ty` is now substituted alongside `Construct.ty`.
+/// `PartialApply.ty` is now substituted alongside `Construct.ty`.
 /// Curried closures emit a `PartialApply` whose dst-type IS the schema return
 /// type (e.g., the outer `a -> b -> a` lambda's body emits
 /// `PartialApply @inner(a)` with dst-type `(B) -> A`). Without the

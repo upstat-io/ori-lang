@@ -44,7 +44,7 @@ pub trait ArcClassification {
 ///
 /// Uses `RefCell` for the cache and cycle-detection set because the
 /// [`ArcClassification`] trait takes `&self`. This is the same pattern
-/// used by `TypeInfoStore::is_trivial()`.
+/// used by `TypeInfoStore::is_trivial`.
 //
 // NOTE: `ori_registry::MemoryStrategy` could provide a fast path for
 // builtin type classification (e.g., int → Copy, str → Arc) without
@@ -171,9 +171,9 @@ impl<'pool> ArcClassifier<'pool> {
     }
 
     /// Classify a non-primitive type by delegating to the canonical
-    /// `classify_triviality()` in `ori_types`.
+    /// `classify_triviality` in `ori_types`.
     ///
-    /// This is the single-source-of-truth unification (§02.1): all
+    /// This is the single-source-of-truth unification: all
     /// classification logic lives in `ori_types::triviality`, and
     /// `ArcClassifier` maps the result to `ArcClass`.
     ///

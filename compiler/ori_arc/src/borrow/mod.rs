@@ -1,4 +1,4 @@
-//! SCC-based borrow inference for ARC IR (Section 06.2).
+//! SCC-based borrow inference for ARC IR.
 //!
 //! Determines which function parameters can be **borrowed** (no RC operations
 //! at the call site) versus **owned** (caller must `rc_inc`, callee must

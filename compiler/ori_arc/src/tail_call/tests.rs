@@ -1350,7 +1350,7 @@ fn invoke_rewrite_moves_rc_decs_from_normal_block() {
     );
 }
 
-// Pre-emission tail-position analysis (Section 12.2)
+// Pre-emission tail-position analysis
 
 #[test]
 fn constant_stack_non_recursive_is_false() {

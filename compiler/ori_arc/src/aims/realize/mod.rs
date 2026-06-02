@@ -25,9 +25,12 @@ mod burden_elim;
 mod burden_mirror;
 mod cleanup_redundant;
 pub mod decide;
+#[cfg(test)]
+mod dimension_consumer;
 mod emit_unified;
 pub mod metrics;
 mod project_escape;
+pub mod rl31_disjoint;
 #[cfg(test)]
 mod tests;
 mod walk;
@@ -36,6 +39,7 @@ mod walk_dec;
 pub(crate) use burden_elim::eliminate_burden_ops;
 pub(crate) use burden_mirror::reconcile_burden_ledger;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
+pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
 
 use ori_ir::Name;
 use ori_types::Pool;
@@ -69,7 +73,7 @@ pub struct RealizationResult {
     /// NOT the authoritative FIP classification — that is
     /// `MemoryContract.fip`, owned by interprocedural analysis.
     pub fip_evidence: FipEvidence,
-    /// Cross-dimensional synergy metrics (Section 11.2).
+    /// Cross-dimensional synergy metrics.
     ///
     /// Phase 1 populates RC/reuse metrics, Phase 2 populates COW metrics.
     /// `canonicalize_cross_fires` is set externally from backward analysis.
@@ -136,7 +140,7 @@ pub fn realize_rc_reuse(
     // `contracts` is threaded through so emit_rc_unified can compute
     // `return_transfer_params` from the function's MemoryContract for
     // BUG-04-090's `should_suppress_return_transfer_dec` (BlockCtx
-    // field populated per §05 Step 6).
+    // field).
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
         emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts)
@@ -183,6 +187,20 @@ pub fn realize_rc_reuse(
     }
 }
 
+/// Converged-analysis inputs for [`realize_annotations`].
+///
+/// Bundles the state map, interner/pool, interprocedural `contracts`, the
+/// builtin ownership sets, and the analyzed-function name set. Every field
+/// is read together by the Phase 2 walk.
+pub struct AnnotationEnv<'a> {
+    pub state_map: &'a AimsStateMap,
+    pub interner: &'a ori_ir::StringInterner,
+    pub pool: &'a Pool,
+    pub contracts: &'a rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    pub builtins: &'a crate::borrow::BuiltinOwnershipSets,
+    pub func_names: &'a rustc_hash::FxHashSet<ori_ir::Name>,
+}
+
 /// Phase 2: COW and drop hint annotations (post-merge).
 ///
 /// Walks the post-merge IR once, building an [`AnnotationSiteContext`] for
@@ -199,14 +217,9 @@ pub fn realize_rc_reuse(
 ///
 /// Does NOT panic on failure — logs `tracing::error!` and leaves
 /// annotations empty (functionally correct but suboptimal).
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn realize_annotations(
     func: &ArcFunction,
-    state_map: &AimsStateMap,
-    interner: &ori_ir::StringInterner,
-    pool: &Pool,
-    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
-    builtins: &crate::borrow::BuiltinOwnershipSets,
+    env: &AnnotationEnv<'_>,
     result: &mut RealizationResult,
 ) {
     use crate::aims::emit_rc::{
@@ -216,19 +229,20 @@ pub fn realize_annotations(
 
     let _span = tracing::debug_span!("realize_annotations").entered();
 
-    let cow_names = crate::borrow::all_cow_method_names(interner);
+    let cow_names = crate::borrow::all_cow_method_names(env.interner);
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let param_borrowed_vars = collect_param_borrowed_vars(func);
     let rc_incremented = collect_rc_incremented_vars(func);
-    let borrowed_call_args = collect_borrowed_call_args(func, contracts, builtins);
+    let borrowed_call_args =
+        collect_borrowed_call_args(func, env.contracts, env.builtins, env.func_names);
 
     let mut cow_annotations = CowAnnotations::new();
     let mut drop_hints = DropHints::new();
 
     let ann_ctx = AnnotationWalkCtx {
         func,
-        state_map,
-        pool,
+        state_map: env.state_map,
+        pool: env.pool,
         cow_names: &cow_names,
         param_vars: &param_vars,
         param_borrowed_vars: &param_borrowed_vars,

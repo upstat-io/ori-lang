@@ -18,8 +18,8 @@
 //! NOTE: `decision_tree::compile` and `flatten` are pattern-matching primitives
 //! temporarily housed in `ori_arc`. They are consumed by `ori_canon` (which
 //! imports `ori_arc`), creating an upward dependency from canonicalization into
-//! ARC optimization. These will move to `ori_canon::patterns` in `eval_v2`
-//! Section 03 — see `ori_ir::canon::tree` for the migration plan.
+//! ARC optimization. These are a migration target: they belong in
+//! `ori_canon::patterns`.
 //!
 //! # References
 //!

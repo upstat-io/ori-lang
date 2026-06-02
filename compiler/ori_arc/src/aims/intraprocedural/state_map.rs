@@ -81,7 +81,7 @@ pub enum AimsEvent {
     /// Records the allocation balance (constructs - consumed deaths) for each
     /// successor of a Switch terminator. FIP certification requires each branch
     /// to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     AllocCreditBalance {
         /// The Switch terminator's block.
         block: ArcBlockId,
@@ -367,13 +367,13 @@ pub struct AimsStateMap {
     /// Records whether the function allocates, shares references, or throws.
     /// Read by `extract_contract()` to set `MemoryContract.effects`.
     ///
-    /// Section 09.1 (`HeapEscaping` → `may_share`) and 09.2 (Effect Activation).
+    /// `HeapEscaping` → `may_share` and Effect Activation.
     effect_summary: EffectSummary,
 
     /// FIP token balance: number of `Construct` instructions with reusable
     /// constructor kinds (struct, enum variant) on non-scalar destinations.
     /// Populated post-convergence by `populate_fip_balance()`.
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     fip_construct_count: u32,
 
     /// FIP token balance: number of consumed non-scalar function parameters
@@ -381,7 +381,7 @@ pub struct AimsStateMap {
     /// parameter provides a "reuse token" — its memory can be recycled by a
     /// Construct. Shape compatibility checked at emission time.
     /// Populated post-convergence by `populate_fip_balance()`.
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     fip_consumed_count: u32,
 
     /// Per-variable shape classification, derived from definition instructions.
@@ -395,7 +395,7 @@ pub struct AimsStateMap {
     /// Populated post-convergence by `populate_var_shapes()` (for Construct/
     /// Reuse/CollectionReuse) and `populate_call_result_states()` (for
     /// Apply/Invoke results from contracts).
-    /// Section 09.2 Shape Activation.
+    /// Shape Activation.
     var_shapes: FxHashMap<ArcVarId, ShapeClass>,
 
     /// Per-variable contract-narrowed return uniqueness for Apply/Invoke results.
@@ -463,9 +463,9 @@ pub struct AimsStateMap {
     /// Whether any `canonicalize()` call during analysis required multiple
     /// rounds (cross-dimension chaining detected). Set by post-convergence
     /// verification in `verify_canonical_fixed_point()`. With current rules
-    /// (Section 09.3), this should always be `false`.
+    /// this should always be `false`.
     ///
-    /// Section 09.5 Convergence Feedback.
+    /// Convergence Feedback.
     cross_dimension_detected: bool,
 
     /// Set of SSA-alias class ids fully covered by the burden walk
@@ -725,10 +725,10 @@ impl AimsStateMap {
     /// Whether cross-dimension canonicalize chaining was detected during
     /// analysis (any canonicalize call required more than one round).
     ///
-    /// With current rules (Section 09.3), this should always be `false`.
+    /// With current rules, this should always be `false`.
     /// A `true` value indicates a new rule created a cross-dimension chain.
     ///
-    /// Section 09.5 Convergence Feedback.
+    /// Convergence Feedback.
     #[must_use]
     pub fn cross_dimension_detected(&self) -> bool {
         self.cross_dimension_detected
@@ -808,7 +808,7 @@ impl AimsStateMap {
     /// Returns an iterator of `(borrow_var, field)` pairs, where `field` is
     /// `Some(idx)` for field-level borrows (from `Project`) and `None` for
     /// whole-object borrows. Used by the disjoint-field COW optimization
-    /// (Section 07.3.2) to check whether a mutation conflicts with live borrows.
+    /// to check whether a mutation conflicts with live borrows.
     pub fn borrows_from_source(
         &self,
         source: ArcVarId,
@@ -1100,7 +1100,7 @@ impl AimsStateMap {
     /// NOT a per-block state. Unlike the backward-computed lattice dimensions,
     /// shape doesn't change across block boundaries.
     ///
-    /// Section 09.2 Shape Activation.
+    /// Shape Activation.
     #[must_use]
     pub fn var_shape(&self, var: ArcVarId) -> ShapeClass {
         self.var_shapes
@@ -1289,7 +1289,7 @@ impl AimsStateMap {
     ///
     /// `construct_count`: non-scalar `Construct` instructions with reusable ctor kinds.
     /// `consumed_count`: consumed values with `ReusableCtor` shape (provide reuse tokens).
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     pub fn set_fip_balance(&mut self, construct_count: u32, consumed_count: u32) {
         self.fip_construct_count = construct_count;
         self.fip_consumed_count = consumed_count;
@@ -1297,7 +1297,7 @@ impl AimsStateMap {
 
     /// Number of non-scalar `Construct` instructions with reusable ctor kinds.
     ///
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     #[must_use]
     pub fn fip_construct_count(&self) -> u32 {
         self.fip_construct_count
@@ -1308,7 +1308,7 @@ impl AimsStateMap {
     /// `true` means consumed values with reusable shape >= construct allocations,
     /// so every Construct can potentially reuse memory from a consumed value.
     /// This is a necessary condition for FIP certification.
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     #[must_use]
     pub fn fip_token_balanced(&self) -> bool {
         self.fip_consumed_count >= self.fip_construct_count
@@ -1318,7 +1318,7 @@ impl AimsStateMap {
     ///
     /// Returns 0 when balanced (FIP), positive when the function needs more
     /// allocations than it can reuse. Used for `FipContract::Bounded(n)`.
-    /// Section 09.2 Effect Activation.
+    /// Effect Activation.
     #[must_use]
     pub fn fip_net_allocation(&self) -> u32 {
         self.fip_construct_count

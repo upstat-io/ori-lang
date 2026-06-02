@@ -496,7 +496,7 @@ fn alloc_credit_balance_event_recorded() {
     }
 }
 
-// Per-variable shape tests (Section 09.2 Shape Activation)
+// Per-variable shape tests (Shape Activation)
 
 #[test]
 fn var_shape_defaults_to_non_reusable() {
@@ -534,23 +534,22 @@ fn var_shape_non_reusable_not_stored() {
     assert_eq!(map.var_shape(var(0)), ShapeClass::NonReusable);
 }
 
-// TF-6 contract-narrowed call-result side tables ( )
+// TF-6 contract-narrowed call-result side tables
 //
 // These tests exercise the `var_uniqueness` and `var_locality` side tables
 // that mirror `var_shapes`, populated by the post-convergence pass
-// `populate_call_result_states` per Plan TPR Round 5 architectural shape.
+// `populate_call_result_states`.
 //
-// Sparse filter is BOTTOM-default per Plan TPR Round 1 F1 correction:
-//   - Uniqueness: skip Unique (BOTTOM); store MaybeShared / Shared.
-//   - Locality:   skip BlockLocal (BOTTOM); store FunctionLocal / HeapEscaping
-//                 / Unknown (CONSERVATIVE).
-//   - Shape:      skip NonReusable (BOTTOM = CONSERVATIVE for shape — handled
-//                 by existing var_shapes; sparse filter unchanged).
+// Sparse filter is BOTTOM-default:
+// - Uniqueness: skip Unique (BOTTOM); store MaybeShared / Shared.
+// - Locality: skip BlockLocal (BOTTOM); store FunctionLocal / HeapEscaping
+// / Unknown (CONSERVATIVE).
+// - Shape: skip NonReusable (BOTTOM = CONSERVATIVE for shape — handled
+// by existing var_shapes; sparse filter unchanged).
 //
 // Presence-aware lookup distinguishes "unset" (None) from "set to BOTTOM"
 // (also None — BOTTOM never inserts) from "set to a narrower value" (Some(...)).
-// This is load-bearing for `effective_uniqueness_at_block_*` JOIN semantics
-// per Plan TPR Round 0 F1.
+// This is load-bearing for `effective_uniqueness_at_block_*` JOIN semantics.
 
 #[test]
 fn set_var_uniqueness_unique_does_not_insert() {
@@ -566,7 +565,7 @@ fn set_var_uniqueness_unique_does_not_insert() {
 
 #[test]
 fn set_var_uniqueness_maybe_shared_inserts() {
-    // Plan TPR Round 1 F1 LOAD-BEARING: MaybeShared IS the value the side
+    // LOAD-BEARING: MaybeShared IS the value the side
     // table must store — without this insert, `ori_list_slice_drop`'s
     // contract is silently dropped, effective falls through to lattice
     // BOTTOM=Unique, drop_hints classify as Unique, codegen routes to
@@ -635,8 +634,7 @@ fn set_var_locality_unknown_inserts() {
 fn contract_uniqueness_returns_none_when_unset() {
     // Presence-aware lookup: distinguishes "unset" from "set to BOTTOM"
     // (which doesn't insert). Without presence-awareness, an unset var
-    // would conflate with a set-to-Unique var, breaking JOIN semantics
-    // per Plan TPR Round 0 F1.
+    // would conflate with a set-to-Unique var, breaking JOIN semantics.
     let map = make_state_map(2, 3);
     assert_eq!(map.contract_uniqueness(var(0)), None);
     assert_eq!(map.contract_uniqueness(var(1)), None);
@@ -649,14 +647,14 @@ fn contract_locality_returns_none_when_unset() {
     assert_eq!(map.contract_locality(var(2)), None);
 }
 
-// Effective-state helper tests — JOIN semantics (Plan TPR Round 0 F1)
+// Effective-state helper tests — JOIN semantics
 //
 // Per §1.4, Uniqueness join is `max` (Unique < MaybeShared
 // < Shared). `effective_uniqueness_at_block_*` uses presence-aware match:
 // - None (no side-table entry) → return lattice value directly
 // - Some(contract) → contract.join(lattice) — JOIN preserves widening
 //
-// This is the unified-model semantics per CLAUDE.md §AIMS Invariant 5:
+// This is the unified-model semantics per AIMS Invariant 5:
 // the side table FEEDS INTO the lattice via JOIN, never overrides it.
 
 #[test]
@@ -703,8 +701,8 @@ fn effective_uniqueness_join_contract_unique_lattice_maybe_shared() {
     // Contract Unique × lattice MaybeShared → MaybeShared. This is the critical
     // JOIN-vs-override pin: an OVERRIDE pattern would return Unique here,
     // suppressing the backward demand widening that pushed lattice to
-    // MaybeShared. Plan TPR Round 0 F1 caught this as a critical AIMS
-    // Invariant 5 violation; the JOIN semantics are the durable fix.
+    // MaybeShared. This would be a critical AIMS Invariant 5 violation;
+    // the JOIN semantics are the durable fix.
     use super::super::super::lattice::{
         AccessClass, AimsState, Cardinality, Consumption, Uniqueness,
     };
@@ -749,7 +747,7 @@ fn effective_uniqueness_join_contract_maybe_shared_lattice_unique() {
     );
 }
 
-/// Plan TPR Round 2 codex F1 (critical INVERTED-TDD):pseudo-tested-method.
+/// Negative pin against INVERTED-TDD pseudo-tested-method.
 /// The prior JOIN tests set `contract = Unique` which the BOTTOM-default
 /// sparse filter strips, so `contract_uniqueness` returned None and
 /// effective fell through to lattice — never exercising the JOIN code path.
@@ -794,7 +792,7 @@ fn effective_uniqueness_join_contract_maybe_shared_lattice_shared_lattice_wins()
     );
 }
 
-/// Plan TPR Round 2 codex F1 (critical, locality dimension): symmetric pin
+/// Locality dimension: symmetric pin
 /// for `effective_locality_at_block_*` — present contract value MUST lose
 /// to a wider lattice value. `max(FunctionLocal, HeapEscaping) = HeapEscaping`.
 #[test]
@@ -827,7 +825,7 @@ fn effective_locality_join_contract_function_local_lattice_heap_escaping_lattice
     );
 }
 
-/// Plan TPR Round 2 codex F1 (locality, Unknown-wins case): max(HeapEscaping,
+/// Locality, Unknown-wins case: max(HeapEscaping,
 /// Unknown) = Unknown. Pins JOIN at the lattice top end.
 #[test]
 fn effective_locality_join_contract_heap_escaping_lattice_unknown_lattice_wins() {
@@ -869,7 +867,6 @@ fn effective_uniqueness_entry_exit_asymmetry() {
     // Entry-side and exit-side helpers MUST query different lattice maps.
     // Pin against any future "share one helper for both sides" refactor
     // that would silently couple consumer sites that read different sides.
-    // Per Plan TPR Round 0 gemini F2.
     use super::super::super::lattice::{
         AccessClass, AimsState, Cardinality, Consumption, Uniqueness,
     };

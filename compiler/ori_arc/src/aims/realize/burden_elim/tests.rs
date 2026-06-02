@@ -1,18 +1,16 @@
-//! Tests for the burden-op elimination consumer (§04A.2).
+//! Tests for the burden-op elimination consumer.
 //!
-//! ITEM-3 negative pins + ITEM-4 positive pins per
-//! `plans/aims-burden-tracking/section-04A-minimal-lattice-adaptation.md
-//! §04A.2`.
+//! Negative pins on residual ops + positive pins on paired elimination.
 //!
-//! Citations per ITEM-6:
+//! Predicate citations:
 //! - DP-2 (`is_rc_dec_unnecessary` at `aims/transfer/mod.rs:403`):
 //!   `is_rc_dec_unnecessary(s) ⟺ s.cardinality = Absent ∨
-//!   s.consumption = Dead` per `aims-rules.md §4 DP-2`.
+//!   s.consumption = Dead`.
 //! - DP-3 (`is_rc_inc_elidable` at `aims/transfer/mod.rs:411`):
 //!   `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧
-//!   s.consumption = Linear` per `aims-rules.md §4 DP-3`.
+//!   s.consumption = Linear`.
 
-use super::eliminate_burden_ops;
+use super::{burden_op_census, eliminate_burden_ops, is_burden_removal_only};
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
@@ -61,7 +59,8 @@ fn one_block_func(num_vars: u32, body: Vec<ArcInstr>) -> ArcFunction {
 /// Build an `AimsState` from cardinality+consumption with the remaining
 /// dimensions defaulted to a plausible owned-value shape. The elimination
 /// predicates DP-2 and DP-3 only consult `cardinality` and `consumption`
-/// per `aims-rules.md §4 Appendix C`, so other dimensions are unconstrained.
+/// per the decision-predicate truth-table appendix, so other dimensions
+/// are unconstrained.
 fn owned_state(cardinality: Cardinality, consumption: Consumption) -> AimsState {
     AimsState {
         access: AccessClass::Owned,
@@ -89,10 +88,9 @@ fn seed_exit_state(
     state_map.update_block_exit(block, map);
 }
 
-// ITEM-3 — Negative pins (regression-resistance per `tests.md §Matrix
-// Clamping`).
+// ITEM-3 — Negative pins (matrix-clamping regression-resistance).
 
-/// State (Linear, Once) — DP-2 returns FALSE per `aims-rules.md §4 DP-2`
+/// State (Linear, Once) — DP-2 returns FALSE per `DP-2`
 /// truth table. `BurdenDec` must NOT be removed.
 #[test]
 fn dp2_false_preserves_burden_dec_linear_once() {
@@ -121,7 +119,7 @@ fn dp2_false_preserves_burden_dec_linear_once() {
     );
 }
 
-/// State (Linear, Many) — DP-3 returns FALSE per `aims-rules.md §4 DP-3`
+/// State (Linear, Many) — DP-3 returns FALSE per `DP-3`
 /// truth table (cardinality ≠ Once). `BurdenInc` must NOT be removed.
 #[test]
 fn dp3_false_preserves_burden_inc_linear_many() {
@@ -150,15 +148,15 @@ fn dp3_false_preserves_burden_inc_linear_many() {
     );
 }
 
-// ITEM-4 — Positive pins (semantic pins per `tests.md §Matrix Clamping`).
+// ITEM-4 — Positive pins (semantic pins).
 // One per predicate because DP-2 + DP-3 fire on mutually-exclusive states
-// per `aims-rules.md §2 CN-1` Dead↔Absent bidirectional rule.
+// per `CN-1` Dead↔Absent bidirectional rule.
 
 /// `elide_inc_on_linear_once` — var `v` is (Owned, Linear, Once, Unique,
 /// `BlockLocal`, `NonReusable`); DP-3 (`is_rc_inc_elidable`) returns `true`;
 /// `burden_elim` removes the `BurdenInc` instruction.
 ///
-/// Per `aims-rules.md §4 DP-3`: `is_rc_inc_elidable(s) ⟺ s.cardinality =
+/// Per `DP-3`: `is_rc_inc_elidable(s) ⟺ s.cardinality =
 /// Once ∧ s.consumption = Linear`.
 #[test]
 fn elide_inc_on_linear_once() {
@@ -184,7 +182,7 @@ fn elide_inc_on_linear_once() {
 /// per CN-1 pairing; DP-2 (`is_rc_dec_unnecessary`) returns `true`;
 /// `burden_elim` removes the `BurdenDec` instruction.
 ///
-/// Per `aims-rules.md §4 DP-2`: `is_rc_dec_unnecessary(s) ⟺ s.cardinality
+/// Per `DP-2`: `is_rc_dec_unnecessary(s) ⟺ s.cardinality
 /// = Absent ∨ s.consumption = Dead`. CN-1 makes Dead↔Absent
 /// bidirectional, so any (Dead, Absent) state trivially satisfies both
 /// disjuncts.
@@ -312,7 +310,7 @@ fn preserve_dec_partial_on_many_unrestricted() {
     ));
 }
 
-// ITEM-5 — Matrix completion per `tests.md §Matrix Testing Rule`.
+// ITEM-5 — matrix completion.
 //
 // Per-(forward state × backward demand) × Burden* variant matrix: 5 states
 // × 5 variants = 25 cells. Eight cells covered by the ITEM-3 + ITEM-4 pins
@@ -322,7 +320,7 @@ fn preserve_dec_partial_on_many_unrestricted() {
 // `elide_dec_variant_on_dead_absent`, `elide_dec_field_on_dead_absent_base`,
 // `preserve_dec_partial_on_many_unrestricted`). Remaining 17 cells follow.
 //
-// Per `aims-rules.md §4 Appendix C`:
+// Per the decision-predicate truth-table appendix:
 // - DP-2 true ⟺ `cardinality = Absent ∨ consumption = Dead`. Per CN-1
 //   (Dead ↔ Absent bidirectional), only (Absent, Dead) satisfies DP-2 in
 //   a canonicalized state — the other four feasible states all preserve
@@ -332,13 +330,13 @@ fn preserve_dec_partial_on_many_unrestricted() {
 //   preserve BurdenInc.
 //
 // Each cell pins the variant-specific code path even when the predicted
-// outcome duplicates another cell; intentional per `tests.md §Matrix
-// Testing Rule` (regression-resistance against per-variant drift).
+// outcome duplicates another cell; intentional matrix coverage
+// (regression-resistance against per-variant drift).
 
 // (Once, Linear) × { BurdenDecPartial, BurdenDecVariant, BurdenDecField }
 
 /// State (Once, Linear) × `BurdenDecPartial` — DP-2 false on (Once, Linear)
-/// per `aims-rules.md §4 DP-2` truth table (neither cardinality = Absent
+/// per `DP-2` truth table (neither cardinality = Absent
 /// nor consumption = Dead); partial-drop must NOT be removed.
 #[test]
 fn preserve_dec_partial_on_linear_once() {
@@ -369,7 +367,7 @@ fn preserve_dec_partial_on_linear_once() {
 }
 
 /// State (Once, Linear) × `BurdenDecVariant` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+/// `DP-2`; variant-drop must NOT be removed.
 #[test]
 fn preserve_dec_variant_on_linear_once() {
     let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
@@ -396,7 +394,7 @@ fn preserve_dec_variant_on_linear_once() {
 }
 
 /// State (Once, Linear) × `BurdenDecField` — DP-2 queried against base's
-/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Once,
+/// whole-var state per `DP-2`; DP-2 false on (Once,
 /// Linear) base means the field dec must NOT be removed.
 #[test]
 fn preserve_dec_field_on_linear_once_base() {
@@ -428,9 +426,8 @@ fn preserve_dec_field_on_linear_once_base() {
 
 // (Many, Linear) × { BurdenDec, BurdenDecPartial, BurdenDecVariant, BurdenDecField }
 
-/// State (Many, Linear) × `BurdenDec` — DP-2 false per `aims-rules.md §4
-/// DP-2` (neither cardinality = Absent nor consumption = Dead); dec must
-/// NOT be removed.
+/// State (Many, Linear) × `BurdenDec` — DP-2 false (neither cardinality =
+/// Absent nor consumption = Dead); dec must NOT be removed.
 #[test]
 fn preserve_dec_on_linear_many() {
     let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
@@ -457,7 +454,7 @@ fn preserve_dec_on_linear_many() {
 }
 
 /// State (Many, Linear) × `BurdenDecPartial` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; partial-drop must NOT be removed.
+/// `DP-2`; partial-drop must NOT be removed.
 #[test]
 fn preserve_dec_partial_on_linear_many() {
     let func_body = vec![ArcInstr::BurdenDecPartial {
@@ -487,7 +484,7 @@ fn preserve_dec_partial_on_linear_many() {
 }
 
 /// State (Many, Linear) × `BurdenDecVariant` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+/// `DP-2`; variant-drop must NOT be removed.
 #[test]
 fn preserve_dec_variant_on_linear_many() {
     let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
@@ -514,7 +511,7 @@ fn preserve_dec_variant_on_linear_many() {
 }
 
 /// State (Many, Linear) × `BurdenDecField` — DP-2 queried against base's
-/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Many,
+/// whole-var state per `DP-2`; DP-2 false on (Many,
 /// Linear) base means the field dec must NOT be removed.
 #[test]
 fn preserve_dec_field_on_linear_many_base() {
@@ -546,8 +543,8 @@ fn preserve_dec_field_on_linear_many_base() {
 
 // (Once, Affine) × { BurdenInc, BurdenDec, BurdenDecPartial, BurdenDecVariant, BurdenDecField }
 
-/// State (Once, Affine) × `BurdenInc` — DP-3 false per `aims-rules.md §4
-/// DP-3` (consumption ≠ Linear); inc must NOT be removed.
+/// State (Once, Affine) × `BurdenInc` — DP-3 false (consumption ≠ Linear);
+/// inc must NOT be removed.
 #[test]
 fn preserve_inc_on_affine_once() {
     let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
@@ -573,9 +570,8 @@ fn preserve_inc_on_affine_once() {
     ));
 }
 
-/// State (Once, Affine) × `BurdenDec` — DP-2 false per `aims-rules.md §4
-/// DP-2` (neither cardinality = Absent nor consumption = Dead); dec must
-/// NOT be removed.
+/// State (Once, Affine) × `BurdenDec` — DP-2 false (neither cardinality =
+/// Absent nor consumption = Dead); dec must NOT be removed.
 #[test]
 fn preserve_dec_on_affine_once() {
     let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
@@ -602,7 +598,7 @@ fn preserve_dec_on_affine_once() {
 }
 
 /// State (Once, Affine) × `BurdenDecPartial` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; partial-drop must NOT be removed.
+/// `DP-2`; partial-drop must NOT be removed.
 #[test]
 fn preserve_dec_partial_on_affine_once() {
     let func_body = vec![ArcInstr::BurdenDecPartial {
@@ -632,7 +628,7 @@ fn preserve_dec_partial_on_affine_once() {
 }
 
 /// State (Once, Affine) × `BurdenDecVariant` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+/// `DP-2`; variant-drop must NOT be removed.
 #[test]
 fn preserve_dec_variant_on_affine_once() {
     let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
@@ -659,7 +655,7 @@ fn preserve_dec_variant_on_affine_once() {
 }
 
 /// State (Once, Affine) × `BurdenDecField` — DP-2 queried against base's
-/// whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on (Once,
+/// whole-var state per `DP-2`; DP-2 false on (Once,
 /// Affine) base means the field dec must NOT be removed.
 #[test]
 fn preserve_dec_field_on_affine_once_base() {
@@ -693,7 +689,7 @@ fn preserve_dec_field_on_affine_once_base() {
 // — BurdenDecPartial covered by `preserve_dec_partial_on_many_unrestricted`.
 
 /// State (Many, Unrestricted) × `BurdenInc` — DP-3 false per
-/// `aims-rules.md §4 DP-3` (cardinality ≠ Once); inc must NOT be removed.
+/// `DP-3` (cardinality ≠ Once); inc must NOT be removed.
 #[test]
 fn preserve_inc_on_unrestricted_many() {
     let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
@@ -723,7 +719,7 @@ fn preserve_inc_on_unrestricted_many() {
 }
 
 /// State (Many, Unrestricted) × `BurdenDec` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; dec must NOT be removed.
+/// `DP-2`; dec must NOT be removed.
 #[test]
 fn preserve_dec_on_unrestricted_many() {
     let func_body = vec![ArcInstr::BurdenDec { var: v(0) }];
@@ -753,7 +749,7 @@ fn preserve_dec_on_unrestricted_many() {
 }
 
 /// State (Many, Unrestricted) × `BurdenDecVariant` — DP-2 false per
-/// `aims-rules.md §4 DP-2`; variant-drop must NOT be removed.
+/// `DP-2`; variant-drop must NOT be removed.
 #[test]
 fn preserve_dec_variant_on_unrestricted_many() {
     let func_body = vec![ArcInstr::BurdenDecVariant { var: v(0) }];
@@ -783,7 +779,7 @@ fn preserve_dec_variant_on_unrestricted_many() {
 }
 
 /// State (Many, Unrestricted) × `BurdenDecField` — DP-2 queried against
-/// base's whole-var state per `aims-rules.md §4 DP-2`; DP-2 false on
+/// base's whole-var state per `DP-2`; DP-2 false on
 /// (Many, Unrestricted) base means the field dec must NOT be removed.
 #[test]
 fn preserve_dec_field_on_unrestricted_many_base() {
@@ -819,8 +815,8 @@ fn preserve_dec_field_on_unrestricted_many_base() {
 // (Absent, Dead) × { BurdenInc }
 // — remaining BurdenDec* variants on (Absent, Dead) covered above.
 
-/// State (Absent, Dead) × `BurdenInc` — DP-3 false per `aims-rules.md §4
-/// DP-3` (cardinality ≠ Once); inc must NOT be removed. Per CN-1 the
+/// State (Absent, Dead) × `BurdenInc` — DP-3 false (cardinality ≠ Once); inc
+/// must NOT be removed. Per CN-1 the
 /// (Absent, Dead) state is the only canonicalized state satisfying DP-2,
 /// but `BurdenInc` consults DP-3 which fails on cardinality = Absent.
 #[test]
@@ -848,7 +844,7 @@ fn preserve_inc_on_dead_absent() {
     ));
 }
 
-// §04A.3 ITEM-4 + ITEM-5 — Coexistence handshake pins.
+// Coexistence handshake pins.
 //
 // These pins target the predicate-stack / burden-walk handshake: when an
 // SSA-alias class is fully burden-covered, `decide()` returns
@@ -860,7 +856,7 @@ fn preserve_inc_on_dead_absent() {
 // (populating burden_emitted + class_covered + invoking decide) lands
 // in the full pipeline path.
 
-/// §04A.3 ITEM-4 positive pin: `decide()` with `class_covered: true`
+/// Positive pin: `decide()` with `class_covered: true`
 /// returns `RcDecision::None` regardless of the underlying `DecisionSite`.
 /// Predicate-stack realization SHALL emit zero RC ops on this site —
 /// burden walk owns the inc/dec.
@@ -929,7 +925,7 @@ fn class_fully_covered_predicate_stack_skips() {
     );
 }
 
-/// §04A.3 ITEM-5 negative pin: when `class_covered: false` (mixed
+/// Negative pin: when `class_covered: false` (mixed
 /// coverage in the class), `decide()` runs as today and produces the
 /// normal predicate-stack decisions. This pin proves the coexistence
 /// handshake is a STRICT all-or-nothing gate — no partial-class skipping.
@@ -970,7 +966,7 @@ fn mixed_coverage_predicate_stack_runs() {
     );
 }
 
-/// §04A.3 ITEM-2 helper test: `AimsStateMap::is_class_covered` reads
+/// Helper test: `AimsStateMap::is_class_covered` reads
 /// the set installed by `set_class_covered`. The full `populate_class_covered`
 /// fixed-point semantics are exercised via the pipeline path; here we pin
 /// the accessor contract a class id mapping in/out of the set.
@@ -997,7 +993,7 @@ fn class_covered_accessor_reads_installed_set() {
     assert_eq!(state_map.class_covered_count(), 1);
 }
 
-/// §04A.3 ITEM-1 helper test: `ArcFunction::burden_emitted` records the
+/// Helper test: `ArcFunction::burden_emitted` records the
 /// vars touched by burden-op emission. Pin proves the populate pass sets
 /// the bit for each Burden* instruction's target var.
 #[test]
@@ -1026,9 +1022,9 @@ fn burden_emitted_records_emitted_vars() {
     assert!(!func2.burden_emitted[3], "v3 not emitted");
 }
 
-/// Mixed-instruction body: per paired-elimination per `aims-rules.md §9
-/// VF-1`, a var's Inc + whole-var Dec ops elide together ONLY when DP-3
-/// fires on every Inc AND DP-2 fires on every Dec — otherwise every op
+/// Mixed-instruction body: per paired-elimination preserving VF-1
+/// intraprocedural balance, a var's Inc + whole-var Dec ops elide together
+/// ONLY when DP-3 fires on every Inc AND DP-2 fires on every Dec — otherwise every op
 /// for that var is retained so the intraprocedural net stays zero.
 ///
 /// v0 state (Once, Linear): DP-3 fires on its Inc but DP-2 does NOT fire
@@ -1076,8 +1072,7 @@ fn mixed_body_preserves_non_burden_and_relative_order() {
 }
 
 /// Paired-elim positive case: same var has `BurdenInc` + `BurdenDec`, both
-/// states elidable per their predicates. Per `plans/aims-burden-tracking/
-/// section-04A-minimal-lattice-adaptation.md §04A.5 ITEM-4`, both elide
+/// states elidable per their predicates. With both Inc and Dec elidable, both elide
 /// together when DP-3 fires on Inc AND DP-2 fires on Dec.
 ///
 /// Two distinct states is impossible for one var in one block-exit
@@ -1166,4 +1161,140 @@ fn paired_elim_solo_dec_unnecessary_state_elides() {
         "solitary Dec with DP-2 firing elides (no matching Inc to pin against); body = {:?}",
         func.blocks[0].body
     );
+}
+
+// Lattice consumption-mode shift (emission → elimination).
+//
+// The CRITICAL invariant of the Canonical RC-Emission Path:
+// "`eliminate_burden_ops` consumes DP-2/DP-3 at burden-op sites. It NEVER
+// constructs burden ops." Phase 6 is an OPTIMIZER over the Phase-5
+// burden-emitted baseline — every burden-op kind's post-pass census is `≤`
+// its pre-pass census. The pins below clamp that consumption-mode from both
+// sides:
+//   - semantic positive pin: the pass eliminates (census strictly shrinks on
+//     an elidable op AND the op is gone) and reports removal-only;
+//   - negative pin: the removal-only predicate REJECTS a constructing census
+//     (after > before);
+//   - debug-build guard pin: the structural guard panics when Phase 6 would
+//     construct a burden op (debug builds only — `debug_assert!`).
+
+/// Semantic positive pin — the consumption-mode is ELIMINATION.
+///
+/// `eliminate_burden_ops` over a body with an elidable `BurdenInc` (Once,
+/// Linear → DP-3 fires) STRICTLY SHRINKS the burden census (the Inc is
+/// removed) and the transition is removal-only. This pin FAILS on revert if
+/// Phase 6 were reverted to a constructor (census would grow, `<` would
+/// become `>`) OR if it stopped eliminating (census would stay equal, the
+/// strict-shrink assertion would fail).
+#[test]
+fn phase6_is_elimination_census_strictly_shrinks() {
+    let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    let before = burden_op_census(&func);
+    eliminate_burden_ops(&mut func, &state_map);
+    let after = burden_op_census(&func);
+
+    // BurdenInc census (index 0) strictly shrinks: the elidable op is removed.
+    assert_eq!(before[0], 1, "pre-pass census records the one BurdenInc");
+    assert_eq!(
+        after[0], 0,
+        "Phase 6 ELIMINATED the BurdenInc (census shrank)"
+    );
+    assert!(
+        is_burden_removal_only(&before, &after),
+        "Phase 6 elimination is removal-only: before = {before:?}, after = {after:?}"
+    );
+    assert!(
+        func.blocks[0].body.is_empty(),
+        "the elided BurdenInc must be gone from the body; body = {:?}",
+        func.blocks[0].body
+    );
+}
+
+/// Census-conservation pin — when nothing is elidable, Phase 6
+/// constructs nothing and the census is unchanged (removal-only with zero
+/// removals). Clamps the lower bound: the pass never grows the census.
+#[test]
+fn phase6_preserves_census_when_nothing_elidable() {
+    let func_body = vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(1, func_body);
+    let mut state_map = AimsStateMap::new(&func);
+    // (Many, Unrestricted): neither DP-2 nor DP-3 fires → no elision.
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(
+            v(0),
+            owned_state(Cardinality::Many, Consumption::Unrestricted),
+        )],
+    );
+
+    let before = burden_op_census(&func);
+    eliminate_burden_ops(&mut func, &state_map);
+    let after = burden_op_census(&func);
+
+    assert_eq!(
+        before, after,
+        "Phase 6 constructs nothing AND elides nothing on a non-elidable body"
+    );
+    assert!(is_burden_removal_only(&before, &after));
+}
+
+/// Negative pin — the removal-only predicate REJECTS a Phase-6
+/// construction attempt. For EVERY burden-op kind, a census transition where
+/// `after > before` (a burden op was constructed) is rejected. This is the
+/// structural enforcement that a future regression appending a burden op in
+/// Phase 6 cannot pass.
+#[test]
+fn removal_only_predicate_rejects_construction_per_kind() {
+    // Baseline: empty census.
+    let zero = [0usize; 5];
+    // Removal-only (no change) is accepted.
+    assert!(
+        is_burden_removal_only(&zero, &zero),
+        "no-op census transition is removal-only"
+    );
+    // Removal (after < before) is accepted.
+    let some = [2, 2, 2, 2, 2];
+    let removed = [1, 0, 2, 1, 0];
+    assert!(
+        is_burden_removal_only(&some, &removed),
+        "shrinking census (pure removal) is removal-only"
+    );
+
+    // Construction of ANY single kind is rejected.
+    for kind in 0..5 {
+        let mut constructed = zero;
+        constructed[kind] = 1; // Phase 6 "appended" one op of this kind.
+        assert!(
+            !is_burden_removal_only(&zero, &constructed),
+            "constructing kind {kind} (0 → 1) must be REJECTED by the removal-only guard"
+        );
+    }
+}
+
+/// Debug-build structural guard pin — `debug_assert_burden_removal_only`
+/// panics when Phase 6 would construct a burden op. Debug builds only:
+/// `debug_assert!` is a no-op under `--release`, so the guard (and this pin)
+/// are scoped to `debug_assertions`. The companion release-safe enforcement
+/// is `removal_only_predicate_rejects_construction_per_kind` above.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "AIMS Phase-6 invariant")]
+fn debug_guard_panics_on_phase6_construction() {
+    use super::debug_assert_burden_removal_only;
+    let before = [1usize, 0, 0, 0, 0];
+    // after grows BurdenDec from 0 → 1: a construction in Phase 6.
+    let after = [1usize, 1, 0, 0, 0];
+    debug_assert_burden_removal_only(&before, &after);
 }

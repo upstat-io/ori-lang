@@ -222,12 +222,12 @@ fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
     );
 }
 
-// ─── §02.4.B Channel<T> drop-glue reachability via §02.3 wrapper ────────
+// ───.B Channel<T> drop-glue reachability via wrapper ────────
 //
 // These tests exercise the END-TO-END drop-glue pathway for `Channel<T>`:
-// the §01 BURDEN_TABLE template is composed via `compose_user_burden` at
+// the BURDEN_TABLE template is composed via `compose_user_burden` at
 // monomorphization, registered against a monomorphized `Idx` via
-// `TypeRegistry::register_user_burden`, and looked up via the §02.3
+// `TypeRegistry::register_user_burden`, and looked up via the
 // wrapper surface (`lookup_burden`). The walk MUST reveal a path to T's
 // burden when T has one (e.g., `Channel<str>` → str's heap allocation);
 // no path when T is empty-burden (e.g., `Channel<int>`).
@@ -240,7 +240,7 @@ fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
         Some(spec) => spec,
         None => {
-            panic!("Channel<T> template missing from BURDEN_TABLE — §02.4.B template regression")
+            panic!("Channel<T> template missing from BURDEN_TABLE —.B template regression")
         }
     }
 }
@@ -269,7 +269,7 @@ fn register_user_struct_slot(registry: &mut TypeRegistry, name: &str, idx: Idx) 
 fn channel_builtin_template_lookup_returns_static_burden_ref() {
     // Positive: TypeRef::Builtin(TYPE_ID_CHANNEL) routes through
     // `BurdenRegistry::lookup_builtin`, returning a `&'static
-    // BuiltinBurdenSpec` matching the §02.4.B template. The template's
+    // BuiltinBurdenSpec` matching the.B template. The template's
     // `element_burden` is the TYPE_PARAM_T placeholder — composition
     // substitutes it to a concrete user `Idx` before drop-glue lookup.
     let registry = TypeRegistry::new();
@@ -293,9 +293,9 @@ fn channel_builtin_template_lookup_returns_static_burden_ref() {
 
 #[test]
 fn channel_str_composed_spec_walked_via_wrapper_reveals_str_burden_path() {
-    // Positive (drop-glue reachability — gemini blind-spot #2 cure):
-    // composing `Channel<str>` via the §02.1 mechanism, registering it,
-    // and walking the resulting `UserBurdenSpec` via the §02.3 wrapper
+    // Positive (drop-glue reachability):
+    // composing `Channel<str>` via the mechanism, registering it,
+    // and walking the resulting `UserBurdenSpec` via the wrapper
     // (`lookup_burden`) reveals a path from the Channel handle to T's
     // burden via `element_burden = Some(Idx::STR)`. When drop-glue
     // emission walks the spec, it sees Idx::STR and emits the appropriate
@@ -568,7 +568,7 @@ fn idx_to_type_ref_dynamic_dispatches_user() {
 
 #[test]
 fn idx_to_type_ref_error_dispatches_user() {
-    // Idx::ERROR (raw 8) is poison per types.md §TK-3; no burden entry in
+    // Idx::ERROR (raw 8) is poison per -3; no burden entry in
     // BURDEN_TABLE. Must route to User (where TypeRegistry::burden returns
     // None for the unregistered ERROR slot).
     let registry = TypeRegistry::new();

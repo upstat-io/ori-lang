@@ -5,7 +5,7 @@
 //! [`super::define_phase`]) and the two-pass prepare path
 //! ([`FunctionCompiler::prepare_arc_function`] in [`super::nounwind::prepare`])
 //! route through these helpers. Factored out of `define_phase.rs` as part
-//! of the §04 hygiene sweep so `define_phase.rs` stays under the 500-line
+//! of the hygiene sweep so `define_phase.rs` stays under the 500-line
 //! cap while keeping the shared-seam surface in one place.
 //!
 //! Callers (grep-verifiable):
@@ -58,18 +58,18 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Apply AIMS param ownership from pre-computed contracts.
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // AIMS contracts (from compute_aims_contracts()) provide the correct
+        // AIMS contracts (from compute_aims_contracts) provide the correct
         // Owned/Borrowed per param.
         debug!(name = %self.interner.lookup(name), "processing ARC function");
         self.apply_aims_param_ownership(arc_func);
 
         // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
         //
-        // PREREQUISITE PLACEHOLDER (§04A.0 ITEM-0a): TypeRegistry is not yet
+        // PREREQUISITE PLACEHOLDER: TypeRegistry is not yet
         // surfaced into FunctionCompiler. Pass an empty default so the
         // AimsPipelineConfig wiring compiles; the burden walker that would
         // consume the registry is not yet active on this codegen path.
-        // §04A.0 ITEM-1 surfacing of the live registry from
+        //  surfacing of the live registry from
         // ModuleChecker::finish_with_pool is the follow-up.
         let placeholder_type_registry = ori_types::TypeRegistry::default();
         let arc_problems = ori_arc::run_arc_pipeline(
@@ -107,7 +107,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Report a contract-violation at a primary PC-2 / monomorphization-resolution
     /// seam: emit structured `contract_violation=true` tracing event, increment
     /// the codegen-error counter (so AOT callers see the failure through
-    /// `builder.codegen_error_count()`), and convert the typed error to the
+    /// `builder.codegen_error_count`), and convert the typed error to the
     /// shared `VerifyError` variant via `Into`. Returns the converted error so
     /// the caller can `return Err(...)` directly.
     ///
@@ -115,7 +115,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// `declare_and_process_lambda` (PC-2 + `BoundVar` on lambdas). Secondary-site
     /// hooks (`pc2_hooks::run_pc2_hook_aot` AOT path, `evaluator/compile.rs` JIT
     /// path) do NOT use this helper — they emit `tracing::error!` only per the
-    /// secondary-site contract (no `record_codegen_error()`, no `return Err`).
+    /// secondary-site contract (no `record_codegen_error`, no `return Err`).
     pub(super) fn report_primary_seam_violation<E>(
         &mut self,
         err: E,
@@ -136,7 +136,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Translate AIMS `ParamContract` → `Ownership` for every param on `func`.
     ///
     /// Lowering defaults all params to `Ownership::Owned` (see
-    /// `ori_arc/src/lower/mod.rs`); AIMS contracts (from `compute_aims_contracts()`)
+    /// `ori_arc/src/lower/mod.rs`); AIMS contracts (from `compute_aims_contracts`)
     /// carry the correct Owned/Borrowed classification per param. This helper
     /// consumes the interprocedural contract for `func.name` (when present) and
     /// writes the per-param ownership in-place. Callers: `process_arc_function`
@@ -167,7 +167,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// parameter, making it directly callable as a closure without generating
     /// a `_ori_partial_N` trampoline wrapper. The emission ABI (stored in
     /// `codegen_ctx.functions`) does NOT include the phantom param -- it stays
-    /// unchanged so `emit_function()` body emission works correctly.
+    /// unchanged so `emit_function` body emission works correctly.
     pub(super) fn declare_and_process_lambda(
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
@@ -207,7 +207,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Apply AIMS param ownership from pre-computed contracts BEFORE the
         // name change below. The contracts map uses the original lambda name
         // (e.g., `__lambda_0` from lowering). Lambdas need correct
-        // Owned/Borrowed annotations so that collect_all_borrowed_defs()
+        // Owned/Borrowed annotations so that collect_all_borrowed_defs
         // correctly identifies borrowed params and their Let aliases.
         // Without this, edge cleanup emits spurious RcDec for
         // borrowed-param aliases (double-free on captured non-scalar
@@ -242,7 +242,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Declare with phantom env param for non-capturing lambdas.
         // The emission ABI (registered below) does NOT include the phantom
-        // param -- emit_function() adjusts llvm_param_idx to skip it.
+        // param -- emit_function adjusts llvm_param_idx to skip it.
         let func_id = if is_non_capturing {
             let ptr_ty = self.builder.ptr_type();
             self.declare_function_llvm_with_extra_params(&symbol, &abi, &[ptr_ty])
@@ -260,7 +260,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // ARC processing — AIMS pipeline handles arg_ownership internally.
         //
-        // PREREQUISITE PLACEHOLDER (§04A.0 ITEM-0a): see process_arc_function
+        // PREREQUISITE PLACEHOLDER: see process_arc_function
         // for full rationale. Lambda path mirrors parent path.
         let placeholder_type_registry = ori_types::TypeRegistry::default();
         let arc_problems = ori_arc::run_arc_pipeline(

@@ -29,21 +29,20 @@ use super::super::lattice::{
 use super::super::transfer::transfer_def;
 use super::state_map::{AimsEvent, AimsStateMap};
 
-/// §04A.3 ITEM-2 — populate `AimsStateMap::class_covered`.
+/// Populate `AimsStateMap::class_covered` for the coexistence handshake.
 ///
 /// `class_covered[C] = true` iff:
 /// 1. Every var `v ∈ class_members[C]` has `func.burden_emitted[v.index()] = true`.
 /// 2. Every payload class `P` transitively reachable from `C` via
 ///    `class_payload_of` is also in `class_covered`.
 ///
-/// Fixed-point iteration over the finite class set — terminates per
-/// `aims-rules.md §1.8 L-5` (`class_members` is finite; `class_covered`
-/// only grows; iteration halts when one full pass adds zero classes).
+/// Fixed-point iteration over the finite class set — terminates per L-5
+/// (`class_members` is finite; `class_covered` only grows; iteration halts
+/// when one full pass adds zero classes).
 ///
-/// Coexistence handshake per `plans/aims-burden-tracking/section-04A-minimal-
-/// lattice-adaptation.md §04A.3 ITEM-2`. AIMS Invariant #5(c) — derives
-/// purely from existing `class_members` + `class_payload_of` +
-/// `func.burden_emitted` side tables; no parallel uniqueness tracker.
+/// AIMS Invariant #5(c) — derives purely from existing `class_members` +
+/// `class_payload_of` + `func.burden_emitted` side tables; no parallel
+/// uniqueness tracker.
 pub(crate) fn populate_class_covered(state_map: &mut AimsStateMap, func: &ArcFunction) {
     // Empty burden_emitted means the burden walker never ran or emitted
     // nothing — no class can be covered (DP-2/DP-3 elimination would still
@@ -146,14 +145,14 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 ///    without it, a callee with `return_info.locality = FunctionLocal` would
 ///    not surface as a `LocalAllocCandidate` because the lattice's BOTTOM
 ///    locality is `BlockLocal` (already FunctionLocal-eligible) but the
-///    contract-derived narrowing is invisible. Plan TPR Round 0 F4.
+///    contract-derived narrowing is invisible.
 ///
 /// Walks both `block.body` (covers Apply / Construct / etc.) AND
 /// `block.terminator` (covers Invoke — the only terminator that defines
-/// a variable). Plan TPR Round 4 F2 (gemini singleton medium GAP) added
-/// the terminator walk after identifying that Invoke results were silently
-/// skipped, leaving terminator-defined call results without
-/// `LocalAllocCandidate` events even when their contract narrowed locality.
+/// a variable). The terminator walk is required because Invoke results
+/// would otherwise be silently skipped, leaving terminator-defined call
+/// results without `LocalAllocCandidate` events even when their contract
+/// narrowed locality.
 pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
         #[expect(
@@ -164,8 +163,8 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 
         for (instr_idx, instr) in block.body.iter().enumerate() {
             // Reusable allocation candidates: Construct with reusable ctor.
-            // Plan TPR Round 2 gemini F1: use `is_excluded` (skips both
-            // scalars AND immortals) — `is_scalar` alone leaks immortal
+            // Use `is_excluded` (skips both scalars AND immortals) —
+            // `is_scalar` alone leaks immortal
             // heap-allocated constants into reuse candidates, where they
             // cannot be reused because their MAX_REFCOUNT prevents the
             // reset/reuse pipeline from acquiring the allocation.
@@ -184,8 +183,8 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
             // Local-allocation eligibility: variables with local exit state.
             // Uses `effective_locality_at_block_exit` (NOT raw lattice
             // locality) so contract-narrowed call results surface here.
-            // Plan TPR Round 2 gemini F1: `is_excluded` excludes both
-            // scalars and immortals from local-alloc candidacy.
+            // `is_excluded` excludes both scalars and immortals from
+            // local-alloc candidacy.
             if let Some(dst) = instr.defined_var() {
                 if state_map.is_excluded(dst) {
                     continue;
@@ -204,11 +203,10 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
             }
         }
 
-        // Plan TPR Round 4 F2: Invoke terminator's dst is also a
-        // forward-defined call result; treat symmetrically to body-Apply
-        // per `populate_call_result_states`. The body loop above never
-        // visits the terminator — Invoke results were silently skipped.
-        // Plan TPR Round 2 gemini F1: `is_excluded` matches the body
+        // Invoke terminator's dst is also a forward-defined call result;
+        // treat symmetrically to body-Apply per `populate_call_result_states`.
+        // The body loop above never visits the terminator — Invoke results
+        // would otherwise be silently skipped. `is_excluded` matches the body
         // loop's exclusion criteria (scalars + immortals).
         if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
             if !state_map.is_excluded(*dst) {
@@ -236,7 +234,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 /// Pipeline position: 1.5, between [`populate_borrow_sources`] (position 1)
 /// and [`populate_sparse_events`] (position 2). The side tables MUST be
 /// populated BEFORE `populate_sparse_events` reads them via
-/// `effective_locality_at_block_exit` (Plan TPR Round 0 F4 ordering).
+/// `effective_locality_at_block_exit`.
 ///
 /// # Per-spec coverage
 ///
@@ -247,16 +245,15 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 ///   `ReturnContract::CONSERVATIVE` (uniqueness=MaybeShared, locality=Unknown,
 ///   shape=NonReusable). NOT lattice BOTTOM — TF-5 says CONSERVATIVE, which
 ///   has `MaybeShared` uniqueness encoding the "unknown callee, runtime
-///   `IsShared` check" semantics. Plan TPR Round 1 codex F2.
+///   `IsShared` check" semantics.
 /// - **TF-5a / TF-6c** (indirect `ApplyIndirect` / InvokeIndirect): same
-///   CONSERVATIVE per spec "Same as TF-5". Plan TPR Round 5 F2 corrected
-///   prior round's "exclude indirect calls" treatment — the spec mandates
-///   CONSERVATIVE for spec-symmetric handling between direct-no-contract
-///   and indirect calls.
+///   CONSERVATIVE per spec "Same as TF-5" — the spec mandates CONSERVATIVE
+///   for spec-symmetric handling between direct-no-contract and indirect
+///   calls.
 ///
 /// # Canonicalization
 ///
-/// Plan TPR Round 5 F1 (codex critical): direct field writes from
+/// Direct field writes from
 /// `return_info` would bypass cross-dimensional feasibility invariants
 /// (CN-3 Shared+ReusableCtor → `NonReusable`; CN-6 HeapEscaping+Unique →
 /// `MaybeShared`). The pass builds a temporary `AimsState` from
@@ -270,7 +267,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 /// `BlockLocal`) — the side table stays sparse, and effective queries fall
 /// through to the lattice (which is also BOTTOM by default) for those
 /// values. CONSERVATIVE values (`MaybeShared`, Unknown) ARE stored — they
-/// override the optimistic lattice default. Plan TPR Round 1 F1.
+/// override the optimistic lattice default.
 ///
 /// `set_var_shape` keeps its existing `NonReusable` filter (BOTTOM = CONSERVATIVE
 /// for shape — they coincide).
@@ -374,7 +371,7 @@ pub(crate) fn populate_call_result_states(
 /// - COW annotation for `CollectionBuffer` non-parameters
 /// - TRMC candidate detection (`ContextHole`)
 ///
-/// Section 09.2 Shape Activation.
+/// Shape Activation.
 pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for block in &func.blocks {
         for instr in &block.body {
@@ -413,7 +410,7 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 ///    The constructor destination is `Unique` — no other references exist
 ///    at the mutation point, so in-place hole fill is safe.
 ///
-/// # Soundness gates (Section 13.2)
+/// # Soundness gates
 ///
 /// TRMC requires TWO soundness gates:
 ///
@@ -438,21 +435,21 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// `ContextHole`, enabling Stage 3 TRMC normalization to rewrite the
 /// recursive call into an in-place fill of the constructor's hole.
 ///
-/// Section 09.2 Shape Activation — `ContextHole` detection.
+/// Shape Activation — `ContextHole` detection.
 pub(crate) fn detect_trmc_candidates(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
     may_share: bool,
 ) {
     // Collect variables defined by recursive calls (callee == func.name).
-    // Uses the shared helper from normalize/detect.rs (Section 12.4a unification).
+    // Uses the shared helper from normalize/detect.rs.
     let recursive_sites = crate::aims::normalize::collect_recursive_call_sites(func);
     let recursive_defs: FxHashSet<ArcVarId> = recursive_sites.into_keys().collect();
     if recursive_defs.is_empty() {
         return;
     }
 
-    // Soundness gate 2 (Section 13.2): Effect purity — logged, not enforced.
+    // Soundness gate 2: Effect purity — logged, not enforced.
     // In Ori v1, no effect handlers exist, so non-linear resumption cannot
     // occur. When effect handlers are implemented, this must be enforced
     // (or refined to exclude self-sharing from returned Constructs).
@@ -531,7 +528,7 @@ pub(crate) fn detect_trmc_candidates(
 /// (set by `detect_trmc_candidates`) and is `Unique` at the block exit, records
 /// paired events in the sparse event table.
 ///
-/// # Soundness gates (Section 13.2)
+/// # Soundness gates
 ///
 /// Same two-gate model as `detect_trmc_candidates`:
 ///
@@ -554,7 +551,7 @@ pub(crate) fn populate_context_events(
         return;
     }
 
-    // Soundness gate 2 (Section 13.2): Effect purity — logged, not enforced.
+    // Soundness gate 2: Effect purity — logged, not enforced.
     if may_share {
         tracing::trace!(
             func = ?func.name,
@@ -629,16 +626,16 @@ pub(crate) fn populate_context_events(
 /// Whether class A's lifetime extends past class B's destruction along some
 /// CFG path, using the converged `AimsStateMap`'s path-sensitive liveness.
 ///
-/// Two-tier check (Round 3 codex-F1 + gemini-F1 — intra-block gap close,
-/// Round 4 gemini-F1 + Round 5 codex-F2 — terminator + defined-dead refinements):
+/// Two-tier check (intra-block gap close + terminator + defined-dead
+/// refinements):
 /// 1. Block-exit tier: `is_live_at_exit` JOIN'd block-exit semantics.
 /// 2. Intra-block tier: `precompute_block_uses` last-use comparison; only
 ///    fires when ALL B-members are dead-at-exit; defined-dead B detected
 ///    via `def_site_block`.
 ///
-/// Witness-set widening (BUG-04-118 §05 Round 3 Option A — 3-of-3 reviewer
-/// consensus): A's witness set is extended with Project-derived aliases of
-/// B-members. Project apply-aliases live in a DIFFERENT class than their
+/// Witness-set widening (BUG-04-118): A's witness set is extended with
+/// Project-derived aliases of B-members. Project apply-aliases live in a
+/// DIFFERENT class than their
 /// source (PIN-2 at `ssa_alias_classes.rs:131` — "different RC slot"), so
 /// `class_members(class_a)` cannot see them. The `project_alias_sources`
 /// side-table on `AimsStateMap` records each alias-chain destination's root
@@ -668,7 +665,7 @@ fn class_lifetime_extends_past_path_sensitive(
         return false;
     };
 
-    // BUG-04-118 §05 Round 3 Option A: build A's extended witness set by
+    // BUG-04-118: build A's extended witness set by
     // walking project_alias_sources for any alias whose root sources include
     // a B-member. Witnesses are USED for "is A still alive?" checks (any_a
     // _live_exit, max_a_in_body, a_at_term) but NOT for B-related checks
@@ -749,8 +746,8 @@ fn class_lifetime_extends_past_path_sensitive(
     false
 }
 
-/// Centralized `class_payload_of` edge recording with Option D path-sensitive
-/// lifetime check (BUG-04-118 §05.3).
+/// Centralized `class_payload_of` edge recording with path-sensitive
+/// lifetime check (BUG-04-118).
 fn record_payload_edge_lifetime(
     arg: ArcVarId,
     dst: ArcVarId,
@@ -858,14 +855,14 @@ fn container_payload_moved_out(
     })
 }
 
-/// Post-convergence `class_payload_of` population (BUG-04-118 §05.4).
+/// Post-convergence `class_payload_of` population (BUG-04-118).
 ///
 /// Walks the 5 edge-recording sites (Construct/PartialApply/Apply/Set/Invoke)
 /// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`.
 /// For each candidate edge, applies the path-sensitive lifetime check from
 /// `class_lifetime_extends_past_path_sensitive`; edges where A outlives B are
 /// skipped. After collecting edges, materializes singleton class entries
-/// (§05.4a) so PIN-6's `class_members(parent)` lookup succeeds for
+/// so PIN-6's `class_members(parent)` lookup succeeds for
 /// singleton parents/children, then installs via `set_class_payload_of`.
 #[expect(
     clippy::too_many_lines,
@@ -1025,14 +1022,13 @@ pub(crate) fn populate_class_payload_of_with_liveness(
     tracing::debug!(
         func = ?func.name,
         edges = class_payload_of.len(),
-        "BUG-04-118 §05.4 populate_class_payload_of_with_liveness installed path-sensitive edge map"
+        "BUG-04-118 populate_class_payload_of_with_liveness installed path-sensitive edge map"
     );
 
     state_map.set_class_payload_of(class_payload_of);
 }
 
-/// BUG-04-118 §05 Round 2 /tp-help — populate the same-class dec obligation
-/// table.
+/// BUG-04-118 — populate the same-class dec obligation table.
 ///
 /// Per multi-member SSA alias class C, per block B: identifies which class
 /// members have last-use within B (intra-block obligations) and which class
@@ -1126,7 +1122,7 @@ pub(crate) fn populate_class_dec_obligations(state_map: &mut AimsStateMap, func:
 
     tracing::debug!(
         target: "ori_arc::aims::intraprocedural::post_convergence",
-        "BUG-04-118 §05 Round 2 populate_class_dec_obligations installed table with {} entries",
+        "BUG-04-118 populate_class_dec_obligations installed table with {} entries",
         obligations.len()
     );
 

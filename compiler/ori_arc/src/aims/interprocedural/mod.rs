@@ -19,7 +19,7 @@
 //! # Module structure
 //!
 //! - [`scc_driver`] — call-graph SCC driver + fixed-point loop (`analyze_program`)
-//! - [`demand_propagation`] — post-fixpoint uniqueness tightening (Section 09.1)
+//! - [`demand_propagation`] — post-fixpoint uniqueness tightening
 //! - [`use_count`] — variable use-counting (load-bearing for BUG-04-069)
 //! - [`extract`] — contract extraction from converged state maps
 //!

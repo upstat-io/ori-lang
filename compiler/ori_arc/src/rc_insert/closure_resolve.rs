@@ -112,7 +112,7 @@ pub(crate) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, 
 /// is found. Returns `None` for unresolvable origins (opaque params,
 /// conflicting merges, cycles).
 ///
-/// `var_types` maps `ArcVarId::index()` to type indices. Used during
+/// `var_types` maps `ArcVarId::index` to type indices. Used during
 /// block-param merging to compare capture types (not var identity) —
 /// two different vars with the same type produce the same ownership
 /// after `apply_consuming_overrides`.
@@ -239,7 +239,7 @@ fn captures_same_override_semantics(
 /// variant accepts via tag equivalence.
 ///
 /// Used by `aims/intraprocedural/apply_aliases.rs::populate_apply_result_aliases`
-/// (BUG-04-118 §05 closure `ApplyIndirect` bridge) where pool is not available
+/// (BUG-04-118 closure `ApplyIndirect` bridge) where pool is not available
 /// at AIMS analysis time per the `var_rc_strategies` cache architecture.
 pub(crate) fn resolve_to_partial_apply_idx_eq(
     var: ArcVarId,

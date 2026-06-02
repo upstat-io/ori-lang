@@ -1,6 +1,6 @@
-//! BUG-04-118 §05 R3 — Post-realize cleanup of redundant project-alias decs.
+//! BUG-04-118 — Post-realize cleanup of redundant project-alias decs.
 //!
-//! Synthesized from /tp-help R1 codex consensus (2026-05-08): the over-emission
+//! The over-emission
 //! shape for nested-Project chains over transitive-drop variant containers
 //! cannot be cured at PIN-6 walker level alone — the failing decs bypass PIN-6
 //! and emit via `dead_cleanup::emit_dead_at_entry_decs` and
@@ -26,7 +26,7 @@
 //! at emission time requires shared state none currently has. A post-pass
 //! that runs after all emission is the cleanest cure surface.
 //!
-//! ## Discriminator (codex consensus)
+//! ## Discriminator
 //!
 //! - Reject classes touched by Direct OR Conditional apply-result union
 //!   (Wrapped is containment-only, not Project provenance).
@@ -35,6 +35,8 @@
 //! - Require: at least one class member has a `project_alias_sources` entry
 //!   pointing at a transitive-drop ancestor (so source's drop chain WILL
 //!   walk this slot and provide the implicit dec).
+
+use std::sync::LazyLock;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -46,6 +48,13 @@ use crate::graph::DominatorTree;
 use crate::ir::{is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use super::super::emit_rc::rc_strategy;
+
+/// `ORI_DISABLE_REDUNDANT_CLEANUP=1` disables the redundant project-alias dec
+/// cleanup pass. Read once at first access; kept as a permanent diagnostic
+/// bisection flag (RC-balance issues originating in the cleanup vs upstream
+/// emission).
+static REDUNDANT_CLEANUP_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_REDUNDANT_CLEANUP").is_ok());
 
 /// Post-realize cleanup pass — remove redundant project-alias decs.
 ///
@@ -65,22 +74,21 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     pool: &Pool,
     interner: &StringInterner,
 ) {
-    // BUG-04-118 §05 R3 — `ORI_DISABLE_REDUNDANT_CLEANUP=1` env var disables
-    // the cure for diagnostic regression isolation. Permanent diagnostic
-    // surface per .claude/rules/tooling-first.md §1 — kept for future bisection.
-    if std::env::var("ORI_DISABLE_REDUNDANT_CLEANUP").is_ok() {
+    // `ORI_DISABLE_REDUNDANT_CLEANUP=1` disables the cure for diagnostic
+    // regression isolation; kept as a permanent diagnostic bisection flag.
+    if *REDUNDANT_CLEANUP_DISABLED {
         return;
     }
-    // BUG-04-118 §05 R3 — Skip cure when function contains Apply
+    // BUG-04-118 — Skip cure when function contains Apply
     // @ori_catch_recover. Catch lowering at lower/constructs.rs:237-289
     // returns a fresh str (the panic msg) via this builtin; the str's RC
     // trajectory interacts with class_outer's transitive drops AND the
-    // for-loop iter() chain in ways the simple K/N/source-dec model
+    // for-loop iter chain in ways the simple K/N/source-dec model
     // miscounts. Conservative skip preserves baseline correctness for
     // catch-using functions (the canonical regression: result_str_letvar
     // _forloop_over_alias) at the cost of leaving match_arm_alias_result
-    // _str + unwind_path_alias unfixed by this cure (filed BUG-XX-NNN
-    // for separate path-sensitive cure work).
+    // _str + unwind_path_alias unfixed by this cure, left for separate
+    // path-sensitive cure work.
     let catch_recover_name = interner.intern("ori_catch_recover");
     let has_catch_recover = func.blocks.iter().any(|block| {
         block.body.iter().any(|instr| {
@@ -145,7 +153,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     let dom = DominatorTree::build(func);
     let mut removals: FxHashSet<(usize, usize)> = FxHashSet::default();
 
-    // BUG-04-118 §05 R3 — Pre-compute decs-per-class function-wide so we can
+    // BUG-04-118 — Pre-compute decs-per-class function-wide so we can
     // count source-class decs (each walks payload via type-driven drop,
     // contributing one cover per dec).
     let mut all_class_dec_counts: FxHashMap<u32, usize> = FxHashMap::default();
@@ -161,7 +169,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
 
     for (class_id, decs) in &class_decs {
         let n = decs.len();
-        // BUG-04-118 §05 R3 — Chain-aware K/N counting. Walk transitively
+        // BUG-04-118 — Chain-aware K/N counting. Walk transitively
         // through project_alias_sources to find ALL classes that share the
         // underlying physical storage. Aggregate K (RcInc) and N (RcDec)
         // across the chain. The class being decided (class_id) contributes
@@ -261,7 +269,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     if removals.is_empty() {
         return;
     }
-    eprintln!("[CLEANUP] func={:?} removing {:?}", func.name, removals);
+    log_cleanup_removals(func, &removals);
 
     // Step 4: rebuild each block's body without the marked decs. Iterate
     // blocks in reverse so removed indices don't shift unprocessed entries
@@ -285,9 +293,20 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     }
 }
 
+/// Emit the post-cleanup diagnostic event listing removed dec sites.
+#[cold]
+fn log_cleanup_removals(func: &ArcFunction, removals: &FxHashSet<(usize, usize)>) {
+    tracing::debug!(
+        target: "ori_arc::aims::realize",
+        func = ?func.name,
+        removals = ?removals,
+        "[CLEANUP] removing"
+    );
+}
+
 /// Identify project-only classes qualifying for redundant-dec cleanup.
 ///
-/// Per codex consensus discriminator:
+/// Per the discriminator:
 /// - REJECT classes with any member in `apply_result_aliases` as Direct or
 ///   Conditional (Wrapped is containment-only, allowed).
 /// - REJECT classes with any member that is a function parameter.
@@ -304,8 +323,8 @@ fn identify_qualified_classes(
 
     // Compute set of vars that are Apply/Invoke destinations across the
     // function. Any class containing such a var has Apply provenance and
-    // is excluded — codex consensus: "only real Project-origin chains
-    // qualify for this cure". Apply destinations may inherit project_alias
+    // is excluded — only real Project-origin chains qualify for this cure.
+    // Apply destinations may inherit project_alias
     // _sources entries via Step 1b (Apply-aliased seed) but those are NOT
     // real Project provenance and the cure must skip them.
     let mut apply_dst_set: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -352,8 +371,8 @@ fn identify_qualified_classes(
             continue;
         }
         // REJECT: any member is an Apply/Invoke destination. Apply provenance
-        // (including Wrapped variants) is NOT real Project provenance per
-        // codex consensus — Step 1b seeds project_alias_sources with Apply
+        // (including Wrapped variants) is NOT real Project provenance —
+        // Step 1b seeds project_alias_sources with Apply
         // arg, but suppression must NOT fire on Apply-derived classes
         // (catch lowering, generic forwarders, etc. — these have their own
         // cleanup machinery).

@@ -1,7 +1,7 @@
 //! Enum-specific LLVM type resolution.
 //!
 //! Extracted from `layout_resolver.rs` for file size hygiene.
-//! Contains `resolve_enum()` and its three encoding-specific helpers:
+//! Contains `resolve_enum` and its three encoding-specific helpers:
 //! explicit tag, tagless (single-variant), and niche-encoded.
 
 use inkwell::types::BasicTypeEnum;
@@ -31,7 +31,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
             return self.scx.type_ptr().into();
         }
 
-        // §07.2: Check ReprPlan for niche/tagless encoding.
+        // Check ReprPlan for niche/tagless encoding.
         // Use resolve_fully to match the Idx used by canonical population.
         let resolved_idx = self.store.pool().resolve_fully(idx);
         if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx)) {
@@ -55,12 +55,12 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         self.resolve_enum_explicit(idx, variants)
     }
 
-    /// §07.3.A: Resolve a tagged-pointer enum to a single LLVM `i64` value.
+    ///.A: Resolve a tagged-pointer enum to a single LLVM `i64` value.
     ///
     /// The entire enum is encoded as `(payload_ptr | variant_tag)` in a
     /// 64-bit slot — there is no struct, no GEP, no per-variant LLVM type.
     /// All codegen consumers (Construct, Project, Switch, RC, drop, ABI)
-    /// dispatch on `is_tagged_ptr()` and use mask-based encode/decode.
+    /// dispatch on `is_tagged_ptr` and use mask-based encode/decode.
     ///
     /// Cycle safety: tagged-pointer eligibility (`can_use_tagged_pointer`)
     /// requires every payload to be a single-word pointer with no field
@@ -78,8 +78,8 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
         // Enum payloads use [M x i64] layout where each field occupies
         // at least one full i64 slot (8 bytes). Must match
-        // compute_variant_field_offsets() in drop_enum.rs and
-        // enum_payload_size() / pool_type_store_size() in ori_arc.
+        // compute_variant_field_offsets in drop_enum.rs and
+        // enum_payload_size / pool_type_store_size in ori_arc.
         //
         // Unit/Never fields are zero-sized in Ori's type system
         // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
@@ -109,7 +109,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
             max_payload_bytes = max_payload_bytes.max(variant_bytes);
         }
 
-        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
+        // Use narrowed tag type (i8 for ≤256 variants) instead of i64.
         let tag_ty = match ori_repr::min_tag_width(variants.len()) {
             ori_repr::IntWidth::I8 => self.scx.type_i8(),
             ori_repr::IntWidth::I16 => self.scx.type_i16(),
@@ -132,7 +132,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
     /// Resolve single-variant enum (newtype erasure): no tag, struct IS the payload.
     ///
-    /// §07.2: `EnumTag::None` means a single-variant enum. The LLVM type is
+    /// `EnumTag::None` means a single-variant enum. The LLVM type is
     /// just the payload fields — no tag field at all.
     fn resolve_enum_tagless(
         &self,
@@ -186,7 +186,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
     /// Resolve niche-encoded enum: no explicit tag field, payload IS the struct.
     ///
-    /// §07.2: `EnumTag::Niche` means the discriminant is encoded in an invalid
+    /// `EnumTag::Niche` means the discriminant is encoded in an invalid
     /// bit pattern of a payload field. The LLVM type is the data variant's
     /// payload (same layout as the inner type for simple cases like `Option<bool>`).
     fn resolve_enum_niche(

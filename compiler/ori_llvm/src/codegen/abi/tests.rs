@@ -112,7 +112,7 @@ fn mixed_alignment_tuple_ignores_padding() {
 
 #[test]
 fn all_unit_enum_abi_size_is_tag_size() {
-    // §07.1: all-unit enum with ≤256 variants has an i8 tag → 1 byte.
+    // all-unit enum with ≤256 variants has an i8 tag → 1 byte.
     let mut pool = Pool::new();
     let dir = pool.enum_type(
         Name::from_raw(100),
@@ -159,7 +159,7 @@ fn enum_with_payload_abi_size() {
     );
     let store = TypeInfoStore::new(&pool);
 
-    // §07.1: { i8 tag, [1 x i64] payload } — tag padded to 8 due to
+    // { i8 tag, [1 x i64] payload } — tag padded to 8 due to
     // payload alignment. Total = 8 + 8 = 16 bytes.
     assert_eq!(abi_size(color, &store, None), 16);
 }

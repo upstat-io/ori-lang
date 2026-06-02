@@ -63,7 +63,7 @@ fn branch_block(n: u32, then_b: ArcBlockId, else_b: ArcBlockId) -> ArcBlock {
 #[test]
 fn balanced_straight_line_passes() {
     // entry: BurdenInc(v0); Jump exit
-    // exit:  BurdenDec(v0); Return v0
+    // exit: BurdenDec(v0); Return v0
     let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
     let exit = return_block(1, vec![ArcInstr::BurdenDec { var: v(0) }]);
     let func = make_burden_func(vec![entry, exit]);
@@ -81,7 +81,7 @@ fn balanced_straight_line_passes() {
 
 #[test]
 fn unbalanced_straight_line_fails() {
-    // entry: BurdenInc(v0); Return v0   (no matching dec → net = 1 at exit)
+    // entry: BurdenInc(v0); Return v0 (no matching dec → net = 1 at exit)
     let entry = return_block(0, vec![ArcInstr::BurdenInc { var: v(0) }]);
     let func = make_burden_func(vec![entry]);
 
@@ -111,10 +111,10 @@ fn unbalanced_straight_line_fails() {
 fn diamond_predecessor_disagreement_fails() {
     // 5-block diamond:
     //   entry (b0): Branch → then (b1) | else (b2)
-    //   then  (b1): BurdenInc(v0); Jump merge (b3)
-    //   else  (b2): /* no op */     Jump merge (b3)
+    //   then (b1): BurdenInc(v0); Jump merge (b3)
+    //   else (b2): /* no op */ Jump merge (b3)
     //   merge (b3): Jump exit (b4)
-    //   exit  (b4): Return v0
+    //   exit (b4): Return v0
     //
     // Predecessor exit nets at b3: from b1 = +1, from b2 = 0 → disagreement.
     let entry = branch_block(0, b(1), b(2));
@@ -178,8 +178,8 @@ fn burden_dec_partial_balances_inc() {
 }
 
 // =========================================================================
-// §04A.5 ITEM-5 TDD matrix — axis-1 Let-Literal slice.
-// Per aims-rules.md §3 TF-3 / TF-1 + tests.md §Matrix Clamping.
+//  TDD matrix — axis-1 Let-Literal slice.
+// Per `TF-3` / TF-1 + Clamping.
 // =========================================================================
 
 mod fresh_site_inc_balance {
@@ -189,7 +189,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_balanced_let_string_with_scope_exit_dec() {
             // FRESH Let{Literal::String} emits BurdenInc; matching scope-exit
-            // BurdenDec balances → net=0 per aims-rules.md §3 TF-3 + §8 RL-2.
+            // BurdenDec balances → net=0 per `TF-3` + §8 RL-2.
             let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
             let exit = return_block(1, vec![ArcInstr::BurdenDec { var: v(0) }]);
             let func = make_burden_func(vec![entry, exit]);
@@ -223,7 +223,7 @@ mod fresh_site_inc_balance {
 
         #[test]
         fn clamp_scalar_let_int_not_inc_emits_no_burden() {
-            // Scalar Let{Literal::Int} per aims-rules.md §3 TF-1 → SCALAR state,
+            // Scalar Let{Literal::Int} per `TF-1` → SCALAR state,
             // ITEM-2 directive: scalars MUST NOT receive Inc. Var stays out of
             // burden_emitted; verifier sees zero ops → net=0.
             let entry = return_block(0, Vec::new());
@@ -239,7 +239,7 @@ mod fresh_site_inc_balance {
 
     // =====================================================================
     // axis-1 Construct slice.
-    // Per aims-rules.md §3 TF-3 — Construct emits FRESH(Owned, Linear, Once,
+    // Per `TF-3` — Construct emits FRESH(Owned, Linear, Once,
     // Unique, BlockLocal, ReusableCtor, may_alloc=true). Burden lower emits
     // BurdenInc at the Construct site; symmetric BurdenDec required at
     // last-use / scope-exit / Construct-field-store transfer.
@@ -394,7 +394,7 @@ mod fresh_site_inc_balance {
 
     // =====================================================================
     // axis-1 Apply-Owned-return slice.
-    // Per aims-rules.md §3 TF-6 — Apply with callee return contract
+    // Per `TF-6` — Apply with callee return contract
     // {Unique, MaybeShared} produces an owned non-scalar dst; Burden lower
     // emits BurdenInc at the call site. Symmetric BurdenDec at scope-exit
     // / consumer-transfer mirrors §8 RL-2.
@@ -439,7 +439,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_apply_owned_return_passthrough_dec_at_return() {
             // axis-2 = Owned-return-passthrough; FRESH-allocated value
-            // returned directly to caller. Per aims-rules.md §8 RL-2, the
+            // returned directly to caller. Per `RL-2`, the
             // returning function still emits the matching Dec at the
             // terminator transfer point (ownership transfers to caller via
             // the Return; symmetric Dec at function-exit preserves VF-1
@@ -484,8 +484,8 @@ mod fresh_site_inc_balance {
 
         #[test]
         fn clamp_apply_borrowed_arg_no_inc_no_dec_balances() {
-            // axis-2 = Borrowed-arg consumer; per aims-rules.md §3 TF-6
-            // refine() does not flag Owned for Borrowed return contracts.
+            // axis-2 = Borrowed-arg consumer; per `TF-6`
+            // refine does not flag Owned for Borrowed return contracts.
             // Burden lower does NOT emit Inc when callee return is Borrowed-
             // shaped (no FRESH-allocation handoff). Verifier sees zero ops
             // → net=0.
@@ -553,7 +553,7 @@ mod fresh_site_inc_balance {
 
     // =====================================================================
     // axis-1 PartialApply slice.
-    // Per aims-rules.md §3 TF-7 — PartialApply emits FRESH(NonReusable);
+    // Per `TF-7` — PartialApply emits FRESH(NonReusable);
     // captures via capture_state_update (TF-13). Burden lower emits
     // BurdenInc on closure dst. Symmetric BurdenDec at scope-exit /
     // last-use mirrors §8 RL-2.
@@ -676,7 +676,7 @@ mod fresh_site_inc_balance {
 
     // =====================================================================
     // axis-1 Reuse slice.
-    // Per aims-rules.md §3 TF-9 — Reuse emits FRESH(shape) from Reset
+    // Per `TF-9` — Reuse emits FRESH(shape) from Reset
     // token's original Construct shape. Burden lower emits BurdenInc at
     // the Reuse site; symmetric BurdenDec mirrors §8 RL-2.
     // =====================================================================
@@ -793,7 +793,7 @@ mod fresh_site_inc_balance {
 
     // =====================================================================
     // axis-1 CollectionReuse slice.
-    // Per aims-rules.md §3 TF-9a — CollectionReuse emits FRESH(
+    // Per `TF-9a` — CollectionReuse emits FRESH(
     // CollectionBuffer). Self-contained: LLVM emitter calls
     // ori_list_reset_buffer (uniqueness checked internally). Burden lower
     // emits BurdenInc on dst; symmetric BurdenDec mirrors §8 RL-2.

@@ -485,7 +485,7 @@ fn with_cache_empty_is_equivalent_to_new() {
     let pool = Pool::new();
     let cls = ArcClassifier::with_cache(&pool, FxHashMap::default());
 
-    // Should work identically to new().
+    // Should work identically to new.
     assert_eq!(cls.arc_class(Idx::INT), ArcClass::Scalar);
     assert_eq!(cls.arc_class(Idx::STR), ArcClass::DefiniteRef);
 }
@@ -500,7 +500,7 @@ fn export_empty_cache_returns_empty_map() {
     assert!(exported.is_empty());
 }
 
-// §02.1 consistency: ArcClassifier agrees with classify_triviality() for all types.
+// consistency: ArcClassifier agrees with classify_triviality for all types.
 // This semantic pin ensures the delegation does not diverge.
 
 #[test]

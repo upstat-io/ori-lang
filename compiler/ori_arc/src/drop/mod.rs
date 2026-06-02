@@ -157,12 +157,12 @@ pub struct DropInfo {
 /// pool walk + classifier and forwards through
 /// [`burden_bridge::burden_to_drop_info`]. Consumers should migrate to
 /// direct `BurdenRegistry::lookup_burden` calls at their own pace.
-/// Full deprecation lands at §06 (Phase 7 mechanical lowering) for the
-/// `ori_arc::lower::burden_lower` emission boundary and §09 (post-
+/// Full deprecation lands (Phase 7 mechanical lowering) for the
+/// `ori_arc::lower::burden_lower` emission boundary and (post-
 /// convergence partial retirement) for the
 /// `ori_llvm::codegen::arc_emitter::element_fn_gen` cross-crate caller —
 /// the only cross-crate production consumer (verified zero `ori_eval`
-/// callers in §02.3.B audit).
+/// callers.B audit).
 pub fn compute_drop_info(
     ty: Idx,
     classifier: &dyn ArcClassification,

@@ -167,7 +167,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Use canonical types for all iterator trampoline loads. Narrowing is
         // handled at the iter() boundary (emit_list_iter injects a sext widening
         // trampoline), so by the time elements reach user trampolines, they are
-        // always canonical. See fix consensus.
+        // always canonical.
         let elem_llvm_ty = self.resolve_type(elem_ty);
         let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
 

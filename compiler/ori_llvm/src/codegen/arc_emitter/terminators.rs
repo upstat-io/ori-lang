@@ -139,7 +139,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 );
                 let scrut_val = self.var(*scrutinee);
 
-                // §07.2: Niche-encoded enum — emit icmp + cond_br instead of switch.
+                // Niche-encoded enum — emit icmp + cond_br instead of switch.
                 // Tagless single-variant enums never populate `niche_scrutinees`
                 // (their Project { field: 0 } yields a plain `const 0`), so they
                 // flow through the standard switch path below.
@@ -260,7 +260,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit an `Invoke` terminator (ABI-aware function call with unwind).
     ///
-    /// §07.2: Emit a niche-aware switch as `icmp eq` + `cond_br`.
+    /// Emit a niche-aware switch as `icmp eq` + `cond_br`.
     ///
     /// For 2-variant niche enums (Option, Result): compare the raw niche field
     /// value against the niche sentinel, then branch to the niche variant block
@@ -315,14 +315,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         // An unwind block with no effective cleanup (empty body or only
         // no-op RcDecs on non-capturing closures + Resume terminator) has
-        // no LLVM basic block — emit_function() marks it dead.
+        // no LLVM basic block — emit_function marks it dead.
         // Using `call` instead of `invoke` is safe because there's nothing
         // to unwind through.
         let unwind_is_empty_cleanup =
             !super::dead_unwind::has_effective_cleanup(&arc_func.blocks[unwind.index()], arc_func);
         // Builtin handlers (format calls, prelude functions, builtin methods)
         // always emit `call`, not `invoke`. Their unwind blocks are dead —
-        // emit_function() already skipped creating LLVM blocks for them.
+        // emit_function already skipped creating LLVM blocks for them.
         let callee_intercepted = self.callee_will_be_intercepted(callee, arc_args, arc_func);
         let mode = if is_nounwind || unwind_is_empty_cleanup || callee_intercepted {
             InvokeMode::Call {
@@ -330,7 +330,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         } else {
             // Only resolve unwind block when actually needed — dead unwind
-            // blocks have no LLVM basic block and would panic in block().
+            // blocks have no LLVM basic block and would panic in block.
             let unwind_block = self.block(unwind);
             InvokeMode::Invoke {
                 normal: normal_block,

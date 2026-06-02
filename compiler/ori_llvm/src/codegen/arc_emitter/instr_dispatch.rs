@@ -115,7 +115,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return true;
         }
 
-        // §07.2: Tagless single-variant enum — struct-like layout (no tag,
+        // Tagless single-variant enum — struct-like layout (no tag,
         // no `[M x i64]` payload). Project directly from the field slot.
         if self.is_tagless_enum(val_ty) {
             self.emit_project_tagless_field(dst, ty, val_ty, value, field, result_ty, func);
@@ -272,7 +272,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §07.3.A: Tagged-pointer enum projection.
+        //.A: Tagged-pointer enum projection.
         // The entire enum is a single 64-bit slot encoded as `(ptr | tag)`.
         // Field 0 decodes the tag (low 3 bits) — this becomes the switch
         // scrutinee directly, no `tagged_ptr_scrutinees` map needed because
@@ -293,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §07.2: Tagless single-variant enum tag extraction — the discriminant
+        // Tagless single-variant enum tag extraction — the discriminant
         // is always 0 (one variant). No niche field to read.
         if field == 0 && self.is_tagless_enum(val_ty) {
             let zero = self.builder.const_i64(0);
@@ -301,7 +301,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §07.2: Niche-encoded enum tag extraction.
+        // Niche-encoded enum tag extraction.
         // When Project { field: 0 } targets a niche-encoded enum, extract the
         // niche field value (not a logical variant index). The raw niche field
         // value is recorded in `niche_scrutinees` so Switch can emit the
@@ -691,8 +691,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             ArcInstr::Reset { var, token } => {
-                // Reset marks a value for potential reuse. After expansion by
-                // Section 09, this becomes IsShared + conditional.
+                // Reset marks a value for potential reuse. After reuse expansion,
+                // this becomes IsShared + conditional.
                 // The token IS the variable (reuse its memory if unique).
                 let emitted = self.var_emitted(*var);
                 self.def_var(*token, emitted);
@@ -737,7 +737,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
-                    // §07.3.A: Tagged-pointer enums have no struct layout —
+                    //.A: Tagged-pointer enums have no struct layout —
                     // there are no individual fields to GEP into. The entire
                     // enum is a single i64 slot. AIMS reuse should never
                     // generate a `Set` for a tagged-pointer enum because the
@@ -800,7 +800,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);
 
-                // §07.3.A: Tagged-pointer enum — re-encode the tag bits.
+                //.A: Tagged-pointer enum — re-encode the tag bits.
                 // The encoded value lives in a single i64 slot. To set the
                 // discriminant we mask off the existing low 3 bits and OR
                 // in the new variant index. The pointer payload (high 61
@@ -814,12 +814,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     return;
                 }
 
-                // §07.2: Tagless single-variant enum — no tag to store.
+                // Tagless single-variant enum — no tag to store.
                 if self.is_tagless_enum(base_ty) {
                     return;
                 }
 
-                // §07.2: Niche encoding — conditional tag store.
+                // Niche encoding — conditional tag store.
                 if let Some(encoding) = self.get_niche_encoding(base_ty) {
                     if encoding.needs_tag_store(*tag as u32) {
                         // Niche variant: write niche_value into the niche field.
@@ -857,7 +857,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     }
                     // Non-niche variant: no-op — payload implicitly identifies variant.
                 } else {
-                    // Explicit tag: field 0 of { narrowed_tag, ... }
+                    // Explicit tag: field 0 of { narrowed_tag,... }
                     let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
                     let tag_val = self.builder.const_int_for_struct_field(llvm_ty, 0, *tag);
                     self.builder.store(tag_val, tag_ptr);
@@ -876,7 +876,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let f = self.var(*false_val);
                 let result = self.builder.select(c, t, f, "sel");
                 // Select is a computation (branchless conditional),
-                // route through def_var_repr() for local narrowing.
+                // route through def_var_repr for local narrowing.
                 self.def_var_repr(*dst, result, func);
             }
         }

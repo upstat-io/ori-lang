@@ -160,6 +160,56 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
     (exit_code, stdout, stderr)
 }
 
+/// Compile and run an Ori program with extra environment variables set on the
+/// child process, capturing output.
+///
+/// `extra_env` is a list of `(name, value)` pairs applied to the run step (the
+/// compiled binary), in addition to the always-on `ORI_CHECK_LEAKS=1`. Use this
+/// to capture `ORI_TRACE_RC=1` RC event traces (`[RC] alloc/inc/dec/free`
+/// lines, per `ori_rt::rc::debug`) for refcount-balance assertions.
+///
+/// Returns `(exit_code, stdout, stderr)`.
+pub fn compile_and_run_with_env(source: &str, extra_env: &[(&str, &str)]) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let mut run_cmd = Command::new(&binary_path);
+    run_cmd.env("ORI_CHECK_LEAKS", "1");
+    for (name, value) in extra_env {
+        run_cmd.env(name, value);
+    }
+    let run_result = run_cmd.output().expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
 /// Compile and run an Ori program with arguments, capturing output.
 ///
 /// Returns `(exit_code, stdout, stderr)`. Enables `ORI_CHECK_LEAKS=1`.

@@ -1,7 +1,7 @@
 //! RC emission helpers for the unified realization pipeline.
 //!
 //! Contains helper functions, submodules, and re-exports used by `realize/`
-//! (Section 10) for RC operations. The legacy `emit_rc_ops()` entry point
+//! for RC operations. The legacy `emit_rc_ops()` entry point
 //! has been removed — RC emission is now driven by `realize_rc_reuse()`.
 //!
 //! # Submodules
@@ -48,11 +48,11 @@ pub(crate) type DeferredDec = (Option<usize>, ArcVarId, RcStrategy);
 // Re-export for cow/drop_hints that import via `super::collect_rc_incremented_vars`.
 pub(crate) use queries::{collect_param_borrowed_vars, collect_rc_incremented_vars};
 
-// Re-exports for `realize/` unified annotation walk (Section 10.3).
+// Re-exports for `realize/` unified annotation walk.
 pub(crate) use cow::{has_borrows_from_aggregate, is_borrow_disjoint_from_siblings};
 pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 
-// Re-exports for `realize/` unified forward walk (Section 10.2).
+// Re-exports for `realize/` unified forward walk.
 pub(crate) use borrowed_defs::{
     collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
     collect_inline_enum_projected_defs, collect_iter_element_defs, collect_project_borrowed_defs,

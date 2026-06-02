@@ -35,8 +35,7 @@
 //! drop, drop function generation, builtin clone).
 //!
 //! Pool queries are still used for type tags and field enumeration. These will
-//! be eliminated in Section 01.4 when `ValueRepr` propagation makes layouts
-//! fully explicit.
+//! be eliminated once `ValueRepr` propagation makes layouts fully explicit.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, RcStrategy};
 use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA};
@@ -66,7 +65,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Temporary validation: verify strategy matches Pool-derived expectation.
-        // Removed once all Pool queries are eliminated from the emitter (Section 01.4).
+        // Removed once all Pool queries are eliminated from the emitter.
         #[cfg(debug_assertions)]
         if let Some(repr) = func.var_repr(var) {
             let expected = RcStrategy::from_var(repr, self.pool, func.var_type(var));

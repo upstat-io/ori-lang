@@ -3,14 +3,12 @@
 //! Produces a 0-or-1 element list. Extracted from `for_yield.rs` to stay
 //! under the 500-line file limit.
 
-use ori_ir::canon::CanBindingPatternId;
-use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
 
-use super::super::expr::{ArcLowerer, ForYieldContext, LoopContext};
+use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 
 impl ArcLowerer<'_> {
     /// Lower `for x in <option> yield body` — 0-or-1 element list.
@@ -35,13 +33,16 @@ impl ArcLowerer<'_> {
     )]
     pub(super) fn lower_for_yield_option(
         &mut self,
-        pattern: CanBindingPatternId,
+        shape: ForYieldShape,
         option_val: ArcVarId,
         elem_ty: Idx,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
     ) -> ArcVarId {
+        let ForYieldShape {
+            pattern,
+            guard,
+            body,
+            result_ty,
+        } = shape;
         let some_block = self.builder.new_block();
         let none_block = self.builder.new_block();
         let exit_block = self.builder.new_block();

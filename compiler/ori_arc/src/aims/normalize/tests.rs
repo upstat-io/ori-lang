@@ -436,7 +436,7 @@ fn lifting_multi_field_construct_valid() {
     // length + var_types length and assert structural invariance after
     // the call: function takes &func (immutable), so structural
     // identity is by construction, but the explicit assertion makes
-    // the test self-documenting and lint-clean per `tests.md §Test
+    // the test self-documenting and lint-clean per `
     // Hygiene` no-orphan-tests rule.
     let pre_body_len = func.blocks[0].body.len();
     let pre_var_count = func.var_types.len();
@@ -467,7 +467,7 @@ fn lifting_no_constructs_is_noop() {
     // Positive pin: zero Construct instructions → lift walk visits no
     // Construct site → no debug_assert! fires → function returns without
     // panic. Explicit invariance assertion makes the trivially-true
-    // outcome verifiable per `tests.md §Test Hygiene` no-orphan-tests.
+    // outcome verifiable no-orphan-tests.
     let pre_body_len = func.blocks[0].body.len();
     super::lift::lift_constructor_args(&func);
     assert_eq!(func.blocks[0].body.len(), pre_body_len);
@@ -536,7 +536,7 @@ fn lifting_catches_invalid_dst_var() {
 /// the recursive result. Pattern:
 ///   @f(v0: T) -> T =
 ///     v1 = self(v0)
-///     v2 = Construct { v0, v1 }  // `hole_field` = 1 (v1 is recursive)
+///     v2 = Construct { v0, v1 } // `hole_field` = 1 (v1 is recursive)
 ///     Return v2
 fn make_recursive_construct_func() -> ArcFunction {
     let self_name = Name::from_raw(42);
@@ -1401,7 +1401,7 @@ fn verify_loop_header_arg_consistency() {
     }
 }
 
-// Pipeline integration tests (Section 13.6)
+// Pipeline integration tests
 
 /// Helper: build a contract with `may_share` set to the given value.
 fn make_contract(may_share: bool) -> MemoryContract {
@@ -1647,7 +1647,7 @@ fn pipeline_rollback_on_verification_failure() {
 /// Pattern:
 ///   @map(v0: T, v1: T) -> T =
 ///     v2 = self(v0, v1)
-///     v3 = Construct { v0, v2 }  // `hole_field` = 1 (v2 is recursive)
+///     v3 = Construct { v0, v2 } // `hole_field` = 1 (v2 is recursive)
 ///     Return v3
 fn make_two_arg_recursive_func() -> ArcFunction {
     let self_name = Name::from_raw(42);
@@ -2589,7 +2589,7 @@ fn verify_burden_balance_detects_predecessor_disagreement() {
     // Manually construct a TRMC-rewrite-shaped CFG:
     //   prologue(b0) -> loop_header(b1) with ctx_hole_obj block param
     //   loop_header(b1) -> Branch(then=b2, else=b3) — cond on a scalar var
-    //   b2 has BurdenInc(ctx_hole_obj) ; b3 has none
+    //   b2 has BurdenInc(ctx_hole_obj); b3 has none
     //   b2/b3 both jump to b4(merge) -> Return
     let self_name = Name::from_raw(42);
     // Vars: v0 = param; v1 = bool cond; v2/v3/v4 unused payload slots.

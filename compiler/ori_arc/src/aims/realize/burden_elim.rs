@@ -1,7 +1,5 @@
 //! DP-2/DP-3 burden-op elimination consumer.
 //!
-//! Per §04A.2 of `plans/aims-burden-tracking/section-04A-minimal-lattice-adaptation.md`.
-//!
 //! Walks every block backward; for each `BurdenInc` / `BurdenDec` /
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` site, queries
 //! the AIMS lattice via DP-2 (`is_rc_dec_unnecessary` at
@@ -22,7 +20,7 @@
 //!
 //! # Soundness
 //!
-//! Per `aims-rules.md §4 Appendix C`:
+//! Per the DP-2 / DP-3 predicate truth tables:
 //! - DP-2 `is_rc_dec_unnecessary(s)` ⟺ `s.cardinality = Absent ∨
 //!   s.consumption = Dead` — both imply no future use, so a dec is
 //!   redundant.
@@ -51,15 +49,13 @@
 //! check DP-2 / DP-3 against the var's exit state once, and elide ALL
 //! Inc + Dec ops for that var ONLY when BOTH predicates fire — otherwise
 //! retain every op for that var so the intraprocedural net stays zero.
-//! Per ITEM-4 of `plans/aims-burden-tracking/section-04A-minimal-lattice-
-//! adaptation.md §04A.5`: "When DP-2 elides a `BurdenDec`, the
-//! corresponding `BurdenInc` (if elidable per DP-3) MUST also be elided in
-//! the same pass. If DP-3 doesn't fire on the matching Inc, retain the
-//! dec to preserve VF-1 balance."
+//! When DP-2 elides a `BurdenDec`, the corresponding `BurdenInc` (if
+//! elidable per DP-3) is also elided in the same pass; if DP-3 does not
+//! fire on the matching Inc, the dec is retained to preserve VF-1 balance.
 //!
 //! # References
 //!
-//! - `aims-rules.md §4 DP-2 + DP-3` — predicate truth tables.
+//! - DP-2 + DP-3 — predicate truth tables.
 //! - `aims/transfer/mod.rs:403,411` — predicate source.
 //! - Koka Perceus paired dup/drop elimination (Reinking et al., PLDI 2021).
 
@@ -85,6 +81,17 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 /// coalesce operates on the post-elimination IR with redundant ops
 /// already removed.
 pub(crate) fn eliminate_burden_ops(func: &mut ArcFunction, state_map: &AimsStateMap) {
+    // INVARIANT: Phase 6 is an OPTIMIZER over the burden-emitted
+    // baseline: it ELIMINATES burden ops, NEVER CONSTRUCTS them. Capture the
+    // per-kind burden-op census before the pass; assert the post-pass census is
+    // ≤ the pre-pass census for EVERY kind. Any future regression that appends a
+    // `BurdenInc` / `BurdenDec*` inside Phase 6 trips this guard loudly rather
+    // than silently lowering to a spurious `RcInc`/`RcDec` downstream.
+    // Canonical RC-Emission Path: Phase 5 emits, Phase 6
+    // eliminates, Phase 7 mechanically lowers.
+    #[cfg(debug_assertions)]
+    let before = burden_op_census(func);
+
     for (block_idx, block) in func.blocks.iter_mut().enumerate() {
         #[expect(
             clippy::cast_possible_truncation,
@@ -93,11 +100,77 @@ pub(crate) fn eliminate_burden_ops(func: &mut ArcFunction, state_map: &AimsState
         let block_id = ArcBlockId::new(block_idx as u32);
         eliminate_in_block(&mut block.body, state_map, block_id);
     }
+
+    #[cfg(debug_assertions)]
+    debug_assert_burden_removal_only(&before, &burden_op_census(func));
+}
+
+/// Per-kind burden-op census across all blocks of a function.
+///
+/// Five counts, one per burden-op variant, in the order `[BurdenInc,
+/// BurdenDec, BurdenDecPartial, BurdenDecField, BurdenDecVariant]`. Used by the
+/// removal-only structural guard in [`eliminate_burden_ops`].
+#[cfg(any(debug_assertions, test))]
+fn burden_op_census(func: &ArcFunction) -> [usize; 5] {
+    let mut census = [0usize; 5];
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { .. } => census[0] += 1,
+                ArcInstr::BurdenDec { .. } => census[1] += 1,
+                ArcInstr::BurdenDecPartial { .. } => census[2] += 1,
+                ArcInstr::BurdenDecField { .. } => census[3] += 1,
+                ArcInstr::BurdenDecVariant { .. } => census[4] += 1,
+                _ => {}
+            }
+        }
+    }
+    census
+}
+
+/// Whether a Phase-6 burden census transition is removal-only.
+///
+/// `true` iff the post-pass census of EVERY burden-op kind is `≤` its
+/// pre-pass census — i.e. Phase 6 removed or left-alone every kind and
+/// constructed none. This is the SSOT predicate behind the removal-only
+/// structural guard; both the debug-assert and the negative pin consult it.
+#[cfg(any(debug_assertions, test))]
+fn is_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) -> bool {
+    (0..5).all(|kind| after[kind] <= before[kind])
+}
+
+/// Removal-only structural guard.
+///
+/// Phase 6 (the lattice optimizer) MUST only remove or annotate burden ops —
+/// it MUST NOT construct new ones: `eliminate_burden_ops` consumes DP-2/DP-3
+/// at burden-op sites and NEVER constructs burden ops. The post-pass census
+/// of EVERY burden-op kind is
+/// therefore `≤` its pre-pass census. A violation is a Phase-6 construction
+/// regression: a `BurdenInc`/`BurdenDec*` was appended where only elimination
+/// is permitted, which would mechanically lower to a spurious `RcInc`/`RcDec`
+/// in Phase 7 and corrupt RC balance.
+#[cfg(debug_assertions)]
+#[track_caller]
+fn debug_assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
+    const KIND_NAMES: [&str; 5] = [
+        "BurdenInc",
+        "BurdenDec",
+        "BurdenDecPartial",
+        "BurdenDecField",
+        "BurdenDecVariant",
+    ];
+    debug_assert!(
+        is_burden_removal_only(before, after),
+        "AIMS Phase-6 invariant: eliminate_burden_ops constructed burden ops \
+         where only elimination is permitted — Phase 6 MUST eliminate burden \
+         ops, never construct them. \
+         per-kind census {KIND_NAMES:?}: before = {before:?}, after = {after:?}",
+    );
 }
 
 /// Eliminate redundant burden ops within one block's body.
 ///
-/// Two-pass paired elimination per `aims-rules.md §9 VF-1` intraprocedural
+/// Two-pass paired elimination per VF-1 intraprocedural
 /// balance:
 /// 1. Scan once; group all whole-var burden ops by target var; record per-op
 ///    DP-2 / DP-3 verdicts against the var's exit-state lookup.

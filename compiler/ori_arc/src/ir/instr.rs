@@ -56,7 +56,7 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
         /// Per-argument ownership at this indirect call site.
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
-        /// Empty before annotation; populated by RC insertion (Section 02).
+        /// Empty before annotation; populated by RC insertion.
         /// Unlike `Apply`, empty defaults to all-Borrowed (conservative for
         /// unknown callees — caller retains cleanup responsibility).
         arg_ownership: Vec<ArgOwnership>,

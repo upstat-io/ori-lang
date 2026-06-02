@@ -9,7 +9,7 @@
 
 use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::borrow::BuiltinOwnershipSets;
@@ -49,9 +49,20 @@ pub fn run_arc_pipeline(
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
+    // Single-function entry: codegen may compile functions OUTSIDE the
+    // interprocedural batch (test-wrapper bodies, impl methods, derived
+    // methods lowered after `analyze_program`). IC-1 makes no claim about a
+    // function not in the analyzed set, so its own contract may be absent.
+    // Seed a conservative contract for `func` when absent — the sound upper
+    // bound `analyze_program` would assign an unanalyzed function — so the
+    // pipeline's own-contract lookups (trmc, fip) have a real entry. Callee
+    // lookups for analyzed functions still hit their precise contracts.
+    let contracts = ensure_own_contract(aims_contracts, func);
+    let func_names: FxHashSet<Name> = contracts.keys().copied().collect();
     let config = aims_pipeline::AimsPipelineConfig {
         classifier,
-        contracts: aims_contracts,
+        contracts: &contracts,
+        func_names: &func_names,
         pool,
         interner,
         builtins: &builtins,
@@ -61,6 +72,25 @@ pub fn run_arc_pipeline(
         type_registry,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
+}
+
+/// Return a contracts map guaranteed to contain `func`'s own contract.
+///
+/// When `func.name` is already present (the batch / analyzed case), the
+/// borrowed map is cloned unchanged. When absent (codegen of a function
+/// outside the interprocedural batch — test bodies, impl methods, derives),
+/// a conservative contract for `func`'s arity is inserted. Conservative is the
+/// sound upper bound: all-Owned params, `may_share`, conservative effects —
+/// identical to what `analyze_program` assigns a function it could not refine.
+fn ensure_own_contract(
+    aims_contracts: &FxHashMap<Name, MemoryContract>,
+    func: &ArcFunction,
+) -> FxHashMap<Name, MemoryContract> {
+    let mut contracts = aims_contracts.clone();
+    contracts
+        .entry(func.name)
+        .or_insert_with(|| MemoryContract::conservative(func.params.len()));
+    contracts
 }
 
 /// Run the full ARC optimization pipeline on a single function with a
@@ -88,9 +118,14 @@ pub fn run_arc_pipeline_with_observer<'a>(
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
+    // Seed `func`'s own conservative contract when absent — see
+    // `run_arc_pipeline` for the out-of-batch-function rationale.
+    let contracts = ensure_own_contract(aims_contracts, func);
+    let func_names: FxHashSet<Name> = contracts.keys().copied().collect();
     let config = aims_pipeline::AimsPipelineConfig {
         classifier,
-        contracts: aims_contracts,
+        contracts: &contracts,
+        func_names: &func_names,
         pool,
         interner,
         builtins: &builtins,
@@ -187,7 +222,7 @@ mod tests;
 ///
 /// Under explicit verification mode (`verify=true`), returns `Err` with the
 /// list of verification errors — these are ICEs that must halt compilation.
-/// Under debug-assertions-only mode, logs warnings and returns `Ok(())`.
+/// Under debug-assertions-only mode, logs warnings and returns `Ok`.
 pub(crate) fn run_verify(
     func: &ArcFunction,
     phase: &str,
@@ -222,7 +257,7 @@ pub(crate) fn run_verify(
 ///
 /// Under explicit verification mode (`verify=true`), returns `Err` with
 /// AIMS-specific verification errors. Under debug-assertions-only mode,
-/// logs warnings and returns `Ok(())`.
+/// logs warnings and returns `Ok`.
 pub(crate) fn run_aims_verify(
     func: &ArcFunction,
     contract: &crate::aims::contract::MemoryContract,
@@ -249,8 +284,8 @@ pub(crate) fn run_aims_verify(
         // Explicit verification mode: hard error.
         // Note: check_absent_param_no_uses already filters to only LIVE blocks
         // (forward-reachable from entry AND backward-reachable to Return).
-        // Dead-code references (e.g., after `if true then panic()`) are excluded
-        // by the live_blocks() analysis. Any error reaching here is a genuine
+        // Dead-code references (e.g., after `if true then panic`) are excluded
+        // by the live_blocksanalysis. Any error reaching here is a genuine
         // contract/IR inconsistency on a live path.
         return Err(aims_errors);
     }

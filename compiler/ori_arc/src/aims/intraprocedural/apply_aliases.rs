@@ -53,18 +53,18 @@ use super::state_map::ApplyAliasSource;
 /// source variable. Used by [`is_let_var_alias`] to detect when a consumed
 /// Apply arg is a transparent alias rather than a fresh-allocation owner.
 ///
-/// `Let { dst, value: Var(src), .. }` — backward analysis transfers `dst`'s
-/// demand to `src` per `aims-rules.md §IA-5 step 1` (transparent alias). The
+/// `Let { dst, value: Var(src),.. }` — backward analysis transfers `dst`'s
+/// demand to `src` (transparent alias). The
 /// alias HAS NO INDEPENDENT RC slot at the IR level — `src`'s RC ops cover
 /// the shared allocation. Recording an `apply_result_aliases` entry keyed off
-/// a Let Var alias would mislead downstream consumers (BUG-04-090 §05 session
+/// a Let Var alias would mislead downstream consumers (BUG-04-090 session
 /// D regression on `arc::test_rc_alias_owned_call_then_root_use`).
 ///
 /// Indirect Let aliases (`%c = Var(%b)` where `%b = Var(%a)`) need full chain
 /// tracing — see [`is_let_var_alias`].
 ///
 /// Crate-visible: shared with `realize::emit_unified::build_return_project_inc_targets`
-/// (BUG-04-090 §05 F-prj fix) per `LEAK:algorithmic-duplication` — both consumers
+/// (BUG-04-090 F-prj fix) per `LEAK:algorithmic-duplication` — both consumers
 /// answer the same "let-alias chain root" question.
 pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut result = FxHashMap::default();
@@ -95,7 +95,7 @@ pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, Arc
 /// and that combined list is matched against the resolved target's contract
 /// in `sigs`. Unresolvable closures (opaque parameter, conflicting merges,
 /// cycles) yield no entry — fresh-allocation semantics per TF-5a / TF-6c.
-/// (BUG-04-118 §05 closure bridge — Round 5 codex Cure A.)
+/// (BUG-04-118 closure bridge.)
 ///
 /// Empty when no in-scope callee transfers ownership through return — the
 /// returned map allocates nothing in the common case.
@@ -191,7 +191,7 @@ pub(crate) fn populate_apply_result_aliases(
 /// downstream `should_suppress_apply_aliased_dec` consumer fires dec
 /// suppression based on the CALLER'S local Access of the arg (Owned →
 /// suppress; Borrowed → no-op), and class membership prevents double-suppression
-/// across alias siblings. The earlier BUG-04-090 §05 Hypothesis D #2 SKIP-rule
+/// across alias siblings. The earlier BUG-04-090 SKIP-rule
 /// was superseded by the class-aware emission path; the regression
 /// `arc::test_rc_alias_owned_call_then_root_use` is now guarded by the
 /// class-membership check at the realize walk rather than by skipping at install
@@ -210,7 +210,7 @@ fn install_alias_entry(
     // the callee's own RC accounting (its scope-exit AggFields walk fires
     // only when access is Owned), not the caller's.
     //
-    // BUG-04-118 §05 Round 4 Option B (Wrapped variant): handles two
+    // BUG-04-118 Option B (Wrapped variant): handles two
     // distinct alias shapes via the same install path:
     // - Identity (return_alias = Some): callee returns the param itself
     //   (Direct) or a single-field projection (Project). `uf.union` fires
@@ -242,7 +242,7 @@ fn install_alias_entry(
     install_alias_entry_inner(result, dst, args, contract, &aliasing_params, false);
 }
 
-/// BUG-04-118 §05 closure-bridge install path for `ApplyIndirect` /
+/// BUG-04-118 closure-bridge install path for `ApplyIndirect` /
 /// `InvokeIndirect`. Maps every aliasing param shape to `Wrapped(arg)`
 /// regardless of `return_alias` discriminant.
 ///
@@ -250,14 +250,14 @@ fn install_alias_entry(
 /// `uf.union(dst, arg)` in `compute_ssa_alias_classes` so the caller's
 /// arg and call result share an RC slot — correct for single-call
 /// semantics like `let r = id(x)`. For indirect closure calls,
-/// the closure can be invoked N times (`first = lookup()`, `second =
-/// lookup()`); union'ing every result with the captured arg into one
+/// the closure can be invoked N times (`first = lookup`, `second =
+/// lookup`); union'ing every result with the captured arg into one
 /// class produces N scope-exit decs against a single underlying inc,
 /// causing double-free on the captured allocation. The `Wrapped` variant
 /// preserves the per-call result class while suppressing only the
 /// caller's redundant canonical dec on the captured arg via
 /// `should_suppress_apply_aliased_dec` — same shape used by the
-/// `wrap_ok(m: m) = Ok(m)` containment case (BUG-04-118 §05 Round 4).
+/// `wrap_ok(m: m) = Ok(m)` containment case (BUG-04-118).
 fn install_indirect_alias_entry(
     result: &mut FxHashMap<ArcVarId, ApplyAliasSource>,
     dst: ArcVarId,
@@ -298,7 +298,7 @@ fn install_alias_entry_inner(
                 // occur post type-check; skip defensively.
                 return;
             };
-            // Phase 4 §05 #6: the is_let_var_alias
+            // Phase 4 #6: the is_let_var_alias
             // filter was REMOVED. Let aliases are now in the union-find
             // directly via build_let_alias_map, so class structure subsumes
             // the protection this filter previously provided. Removing the
@@ -309,7 +309,7 @@ fn install_alias_entry_inner(
             let alias_shape_opt = contract.params[param_idx].return_alias;
             let contains = contract.params[param_idx].return_payload_contains_param;
             let entry = if force_wrapped {
-                // BUG-04-118 §05 closure-bridge: collapse every single-param
+                // BUG-04-118 closure-bridge: collapse every single-param
                 // shape to `Wrapped(consumed_arg)`. See
                 // `install_indirect_alias_entry` for the rationale (closure
                 // can be called N times; union'ing every result with the
@@ -339,7 +339,7 @@ fn install_alias_entry_inner(
             // runtime. Suppress all candidates' scope-exit decs at File 13;
             // dst's RC ops are retained as the canonical owner.
             //
-            // Phase 4 §05 #6: is_let_var_alias
+            // Phase 4 #6: is_let_var_alias
             // filter removed — subsumed by class structure.
             let candidates: Vec<ArcVarId> = aliasing_params
                 .iter()

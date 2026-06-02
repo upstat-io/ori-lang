@@ -13,7 +13,7 @@
 //! - [`define_phase`]: Function body definition (Phase 2) and ARC processing
 //! - [`nounwind`]: Two-pass nounwind analysis (prepare → analyze → emit)
 //! - [`impls`]: Impl method, test, and derived trait compilation
-//! - [`entry_point`]: AOT `main()` wrapper
+//! - [`entry_point`]: AOT `main` wrapper
 //! - [`seh_main_thunk`]: SEH/MSVC `ori_try_call` thunk for `@main(args:)`
 //! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
 
@@ -48,6 +48,13 @@ use super::arc_emitter::CodegenContext;
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
+
+/// Process-cached `ORI_DISABLE_RL31_NOALIAS=1` flag.
+///
+/// Read once at first access; reused for every function declaration.
+/// `true` omits the RL-31 param `noalias` emission (diagnostic bisection).
+static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some());
 
 /// Two-pass function compiler.
 ///
@@ -261,8 +268,25 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.builder
                 .add_noundef_param_attribute(func_id, sret_offset + i as u32);
         }
+        // RL-31 disjoint-Borrowed `noalias` (Spec: Annex E §AIMS RL-31).
+        // RL-31 `noalias` is a FUNCTION attribute (D01 Option-A): it asserts NO
+        // caller can EVER pass aliasing args to the marked params. Per RL-31
+        // (P2) it is sound ONLY under BOTH facets — (a) per-call-site provenance
+        // proven disjoint at EVERY call site, AND (b) type-level closure
+        // disjointness. `prove_param_noalias` computes facet (b) (`eligible`);
+        // facet (a) (`call_site_provenance_proven`) is unshipped, so the gate
+        // below conservatively OMITS `noalias`. Emitting on facet (b) alone is
+        // the (P2)-rejected unsound verdict — distinct reachable-type closures
+        // do NOT imply distinct runtime memory, so the function-attribute would
+        // be a UAF/miscompile for a caller passing aliasing distinct-type views.
+        // `ORI_DISABLE_RL31_NOALIAS=1` omits the RL-31 param `noalias` emission
+        // (diagnostic bisection of alias-metadata vs upstream RC bugs; sibling
+        // of `ORI_DISABLE_BURDEN_OPS` / `ORI_DISABLE_BURDEN_ELIM`).
+        let rl31_disabled = *RL31_NOALIAS_DISABLED;
+        let param_types: Vec<Idx> = abi.params.iter().map(|p| p.ty).collect();
+        let noalias_proof = ori_arc::prove_param_noalias(&param_types, self.pool);
         let mut nidx = sret_offset + extra_leading_params.len() as u32;
-        for param in &abi.params {
+        for (pidx, param) in abi.params.iter().enumerate() {
             if matches!(param.passing, ParamPassing::Direct) {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
@@ -283,6 +307,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 }
                 if param.readonly {
                     self.builder.add_readonly_param_attribute(func_id, nidx);
+                }
+                // RL-31: emit `noalias` only when BOTH facets hold — the
+                // type-level closure-disjointness facet (b) (`eligible`) AND the
+                // per-call-site provenance facet (a)
+                // (`call_site_provenance_proven`). Facet (a) is unshipped, so
+                // this conservatively omits `noalias` (RL-31 (P2) dual-facet
+                // requirement; facet (b) alone is unsound).
+                if !rl31_disabled
+                    && noalias_proof.call_site_provenance_proven
+                    && noalias_proof.eligible.get(pidx).copied().unwrap_or(false)
+                {
+                    self.builder.add_noalias_attribute(func_id, nidx);
                 }
                 nidx += 1;
             }
@@ -434,7 +470,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     let ptr = self.builder.get_param(func_id, llvm_idx);
                     let ty = self.type_resolver.resolve(param.ty);
                     let ty_id = self.builder.register_type(ty);
-                    // IrBuilder::load() auto-decomposes struct types via
+                    // IrBuilder::loadauto-decomposes struct types via
                     // per-field GEP+load+insert_value (FastISel safety).
                     values.push(self.builder.load(ty_id, ptr, &format!("param.{i}")));
                     llvm_idx += 1;

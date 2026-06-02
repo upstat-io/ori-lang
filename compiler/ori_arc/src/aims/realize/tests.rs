@@ -147,7 +147,7 @@ fn decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic() {
 
 /// Regression: `ReusableCtor(EnumVariant) + Once` hit the removed path too —
 /// `matches!(shape, ShapeClass::ReusableCtor(_))` matches both `Struct` and
-/// `EnumVariant` (Plan TPR round 5).
+/// `EnumVariant`.
 #[test]
 fn decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic() {
     let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
@@ -881,7 +881,7 @@ fn decide_consuming_primop_suppresses_even_with_deferred_children() {
     assert_eq!(d.rc, RcDecision::None);
 }
 
-// Cross-Dimension Synergy Tests (Section 11.1)
+// Cross-Dimension Synergy Tests
 //
 // Each test builds an ArcFunction modeling one of the synergy Ori programs,
 // runs the AIMS backward analysis, and asserts that cross-dimensional
@@ -1109,7 +1109,7 @@ fn synergy_pure_callee_preserves_uniqueness() {
 // (1 consumed param). Effect analysis detects may_allocate=true but
 // may_share=false (Construct has no args that could escape). FIP
 // classification reads the converged effect state and token balance
-// without a separate FIP pass — this is the "natural" FIP from Section 09.2.
+// without a separate FIP pass — this is the "natural" FIP.
 
 #[test]
 fn synergy_effect_fip_natural() {
@@ -1473,7 +1473,7 @@ fn synergy_local_pure_chain_effects() {
     );
 }
 
-// Synergy metrics tests (Section 11.2)
+// Synergy metrics tests
 
 #[test]
 fn synergy_metrics_default_is_zero() {

@@ -35,6 +35,19 @@ pub(crate) struct LoopContext {
     pub yield_ctx: Option<ForYieldContext>,
 }
 
+/// The comprehension shape lowered by the for-yield strategies.
+///
+/// Bundles the binding pattern, guard, body, and result type — the four
+/// comprehension inputs that travel together through `lower_for_yield` and
+/// both its `_option` / `_iterator` strategy methods.
+#[derive(Clone, Copy)]
+pub(crate) struct ForYieldShape {
+    pub pattern: ori_ir::canon::CanBindingPatternId,
+    pub guard: CanId,
+    pub body: CanId,
+    pub result_ty: Idx,
+}
+
 /// Context for break/continue inside a for-yield loop.
 ///
 /// Enables `lower_break`/`lower_continue` to push values to the

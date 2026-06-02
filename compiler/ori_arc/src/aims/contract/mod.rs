@@ -13,9 +13,9 @@
 //!   are refined by SCC fixed-point iteration
 //! - `EffectSummary` fields are computed from function body instructions
 //! - `FipContract` is inferred from converged effect state and token
-//!   balance (`extract_contract()` in `interprocedural/extract.rs`)
+//!   balance (`extract_contract` in `interprocedural/extract.rs`)
 //! - `ContextBehavior` is computed from `ContextRegion` metadata during
-//!   contract extraction; `default()` for non-TRMC functions
+//!   contract extraction; `default` for non-TRMC functions
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 mod context;
@@ -57,7 +57,7 @@ pub struct MemoryContract {
     ///
     /// Inferred metadata: `!effects.may_allocate` (no fresh allocations).
     /// This does NOT replace `#fbip` as the user-facing enforcement annotation,
-    /// and does NOT change `is_auto_fbip()` behavior. It makes FBIP status
+    /// and does NOT change `is_auto_fbip` behavior. It makes FBIP status
     /// visible to interprocedural analysis without running the post-pipeline check.
     pub is_fbip: bool,
 }
@@ -289,7 +289,7 @@ pub struct ParamContract {
     /// parameter, because the caller will dec the bound result variable
     /// when ITS scope exits. Computed from the structural Return-flow alias
     /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
-    /// which is currently spec-inverted per `aims-rules.md §1.9`).
+    /// which is currently spec-inverted).
     ///
     /// Completes the Lean 4 `ownParamsUsingArgs` pattern: inc/dec
     /// elimination on owned-arg → owned-callee-param transfer applies to
@@ -505,7 +505,7 @@ pub struct EffectSummary {
     /// considered constant-stack.
     ///
     /// Unlike `may_allocate`/`may_share`/`may_throw`, this is NOT accumulated
-    /// per-block during analysis. It is set once in `extract_contract()` from
+    /// per-block during analysis. It is set once in `extract_contract` from
     /// SCC membership and syntactic tail-position checks.
     pub has_unbounded_stack: bool,
 }
@@ -609,7 +609,7 @@ impl FipContract {
             }
 
             // Conditional absorbs Bounded and Certified.
-            // Bounded absorbs Certified. Both: weaker side wins (self.clone()/other.clone()).
+            // Bounded absorbs Certified. Both: weaker side wins (self.clone/other.clone).
             (Self::Conditional { .. }, Self::Certified | Self::Bounded(_))
             | (Self::Bounded(_), Self::Certified) => self.clone(),
             (Self::Certified | Self::Bounded(_), Self::Conditional { .. })
@@ -647,10 +647,10 @@ fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
 /// is an internal pipeline-ordering invariant violation, never a recoverable
 /// runtime condition.
 ///
-/// Call sites that previously fell back silently to `MemoryContract::default()`
+/// Call sites that previously fell back silently to `MemoryContract::default`
 /// produce unsound results: the optimistic default (all-`Borrowed` /
 /// `Dead` / `Absent` params, no effects) inflates safety claims through every
-/// downstream `refine()` call (TF-6) and `EffectSummary` join (IC-5),
+/// downstream `refine` call (TF-6) and `EffectSummary` join (IC-5),
 /// producing miscompilation rather than a clean panic.
 pub trait ContractMapExt {
     /// Look up the contract for `name`, panicking with an attributed

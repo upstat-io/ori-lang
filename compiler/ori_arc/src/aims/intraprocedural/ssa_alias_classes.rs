@@ -1,4 +1,4 @@
-//! SSA-alias equivalence-class computation ( ).
+//! SSA-alias equivalence-class computation .
 //!
 //! Pre-walk pass that computes the `ssa_alias_classes` side-table on
 //! [`AimsStateMap`] via union-find over Let-Var alias edges, Jump-arg →
@@ -29,7 +29,7 @@
 //! Three returned fields:
 //! - `class_table: ArcVarId → u32` — the union-find result, keyed only by vars
 //!   that participate in a multi-member class (singletons excluded — see
-//!   Round 17 Codex F4 + Gemini F2 in §02 PIN material).
+//!   Codex F4 + Gemini F2 PIN material).
 //! - `class_members: u32 → FxHashSet<ArcVarId>` — reverse index. Enables the
 //!   PIN-4 class-liveness check `class_members(class_id).any(is_live_after)`
 //!   in `walk_dec.rs::emit_last_use_decs`: skip `RcDec` emission unless no class
@@ -72,7 +72,7 @@ pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
     pub class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
     pub class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-    /// PIN-6 inter-class payload-of (): class A id → set of
+    /// PIN-6 inter-class payload-of : class A id → set of
     /// class B ids whose drop transitively covers class A's RC slot.
     pub class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 }
@@ -80,7 +80,7 @@ pub(crate) struct SsaAliasClassesOutput {
 /// Compute SSA-alias equivalence classes via union-find over Let-Var aliases,
 /// Jump-arg → block-param pairs, and apply-result aliases of `Direct` and
 /// `Conditional` shape, AND the PIN-6 inter-class payload-of relation
-/// ().
+/// .
 ///
 /// Returns the four-field `SsaAliasClassesOutput` consumed by
 /// `walk_dec.rs::emit_last_use_decs` (class-liveness check + same-instruction
@@ -123,20 +123,20 @@ pub(crate) fn compute_ssa_alias_classes(
     // Edge type 3: Select operands — DROPPED per PIN-2 (different RC slot).
 
     // Edge type 4: Apply-result aliases. Direct + Conditional union; Project
-    // excluded per PIN-2 / Round 10 Codex F3 (different RC slot — the apply
+    // excluded per PIN-2 / Codex F3 (different RC slot — the apply
     // returns `arg.field`, not `arg` root).
     for (&dst, source) in apply_result_aliases {
         match source {
             ApplyAliasSource::Direct(arg) => uf.union(dst, *arg),
             ApplyAliasSource::Project { .. } => { /* no union — PIN-2 */ }
             ApplyAliasSource::Wrapped(_) => {
-                // BUG-04-118 §05 Round 4 Option B: PIN-2 ANALOGOUS — no union.
+                // BUG-04-118 Option B: PIN-2 ANALOGOUS — no union.
                 // Wrapped means dst CONTAINS arg as a transitive-drop variant
                 // payload (e.g., `wrap_ok(m: T) -> Result<T, E> = Ok(m)`).
                 // Result and the wrapped allocation are SEPARATE RC slots
                 // (different identity), so unioning their classes would
                 // collapse two distinct slots into one and over-suppress
-                // downstream Project apply-aliased decs (the Round 2 install
+                // downstream Project apply-aliased decs (the install
                 // failure mode).
             }
             ApplyAliasSource::Conditional { candidates } => {
@@ -148,7 +148,7 @@ pub(crate) fn compute_ssa_alias_classes(
     }
 
     // Materialize the three returned fields. Singletons (vars not involved in
-    // any union edge) are excluded from class_table per Round 17 Codex F4 +
+    // any union edge) are excluded from class_table per Codex F4 +
     // Gemini F2 — they continue to flow through the existing per-var dec
     // emission path unchanged (no class lookup).
     let mut class_table = FxHashMap::default();
@@ -175,7 +175,7 @@ pub(crate) fn compute_ssa_alias_classes(
         let source_args: Vec<ArcVarId> = match source {
             ApplyAliasSource::Direct(arg) => vec![*arg],
             ApplyAliasSource::Project { arg, .. } => vec![*arg],
-            // BUG-04-118 §05 Round 4 Option B: Wrapped contributes its arg
+            // BUG-04-118 Option B: Wrapped contributes its arg
             // as a source candidate so class-keyed lookups (mirror of the
             // per-var `should_suppress_apply_aliased_dec` path) can find
             // arg too. Mirrors Direct/Project's single-arg pattern.
@@ -191,7 +191,7 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // BUG-04-118 §05.6 — `class_payload_of` is now populated post-convergence
+    // BUG-04-118 — `class_payload_of` is now populated post-convergence
     // by `populate_class_payload_of_with_liveness` using path-sensitive
     // liveness from the converged AimsStateMap. The initial empty map here
     // is overwritten via `set_class_payload_of` at step 4.5 in

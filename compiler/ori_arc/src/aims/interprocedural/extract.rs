@@ -31,7 +31,7 @@ use super::super::lattice::{AccessClass, Uniqueness};
 ///   non-recursive functions). Used to determine `has_unbounded_stack`
 ///   via syntactic tail-position analysis.
 /// - `context_regions` — TRMC context regions detected by the normalization
-///   pass. Used to compute `ContextBehavior` fields (Section 13.1).
+///   pass. Used to compute `ContextBehavior` fields.
 pub(crate) fn extract_contract(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -68,7 +68,7 @@ pub(crate) fn extract_contract(
     // mirror `return_flow_params`; Project entries are derived separately by
     // detecting `Return { value }` where `value`'s definition is a
     // `Project { value: param's var, field }`. The Owned-only invariant
-    // (Plan TPR Round 3 codex F1) is enforced by extending `consumed_params`
+    //  is enforced by extending `consumed_params`
     // to include Project-Return params, which promotes their access to Owned.
     let (consumed_params, return_flow_params, return_alias_shapes, payload_containment_params) =
         detect_param_facts(func, sigs, &param_vars);
@@ -114,13 +114,13 @@ pub(crate) fn extract_contract(
                 may_share: false,
                 // Caller-side uniqueness: set to MaybeShared by default.
                 // Tightened to Unique by post-fixpoint demand propagation
-                // (Section 09.1) when all callers satisfy the condition.
+                // when all callers satisfy the condition.
                 uniqueness: Uniqueness::MaybeShared,
                 // BUG-04-090: param flows directly to a `Return { value }`
                 // terminator. Gates scope-exit dec suppression in the
                 // realize walk. Computed from the STRUCTURAL Return-flow
                 // alias fact (NOT from `preserves_freshness` which is
-                // currently spec-inverted per `aims-rules.md §1.9`).
+                // currently spec-inverted).
                 transfers_through_return: return_flow_params.contains(&i),
                 // BUG-04-090 File 12: caller-side aliasing shape for the
                 // `apply_result_aliases` side-table population at the
@@ -145,7 +145,7 @@ pub(crate) fn extract_contract(
 
     let mut effects = state_map.effect_summary();
 
-    // Section 12.2: Constant stack verification.
+    // Constant stack verification.
     // Non-recursive functions have constant stack by definition. Recursive
     // functions have constant stack only if ALL recursive calls (to self
     // or mutual-recursion partners) are in syntactic tail position.
@@ -156,21 +156,21 @@ pub(crate) fn extract_contract(
     };
     effects.has_unbounded_stack = has_unbounded_stack;
 
-    // Section 09.2: FBIP inference from converged effect summary.
+    // FBIP inference from converged effect summary.
     // A function is FBIP if it never allocates on any code path.
     let is_fbip = !effects.may_allocate;
 
-    // Section 09.2: FIP natural detection from converged state.
+    // FIP natural detection from converged state.
     // Token balance determines FIP classification without a separate pass.
     //
     // FP² Theorem 2 requires `!may_allocate && !may_deallocate` for full FIP.
     // At contract extraction time, `may_deallocate` is optimistic (`false`) —
     // the true value is computed post-emission from `FipEvidence.missed_reuses`
-    // and applied in the second pass of `run_aims_pipeline_all()` (Section 12.1).
+    // and applied in the second pass of `run_aims_pipeline_all`.
     // The FBIP fast path (`!may_allocate → Certified`) is always valid: if the
     // function never allocates, it trivially never deallocates.
     //
-    // Section 12.2: FIP also requires constant stack — `has_unbounded_stack`
+    // FIP also requires constant stack — `has_unbounded_stack`
     // must be `false` for Certified. Functions with non-tail recursion that
     // are allocation-balanced get Bounded, not Certified.
     let fip = if has_unbounded_stack {
@@ -224,11 +224,11 @@ pub(crate) fn extract_contract(
     }
 }
 
-// Context behavior computation (Section 13.1)
+// Context behavior computation
 
 /// Compute [`ContextBehavior`] from detected TRMC context regions.
 ///
-/// When no context regions exist (non-TRMC function), returns `default()`.
+/// When no context regions exist (non-TRMC function), returns `default`.
 /// When regions exist:
 /// - `preserves_context`: true if any context variable flows to a Return
 /// - `consumes_hole`: true if any context region has a hole field write
@@ -294,7 +294,7 @@ fn compute_context_behavior(
 ///    used to populate `ParamContract::return_alias` for the BUG-04-090
 ///    File 12 caller-side `apply_result_aliases` side-table.
 ///
-/// Owned-only invariant (Plan TPR Round 3 codex F1): all three sets feed
+/// Owned-only invariant: all three sets feed
 /// into `access` promotion. Borrowed-param Project returns must NOT set
 /// `return_alias`; this is enforced by extending `consumed_params` to
 /// include Project-Return params, which routes them through the Owned
@@ -352,7 +352,7 @@ fn detect_param_facts(
 /// Used by `detect_param_facts` to produce the per-param shape map that
 /// `extract_contract` writes into `ParamContract::return_alias`. The shape
 /// is then consumed by File 12's `apply_result_aliases` population at the
-/// caller's Apply site (per `aims-rules.md §1.9 Return Provenance`).
+/// caller's Apply site .
 fn find_return_alias_shapes(
     func: &ArcFunction,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
@@ -543,7 +543,7 @@ fn absorb_instr_aliases(
 /// Multi-param case: if `callee` has both param 0 AND param 1 marked
 /// `transfers_through_return`, the callee's return value may alias either
 /// arg at runtime — `dst` is the union of both arg alias sets. Per
-/// `aims-rules.md §1.9 Return Provenance` Select-style join.
+/// Select-style join.
 fn absorb_callee_return_transfer(
     dst: ArcVarId,
     callee: Name,
@@ -665,8 +665,8 @@ fn find_return_flow_params(
 /// is returned (BUG-04-118 path-c population).
 ///
 /// Walks each `Return { value }` terminator, traces `value` to its defining
-/// instruction, and when that instruction is `Construct { ctor, args, .. }`
-/// or `PartialApply { args, .. }` whose result is a transitive-drop variant,
+/// instruction, and when that instruction is `Construct { ctor, args,.. }`
+/// or `PartialApply { args,.. }` whose result is a transitive-drop variant,
 /// records every parameter whose alias appears in `args`.
 ///
 /// Distinct from `find_return_flow_params` (Direct return — `Return { v }`
