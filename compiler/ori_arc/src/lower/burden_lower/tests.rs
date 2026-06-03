@@ -4060,24 +4060,27 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_two_transfer_point_b
     );
 }
 
-/// RL-2 dec-fidelity: a Let-Var dup-alias whose terminator-position last-use is
-/// NOT an ownership transfer (Jump arg to a Borrowed target-block-param) MUST
-/// be suppressed at the terminator exactly as it is at instruction position.
-/// The alias is predicate-stack-managed (its source stays live) and received no
-/// FRESH-site `BurdenInc`, so a terminator-position `BurdenDec` would net its
-/// burden ledger to -1 (VF-1 imbalance). Positive pin: zero `BurdenDec` for the
-/// alias. Negative pin: reverting the terminator-path `dup_alias_dsts` suppression
-/// re-introduces the spurious unpaired `BurdenDec` (asserted by the count == 0).
+/// RL-1 duplication-alias emission: a Let-Var dup-alias whose terminator-position
+/// last-use is NOT an ownership transfer (Jump arg to a Borrowed
+/// target-block-param) is a genuine duplication of its still-live source. The
+/// burden path emits the alias's OWN paired RC — a FRESH-site `BurdenInc` at the
+/// alias site balanced by a `BurdenDec` at the terminator-position last-use —
+/// net 0, WITHOUT deferring to the predicate stack. This pins §07A.1's
+/// move-vs-duplication classifier: `dup_alias_dsts` are the DUPLICATION case
+/// (own inc + matching dec), not the MOVE case (inc-suppressed, no source dec).
+/// Positive pin: exactly one inc + one dec for the alias (net 0). Negative pin:
+/// re-suppressing the dup-alias dec re-introduces the §09.2-regressing gap where
+/// the alias inc orphans (net +1) once the predicate stack is deleted.
 #[test]
-fn dup_alias_at_terminator_nontransfer_suppresses_burden_dec() {
+fn dup_alias_at_terminator_nontransfer_emits_paired_burden_inc_dec() {
     let registry = TypeRegistry::new();
     // %0: heap STR produced by an Apply (no contract -> FRESH-site BurdenInc).
     // %1: Let-Var alias of %0; %0 stays live (used again by the second Apply),
-    //     so %1 is a dup_alias_dst.
+    //     so %1 is a dup_alias_dst (DUPLICATION, not MOVE).
     // %2: second Apply consuming %0 — keeps %0's use count >= 2.
     // Terminator: Jump block1, args=[%1] — block1's param (%3) is BorrowedFrom,
-    //     so the Jump arg is NON-transfer; %1's last use lands in the second
-    //     (legacy) loop of emit_terminator_burden_decs.
+    //     so the Jump arg is NON-transfer; %1's last use lands in the
+    //     non-transfer loop of emit_terminator_burden_decs.
     let mut func = ArcFunction {
         var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![
@@ -4141,25 +4144,33 @@ fn dup_alias_at_terminator_nontransfer_suppresses_burden_dec() {
     );
 
     let body = &func.blocks[0].body;
-    let alias_decs = body
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)))
-        .count();
-    assert_eq!(
-        alias_decs, 0,
-        "dup-alias var(1) at a non-transfer terminator position MUST receive zero BurdenDec (RL-2 dec-fidelity; symmetric with instruction-position suppression); body={body:?}",
-    );
-
-    // Sanity: the alias never received a FRESH-site BurdenInc either, so the
-    // suppressed dec would have been unpaired (net -1) — confirming the
-    // suppression is the only thing keeping VF-1 balance for var(1).
+    // Positive pin: the alias %1 receives its own FRESH-site BurdenInc (RL-1
+    // duplication) AND a matching last-use BurdenDec at the non-transfer Jump
+    // arg position — net 0 for the alias, owned wholly by the burden path.
     let alias_incs = body
         .iter()
         .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(1)))
         .count();
     assert_eq!(
-        alias_incs, 0,
-        "dup-alias var(1) carries no FRESH-site BurdenInc; body={body:?}",
+        alias_incs, 1,
+        "RL-1: dup-alias var(1) MUST receive exactly one alias-site BurdenInc; body={body:?}",
+    );
+    let alias_decs = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)))
+        .count();
+    assert_eq!(
+        alias_decs, 1,
+        "RL-1: dup-alias var(1) MUST receive exactly one matching last-use BurdenDec (net 0 with its alias-site inc); body={body:?}",
+    );
+
+    // VF-1 semantic pin: faithful Phase-5 emission nets the burden ledger to 0
+    // for the duplication alias — neither orphaned inc (net +1, the §09.2 gap)
+    // nor orphaned dec (net -1).
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "RL-1: dup-alias inc/dec pair must net VF-1 to 0; imbalances={imbalances:?}",
     );
 }
 
@@ -4725,5 +4736,226 @@ fn apply_alias_coverage_self_verifying_member_count_across_all_shapes() {
     assert_eq!(
         shapes_covered, 4,
         "every ApplyAliasSource shape (Direct / Project / Conditional / Wrapped) MUST be visited; no cell skipped",
+    );
+}
+
+// ===========================================================================
+// §07A.1 move-vs-duplication classifier matrix (Let { Var } aliases).
+//
+// Per the classifier table, every `Let { Var(src) }` alias `%d = %s`
+// partitions into exactly one case (WBS 100% — no overlap, no gap):
+//   - MOVE (terminator-transfer):  `%s` used once, lineage transfers out at a
+//     terminator → NO inc on aliases, NO source last-use dec (discharged at the
+//     transfer point per RL-2 ownership-transfer exception).
+//   - MOVE (same/cross-block, dies non-transfer): `%s` used once, lineage's
+//     true survivor last-use is non-transfer → inc-suppressed on aliases, single
+//     freeing dec at the survivor last-use (RL-1 inc only on genuine dup).
+//   - DUPLICATION (post-alias-source-use): `%s` used >= 2 times (stays live) →
+//     burden path emits the alias's own paired BurdenInc + matching BurdenDec.
+//
+// Each pin asserts the burden-op EMISSION SHAPE and the VF-1 net per var.
+// ===========================================================================
+
+/// Total `BurdenInc` ops targeting `var` across every block body.
+fn count_burden_incs(func: &ArcFunction, var: ArcVarId) -> usize {
+    func.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { var: v } if *v == var))
+        .count()
+}
+
+/// §07A.1 case (a) — MOVE-alias chain `%0 -> %2 -> %4` whose terminal use
+/// TRANSFERS out (Return %4). Each hop's source is used exactly once, so the
+/// whole lineage is a MOVE: RL-1 emits NO `BurdenInc` on any alias, and RL-2's
+/// ownership-transfer exception suppresses every last-use dec — the release is
+/// discharged at the Return transfer point (the caller inherits it), not at any
+/// move-alias site. Negative pin: a stray inc OR dec on any chain member would
+/// fail VF-1 per-var (orphan), regressing the §09.2 burden-as-sole-emitter path.
+#[test]
+fn move_alias_chain_to_return_emits_no_burden_ops() {
+    let registry = TypeRegistry::new();
+    // %0: FRESH str literal. %2 = %0 (move). %4 = %2 (move). Return %4.
+    // %1, %3 are scalar fillers keeping the var indices aligned with the
+    // %0->%2->%4 chain naming from the mission (skipped odd indices).
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::INT, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(4),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    for chain_var in [ArcVarId::new(0), ArcVarId::new(2), ArcVarId::new(4)] {
+        assert_eq!(
+            count_burden_incs(&func, chain_var),
+            0,
+            "MOVE-alias chain-to-Return: {chain_var:?} MUST receive zero BurdenInc (RL-1: inc only on genuine duplication); body={:?}",
+            func.blocks[0].body,
+        );
+        assert_eq!(
+            count_burden_decs(&func, chain_var),
+            0,
+            "MOVE-alias chain-to-Return: {chain_var:?} MUST receive zero BurdenDec (RL-2 ownership-transfer exception; discharged at Return); body={:?}",
+            func.blocks[0].body,
+        );
+    }
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "MOVE-alias chain-to-Return must net VF-1 to 0 per var (no orphan inc/dec); imbalances={imbalances:?}",
+    );
+}
+
+/// §07A.1 case (b) — DUPLICATION alias whose LIVE source is consumed again at a
+/// later body instruction, and whose own last-use is a non-transfer body instr.
+/// `%0` FRESH; `%1 = %0` (dup, %0 stays live); `%0` used again at a borrowed
+/// Apply; `%1` used at a borrowed Apply (its non-transfer last use). The burden
+/// path emits `%1`'s OWN paired `BurdenInc` (alias site) + `BurdenDec` (last use) —
+/// net 0 — WITHOUT deferring to the predicate stack. Negative pin: dropping the
+/// alias inc OR the matching dec breaks VF-1 per-var for %1.
+#[test]
+fn duplication_alias_with_live_source_emits_paired_inc_dec_at_body_last_use() {
+    let registry = TypeRegistry::new();
+    // %0: FRESH str (Apply, no contract). %1 = %0 (dup; %0 stays live).
+    // %2: Apply borrowing %0 (keeps %0 use-count >= 2; borrowed -> non-transfer).
+    // %3: Apply borrowing %1 (%1's non-transfer last use).
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: Name::from_raw(100),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(101),
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(102),
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(1)),
+        1,
+        "DUPLICATION alias var(1): burden path MUST emit exactly one alias-site BurdenInc (RL-1); body={body:?}",
+    );
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(1)),
+        1,
+        "DUPLICATION alias var(1): burden path MUST emit exactly one matching last-use BurdenDec (RL-2); body={body:?}",
+    );
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "DUPLICATION alias paired inc/dec must net VF-1 to 0 per var; imbalances={imbalances:?}",
+    );
+}
+
+/// §07A.1 case (c) — terminator-transfer MOVE-alias single hop `%1 = %0`
+/// (the `@id<T>(x: T) -> T = x` minimal witness over an owned PARAM). `%0` is
+/// an owned str param (NO FRESH inc — params carry their inbound reference);
+/// `%1 = %0` (move, %0 used once); `Return %1` transfers ownership to the
+/// caller. NO inc anywhere (param has none; alias is a move); NO source last-use
+/// dec (RL-2 ownership-transfer exception — `%0`'s reference returns to the
+/// caller through the move chain). Negative pin: a last-use dec on `%0` would
+/// double-release the returned reference (VF-1 net=-1, the move-alias regression
+/// the mission's `id<T>` witness names).
+#[test]
+fn terminator_transfer_move_alias_over_owned_param_emits_no_burden_ops() {
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Let {
+                dst: ArcVarId::new(1),
+                ty: Idx::STR,
+                value: ArcValue::Var(ArcVarId::new(0)),
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let body = &func.blocks[0].body;
+    for v in [ArcVarId::new(0), ArcVarId::new(1)] {
+        assert_eq!(
+            count_burden_incs(&func, v),
+            0,
+            "terminator-transfer MOVE-alias: {v:?} MUST receive zero BurdenInc; body={body:?}",
+        );
+        assert_eq!(
+            count_burden_decs(&func, v),
+            0,
+            "terminator-transfer MOVE-alias: {v:?} MUST receive zero BurdenDec (RL-2 ownership-transfer exception); body={body:?}",
+        );
+    }
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "terminator-transfer MOVE-alias over owned param must net VF-1 to 0; imbalances={imbalances:?}",
     );
 }

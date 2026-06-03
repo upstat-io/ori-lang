@@ -29,10 +29,11 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // symmetric FRESH-site BurdenInc is suppressed for these in
     // emit_fresh_site_burden_inc to keep the per-value burden ledger balanced.
     pub(super) inc_suppressed_vars: &'a FxHashSet<ArcVarId>,
-    // Let-Var alias dsts whose source stays live (duplication). The
-    // predicate-stack owns their RC (RcInc/RcDec); they carry no FRESH-site
-    // BurdenInc, so their last-use BurdenDec is suppressed to keep the ledger
-    // balanced (it would otherwise net -1).
+    // Let-Var alias dsts whose source stays live (duplication, RL-1). The burden
+    // path emits the alias's own RcInc/RcDec pair: a `BurdenInc dst` at the alias
+    // site (emit_fresh_site_burden_inc) balanced by a `BurdenDec dst` at the
+    // alias's true last-use. The alias's release is the burden path's
+    // responsibility, NOT the retiring predicate stack's.
     pub(super) dup_alias_dsts: &'a FxHashSet<ArcVarId>,
     // Move sources whose ownership transfers out through a Let-Var move-alias
     // chain to a terminator/owned-position transfer point (AIMS RL-2). Their
@@ -270,8 +271,11 @@ fn emit_in_place_mutation_drops(
 /// Emit the last-use `BurdenDec` / `BurdenDecPartial` for vars whose last-use
 /// is at this instruction position, via the three-way branch per AIMS RL-2:
 /// (a) suppress entirely when var is ownership-transferred at this instr OR
-///     var's entire owned-field set was moved (full-move) OR var is a
-///     duplication Let-Var alias (`dup_alias_dsts`);
+///     var's entire owned-field set was moved (full-move) OR var's ownership
+///     transfers out through a move-alias chain (`transfer_via_move_alias`);
+///     a duplication Let-Var alias (`dup_alias_dsts`) is NOT suppressed — its
+///     RL-1 alias-site `BurdenInc` (`emit_fresh_site_burden_inc`) is balanced by
+///     the last-use `BurdenDec` emitted here;
 /// (b) emit `BurdenDecPartial { var, skip_fields }` when some-but-not-all owned
 ///     fields were moved via field-projection transfers (partial-move; codegen
 ///     walks `owned_fields` minus `skip_fields`);
@@ -304,7 +308,6 @@ fn emit_last_use_decs(
     for &var in last_use_vars {
         if transfer_vars.contains(&var)
             || ctx.analysis.full_move_vars.contains(&var)
-            || ctx.analysis.dup_alias_dsts.contains(&var)
             || ctx.analysis.transfer_via_move_alias.contains(&var)
         {
             continue;
@@ -333,9 +336,11 @@ fn emit_last_use_decs(
 
 /// Emit FRESH-site `BurdenInc dst` for instructions that define a
 /// freshly-allocated owned value per AIMS TF-3 / TF-5 / TF-6 / TF-7 / TF-9 /
-/// TF-9a. Symmetric with the scope-exit `BurdenDec` at last-use; both gated on
-/// `owned_vars_needing_rc.contains(&dst)` per the coexistence handshake
-/// (scalars excluded by the `burden_carries_rc` filter in
+/// TF-9a, AND the duplication-alias `BurdenInc dst` for a `Let { Var(src) }`
+/// whose `src` stays live (RL-1: a value duplicated to a still-live source is a
+/// genuine new reference). Symmetric with the scope-exit `BurdenDec` at
+/// last-use; both gated on `owned_vars_needing_rc.contains(&dst)` per the
+/// coexistence handshake (scalars excluded by the `burden_carries_rc` filter in
 /// `compute_owned_vars_needing_rc`).
 ///
 /// FRESH-allocating definition sites:
@@ -349,7 +354,15 @@ fn emit_last_use_decs(
 ///   (e) `Reuse` — TF-9 FRESH (inherited shape).
 ///   (f) `CollectionReuse` — TF-9a FRESH(CollectionBuffer).
 ///
-/// Other definitions (TF-1 scalar Literal, TF-2 Var alias, TF-2a `PrimOp`,
+/// Duplication-alias definition site (RL-1):
+///   (g) `Let { Var(src) }` where `dst ∈ dup_alias_dsts` (`src` use-count ≥ 2,
+///       so `src` stays live past the alias). The alias is a genuine
+///       duplication of `src`'s allocation; the new reference owes a paired
+///       `BurdenInc dst` here and `BurdenDec dst` at `dst`'s true last-use.
+///       A MOVE-alias (`src` used exactly once) is NOT in `dup_alias_dsts` and
+///       emits no inc — the existing `src` FRESH-site inc covers the lineage.
+///
+/// Other definitions (TF-1 scalar Literal, TF-2 MOVE-alias Var, TF-2a `PrimOp`,
 /// TF-4 Project (Borrowed), TF-8 Select (alias-transfer), TF-10 `IsShared`
 /// (scalar), TF-10a Reset (scalar)) emit no Inc. Scalars naturally drop out
 /// via the `owned_vars_needing_rc` gate.
@@ -364,6 +377,11 @@ fn emit_fresh_site_burden_inc(
     ctx: &BurdenEmitCtx<'_>,
 ) {
     let dst = match instr {
+        ArcInstr::Let {
+            dst,
+            value: ArcValue::Var(_),
+            ..
+        } if ctx.analysis.dup_alias_dsts.contains(dst) => *dst,
         ArcInstr::Let {
             dst,
             value: ArcValue::Literal(LitValue::String(_)),
@@ -506,24 +524,19 @@ fn emit_terminator_burden_decs(
             new_body.push(dec_template.clone());
         }
     }
-    // Vars whose terminator-position last-use is NOT a transfer point still
-    // follow the legacy emission path: emit one BurdenDec per last-use entry
-    // unless full_move OR dup-alias suppresses. The dup_alias_dsts suppression
-    // is symmetric with emit_instr_burdens: a Let-Var alias whose source stays
-    // live is predicate-stack-managed (real RcInc/RcDec emitted there) and
-    // received no FRESH-site BurdenInc, so a terminator-position BurdenDec would
-    // net the alias ledger to -1 per AIMS RL-2 dec-fidelity (VF-1 imbalance).
-    // Both positions consume the same `analysis.dup_alias_dsts` set — one
-    // suppression source, no parallel computation.
+    // Vars whose terminator-position last-use is NOT a transfer point follow the
+    // last-use emission path: emit one BurdenDec per last-use entry unless
+    // full_move OR move-alias-transfer suppresses. A duplication Let-Var alias
+    // (`dup_alias_dsts`) is NOT suppressed: its RL-1 alias-site `BurdenInc`
+    // (emit_fresh_site_burden_inc) is balanced by this last-use `BurdenDec`
+    // (net 0). A MOVE-alias source transferring out is in `full_move_vars` or
+    // `transfer_via_move_alias` and stays suppressed.
     if let Some(last_use_vars) = analysis.last_uses_at.get(&(block_idx, terminator_idx)) {
         for &var in last_use_vars {
             if terminator_transfer_vars.contains(&var) {
                 continue;
             }
             if analysis.full_move_vars.contains(&var) {
-                continue;
-            }
-            if analysis.dup_alias_dsts.contains(&var) {
                 continue;
             }
             if analysis.transfer_via_move_alias.contains(&var) {

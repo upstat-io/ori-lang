@@ -258,15 +258,17 @@ pub(crate) fn emit_burden_ops<'a>(
         }
     }
 
-    // RL-2 dec-fidelity for Let-Var aliases: a `Let { Var(src) }` alias whose
-    // SOURCE stays live after the alias is a duplication — the predicate-stack
-    // emits the alias's real RcInc/RcDec, so the alias carries NO burden ops.
-    // It never received a matching FRESH-site BurdenInc (Var aliases are not a
-    // FRESH-allocating instr), so emitting its last-use BurdenDec would net the
-    // alias's burden ledger to -1 (VF-1 imbalance). Suppress that dec. A
-    // move-alias (source used only at the alias) keeps its dec to balance the
-    // source's FRESH-site inc. "Source stays live" = source appears in >= 2
-    // used-var positions (the alias use plus at least one more downstream).
+    // RL-1 duplication-alias emission for Let-Var aliases: a `Let { Var(src) }`
+    // alias whose SOURCE stays live after the alias is a genuine duplication —
+    // a new reference to `src`'s allocation. The burden path emits the alias's
+    // own paired RC: a FRESH-site `BurdenInc dst` at the alias site
+    // (emit_fresh_site_burden_inc) balanced by a `BurdenDec dst` at the alias's
+    // true last-use (emit_last_use_decs / emit_terminator_burden_decs). Net 0.
+    // A move-alias (source used only at the alias) is NOT a dup_alias_dst — its
+    // ownership forwards through the move chain (transfer_via_move_alias) and the
+    // source's own FRESH-site inc covers the lineage. "Source stays live" =
+    // source appears in >= 2 used-var positions (the alias use plus at least one
+    // more downstream).
     let (use_counts, dup_alias_dsts) =
         compute_use_counts_and_dup_aliases(func, &mut inc_suppressed_vars);
 
@@ -623,8 +625,9 @@ fn compute_borrowed_terminator_invoke_args(func: &ArcFunction) -> FxHashSet<ArcV
 ///   dead-value cleanup `RcDec` (RL-2 unused-owned dec), so it carries no
 ///   burden ops — suppress the orphaned inc (else net +1).
 /// - `dup_alias_dsts`: `Let { Var(src) }` dsts whose `src` stays live
-///   (`use_counts` ≥ 2) — a duplication alias the predicate-stack manages; its
-///   last-use `BurdenDec` is suppressed downstream (else net -1).
+///   (`use_counts` ≥ 2) — a duplication alias (RL-1). The burden path emits the
+///   alias's own paired `BurdenInc dst` (alias site) + `BurdenDec dst`
+///   (last-use); the alias owns its release, not the predicate stack.
 fn compute_use_counts_and_dup_aliases(
     func: &ArcFunction,
     inc_suppressed_vars: &mut FxHashSet<ArcVarId>,
