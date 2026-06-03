@@ -1,11 +1,9 @@
-// 1-hop generic forwarder over [int] — minimal repro for the BUG-04-090
-// surface (AIMS Invariant #1: Contract <-> realization agreement).
+// 1-hop generic forwarder over [int] — minimal repro for the generic-
+// forwarder surface (AIMS Invariant #1: Contract <-> realization agreement).
 //
 // Verifies: id<[int]>(x: [int]) -> [int] = x produces a value the caller
 // can read fully (no double-free, no truncation) under both interpreter
 // and LLVM backends. Dual-execution parity is the spec contract.
-//
-// Provenance: bug-tracker/plans/BUG-04-090/section-03-tdd-matrix.md (1-hop row)
 
 use std.testing { assert_eq }
 

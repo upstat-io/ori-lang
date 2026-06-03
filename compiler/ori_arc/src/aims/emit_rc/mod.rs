@@ -35,7 +35,7 @@ pub(crate) mod take_project;
 mod trampoline;
 pub(crate) mod unwind_cleanup;
 
-use crate::ir::{ArcBlockId, ArcFunction, ArcVarId, RcStrategy};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, RcAtomicity, RcStrategy};
 
 /// Edge-specific RC decrement: variable + strategy.
 pub(crate) type EdgeDec = (ArcVarId, RcStrategy);
@@ -98,4 +98,150 @@ pub(crate) fn block_id(idx: usize) -> ArcBlockId {
     ArcBlockId::new(
         u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX")),
     )
+}
+
+/// Whether `var` carries burden ops (Step-4b walk set a `BurdenInc`/`BurdenDec`
+/// for it). SSOT for the site-pairing gate used by every faithful release site.
+#[inline]
+pub(crate) fn carries_burden(func: &ArcFunction, var: ArcVarId) -> bool {
+    func.burden_emitted
+        .get(var.index())
+        .copied()
+        .unwrap_or(false)
+}
+
+/// Faithful release: a `BurdenDec` paired adjacent to a release `RcDec`, gated
+/// on `carries_burden`. The `BurdenDec` mirrors the predicate-stack release per
+/// AIMS RL-2 / RL-4 / RL-5 so the per-value burden ledger nets 0 along the path
+/// the `RcDec` covers (`Spec: Annex E §AIMS` realization rules). When `var`
+/// carries no burden ops the returned vec holds only the `RcDec`.
+///
+/// SSOT for the burden-pair-then-RcDec pattern shared by edge cleanup
+/// (single-pred prepend + multi-pred trampoline), dead-at-entry cleanup, and
+/// the project-escape succ-dec path.
+#[inline]
+pub(crate) fn release_with_burden(
+    func: &ArcFunction,
+    var: ArcVarId,
+    strategy: RcStrategy,
+) -> Vec<ArcInstr> {
+    let mut ops = Vec::with_capacity(2);
+    if carries_burden(func, var) {
+        ops.push(ArcInstr::BurdenDec { var });
+    }
+    ops.push(ArcInstr::RcDec {
+        var,
+        strategy,
+        atomicity: RcAtomicity::default_atomic(),
+    });
+    ops
+}
+
+/// True iff `var` is consumed at an OWNED `Invoke`/`InvokeIndirect` arg
+/// position in `pred_block`'s terminator. The value's ownership transfers to
+/// the callee on the normal path; the unwind/normal edge `RcDec` (RL-4) is the
+/// predicate-stack release of that owned arg when the callee unwinds before
+/// consuming it.
+///
+/// The burden walk already balanced such a var with its terminator-block
+/// `BurdenInc`/`BurdenDec` pair at the transfer point (`emit_terminator_burden_*`),
+/// so pairing a second `BurdenDec` onto the edge cleanup would net the per-value
+/// burden ledger to -1 (VF-1 imbalance). This is the edge-cleanup inverse of the
+/// terminator-position `invoke_terminator_borrowed_args` suppression: that one
+/// suppresses the burden dec for BORROWED args (released at the successor); this
+/// one suppresses the EDGE burden dec for OWNED args (already balanced at the
+/// transfer point).
+#[inline]
+fn is_owned_transfer_arg_at_terminator(
+    func: &ArcFunction,
+    pred_block: usize,
+    var: ArcVarId,
+) -> bool {
+    let Some(block) = func.blocks.get(pred_block) else {
+        return false;
+    };
+    block
+        .terminator
+        .used_vars()
+        .iter()
+        .enumerate()
+        .any(|(pos, &arg)| arg == var && block.terminator.is_owned_position(pos))
+}
+
+/// Edge-cleanup release: like [`release_with_burden`] but suppresses the paired
+/// `BurdenDec` when `var` is an owned-transfer arg of `pred_block`'s terminator
+/// (per [`is_owned_transfer_arg_at_terminator`] — the burden ledger is already
+/// balanced at the transfer point). The `RcDec` is always emitted (RL-4 holds
+/// regardless of the burden-ledger accounting).
+#[inline]
+pub(crate) fn release_with_burden_edge(
+    func: &ArcFunction,
+    pred_block: usize,
+    var: ArcVarId,
+    strategy: RcStrategy,
+) -> Vec<ArcInstr> {
+    let mut ops = Vec::with_capacity(2);
+    if carries_burden(func, var) && !is_owned_transfer_arg_at_terminator(func, pred_block, var) {
+        ops.push(ArcInstr::BurdenDec { var });
+    }
+    ops.push(ArcInstr::RcDec {
+        var,
+        strategy,
+        atomicity: RcAtomicity::default_atomic(),
+    });
+    ops
+}
+
+/// True iff `succ_block` is a normal/unwind successor of some predecessor whose
+/// `Invoke`/`InvokeIndirect` terminator consumes `var` at an OWNED arg position.
+///
+/// Dead-at-entry / block-entry releases (`dead_cleanup`) of an owned-transfer
+/// Invoke arg are the same over-count case as the edge cleanup keyed on the
+/// predecessor: the value's burden ledger was balanced at the transfer point
+/// (`emit_terminator_burden_*`), so a block-entry `BurdenDec` on the Invoke's
+/// successor double-counts. The `RcDec` itself stays (RL-5 dead-at-entry holds).
+/// Keyed on the successor block since `dead_cleanup` emits at block entry, this
+/// is the successor-side companion of [`is_owned_transfer_arg_at_terminator`].
+fn is_owned_transfer_arg_into_block(func: &ArcFunction, succ_block: usize, var: ArcVarId) -> bool {
+    use crate::ir::ArcTerminator;
+    let succ_id = block_id(succ_block);
+    func.blocks.iter().any(|pred| {
+        let (ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. }) = &pred.terminator
+        else {
+            return false;
+        };
+        if *normal != succ_id && *unwind != succ_id {
+            return false;
+        }
+        pred.terminator
+            .used_vars()
+            .iter()
+            .enumerate()
+            .any(|(pos, &arg)| arg == var && pred.terminator.is_owned_position(pos))
+    })
+}
+
+/// Block-entry release: like [`release_with_burden`] but suppresses the paired
+/// `BurdenDec` when `var` is an owned-transfer Invoke/InvokeIndirect arg whose
+/// successor is `succ_block` (per [`is_owned_transfer_arg_into_block`] — the
+/// burden ledger is already balanced at the transfer point). The `RcDec` is
+/// always emitted (RL-5 dead-at-entry holds regardless of the burden ledger).
+#[inline]
+pub(crate) fn release_with_burden_into_block(
+    func: &ArcFunction,
+    succ_block: usize,
+    var: ArcVarId,
+    strategy: RcStrategy,
+) -> Vec<ArcInstr> {
+    let mut ops = Vec::with_capacity(2);
+    if carries_burden(func, var) && !is_owned_transfer_arg_into_block(func, succ_block, var) {
+        ops.push(ArcInstr::BurdenDec { var });
+    }
+    ops.push(ArcInstr::RcDec {
+        var,
+        strategy,
+        atomicity: RcAtomicity::default_atomic(),
+    });
+    ops
 }

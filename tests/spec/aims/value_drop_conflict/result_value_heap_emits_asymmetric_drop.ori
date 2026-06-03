@@ -1,0 +1,39 @@
+// Mixed Value/Heap composition — Result<int, str>: the Ok(int) arm
+// inherits the empty Value burden (no drop), the Err(str) arm inherits
+// the full heap burden (the str's RC is released). The asymmetry is the
+// positive pin for variant-burden composition over a Value/Heap boundary
+// (Spec: Annex E §AIMS).
+//
+// The asymmetric-drop property is pinned at the IR level by the AOT test
+// compiler/ori_llvm/tests/aot/value_empty_burden.rs
+// (test_result_value_heap_emits_asymmetric_drop, via ORI_DUMP_AFTER_LLVM
+// showing ori_str_rc_dec only on the Err path). This spec test pins the
+// observable behavior end-to-end through both the interpreter and the
+// LLVM backend (dual-execution parity), with ORI_CHECK_LEAKS confirming
+// the Err-arm str is released (no leak) and the Ok-arm int needs no drop.
+
+use std.testing { assert_eq };
+
+@make (ok: bool) -> Result<int, str> = {
+    if ok then Ok(42) else Err("boom")
+};
+
+@unwrap_or_zero (r: Result<int, str>) -> int = {
+    match r {
+        Ok(v) -> v,
+        Err(_) -> 0,
+    }
+};
+
+// Ok arm: int payload, no drop, value flows through.
+@test_result_ok_value_arm_returns_payload tests @make () -> void = {
+    let r = make(ok: true);
+    assert_eq(actual: unwrap_or_zero(r: r), expected: 42);
+};
+
+// Err arm: str payload released along the heap burden; the match
+// consumes the Result, the str RC drops, no leak.
+@test_result_err_heap_arm_releases_str tests @unwrap_or_zero () -> void = {
+    let r = make(ok: false);
+    assert_eq(actual: unwrap_or_zero(r: r), expected: 0);
+};

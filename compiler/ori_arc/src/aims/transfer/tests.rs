@@ -356,6 +356,7 @@ fn rc_inc_has_no_def() {
         var: var(0),
         count: 1,
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(transfer_def(&instr, &top_lookup).is_none());
 }
@@ -365,6 +366,7 @@ fn rc_dec_has_no_def() {
     let instr = ArcInstr::RcDec {
         var: var(0),
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(transfer_def(&instr, &top_lookup).is_none());
 }
@@ -493,10 +495,12 @@ fn backward_rc_ops_have_no_demands() {
         var: var(0),
         count: 1,
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     let dec = ArcInstr::RcDec {
         var: var(0),
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(backward_demands(&inc).is_empty());
     assert!(backward_demands(&dec).is_empty());
@@ -910,6 +914,7 @@ fn transfer_def_covers_all_instr_variants() {
                 var: var(0),
                 count: 1,
                 strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             false,
         ),
@@ -917,6 +922,7 @@ fn transfer_def_covers_all_instr_variants() {
             ArcInstr::RcDec {
                 var: var(0),
                 strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             false,
         ),

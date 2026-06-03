@@ -14,7 +14,7 @@ use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, RcStrategy};
 
 use super::metrics;
 use super::walk;
@@ -50,14 +50,20 @@ fn trace_phase_snapshot(
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let mut incs: Vec<u32> = Vec::new();
         let mut decs: Vec<u32> = Vec::new();
+        let mut binc: Vec<u32> = Vec::new();
+        let mut bdec: Vec<u32> = Vec::new();
         for instr in &block.body {
             match instr {
                 ArcInstr::RcInc { var, .. } => incs.push(var.raw()),
                 ArcInstr::RcDec { var, .. } => decs.push(var.raw()),
+                ArcInstr::BurdenInc { var } => binc.push(var.raw()),
+                ArcInstr::BurdenDec { var }
+                | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var } => bdec.push(var.raw()),
                 _ => {}
             }
         }
-        if incs.is_empty() && decs.is_empty() {
+        if incs.is_empty() && decs.is_empty() && binc.is_empty() && bdec.is_empty() {
             continue;
         }
         tracing::trace!(
@@ -67,6 +73,8 @@ fn trace_phase_snapshot(
             block = block_idx,
             inc = ?incs,
             dec = ?decs,
+            binc = ?binc,
+            bdec = ?bdec,
             "post-walk RC snapshot"
         );
     }
@@ -466,7 +474,11 @@ fn emit_block_rc(
     let edge_deferred = match &func.blocks[block_idx].terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
             for &(var, strategy) in &terminator_deferred {
-                new_body.push(ArcInstr::RcDec { var, strategy });
+                new_body.push(ArcInstr::RcDec {
+                    var,
+                    strategy,
+                    atomicity: RcAtomicity::default_atomic(),
+                });
             }
             Vec::new()
         }

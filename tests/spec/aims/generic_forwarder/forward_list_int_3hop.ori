@@ -1,4 +1,4 @@
-// 3-hop generic forwarder chain over [int] — the original BUG-04-090 repro.
+// 3-hop generic forwarder chain over [int] — the original generic-forwarder repro.
 //
 // Verifies: a 3-hop chain id -> wrap -> double_wrap over [int] yields a list
 // the caller can read in full under both interpreter and LLVM backends.
@@ -6,7 +6,6 @@
 // flowing through Return, and the 3-hop accumulation double-frees at the
 // caller's scope exit.
 //
-// Provenance: bug-tracker/plans/BUG-04-090/section-03-tdd-matrix.md (3-hop row)
 // Mirrors compiler/ori_llvm/tests/aot/fixtures/generics/generic_chain_list_element.ori
 
 use std.testing { assert_eq }

@@ -12,7 +12,7 @@ use crate::ir::{
 use ori_ir::StringInterner;
 use ori_types::Pool;
 
-use super::{fmt_strategy, fmt_var, fmt_var_typed};
+use super::{fmt_atomicity_suffix, fmt_strategy, fmt_var, fmt_var_typed};
 
 /// Format a single ARC instruction.
 ///
@@ -118,6 +118,7 @@ pub fn fmt_instr(
             var,
             count,
             strategy,
+            atomicity,
         } => {
             write!(
                 out,
@@ -129,9 +130,14 @@ pub fn fmt_instr(
             if *count > 1 {
                 write!(out, " x{count}").unwrap();
             }
+            out.push_str(fmt_atomicity_suffix(*atomicity));
         }
 
-        ArcInstr::RcDec { var, strategy } => {
+        ArcInstr::RcDec {
+            var,
+            strategy,
+            atomicity,
+        } => {
             write!(
                 out,
                 "RcDec {} [{}]",
@@ -139,6 +145,7 @@ pub fn fmt_instr(
                 fmt_strategy(*strategy),
             )
             .unwrap();
+            out.push_str(fmt_atomicity_suffix(*atomicity));
         }
 
         ArcInstr::BurdenInc { var } => {

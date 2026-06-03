@@ -33,12 +33,25 @@ use crate::aims::emit_rc::{
 };
 use crate::aims::emit_reuse::DeathEvent;
 use crate::aims::lattice::SizeClass;
-use crate::ir::{is_transitive_drop_strategy, ArcInstr, ArcVarId, RcStrategy, ValueRepr};
+use crate::ir::{
+    is_transitive_drop_strategy, ArcInstr, ArcVarId, RcAtomicity, RcStrategy, ValueRepr,
+};
 
 use super::decide::{
     decide, DecisionContext, DecisionSite, InstructionDecisions, RcDecision, ReuseContext,
     ReuseDecision,
 };
+
+/// Build a realization-emitted `RcDec` with the construction-site atomicity
+/// default (`RcAtomicity::Atomic`). The thread-locality dispatch
+/// (Spec: Annex E §AIMS RL-19/20/21) replaces the default at its own site.
+fn atomic_rc_dec(var: ArcVarId, strategy: RcStrategy) -> ArcInstr {
+    ArcInstr::RcDec {
+        var,
+        strategy,
+        atomicity: RcAtomicity::default_atomic(),
+    }
+}
 
 /// Per-instruction shared realization context for the dec-emission walk.
 ///
@@ -262,7 +275,7 @@ fn emit_defined_dead(
             return;
         }
         if let Some(strategy) = rc_strategy(ctx.func, dst, ctx.pool) {
-            state.new_body.push(ArcInstr::RcDec { var: dst, strategy });
+            state.new_body.push(atomic_rc_dec(dst, strategy));
             state.emitted_vars.insert(dst);
             if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
                 state.emitted_classes.insert(class_id);
@@ -417,7 +430,7 @@ fn apply_last_use_decision(
                     return;
                 }
 
-                state.new_body.push(ArcInstr::RcDec { var, strategy });
+                state.new_body.push(atomic_rc_dec(var, strategy));
                 state.emitted_vars.insert(var);
                 if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
                     state.emitted_classes.insert(class_id);

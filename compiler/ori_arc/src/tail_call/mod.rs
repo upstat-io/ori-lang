@@ -147,7 +147,8 @@ fn find_cross_block_tail_calls(
 ///
 /// Verifies:
 /// - The `Apply` calls `func_name` (self-recursion)
-/// - All instructions after the `Apply` (before the terminator) are `RcDec`
+/// - All instructions after the `Apply` (before the terminator) are
+///   release-cleanup (RcDec/BurdenDec) instructions
 /// - No `RcDec` target is among the `Apply`'s arguments (safe to hoist)
 fn find_tail_apply_in_block(
     block: &ArcBlock,
@@ -171,17 +172,16 @@ fn find_tail_apply_in_block(
             continue;
         }
 
-        // All instructions after Apply must be RcDec (or nothing).
+        // All instructions after Apply must be release-cleanup
+        // (RcDec + paired BurdenDec) or nothing.
         let remaining = &block.body[instr_idx + 1..];
-        let all_rc_decs = remaining
-            .iter()
-            .all(|i| matches!(i, ArcInstr::RcDec { .. }));
+        let all_release_cleanup = remaining.iter().all(ArcInstr::is_release_cleanup_instr);
 
-        if !all_rc_decs {
+        if !all_release_cleanup {
             tracing::trace!(
                 block = ?block.id,
                 instr_idx,
-                "tail call rejected: non-RcDec instructions after Apply"
+                "tail call rejected: non-release-cleanup instructions after Apply"
             );
             continue;
         }
@@ -248,15 +248,16 @@ fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<T
 
         let normal_block = &func.blocks[normal.index()];
 
-        // Normal block body must be empty or only RcDec instructions.
-        let all_rc_decs = normal_block
+        // Normal block body must be empty or only release-cleanup
+        // (RcDec + paired BurdenDec) instructions.
+        let all_release_cleanup = normal_block
             .body
             .iter()
-            .all(|i| matches!(i, ArcInstr::RcDec { .. }));
-        if !all_rc_decs {
+            .all(ArcInstr::is_release_cleanup_instr);
+        if !all_release_cleanup {
             tracing::trace!(
                 block = ?block.id,
-                "invoke tail call rejected: non-RcDec instructions in normal block"
+                "invoke tail call rejected: non-release-cleanup instructions in normal block"
             );
             continue;
         }

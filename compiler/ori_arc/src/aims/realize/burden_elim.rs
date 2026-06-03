@@ -92,14 +92,7 @@ pub(crate) fn eliminate_burden_ops(func: &mut ArcFunction, state_map: &AimsState
     #[cfg(debug_assertions)]
     let before = burden_op_census(func);
 
-    for (block_idx, block) in func.blocks.iter_mut().enumerate() {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "ARC IR block counts fit in u32"
-        )]
-        let block_id = ArcBlockId::new(block_idx as u32);
-        eliminate_in_block(&mut block.body, state_map, block_id);
-    }
+    eliminate_whole_function(func, state_map);
 
     #[cfg(debug_assertions)]
     debug_assert_burden_removal_only(&before, &burden_op_census(func));
@@ -181,86 +174,110 @@ fn debug_assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
 ///    NOT included in the whole-var balance (per `aims/verify/burden_delta.rs`
 ///    it contributes to a separate field-grain accumulator); elision is
 ///    per-op, independent of the whole-var pairing.
-// Per-var balance state. `inc_indices` / `dec_indices` index into `body`;
-// the booleans accumulate AND over per-op predicate verdicts so a single
-// non-elidable op pins all the var's whole-var ops to RETAIN.
+///
+/// `OpSite` is a `(block_idx, instr_idx)` pair locating one whole-var burden
+/// op in the function.
+type OpSite = (usize, usize);
+
+// Per-var WHOLE-FUNCTION balance state. `inc_sites` / `dec_sites` locate every
+// whole-var Inc / Dec op for the var across ALL blocks; the booleans accumulate
+// AND over per-op predicate verdicts so a single non-elidable op anywhere in the
+// function pins ALL the var's whole-var ops to RETAIN. Whole-function scope is
+// load-bearing: a `BurdenInc` and its matching `BurdenDec` for a value live
+// across a block boundary land in different blocks (FRESH alloc in one block,
+// last-use release in another). A per-block pass could elide one side and
+// retain the other, netting the per-value burden ledger to +/-1 — the VF-1
+// imbalance per `aims/verify/burden_balance.rs`. Pairing across the whole
+// function keeps the inc/dec pair atomic.
 #[derive(Default)]
 struct WholeVarBalance {
-    inc_indices: Vec<usize>,
-    dec_indices: Vec<usize>,
+    inc_sites: Vec<OpSite>,
+    dec_sites: Vec<OpSite>,
     all_inc_elidable: bool,
     all_dec_unnecessary: bool,
 }
 
-fn eliminate_in_block(body: &mut Vec<ArcInstr>, state_map: &AimsStateMap, block_id: ArcBlockId) {
-    if body.is_empty() {
-        return;
+impl WholeVarBalance {
+    fn seed() -> Self {
+        Self {
+            all_inc_elidable: true,
+            all_dec_unnecessary: true,
+            ..Self::default()
+        }
     }
+}
 
+/// Whole-function DP-2/DP-3 burden-op elimination. Accumulates per-var Inc/Dec
+/// balances across EVERY block, then eliminates a var's whole-var ops only when
+/// DP-3 fires on every Inc AND DP-2 fires on every Dec function-wide (else
+/// retains all of the var's ops). Field-grain `BurdenDecField` is settled
+/// per-op (it does not participate in whole-var pairing).
+fn eliminate_whole_function(func: &mut ArcFunction, state_map: &AimsStateMap) {
     let mut balances: FxHashMap<ArcVarId, WholeVarBalance> = FxHashMap::default();
-    let mut remove: Vec<bool> = vec![false; body.len()];
+    // Per-block removal bitsets, indexed [block_idx][instr_idx].
+    let mut remove: Vec<Vec<bool>> = func
+        .blocks
+        .iter()
+        .map(|b| vec![false; b.body.len()])
+        .collect();
 
-    // Pass 1: classify each whole-var op into the per-var balance buckets;
-    // settle field-grain Decs (BurdenDecField) inline since they do not
-    // participate in whole-var pairing.
-    for (idx, instr) in body.iter().enumerate() {
-        match instr {
-            ArcInstr::BurdenInc { var } => {
-                let state = state_map.var_state_at_block_exit(block_id, *var);
-                let entry = balances.entry(*var).or_insert(WholeVarBalance {
-                    all_inc_elidable: true,
-                    all_dec_unnecessary: true,
-                    ..WholeVarBalance::default()
-                });
-                entry.inc_indices.push(idx);
-                entry.all_inc_elidable &= is_rc_inc_elidable(&state);
-            }
-            ArcInstr::BurdenDec { var }
-            | ArcInstr::BurdenDecPartial { var, .. }
-            | ArcInstr::BurdenDecVariant { var } => {
-                let state = state_map.var_state_at_block_exit(block_id, *var);
-                let entry = balances.entry(*var).or_insert(WholeVarBalance {
-                    all_inc_elidable: true,
-                    all_dec_unnecessary: true,
-                    ..WholeVarBalance::default()
-                });
-                entry.dec_indices.push(idx);
-                entry.all_dec_unnecessary &= is_rc_dec_unnecessary(&state);
-            }
-            ArcInstr::BurdenDecField { base, .. } => {
-                if should_elide_dec(state_map, block_id, *base) {
-                    remove[idx] = true;
+    // Pass 1: classify every whole-var op into the per-var balance buckets
+    // across ALL blocks; settle field-grain Decs (BurdenDecField) inline.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let block_id = ArcBlockId::new(block_idx as u32);
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    let state = state_map.var_state_at_block_exit(block_id, *var);
+                    let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
+                    entry.inc_sites.push((block_idx, instr_idx));
+                    entry.all_inc_elidable &= is_rc_inc_elidable(&state);
                 }
+                ArcInstr::BurdenDec { var }
+                | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var } => {
+                    let state = state_map.var_state_at_block_exit(block_id, *var);
+                    let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
+                    entry.dec_sites.push((block_idx, instr_idx));
+                    entry.all_dec_unnecessary &= is_rc_dec_unnecessary(&state);
+                }
+                ArcInstr::BurdenDecField { base, .. } => {
+                    if should_elide_dec(state_map, block_id, *base) {
+                        remove[block_idx][instr_idx] = true;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
-    // Pass 2: per-var paired elimination. Elide all of a var's Inc + whole-
-    // var Dec ops iff DP-3 fires on every Inc AND DP-2 fires on every Dec.
-    // Else retain every op for that var to preserve VF-1 balance.
+    // Pass 2: per-var paired elimination across the whole function. Elide all of
+    // a var's Inc + whole-var Dec ops iff DP-3 fires on every Inc AND DP-2 fires
+    // on every Dec; else retain every op for that var to preserve VF-1 balance.
     for balance in balances.values() {
         if balance.all_inc_elidable && balance.all_dec_unnecessary {
-            for &i in &balance.inc_indices {
-                remove[i] = true;
-            }
-            for &i in &balance.dec_indices {
-                remove[i] = true;
+            for &(b, i) in balance.inc_sites.iter().chain(&balance.dec_sites) {
+                remove[b][i] = true;
             }
         }
     }
 
-    if !remove.iter().any(|r| *r) {
-        return;
+    // Compact each block: retain only non-removed instructions.
+    for (block_idx, block) in func.blocks.iter_mut().enumerate() {
+        if !remove[block_idx].iter().any(|r| *r) {
+            continue;
+        }
+        let mut idx = 0usize;
+        block.body.retain(|_| {
+            let keep = !remove[block_idx][idx];
+            idx += 1;
+            keep
+        });
     }
-
-    // Compact: retain only non-removed instructions.
-    let mut idx = 0usize;
-    body.retain(|_| {
-        let keep = !remove[idx];
-        idx += 1;
-        keep
-    });
 }
 
 /// Whether a `BurdenDecField` site can be elided per DP-2 at `(block, var)`.

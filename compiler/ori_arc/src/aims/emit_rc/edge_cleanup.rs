@@ -482,23 +482,15 @@ fn apply_edge_decs(
 
     for ((pred, succ), decs) in &edge_groups {
         if predecessors[*succ].len() == 1 {
-            // Coexistence `BurdenDec` accounting marker adjacent to each edge
+            // Faithful release: `BurdenDec` paired adjacent to each edge
             // `RcDec` whose var carries burden ops — per-value burden ledger
-            // nets 0 across this CFG edge.
+            // nets 0 across this CFG edge (RL-4). The edge variant suppresses
+            // the burden dec for an owned-transfer arg of `pred`'s terminator
+            // (already balanced at the transfer point).
             let dec_instrs: Vec<ArcInstr> = decs
                 .iter()
                 .flat_map(|&(var, strategy)| {
-                    let mut ops = Vec::with_capacity(2);
-                    if func
-                        .burden_emitted
-                        .get(var.index())
-                        .copied()
-                        .unwrap_or(false)
-                    {
-                        ops.push(ArcInstr::BurdenDec { var });
-                    }
-                    ops.push(ArcInstr::RcDec { var, strategy });
-                    ops
+                    super::release_with_burden_edge(func, *pred, var, strategy)
                 })
                 .collect();
             let body = &mut func.blocks[*succ].body;

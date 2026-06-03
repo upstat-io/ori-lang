@@ -1,0 +1,17 @@
+// Shape (a) — KnownSafe pair elimination interaction (RL-22/23 × RL-31).
+// `m` is used twice across the merge call, keeping physical RC high so the
+// inner inc/dec pair at the call is KnownSafe-eliminable. The RL-31 noalias on
+// merge's distinct-type params must survive the elimination.
+@merge (a: {str: int}, b: [int]) -> int = {
+    let av = a["x"].unwrap_or(default: 0);
+    let bv = b.len();
+    av + bv
+}
+
+@main () -> void = {
+    let m = {"x": 10};
+    let l = [1, 2, 3];
+    let first = merge(a: m, b: l);
+    let again = m["x"].unwrap_or(default: 0);
+    print(msg: (first + again).to_str())
+}

@@ -95,7 +95,8 @@ pub use ir::validate::{
 };
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
-    ArcValue, ArcVarId, ArgOwnership, CtorKind, LitValue, PrimOp, RcStrategy, ValueRepr,
+    ArcValue, ArcVarId, ArgOwnership, CtorKind, LitValue, PrimOp, RcAtomicity, RcStrategy,
+    ValueRepr,
 };
 pub use liveness::{
     compute_liveness, compute_refined_liveness, BlockLiveness, LiveSet, RefinedLiveness,

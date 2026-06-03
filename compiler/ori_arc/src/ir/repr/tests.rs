@@ -473,3 +473,49 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
         "Result<int, Ordering> → Scalar"
     );
 }
+
+// RcAtomicity — §06.3 carrier SITE pins.
+//
+// The carrier exists with both variants; the construction-site default is
+// `Atomic` (every realization-emitted RcInc/RcDec is atomic today, matching
+// the unconditionally-atomic shipped runtime RC primitives). The
+// `RL-19/20/21` dispatch that selects `NonAtomic` is owned by the
+// thread-local-ARC plan section (it ships the non-atomic runtime path the
+// selection requires); these pins guard the carrier + its default, not the
+// not-yet-shipped selection.
+
+#[test]
+fn rc_atomicity_default_is_atomic() {
+    // Semantic pin: the construction-site default reproduces the shipped
+    // unconditionally-atomic runtime. Reverting `default_atomic()` to
+    // `NonAtomic` flips this — the negative-space guard against a silent
+    // non-atomic emission before the runtime path exists.
+    assert_eq!(RcAtomicity::default_atomic(), RcAtomicity::Atomic);
+    assert!(RcAtomicity::default_atomic().is_atomic());
+}
+
+#[test]
+fn rc_atomicity_is_atomic_distinguishes_variants() {
+    assert!(RcAtomicity::Atomic.is_atomic());
+    assert!(!RcAtomicity::NonAtomic.is_atomic());
+}
+
+#[test]
+fn rc_atomicity_atomic_renders_no_suffix() {
+    // Atomic dumps byte-identically to before the carrier landed (empty
+    // suffix) — the AIMS snapshot baselines depend on this.
+    assert_eq!(
+        crate::ir::format::fmt_atomicity_suffix(RcAtomicity::Atomic),
+        ""
+    );
+}
+
+#[test]
+fn rc_atomicity_non_atomic_renders_suffix() {
+    // Negative-space pin: the dimension IS observable once the dispatch
+    // selects NonAtomic — a NonAtomic op dumps with the explicit suffix.
+    assert_eq!(
+        crate::ir::format::fmt_atomicity_suffix(RcAtomicity::NonAtomic),
+        " [non-atomic]"
+    );
+}

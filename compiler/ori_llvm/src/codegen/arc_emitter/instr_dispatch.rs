@@ -498,11 +498,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 var,
                 count,
                 strategy,
+                atomicity: _,
             } => {
+                // `atomicity` is `RcAtomicity::Atomic` at every construction
+                // site today (the shipped runtime RC primitives are
+                // unconditionally atomic). The atomicity-selecting branch +
+                // non-atomic runtime path land with the thread-local-ARC
+                // dispatch (RL-19/20/21); until then this arm ignores it.
                 self.emit_rc_inc(*var, *count, *strategy, func);
             }
 
-            ArcInstr::RcDec { var, strategy } => {
+            ArcInstr::RcDec {
+                var,
+                strategy,
+                atomicity: _,
+            } => {
                 self.emit_rc_dec(*var, *strategy, func);
             }
 

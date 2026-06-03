@@ -22,7 +22,6 @@
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
 mod burden_elim;
-mod burden_mirror;
 mod cleanup_redundant;
 pub mod decide;
 #[cfg(test)]
@@ -37,7 +36,6 @@ mod walk;
 mod walk_dec;
 
 pub(crate) use burden_elim::eliminate_burden_ops;
-pub(crate) use burden_mirror::reconcile_burden_ledger;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
 pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
 
@@ -425,7 +423,7 @@ fn inject_cow_borrowed_receiver_incs(
     pool: &ori_types::Pool,
 ) {
     use crate::aims::emit_rc::collect_cow_borrowed_receivers;
-    use crate::ir::{ArcInstr, ArcTerminator, RcStrategy};
+    use crate::ir::{ArcInstr, ArcTerminator, RcAtomicity, RcStrategy};
 
     let cow_borrowed_receivers = collect_cow_borrowed_receivers(func, interner);
     if cow_borrowed_receivers.is_empty() {
@@ -470,6 +468,7 @@ fn inject_cow_borrowed_receiver_incs(
                     var,
                     count: 1,
                     strategy,
+                    atomicity: RcAtomicity::default_atomic(),
                 },
             );
         }
@@ -486,6 +485,7 @@ fn inject_cow_borrowed_receiver_incs(
                         var: receiver,
                         count: 1,
                         strategy,
+                        atomicity: RcAtomicity::default_atomic(),
                     });
                 }
             }

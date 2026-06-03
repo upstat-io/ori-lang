@@ -1,0 +1,31 @@
+// Benchmark: Conditional transfer in branch (per-edge balance + DP-3)
+// Shape: tight loop with if-else where one
+// branch transfers ownership of an owned heap value (passes it to a consuming
+// callee) and the other releases it (uses it borrowed, then drops at scope
+// exit). Isolates the per-edge balance predicate + DP-3 elimination.
+//
+// RC focus: each iteration builds an owned `[int]` then branches. The
+// transfer branch moves `buf` into a callee Owned parameter (ownership
+// transfer — RL-2 last-use-is-transfer exemption, no dec on that edge);
+// the release branch uses `buf` borrowed then drops it at scope exit (an
+// edge-specific BurdenDec per RL-4). Phase 5 emits per-edge burden ops;
+// Phase 6's DP-3 (Once + Linear) elides the transfer-edge inc, and the
+// per-edge balance keeps exactly one dec on the release edge. The loop
+// multiplies the per-iteration edge-balance traffic across both branches.
+
+@consume (xs: [int]) -> int = xs.len();
+
+@main () -> int = {
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= 100000 then break;
+        let buf: [int] = [i, i + 1, i + 2];
+        let r = if i % 2 == 0 then consume(xs: buf) else buf.len();
+        total = total + r;
+        i = i + 1;
+    };
+    // Verify: every iteration contributes a list length of 3.
+    let expected = 100000 * 3;
+    if total == expected then 0 else 1
+}

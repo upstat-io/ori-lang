@@ -1,7 +1,7 @@
 // (B-1) Resume-terminator composition pin: borrowed [int] param + panic
 // branch (Resume terminator) + return-xs branch (Return-as-transfer).
 // Verifies the existing should_suppress_return_transfer_dec gating
-// (per aims-rules.md §8 RL-4) still fires on the return-xs path after
+// (per Spec: Annex E §AIMS RL-4) still fires on the return-xs path after
 // the new pre-compute set lands. NOT a true (B-1) case — composition
 // guard. The panic branch is unreachable at runtime (xs.len() > 0).
 

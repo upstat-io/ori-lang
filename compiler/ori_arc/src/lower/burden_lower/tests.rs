@@ -3321,7 +3321,7 @@ fn nested_match_with_inner_diamond_partial_move_emits_burden_dec_partial() {
     }
 }
 
-// ─── Closure capture composition — burden_lower emission pins ──────
+// Closure capture composition — burden_lower emission pins
 //
 // Tests below pin the closure-capture-composition story at the
 // burden_lower layer: registered closure `UserBurdenSpec` (composed via
@@ -3878,5 +3878,252 @@ fn dup_alias_at_terminator_nontransfer_suppresses_burden_dec() {
     assert_eq!(
         alias_incs, 0,
         "dup-alias var(1) carries no FRESH-site BurdenInc; body={body:?}",
+    );
+}
+
+// RL-4 live-out suppression matrix (`Spec: Annex E §AIMS RL-4`): a per-block
+// last-use `BurdenDec` is a genuine release only when the var is dead at block
+// exit. A var live-out of a block (used in a reachable successor) must NOT
+// receive an in-block last-use dec — the value lives on; the release belongs on
+// the dying CFG edge (predicate-stack edge cleanup) or at the dead-out block.
+// Reverting the suppression re-emits the spurious in-block dec → VF-1 net=-1/-2.
+
+/// Total `BurdenDec` / `BurdenDecPartial` / `BurdenDecVariant` ops targeting
+/// `var` across every block body.
+fn count_burden_decs(func: &ArcFunction, var: ArcVarId) -> usize {
+    func.blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter(|i| {
+            matches!(
+                i,
+                ArcInstr::BurdenDec { var: v }
+                | ArcInstr::BurdenDecPartial { var: v, .. }
+                | ArcInstr::BurdenDecVariant { var: v }
+                if *v == var
+            )
+        })
+        .count()
+}
+
+#[test]
+fn owned_param_live_out_of_block_gets_no_in_block_last_use_dec() {
+    // Conditional-transfer shape (the `comparable::find_max`/`find_min` v0/v1
+    // residual): owned param %0: str is aliased in bb0 (`%2 = %0`, live-out to
+    // bb1 on the then-edge) and again in bb1 (`%3 = %0`). The bb0 last-use is
+    // SPURIOUS — %0 lives to bb1 — so RL-4 suppresses it; the genuine release is
+    // bb1's dead-out last-use dec (plus the predicate-stack dead-edge dec on the
+    // else-edge at realize time, not modeled here). Negative pin: reverting the
+    // live-out suppression re-adds the bb0 dec → 2 decs on the then-path → net
+    // -2 against the owned param's single incoming reference (VF-1 imbalance).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                }],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    // Semantic pin: %0 (owned param, no FRESH inc) receives exactly ONE
+    // in-block last-use dec (bb1, where it is dead-out); the bb0 last-use is
+    // suppressed because %0 is live-out of bb0. The bb2 else-edge dead release
+    // is the realize-walk's job (not the burden walk's).
+    let bb0_decs = func.blocks[0]
+        .body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .count();
+    assert_eq!(
+        bb0_decs, 0,
+        "RL-4: %0 is live-out of bb0 (used in bb1) — bb0's last-use BurdenDec MUST be suppressed; bb0={:?}",
+        func.blocks[0].body,
+    );
+    let bb1_decs = func.blocks[1]
+        .body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .count();
+    assert_eq!(
+        bb1_decs, 1,
+        "RL-4: %0 is dead-out of bb1 — its genuine last-use BurdenDec is kept there; bb1={:?}",
+        func.blocks[1].body,
+    );
+}
+
+#[test]
+fn fresh_value_live_across_blocks_nets_burden_balance_zero() {
+    // Multi-block live-out (the `cow::shared_substring` / `debug::escape`
+    // residual): a FRESH str %0 is created in bb0 (FRESH-site BurdenInc),
+    // aliased in bb0 (`%1 = %0`, live-out to bb1) and consumed at bb1's Return
+    // via `%2 = %0`. RL-4 suppresses the bb0 last-use dec (%0 live-out); the
+    // single FRESH inc is balanced by the single kept bb1 dec → VF-1 net 0.
+    // Semantic pin: `verify_burden_balance` reports zero imbalances. Negative
+    // pin: reverting the live-out suppression re-adds the bb0 dec → inc(bb0) -
+    // dec(bb0) - dec(bb1) = -1 → a `BurdenBalanceError` for %0.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                }],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(2),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    // Semantic pin: faithful Phase-5 emission nets the burden ledger to 0 on
+    // every path (one FRESH inc, one kept last-use dec).
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "RL-4: FRESH %0 live across bb0->bb1 must net VF-1 to 0; imbalances={imbalances:?}",
+    );
+    // %0 receives exactly one FRESH inc and exactly one (bb1) dec.
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        1,
+        "RL-4: %0's only BurdenDec is bb1's dead-out last-use; bb0={:?} bb1={:?}",
+        func.blocks[0].body,
+        func.blocks[1].body,
+    );
+    let bb0_decs = func.blocks[0]
+        .body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .count();
+    assert_eq!(
+        bb0_decs, 0,
+        "RL-4: %0 is live-out of bb0 — bb0's last-use BurdenDec MUST be suppressed; bb0={:?}",
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn dead_out_value_keeps_its_single_block_last_use_dec() {
+    // RL-4 boundary / negative-space pin: a FRESH str %0 read by two
+    // duplication aliases within bb0 (use_counts=2 → NOT a move-alias transfer)
+    // and dead at bb0 exit (the Return value is an unrelated scalar) is NOT
+    // live-out — so its in-block last-use dec is KEPT (the suppression fires
+    // ONLY for live-out vars). Pairs with the two suppression pins above:
+    // confirms the fix narrows to live-out and does not over-suppress the
+    // genuine single-block release. %1/%2 are dup-alias dsts (their own decs
+    // suppressed); %0 carries the FRESH inc + the kept last-use dec → net 0.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        1,
+        "RL-4 narrowness: a dead-out (not live-out) %0 KEEPS its single-block last-use BurdenDec; body={:?}",
+        func.blocks[0].body,
+    );
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "dead-out single-block release nets VF-1 to 0; imbalances={imbalances:?}",
     );
 }

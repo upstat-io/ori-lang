@@ -26,8 +26,8 @@ pub mod validate;
 
 pub use instr::ArcInstr;
 pub use repr::{
-    compute_var_rc_strategies, compute_var_reprs, is_transitive_drop_strategy, RcStrategy,
-    ValueRepr,
+    compute_var_rc_strategies, compute_var_reprs, is_transitive_drop_strategy, RcAtomicity,
+    RcStrategy, ValueRepr,
 };
 
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};

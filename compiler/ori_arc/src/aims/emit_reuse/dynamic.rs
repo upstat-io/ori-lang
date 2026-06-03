@@ -10,7 +10,8 @@ use ori_ir::Span;
 use ori_types::Idx;
 
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcStrategy,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcAtomicity,
+    RcStrategy,
 };
 
 use super::set_ops::{build_proj_map, is_self_set, ProjMap};
@@ -247,6 +248,7 @@ fn build_dynamic_blocks(
         ArcInstr::RcDec {
             var: opp.source_var,
             strategy: ctx.rc_strategy,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::Construct {
             dst: ctx.dst,

@@ -69,6 +69,7 @@ fn derive_param_unrestricted_when_rc_inc_present() {
             var: v(0),
             count: 1,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -84,6 +85,7 @@ fn derive_param_affine_when_only_rc_dec() {
         vec![ArcInstr::RcDec {
             var: v(0),
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -111,6 +113,7 @@ fn oracle_accepts_matching_contract() {
         vec![ArcInstr::RcDec {
             var: v(0),
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -178,10 +181,12 @@ fn oracle_rejects_unsafe_optimistic_inference() {
                 var: v(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             ArcInstr::RcDec {
                 var: v(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -260,6 +265,7 @@ fn oracle_tracks_aliased_param_via_let_binding() {
                 var: v(1), // alias of param0
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -289,6 +295,7 @@ fn oracle_counts_batched_rc_inc() {
             var: v(0),
             count: 3, // batched: 3 increments in one instruction
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -339,6 +346,7 @@ fn oracle_derives_may_share_from_rc_incs() {
             var: v(0),
             count: 1,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -395,6 +403,7 @@ fn oracle_distinguishes_affine_from_linear() {
             ArcInstr::RcDec {
                 var: v(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -448,6 +457,7 @@ fn oracle_tracks_alias_through_jump_then_let() {
                         var: v(101), // alias chain: param0 → bp0 → v(101)
                         count: 1,
                         strategy: RcStrategy::HeapPointer,
+                        atomicity: crate::ir::RcAtomicity::default_atomic(),
                     },
                 ],
                 terminator: ArcTerminator::Return { value: v(999) },
@@ -512,6 +522,7 @@ fn oracle_tracks_transitive_alias_chain() {
                 var: v(2), // two-hop alias of param0
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -662,6 +673,7 @@ fn oracle_detects_may_share_from_local_rc_inc() {
             var: v(10), // local, not param
             count: 1,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -719,6 +731,7 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
             var: v(10), // local variable
             count: 1,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 
@@ -747,6 +760,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
         vec![ArcInstr::RcDec {
             var: v(0),
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
 

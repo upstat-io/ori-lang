@@ -10,7 +10,9 @@ use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
+use crate::ir::{
+    ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, RcStrategy,
+};
 
 /// Emit `RcInc` for projected children of deferred parents that escape the
 /// block via terminator arguments (Jump/Branch/Switch).
@@ -85,6 +87,7 @@ pub(super) fn emit_project_escape_incs(
                 var: arg,
                 count: 1,
                 strategy,
+                atomicity: RcAtomicity::default_atomic(),
             });
 
             let final_target = follow_jump_chain(func, target_idx);
@@ -108,9 +111,11 @@ pub(super) fn emit_project_escape_incs(
     let mut seen: FxHashSet<(usize, u32)> = FxHashSet::default();
     for (succ_idx, var, strategy) in succ_decs {
         if succ_idx < func.blocks.len() && seen.insert((succ_idx, var.raw())) {
-            func.blocks[succ_idx]
-                .body
-                .push(ArcInstr::RcDec { var, strategy });
+            func.blocks[succ_idx].body.push(ArcInstr::RcDec {
+                var,
+                strategy,
+                atomicity: RcAtomicity::default_atomic(),
+            });
         }
     }
 }
@@ -200,20 +205,19 @@ fn find_edge_decced_project_parents(
 /// Edge cleanup creates trampoline blocks between predecessors and merge
 /// blocks. Trampolines have params (they receive Jump args) but are
 /// single-use intermediaries. This function skips trampolines (blocks
-/// whose body is only `RcDec` instructions) and returns the first block
-/// with non-`RcDec` body content or the end of the chain.
+/// whose body is only release-cleanup (RcDec/BurdenDec) instructions) and
+/// returns the first block with non-release-cleanup body content or the end
+/// of the chain.
 fn follow_jump_chain(func: &ArcFunction, mut idx: usize) -> usize {
     let mut visited = 0;
     while visited < func.blocks.len() {
         let Some(block) = func.blocks.get(idx) else {
             break;
         };
-        // A trampoline block has body containing only RcDec instructions.
-        let is_trampoline = !block.body.is_empty()
-            && block
-                .body
-                .iter()
-                .all(|i| matches!(i, ArcInstr::RcDec { .. }));
+        // A trampoline block has body containing only release-cleanup
+        // (RcDec + paired BurdenDec) instructions.
+        let is_trampoline =
+            !block.body.is_empty() && block.body.iter().all(ArcInstr::is_release_cleanup_instr);
         if !is_trampoline {
             return idx;
         }
@@ -226,3 +230,6 @@ fn follow_jump_chain(func: &ArcFunction, mut idx: usize) -> usize {
     }
     idx
 }
+
+#[cfg(test)]
+mod tests;

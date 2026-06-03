@@ -32,8 +32,8 @@ pub(crate) fn normalize_with_trmc(
         {
             let _span = tracing::info_span!("compute_var_reprs").entered();
             func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
-            // BUG-04-104: cache RcStrategy alongside var_reprs so the AIMS
-            // pre-walk PIN-6 `class_payload_of` population in
+            // Cache RcStrategy alongside var_reprs so the AIMS pre-walk
+            // `class_payload_of` population in
             // `intraprocedural::ssa_alias_classes` can classify a var's
             // strategy without holding a `&Pool` reference at analyze-time.
             func.var_rc_strategies = crate::ir::compute_var_rc_strategies(func, config.pool);
@@ -144,7 +144,8 @@ pub(crate) fn verify_trmc_soundness(
     if let Some(original) = pre_trmc_func {
         *func = original;
         func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
-        // BUG-04-104: refresh PIN-6 strategy cache after TRMC rollback.
+        // Refresh the RcStrategy cache after TRMC rollback so the re-run
+        // analysis sees strategies matching the restored IR.
         func.var_rc_strategies = crate::ir::compute_var_rc_strategies(func, config.pool);
         let restored_immortals = detect_immortals(func, config);
         let restored_regions =

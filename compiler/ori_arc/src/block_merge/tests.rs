@@ -113,6 +113,7 @@ fn nontrivial_invoke_unwind_has_cleanup() {
                 body: vec![ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::FatPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -178,6 +179,7 @@ fn invoke_with_noop_closure_rc_dec_downgrades() {
                 body: vec![ArcInstr::RcDec {
                     var: v(2),
                     strategy: RcStrategy::Closure,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -251,6 +253,7 @@ fn invoke_with_capturing_closure_rc_dec_preserved() {
                 body: vec![ArcInstr::RcDec {
                     var: v(2),
                     strategy: RcStrategy::Closure,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -1433,6 +1436,7 @@ fn trivial_body_mixed_instructions() {
             var: v(0),
             count: 1,
             strategy: RcStrategy::FatPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
     ]));
 }
@@ -1999,6 +2003,7 @@ fn select_not_folded_with_rc_ops() {
             var: v(1),
             count: 1,
             strategy: RcStrategy::FatPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
         then_args: vec![v(1)],
         else_body: vec![],

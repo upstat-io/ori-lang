@@ -193,10 +193,10 @@ pub fn analyze_function(
     // pre-walk SSA-alias equivalence-class table. Ordering
     // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
     // unions the apply-alias edges into the classes) and BEFORE the worklist
-    // (read-only thereafter). The same pre-walk also populates the PIN-6
+    // (read-only thereafter). The same pre-walk also populates the
     // `class_payload_of` inter-class payload-of relation.
-    // RcStrategy queries during the PIN-6 population pass consult the
-    // `func.var_rc_strategies` cache populated at Step 3 alongside
+    // RcStrategy queries during the `class_payload_of` population pass consult
+    // the `func.var_rc_strategies` cache populated at Step 3 alongside
     // `func.var_reprs` (no pool dep at analyze-time).
     let ssa_alias_output =
         ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases(), sigs);
@@ -212,7 +212,7 @@ pub fn analyze_function(
     let project_alias_sources =
         project_aliases::compute_project_alias_sources(func, state_map.apply_result_aliases());
 
-    // BUG-04-118 Option A: persist the project_alias_sources side-
+    // Persist the project_alias_sources side-
     // table on AimsStateMap so the post-convergence pass
     // `populate_class_payload_of_with_liveness` can widen its A-live witness
     // set with Project-derived aliases. The local map remains for
@@ -356,21 +356,32 @@ pub fn analyze_function(
     // when sparse_events queries `effective_locality_at_block_exit` for
     // `LocalAllocCandidate` emission.
     //
-    // BUG-04-118 — `populate_class_payload_of_with_liveness` runs
-    // FIRST so subsequent post-convergence passes see the path-sensitive
-    // edge map (none read it today, but ordering is defensive).
+    // `populate_class_payload_of_with_liveness` runs FIRST so subsequent
+    // post-convergence passes see the path-sensitive edge map (none read it
+    // today, but ordering is defensive).
     post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
-    //  — coexistence handshake class_covered computation. Runs
-    // AFTER `populate_class_payload_of_with_liveness` so the path-sensitive
-    // payload map is in place; runs BEFORE downstream consumers of
-    // `class_covered` (today: `decide` at realization). Empty when
-    // `func.burden_emitted` is empty (pre-Step-4b functions); cheap then.
+    // Coexistence-handshake `class_covered` computation. Runs AFTER
+    // `populate_class_payload_of_with_liveness` so the path-sensitive payload
+    // map is in place.
+    //
+    // INVARIANT: `func.burden_emitted` is empty at THIS call site. This pass
+    // runs inside `analyze_function` (Step 4); `emit_burden_ops` populates
+    // `burden_emitted` at Step 4b, strictly AFTER. So `class_covered` is always
+    // empty (the function short-circuits on empty `burden_emitted`) and the
+    // predicate stack owns ALL RC during coexistence — burden ops are codegen
+    // no-ops, so the inert handshake is not a double-free risk. The handshake
+    // becomes load-bearing only when the predicate stack retires and burden ops
+    // become the sole RC emitter; populating `class_covered` BEFORE that point
+    // would suppress predicate-stack RC and leak (see `lower::burden_lower::emit`
+    // transfer-suppression comments). Retirement relocates this pass behind the
+    // burden ops; until then the call is cheap (early return) and kept wired so
+    // the consumption path stays compiled.
     post_convergence::populate_class_covered(&mut state_map, func);
-    // BUG-04-118: typed same-class dec obligation table
-    // for path-sensitive same-slot dec dedup across Let{Var} / Jump arg /
-    // Conditional alias chains. Mirrors class_payload_of's path-sensitive
-    // analysis but operates on intra-class member liveness rather than
-    // parent/child class containment. Consumed by walk_dec.rs::class_alive_after.
+    // Typed same-class dec obligation table for path-sensitive same-slot dec
+    // dedup across Let{Var} / Jump arg / Conditional alias chains. Mirrors
+    // class_payload_of's path-sensitive analysis but operates on intra-class
+    // member liveness rather than parent/child class containment. Consumed by
+    // walk_dec.rs::class_alive_after.
     post_convergence::populate_class_dec_obligations(&mut state_map, func);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);

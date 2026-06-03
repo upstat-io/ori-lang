@@ -1980,6 +1980,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::FatPointer,
+                atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),
@@ -2077,6 +2078,7 @@ fn rc_dec_closure_null_checks_env() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::Closure,
+                atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),
@@ -2187,6 +2189,7 @@ fn rc_inc_inline_enum_emits_tag_switch() {
                 var: ArcVarId::new(0),
                 count: 1,
                 strategy: RcStrategy::InlineEnum,
+                atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),
@@ -2287,6 +2290,7 @@ fn rc_dec_inline_enum_tag_switches() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::InlineEnum,
+                atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),
@@ -2397,6 +2401,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(0),

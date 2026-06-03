@@ -109,10 +109,12 @@ fn format_function_with_rc_ops_includes_rc_inc_and_dec_in_output() {
                     var: ArcVarId::new(0),
                     count: 1,
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return {

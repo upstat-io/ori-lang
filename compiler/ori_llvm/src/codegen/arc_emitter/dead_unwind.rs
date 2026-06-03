@@ -129,6 +129,7 @@ pub(super) fn has_effective_cleanup(block: &ArcBlock, func: &ArcFunction) -> boo
         if let ArcInstr::RcDec {
             var,
             strategy: RcStrategy::Closure,
+            ..
         } = instr
         {
             is_non_capturing_closure(func, *var)

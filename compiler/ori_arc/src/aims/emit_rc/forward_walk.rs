@@ -11,7 +11,7 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::ir::{ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
+use crate::ir::{ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, ValueRepr};
 
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
 use super::rc_strategy;
@@ -66,6 +66,7 @@ fn emit_invoke_project_borrowed_owned_incs(
                 var,
                 count: 1,
                 strategy,
+                atomicity: RcAtomicity::default_atomic(),
             });
         }
     }
@@ -164,6 +165,7 @@ fn emit_terminator_duplicate_use_incs(
             var,
             count: count_u32,
             strategy,
+            atomicity: RcAtomicity::default_atomic(),
         });
     }
 
@@ -249,6 +251,7 @@ fn emit_branch_switch_cond_dec(ctx: &BlockCtx<'_>, block_idx: usize, new_body: &
         new_body.push(ArcInstr::RcDec {
             var: cond,
             strategy,
+            atomicity: RcAtomicity::default_atomic(),
         });
     }
 }

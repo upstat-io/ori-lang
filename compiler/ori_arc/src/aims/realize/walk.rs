@@ -17,7 +17,7 @@ use crate::aims::emit_rc::{is_live_at_exit, rc_strategy, BlockCtx, LastUse};
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::aims::lattice::SizeClass;
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, RcStrategy, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, RcAtomicity, RcStrategy, ValueRepr};
 
 use super::decide::{decide, DecisionContext, DecisionSite, RcDecision, UseSemantics};
 use super::walk_dec::{emit_post_instr_decs_unified, is_rc_managed};
@@ -157,6 +157,7 @@ pub(super) fn walk_body_unified(
                     var: *dst,
                     count: 1,
                     strategy,
+                    atomicity: RcAtomicity::default_atomic(),
                 });
             }
         }
@@ -199,6 +200,7 @@ pub(super) fn walk_body_unified(
                         var: *dst,
                         count: 1,
                         strategy,
+                        atomicity: RcAtomicity::default_atomic(),
                     });
                 }
             }
@@ -239,7 +241,11 @@ pub(super) fn walk_body_unified(
                         return false;
                     }
                 }
-                new_body.push(ArcInstr::RcDec { var, strategy });
+                new_body.push(ArcInstr::RcDec {
+                    var,
+                    strategy,
+                    atomicity: RcAtomicity::default_atomic(),
+                });
                 false
             } else {
                 true
@@ -310,6 +316,7 @@ fn emit_pre_instr_incs_unified(
                             var: coll_var,
                             count: 1,
                             strategy,
+                            atomicity: RcAtomicity::default_atomic(),
                         });
                     }
                 }
@@ -345,6 +352,7 @@ fn emit_pre_instr_incs_unified(
                     var,
                     count: 1,
                     strategy,
+                    atomicity: RcAtomicity::default_atomic(),
                 });
                 metrics.total_rc_decisions += 1;
             }
@@ -384,6 +392,7 @@ fn emit_pre_instr_incs_unified(
                     var,
                     count: 1,
                     strategy,
+                    atomicity: RcAtomicity::default_atomic(),
                 });
             }
         }

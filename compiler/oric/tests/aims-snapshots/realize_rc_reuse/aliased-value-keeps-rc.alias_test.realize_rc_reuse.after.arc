@@ -9,6 +9,7 @@ fn @alias_test() -> () [entry: bb0]
     %4: () [Scalar] = ()
     %5: str [FatVal] = %0
     burden_dec %0
+    RcDec %2 [FatPtr]
     %6: () [Scalar] = Apply @ori_print(%5 [borrow])
     %7: () [Scalar] = ()
     %8: () [Scalar] = ()

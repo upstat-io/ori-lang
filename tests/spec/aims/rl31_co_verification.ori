@@ -59,7 +59,7 @@ use std.testing { assert_eq };
 }
 
 // A callee whose param may be shared (read multiple times → may_share) — the
-// selective-barrier flush site per clang-arc §02 / RL-27.
+// selective-barrier flush site per Spec: Annex E §AIMS RL-27.
 @may_share_reader (a: {str: int}) -> int = {
     let one = a["x"].unwrap_or(default: 0);
     let two = a["y"].unwrap_or(default: 0);

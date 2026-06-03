@@ -19,11 +19,13 @@ fn coalesce_adjacent_inc_inc_same_var() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::RcInc {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::Let {
             dst: v1,
@@ -55,8 +57,13 @@ fn coalesce_inc_dec_cancellation() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
-        ArcInstr::RcDec { var: v0, strategy },
+        ArcInstr::RcDec {
+            var: v0,
+            strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        },
         ArcInstr::Let {
             dst: v1,
             ty: Idx::NONE,
@@ -83,6 +90,7 @@ fn no_coalesce_across_call() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::Apply {
             dst: v1,
@@ -92,7 +100,11 @@ fn no_coalesce_across_call() {
             arg_ownership: vec![],
             mono_instance_id: None,
         },
-        ArcInstr::RcDec { var: v0, strategy },
+        ArcInstr::RcDec {
+            var: v0,
+            strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        },
     ];
 
     coalesce_block_rc(&mut body);
@@ -116,13 +128,18 @@ fn no_coalesce_across_alias() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::Let {
             dst: v1,
             ty: Idx::NONE,
             value: ArcValue::Var(v0),
         },
-        ArcInstr::RcDec { var: v0, strategy },
+        ArcInstr::RcDec {
+            var: v0,
+            strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        },
     ];
 
     coalesce_block_rc(&mut body);
@@ -146,13 +163,19 @@ fn coalesce_net_effect_multiple_ops() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::RcInc {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
-        ArcInstr::RcDec { var: v0, strategy },
+        ArcInstr::RcDec {
+            var: v0,
+            strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        },
         ArcInstr::Let {
             dst: v1,
             ty: Idx::NONE,
@@ -184,11 +207,13 @@ fn coalesce_preserves_strategy() {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::RcInc {
             var: v0,
             count: 1,
             strategy,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::Let {
             dst: v1,
@@ -205,6 +230,7 @@ fn coalesce_preserves_strategy() {
             var,
             count,
             strategy: s,
+            ..
         } => {
             assert_eq!(*var, v0);
             assert_eq!(*count, 2);

@@ -40,10 +40,12 @@ fn counts_single_inc_and_dec() {
                 var: ArcVarId::new(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -61,6 +63,7 @@ fn counts_batched_inc() {
             var: ArcVarId::new(0),
             count: 3,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
     );
     let func = function_with_blocks(vec![block]);
@@ -79,6 +82,7 @@ fn counts_across_multiple_blocks() {
             var: ArcVarId::new(0),
             count: 1,
             strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
         terminator: ArcTerminator::Jump {
             target: ArcBlockId::new(1),
@@ -91,10 +95,12 @@ fn counts_across_multiple_blocks() {
             ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             ArcInstr::RcDec {
                 var: ArcVarId::new(1),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );
@@ -117,6 +123,7 @@ fn ignores_non_rc_instructions() {
                 var: ArcVarId::new(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
         ],
     );

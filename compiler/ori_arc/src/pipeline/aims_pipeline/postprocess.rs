@@ -72,7 +72,7 @@ pub(crate) fn emit_postprocess(
     // every variable in `func.burden_emitted`. Errors join the same
     // `Vec<VerifyError>` channel used by Layer 1 structural verification
     // Layer 1.
-    run_burden_balance(func, config.verify_arc)?;
+    run_burden_balance(func, config.verify_arc, config.interner)?;
     super::trace_pipeline_checkpoint(
         func,
         "verify_burden_balance",
@@ -93,6 +93,7 @@ pub(crate) fn emit_postprocess(
 fn run_burden_balance(
     func: &ArcFunction,
     verify: bool,
+    interner: &ori_ir::StringInterner,
 ) -> Result<(), Vec<crate::verify::VerifyError>> {
     let enabled = verify || cfg!(debug_assertions);
     if !enabled {
@@ -109,8 +110,13 @@ fn run_burden_balance(
     if verify {
         return Err(verify_errors);
     }
+    let fn_name = interner.lookup(func.name);
     for e in &verify_errors {
-        tracing::warn!(phase = "verify_burden_balance", "ARC IR verification: {e}");
+        tracing::warn!(
+            phase = "verify_burden_balance",
+            function = fn_name,
+            "ARC IR verification: {e}"
+        );
     }
     Ok(())
 }

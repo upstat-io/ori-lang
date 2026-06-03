@@ -18,6 +18,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
+| `burden-balance.sh` | Count distinct VF-1 `verify_burden_balance` imbalances over a corpus (mirror disabled) | Measuring faithful Phase-5 burden-emission residual (`--files`, `--raw`, `--release`); REBUILD the dev binary first — a stale binary yields false counts |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |

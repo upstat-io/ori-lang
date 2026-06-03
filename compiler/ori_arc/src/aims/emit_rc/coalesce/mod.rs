@@ -27,7 +27,7 @@ mod tests;
 
 use rustc_hash::FxHashMap;
 
-use crate::ir::{ArcInstr, ArcVarId, RcStrategy};
+use crate::ir::{ArcInstr, ArcVarId, RcAtomicity, RcStrategy};
 
 /// Pending RC operations for a single variable within a coalescing window.
 struct PendingRc {
@@ -56,10 +56,11 @@ pub(crate) fn coalesce_block_rc(body: &mut Vec<ArcInstr>) {
                 var,
                 count,
                 strategy,
+                ..
             } => {
                 accumulate_inc(&mut pending, &mut new_body, *var, *count, *strategy);
             }
-            ArcInstr::RcDec { var, strategy } => {
+            ArcInstr::RcDec { var, strategy, .. } => {
                 accumulate_dec(&mut pending, &mut new_body, *var, *strategy);
             }
             _ => {
@@ -164,12 +165,14 @@ fn flush_entry(out: &mut Vec<ArcInstr>, var: ArcVarId, entry: &PendingRc) {
             var,
             count: entry.incs - entry.decs,
             strategy: entry.strategy,
+            atomicity: RcAtomicity::default_atomic(),
         });
     } else if entry.decs > entry.incs {
         for _ in 0..(entry.decs - entry.incs) {
             out.push(ArcInstr::RcDec {
                 var,
                 strategy: entry.strategy,
+                atomicity: RcAtomicity::default_atomic(),
             });
         }
     }

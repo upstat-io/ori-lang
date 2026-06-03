@@ -61,6 +61,7 @@ fn missed_reuse_detected() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::Construct {
                     dst: v(1),
@@ -132,6 +133,7 @@ fn type_mismatch_missed() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 // Construct a different type (use a unique Idx to simulate)
                 ArcInstr::Construct {
@@ -218,6 +220,7 @@ fn enforcement_violation_missed_reuse() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::Construct {
                     dst: v(1),

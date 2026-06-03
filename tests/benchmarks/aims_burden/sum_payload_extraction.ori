@@ -1,0 +1,39 @@
+// Benchmark: Sum payload extraction (Maranget-tree BurdenDecVariant + DP-2)
+// Shape: tight loop pattern-matching a sum
+// type and extracting owned heap payloads. Isolates Maranget-decision-tree-
+// driven BurdenDecVariant emission + DP-2 elimination over the burden
+// baseline.
+//
+// RC focus: `Msg` has one variant carrying an owned heap payload (str) and
+// one nullary variant. Each iteration constructs a Msg, matches it, and
+// extracts the payload's length. Phase 5 emits BurdenDecVariant on the
+// matched value (the owned `body` field is cleaned up when the variant is
+// destructured); Phase 6's DP-2 (Cardinality=Absent / Consumption=Dead)
+// elides the variant-dec where the payload's lifetime ends at the match arm.
+// The Maranget decision tree drives which payload fields the BurdenDecVariant
+// walks. The loop multiplies the per-iteration variant-dec traffic.
+
+type Msg = Text(body: str) | Empty;
+
+@msg_len (m: Msg) -> int = match m {
+    Text(body) -> body.len(),
+    Empty -> 0,
+};
+
+@pick (i: int) -> Msg = {
+    if i % 2 == 0 then Text(body: "payload-extraction") else Empty
+}
+
+@main () -> int = {
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= 100000 then break;
+        let m = pick(i: i);
+        total = total + msg_len(m: m);
+        i = i + 1;
+    };
+    // Verify: half the iterations carry a non-empty payload of len 18.
+    let expected = 50000 * 18;
+    if total == expected then 0 else 1
+}

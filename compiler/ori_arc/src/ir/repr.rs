@@ -164,6 +164,61 @@ pub enum RcStrategy {
     Iterator,
 }
 
+/// Whether an RC operation uses atomic or non-atomic reference-count
+/// arithmetic.
+///
+/// Carried on [`ArcInstr::RcInc`](super::ArcInstr::RcInc) and
+/// [`ArcInstr::RcDec`](super::ArcInstr::RcDec) alongside [`RcStrategy`].
+/// `RcStrategy` tells the emitter *how* to reach the refcount field;
+/// `RcAtomicity` tells it *which arithmetic* to apply to that field.
+///
+/// The atomic-vs-non-atomic decision is made at Phase 7 realization
+/// (Spec: Annex E §AIMS RL-19/RL-20/RL-21); `BurdenInc`/`BurdenDec` are
+/// uniform at Phase 5 + 6. Thread-locality is derived from the `Locality`
+/// dimension + call-graph (`RL-18a` SSOT — no parallel per-variable escape
+/// enum); the deriving dispatch lands in the thread-local-ARC plan section
+/// that also ships the non-atomic runtime path it selects. Until that
+/// dispatch + runtime land, every construction site sets `Atomic` — the
+/// shipped runtime RC primitives (`ori_rc_inc`/`ori_rc_dec`) are
+/// unconditionally atomic, so `Atomic` reproduces today's behavior exactly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum RcAtomicity {
+    /// Atomic refcount arithmetic (`fetch_add`/`fetch_sub`). Required for
+    /// any value that may cross a thread boundary (`RL-20`). The shipped
+    /// runtime RC primitives are always atomic, so this is the only value
+    /// emitted until the thread-local-ARC dispatch + non-atomic runtime land.
+    Atomic,
+
+    /// Non-atomic refcount arithmetic (plain load/store). Sound only for
+    /// values provably never shared across threads (`RL-19`/`RL-21`). Not
+    /// yet selected by any construction site — the deriving dispatch +
+    /// non-atomic runtime path are owned by the thread-local-ARC plan
+    /// section.
+    NonAtomic,
+}
+
+impl RcAtomicity {
+    /// The construction-site default until the thread-locality dispatch lands.
+    ///
+    /// Returns [`RcAtomicity::Atomic`] — every realization-emitted `RcInc`/
+    /// `RcDec` is atomic, reproducing the shipped unconditionally-atomic
+    /// runtime RC primitives bit-for-bit. The thread-local-ARC plan section
+    /// replaces this default with the `RL-19/20/21` dispatch.
+    #[must_use]
+    #[inline]
+    pub const fn default_atomic() -> Self {
+        Self::Atomic
+    }
+
+    /// Whether this atomicity selects atomic refcount arithmetic.
+    #[must_use]
+    #[inline]
+    pub const fn is_atomic(self) -> bool {
+        matches!(self, Self::Atomic)
+    }
+}
+
 impl RcStrategy {
     /// Compute from a variable's [`ValueRepr`] and its [`Pool`] type.
     ///

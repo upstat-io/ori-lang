@@ -99,6 +99,7 @@ fn rc_inc_blocks_purity() {
         var: ArcVarId::new(0),
         count: 1,
         strategy: RcStrategy::HeapPointer,
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }]);
     assert!(!has_only_pure_arc_instructions(&func));
 }

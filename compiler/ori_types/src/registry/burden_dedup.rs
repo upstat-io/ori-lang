@@ -16,8 +16,8 @@
 //! own burden is empty (Value-trait) shares one entry under a future
 //! lookup-through-graph refinement).
 //!
-//! Algorithm: FNV-1a 64-bit over a fixed-order field walk (per
-//! `aims-rules.md` `RP-3` determinism). The walker is recursion-safe: a
+//! Algorithm: FNV-1a 64-bit over a fixed-order field walk
+//! (deterministic across runs). The walker is recursion-safe: a
 //! `FxHashSet<Idx>` tracks `field_type` references already visited so
 //! `Tree<T>`-shaped specs terminate in bounded time. On revisit, a fixed
 //! sentinel ([`RECURSIVE_PLACEHOLDER`]) is folded into the hash instead
@@ -41,7 +41,7 @@ use crate::Idx;
 /// Sentinel hash mixed in for any `Idx` already visited during a recursive
 /// signature walk. The exact constant does not matter for correctness — it
 /// only matters that it differs from any plausible recursive child hash
-/// and is itself fixed across runs (`aims-rules.md` `RP-3`).
+/// and is itself fixed across runs.
 pub(crate) const RECURSIVE_PLACEHOLDER: u64 = 0xCAFE_BABE_DEAD_BEEF;
 
 /// FNV-1a 64-bit basis constant.

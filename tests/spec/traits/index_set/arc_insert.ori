@@ -1,0 +1,52 @@
+// Spec: 13-variables.md §13.6.2 — `updated` inserts an ARC-managed element.
+// The inserted `value` is moved into the collection; its RC must NOT be dropped
+// after insert (leak at rc==1 in-place; double-free at rc>1 copy). Run under
+// ORI_CHECK_LEAKS=1 (debug + release) for zero leaks, interpreter == AOT.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// [str].updated — insert an ARC-managed str element, then read it back
+// =============================================================================
+
+@list_str_arc_insert () -> str = {
+    let xs = ["a", "b", "c"];
+    let ys = xs.updated(key: 1, value: "inserted");
+    ys[1]
+}
+
+@test_list_str_arc_insert tests @list_str_arc_insert () -> void =
+    assert_eq(actual: list_str_arc_insert(), expected: "inserted");
+
+// The replaced element is dropped; the rest survive intact.
+@list_str_arc_survivors () -> str = {
+    let xs = ["a", "b", "c"];
+    let ys = xs.updated(key: 1, value: "inserted");
+    ys[0] + ys[2]
+}
+
+@test_list_str_arc_survivors tests @list_str_arc_survivors () -> void =
+    assert_eq(actual: list_str_arc_survivors(), expected: "ac");
+
+// =============================================================================
+// {str: [int]}.updated — insert an ARC-managed list value
+// =============================================================================
+
+@map_list_arc_insert () -> Option<[int]> = {
+    let m = { "a": [1], "b": [2] };
+    let n = m.updated(key: "b", value: [7, 8, 9]);
+    n["b"]
+}
+
+@test_map_list_arc_insert tests @map_list_arc_insert () -> void =
+    assert_eq(actual: map_list_arc_insert(), expected: Some([7, 8, 9]));
+
+// Insert a brand-new key carrying an ARC-managed list value.
+@map_list_arc_insert_new () -> Option<[int]> = {
+    let m = { "a": [1] };
+    let n = m.updated(key: "z", value: [5, 5]);
+    n["z"]
+}
+
+@test_map_list_arc_insert_new tests @map_list_arc_insert_new () -> void =
+    assert_eq(actual: map_list_arc_insert_new(), expected: Some([5, 5]));

@@ -17,7 +17,7 @@ use crate::aims::lattice::Cardinality;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
-use super::{block_id, rc_strategy};
+use super::{block_id, rc_strategy, release_with_burden};
 
 pub(crate) mod emission_site;
 use emission_site::class_member_suppresses;
@@ -175,7 +175,12 @@ pub(crate) fn emit_dead_at_entry_decs(
                                 ctx.blk,
                                 is_unwind_block,
                             ) {
-                                new_body.push(ArcInstr::RcDec { var, strategy });
+                                new_body.extend(super::release_with_burden_into_block(
+                                    ctx.func,
+                                    ctx.blk.index(),
+                                    var,
+                                    strategy,
+                                ));
                             }
                         }
                     }
@@ -251,7 +256,12 @@ pub(crate) fn emit_dead_at_entry_decs(
             }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
                 if !super::should_suppress_return_transfer_dec(ctx, var, ctx.blk, is_unwind_block) {
-                    new_body.push(ArcInstr::RcDec { var, strategy });
+                    new_body.extend(super::release_with_burden_into_block(
+                        ctx.func,
+                        ctx.blk.index(),
+                        var,
+                        strategy,
+                    ));
                 }
             }
         }
@@ -431,10 +441,12 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
             }
         }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
-            new_body.push(ArcInstr::RcDec {
-                var: param_var,
+            new_body.extend(super::release_with_burden_into_block(
+                ctx.func,
+                ctx.blk.index(),
+                param_var,
                 strategy,
-            });
+            ));
         }
     }
 }
@@ -602,11 +614,14 @@ pub(crate) fn emit_dead_invoke_dsts(
         pending_decs.push((succ_idx, *dst, strategy));
     }
 
-    // Prepend RcDec at the start of each successor block.
+    // Prepend the faithful release (`BurdenDec` + `RcDec`) at the start of
+    // each successor block. `release_with_burden` returns ops in
+    // [BurdenDec, RcDec] order; prepend in reverse so they land in that order.
     for (succ_idx, var, strategy) in pending_decs {
-        func.blocks[succ_idx]
-            .body
-            .insert(0, ArcInstr::RcDec { var, strategy });
+        let ops = release_with_burden(func, var, strategy);
+        for instr in ops.into_iter().rev() {
+            func.blocks[succ_idx].body.insert(0, instr);
+        }
     }
 }
 

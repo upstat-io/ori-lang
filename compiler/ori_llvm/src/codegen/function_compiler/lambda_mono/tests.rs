@@ -60,14 +60,17 @@ fn strips_rc_ops_on_vars_that_became_scalar() {
             var: ArcVarId::new(0),
             count: 1,
             strategy: RcStrategy::HeapPointer, // wrong for int
+            atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::RcDec {
             var: ArcVarId::new(0),
             strategy: RcStrategy::HeapPointer, // wrong for int
+            atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::RcDec {
             var: ArcVarId::new(1),
             strategy: RcStrategy::FatPointer, // correct for str
+            atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
         },
     ];
 
@@ -90,7 +93,7 @@ fn strips_rc_ops_on_vars_that_became_scalar() {
     assert_eq!(remaining.len(), 1, "only str's RcDec should remain");
 
     // Remaining op is var 1's RcDec with correct strategy.
-    if let ArcInstr::RcDec { var, strategy } = &remaining[0] {
+    if let ArcInstr::RcDec { var, strategy, .. } = &remaining[0] {
         assert_eq!(var.raw(), 1);
         assert_eq!(*strategy, RcStrategy::FatPointer);
     } else {
@@ -111,6 +114,7 @@ fn updates_strategy_when_repr_changes_between_ref_types() {
     let body = vec![ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer, // wrong — should be FatPointer
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }];
 
     let mut func = make_func_with_reprs(var_types, stale_reprs, body);
@@ -141,6 +145,7 @@ fn noop_when_reprs_already_correct() {
     let body = vec![ArcInstr::RcDec {
         var: ArcVarId::new(1),
         strategy: RcStrategy::FatPointer,
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }];
 
     let mut func = make_func_with_reprs(var_types, correct_reprs, body);
@@ -164,6 +169,7 @@ fn noop_when_var_reprs_empty() {
     let body = vec![ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }];
 
     let mut func = make_func_with_reprs(var_types, Vec::new(), body);
@@ -190,6 +196,7 @@ fn no_change_when_repr_stays_same() {
     let body = vec![ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }];
 
     let mut func = make_func_with_reprs(var_types, stale_reprs, body);
@@ -217,6 +224,7 @@ fn updates_strategy_for_option_type() {
     let body = vec![ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer, // wrong for Option<str>
+        atomicity: ori_arc::ir::RcAtomicity::default_atomic(),
     }];
 
     let mut func = make_func_with_reprs(var_types, stale_reprs, body);

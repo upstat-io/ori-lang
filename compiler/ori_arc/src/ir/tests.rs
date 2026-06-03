@@ -256,10 +256,12 @@ fn instr_rc_ops() {
         var: ArcVarId::new(0),
         count: 2,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     let dec = ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert!(matches!(inc, ArcInstr::RcInc { count: 2, .. }));
     assert!(matches!(dec, ArcInstr::RcDec { .. }));
@@ -575,6 +577,7 @@ fn defined_var_rc_inc_is_none() {
         var: ArcVarId::new(0),
         count: 1,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.defined_var(), None);
 }
@@ -584,6 +587,7 @@ fn defined_var_rc_dec_is_none() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.defined_var(), None);
 }
@@ -868,6 +872,7 @@ fn used_vars_rc_inc() {
         var: ArcVarId::new(3),
         count: 2,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(3)]);
 }
@@ -877,6 +882,7 @@ fn used_vars_rc_dec() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(7),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
 }
@@ -1186,10 +1192,12 @@ fn test_arc_ir_all_instr_variants() {
             var: ArcVarId::new(0),
             count: 3,
             strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::RcDec {
             var: ArcVarId::new(0),
             strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::IsShared {
             dst: ArcVarId::new(8),

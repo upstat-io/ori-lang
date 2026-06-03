@@ -1039,6 +1039,7 @@ fn mixed_body_preserves_non_burden_and_relative_order() {
             var: v(1),
             count: 1,
             strategy: crate::ir::RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
         ArcInstr::BurdenDec { var: v(1) },
         ArcInstr::BurdenDec { var: v(0) },

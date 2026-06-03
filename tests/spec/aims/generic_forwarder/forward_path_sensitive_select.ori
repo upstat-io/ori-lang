@@ -1,16 +1,14 @@
 // Path-sensitive forwarder: select<T>(cond, x, y) returns ONE of two
 // owned params per branch — the OTHER must be dec'd at scope exit.
 //
-// This is the codex+gemini critical Plan TPR refinement: a naive global
-// suppression (suppress ALL decs on params with transfers_through_return)
-// would leak the non-returned arm. Path sensitivity gates the suppression
-// on the ACTUAL Return-flow path, not the static param set.
+// Path sensitivity is load-bearing: a naive global suppression (suppress
+// ALL decs on params with transfers_through_return) would leak the
+// non-returned arm. The suppression is gated on the ACTUAL Return-flow
+// path, not the static param set.
 //
 // On cond=true: returns x; y must dec at scope exit.
 // On cond=false: returns y; x must dec at scope exit.
 // Both runs must complete cleanly under interpreter AND LLVM.
-//
-// Provenance: bug-tracker/plans/BUG-04-090/section-03-tdd-matrix.md (path-sensitivity)
 
 use std.testing { assert_eq }
 

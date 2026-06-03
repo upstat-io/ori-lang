@@ -181,6 +181,16 @@ pub(crate) fn emit_burden_ops<'a>(
     let mut owned_vars_needing_rc = compute_owned_vars_needing_rc(&ctx);
     // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
     owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
+    // Exclude borrowed-derived locals: a `Let { Var(src) }` alias of a borrowed
+    // value is itself a borrow (TF-2 propagates the source's Access; a borrowed
+    // source yields a borrowed alias). Borrowed values carry NO RC obligation
+    // (RL-2: "Borrowed variables do NOT receive decs"), so an alias of a
+    // borrowed param MUST get no burden ops — `collect_owned_burdens` filters
+    // borrowed PARAMS but a local alias of one is not a param and slips through,
+    // producing an orphan last-use BurdenDec (VF-1 net=-1). Propagate the
+    // borrow forward through every Let-Var hop to a fixpoint and exclude the set.
+    let borrowed_aliases = compute_borrowed_alias_vars(func);
+    owned_vars_needing_rc.retain(|v| !borrowed_aliases.contains(v));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
@@ -257,46 +267,56 @@ pub(crate) fn emit_burden_ops<'a>(
     // move-alias (source used only at the alias) keeps its dec to balance the
     // source's FRESH-site inc. "Source stays live" = source appears in >= 2
     // used-var positions (the alias use plus at least one more downstream).
-    let mut use_counts: FxHashMap<ArcVarId, u32> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            for &v in &instr.used_vars() {
-                *use_counts.entry(v).or_default() += 1;
-            }
-        }
-        for v in block.terminator.used_vars() {
-            *use_counts.entry(v).or_default() += 1;
-        }
+    let (use_counts, dup_alias_dsts) =
+        compute_use_counts_and_dup_aliases(func, &mut inc_suppressed_vars);
+
+    // RL-2 transitive-transfer suppression through Let-Var MOVE-alias chains.
+    // A value whose ownership transfers out (Return value, owned call arg,
+    // owned Jump arg) discharges its release at the transfer point — RL-2's
+    // ownership-transferring-use exception. When a value reaches that transfer
+    // point THROUGH a `Let { Var }` move-alias chain (`%d = %s` with `%s` used
+    // exactly once — a move, not a duplication), the MOVE SOURCE also transfers
+    // out: its only use forwards ownership to `%d`, which forwards to the
+    // transfer point. Emitting a last-use BurdenDec on the move source then
+    // releases a reference already handed off downstream — a VF-1 net=-1 orphan
+    // dec (`id<T>(x) = x` over an owned param is the minimal witness:
+    // `%1 = %0; Return %1` would dec `%0` though its ownership returns to the
+    // caller). Backward-propagate transfer-suppression through every move-alias
+    // hop to a fixpoint; the source set suppresses the source's last-use dec.
+    let transfer_via_move_alias =
+        compute_transfer_via_move_alias(func, &terminator_transfer_per_block, &use_counts);
+
+    // Symmetry: a FRESH move source whose last-use dec is suppressed (it
+    // transfers out via the alias chain) must also have its FRESH-site inc
+    // suppressed, else the inc orphans (VF-1 net=+1). A param move source has no
+    // FRESH inc, so the union is a no-op for it; only FRESH sources gain the
+    // inc-suppression. Keeps the per-value ledger at net 0 for both shapes.
+    for &var in &transfer_via_move_alias {
+        inc_suppressed_vars.insert(var);
     }
-    // Dead FRESH values (defined but never used — e.g. a shadowed `let`
-    // rebind) receive a FRESH-site BurdenInc but no last-use BurdenDec (they
-    // are never last-used). The predicate-stack emits their dead-value cleanup
-    // RcDec per RL-2 (unused owned value -> immediate dec), so they are
-    // predicate-stack-managed and must carry no burden ops; suppress the
-    // orphaned inc symmetrically (it would otherwise net +1).
-    for raw in 0..func.var_types.len() {
-        let var = ArcVarId::new(
-            u32::try_from(raw).unwrap_or_else(|_| panic!("var index {raw} fits in u32")),
-        );
-        if !use_counts.contains_key(&var) {
-            inc_suppressed_vars.insert(var);
-        }
+
+    // Symmetry for borrowed terminator-Invoke args: `invoke_terminator_borrowed_args`
+    // (emit.rs) suppresses the terminator-last-use `BurdenDec` for a BORROWED
+    // `Invoke`/`InvokeIndirect` arg — the value survives the borrowed call and
+    // the predicate-stack edge cleanup discharges its release. A FRESH value
+    // created in the terminator block solely to pass borrowed (e.g.
+    // `%0 = "hello"; Invoke @f(%0 [borrow])` where the callee stores `%0` into
+    // its result) would otherwise keep its FRESH-site `BurdenInc` with the dec
+    // suppressed → net=+1 on the path where the value lives on into the result.
+    // Suppress the FRESH inc symmetrically so the var carries NO burden ops
+    // (`burden_emitted` stays false → edge cleanup emits no paired `BurdenDec`)
+    // and is fully predicate-stack-managed (`Spec: Annex E §AIMS RL-2`). A
+    // genuine borrow (param / alias, no FRESH inc) gains nothing — no-op.
+    let borrowed_terminator_args = compute_borrowed_terminator_invoke_args(func);
+    for &var in &borrowed_terminator_args {
+        inc_suppressed_vars.insert(var);
     }
-    let mut dup_alias_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if use_counts.get(src).copied().unwrap_or(0) >= 2 {
-                    dup_alias_dsts.insert(*dst);
-                }
-            }
-        }
-    }
+
+    // RL-4 live-out suppression set (`Spec: Annex E §AIMS RL-4`): a per-block
+    // last-use `BurdenDec` is a genuine release only when the var is dead at
+    // block exit; live-out vars are released on dying CFG edges. See
+    // `compute_live_out_owned`.
+    let live_out_per_block = compute_live_out_owned(func, &owned_vars_needing_rc);
 
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,
@@ -305,6 +325,8 @@ pub(crate) fn emit_burden_ops<'a>(
         partial_move_vars: &partial_move_vars,
         inc_suppressed_vars: &inc_suppressed_vars,
         dup_alias_dsts: &dup_alias_dsts,
+        transfer_via_move_alias: &transfer_via_move_alias,
+        live_out_per_block: &live_out_per_block,
         contracts,
     };
     emit_burden_ops_for_blocks(
@@ -353,6 +375,45 @@ fn mark_emitted(emitted: &mut [bool], idx: usize) {
     if let Some(slot) = emitted.get_mut(idx) {
         *slot = true;
     }
+}
+
+/// Compute the set of borrowed-derived vars: borrowed parameters plus every
+/// `Let { Var(src) }` alias transitively reachable from one. A borrowed value
+/// carries no RC obligation (`Spec: Annex E §AIMS RL-2`), and TF-2 propagates a
+/// source's borrow to its Let-Var alias, so an alias of a borrowed param is
+/// itself borrowed and must carry no burden ops. `collect_owned_burdens` already
+/// excludes borrowed PARAMS; this set additionally excludes their local aliases.
+/// Forward fixpoint over Let-Var edges (a 1-hop alias of a borrowed alias is
+/// borrowed too).
+fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut borrowed: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| matches!(p.ownership, Ownership::Borrowed))
+        .map(|p| p.var)
+        .collect();
+    if borrowed.is_empty() {
+        return borrowed;
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if borrowed.contains(src) && borrowed.insert(*dst) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    borrowed
 }
 
 /// Phase 1 — per-`ArcVarId` ownership-filtered burden lookup walk.
@@ -469,6 +530,241 @@ fn group_last_uses_filtered(
         last_uses_at.entry((b, i)).or_default().push(var);
     }
     last_uses_at
+}
+
+/// Compute the move-alias transfer-suppression set per AIMS RL-2.
+///
+/// Seed = every var transferred out at a terminator (`terminator_transfer`)
+/// plus every var consumed at an owned instruction position. A value reaching
+/// one of those transfer points THROUGH a `Let { Var }` move-alias chain
+/// (`%dst = %src` where `%src` is used exactly once) also transfers out: its
+/// sole use forwards ownership to `%dst`. Backward-propagate: for every
+/// move-alias whose `dst` is in the set, add `src`. Iterate to a fixpoint so
+/// multi-hop chains (`%2 = %1; %3 = %2; Return %3`) propagate. The returned set
+/// suppresses the last-use `BurdenDec` of every move source in a transfer chain.
+fn compute_transfer_via_move_alias(
+    func: &ArcFunction,
+    terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+    use_counts: &FxHashMap<ArcVarId, u32>,
+) -> FxHashSet<ArcVarId> {
+    let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
+    // Seed: terminator-transferred vars.
+    for set in terminator_transfer_per_block {
+        transferred.extend(set.iter().copied());
+    }
+    // Seed: instruction owned-position transfers (Construct/Apply/Set/etc.).
+    for block in &func.blocks {
+        for instr in &block.body {
+            transferred.extend(instr_transfer_vars(instr).iter().copied());
+        }
+    }
+    // Move-alias edges `dst -> src` (src used exactly once = a move).
+    let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if use_counts.get(src).copied().unwrap_or(0) == 1 {
+                    move_edges.push((*dst, *src));
+                }
+            }
+        }
+    }
+    // Fixpoint: a move source transfers out when its dst transfers out.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &(dst, src) in &move_edges {
+            if transferred.contains(&dst) && transferred.insert(src) {
+                changed = true;
+            }
+        }
+    }
+    transferred
+}
+
+/// Vars consumed at a BORROWED arg position of any `Invoke` / `InvokeIndirect`
+/// terminator. Mirrors the per-block `invoke_terminator_borrowed_args` in
+/// `emit.rs` (which gates the terminator-last-use `BurdenDec` suppression) but
+/// computed function-wide for the FRESH-site `BurdenInc` suppression. A FRESH
+/// value passed at a borrowed Invoke arg position has its terminator dec
+/// suppressed there; suppressing its FRESH inc here keeps the per-value burden
+/// ledger empty so the predicate-stack edge cleanup fully owns its release.
+fn compute_borrowed_terminator_invoke_args(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        let term = &block.terminator;
+        if !matches!(
+            term,
+            crate::ir::ArcTerminator::Invoke { .. }
+                | crate::ir::ArcTerminator::InvokeIndirect { .. }
+        ) {
+            continue;
+        }
+        for (pos, &var) in term.used_vars().iter().enumerate() {
+            if !term.is_owned_position(pos) {
+                borrowed.insert(var);
+            }
+        }
+    }
+    borrowed
+}
+
+/// Compute function-wide use counts and the duplication-alias dst set, and
+/// extend `inc_suppressed_vars` with dead FRESH values per AIMS RL-2.
+///
+/// - `use_counts`: total used-var occurrences per `ArcVarId` (body + terminator).
+/// - dead-FRESH inc-suppression: a var never used receives a FRESH-site
+///   `BurdenInc` but no last-use `BurdenDec`; the predicate-stack emits its
+///   dead-value cleanup `RcDec` (RL-2 unused-owned dec), so it carries no
+///   burden ops — suppress the orphaned inc (else net +1).
+/// - `dup_alias_dsts`: `Let { Var(src) }` dsts whose `src` stays live
+///   (`use_counts` ≥ 2) — a duplication alias the predicate-stack manages; its
+///   last-use `BurdenDec` is suppressed downstream (else net -1).
+fn compute_use_counts_and_dup_aliases(
+    func: &ArcFunction,
+    inc_suppressed_vars: &mut FxHashSet<ArcVarId>,
+) -> (FxHashMap<ArcVarId, u32>, FxHashSet<ArcVarId>) {
+    let mut use_counts: FxHashMap<ArcVarId, u32> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for &v in &instr.used_vars() {
+                *use_counts.entry(v).or_default() += 1;
+            }
+        }
+        for v in block.terminator.used_vars() {
+            *use_counts.entry(v).or_default() += 1;
+        }
+    }
+    for raw in 0..func.var_types.len() {
+        let var = ArcVarId::new(
+            u32::try_from(raw).unwrap_or_else(|_| panic!("var index {raw} fits in u32")),
+        );
+        if !use_counts.contains_key(&var) {
+            inc_suppressed_vars.insert(var);
+        }
+    }
+    let mut dup_alias_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if use_counts.get(src).copied().unwrap_or(0) >= 2 {
+                    dup_alias_dsts.insert(*dst);
+                }
+            }
+        }
+    }
+    (use_counts, dup_alias_dsts)
+}
+
+/// Compute per-block live-out sets restricted to `owned_vars_needing_rc`.
+///
+/// Standard backward liveness (`live_out(B) = ∪ live_in(S)` over successors `S`;
+/// `live_in(B) = gen(B) ∪ (live_out(B) − kill(B))`), filtered to vars that carry
+/// an owned-heap burden. Mirrors `crate::liveness::compute_liveness`'s gen/kill
+/// shape (an `Invoke` `dst` is a definition at its `normal` successor's entry,
+/// like a block param) but is keyed on the burden walk's own
+/// `owned_vars_needing_rc` set rather than the `ArcClassification` `needs_rc`
+/// predicate — no parallel ownership tracker (AIMS Invariant 5): the set is the
+/// burden walk's existing owned-RC classification.
+///
+/// Consumed by `emit_last_use_decs` + `emit_terminator_burden_decs` to suppress
+/// the in-block last-use `BurdenDec` for a var live-out of the block per
+/// `Spec: Annex E §AIMS RL-4` (the dec belongs on the dying CFG edge / at the
+/// dead-out block, not unconditionally in a block the value outlives).
+fn compute_live_out_owned(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> Vec<FxHashSet<ArcVarId>> {
+    let n = func.blocks.len();
+    let (gen, kill) = compute_owned_gen_kill(func, owned_vars_needing_rc);
+
+    // Fixed-point backward dataflow: `live_out(B) = ∪ live_in(S)`,
+    // `live_in(B) = gen(B) ∪ (live_out(B) − kill(B))`.
+    let mut live_in: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
+    let mut live_out: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for b in (0..n).rev() {
+            let mut new_out: FxHashSet<ArcVarId> = FxHashSet::default();
+            for succ in crate::graph::successor_block_ids(&func.blocks[b].terminator) {
+                let si = succ.index();
+                if si < n {
+                    new_out.extend(live_in[si].iter().copied());
+                }
+            }
+            let mut new_in = gen[b].clone();
+            for &var in &new_out {
+                if !kill[b].contains(&var) {
+                    new_in.insert(var);
+                }
+            }
+            if new_in != live_in[b] || new_out != live_out[b] {
+                changed = true;
+                live_in[b] = new_in;
+                live_out[b] = new_out;
+            }
+        }
+    }
+    live_out
+}
+
+/// Per-block `(gen, kill)` sets for `compute_live_out_owned`, restricted to
+/// `owned_vars_needing_rc`. `gen` = vars used before any definition in the
+/// block; `kill` = vars defined in the block (incl. block params + the
+/// `Invoke` `dst` bound at the normal-successor entry).
+fn compute_owned_gen_kill(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> (Vec<FxHashSet<ArcVarId>>, Vec<FxHashSet<ArcVarId>>) {
+    let n = func.blocks.len();
+    let invoke_defs = crate::graph::collect_invoke_defs(func);
+    let mut gen: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
+    let mut kill: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
+    for (b, block) in func.blocks.iter().enumerate() {
+        let g = &mut gen[b];
+        let k = &mut kill[b];
+        for &(param_var, _) in &block.params {
+            if owned_vars_needing_rc.contains(&param_var) {
+                k.insert(param_var);
+            }
+        }
+        if let Some(dsts) = invoke_defs.get(&block.id) {
+            for &dst in dsts {
+                if owned_vars_needing_rc.contains(&dst) {
+                    k.insert(dst);
+                }
+            }
+        }
+        for instr in &block.body {
+            for var in instr.used_vars() {
+                if owned_vars_needing_rc.contains(&var) && !k.contains(&var) {
+                    g.insert(var);
+                }
+            }
+            if let Some(dst) = instr.defined_var() {
+                if owned_vars_needing_rc.contains(&dst) {
+                    k.insert(dst);
+                }
+            }
+        }
+        for var in block.terminator.used_vars() {
+            if owned_vars_needing_rc.contains(&var) && !k.contains(&var) {
+                g.insert(var);
+            }
+        }
+    }
+    (gen, kill)
 }
 
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress

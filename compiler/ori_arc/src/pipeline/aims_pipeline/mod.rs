@@ -36,7 +36,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::{ContractMapExt, MemoryContract};
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::ArcFunction;
+use crate::ir::{ArcFunction, ArcInstr};
 use crate::lower::ArcProblem;
 use crate::ownership::AnnotatedSig;
 use crate::pipeline::rc_count;
@@ -50,6 +50,14 @@ pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
 /// once at first access; permanent empty-harness parity + bisection flag.
 static BURDEN_OPS_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
+
+/// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
+/// after Step 4b `emit_burden_ops`, before any realization. Surfaces the
+/// faithful Phase-5 `BurdenInc` / `BurdenDec*` emission for VF-1 residual
+/// localization (the post-realize `ORI_DUMP_AFTER_ARC` cannot show pre-realize
+/// burden placement). Read once at first access; zero overhead when unset.
+static DUMP_AFTER_BURDEN: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN").as_deref() == Ok("1"));
 
 /// Callback invoked at each pipeline checkpoint.
 ///
@@ -86,6 +94,24 @@ pub(crate) fn trace_pipeline_checkpoint(
         let rc = rc_count::count_rc_ops(func);
         let blocks = func.blocks.len();
         let vars = func.var_types.len();
+        // Per-block burden-op sites — pairs with the `verify_burden_balance`
+        // imbalance trace to localize WHICH pipeline phase relocated/dropped a
+        // burden op between checkpoints (merge_blocks / tail-call rewrite).
+        let mut burden_sites: Vec<String> = Vec::new();
+        for (b, block) in func.blocks.iter().enumerate() {
+            for (i, instr) in block.body.iter().enumerate() {
+                let kind = match instr {
+                    ArcInstr::BurdenInc { var } => format!("bb{b}.{i}:binc%{}", var.index()),
+                    ArcInstr::BurdenDec { var }
+                    | ArcInstr::BurdenDecPartial { var, .. }
+                    | ArcInstr::BurdenDecVariant { var } => {
+                        format!("bb{b}.{i}:bdec%{}", var.index())
+                    }
+                    _ => continue,
+                };
+                burden_sites.push(kind);
+            }
+        }
         tracing::info!(
             target: "ori_arc::aims::pipeline",
             function = fn_name,
@@ -94,6 +120,7 @@ pub(crate) fn trace_pipeline_checkpoint(
             rc_decs = rc.dec,
             blocks,
             vars,
+            burden_sites = %burden_sites.join(" "),
             "AIMS phase checkpoint"
         );
     }
@@ -244,6 +271,13 @@ pub(crate) fn run_aims_pipeline(
     }
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
+    if *DUMP_AFTER_BURDEN {
+        eprintln!(
+            "=== ARC IR after emit_burden_ops ===\n{}",
+            crate::ir::format::format_function(func, config.pool, config.interner)
+        );
+    }
+
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
         let _span = tracing::info_span!("realize_rc_reuse").entered();
@@ -278,12 +312,6 @@ pub(crate) fn run_aims_pipeline(
 
     apply_phase_2_annotations(func, &state_map, config, &mut result);
 
-    // Coexistence-mirror: fill the cross-block / scope-exit `BurdenDec` gap by
-    // mirroring the now-final predicate-stack `RcDec` release set, so the
-    // per-value burden ledger nets 0 along every path. Runs after all RC
-    // realization (incl. unwind cleanup) and before the burden-balance check.
-    crate::aims::realize::reconcile_burden_ledger(func);
-
     // Final verification + FBIP.
     let problems = postprocess::emit_postprocess(func, config)?;
 
@@ -294,7 +322,7 @@ pub(crate) fn run_aims_pipeline(
     })
 }
 
-/// Phase 2: COW + drop hints (post-merge) followed by BUG-04-118 post-realize
+/// Phase 2: COW + drop hints (post-merge) followed by post-realize
 /// cleanup of redundant project-alias decs.
 fn apply_phase_2_annotations(
     func: &mut ArcFunction,

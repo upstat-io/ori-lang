@@ -1,0 +1,81 @@
+// Spec: 13-variables.md §13.6.2 — built-in `updated` method on [T] / {K:V} / [T, max N]
+// `updated` is the desugar target for index assignment, callable functionally.
+// [T].updated panics out-of-bounds; {K:V}.updated inserts-or-replaces.
+
+use std.testing { assert, assert_eq, assert_panics }
+
+// =============================================================================
+// [T].updated — in-bounds replacement (parallels list.set)
+// =============================================================================
+
+@list_updated_middle () -> [int] = [1, 2, 3].updated(key: 1, value: 9);
+
+@test_list_updated_middle tests @list_updated_middle () -> void =
+    assert_eq(actual: list_updated_middle(), expected: [1, 9, 3]);
+
+@list_updated_first () -> [int] = [1, 2, 3].updated(key: 0, value: 9);
+
+@test_list_updated_first tests @list_updated_first () -> void =
+    assert_eq(actual: list_updated_first(), expected: [9, 2, 3]);
+
+@list_updated_last () -> [int] = [1, 2, 3].updated(key: 2, value: 9);
+
+@test_list_updated_last tests @list_updated_last () -> void =
+    assert_eq(actual: list_updated_last(), expected: [1, 2, 9]);
+
+// String elements (ARC-managed payload).
+@list_str_updated () -> [str] = ["a", "b", "c"].updated(key: 1, value: "X");
+
+@test_list_str_updated tests @list_str_updated () -> void =
+    assert_eq(actual: list_str_updated(), expected: ["a", "X", "c"]);
+
+// =============================================================================
+// [T].updated — out-of-bounds panics (matches Index<int, T> semantics)
+// =============================================================================
+
+@test_list_updated_oob_panics tests _ () -> void =
+    assert_panics(f: () -> [1, 2, 3].updated(key: 5, value: 0));
+
+// =============================================================================
+// {K:V}.updated — insert-or-replace, never panics
+// =============================================================================
+
+// Replace an existing key.
+@map_updated_replace () -> Option<int> = {
+    let m = { "a": 1, "b": 2 };
+    let n = m.updated(key: "a", value: 99);
+    n["a"]
+}
+
+@test_map_updated_replace tests @map_updated_replace () -> void =
+    assert_eq(actual: map_updated_replace(), expected: Some(99));
+
+// Insert a brand-new key (no panic — asymmetry with Index).
+@map_updated_insert () -> Option<int> = {
+    let m = { "a": 1 };
+    let n = m.updated(key: "z", value: 42);
+    n["z"]
+}
+
+@test_map_updated_insert tests @map_updated_insert () -> void =
+    assert_eq(actual: map_updated_insert(), expected: Some(42));
+
+// Value-semantic: original map is unaffected by the update.
+@map_updated_leaves_original () -> Option<int> = {
+    let m = { "a": 1 };
+    let n = m.updated(key: "a", value: 99);
+    m["a"]
+}
+
+@test_map_updated_leaves_original tests @map_updated_leaves_original () -> void =
+    assert_eq(actual: map_updated_leaves_original(), expected: Some(1));
+
+// Map with ARC-managed value payload.
+@map_list_value_updated () -> Option<[int]> = {
+    let m = { "a": [1, 2] };
+    let n = m.updated(key: "a", value: [9, 9, 9]);
+    n["a"]
+}
+
+@test_map_list_value_updated tests @map_list_value_updated () -> void =
+    assert_eq(actual: map_list_value_updated(), expected: Some([9, 9, 9]));

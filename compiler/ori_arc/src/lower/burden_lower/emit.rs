@@ -34,6 +34,17 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // BurdenInc, so their last-use BurdenDec is suppressed to keep the ledger
     // balanced (it would otherwise net -1).
     pub(super) dup_alias_dsts: &'a FxHashSet<ArcVarId>,
+    // Move sources whose ownership transfers out through a Let-Var move-alias
+    // chain to a terminator/owned-position transfer point (AIMS RL-2). Their
+    // last-use BurdenDec is suppressed — the release is discharged at the
+    // downstream transfer point, not at the move-alias site (else net -1).
+    pub(super) transfer_via_move_alias: &'a FxHashSet<ArcVarId>,
+    // Per-block live-out sets (owned-RC vars) per `Spec: Annex E §AIMS RL-4`.
+    // A var live-out of block B has its in-block last-use `BurdenDec` suppressed
+    // — the genuine release is the dead-out block's dec OR the predicate-stack
+    // edge / dead-at-entry cleanup on the dying CFG edge, never an unconditional
+    // dec in a block the value outlives.
+    pub(super) live_out_per_block: &'a [FxHashSet<ArcVarId>],
     pub(super) contracts: &'a FxHashMap<Name, MemoryContract>,
 }
 
@@ -94,16 +105,44 @@ pub(super) fn emit_burden_ops_for_blocks(
                 *inc_counts.entry(*var).or_insert(0) += 1;
             }
         }
+        let terminator_borrowed_args = invoke_terminator_borrowed_args(&block.terminator);
         emit_terminator_burden_decs(
             &mut new_body,
             block_idx,
             terminator_idx,
             analysis,
+            &terminator_borrowed_args,
             &terminator_transfer_per_block[block_idx],
             &inc_counts,
         );
         block.body = new_body;
     }
+}
+
+/// Vars used at a BORROWED (non-owned) arg position of an `Invoke` /
+/// `InvokeIndirect` terminator. A borrowed Invoke arg is NOT consumed by the
+/// callee — the value survives to the `normal` / `unwind` successors, where the
+/// predicate-stack edge cleanup (`emit_rc::release_with_burden`) releases it and
+/// co-emits the paired scope-exit `BurdenDec`. Emitting the burden-walk's own
+/// terminator-last-use `BurdenDec` for such an arg double-counts the release
+/// (VF-1 net=-1 per terminal path). Used by `emit_terminator_burden_decs` to
+/// suppress the redundant terminator dec. Non-Invoke terminators (Return /
+/// Jump / Branch) return empty — their owned transfers are handled by
+/// `terminator_transfer_vars` and their non-arg last-uses are genuine
+/// scope-exit releases the burden walk owns.
+fn invoke_terminator_borrowed_args(term: &ArcTerminator) -> FxHashSet<ArcVarId> {
+    let mut borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
+    if matches!(
+        term,
+        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
+    ) {
+        for (pos, &var) in term.used_vars().iter().enumerate() {
+            if !term.is_owned_position(pos) {
+                borrowed.insert(var);
+            }
+        }
+    }
+    borrowed
 }
 
 /// Emit `BurdenInc` for each owned terminator-position arg pre-computed by
@@ -266,6 +305,18 @@ fn emit_last_use_decs(
         if transfer_vars.contains(&var)
             || ctx.analysis.full_move_vars.contains(&var)
             || ctx.analysis.dup_alias_dsts.contains(&var)
+            || ctx.analysis.transfer_via_move_alias.contains(&var)
+        {
+            continue;
+        }
+        // RL-4: a per-block last-use is a genuine release only when the var is
+        // dead at block exit. Live-out vars are released on the dying CFG edge
+        // (predicate-stack edge cleanup) or at the dead-out block — not here.
+        if ctx
+            .analysis
+            .live_out_per_block
+            .get(ctx.block_idx)
+            .is_some_and(|s| s.contains(&var))
         {
             continue;
         }
@@ -428,6 +479,7 @@ fn emit_terminator_burden_decs(
     block_idx: usize,
     terminator_idx: usize,
     analysis: &BurdenAnalysisCtx<'_>,
+    terminator_borrowed_args: &FxHashSet<ArcVarId>,
     terminator_transfer_vars: &FxHashSet<ArcVarId>,
     inc_counts: &FxHashMap<ArcVarId, usize>,
 ) {
@@ -472,6 +524,26 @@ fn emit_terminator_burden_decs(
                 continue;
             }
             if analysis.dup_alias_dsts.contains(&var) {
+                continue;
+            }
+            if analysis.transfer_via_move_alias.contains(&var) {
+                continue;
+            }
+            // RL-4: a terminator-position last-use whose var is live-out of the
+            // block is not a genuine release — the value flows on to a
+            // successor (the dec belongs on the dying edge / dead-out block).
+            if analysis
+                .live_out_per_block
+                .get(block_idx)
+                .is_some_and(|s| s.contains(&var))
+            {
+                continue;
+            }
+            // Borrowed Invoke arg: the value survives the borrowed call and is
+            // released at the successor by the predicate-stack edge cleanup,
+            // which co-emits the paired scope-exit BurdenDec. A terminator dec
+            // here too double-counts (VF-1 net=-1 per terminal path).
+            if terminator_borrowed_args.contains(&var) {
                 continue;
             }
             if let Some(skip_fields) = analysis.partial_move_vars.get(&var) {

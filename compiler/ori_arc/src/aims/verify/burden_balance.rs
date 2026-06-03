@@ -98,11 +98,33 @@ fn trace_burden_imbalance(func: &ArcFunction, var: ArcVarId, delta: &[i64]) {
         .filter(|(_, &d)| d != 0)
         .map(|(b, &d)| format!("bb{b}:{d:+}"))
         .collect();
+    // Locate every surviving burden op targeting `var`, with its `(block,
+    // instr)` site and instruction kind. Pairs with the per-block delta to name
+    // the exact orphan inc/dec instruction the RL-2/RL-4/RL-5 ledger failed to
+    // balance — removes the dump-correlation step for VF-1 residual fixes.
+    let mut sites: Vec<String> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        for (i, instr) in block.body.iter().enumerate() {
+            let kind = match instr {
+                crate::ir::ArcInstr::BurdenInc { var: v } if *v == var => "burden_inc",
+                crate::ir::ArcInstr::BurdenDec { var: v } if *v == var => "burden_dec",
+                crate::ir::ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => {
+                    "burden_dec_partial"
+                }
+                crate::ir::ArcInstr::BurdenDecVariant { var: v } if *v == var => {
+                    "burden_dec_variant"
+                }
+                _ => continue,
+            };
+            sites.push(format!("bb{b}.{i}:{kind}"));
+        }
+    }
     tracing::debug!(
         function = ?func.name,
         var = var.index(),
         per_block_delta = %per_block.join(" "),
-        "burden imbalance per-block delta (nonzero blocks)",
+        burden_sites = %sites.join(" "),
+        "burden imbalance per-block delta + burden-op sites (nonzero blocks)",
     );
 }
 

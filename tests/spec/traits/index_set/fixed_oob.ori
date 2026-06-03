@@ -1,0 +1,28 @@
+// Spec: 13-variables.md §13.6.2 — [T, max N].updated parallels [T].updated
+// A fixed-capacity list erases to TypeTag::List at registration, so it resolves
+// the same `updated` registration. OOB-of-length panics (key >= length), matching
+// [T] index semantics — NOT the fixed-list try_push capacity-overflow path.
+
+use std.testing { assert, assert_eq, assert_panics }
+
+// =============================================================================
+// Positive: in-bounds replacement on a fixed-capacity list
+// =============================================================================
+
+@fixed_updated_middle () -> [int, max 3] = {
+    let fixed = [1, 2, 3].to_fixed<3>();
+    fixed.updated(key: 1, value: 9)
+}
+
+@test_fixed_updated_middle tests @fixed_updated_middle () -> void =
+    assert_eq(actual: fixed_updated_middle(), expected: [1, 9, 3].to_fixed<3>());
+
+// =============================================================================
+// Negative: key >= length panics (in-bounds-of-capacity is still out-of-bounds
+// of length — matches [T] index semantics, not the try_push overflow path)
+// =============================================================================
+
+@test_fixed_updated_oob_panics tests _ () -> void = {
+    let fixed = [1, 2, 3].to_fixed<3>();
+    assert_panics(f: () -> fixed.updated(key: 5, value: 0))
+}

@@ -1,0 +1,23 @@
+// RL-31 dual-facet NEGATIVE pin — Worked Example 1 (Owned+Borrowed
+// generalization). Spec: Annex E §AIMS RL-31 (P2). `accumulate(a: {str:int},
+// b: [int])` over two distinct collection types. The type-level facet (b)
+// proves TypeId-level reachable-memory disjointness, but RL-31 `noalias` is a
+// FUNCTION attribute sound only under BOTH facets — (a) per-call-site
+// provenance proven disjoint at EVERY call site AND (b) type-level closure
+// disjointness. Facet (a) is unshipped, so `noalias` MUST be OMITTED (facet
+// (b) alone is the (P2)-rejected unsound verdict). If facet (a) ships, this
+// pin flips back to asserting noalias.
+//
+// @function: _ori_accumulate
+// CHECK: define fastcc noundef i64 @_ori_accumulate(ptr noundef nonnull readonly dereferenceable(24) %0, ptr noundef nonnull readonly dereferenceable(24) %1)
+// CHECK-NOT: ptr noalias noundef nonnull readonly dereferenceable(24) %0
+
+@accumulate (a: {str: int}, b: [int]) -> int = {
+    let total = a["x"].unwrap_or(default: 0);
+    let n = b.len();
+    total + n
+}
+
+@main () -> void = {
+    print(msg: accumulate(a: {"x": 5}, b: [1, 2]).to_str())
+}

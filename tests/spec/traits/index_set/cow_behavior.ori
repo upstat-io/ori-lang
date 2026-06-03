@@ -1,0 +1,79 @@
+// Spec: 13-variables.md §13.6 NOTE — `updated` is value-semantic; the in-place
+// mutation under refcount==1 is an AIMS COW optimization observably identical to
+// the always-copy path. When the receiver is aliased (refcount>1), the update
+// allocates a fresh collection and the alias is unaffected.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// List COW — aliased receiver: alias unchanged after update (copy fires)
+// =============================================================================
+
+@list_aliased_update_alias_unchanged () -> [int] = {
+    let a = [1, 2, 3];
+    let b = a;
+    let c = a.updated(key: 0, value: 99);
+    b
+}
+
+@test_list_aliased_update_alias_unchanged tests @list_aliased_update_alias_unchanged () -> void =
+    assert_eq(actual: list_aliased_update_alias_unchanged(), expected: [1, 2, 3]);
+
+@list_aliased_update_result_new () -> [int] = {
+    let a = [1, 2, 3];
+    let b = a;
+    let c = a.updated(key: 0, value: 99);
+    c
+}
+
+@test_list_aliased_update_result_new tests @list_aliased_update_result_new () -> void =
+    assert_eq(actual: list_aliased_update_result_new(), expected: [99, 2, 3]);
+
+// =============================================================================
+// List COW — unique receiver: update observably identical to copy path
+// =============================================================================
+
+@list_unique_update () -> [int] = {
+    let a = [1, 2, 3];
+    a.updated(key: 2, value: 99)
+}
+
+@test_list_unique_update tests @list_unique_update () -> void =
+    assert_eq(actual: list_unique_update(), expected: [1, 2, 99]);
+
+// =============================================================================
+// Map COW — aliased receiver: alias unchanged after update (copy fires)
+// =============================================================================
+
+@map_aliased_update_alias_unchanged () -> Option<int> = {
+    let a = { "k": 1 };
+    let b = a;
+    let c = a.updated(key: "k", value: 99);
+    b["k"]
+}
+
+@test_map_aliased_update_alias_unchanged tests @map_aliased_update_alias_unchanged () -> void =
+    assert_eq(actual: map_aliased_update_alias_unchanged(), expected: Some(1));
+
+@map_aliased_update_result_new () -> Option<int> = {
+    let a = { "k": 1 };
+    let b = a;
+    let c = a.updated(key: "k", value: 99);
+    c["k"]
+}
+
+@test_map_aliased_update_result_new tests @map_aliased_update_result_new () -> void =
+    assert_eq(actual: map_aliased_update_result_new(), expected: Some(99));
+
+// =============================================================================
+// Map COW — unique receiver: update observably identical to copy path
+// =============================================================================
+
+@map_unique_update () -> Option<int> = {
+    let a = { "k": 1 };
+    let b = a.updated(key: "k", value: 99);
+    b["k"]
+}
+
+@test_map_unique_update tests @map_unique_update () -> void =
+    assert_eq(actual: map_unique_update(), expected: Some(99));

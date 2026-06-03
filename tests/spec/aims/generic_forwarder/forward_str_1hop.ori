@@ -1,11 +1,9 @@
 // 1-hop generic forwarder over str — heap-typed fat-pointer surface.
 //
 // str is a heap-typed value (FatVal: ptr + len), distinct from list/map
-// element-aware RC paths. This exercises the BUG-04-090 fix on the
-// fat-pointer/string code path: id<str>(x: str) -> str = x must not emit a
-// scope-exit RcDec on x. Cross-backend parity check.
-//
-// Provenance: bug-tracker/plans/BUG-04-090/section-03-tdd-matrix.md (str row)
+// element-aware RC paths. Exercises the generic-forwarder fat-pointer/string
+// code path: id<str>(x: str) -> str = x must not emit a scope-exit RcDec on
+// x. Cross-backend parity check.
 
 use std.testing { assert_eq }
 

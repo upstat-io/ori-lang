@@ -16,8 +16,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 /// SSOT for the whole-var burden-dec variant set `{BurdenDec, BurdenDecPartial,
 /// BurdenDecVariant}`. `BurdenDecField` (field-grain) is excluded — it targets
 /// a field of the base, not the whole-var balance. Every site reasoning about
-/// whole-var burden decs consumes this predicate (`compute_var_block_deltas`
-/// here; `reconcile_burden_ledger` in `aims/realize/burden_mirror.rs`).
+/// whole-var burden decs consumes this predicate (`compute_var_block_deltas`).
 pub(crate) fn whole_var_dec_target(instr: &ArcInstr) -> Option<ArcVarId> {
     match instr {
         ArcInstr::BurdenDec { var }

@@ -744,6 +744,7 @@ fn refined_only_dec_is_live_for_drop() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
@@ -791,6 +792,7 @@ fn refined_use_then_dec_is_live_for_use() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return { value: v(1) },

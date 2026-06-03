@@ -121,7 +121,7 @@ fn is_trivial_invoke(func: &ArcFunction, block_idx: usize, pred_counts: &[usize]
 /// Check if all instructions are `RcDec` on non-capturing closures.
 fn is_all_noop_rc_decs(body: &[ArcInstr], func: &ArcFunction) -> bool {
     body.iter().all(|instr| {
-        matches!(instr, ArcInstr::RcDec { var, strategy: RcStrategy::Closure }
+        matches!(instr, ArcInstr::RcDec { var, strategy: RcStrategy::Closure, .. }
             if is_non_capturing_closure(func, *var))
     })
 }

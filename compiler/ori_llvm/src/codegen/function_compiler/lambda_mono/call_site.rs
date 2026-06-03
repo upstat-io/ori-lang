@@ -295,7 +295,9 @@ pub(super) fn fixup_parent_var_reprs_and_rc_ops(
                 *strategy = ori_arc::ir::RcStrategy::from_var(new_repr, pool, var_ty);
                 true
             }
-            ori_arc::ir::ArcInstr::RcDec { var, strategy } if changed_repr.contains_key(var) => {
+            ori_arc::ir::ArcInstr::RcDec { var, strategy, .. }
+                if changed_repr.contains_key(var) =>
+            {
                 let new_repr = changed_repr[var];
                 let var_ty = parent.var_types[var.index()];
                 *strategy = ori_arc::ir::RcStrategy::from_var(new_repr, pool, var_ty);

@@ -602,10 +602,12 @@ fn collect_deduplicates_types() {
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -657,10 +659,12 @@ fn collect_multiple_types() {
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(1),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -714,6 +718,7 @@ fn collect_skips_scalar_rc_dec() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Unreachable,
         }],

@@ -9,7 +9,7 @@ use smallvec::{smallvec, SmallVec};
 use ori_ir::canon::MonoInstanceId;
 use ori_types::Idx;
 
-use super::{ArcValue, ArcVarId, ArgOwnership, CtorKind, RcStrategy};
+use super::{ArcValue, ArcVarId, ArgOwnership, CtorKind, RcAtomicity, RcStrategy};
 
 /// A single instruction in an ARC IR basic block.
 ///
@@ -92,15 +92,26 @@ pub enum ArcInstr {
     /// Increment reference count. `count` allows batched increments
     /// when a value is passed to multiple owned parameters. `strategy`
     /// tells the emitter how to perform the increment (no Pool queries).
+    /// `atomicity` selects atomic vs non-atomic refcount arithmetic,
+    /// populated at Phase 7 realization (Spec: Annex E §AIMS RL-19/20/21);
+    /// `RcAtomicity::Atomic` until the thread-locality dispatch lands.
     RcInc {
         var: ArcVarId,
         count: u32,
         strategy: RcStrategy,
+        atomicity: RcAtomicity,
     },
 
     /// Decrement reference count and free if zero. `strategy` tells
-    /// the emitter the cleanup approach (no Pool queries).
-    RcDec { var: ArcVarId, strategy: RcStrategy },
+    /// the emitter the cleanup approach (no Pool queries). `atomicity`
+    /// selects atomic vs non-atomic refcount arithmetic, populated at
+    /// Phase 7 realization (Spec: Annex E §AIMS RL-19/20/21);
+    /// `RcAtomicity::Atomic` until the thread-locality dispatch lands.
+    RcDec {
+        var: ArcVarId,
+        strategy: RcStrategy,
+        atomicity: RcAtomicity,
+    },
 
     /// Burden-increment marker. Trivial side-effect-only annotation emitted
     /// by Phase 5 ARC lowering at every owned-arg transfer point. Carries
@@ -125,10 +136,6 @@ pub enum ArcInstr {
     /// `Vec<u32>` chosen over `SmallVec<[u32; 4]>` because smallvec
     /// workspace dep lacks `serde` feature; cache-feature derives require
     /// Serializable payloads.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "dead until pipeline wiring lands")
-    )]
     BurdenDecPartial {
         var: ArcVarId,
         skip_fields: Vec<u32>,
@@ -143,10 +150,6 @@ pub enum ArcInstr {
     /// `Burden::owned_fields()` entries whose `field_path` has `field` as
     /// its top-level prefix and emits per-subtree `RcDec` against the
     /// loaded prior values.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "dead until pipeline wiring lands")
-    )]
     BurdenDecField { base: ArcVarId, field: u32 },
 
     /// `SetTag` old-variant drop emission. Whole-var pattern (NOT
@@ -160,10 +163,6 @@ pub enum ArcInstr {
     /// (field-positional). AIMS Invariant 5 case (b) — extends `ArcInstr`
     /// enum on the same dimension as `BurdenDecPartial` / `BurdenDec`;
     /// no parallel emission, no shadow tracker.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "dead until pipeline wiring lands")
-    )]
     BurdenDecVariant { var: ArcVarId },
 
     // Reuse operations (inserted by reuse emission pass)
@@ -269,6 +268,29 @@ impl ArcInstr {
             | ArcInstr::Set { .. }
             | ArcInstr::SetTag { .. } => None,
         }
+    }
+
+    /// Whether this instruction is a release-cleanup op — a whole-var `RcDec`
+    /// or its paired whole-var `BurdenDec`.
+    ///
+    /// Release-cleanup blocks (edge-cleanup trampolines, dead-at-entry cleanup,
+    /// tail-call post-Apply cleanup) hold the burden-faithful release sequence
+    /// emitted by `release_with_burden` / `release_with_burden_edge` /
+    /// `release_with_burden_into_block`: a paired `BurdenDec` adjacent to each
+    /// release `RcDec` whose var carries burden ops (Spec: Annex E §AIMS RL-2 /
+    /// RL-4 / RL-5). Those helpers emit only the WHOLE-VAR `BurdenDec` variant
+    /// alongside `RcDec` — never `BurdenDecPartial` / `BurdenDecField` /
+    /// `BurdenDecVariant`, which arise from partial-move / `Set` / `SetTag`
+    /// payload positions, not release cleanup. The predicate therefore matches
+    /// `RcDec | BurdenDec` only; broadening to the partial variants would let a
+    /// real payload-dec block be misread as a skippable cleanup trampoline.
+    ///
+    /// SSOT for the "block body is only release cleanup" test consumed by
+    /// `follow_jump_chain` (project-escape trampoline skipping) and tail-call
+    /// detection (post-Apply / normal-block cleanup gates).
+    #[inline]
+    pub fn is_release_cleanup_instr(&self) -> bool {
+        matches!(self, ArcInstr::RcDec { .. } | ArcInstr::BurdenDec { .. })
     }
 
     /// Returns all variables read (used) by this instruction.

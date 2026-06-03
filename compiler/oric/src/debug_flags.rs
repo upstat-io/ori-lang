@@ -146,6 +146,16 @@ flags! {
     /// Usage: `ORI_DISABLE_BURDEN_ELIM=1 ori build file.ori`
     ORI_DISABLE_BURDEN_ELIM
 
+    /// Dump each function's ARC IR to stderr immediately after Step 4b
+    /// `emit_burden_ops`, before any realization.
+    ///
+    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline`. Surfaces
+    /// the faithful Phase-5 `BurdenInc` / `BurdenDec*` emission for VF-1 residual
+    /// localization (post-realize `ORI_DUMP_AFTER_ARC` cannot show pre-realize
+    /// burden placement).
+    /// Usage: `ORI_DUMP_AFTER_BURDEN=1 ori build file.ori`
+    ORI_DUMP_AFTER_BURDEN
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
