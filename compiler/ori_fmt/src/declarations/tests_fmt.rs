@@ -2,12 +2,10 @@
 //!
 //! Formatting for test function declarations.
 
-use crate::formatter::{emit_escaped_str, Formatter};
-use crate::width::ALWAYS_STACKED;
+use crate::formatter::emit_escaped_str;
 use ori_ir::ast::items::{ExpectedError, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
-use super::function_body;
 use super::parsed_types::format_parsed_type;
 use super::ModuleFormatter;
 
@@ -117,51 +115,11 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.ctx.emit(")");
     }
 
-    /// Format a test body, breaking to new line if it doesn't fit after `= `.
-    ///
-    /// Per grammar: expression bodies require trailing `;` but block bodies
-    /// ending with `}` do not.
+    /// Format a test body. Delegates the inline-vs-newline-vs-internal-break
+    /// decision to the shared `emit_expr_body` (SSOT in `function_body`).
+    /// `allow_force_newline = false`: test bodies keep their existing layout
+    /// (no if/for force-newline) and gain ONLY the over-width-head break.
     fn format_test_body(&mut self, body: ExprId) {
-        // Calculate body width to determine if it fits inline
-        let body_width = self.width_calc.width(body);
-
-        // Check if body fits after " = " on current line
-        let space_after_eq = 3; // " = "
-        let fits_inline =
-            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
-
-        let ends_with_brace;
-
-        if fits_inline {
-            // Inline: " = body"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        } else {
-            // Body doesn't fit - always-stacked constructs (run/try/match) stay on same line
-            // and break internally. Other constructs also stay on same line.
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        }
-
-        // Trailing semicolon for non-block expression bodies
-        if !ends_with_brace {
-            self.ctx.emit(";");
-        }
+        self.emit_expr_body(body, false);
     }
 }

@@ -2,12 +2,10 @@
 //!
 //! Formatting for function declarations including signatures and bodies.
 
-use crate::formatter::Formatter;
 use crate::width::ALWAYS_STACKED;
 use ori_ir::ast::items::{Function, Param, TraitBound, WhereClause};
 use ori_ir::{ExprId, StringLookup, Visibility};
 
-use super::function_body;
 use super::parsed_types::{
     calculate_type_width, const_expr_render_width, format_const_expr, format_parsed_type,
 };
@@ -68,72 +66,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.format_function_body(func.body);
     }
 
-    /// Format a function body, breaking to new line if it doesn't fit after `= `.
-    ///
-    /// Per grammar: expression bodies require trailing `;` but block bodies
-    /// ending with `}` do not.
+    /// Format a function body. Delegates the inline-vs-newline-vs-internal-break
+    /// decision to the shared `emit_expr_body` (SSOT in `function_body`).
+    /// `allow_force_newline = true`: function bodies use `should_break_body_to_newline`
+    /// (if/for control flow + atomic-that-fits) ahead of the over-width-head guard.
     pub(super) fn format_function_body(&mut self, body: ExprId) {
-        // Calculate body width to determine if it fits inline
-        let body_width = self.width_calc.width(body);
-
-        // Check if body fits after " = " on current line
-        let space_after_eq = 3; // " = "
-        let fits_inline =
-            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
-
-        let ends_with_brace;
-
-        if fits_inline {
-            // Inline: " = body"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        } else if self.should_break_body_to_newline(body, body_width) {
-            // Break to newline when:
-            // 1. Body is a control flow expr (if/for) - per spec
-            // 2. Body is atomic but would fit on its own line with standard indent
-            // Don't break if body is wider than available space anyway (e.g., long strings)
-            self.ctx.emit(" =");
-            self.ctx.emit_newline();
-            self.ctx.indent();
-            self.ctx.emit_indent();
-
-            // Create formatter with indent level 1 for proper nested breaks
-            // Use format_broken to prevent re-evaluation of fit at new position
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_indent_level(1)
-                    .with_starting_column(self.ctx.column());
-            expr_formatter.format_broken(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-            self.ctx.dedent();
-        } else {
-            // Other constructs stay on same line, break internally: " = [...\n]"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-            function_body::emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        }
-
-        // Trailing semicolon for non-block expression bodies
-        if !ends_with_brace {
-            self.ctx.emit(";");
-        }
+        self.emit_expr_body(body, true);
     }
 
     /// Check if an expression should break to a new line when it doesn't fit.
@@ -146,7 +84,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Returns false for:
     /// - Expressions that can break internally (lists, maps, calls with args)
     /// - Atomic expressions too wide for even their own line (e.g., long strings)
-    fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
+    pub(super) fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
         let expr = self.arena.get_expr(body);
 
         match &expr.kind {
