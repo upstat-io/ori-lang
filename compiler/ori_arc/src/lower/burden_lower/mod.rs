@@ -380,13 +380,26 @@ fn mark_emitted(emitted: &mut [bool], idx: usize) {
 }
 
 /// Compute the set of borrowed-derived vars: borrowed parameters plus every
-/// `Let { Var(src) }` alias transitively reachable from one. A borrowed value
-/// carries no RC obligation (`Spec: Annex E §AIMS RL-2`), and TF-2 propagates a
-/// source's borrow to its Let-Var alias, so an alias of a borrowed param is
-/// itself borrowed and must carry no burden ops. `collect_owned_burdens` already
-/// excludes borrowed PARAMS; this set additionally excludes their local aliases.
-/// Forward fixpoint over Let-Var edges (a 1-hop alias of a borrowed alias is
-/// borrowed too).
+/// `Let { Var(src) }` alias AND every `Project { value: src }` borrow-view
+/// transitively reachable from one. A borrowed value carries no RC obligation
+/// (`Spec: Annex E §AIMS RL-2`):
+/// - TF-2 propagates a source's borrow to its `Let { Var }` alias.
+/// - TF-4 makes a `Project` dst Borrowed, inheriting the source's uniqueness /
+///   locality; a Project of a borrowed source is itself a borrow-view that owns
+///   no allocation, so a last-use `BurdenDec` on it is a double-free.
+///
+/// `collect_owned_burdens` already excludes borrowed PARAMS; this set
+/// additionally excludes their local aliases AND their borrow-views.
+///
+/// Project propagation is SOURCE-GATED, NOT a blanket Project-dst exclusion: a
+/// dst is marked borrowed ONLY when its `value` source is itself in the borrowed
+/// set. A blanket exclusion would be unsafe — a `Project` of an OWNED source may
+/// carry an RC obligation (RL-15a project-escape inc; RL-33 projection promotion
+/// can flow ownership UP a projection chain). Gating on the source's
+/// borrowed-ness matches TF-4 exactly: TF-4 inherits the source's access, so a
+/// Borrowed source yields a Borrowed projection while an Owned source does not.
+/// Forward fixpoint over both edge kinds (a 1-hop alias / projection of a
+/// borrowed alias is borrowed too).
 fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed: FxHashSet<ArcVarId> = func
         .params
@@ -402,13 +415,19 @@ fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
         changed = false;
         for block in &func.blocks {
             for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if borrowed.contains(src) && borrowed.insert(*dst) {
+                let edge = match instr {
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Var(src),
+                        ..
+                    } => Some((*dst, *src)),
+                    // TF-4: a Project of a borrowed source is a borrow-view.
+                    // Source-gated — only propagates when `src` is borrowed.
+                    ArcInstr::Project { dst, value, .. } => Some((*dst, *value)),
+                    _ => None,
+                };
+                if let Some((dst, src)) = edge {
+                    if borrowed.contains(&src) && borrowed.insert(dst) {
                         changed = true;
                     }
                 }

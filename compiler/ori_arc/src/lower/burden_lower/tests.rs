@@ -4959,3 +4959,245 @@ fn terminator_transfer_move_alias_over_owned_param_emits_no_burden_ops() {
         "terminator-transfer MOVE-alias over owned param must net VF-1 to 0; imbalances={imbalances:?}",
     );
 }
+
+#[test]
+fn project_of_borrowed_param_dst_gets_no_burden_dec() {
+    // §07A.2 task 3 — `Project { dst, value: borrowed_src }` (TF-4 borrow-view).
+    // A heap-burden (str) projected from a borrowed param is itself Borrowed
+    // (TF-4: dst.access := Borrowed, inheriting source uniqueness/locality) and
+    // carries NO RC obligation (`Spec: Annex E §AIMS RL-2` — borrowed values do
+    // not receive decs). The projected dst's genuine last-use here (consumed at
+    // a borrowed Invoke arg, NOT transfer-exempt) would otherwise receive a
+    // last-use BurdenDec — a double-free in the standalone ledger, since the
+    // borrow-view does not own its allocation. The source-gated Project
+    // propagation in `compute_borrowed_alias_vars` excludes the dst.
+    //
+    // Shape mirrors `@uses_field(p: Pair) -> int { let x = p.a; x.len() }`:
+    //   %0: borrowed Pair param. %1 = %0 (Let-Var alias). %2 = Project %1.0 (str
+    //   borrow-view). Invoke @len(%2 [borrow]) — %2 borrowed, not transferred.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Borrowed,
+        }],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(1)),
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    // Pin: the Project dst (var 2) — a TF-4 borrow-view of the borrowed param
+    // chain — receives NO BurdenDec (double-free guard) and NO BurdenInc.
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(2)),
+        0,
+        "Project dst of a borrowed-param chain MUST receive zero BurdenDec \
+         (TF-4 Borrowed: no RC obligation; a dec is a double-free); body={:?}",
+        func.blocks[0].body,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(2)),
+        0,
+        "Project dst of a borrowed-param chain MUST receive zero BurdenInc; body={:?}",
+        func.blocks[0].body,
+    );
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "Project-of-borrowed-param must net VF-1 to 0; imbalances={imbalances:?}",
+    );
+}
+
+#[test]
+fn nested_project_of_borrowed_param_dst_gets_no_burden_dec() {
+    // §07A.2 task 3 matrix cell (d) — `Project` of a `Project` (nested borrow).
+    // %0 borrowed Pair param; %1 = Project %0.0 (str borrow-view, TF-4); %2 =
+    // Project %1.0 (nested borrow-view of the projection). Per TF-4 + RL-15a
+    // README note, the source-gated propagation marks BOTH projection dsts
+    // borrowed because each `value` source is itself in the borrowed set — so
+    // neither receives a BurdenDec (double-free guard at every nesting level).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Borrowed,
+        }],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0)),
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(1)),
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    for v in [ArcVarId::new(1), ArcVarId::new(2)] {
+        assert_eq!(
+            count_burden_decs(&func, v),
+            0,
+            "nested Project dst {v:?} of a borrowed source MUST receive zero BurdenDec \
+             (TF-4 Borrowed at every nesting level); body={:?}",
+            func.blocks[0].body,
+        );
+        assert_eq!(
+            count_burden_incs(&func, v),
+            0,
+            "nested Project dst {v:?} of a borrowed source MUST receive zero BurdenInc; body={:?}",
+            func.blocks[0].body,
+        );
+    }
+    let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert!(
+        imbalances.is_empty(),
+        "nested Project-of-borrowed-source must net VF-1 to 0; imbalances={imbalances:?}",
+    );
+}
+
+#[test]
+fn project_of_owned_source_dst_is_not_borrow_excluded() {
+    // §07A.2 task 3 source-gating boundary (negative pin): a `Project` whose
+    // `value` source is OWNED (NOT borrowed) MUST NOT be added to the
+    // borrowed-alias set. Source-gating is the safe form — a blanket Project-dst
+    // borrow exclusion would be unsafe under RL-15a project-escape (a Project of
+    // an owned source may carry an RC obligation per RL-33 projection promotion).
+    // Here %0 is an OWNED str param; %1 = Project %0.0 is a borrow-VIEW per TF-4
+    // (so %1 itself is Borrowed by TF-4 and emits no dec) — but the SOURCE %0 is
+    // owned and stays in owned_vars_needing_rc. This pins that the source gate
+    // keys on the SOURCE's borrowed-ness, not on "is a Project dst".
+    //
+    // The observable for this pin: the borrowed-alias fixpoint, seeded ONLY from
+    // borrowed params, is EMPTY when there are no borrowed params — so no
+    // Project-dst is excluded via the borrow path. %0 (owned) keeps its own
+    // FRESH/last-use burden treatment (it is a param: no FRESH inc, last-use dec
+    // unless transfer-exempt).
+    let func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR, Idx::INT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0))],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    // The borrowed-alias set is empty (no borrowed params), so the source gate
+    // does not exclude the owned param %0 OR the Project dst %1. The contract of
+    // the source-gated propagation is exactly this set-membership boundary:
+    // exclusion keys on the SOURCE's borrowed-ness, never on "is a Project dst".
+    // (VF-1 balance of owned-param-projection is governed by separate
+    // transfer/live-out suppression, not by this borrow-exclusion path — so this
+    // pin asserts only the set-membership contract this fix owns.)
+    let borrowed = super::compute_borrowed_alias_vars(&func);
+    assert!(
+        !borrowed.contains(&ArcVarId::new(0)),
+        "owned param %0 MUST NOT be in the borrowed-alias set",
+    );
+    assert!(
+        !borrowed.contains(&ArcVarId::new(1)),
+        "Project dst of an OWNED source MUST NOT be borrow-excluded (source-gate keys on source borrowed-ness)",
+    );
+}
