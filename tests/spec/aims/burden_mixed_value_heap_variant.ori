@@ -1,0 +1,42 @@
+// Value/HeapType-mixed sum variant: a variant payload mixing a Value field
+// (`tag: int`, inline, no RC) with a HeapType field (`payload: str`, RC-tracked).
+// The burden walk emits ONLY the str field's dec (the int Value field carries
+// no owned heap burden); construct + destructure + drop the mixed variant with
+// no leak and correct values.
+// Spec: Annex E §AIMS — burden RC tracking gates on owned heap fields; a Value
+// field contributes no BurdenDec.
+//
+// Positive-pin: asserts correct values survive the mixed destructure with no
+// double-free (ORI_CHECK_LEAKS clean, interpreter + LLVM parity).
+
+use std.testing { assert_eq };
+
+type Mixed = Tagged(tag: int, payload: str) | Empty;
+
+@sum_tag_and_len (n: int, s: str) -> int = {
+    let m = Tagged(tag: n, payload: s);
+    match m {
+        Tagged(tag:, payload:) -> tag + payload.len(),
+        Empty -> -1,
+    }
+}
+
+@empty_sentinel () -> int = {
+    let m = Empty;
+    match m {
+        Tagged(tag:, payload:) -> tag + payload.len(),
+        Empty -> -1,
+    }
+}
+
+@test_mixed_value_heap_variant_destructures_clean tests @sum_tag_and_len () -> void = {
+    // tag=7 (Value field) + len("hello")=5 (HeapType field) = 12.
+    let r = sum_tag_and_len(n: 7, s: "hello");
+    assert_eq(actual: r, expected: 12)
+};
+
+@test_mixed_variant_empty_arm_no_heap_field tests @empty_sentinel () -> void = {
+    // The Empty variant carries no payload — no str field, no burden op.
+    let r = empty_sentinel();
+    assert_eq(actual: r, expected: -1)
+};

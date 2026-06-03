@@ -6,6 +6,7 @@
 
 pub mod aims_burden_alias;
 pub mod aims_interactions;
+pub mod apply_alias_coverage;
 pub mod arc;
 pub mod borrow_independence;
 pub mod cli;

@@ -1,0 +1,12 @@
+// Apply-alias Conditional shape (multi-param path-conditional alias) over
+// [int] elements. The un-chosen [int] buffer is released at scope exit; the
+// chosen one survives through the alias class. Runs under ORI_CHECK_LEAKS.
+
+@select<T> (pick_first: bool, a: T, b: T) -> T = if pick_first then a else b;
+
+@main () -> int = {
+    let x = [1, 2, 3, 4];
+    let y = [9, 8];
+    let chosen = select(pick_first: false, a: x, b: y);
+    if chosen.len() == 2 then 0 else 1
+}

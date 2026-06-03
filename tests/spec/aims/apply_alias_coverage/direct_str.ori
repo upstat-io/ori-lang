@@ -1,0 +1,21 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over a str element —
+// interpreter parity sibling of the AOT cell at
+// compiler/ori_llvm/tests/aot/fixtures/apply_alias_coverage/direct_str.ori.
+// Exercised by `cargo st` so the same shape runs on the interpreter backend
+// with identical observable output (CLAUDE.md §Fix Completeness dual-exec
+// parity).
+
+use std.testing { assert_eq };
+
+@id<T> (x: T) -> T = x;
+
+@aliased_len () -> int = {
+    let s = "hello world";
+    let aliased = id(x: s);
+    aliased.len()
+}
+
+@test_apply_alias_direct_str_aliases_arg tests @aliased_len () -> void = {
+    let n = aliased_len();
+    assert_eq(actual: n, expected: 11)
+};

@@ -1,0 +1,29 @@
+// Unwind-path drop emission: an owned heap value (str) live across an Invoke
+// that unwinds must drop on the unwind successor / Resume edge — no leak.
+// Spec: Annex E §AIMS RL-4 (edge-specific decs) + RL-5 (dead-at-entry cleanup).
+//
+// Positive-pin: `held` (owned str) is live when `inner_panics` (an Invoke)
+// unwinds; correctness under ORI_CHECK_LEAKS proves `held` dropped on the unwind
+// successor exactly once (interpreter + LLVM parity).
+
+use std.testing { assert_eq };
+
+@inner_panics (s: str) -> int = panic(msg: s);
+
+@outer_holds_heap_then_invokes () -> int = {
+    let $held = "live-across-invoke";
+    inner_panics(s: "unwind-here")
+}
+
+@catch_outer () -> str = {
+    let result = catch(expr: outer_holds_heap_then_invokes());
+    match result {
+        Err(m) -> m,
+        Ok(_) -> "no-panic",
+    }
+}
+
+@test_unwind_drop_emission_no_leak tests @catch_outer () -> void = {
+    let m = catch_outer();
+    assert_eq(actual: m, expected: "unwind-here")
+};

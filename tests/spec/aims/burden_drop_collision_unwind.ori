@@ -1,0 +1,35 @@
+// Drop-trait-collision on the unwind path: a type with a user `Drop` impl AND a
+// HeapType field (str). When a value of this type is live as a panic unwinds,
+// the burden walk emits exactly ONE dec — the user Drop runs once and the str
+// field is freed once (no double-drop / double-free).
+// Spec: Annex E §AIMS RL-2 / RL-4 / RL-5.
+//
+// Positive-pin: catch the panic and assert the message; correctness under
+// ORI_CHECK_LEAKS proves the Guard (user Drop + str field) dropped exactly once
+// on the unwind path (interpreter + LLVM parity).
+
+use std.testing { assert_eq };
+
+type Guard = { label: str };
+
+impl Guard: Drop {
+    @drop (self) -> void = ();
+}
+
+@guard_then_panic () -> int = {
+    let $g = Guard { label: "watch-on-unwind" };
+    panic(msg: "boom-on-unwind")
+}
+
+@catch_panicking_guard () -> str = {
+    let result = catch(expr: guard_then_panic());
+    match result {
+        Err(m) -> m,
+        Ok(_) -> "no-panic",
+    }
+}
+
+@test_drop_collision_unwind_runs_once tests @catch_panicking_guard () -> void = {
+    let m = catch_panicking_guard();
+    assert_eq(actual: m, expected: "boom-on-unwind")
+};

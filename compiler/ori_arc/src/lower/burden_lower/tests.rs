@@ -1,6 +1,6 @@
-//! Tests for `emit_burden_ops` walker. ships boundary + iteration
-//! pin; subsequent cycles add owned-filter + matrix coverage per `
-//! §Matrix Testing Rule` once the `DerivedOwnership` access path is wired.
+//! Tests for `emit_burden_ops` walker. Ships boundary + iteration pin;
+//! owned-filter + matrix coverage added once the `DerivedOwnership`
+//! access path is wired.
 
 use ori_ir::Name;
 use ori_types::{Idx, TypeRegistry};
@@ -47,7 +47,7 @@ fn empty_function_collects_no_burdens() {
 
 #[test]
 fn construct_emits_one_transfer_point_per_owned_arg() {
-    // checkbox 2: "For each transfer point that consumes v, emit
+    // Burden-emission contract: "For each transfer point that consumes v, emit
     // BurdenInc(v) immediately before." Construct with 1 arg ⇒ 1 transfer-
     // point entry. Semantic pin: would FAIL if Construct walk is reverted to
     // no-op or if transfer_points field is not populated.
@@ -151,7 +151,7 @@ fn set_emits_one_transfer_point_for_owned_value() {
 
 #[test]
 fn borrowed_params_skipped_owned_params_collected() {
-    // checkbox 1: "For each owned ArcVarId v in the function...".
+    // Burden-walk contract: "For each owned ArcVarId v in the function...".
     // Semantic pin: would FAIL if filter is reverted to walk all vars
     // unconditionally — Borrowed param at var(1) MUST be absent from
     // collected_burdens; Owned param at var(0) MUST be present.
@@ -742,6 +742,289 @@ fn partial_apply_emits_burden_inc_for_captured_var() {
 }
 
 #[test]
+fn closure_capture_then_drop_emits_net_balanced_burden() {
+    // verify-first pin (higher_order over-elim-closure cells
+    // test_hof_closure_capture_in_loop / test_hof_make_predicate, proof
+    // 04B.2-over-elim-closure): the predicate stack over-eliminated the
+    // capture-side inc while retaining the paired scope-exit dec -> double-free.
+    // The burden baseline MUST be NET-BALANCED (total BurdenInc == total
+    // BurdenDec) so DP-2/DP-3 elimination over the balanced baseline cannot
+    // orphan a dec. Shape: owned str captured into a closure, closure invoked,
+    // closure env dropped at block exit (not returned).
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                // var(0) = owned heap str (FRESH).
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                // var(1) = closure capturing var(0) (ownership transfers into env).
+                ArcInstr::PartialApply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0)],
+                },
+                // closure invoked; var(2) = result.
+                ArcInstr::ApplyIndirect {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    closure: ArcVarId::new(1),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                },
+            ],
+            // closure (var(1)) + result (var(2)) die here (not returned).
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let body = &func.blocks[0].body;
+    let inc_count = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { .. }))
+        .count();
+    let dec_count = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { .. }))
+        .count();
+    assert_eq!(
+        inc_count, dec_count,
+        "burden baseline MUST be net-balanced for closure capture+drop \
+         (over-elim-closure double-free guard); inc={inc_count} dec={dec_count} body={body:?}",
+    );
+}
+
+#[test]
+fn closure_capture_in_loop_body_block_emits_net_balanced_burden() {
+    // closures-inside-loops with conditional capture (the
+    // test_hof_closure_capture_in_loop shape). A loop-carried owned value is
+    // handed to a non-entry (loop-body) block via a block-param Jump, captured
+    // into a closure there, the closure invoked + dropped. The burden baseline
+    // MUST stay net-balanced when the capture happens in a non-entry block
+    // (the per-block walk emits the capture inc + last-use dec in the body
+    // block) — burden-emitted regardless of block position.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                }],
+                // loop-carried owned value handed to the body block.
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(0)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(1), Idx::STR)],
+                body: vec![
+                    // closure captures the loop-carried value (var(1)).
+                    ArcInstr::PartialApply {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![ArcVarId::new(1)],
+                    },
+                    // closure invoked; var(2)+var(3) die at block exit.
+                    ArcInstr::ApplyIndirect {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        closure: ArcVarId::new(2),
+                        args: Vec::new(),
+                        arg_ownership: Vec::new(),
+                    },
+                ],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let inc_count: usize = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { .. }))
+        .count();
+    let dec_count: usize = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { .. }))
+        .count();
+    assert_eq!(
+        inc_count, dec_count,
+        "burden baseline MUST be net-balanced for a closure capture in a \
+         non-entry (loop-body) block; inc={inc_count} dec={dec_count}",
+    );
+}
+
+#[test]
+fn captures_of_captures_emits_net_balanced_burden() {
+    // captures-of-captures recursion. Closure A captures an owned
+    // str; closure B captures closure A. Each capture transfers ownership into
+    // the enclosing env; the burden baseline MUST stay net-balanced across the
+    // nesting (no orphan inc/dec per level) — the N-level generalization of the
+    // over-elim-closure guard.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                // var(0) = owned heap str.
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                // var(1) = closure A capturing var(0).
+                ArcInstr::PartialApply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0)],
+                },
+                // var(2) = closure B capturing closure A (var(1)).
+                ArcInstr::PartialApply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(98),
+                    args: vec![ArcVarId::new(1)],
+                },
+                // closure B invoked; var(3) = result. var(2)+var(3) die at exit.
+                ArcInstr::ApplyIndirect {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    closure: ArcVarId::new(2),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let body = &func.blocks[0].body;
+    let inc_count = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenInc { .. }))
+        .count();
+    let dec_count = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { .. }))
+        .count();
+    assert_eq!(
+        inc_count, dec_count,
+        "burden baseline MUST be net-balanced for captures-of-captures \
+         (N-level over-elim-closure guard); inc={inc_count} dec={dec_count} body={body:?}",
+    );
+}
+
+#[test]
+fn value_heap_mixed_variant_emits_dec_only_for_heap_field() {
+    // Value/HeapType-mixed-variant pin. A struct mixing a `Value` field
+    // (`tag: int`, inline, no RC) with a `HeapType` field (`payload: str`,
+    // owned) burden-emits exactly one whole-var BurdenDec covering the str
+    // field via drop-glue; the Value field drives NO burden op (no per-field
+    // inc, no BurdenDecField for field 0). The faithful Phase-5 emission keeps
+    // the burden ledger balanced (VF-1 net-zero); this pins the mixed-variant
+    // COMPOSITION — over-emission guard for the Value field + under-emission
+    // guard for the HeapType field. owned_fields=[str@1] only: burden RC
+    // tracking is true via the heap field, the int Value field omitted.
+    use crate::lower::test_utils::registered_struct_value_heap_mixed;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64); // first dynamic slot per TY-5
+    registered_struct_value_heap_mixed(&mut registry, "Mixed", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        // var(0)=Mixed param, var(1)=str (a borrow-view of field 1).
+        var_types: vec![struct_idx, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            // Pure borrow of the heap field (Project = Borrowed per TF-4, NOT a
+            // move — moved_fields.rs only sets the moved-out bit when the
+            // project dst is transferred). var(1) is unused; this is the
+            // last use of var(0), so its whole-var dec fires here. var(0) is
+            // NOT moved out (nothing transfers field 1 onward).
+            body: vec![ArcInstr::Project {
+                dst: ArcVarId::new(1),
+                ty: Idx::STR,
+                value: ArcVarId::new(0),
+                field: 1,
+            }],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let body = &func.blocks[0].body;
+
+    // Exactly one whole-var BurdenDec for var(0): the scope-exit drop-glue
+    // covers the str field. owned_fields=[str@1] means burden_carries_rc fires;
+    // an owned non-moved aggregate dies via a whole-var dec.
+    let whole_decs: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        whole_decs.len(),
+        1,
+        "Value/HeapType-mixed: MUST emit exactly one whole-var BurdenDec for var(0) \
+         (drop-glue covers the str field at scope exit); got {whole_decs:?}; body={body:?}",
+    );
+
+    // The Value field (field 0, int) drives NO per-field burden op — no
+    // over-emission. A fully-dropped mixed var emits a whole-var dec, never a
+    // BurdenDecField / BurdenDecPartial naming the Value field.
+    let field_ops: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| {
+            matches!(i, ArcInstr::BurdenDecField { base, .. } if *base == ArcVarId::new(0))
+                || matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0))
+        })
+        .collect();
+    assert!(
+        field_ops.is_empty(),
+        "Value/HeapType-mixed: a fully-dropped mixed var emits a whole-var dec, \
+         NOT per-field ops; the Value field (int) must drive no burden op; got {field_ops:?}",
+    );
+}
+
+#[test]
 fn collection_reuse_emits_burden_inc_for_owned_arg() {
     //  +: CollectionReuse with Owned arg emits
     // BurdenInc when arg has a follow-up use (Let-Var keeps it alive past
@@ -1197,7 +1480,7 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
 
 #[test]
 fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
-    // checkbox 1: ownership filter MUST skip Borrowed params BEFORE
+    // Burden-walk contract: ownership filter MUST skip Borrowed params BEFORE
     // `lookup_burden` is consulted. This is the load-bearing early-skip
     // for heap-burden Borrowed params: per `burden_lower.rs:111-113`,
     // `matches!(param_ownership.get(&var), Some(Ownership::Borrowed))
@@ -1209,7 +1492,7 @@ fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
     // carries self_heap_alloc=true per BURDEN_TABLE, so without the early-
     // skip, var(1)=STR/Borrowed would flow into ctx.collected, pass
     // burden_carries_rc (self_heap_alloc=true), enter owned_vars_needing_rc,
-    // and emit spurious BurdenInc/BurdenDec violating checkbox 1.
+    // and emit spurious BurdenInc/BurdenDec violating the burden-walk contract.
     // A future refactor removing the ownership filter would still pass the
     // scalar Idx::INT test AND the scalar VF-1 test —
     // this heap-burden Idx::STR test would FAIL, surfacing the regression.
@@ -4124,5 +4407,323 @@ fn dead_out_value_keeps_its_single_block_last_use_dec() {
     assert!(
         imbalances.is_empty(),
         "dead-out single-block release nets VF-1 to 0; imbalances={imbalances:?}",
+    );
+}
+
+// ===========================================================================
+// Apply-aliases coverage — `burden_emitted ⊇ apply-alias-class members`
+//
+// The Phase-5 burden walk is VAR-INDEXED (`collect_owned_burdens` over
+// `func.var_types`, mod.rs), so every apply-alias-class member that is an
+// owned non-scalar SSA var is structurally visited and marked in
+// `func.burden_emitted` when it receives a Burden op. These pins assert the
+// observable coverage property directly over `func.burden_emitted`,
+// NOT the `class_covered` handshake (structurally empty during the
+// coexistence phase: `populate_class_covered` runs Step 4, short-circuits on
+// empty `burden_emitted`, filled only at Step 4b).
+//
+// One cell per `ApplyAliasSource` shape modeled at the caller-side SSA level:
+//   Direct      `@id<T>(x: T) -> T = x`             — dst aliases arg
+//   Project     `@unwrap<T>(b: Box<T>) -> T = b.inner` — dst is a borrow-view
+//   Conditional multi-param path-conditional alias  — every candidate owned
+//   Wrapped     `@wrap_ok(m: T) -> Result<T, E> = Ok(m)` — dst is a separate
+//                                                          wrapper allocation
+//
+// The RC-carrying member (the consumed Owned arg) MUST be in `burden_emitted`
+// (positive pin). The RC-SUPPRESSED dst of Project (a borrow-view carrying no
+// independent RC slot — its RC is parent-drop-covered / predicate-stack-owned
+// during coexistence) MUST be EXCLUDED (negative pin): the exclusion is
+// intentional emission fidelity, not a coverage gap.
+//
+// ADDITIVE only — touches NO production code. `collect_all_borrowed_defs` and
+// the borrow classification stay untouched (3 reclassification attempts each
+// regressed AOT 29 -> 74).
+// ===========================================================================
+
+/// Read-only helper: is `var`'s `burden_emitted` bit set after the walk?
+fn burden_emitted_for(func: &ArcFunction, var: ArcVarId) -> bool {
+    func.burden_emitted
+        .get(var.index())
+        .copied()
+        .unwrap_or(false)
+}
+
+/// Build a caller-side `ArcFunction` modeling one apply-alias shape: a single
+/// `Apply` whose consumed arg(s) each have a follow-up `Let { Var }` alias so
+/// the arg's owned-position `BurdenInc` reliably emits (last-use is the Let,
+/// not the Apply — matching the existing
+/// `apply_emits_burden_inc_immediately_before_consuming_apply` shape). The
+/// result `dst` is kept live by a follow-up `Let { Var }` so its FRESH-site
+/// `BurdenInc` emits. Every var is `Idx::STR` (heap-burden, carries RC) unless
+/// noted.
+fn apply_alias_caller_func(
+    apply: ArcInstr,
+    consumed_args: &[ArcVarId],
+    dst: ArcVarId,
+    var_count: u32,
+) -> ArcFunction {
+    let mut body = vec![apply];
+    // Follow-up alias per consumed arg keeps it live past the Apply.
+    let mut next_var = var_count;
+    for &arg in consumed_args {
+        body.push(ArcInstr::Let {
+            dst: ArcVarId::new(next_var),
+            ty: Idx::STR,
+            value: ArcValue::Var(arg),
+        });
+        next_var += 1;
+    }
+    // Keep the result live so its FRESH-site BurdenInc emits.
+    body.push(ArcInstr::Let {
+        dst: ArcVarId::new(next_var),
+        ty: Idx::STR,
+        value: ArcValue::Var(dst),
+    });
+    let total = next_var + 1;
+    ArcFunction {
+        var_types: (0..total).map(|_| Idx::STR).collect(),
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+/// `ArcInstr::Apply` with the apply-alias test defaults: `str` result, callee
+/// `Name::from_raw(99)`, every arg Owned, no monomorphization id. Keeps the
+/// `mono_instance_id` default at one site (avoids parameter sprawl).
+fn apply_str(dst: ArcVarId, args: Vec<ArcVarId>) -> ArcInstr {
+    let arg_ownership = vec![ArgOwnership::Owned; args.len()];
+    ArcInstr::Apply {
+        dst,
+        ty: Idx::STR,
+        func: Name::from_raw(99),
+        args,
+        arg_ownership,
+        mono_instance_id: None,
+    }
+}
+
+#[test]
+fn apply_alias_direct_shape_marks_consumed_arg_in_burden_emitted() {
+    // ApplyAliasSource::Direct (`@id<T>(x: T) -> T = x`).
+    // Caller `dst = id(arg)`: dst and arg are the SAME RC slot (union-find
+    // unites them). The consumed Owned arg carries the independent RC slot,
+    // so `burden_emitted[arg]` MUST be set (positive pin); the var-indexed
+    // walk visits arg as an owned non-scalar SSA var.
+    let registry = TypeRegistry::new();
+    let arg = ArcVarId::new(0);
+    let dst = ArcVarId::new(1);
+    let mut func = apply_alias_caller_func(apply_str(dst, vec![arg]), &[arg], dst, 2);
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    assert!(
+        burden_emitted_for(&func, arg),
+        "Direct: consumed Owned arg (RC-carrying alias-class member) MUST be in burden_emitted; burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+    assert!(
+        burden_emitted_for(&func, dst),
+        "Direct: Apply result dst (FRESH-site Inc) MUST be in burden_emitted; burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn apply_alias_project_shape_marks_arg_excludes_borrow_view_dst() {
+    // ApplyAliasSource::Project
+    // (`@unwrap<T>(b: Box<T>) -> T = b.inner`). The consumed Owned arg `b`
+    // carries the independent RC slot → MUST be in burden_emitted (positive
+    // pin). The dst is a borrow-view projection of arg's field — it carries
+    // NO independent RC slot during coexistence (its RC is parent-drop-
+    // covered; predicate-stack-owned until the predicate-stack retirement
+    // phase). Modeling the dst as a
+    // `Project` of the arg makes it a borrow per TF-4; the walk emits no
+    // BurdenInc/Dec for a borrow-view, so `burden_emitted[dst]` MUST be unset
+    // (negative pin — the exclusion is intentional emission fidelity, NOT a
+    // coverage gap).
+    let registry = TypeRegistry::new();
+    let arg = ArcVarId::new(0); // the consumed Box<T> — RC-carrying
+    let dst = ArcVarId::new(1); // b.inner borrow-view — RC-suppressed
+    let arg_alias = ArcVarId::new(2);
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                // dst = Project arg.0 — borrow-view (callee returns b.inner).
+                project_first(dst, Idx::STR, arg),
+                // Follow-up alias keeps arg live past the projection.
+                ArcInstr::Let {
+                    dst: arg_alias,
+                    ty: Idx::STR,
+                    value: ArcValue::Var(arg),
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    assert!(
+        burden_emitted_for(&func, arg),
+        "Project: consumed Owned arg (the Box<T>, RC-carrying) MUST be in burden_emitted; burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+    // Negative pin: a borrow-view dst (Project of arg) carries no independent
+    // RC slot — its exclusion is intentional (parent-drop-covers per the
+    // borrow model), NOT a missed apply-alias-class member.
+    assert!(
+        !burden_emitted_for(&func, dst),
+        "Project: borrow-view dst (b.inner, RC-suppressed) MUST be EXCLUDED from burden_emitted (parent-drop-covered during coexistence); burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn apply_alias_conditional_shape_marks_every_owned_candidate() {
+    // ApplyAliasSource::Conditional (2+ Owned params alias
+    // the return path-conditionally, e.g. callee `match x { A -> a, B -> b }`).
+    // Caller `dst = select(a, b)`: BOTH candidates `a` and `b` are owned
+    // non-scalar args carrying independent RC slots → BOTH MUST be in
+    // burden_emitted (positive pin across every candidate). Self-verifying
+    // member count proves no candidate cell was skipped.
+    let registry = TypeRegistry::new();
+    let a = ArcVarId::new(0);
+    let b = ArcVarId::new(1);
+    let dst = ArcVarId::new(2);
+    let mut func = apply_alias_caller_func(apply_str(dst, vec![a, b]), &[a, b], dst, 3);
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let candidates = [a, b];
+    let covered = candidates
+        .iter()
+        .filter(|&&c| burden_emitted_for(&func, c))
+        .count();
+    assert_eq!(
+        covered,
+        candidates.len(),
+        "Conditional: EVERY Owned candidate ({candidates:?}) MUST be in burden_emitted (no skipped cell); burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn apply_alias_wrapped_shape_marks_consumed_arg_and_wrapper() {
+    // ApplyAliasSource::Wrapped
+    // (`@wrap_ok(m: T) -> Result<T, E> = Ok(m)`). The dst is a SEPARATE
+    // allocation (the constructed wrapper) and the consumed arg `m`'s
+    // ownership transfers INTO dst's payload. The Apply consumes `m` at an
+    // Owned position, so the owned-position BurdenInc marks
+    // `burden_emitted[m]` (positive pin — m is the RC-carrying member). The
+    // wrapper dst gets a FRESH-site Inc (positive pin). NOTE: Wrapped does NOT
+    // union dst with m in the union-find (different RC slots) — both
+    // nonetheless each carry a burden op, so both bits set.
+    let registry = TypeRegistry::new();
+    let m = ArcVarId::new(0);
+    let dst = ArcVarId::new(1);
+    let mut func = apply_alias_caller_func(apply_str(dst, vec![m]), &[m], dst, 2);
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    assert!(
+        burden_emitted_for(&func, m),
+        "Wrapped: consumed Owned arg m (ownership transferred into wrapper payload) MUST be in burden_emitted; burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+    assert!(
+        burden_emitted_for(&func, dst),
+        "Wrapped: wrapper dst (separate allocation, FRESH-site Inc) MUST be in burden_emitted; burden_emitted={:?}; body={:?}",
+        func.burden_emitted,
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn apply_alias_coverage_self_verifying_member_count_across_all_shapes() {
+    // self-verifying matrix completeness. One cell
+    // per ApplyAliasSource shape; the RC-carrying consumed arg of each shape
+    // MUST be in burden_emitted. The count assertion proves every shape cell
+    // was visited — a silently-skipped shape would drop the count below 4.
+    let registry = TypeRegistry::new();
+    let mut shapes_covered = 0usize;
+
+    // Direct.
+    {
+        let arg = ArcVarId::new(0);
+        let dst = ArcVarId::new(1);
+        let mut func = apply_alias_caller_func(apply_str(dst, vec![arg]), &[arg], dst, 2);
+        emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+        assert!(burden_emitted_for(&func, arg), "Direct arg uncovered");
+        shapes_covered += 1;
+    }
+    // Project (RC-carrying arg covered; borrow-view dst excluded).
+    {
+        let arg = ArcVarId::new(0);
+        let dst = ArcVarId::new(1);
+        let arg_alias = ArcVarId::new(2);
+        let mut func = ArcFunction {
+            var_types: vec![Idx::STR, Idx::STR, Idx::STR],
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    project_first(dst, Idx::STR, arg),
+                    ArcInstr::Let {
+                        dst: arg_alias,
+                        ty: Idx::STR,
+                        value: ArcValue::Var(arg),
+                    },
+                ],
+                terminator: ArcTerminator::Unreachable,
+            }],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        };
+        emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+        assert!(burden_emitted_for(&func, arg), "Project arg uncovered");
+        assert!(
+            !burden_emitted_for(&func, dst),
+            "Project borrow-view dst MUST be excluded"
+        );
+        shapes_covered += 1;
+    }
+    // Conditional.
+    {
+        let a = ArcVarId::new(0);
+        let b = ArcVarId::new(1);
+        let dst = ArcVarId::new(2);
+        let mut func = apply_alias_caller_func(apply_str(dst, vec![a, b]), &[a, b], dst, 3);
+        emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+        assert!(
+            burden_emitted_for(&func, a) && burden_emitted_for(&func, b),
+            "Conditional candidate uncovered"
+        );
+        shapes_covered += 1;
+    }
+    // Wrapped.
+    {
+        let m = ArcVarId::new(0);
+        let dst = ArcVarId::new(1);
+        let mut func = apply_alias_caller_func(apply_str(dst, vec![m]), &[m], dst, 2);
+        emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+        assert!(burden_emitted_for(&func, m), "Wrapped arg uncovered");
+        shapes_covered += 1;
+    }
+
+    assert_eq!(
+        shapes_covered, 4,
+        "every ApplyAliasSource shape (Direct / Project / Conditional / Wrapped) MUST be visited; no cell skipped",
     );
 }

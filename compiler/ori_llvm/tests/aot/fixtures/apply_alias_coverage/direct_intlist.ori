@@ -1,0 +1,11 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over a [int] element.
+// Exercises the collection-buffer RC slot through the Direct alias class.
+// Runs under ORI_CHECK_LEAKS — exit 0 + zero leaks == coverage holds.
+
+@id<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let aliased = id(x: xs);
+    if aliased.len() == 3 then 0 else 1
+}

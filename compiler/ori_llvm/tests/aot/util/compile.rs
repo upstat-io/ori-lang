@@ -253,6 +253,62 @@ pub fn compile_and_run_with_args(source: &str, args: &[&str]) -> (i32, String, S
     (exit_code, stdout, stderr)
 }
 
+/// Compile and run an Ori program with extra environment variables set on the
+/// COMPILE (`ori build`) step, capturing output.
+///
+/// `build_env` is a list of `(name, value)` pairs applied to the `ori build`
+/// invocation, in addition to the always-on `ORI_STDLIB`. The run step still
+/// sets `ORI_CHECK_LEAKS=1`. Use this for compile-time flags that gate the
+/// AIMS pipeline (e.g. `ORI_DISABLE_BURDEN_OPS=1` skips Step 4b burden-op
+/// emission per `arc.md §Debugging`); the run-step `compile_and_run_with_env`
+/// cannot reach a compile-time flag because it sets env on the child binary.
+///
+/// Returns `(exit_code, stdout, stderr)`.
+pub fn compile_and_run_with_build_env(
+    source: &str,
+    build_env: &[(&str, &str)],
+) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let mut build_cmd = Command::new(ori_binary());
+    build_cmd
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path());
+    for (name, value) in build_env {
+        build_cmd.env(name, value);
+    }
+    let compile_result = build_cmd.output().expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let run_result = Command::new(&binary_path)
+        .env("ORI_CHECK_LEAKS", "1")
+        .output()
+        .expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
 /// Assert that an exit code does not indicate signal termination (crash).
 ///
 /// On Unix, signal-killed processes are mapped to `-(128 + signal)` by

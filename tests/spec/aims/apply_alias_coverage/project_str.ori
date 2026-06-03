@@ -1,0 +1,21 @@
+// Apply-alias Project shape (`@unwrap<T>(b: Box<T>) -> T = b.inner`) over a
+// str element — interpreter parity sibling of the AOT project_str cell. The
+// dst is a borrow-view projection of the consumed Box<T>; the Box carries the
+// independent RC slot.
+
+use std.testing { assert_eq };
+
+type Box<T> = { inner: T }
+
+@unwrap<T> (b: Box<T>) -> T = b.inner;
+
+@extracted_len () -> int = {
+    let boxed = Box { inner: "boxed str" };
+    let extracted = unwrap(b: boxed);
+    extracted.len()
+}
+
+@test_apply_alias_project_str_unwraps_inner tests @extracted_len () -> void = {
+    let n = extracted_len();
+    assert_eq(actual: n, expected: 9)
+};

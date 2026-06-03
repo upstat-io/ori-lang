@@ -1,0 +1,15 @@
+// Apply-alias Project shape (`@unwrap<T>(b: Box<T>) -> T = b.inner`) over a
+// str element. Caller `extracted = unwrap(b: boxed)`: dst is a borrow-view
+// projection of arg's field; the consumed Box<T> carries the independent RC
+// slot. Runs under ORI_CHECK_LEAKS — exit 0 + zero leaks == the projection
+// member's burden coverage holds without double-free.
+
+type Box<T> = { inner: T }
+
+@unwrap<T> (b: Box<T>) -> T = b.inner;
+
+@main () -> int = {
+    let boxed = Box { inner: "boxed str" };
+    let extracted = unwrap(b: boxed);
+    if extracted.len() == 9 then 0 else 1
+}

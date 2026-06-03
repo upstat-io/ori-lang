@@ -124,6 +124,57 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
     );
 }
 
+/// Register a 2-field Value/HeapType-mixed struct (`{ tag: int, payload: str }`)
+/// whose `UserBurdenSpec.owned_fields` names ONLY the heap field (`payload`,
+/// `field_path: vec![1]`, `Idx::STR`); the `Value` field (`tag`, `Idx::INT`,
+/// field 0) is OMITTED from `owned_fields`.
+///
+/// `burden_carries_rc` returns true via the non-empty `owned_fields`, so the
+/// struct's SSA value enters the owned-burden walk, but the whole-var
+/// `BurdenDec` covers only the `str` field through drop-glue — the `Value`
+/// field drives no burden op (no per-field inc, no `BurdenDecField`). A mixed
+/// fixture is the only shape that distinguishes "only the `HeapType` field is
+/// burden-tracked" from "every field is owned".
+pub(crate) fn registered_struct_value_heap_mixed(
+    registry: &mut TypeRegistry,
+    name: &str,
+    idx: Idx,
+) {
+    let fields = vec![
+        FieldDef {
+            name: test_name("tag"),
+            ty: Idx::INT,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: test_name("payload"),
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+    ];
+    let burden = UserBurdenSpec {
+        self_heap_alloc: false,
+        owned_fields: vec![UserOwnedField {
+            field_path: vec![1],
+            field_type: Idx::STR,
+        }],
+        ..UserBurdenSpec::default()
+    };
+    registry.register_struct(
+        test_name(name),
+        idx,
+        vec![],
+        fields,
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        Some(burden),
+    );
+}
+
 /// Canonical `ArcBlock` constructor for single-entry-block fixtures: hides the
 /// `id: ArcBlockId::new(0)` and `params: Vec::new` literals every fixture
 /// repeats..
