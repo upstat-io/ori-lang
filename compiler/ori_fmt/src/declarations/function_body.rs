@@ -19,20 +19,13 @@ use crate::width::ALWAYS_STACKED;
 use super::ModuleFormatter;
 
 /// Emit a function-declaration body. Block bodies are FORCED to broken
-/// (stacked) form per Annex D §671; all other body shapes delegate to
-/// `Formatter::format` which preserves the existing inline-vs-broken decision
-/// tree (width fit, always-stacked-construct list, etc.).
+/// (stacked) form per Annex D §671; all other shapes delegate to
+/// `Formatter::format` (inline-vs-broken decision tree).
 ///
-/// `fmt` is the per-body sub-formatter that the caller has already prepared
-/// via `Formatter::with_config(...).with_indent_level(...).with_starting_column(...)`.
-/// `arena` is passed explicitly because `Formatter` keeps its `arena` field
-/// private; the caller already holds an `&ExprArena`, so passing it adds zero
-/// API surface to `Formatter`.
-///
-/// The caller is responsible for emitting the `=` separator BEFORE invoking
-/// this helper and for extracting + re-emitting `expr_formatter.ctx.as_str()`
-/// AFTER. The helper subsumes ONLY the "is this an always-stacked block
-/// body?" decision.
+/// `fmt` is the caller-prepared per-body sub-formatter; `arena` is passed
+/// explicitly (`Formatter::arena` is private). The caller emits `=` before
+/// and re-emits `fmt.ctx.as_str()` after; this subsumes ONLY the
+/// always-stacked-block decision.
 pub(crate) fn emit_function_block_body_stacked<I: StringLookup>(
     fmt: &mut Formatter<'_, I>,
     arena: &ExprArena,
@@ -48,16 +41,12 @@ pub(crate) fn emit_function_block_body_stacked<I: StringLookup>(
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Emit an expression body after the signature, choosing the layout. SSOT
-    /// consumed by both `format_function_body` and `format_test_body`.
-    ///
-    /// Layout precedence:
-    /// 1. inline-head `= body` when the body fits after `= `.
-    /// 2. break-to-newline `=\n    body` when EITHER `allow_force_newline` and the
-    ///    body is a force-newline kind (`should_break_body_to_newline`) OR the
-    ///    inline-head first line overflows the width and the newline layout fits.
-    /// 3. inline-head with internal breaking otherwise.
-    ///
-    /// Emits the trailing `;` for non-block expression bodies.
+    /// for every function-shaped body (functions, tests, impl / trait-default /
+    /// def-impl / extension methods). Layout: inline-head `= body` when it fits;
+    /// else break-to-newline `=\n    body` when a force-newline kind
+    /// (`should_break_body_to_newline`, gated by `allow_force_newline`) OR the
+    /// inline head overflows and the newline layout fits; else inline-head with
+    /// internal breaking. Emits the trailing `;` for non-block bodies.
     pub(crate) fn emit_expr_body(&mut self, body: ExprId, allow_force_newline: bool) {
         let body_width = self.width_calc.width(body);
         // " = "

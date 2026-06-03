@@ -74,16 +74,11 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.emit_expr_body(body, true);
     }
 
-    /// Check if an expression should break to a new line when it doesn't fit.
-    ///
-    /// Returns true for:
-    /// 1. Conditionals (if-then-else) and for loops - per spec, these break to newline
-    /// 2. Method calls on For/If receivers - the receiver needs to break
-    /// 3. Atomic expressions that cannot break internally, IF breaking would help
-    ///
-    /// Returns false for:
-    /// - Expressions that can break internally (lists, maps, calls with args)
-    /// - Atomic expressions too wide for even their own line (e.g., long strings)
+    /// Whether an over-width expression body breaks to its own line.
+    /// True: conditionals (if-then-else) + for loops (per spec); method calls
+    /// on For/If receivers; atomic exprs that cannot break internally IF
+    /// breaking helps. False: exprs that break internally (lists, maps, calls
+    /// with args); atomic exprs too wide for even their own line (long strings).
     pub(super) fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
         let expr = self.arena.get_expr(body);
 
@@ -249,10 +244,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // " = " prefix for body
         width += 3;
 
-        // Only include body width if it's short enough that breaking it would be ugly.
-        // Short expressions like `x + y` look bad when broken (`x\n+ y`), so we prefer
-        // to break params first. Longer expressions will break at natural points
-        // (conditionals at else, chains at method calls, etc.) which is fine.
+        // Why: short bodies (<= SHORT_BODY_THRESHOLD) break to params first —
+        // breaking `x + y` as `x\n+ y` looks bad; long bodies break at natural
+        // points (else, method chains), so their width is excluded here.
         let body_width = self.width_calc.width(func.body);
         if body_width != ALWAYS_STACKED && body_width <= SHORT_BODY_THRESHOLD {
             width += body_width;
@@ -261,6 +255,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         width
     }
 
+    /// Format generic parameters `<...>`; emits nothing when the list is empty.
     pub(super) fn format_generic_params(&mut self, generics: ori_ir::GenericParamRange) {
         let generics_list = self.arena.get_generic_params(generics);
         if generics_list.is_empty() {
@@ -300,6 +295,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.ctx.emit(">");
     }
 
+    /// Format trait bounds joined with ` + ` (e.g. `A + B`).
     pub(super) fn format_trait_bounds(&mut self, bounds: &[TraitBound]) {
         for (i, bound) in bounds.iter().enumerate() {
             if i > 0 {
@@ -317,6 +313,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
     }
 
+    /// Format a ` where ...` clause list; emits nothing when empty.
     pub(super) fn format_where_clauses(&mut self, where_clauses: &[WhereClause]) {
         if where_clauses.is_empty() {
             return;

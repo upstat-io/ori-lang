@@ -183,10 +183,9 @@ fn test_non_breakable_wide_string_body_stays_inline_at_60() {
 /// one level deeper than the method signature — with no line exceeding width 60.
 #[test]
 fn test_all_method_body_kinds_break_over_width_head_at_60() {
-    // Call name chosen so the inline `<sig> = <call>(` head itself overflows 60
-    // at the method's indent (the OLD inline-only code emitted that over-width
-    // line; max_line_len <= 60 is the semantic pin), while the broken body fits
-    // on one line at the deeper indent.
+    // Why: call name makes the inline `<sig> = <call>(` head overflow 60 at the
+    // method indent (OLD inline-only code emitted it over-width; max_line_len
+    // <= 60 is the semantic pin); the broken body fits on one line deeper.
     let body = "= a_longer_helper_call_function(value: 1);";
     let cases = [
         (
