@@ -49,7 +49,7 @@ fn body_broke_to_newline(out: &str) -> bool {
     out.lines().any(|l| l.trim_end().ends_with('='))
 }
 
-// --- Semantic pin: the repro (floating test, format_test_body path) ---
+// Semantic pin: the repro (floating test, format_test_body path).
 
 /// Regression: a floating test with an over-width call head glued
 /// `assert_panics(` to the `= ` line, producing a 65-char line at width 60.
@@ -68,7 +68,7 @@ fn test_floating_test_over_width_call_head_breaks_to_newline_at_60() {
     );
 }
 
-// --- PF cell: the function-decl path (format_function_body) gets the same fix ---
+// PF cell: the function-decl path (format_function_body) gets the same fix.
 
 /// The parallel `format_function_body` path also breaks an over-width call head.
 #[test]
@@ -82,7 +82,7 @@ fn test_function_over_width_call_head_breaks_to_newline_at_60() {
     );
 }
 
-// --- Negative / preservation pins ---
+// Negative / preservation pins.
 
 /// A short signature whose `signature = call(` fits keeps the head on the `= `
 /// line (the common case must NOT over-break).
@@ -131,7 +131,7 @@ fn test_fitting_call_head_stays_inline_at_100() {
     );
 }
 
-// --- Matrix clamp: every breakable body kind fits the width ---
+// Matrix clamp: every breakable body kind fits the width.
 
 /// Self-verifying matrix: for every breakable body kind, a long-signature
 /// declaration formats with no line exceeding width 60. Kinds with a long
@@ -173,7 +173,72 @@ fn test_non_breakable_wide_string_body_stays_inline_at_60() {
     assert!(!body_broke_to_newline(&out), "should not break:\n{out}");
 }
 
-// --- Idempotence ---
+// Method-body kinds: the shared decision now covers nested method bodies too.
+
+/// Regression: the over-width-head break was centralized for top-level
+/// functions and tests but left hand-rolled (inline-only) in the impl /
+/// trait-default / def-impl / extension method-body formatters, so those paths
+/// still emitted over-width lines. Self-verifying matrix: every method-body
+/// declaration kind breaks an over-width call head to its own line — indented
+/// one level deeper than the method signature — with no line exceeding width 60.
+#[test]
+fn test_all_method_body_kinds_break_over_width_head_at_60() {
+    // Call name chosen so the inline `<sig> = <call>(` head itself overflows 60
+    // at the method's indent (the OLD inline-only code emitted that over-width
+    // line; max_line_len <= 60 is the semantic pin), while the broken body fits
+    // on one line at the deeper indent.
+    let body = "= a_longer_helper_call_function(value: 1);";
+    let cases = [
+        (
+            "impl",
+            format!(
+                "impl SomeType: SomeTrait {{\n    @an_over_width_method () -> void {body}\n}}\n"
+            ),
+        ),
+        (
+            "trait-default",
+            format!("trait SomeTrait {{\n    @an_over_width_method () -> void {body}\n}}\n"),
+        ),
+        (
+            "def-impl",
+            format!("def impl SomeTrait {{\n    @an_over_width_method () -> void {body}\n}}\n"),
+        ),
+        (
+            "extend",
+            format!("extend SomeType {{\n    @an_over_width_method () -> void {body}\n}}\n"),
+        ),
+    ];
+    let mut n = 0;
+    for (label, src) in &cases {
+        let out = fmt_at(src, 60);
+        assert!(
+            max_line_len(&out) <= 60,
+            "{label}: over-width line at 60:\n{out}"
+        );
+        assert!(
+            body_broke_to_newline(&out),
+            "{label}: method body did not break to newline:\n{out}"
+        );
+        n += 1;
+    }
+    assert_eq!(n, cases.len(), "not all method-body kinds exercised");
+}
+
+/// Preservation: a method body whose `<sig> = call(args)` head FITS at width
+/// 100 keeps the head inline — proving the new nested-method break fires ONLY
+/// on genuine overflow, never on bodies that fit.
+#[test]
+fn test_impl_method_fitting_head_stays_inline_at_100() {
+    let src = "impl T: U {\n    @m () -> int = bar(x: 1);\n}\n";
+    let out = fmt_at(src, 100);
+    assert!(
+        out.contains("@m () -> int = bar(x: 1)"),
+        "head should stay inline:\n{out}"
+    );
+    assert!(!body_broke_to_newline(&out), "should not break:\n{out}");
+}
+
+// Idempotence.
 
 /// Formatting the over-width-head break twice reproduces the first result.
 #[test]

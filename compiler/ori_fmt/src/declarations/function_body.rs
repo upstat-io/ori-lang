@@ -65,53 +65,56 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let fits_inline =
             body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
-        let ends_with_brace;
+        let break_to_newline = !fits_inline
+            && ((allow_force_newline && self.should_break_body_to_newline(body, body_width))
+                || self.inline_head_overflows(body));
 
-        if fits_inline {
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
+        let ends_with_brace = if break_to_newline {
+            self.emit_body_broken_to_newline(body)
         } else {
-            let force_newline =
-                allow_force_newline && self.should_break_body_to_newline(body, body_width);
-            let break_to_newline = force_newline || self.inline_head_overflows(body);
-
-            if break_to_newline {
-                self.ctx.emit(" =");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                        .with_indent_level(1)
-                        .with_starting_column(self.ctx.column());
-                expr_formatter.format_broken(body);
-                let body_output = expr_formatter.ctx.as_str().trim_end();
-                ends_with_brace = body_output.ends_with('}');
-                self.ctx.emit(body_output);
-                self.ctx.dedent();
-            } else {
-                self.ctx.emit(" = ");
-                let current_column = self.ctx.column();
-                let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                        .with_starting_column(current_column);
-                emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
-                let body_output = expr_formatter.ctx.as_str().trim_end();
-                ends_with_brace = body_output.ends_with('}');
-                self.ctx.emit(body_output);
-            }
-        }
+            self.emit_body_inline_head(body)
+        };
 
         if !ends_with_brace {
             self.ctx.emit(";");
         }
+    }
+
+    /// Emit `= body` with the body's head on the signature line. The body
+    /// sub-formatter inherits the caller's indent level so internal breaks
+    /// indent correctly for method bodies nested in impl / extend / def-impl
+    /// blocks. Returns whether the body ended with `}` (block body — no `;`).
+    fn emit_body_inline_head(&mut self, body: ExprId) -> bool {
+        let base_indent = self.ctx.indent_level();
+        self.ctx.emit(" = ");
+        let current_column = self.ctx.column();
+        let mut expr_formatter =
+            Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                .with_indent_level(base_indent)
+                .with_starting_column(current_column);
+        emit_function_block_body_stacked(&mut expr_formatter, self.arena, body);
+        let body_output = expr_formatter.ctx.as_str().trim_end();
+        self.ctx.emit(body_output);
+        body_output.ends_with('}')
+    }
+
+    /// Emit `=\n<indent>body` with the body broken to the next indented line,
+    /// one level deeper than the signature. Returns whether the body ended with
+    /// `}`.
+    fn emit_body_broken_to_newline(&mut self, body: ExprId) -> bool {
+        self.ctx.emit(" =");
+        self.ctx.emit_newline();
+        self.ctx.indent();
+        self.ctx.emit_indent();
+        let mut expr_formatter =
+            Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                .with_indent_level(self.ctx.indent_level())
+                .with_starting_column(self.ctx.column());
+        expr_formatter.format_broken(body);
+        let body_output = expr_formatter.ctx.as_str().trim_end();
+        self.ctx.emit(body_output);
+        self.ctx.dedent();
+        body_output.ends_with('}')
     }
 
     /// Whether emitting `body` inline-head would overflow the line width on its
@@ -134,11 +137,13 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         if signature_column + 2 > max_width {
             return false;
         }
+        let base_indent = self.ctx.indent_level();
         // " = "
         let projected_column = signature_column + 3;
 
         let mut inline_formatter =
             Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                .with_indent_level(base_indent)
                 .with_starting_column(projected_column);
         emit_function_block_body_stacked(&mut inline_formatter, self.arena, body);
         let inline_first_line = first_line_width(inline_formatter.ctx.as_str());
@@ -146,10 +151,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             return false;
         }
 
-        let indent_width = self.ctx.config().indent_size;
+        // The broken body lands one indent level deeper than the signature.
+        let broken_indent_level = base_indent + 1;
+        let indent_width = broken_indent_level * self.ctx.config().indent_size;
         let mut newline_formatter =
             Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                .with_indent_level(1)
+                .with_indent_level(broken_indent_level)
                 .with_starting_column(indent_width);
         newline_formatter.format_broken(body);
         let newline_first_line = first_line_width(newline_formatter.ctx.as_str());

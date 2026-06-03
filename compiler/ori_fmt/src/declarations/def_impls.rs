@@ -3,11 +3,9 @@
 //! Formats `def impl Trait { ... }` blocks.
 
 use crate::comments::CommentIndex;
-use crate::formatter::Formatter;
 use ori_ir::ast::items::DefImplDef;
 use ori_ir::{CommentList, StringLookup, Visibility};
 
-use super::function_body;
 use super::parsed_types::format_parsed_type;
 use super::ModuleFormatter;
 
@@ -40,25 +38,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.ctx.emit(" = ");
-
-                let current_column = self.ctx.column();
-                let current_indent = self.ctx.indent_level();
-                let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                        .with_indent_level(current_indent)
-                        .with_starting_column(current_column);
-                // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-                function_body::emit_function_block_body_stacked(
-                    &mut expr_formatter,
-                    self.arena,
-                    method.body,
-                );
-                let body_output = expr_formatter.ctx.as_str().trim_end();
-                self.ctx.emit(body_output);
-                if !body_output.ends_with('}') {
-                    self.ctx.emit(";");
-                }
+                self.emit_expr_body(method.body, false);
                 self.ctx.emit_newline();
             }
 
@@ -102,25 +82,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.ctx.emit(" = ");
-
-                let current_column = self.ctx.column();
-                let current_indent = self.ctx.indent_level();
-                let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                        .with_indent_level(current_indent)
-                        .with_starting_column(current_column);
-                // Spec: annex-d-formatting.md §671 — function-body blocks always stacked
-                function_body::emit_function_block_body_stacked(
-                    &mut expr_formatter,
-                    self.arena,
-                    method.body,
-                );
-                let body_output = expr_formatter.ctx.as_str().trim_end();
-                self.ctx.emit(body_output);
-                if !body_output.ends_with('}') {
-                    self.ctx.emit(";");
-                }
+                self.emit_expr_body(method.body, false);
                 self.ctx.emit_newline();
             }
 
