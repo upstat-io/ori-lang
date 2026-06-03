@@ -59,6 +59,15 @@ static BURDEN_OPS_DISABLED: LazyLock<bool> =
 static DUMP_AFTER_BURDEN: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN").as_deref() == Ok("1"));
 
+/// `ORI_DUMP_AFTER_BURDEN_ELIM=1` dumps each function's ARC IR after running
+/// Phase-6 `eliminate_burden_ops` on a CLONE of the post-Step-4b function,
+/// before any predicate-stack realization. Surfaces which `BurdenInc` /
+/// `BurdenDec*` survive DP-2/DP-3 elimination — the ledger that Phase-7
+/// mechanical lowering would turn into real `RcInc`/`RcDec`. Read once at
+/// first access; zero overhead when unset. (per .claude/rules/tooling-first.md §4)
+static DUMP_AFTER_BURDEN_ELIM: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN_ELIM").as_deref() == Ok("1"));
+
 /// Callback invoked at each pipeline checkpoint.
 ///
 /// Receives the current function state and the phase name. Used by
@@ -275,6 +284,15 @@ pub(crate) fn run_aims_pipeline(
         eprintln!(
             "=== ARC IR after emit_burden_ops ===\n{}",
             crate::ir::format::format_function(func, config.pool, config.interner)
+        );
+    }
+
+    if *DUMP_AFTER_BURDEN_ELIM {
+        let mut clone = func.clone();
+        crate::aims::realize::eliminate_burden_ops(&mut clone, &state_map);
+        eprintln!(
+            "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
+            crate::ir::format::format_function(&clone, config.pool, config.interner)
         );
     }
 
