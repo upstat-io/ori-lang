@@ -1,22 +1,31 @@
-Theorem TF-N-A: RcInc + RcDec side-effect-only confirmation (no dst, no demand)
+Theorem TF-N-A: RcInc + RcDec + BurdenInc + BurdenDec side-effect-only confirmation (no dst, no demand)
 
   Preconditions:
-    - Instructions are `RcInc { var }` and `RcDec { var }` per
-      Annex E §AIMS TF-N/A + Appendix A rows 16 + 17
-    - Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`
-      (no `dst`)."
+    - Instructions are `RcInc { var }`, `RcDec { var }`,
+      `BurdenInc { var }`, and `BurdenDec { var }` per Annex E §AIMS
+      TF-N/A + Appendix A rows 16 + 17 (RcInc/RcDec) + the BurdenInc/
+      BurdenDec side-effect-only rows.
+    - Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`/
+      `BurdenInc`/`BurdenDec` (no `dst`, no forward AimsState image)."
     - Per Annex E §AIMS TF-11 backward-demand table row for
-      `RcInc`/`RcDec`: "none (RC operation, not a use)"
-    - Appendix A rows 16 + 17 carry "—" across every per-dimension column
-    - The side-effect-only ArcInstr set is RcInc + RcDec EXCLUSIVELY per
-      Annex E §AIMS TF-N/A. Burden-tracking-plan instructions
-      (BurdenInc / BurdenDec) are Phase-5/Phase-6 architecture under the
-      separate burden-tracking plan; their TF-shape soundness ties to
-      §11 coexistence handshake CH theorems (CH-2 + CH-3), NOT §04
-      TF-N/A.
+      `RcInc`/`RcDec`: "none (RC operation, not a use)". BurdenInc/
+      BurdenDec carry the same backward shape (RC-shaped op, not a use).
+    - Appendix A rows for RcInc/RcDec/BurdenInc/BurdenDec carry "—"
+      across every per-dimension column.
+    - The side-effect-only ArcInstr set is RcInc + RcDec + BurdenInc +
+      BurdenDec per Annex E §AIMS TF-N/A. BurdenInc / BurdenDec are
+      side-effect-only ops listed in the matrix alongside RcInc / RcDec;
+      this is a doc_encoded matrix-row classification, NOT a new
+      BurdenInc/BurdenDec transfer theorem. Burden-op ELIMINATION
+      soundness is the proven §11 coexistence family (CH-1
+      `burden_emitted = burden_owned`; CH-2 single-elimination = lattice
+      DP-2/DP-3 verdict), and the lowered (BurdenInc → RcInc /
+      BurdenDec → RcDec) form's RC-balance is the proven RL-comp
+      net-preservation (RL3_elision_net_preserving) per Annex E §AIMS §8.
 
   Soundness property:
-    Forall arc_instr in {RcInc { var }, RcDec { var }}.
+    Forall arc_instr in {RcInc { var }, RcDec { var },
+                         BurdenInc { var }, BurdenDec { var }}.
       transfer_tf_n_a(arc_instr) = NoDst (no AimsState emitted)
       AND backward_demand_tf_n_a(arc_instr) = empty (no TF-11 demand)
     AND L-6 layer (b) monotonicity holds vacuously — no output state to
@@ -33,11 +42,15 @@ Theorem TF-N-A: RcInc + RcDec side-effect-only confirmation (no dst, no demand)
           TF-11 table: "RcInc/RcDec { var }: none (RC operation, not a
           use)." Verified: backward_demand_tf_n_a() returns empty for
           both variants.
-      (d) Burden-op exclusion confirmation — verify the side-effect-
-          only set is RcInc + RcDec exclusively; BurdenInc and BurdenDec
-          are out-of-scope per Annex E §AIMS TF-N/A + the burden-
-          tracking plan §06 mechanical-lowering contract (proven at
-          §11 CH theorems).
+      (d) Burden-op membership confirmation — verify BurdenInc and
+          BurdenDec are side-effect-only ops in the TF-N/A set
+          alongside RcInc + RcDec: each emits NoDst, no forward
+          AimsState image, no TF-11 demand. This is a doc_encoded
+          matrix-row classification per Annex E §AIMS TF-N/A, NOT a new
+          transfer theorem. Burden-op elimination soundness remains the
+          proven §11 CH-1/CH-2 coexistence family; the lowered-form
+          RC-balance remains RL-comp net-preservation
+          (RL3_elision_net_preserving) per Annex E §AIMS §8.
 
     Part (a) — RcInc no-dst confirmation:
       Per Annex E §AIMS TF-N/A + Appendix A row 16:
@@ -73,28 +86,32 @@ Theorem TF-N-A: RcInc + RcDec side-effect-only confirmation (no dst, no demand)
       the barrier semantics live at RL-22 + RL-26, separate from TF-11
       demand emission.
 
-    Part (d) — Burden-op exclusion:
-      Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`
-      (no `dst`)." The side-effect-only ArcInstr SET (the cardinality
-      of the TF-N/A row in Appendix A) is exactly 2: RcInc + RcDec.
-      Verified: TF-N/A enumeration produces a 2-element set.
-      Burden-tracking-plan instructions (BurdenInc / BurdenDec at
-      docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md)
-      are NOT members of the §04 TF-N/A set; their TF-shape soundness
-      lives at §11 coexistence handshake (CH-2 + CH-3 theorems
-      composed with predicate-stack-derived burden-ops). §04 proves
-      the canonical AIMS calculus only.
+    Part (d) — Burden-op membership:
+      Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`/
+      `BurdenInc`/`BurdenDec` (no `dst`, no forward AimsState image)."
+      The side-effect-only ArcInstr SET (the cardinality of the TF-N/A
+      row in Appendix A) is RcInc + RcDec + BurdenInc + BurdenDec.
+      Verified: each carries "—" across every per-dimension column,
+      emits NoDst, and contributes no TF-11 demand — identical
+      forward/backward shape to RcInc/RcDec. This is a doc_encoded
+      matrix-row classification, NOT a new BurdenInc/BurdenDec transfer
+      theorem. Burden-op ELIMINATION soundness lives at the §11
+      coexistence family (CH-1 `burden_emitted = burden_owned`; CH-2
+      single-elimination = lattice DP-2/DP-3 verdict); the lowered
+      (BurdenInc → RcInc / BurdenDec → RcDec) form's RC-balance lives at
+      RL-comp net-preservation (RL3_elision_net_preserving) per Annex E
+      §AIMS §8. TF-N/A classifies the op shape only.
 
     Engines dispatched:
       monotonicity (PRIMARY — vacuous L-6 layer (b) discharge for
         side-effect-only instructions per
         section_04::verify_tf_n_a_side_effect_only)
-      case_analysis (PRIMARY — Appendix A rows 16 + 17 "—" enumeration
-        + RcInc/RcDec 2-element set verification per
-        section_04::verify_tf_n_a_side_effect_only)
+      case_analysis (PRIMARY — Appendix A "—" enumeration + RcInc /
+        RcDec / BurdenInc / BurdenDec side-effect-only set verification
+        per section_04::verify_tf_n_a_side_effect_only)
       lattice (SECONDARY — accepts gracefully; no codomain element)
       refinement (SECONDARY — accepts gracefully; no dst, no refine())
 
   Expected:
     status: valid
-    reason: section_04 monotonicity + case_analysis engines discharge TF-N/A via RcInc + RcDec no-dst confirmation + no-TF-11-demand confirmation + Appendix A "—" enumeration + Burden-op exclusion confirmation
+    reason: section_04 monotonicity + case_analysis engines discharge TF-N/A via RcInc + RcDec + BurdenInc + BurdenDec no-dst confirmation + no-TF-11-demand confirmation + Appendix A "—" enumeration + Burden-op membership confirmation

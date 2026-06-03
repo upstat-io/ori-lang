@@ -861,7 +861,7 @@
       "lean_module": "AimsProof.Transfer",
       "lean_theorem": null,
       "parity_tokens": [],
-      "lean_encoding": "RcInc/RcDec side-effect-only, no dst; no forward image",
+      "lean_encoding": "RcInc/RcDec + BurdenInc/BurdenDec side-effect-only, no dst; no forward image",
       "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
     },
     {

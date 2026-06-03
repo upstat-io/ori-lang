@@ -47,6 +47,17 @@ DO produce an `AimsState` (TF-3..TF-9a) plus the backward-accumulation operators
 (TF-11, TF-14) plus the L-6 layer-(b) monotonicity theorems are the finite-domain
 propositions modeled and proven here.
 
+TF-N/A side-effect-only rows (`RcInc` / `RcDec` / `BurdenInc` / `BurdenDec`) are
+likewise NOT modeled here: each is a side-effect-only op with no `dst`, no
+forward `AimsState` image, and no TF-11 backward demand (Appendix A "—" across
+every dimension). BurdenInc / BurdenDec carry the identical side-effect-only
+shape to RcInc / RcDec — this is a doc_encoded matrix-row classification (the
+TF-N-A.proof row), NOT a new transfer theorem. Burden-op ELIMINATION soundness
+is the §11 coexistence family (`Coexistence.lean` `CH1_burden_emitted_is_bridge`
+`burden_emitted = burden_owned`; `CH2_single_elimination` = lattice DP-2/DP-3
+verdict), and the lowered (BurdenInc → RcInc / BurdenDec → RcDec) form's
+RC-balance is `Realization.lean` `RL3_elision_net_preserving` (annex-e §AIMS §8).
+
 Proof strategy mirrors `Lattice.lean`: per-dimension `cases` destructure before
 `decide` so each leaf is trivial (naive `decide` over the ~7200-state product
 times out). Monotonicity over `AimsState.le` (defined in `Lattice.lean` via the
