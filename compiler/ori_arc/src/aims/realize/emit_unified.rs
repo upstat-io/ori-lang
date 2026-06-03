@@ -584,6 +584,9 @@ fn build_return_transfer_setup(
                 .map(|(_, param)| param.var)
                 .collect()
         })
+        // INVARIANT: a missing contract is a legitimate absence (not an error)
+        // — a function without a MemoryContract has no return-transfer params,
+        // so the empty set is the correct realization, not a lossy fallback.
         .unwrap_or_default();
 
     let alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = if return_transfer_params.is_empty()
@@ -602,6 +605,9 @@ fn build_return_transfer_setup(
     let return_project_inc_targets: FxHashMap<ArcVarId, RcStrategy> = contracts
         .get(&func.name)
         .map(|c| build_return_project_inc_targets(func, c, pool))
+        // INVARIANT: missing contract is legitimate absence (not an error) —
+        // no contract means no Project-Inc targets, so the empty map is the
+        // correct realization, not a lossy fallback.
         .unwrap_or_default();
 
     ReturnTransferSetup {

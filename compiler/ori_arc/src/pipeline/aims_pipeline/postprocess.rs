@@ -86,10 +86,9 @@ pub(crate) fn emit_postprocess(
 }
 
 /// Run the VF-1 burden-balance check. Mirrors the `verify`/`debug_assertions`
-/// gating used by `crate::pipeline::run_verify` per `
-/// Surface` Layer 1: under explicit verification mode the errors halt
-/// compilation; under debug-assertions-only mode the errors are logged as
-/// warnings but do not abort.
+/// gating used by `crate::pipeline::run_verify`: under explicit verification
+/// mode the errors halt compilation; under debug-assertions-only mode the
+/// errors are logged as warnings but do not abort.
 fn run_burden_balance(
     func: &ArcFunction,
     verify: bool,

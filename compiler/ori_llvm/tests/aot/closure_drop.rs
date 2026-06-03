@@ -24,7 +24,7 @@
 //!     closure_capture_by_reference_emits_no_burden_inc,
 //!     nested_closure_emits_recursive_burden_inc_through_outer_env,
 //!     closure_capture_of_projection_emits_borrowed_field_with_parent_lifetime,
-//!     partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_03_3_rule_5,
+//!     partial_apply_owned_capture_passed_to_owned_callee_emits_two_transfer_point_burden_inc,
 //!   }` — burden-walker emission pins.
 //!
 //! The lambda-side wiring at `ori_types::infer::expr::infer_lambda` auto-registers

@@ -430,7 +430,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
 }
 
 #[test]
-fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4() {
+fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value() {
     // positive pin per plan body line 1943 + navigator-verdict
     // (proceed verdict,): Set with heap-burden base MUST emit
     // BurdenDecField(base, field) BEFORE BurdenInc(value) BEFORE the Set
@@ -507,7 +507,7 @@ fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value_per_03_4()
 }
 
 #[test]
-fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
+fn settag_emits_burden_dec_variant_before_settag() {
     // positive pin per `TF-15a` + `§8 RL-10`:
     // SetTag with heap-burden base MUST emit BurdenDecVariant(var=base) BEFORE
     // the SetTag instruction. BurdenDecVariant is the whole-var sibling to
@@ -599,7 +599,7 @@ fn settag_emits_burden_dec_variant_before_settag_per_03_4_cycle_50b() {
 }
 
 #[test]
-fn settag_emits_no_burden_dec_variant_when_base_not_in_owned_vars_per_03_4_cycle_50b_negative() {
+fn settag_scalar_base_emits_no_burden_dec_variant() {
     // negative pin (clamps positive pin from below per
     //): SetTag on a base var whose burden is
     // EMPTY (scalar / no owned fields — fails `burden_carries_rc` filter at
@@ -1918,7 +1918,7 @@ fn return_str_owned_value_used_in_prior_instr_suppresses_burden_dec_per_rl2() {
 }
 
 #[test]
-fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() {
+fn moved_out_fields_is_empty_when_function_has_no_project() {
     // negative pin: a function with NO Project instructions MUST yield
     // an empty `moved_out_fields` map after this Pass 1/Pass 2 population.
     // Pass 1 finds zero Project tuples → project_origins empty → Pass 2's
@@ -1939,7 +1939,7 @@ fn moved_out_fields_is_empty_when_no_project_per_cycle_42_no_project_negative() 
 }
 
 #[test]
-fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_positive() {
+fn project_then_construct_arg_sets_moved_out_fields_bit() {
     // positive pin (two-stage rule): `%1 = Project %0.0` followed
     // by `Construct(args=[%1])` MUST set bit `0` on `%0` in `moved_out_fields`.
     // Pass 1 collects (%1 → (%0, 0)); Pass 2 sees Construct's owned-position arg
@@ -1988,7 +1988,7 @@ fn project_then_construct_arg_sets_moved_out_fields_bit_per_03_4_two_stage_posit
 }
 
 #[test]
-fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_positive() {
+fn project_then_set_value_sets_moved_out_fields_bit_via_tf15_carve_out() {
     // positive pin (Set-value TF-15 carve-out): `%1 = Project %0.0`
     // followed by `Set { base: %2, field: 0, value: %1 }` MUST set bit `0` on `%0`
     // in `moved_out_fields`. Pass 1 collects (%1 → (%0, 0)); Pass 2's
@@ -2037,7 +2037,7 @@ fn project_then_set_value_sets_moved_out_fields_bit_per_03_4_tf15_carve_out_posi
 }
 
 #[test]
-fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
+fn project_with_no_transfer_consumer_leaves_moved_out_fields_unset() {
     // negative pin (two-stage rule clamp from below): `%1 = Project %0.0`
     // with NO downstream transfer-point consumer MUST leave `moved_out_fields[%0]`
     // unset. Per `TF-4`, Project produces Borrowed; per
@@ -2071,8 +2071,7 @@ fn project_alone_leaves_moved_out_fields_unset_per_03_4_two_stage_negative() {
 }
 
 #[test]
-fn project_consumed_at_is_shared_leaves_moved_out_fields_unset_per_03_4_borrowed_position_negative()
-{
+fn project_consumed_at_is_shared_leaves_moved_out_fields_unset() {
     // negative pin (borrowed-position clamp): `%1 = Project %0.0`
     // followed by `IsShared(%1)` MUST leave `moved_out_fields[%0]` unset. Per
     // `instr.rs:391 _ => false`, IsShared falls through `is_owned_position`'s
@@ -2544,7 +2543,7 @@ fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
 }
 
 #[test]
-fn partial_move_at_last_use_emits_burden_dec_partial_per_03_4_cycle_46() {
+fn partial_move_at_last_use_emits_burden_dec_partial() {
     // positive pin — partial-move emission. Construct a 2-field
     // user-defined struct `{ data: str, name: str }` with UserBurdenSpec naming
     // BOTH fields as owned. Function body projects ONLY field 0 (data) and
@@ -3666,7 +3665,7 @@ fn closure_capture_of_projection_emits_borrowed_field_with_parent_lifetime() {
 }
 
 #[test]
-fn partial_apply_owned_capture_passed_to_owned_callee_emits_zero_net_burden_per_03_3_rule_5() {
+fn partial_apply_owned_capture_passed_to_owned_callee_emits_two_transfer_point_burden_inc() {
     // specific PartialApply matrix pin per success_criterion 5: binding
     // consumed by PartialApply AND passed to Owned callee in same expr →
     // transfer-count 2 → one BurdenInc lands (zero-net Rule 5).

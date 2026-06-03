@@ -65,11 +65,9 @@ pub(super) fn emit_project_escape_incs(
 
         // For each arg tracing to a doomed parent: RcInc on the arg itself
         // (the specific projected child that is escaping), plus a successor
-        // RcDec on the corresponding merge-block parameter.
-        //
-        // Previously this used a single `parent -> project_dst` map which
-        // collapsed multiple escaping children from the same parent into one
-        // slot. Now each arg gets its own RcInc keyed to its own identity.
+        // RcDec on the corresponding merge-block parameter. Each arg is keyed
+        // to its own identity so multiple escaping children of one parent do
+        // not collapse into a single slot.
         let var_to_parent = build_var_to_parent(block, args, func_project_sources);
         let mut block_incs = Vec::new();
         for (arg_pos, &arg) in args.iter().enumerate() {

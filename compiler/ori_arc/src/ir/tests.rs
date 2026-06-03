@@ -696,22 +696,19 @@ fn substitute_var_burden_dec() {
 }
 
 #[test]
-fn burden_dec_partial_construction_and_used_vars_per_03_4_cycle_44a_scaffold() {
-    // scaffold pin: `BurdenDecPartial { var, skip_fields }`
-    // exists as a sibling to `BurdenDec` and threads through every consumer
-    // match-arm ladder (used_vars / uses_var / is_owned_position /
-    // substitute_var / defined_var / Debug / validator) with semantics
-    // identical to `BurdenDec` for. /44c wire emission
-    // (in burden_lower) + codegen (in ori_llvm) respectively to differentiate
-    // field-aware partial-drop behavior.
+fn burden_dec_partial_threads_through_consumer_match_arms() {
+    // `BurdenDecPartial { var, skip_fields }` exists as a sibling to
+    // `BurdenDec` and threads through every consumer match-arm ladder
+    // (used_vars / uses_var / is_owned_position / substitute_var /
+    // defined_var / Debug / validator) with semantics identical to
+    // `BurdenDec`, differentiating field-aware partial-drop behavior.
     //
     // Pin checks: (a) construction with non-empty skip_fields compiles,
-    // (b) used_vars returns the var (parity with BurdenDec per
-    // — side-effect-only annotation, var IS the
-    // subject of the burden op), (c) defined_var returns None (no dst),
-    // (d) is_owned_position returns false (parity with BurdenDec; not a
-    // transfer point — fields named in skip_fields were ALREADY moved out at
-    // earlier transfer sites, this is just the partial-drop instruction).
+    // (b) used_vars returns the var (parity with BurdenDec — side-effect-only,
+    // var IS the subject of the burden op), (c) defined_var returns None
+    // (no dst), (d) is_owned_position returns false (parity with BurdenDec;
+    // not a transfer point — fields named in skip_fields were ALREADY moved
+    // out at earlier transfer sites, this is just the partial-drop instruction).
     let instr = ArcInstr::BurdenDecPartial {
         var: ArcVarId::new(13),
         skip_fields: vec![0u32, 2u32],
