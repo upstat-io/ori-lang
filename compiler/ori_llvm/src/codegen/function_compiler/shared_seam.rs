@@ -64,14 +64,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.apply_aims_param_ownership(arc_func);
 
         // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
-        //
-        // PREREQUISITE PLACEHOLDER: TypeRegistry is not yet
-        // surfaced into FunctionCompiler. Pass an empty default so the
-        // AimsPipelineConfig wiring compiles; the burden walker that would
-        // consume the registry is not yet active on this codegen path.
-        //  surfacing of the live registry from
-        // ModuleChecker::finish_with_pool is the follow-up.
-        let placeholder_type_registry = ori_types::TypeRegistry::default();
+        // The reconstructed TypeRegistry surfaces collection / closure
+        // UserBurdenSpec to the Phase-5 burden walker (type_registry.burden(idx)).
         let arc_problems = ori_arc::run_arc_pipeline(
             arc_func,
             self.arc_classifier,
@@ -80,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             &self.uniqueness_summaries,
             &self.aims_contracts,
-            &placeholder_type_registry,
+            self.type_registry,
             self.verify_arc,
         );
         match arc_problems {
@@ -259,10 +253,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .insert(unique_name, (func_id, abi.clone()));
 
         // ARC processing — AIMS pipeline handles arg_ownership internally.
-        //
-        // PREREQUISITE PLACEHOLDER: see process_arc_function
-        // for full rationale. Lambda path mirrors parent path.
-        let placeholder_type_registry = ori_types::TypeRegistry::default();
+        // Lambda path mirrors the parent path: the reconstructed TypeRegistry
+        // surfaces closure-env / collection UserBurdenSpec to the Phase-5
+        // burden walker.
         let arc_problems = ori_arc::run_arc_pipeline(
             lambda,
             self.arc_classifier,
@@ -271,7 +264,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             &self.uniqueness_summaries,
             &self.aims_contracts,
-            &placeholder_type_registry,
+            self.type_registry,
             self.verify_arc,
         );
         match arc_problems {

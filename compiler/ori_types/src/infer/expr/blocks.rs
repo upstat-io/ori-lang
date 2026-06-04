@@ -7,6 +7,7 @@ use super::super::InferEngine;
 use super::{
     bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
 };
+use crate::registry::burden_compose::closure::compose_closure_burden_spec;
 use crate::type_error::TypeCheckError;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 
@@ -264,7 +265,20 @@ pub(crate) fn infer_lambda(
     engine.exit_scope();
 
     // Create function type
-    engine.infer_function(&param_types, body_ty)
+    let closure_idx = engine.infer_function(&param_types, body_ty);
+
+    // Register the closure's heap-env burden so the Phase-5 burden walker
+    // resolves `type_registry.burden(closure_idx)` and tracks the closure
+    // env's RC. The closure env is heap-allocated (`self_heap_alloc: true`);
+    // its release is otherwise emitted only by the predicate stack's
+    // `BorrowingApplyClosure` path, so under the burden-only path
+    // (`ORI_DISABLE_PREDICATE_STACK_RC=1`) the env leaks without this
+    // registration. The default path eliminates / coexists these burden ops
+    // with the predicate-stack closure drop. Spec: Annex E §AIMS.
+    let closure_burden = compose_closure_burden_spec(closure_idx, &[], &[]);
+    engine.record_composed_burden(closure_idx, closure_burden);
+
+    closure_idx
 }
 
 /// Returns `true` iff `init` is a non-capturing lambda whose type variables

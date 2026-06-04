@@ -106,6 +106,7 @@ fn test_compile_module_with_tests_empty() {
         &interner,
         &[],
         &[],
+        &[], // collection_burdens: none for empty module test
         &[],
         &[],
         &[],

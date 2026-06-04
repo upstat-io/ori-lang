@@ -17,6 +17,9 @@ pub(super) fn insert_trampoline(
     pred_idx: usize,
     succ_idx: usize,
     decs: &[EdgeDec],
+    // Probe path: emit `BurdenDec`-only releases (Phase 7 lowers them); default
+    // emits the predicate-stack `RcDec` + adjacent `BurdenDec` ledger marker.
+    burden_only: bool,
 ) {
     let trampoline_id = block_id(func.blocks.len());
     let succ_id = block_id(succ_idx);
@@ -25,10 +28,17 @@ pub(super) fn insert_trampoline(
     // whose var carries burden ops, so the per-value burden ledger nets 0
     // across this CFG edge (RL-4). The edge variant suppresses the burden dec
     // for an owned-transfer arg of `pred`'s terminator (already balanced at the
-    // transfer point).
+    // transfer point). Under the probe (`burden_only`) only the `BurdenDec` is
+    // emitted; Phase 7 lowers it to the real `RcDec`.
     let body: Vec<ArcInstr> = decs
         .iter()
-        .flat_map(|&(var, strategy)| super::release_with_burden_edge(func, pred_idx, var, strategy))
+        .flat_map(|&(var, strategy)| {
+            if burden_only {
+                super::release_burden_only_edge(func, pred_idx, var)
+            } else {
+                super::release_with_burden_edge(func, pred_idx, var, strategy)
+            }
+        })
         .collect();
     let body_len = body.len();
 

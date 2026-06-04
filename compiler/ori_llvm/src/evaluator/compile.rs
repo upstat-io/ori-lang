@@ -68,6 +68,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         interner: &StringInterner,
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
+        collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
         impl_sigs: &[(Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
@@ -109,6 +110,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 interner,
                 function_sigs,
                 user_types,
+                collection_burdens,
                 impl_sigs,
                 imported_functions,
                 mono_instances,
@@ -150,6 +152,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         interner: &StringInterner,
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
+        collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
         impl_sigs: &[(Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
@@ -300,6 +303,15 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let (uniqueness_summaries, aims_contracts) =
             Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
 
+        // Reconstruct the TypeRegistry from the type-checker exports so the
+        // Phase-5 burden walker resolves collection / closure UserBurdenSpec.
+        // Mirrors the AOT codegen_pipeline reconstruction (eval/LLVM parity).
+        // Spec: Annex E §AIMS.
+        let type_registry = ori_types::TypeRegistry::from_typed_exports(
+            user_types.to_vec(),
+            collection_burdens.to_vec(),
+        );
+
         // Two-pass function compilation
         debug!("declaring functions (phase 1)");
         let mut fc = FunctionCompiler::new(
@@ -308,6 +320,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &resolver,
             interner,
             self.pool,
+            &type_registry,
             "",
             annotated_sigs,
             &classifier,

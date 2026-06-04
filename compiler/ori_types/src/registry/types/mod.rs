@@ -220,6 +220,43 @@ impl TypeRegistry {
         }
     }
 
+    /// Reconstruct a registry from `TypedModule` exports.
+    ///
+    /// `finish_with_pool` CONSUMES the live registry (`into_entries` drains the
+    /// nominal `TypeEntry` set; `drain_collection_burdens` drains the
+    /// monomorphized-collection side-table), so no `TypeRegistry` survives to
+    /// the codegen burden walker. Rebuilds the burden-resolution surface from
+    /// the two exports: `entries` (nominal struct/enum/newtype/alias `TypeEntry`,
+    /// each carrying its own `.burden`) repopulate `types_by_idx` + `types_by_name`
+    /// (and `variants_by_name` from enum-variant entries); `collection_burdens`
+    /// (monomorphized `[T]` / `{K: V}` / `Set<T>` / `Option<T>` / `Result<T, E>`
+    /// instances with no nominal entry) repopulate the side-table. `burden(idx)`
+    /// then resolves every nominal + collection-instance spec for Phase 5 burden
+    /// emission. The `burden_by_signature` reverse-index + `value_marker_types`
+    /// are NOT rebuilt — they gate registration-time dedup + E2049, neither of
+    /// which the codegen burden walker consults. Spec: Annex E §AIMS.
+    #[must_use]
+    pub fn from_typed_exports(
+        entries: Vec<TypeEntry>,
+        collection_burdens: Vec<(Idx, UserBurdenSpec)>,
+    ) -> Self {
+        let mut reg = Self::new();
+        for entry in entries {
+            if let TypeKind::Enum { variants } = &entry.kind {
+                for (variant_idx, variant) in variants.iter().enumerate() {
+                    reg.variants_by_name
+                        .insert(variant.name, (entry.idx, variant_idx));
+                }
+            }
+            reg.types_by_name.insert(entry.name, entry.clone());
+            reg.types_by_idx.insert(entry.idx, entry);
+        }
+        for (idx, spec) in collection_burdens {
+            reg.collection_burdens.insert(idx, spec);
+        }
+        reg
+    }
+
     /// Register a struct type.
     #[expect(
         clippy::too_many_arguments,

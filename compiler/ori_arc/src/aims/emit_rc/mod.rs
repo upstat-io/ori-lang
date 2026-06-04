@@ -192,6 +192,48 @@ pub(crate) fn release_with_burden_edge(
     ops
 }
 
+/// True iff `pred_block`'s body already contains a whole-var `BurdenDec` for
+/// `var`. The Phase-5 burden walk emits an in-body `BurdenDec` exactly for a var
+/// that is dead-out of its block (a genuine last-use release per RL-4); it
+/// DEFERS the dec for live-out vars to edge cleanup. A var already carrying an
+/// in-body whole-var `BurdenDec` was therefore released by the walk and must NOT
+/// receive a second edge `BurdenDec` (else a double-free on the lowered path).
+#[inline]
+fn has_whole_var_burden_dec_in_block(func: &ArcFunction, pred_block: usize, var: ArcVarId) -> bool {
+    func.blocks.get(pred_block).is_some_and(|block| {
+        block
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::BurdenDec { var: v } if *v == var))
+    })
+}
+
+/// Burden-only edge-cleanup release: emits the dying-edge `BurdenDec` for `var`
+/// WITHOUT the predicate-stack `RcDec`. Used by the probe path
+/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) where the burden path is the sole RC
+/// emitter — Phase 7 (`lower_burden_ops_to_rc`) lowers this whole-var
+/// `BurdenDec` to a real `RcDec`. Emits ONLY for a var the Phase-5 burden walk
+/// DEFERRED (live-out of `pred_block`, so no in-body `BurdenDec` exists):
+/// suppresses when `var` carries no burden, is an owned-transfer arg of
+/// `pred_block`'s terminator (already balanced at the transfer point), OR
+/// already has an in-body whole-var `BurdenDec` (the walk's own dead-out
+/// release — a second edge dec would double-free). Spec: Annex E §AIMS RL-4.
+#[inline]
+pub(crate) fn release_burden_only_edge(
+    func: &ArcFunction,
+    pred_block: usize,
+    var: ArcVarId,
+) -> Vec<ArcInstr> {
+    if carries_burden(func, var)
+        && !is_owned_transfer_arg_at_terminator(func, pred_block, var)
+        && !has_whole_var_burden_dec_in_block(func, pred_block, var)
+    {
+        vec![ArcInstr::BurdenDec { var }]
+    } else {
+        Vec::new()
+    }
+}
+
 /// True iff `succ_block` is a normal/unwind successor of some predecessor whose
 /// `Invoke`/`InvokeIndirect` terminator consumes `var` at an OWNED arg position.
 ///

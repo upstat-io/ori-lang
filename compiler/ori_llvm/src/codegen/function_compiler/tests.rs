@@ -78,12 +78,14 @@ fn declare_simple_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -118,12 +120,14 @@ fn declare_void_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -154,12 +158,14 @@ fn declare_sret_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -199,12 +205,14 @@ fn declare_main_uses_c_calling_convention() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -273,12 +281,14 @@ fn generic_functions_are_skipped() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -332,12 +342,14 @@ fn function_map_returns_all_declared() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -472,12 +484,14 @@ fn compile_impls_populates_method_functions_map() {
     // `distance` method (both impls share the method name).
     let mut aims_contracts: FxHashMap<Name, ori_arc::MemoryContract> = FxHashMap::default();
     aims_contracts.insert(distance_name, ori_arc::MemoryContract::conservative(1));
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -572,12 +586,14 @@ fn module_path_appears_in_mangled_name() {
     // Use "math" as module path
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "math",
         &annotated_sigs,
         &classifier,
@@ -625,12 +641,14 @@ fn scalar_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -669,12 +687,14 @@ fn scalar_return_has_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -717,12 +737,14 @@ fn indirect_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -770,12 +792,14 @@ fn direct_aggregate_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -830,12 +854,14 @@ fn mixed_params_selective_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -872,6 +898,7 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     interner: &'a StringInterner,
     pool: &'tcx Pool,
+    type_registry: &'tcx ori_types::TypeRegistry,
     annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
     classifier: &'a ArcClassifier<'tcx>,
 ) -> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -881,6 +908,7 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         resolver,
         interner,
         pool,
+        type_registry,
         "",
         annotated_sigs,
         classifier,
@@ -929,12 +957,15 @@ fn nounwind_empty_function() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -963,12 +994,15 @@ fn nounwind_direct_safe_call() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1004,12 +1038,15 @@ fn nounwind_panic_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1045,12 +1082,15 @@ fn nounwind_indirect_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1088,12 +1128,15 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1139,12 +1182,15 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1192,12 +1238,15 @@ fn nounwind_may_panic_runtime_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1236,12 +1285,15 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1285,12 +1337,15 @@ fn compute_nounwind_set_marks_trivial_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1336,12 +1391,15 @@ fn compute_nounwind_set_caller_sees_callee() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1420,12 +1478,15 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1518,12 +1579,15 @@ fn compute_nounwind_set_three_level_chain() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1632,12 +1696,15 @@ fn compute_nounwind_set_propagates_to_generic_original_name() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1695,12 +1762,15 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let type_registry = ori_types::TypeRegistry::default();
+
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1811,12 +1881,14 @@ fn main_wrapper_has_noundef_return() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
@@ -1876,12 +1948,14 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
+    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
+        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,

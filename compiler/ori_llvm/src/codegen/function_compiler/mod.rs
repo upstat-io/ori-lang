@@ -33,7 +33,7 @@ pub use nounwind::PreparedFunction;
 
 use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};
 use ori_ir::{Function, Name, Span, StringInterner};
-use ori_types::{FunctionSig, Idx, Pool};
+use ori_types::{FunctionSig, Idx, Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
@@ -67,6 +67,14 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     interner: &'a StringInterner,
     pool: &'tcx Pool,
+    /// Reconstructed type registry for the Phase-5 burden walker.
+    ///
+    /// Surfaces the composed `UserBurdenSpec` for `[T]` / `{K: V}` / `Set<T>` /
+    /// closure-env types so `run_arc_pipeline`'s burden walker
+    /// (`type_registry.burden(idx)`) resolves them. Reconstructed from
+    /// `TypedModule` exports because `finish_with_pool` consumes the live
+    /// registry before codegen. Spec: Annex E §AIMS.
+    type_registry: &'tcx TypeRegistry,
     /// Symbol mangler for generating unique LLVM symbol names.
     mangler: Mangler,
     /// Module path for name mangling (e.g., "", "math", "data/utils").
@@ -107,6 +115,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
         interner: &'a StringInterner,
         pool: &'tcx Pool,
+        type_registry: &'tcx TypeRegistry,
         module_path: &'a str,
         annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
         arc_classifier: &'a ArcClassifier<'tcx>,
@@ -121,6 +130,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             type_resolver,
             interner,
             pool,
+            type_registry,
             mangler: Mangler::new(),
             module_path,
             codegen_ctx: CodegenContext::default(),

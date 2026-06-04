@@ -399,6 +399,7 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         observer: Some(&observer),
         sigs: &sigs,
         type_registry: &type_registry,
+        predicate_stack_rc_disabled: false,
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -469,6 +470,7 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         observer: None,
         sigs: &sigs,
         type_registry: &type_registry,
+        predicate_stack_rc_disabled: false,
     };
 
     // Pipeline runs successfully with no observer — zero overhead path.
@@ -529,6 +531,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
         observer: Some(&observer),
         sigs: &sigs,
         type_registry: &type_registry,
+        predicate_stack_rc_disabled: false,
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -748,6 +751,7 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
         observer: None,
         sigs: &sigs,
         type_registry: &type_registry,
+        predicate_stack_rc_disabled: false,
     };
 
     let _ = super::aims_pipeline::run_aims_pipeline(&mut func, &config);

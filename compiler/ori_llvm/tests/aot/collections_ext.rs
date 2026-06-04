@@ -9,9 +9,11 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{
+    assert_aot_success, compile_and_capture_ir, compile_and_run_capture, extract_function_ir,
+};
 
-// ─── List: length ───
+// List: length
 
 #[test]
 fn test_coll_list_length_empty() {
@@ -45,7 +47,7 @@ fn test_coll_list_len_alias() {
     );
 }
 
-// ─── List: is_empty ───
+// List: is_empty
 
 #[test]
 fn test_coll_list_is_empty_true() {
@@ -63,7 +65,7 @@ fn test_coll_list_is_empty_false() {
     );
 }
 
-// ─── List: iter & collect ───
+// List: iter & collect
 
 #[test]
 fn test_coll_list_iter_count() {
@@ -105,7 +107,7 @@ fn test_coll_list_iter_any_all() {
     );
 }
 
-// ─── List: clone ───
+// List: clone
 
 #[test]
 fn test_coll_list_clone_int() {
@@ -115,7 +117,7 @@ fn test_coll_list_clone_int() {
     );
 }
 
-// ─── List: for-yield ───
+// List: for-yield
 
 #[test]
 fn test_coll_list_for_yield() {
@@ -133,7 +135,7 @@ fn test_coll_list_for_yield_filter() {
     );
 }
 
-// ─── List: string elements ───
+// List: string elements
 
 #[test]
 fn test_coll_list_string_length() {
@@ -151,7 +153,7 @@ fn test_coll_list_string_iter_count() {
     );
 }
 
-// ─── Map: length ───
+// Map: length
 
 #[test]
 fn test_coll_map_length_basic() {
@@ -177,7 +179,7 @@ fn test_coll_map_len_alias() {
     );
 }
 
-// ─── Map: iter ───
+// Map: iter
 
 #[test]
 fn test_coll_map_iter_count() {
@@ -195,7 +197,7 @@ fn test_coll_map_for_loop_count() {
     );
 }
 
-// ─── Map: is_empty ───
+// Map: is_empty
 
 #[test]
 fn test_coll_map_is_empty_true() {
@@ -213,7 +215,7 @@ fn test_coll_map_is_empty_false() {
     );
 }
 
-// ─── Map: int keys ───
+// Map: int keys
 
 #[test]
 fn test_coll_map_int_keys() {
@@ -223,7 +225,7 @@ fn test_coll_map_int_keys() {
     );
 }
 
-// ─── List + Map interaction ───
+// List + Map interaction
 
 #[test]
 fn test_coll_list_of_tuples() {
@@ -233,7 +235,7 @@ fn test_coll_list_of_tuples() {
     );
 }
 
-// ─── Gap inventory: list methods not in builtin table ───
+// Gap inventory: list methods not in builtin table
 
 #[test]
 fn test_coll_list_push() {
@@ -299,7 +301,7 @@ fn test_coll_list_contains() {
     );
 }
 
-// ─── Edge cases: list methods ───
+// Edge cases: list methods
 
 #[test]
 fn test_coll_list_first_empty() {
@@ -341,7 +343,7 @@ fn test_coll_list_reverse_single() {
     );
 }
 
-// ─── COW-specific list tests (Section 02.7) ───
+// COW-specific list tests (Section 02.7)
 
 #[test]
 fn test_coll_list_push_multi() {
@@ -431,7 +433,7 @@ fn test_coll_list_concat_reverse() {
     );
 }
 
-// ─── COW list set/insert/remove/sort ───
+// COW list set/insert/remove/sort
 
 #[test]
 fn test_coll_list_set_basic() {
@@ -529,7 +531,7 @@ fn test_coll_list_sort_single() {
     );
 }
 
-// ─── COW loop-based push (1000-element benchmark) ───
+// COW loop-based push (1000-element benchmark)
 
 #[test]
 fn test_coll_list_push_loop_1000() {
@@ -539,7 +541,7 @@ fn test_coll_list_push_loop_1000() {
     );
 }
 
-// ─── COW sharing: mutate copy, original untouched ───
+// COW sharing: mutate copy, original untouched
 
 #[test]
 fn test_coll_list_cow_push_shared() {
@@ -581,7 +583,7 @@ fn test_coll_list_cow_concat_shared() {
     );
 }
 
-// ─── COW list sort_stable ───
+// COW list sort_stable
 
 #[test]
 fn test_coll_list_sort_stable_ints() {
@@ -599,7 +601,7 @@ fn test_coll_list_sort_stable_cow_shared() {
     );
 }
 
-// ─── Gap inventory: map methods not in builtin table ───
+// Gap inventory: map methods not in builtin table
 
 #[test]
 fn test_coll_map_get() {
@@ -649,7 +651,7 @@ fn test_coll_map_remove() {
     );
 }
 
-// ─── Edge cases for map methods ───
+// Edge cases for map methods
 
 #[test]
 fn test_coll_map_contains_key_missing() {
@@ -675,7 +677,7 @@ fn test_coll_map_values_sum() {
     );
 }
 
-// ─── List indexing ───
+// List indexing
 
 #[test]
 fn test_coll_list_index_variable() {
@@ -726,5 +728,81 @@ fn test_coll_map_index_in_loop() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_map_index_in_loop.ori"),
         "coll_map_index_in_loop",
+    );
+}
+
+// List: eager collection-returning methods (auto-iter promotion)
+//
+// Spec annex-c-built-in-functions.md:469: `[T].filter(predicate) -> [T]` (eager).
+// `[T].map(transform) -> [T]` likewise. The codegen has no direct list
+// filter/map builtin, so these route through auto-iter promotion
+// (`emit_auto_iter` → `ori_iter_filter`/`ori_iter_map`), which produces an
+// opaque runtime iterator handle. The method's result type is `[T]`, so the
+// handle MUST be collected back into a list — otherwise downstream `.len()` /
+// indexing / RC ops treat the opaque handle as a `{len,cap,data}` fat pointer
+// and crash (`extract_value on non-struct value`).
+
+/// Regression: `[int].filter(predicate)` returns `[int]` (eager per spec); the
+/// auto-iter-promoted iterator handle must be collected back into a list so
+/// `.len()` reads a real fat pointer, not the opaque iterator handle.
+#[test]
+fn test_coll_list_eager_filter_len() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_eager_filter_len.ori"),
+        "coll_list_eager_filter_len",
+    );
+}
+
+/// Regression: `[int].map(transform)` returns `[int]` (eager per spec); same
+/// auto-iter collect-back requirement as filter.
+#[test]
+fn test_coll_list_eager_map_len() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_eager_map_len.ori"),
+        "coll_list_eager_map_len",
+    );
+}
+
+/// Regression: indexing the eager `[int].filter()` result exercises the
+/// collected-back list's fat-pointer data field directly (not just `.len()`).
+#[test]
+fn test_coll_list_eager_filter_index() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_eager_filter_index.ori"),
+        "coll_list_eager_filter_index",
+    );
+}
+
+/// IR-level semantic + negative pin for the auto-iter collect-back fix.
+///
+/// Semantic pin: the `ori_iter_filter` handle MUST be consumed by an
+/// `ori_iter_collect` call (the eager `[int]` result is materialized into a
+/// real `{len,cap,data}` list). Without the collect-back the handle is the
+/// method result and the following pin fails.
+///
+/// Negative pin: the opaque `%iter.filter` handle MUST NOT be the operand of
+/// an `extractvalue` (the crash shape — a fat-pointer field-grain op on an
+/// opaque iterator handle). Only the collected `%collect.list` is
+/// field-extracted.
+#[test]
+fn test_coll_list_eager_filter_collects_handle_not_extracted() {
+    let source = "@main () -> int = {\n    \
+        let nums: [int] = [1, 2, 3, 4, 5];\n    \
+        let evens: [int] = nums.filter(predicate: x -> x % 2 == 0);\n    \
+        evens.len()\n}\n";
+    let ir = compile_and_capture_ir(source);
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    // Semantic pin: the iterator handle is collected back into a list.
+    assert!(
+        main_ir.contains("call void @ori_iter_collect(ptr %iter.filter"),
+        "expected ori_iter_collect on the iter.filter handle (collect-back); IR:\n{main_ir}"
+    );
+
+    // Negative pin: the opaque handle is never field-extracted (the crash shape).
+    assert!(
+        !main_ir.contains("extractvalue { i64, i64, ptr } %iter.filter"),
+        "opaque iterator handle %iter.filter must not be the operand of a \
+         fat-pointer extractvalue (the crash shape); IR:\n{main_ir}"
     );
 }

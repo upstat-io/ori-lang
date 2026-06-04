@@ -16,7 +16,7 @@ mod moved_fields;
 mod terminator;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, LitValue};
 use crate::ownership::{DerivedOwnership, Ownership};
 use ori_ir::Name;
 use ori_types::TypeRegistry;
@@ -32,7 +32,7 @@ use terminator::{compute_terminator_inc_per_block, compute_terminator_transfer_p
 /// True iff `burden` carries any RC-tracked dimension. Used by the filter at
 /// `emit_burden_ops` to exclude scalars whose `lookup_burden` returns the empty
 /// builtin burden. Defends VF-1 `RcOnScalar` invariant.
-fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
+pub(super) fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
     burden.self_heap_alloc()
         || burden.element_burden().is_some()
         || burden.variant_burdens().next().is_some()
@@ -169,6 +169,14 @@ pub(crate) fn emit_burden_ops<'a>(
     // else the FRESH-site inc orphans (VF-1 net=+1). Tests pass `&[]`.
     immortals: &[bool],
     contracts: &FxHashMap<Name, MemoryContract>,
+    // When true (`ORI_DISABLE_PREDICATE_STACK_RC=1`), the predicate-stack edge
+    // cleanup is OFF, so the burden walk is the sole RC emitter. The
+    // borrowed-Invoke-arg scope-exit `BurdenDec` (normally deferred to the
+    // predicate stack's `release_with_burden_edge`) MUST be emitted by the
+    // burden walk instead — the completeness pass per `emit.rs`
+    // `emit_terminator_burden_decs`. On the default path (false) the dec stays
+    // deferred so the two paths do not double-count.
+    predicate_stack_rc_disabled: bool,
 ) -> BurdenLowerCtx<'a> {
     let mut ctx = BurdenLowerCtx::new(func);
     collect_owned_burdens(&mut ctx, func, type_registry);
@@ -191,6 +199,18 @@ pub(crate) fn emit_burden_ops<'a>(
     // borrow forward through every Let-Var hop to a fixpoint and exclude the set.
     let borrowed_aliases = compute_borrowed_alias_vars(func);
     owned_vars_needing_rc.retain(|v| !borrowed_aliases.contains(v));
+    // Exclude scalar-`Literal`-defined vars: a var whose definition is a
+    // `Let { value: Literal(lit) }` with `lit != String` is a scalar sentinel
+    // (`Int`/`Float`/`Bool`/`Char`/`Duration`/`Size`/`Unit`/`Null`) carrying NO
+    // RC burden regardless of its declared `var_types[v]` (`Spec: Annex E §AIMS
+    // L-9` scalar exclusion; TF-1 `Let { Literal } -> SCALAR`). `collect_owned_burdens`
+    // keys membership on the declared TYPE, so a var typed as a heap aggregate but
+    // defined `Literal(Int(0))` (the `__iter_next` element-type-marker scratch slot)
+    // is over-collected and receives an unbalanced `BurdenDec` the inc side never
+    // emitted (`fresh_site_burden_inc_dst` emits an inc ONLY for `Literal::String`).
+    // The exclusion restores INC/DEC symmetry on the DEFINITION grain.
+    let scalar_literal_vars = compute_scalar_literal_vars(func);
+    owned_vars_needing_rc.retain(|v| !scalar_literal_vars.contains(v));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
@@ -202,7 +222,12 @@ pub(crate) fn emit_burden_ops<'a>(
     // + terminators and sets the bit when a transferred var matches a
     // project_dst. Project alone leaves the bit unset (TF-4 Borrowed);
     // `Set.value` carve-out applies via `instr_transfer_vars` (TF-15).
-    populate_moved_out_fields(&mut ctx, func, &terminator_transfer_per_block);
+    populate_moved_out_fields(
+        &mut ctx,
+        func,
+        &terminator_transfer_per_block,
+        type_registry,
+    );
 
     // Derive the full-move var set: vars whose `moved_out_fields[var]` covers
     // every top-level field index of their `Burden::owned_fields()`. BurdenDec
@@ -293,6 +318,11 @@ pub(crate) fn emit_burden_ops<'a>(
     // suppressed, else the inc orphans (VF-1 net=+1). A param move source has no
     // FRESH inc, so the union is a no-op for it; only FRESH sources gain the
     // inc-suppression. Keeps the per-value ledger at net 0 for both shapes.
+    // Both halves are suppressed on BOTH the default and probe paths: the value
+    // genuinely moves through the alias chain to a real transfer point where its
+    // single release is discharged (suppressing here prevents a double dec on the
+    // shared allocation under the probe — the move-alias dec stays suppressed in
+    // emit_last_use_decs on both paths).
     for &var in &transfer_via_move_alias {
         inc_suppressed_vars.insert(var);
     }
@@ -309,9 +339,17 @@ pub(crate) fn emit_burden_ops<'a>(
     // (`burden_emitted` stays false → edge cleanup emits no paired `BurdenDec`)
     // and is fully predicate-stack-managed (`Spec: Annex E §AIMS RL-2`). A
     // genuine borrow (param / alias, no FRESH inc) gains nothing — no-op.
+    //
+    // Probe gate: under `predicate_stack_rc_disabled` the terminator-last-use
+    // BurdenDec is un-suppressed (emit_burden_ops_for_blocks passes an empty
+    // borrowed-arg set), so the FRESH inc must survive symmetrically — the
+    // burden path carries the full paired inc+dec for the fresh-owned arg the
+    // callee stores. Keep the inc suppressed only on the default path.
     let borrowed_terminator_args = compute_borrowed_terminator_invoke_args(func);
-    for &var in &borrowed_terminator_args {
-        inc_suppressed_vars.insert(var);
+    if !predicate_stack_rc_disabled {
+        for &var in &borrowed_terminator_args {
+            inc_suppressed_vars.insert(var);
+        }
     }
 
     // RL-4 live-out suppression set (`Spec: Annex E §AIMS RL-4`): a per-block
@@ -330,12 +368,14 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_via_move_alias: &transfer_via_move_alias,
         live_out_per_block: &live_out_per_block,
         contracts,
+        predicate_stack_rc_disabled,
     };
     emit_burden_ops_for_blocks(
         func,
         &analysis,
         &terminator_transfer_per_block,
         &terminator_inc_per_block,
+        predicate_stack_rc_disabled,
     );
     populate_burden_emitted(func);
     ctx
@@ -435,6 +475,41 @@ fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
         }
     }
     borrowed
+}
+
+/// Compute the set of vars defined by a scalar `Literal`: a `Let { value:
+/// ArcValue::Literal(lit) }` where `lit` is NOT `LitValue::String`. Such a var
+/// is a scalar sentinel carrying NO RC burden regardless of its declared
+/// `var_types[v]` (`Spec: Annex E §AIMS L-9`; TF-1 `Let { Literal } -> SCALAR`).
+///
+/// Mirrors `fresh_site_burden_inc_dst` (`emit.rs`), which emits a FRESH-site
+/// `BurdenInc` for a `Let { Literal }` ONLY when the literal is `String` (heap
+/// str body); every scalar literal (`Int`/`Float`/`Bool`/`Char`/`Duration`/
+/// `Size`/`Unit`/`Null`) emits no inc. `collect_owned_burdens` keys DEC-side
+/// membership on the declared type, so a var typed as a heap aggregate but
+/// defined `Literal(Int(0))` (the `__iter_next` element-type-marker scratch slot)
+/// would carry an unbalanced `BurdenDec`. Excluding the scalar-`Literal` set
+/// from `owned_vars_needing_rc` restores INC/DEC symmetry on the definition grain.
+///
+/// `String` literals are NOT excluded — their heap str body carries RC and the
+/// inc side emits a paired `BurdenInc` for them.
+fn compute_scalar_literal_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut scalar_lits: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Literal(lit),
+                ..
+            } = instr
+            {
+                if !matches!(lit, LitValue::String(_)) {
+                    scalar_lits.insert(*dst);
+                }
+            }
+        }
+    }
+    scalar_lits
 }
 
 /// Phase 1 — per-`ArcVarId` ownership-filtered burden lookup walk.

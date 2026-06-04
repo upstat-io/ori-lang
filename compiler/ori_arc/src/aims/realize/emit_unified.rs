@@ -1,7 +1,9 @@
 //! Unified RC emission: per-block walk with inline death/alloc event collection.
 //!
-//! Extracted from `realize/mod.rs` to stay under the 500-line file limit.
-//! Called by [`super::realize_rc_reuse()`] as Phase 1 sub-step B.
+//! Phase 1 sub-step B of [`super::realize_rc_reuse()`].
+
+#[cfg(test)]
+mod burden_lowering_tests;
 
 use std::sync::LazyLock;
 
@@ -19,25 +21,21 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, RcS
 use super::metrics;
 use super::walk;
 
-/// `ORI_DISABLE_BURDEN_ELIM=1` bypasses Phase 2.5 burden-op elimination. Read
-/// once at first access; permanent isolation harness letting Phase 5 emission
-/// be evaluated alone (emission on, elimination off) for diagnostic bisection.
+/// `ORI_DISABLE_BURDEN_ELIM=1` bypasses Phase 2.5 burden-op elimination, read
+/// once at first access. Isolates Phase 5 emission from elimination for
+/// diagnostic bisection.
 static BURDEN_ELIM_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() == Ok("1"));
 
 /// Per-phase RC-op snapshot for post-walk pass debugging.
 ///
-/// Emits one `tracing::trace!` event per block summarising every
-/// `RcInc`/`RcDec` instruction by `ArcVarId`. Gated behind
-/// `tracing::enabled!` so the iteration is skipped entirely when
-/// `ori_arc::aims::realize` is not at trace level — zero overhead in
-/// normal debug runs.
+/// Emits one `tracing::trace!` per block summarising every `RcInc`/`RcDec` by
+/// `ArcVarId`. Gated behind `tracing::enabled!` — zero overhead when the
+/// `ori_arc::aims::realize` target is below trace level.
 ///
-/// Activate with `ORI_LOG=ori_arc::aims::realize=trace`. Used to
-/// bisect which post-walk pass (`emit_dead_invoke_dsts`,
-/// `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`)
-/// modifies a specific block's RC ops without inline `tracing::debug!`
-/// insertions. § Debugging.
+/// `ORI_LOG=ori_arc::aims::realize=trace` activates it; bisects which post-walk
+/// pass (`emit_dead_invoke_dsts`, `emit_edge_cleanup`,
+/// `emit_project_escape_incs`, `coalesce_block_rc`) rewrote a block's RC ops.
 fn trace_phase_snapshot(
     phase: &'static str,
     func: &ArcFunction,
@@ -82,9 +80,8 @@ fn trace_phase_snapshot(
 
 /// Unified RC emission: per-block walk with inline death/alloc event collection.
 ///
-/// Replaces `emit_rc_ops()` with a forward walk that routes all decisions
-/// through `decide()` and collects reuse events inline, eliminating the
-/// separate `collect_death_events()` / `collect_alloc_events()` scans.
+/// Forward walk routing every decision through `decide()`, collecting reuse
+/// events inline (no separate death/alloc scans).
 ///
 /// # Phases
 ///
@@ -92,12 +89,23 @@ fn trace_phase_snapshot(
 /// 2. Dead Invoke cleanup (orphaned Invoke result variables)
 /// 3. Inter-block edge cleanup (with deferred parent decs)
 /// 4. RC coalescing peephole per block
+#[expect(
+    clippy::too_many_lines,
+    reason = "single phase-ordered RC realization pipeline — the Phase 1→2.5→6.5→7→3 \
+              sequence is one cohesive orchestration; splitting mid-sequence fragments \
+              the load-bearing phase order (PL-2/PL-3/PL-4) and hides the pipeline shape"
+)]
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
+    // Probe path (Spec: Annex E §AIMS). `true`: skip the predicate-stack walk +
+    // cleanup; mechanically lower surviving burden ops to `RcInc`/`RcDec`
+    // (Phase 7) so the burden path alone emits RC. `false` (default): predicate
+    // stack emits RC, burden ops stay codegen no-op markers.
+    predicate_stack_rc_disabled: bool,
 ) -> (
     usize,
     Vec<DeathEvent>,
@@ -126,18 +134,17 @@ pub(super) fn emit_rc_unified(
         alias_to_param,
         return_project_inc_targets,
     } = build_return_transfer_setup(func, pool, contracts);
-    // Per-class take-project facts via union-find +
-    // CFG reachability. Precomputed once per function. Each
-    // take-project source seeds its own connected-component class
-    // (Let-alias + Jump-arg → block-param edges); each class has
-    // its own bypass-safe blocks and bypass-safe entries. Consumers
-    // (`dead_cleanup` source 1, `dead_cleanup` source 2,
-    // `edge_cleanup`) query via `is_in_class`, `class_of`, and
-    // `is_bypass_safe_entry_for_var` to coordinate exactly-one drop
-    // per CFG path without double-free or leak.
+
+    // Per-class take-project facts (union-find + CFG reachability), computed
+    // once per function. Each source seeds a connected-component class over
+    // Let-alias + Jump-arg→block-param edges, with its own bypass-safe blocks
+    // and entries. `dead_cleanup` (sources 1, 2) and `edge_cleanup` query
+    // `is_in_class` / `class_of` / `is_bypass_safe_entry_for_var` to drop
+    // exactly once per CFG path — no double-free, no leak.
     let take_move_facts = crate::aims::emit_rc::take_project::analyze(func, pool);
-    // Same-allocation union-find reps (Let{Var} + apply Direct/Conditional;
-    // EXCLUDES Jump-arg phi). Precomputed once per function for the per-block
+
+    // Same-allocation union-find reps (`Let{Var}` + apply Direct/Conditional;
+    // EXCLUDES Jump-arg phi), computed once per function for the per-block
     // walk's `class_alive_after` obligation-table same-alloc gate.
     let same_alloc_reps =
         crate::aims::emit_rc::compute_same_alloc_reps(func, state_map.apply_result_aliases());
@@ -145,25 +152,26 @@ pub(super) fn emit_rc_unified(
     let predecessors = crate::graph::compute_predecessors(func);
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
+
     // Deferred decs routed to edge cleanup. Each entry:
     // - `None` target: emit on ALL outgoing edges (Phase B deferred parents)
     // - `Some(succ)` target: emit only on edge to `succ` (merge-edge decs)
     let mut block_deferred: FxHashMap<usize, Vec<DeferredDec>> = FxHashMap::default();
     let mut synergy = metrics::SynergyMetrics::default();
 
-    // Function-level cross-block dec-emitter map + post-dominator tree. The
-    // same-block / same-instruction dec-suppression gates suppress a class
-    // member's dec only when ANOTHER member covers its RC slot on every path
+    // Cross-block dec-emitter map + post-dominator tree. A class member's dec is
+    // suppressed only when another member covers its RC slot on every path
     // (`class_member_suppresses`). Post-dominance — not raw block order — gates
-    // cross-block suppression so a branch (neither arm post-dominates) keeps one
-    // dec per path (under-emission leak otherwise).
+    // cross-block suppression: a branch (neither arm post-dominates) keeps one
+    // dec per path, else under-emission leaks.
     let post_doms = crate::graph::PostDominatorTree::build(func);
+
     // `build_global_pin4_emits` also returns the retained-lineage map, filtered
-    // to lineages that die within their SSA-alias class. A within-class retained
-    // copy that transfers out (Construct / owned-arg / Jump-arg / Return) is
-    // balanced by the enclosing value's drop, so it is dropped from the map and
-    // its class dedups normally; a copy that dies in-class keeps its own dec so
-    // the class nets `1 + N` decs per path (rc_per_path_invariant).
+    // to lineages dying within their SSA-alias class. A within-class copy that
+    // transfers out (Construct / owned-arg / Jump-arg / Return) is balanced by
+    // the enclosing value's drop, so it leaves the map and the class dedups
+    // normally; a copy that dies in-class keeps its own dec, netting `1 + N`
+    // decs per path (rc_per_path_invariant).
     let env = RealizeEnv {
         state_map,
         pool,
@@ -182,62 +190,72 @@ pub(super) fn emit_rc_unified(
     };
     let (global_pin4_emits, lineage_roots) = build_global_pin4_emits(func, &env);
 
-    // Phase 1: per-block RC emission via unified forward walk.
-    for block_idx in 0..func.blocks.len() {
-        let (death_events, alloc_events, walk_metrics) = emit_block_rc(
+    // Phases 1 / 1.5 / 2 / 2.1 are the predicate-stack `RcInc`/`RcDec`
+    // emitter. The probe suppresses them entirely so the burden path (Phase
+    // 2.5 elimination + Phase 7 lowering below) is the sole real-RC emitter.
+    if !predicate_stack_rc_disabled {
+        // Phase 1: per-block RC emission via unified forward walk.
+        for block_idx in 0..func.blocks.len() {
+            let (death_events, alloc_events, walk_metrics) = emit_block_rc(
+                func,
+                block_idx,
+                &env,
+                &global_pin4_emits,
+                &lineage_roots,
+                &predecessors,
+                &mut block_deferred,
+            );
+            synergy.merge(&walk_metrics);
+            all_death_events.extend(death_events);
+            all_alloc_events.extend(alloc_events);
+        }
+        trace_phase_snapshot("after_phase_1_walk", func, interner);
+
+        // Phase 1.5: dead Invoke result cleanup.
+        emit_dead_invoke_dsts(func, state_map, pool, &all_borrowed_defs);
+        trace_phase_snapshot("after_phase_1_5_dead_invoke", func, interner);
+
+        // Phase 2: inter-block edge cleanup (with deferred parent decs).
+        emit_edge_cleanup(
             func,
-            block_idx,
-            &env,
-            &global_pin4_emits,
-            &lineage_roots,
-            &predecessors,
-            &mut block_deferred,
+            state_map,
+            pool,
+            &all_borrowed_defs,
+            &take_move_facts,
+            &block_deferred,
+            false,
         );
-        synergy.merge(&walk_metrics);
-        all_death_events.extend(death_events);
-        all_alloc_events.extend(alloc_events);
+        trace_phase_snapshot("after_phase_2_edge_cleanup", func, interner);
+
+        // Phase 2.1: insert RcInc for projected children that escape via
+        // terminator args, where the parent aggregate was edge-dec'd by
+        // Phase 2 above. Edge cleanup may have created trampoline blocks with
+        // AggFields dec — these dec ALL fields including projected ones still
+        // live in the successor. The RcInc compensates.
+        super::project_escape::emit_project_escape_incs(
+            func,
+            state_map,
+            pool,
+            &func_project_sources,
+            &all_borrowed_defs,
+        );
+        trace_phase_snapshot("after_phase_2_1_escape_incs", func, interner);
     }
-    trace_phase_snapshot("after_phase_1_walk", func, interner);
-
-    // Phase 1.5: dead Invoke result cleanup.
-    emit_dead_invoke_dsts(func, state_map, pool, &all_borrowed_defs);
-    trace_phase_snapshot("after_phase_1_5_dead_invoke", func, interner);
-
-    // Phase 2: inter-block edge cleanup (with deferred parent decs).
-    emit_edge_cleanup(
-        func,
-        state_map,
-        pool,
-        &all_borrowed_defs,
-        &take_move_facts,
-        &block_deferred,
-    );
-    trace_phase_snapshot("after_phase_2_edge_cleanup", func, interner);
-
-    // Phase 2.1: insert RcInc for projected children that escape via
-    // terminator args, where the parent aggregate was edge-dec'd by
-    // Phase 2 above. Edge cleanup may have created trampoline blocks with
-    // AggFields dec — these dec ALL fields including projected ones still
-    // live in the successor. The RcInc compensates.
-    super::project_escape::emit_project_escape_incs(
-        func,
-        state_map,
-        pool,
-        &func_project_sources,
-        &all_borrowed_defs,
-    );
-    trace_phase_snapshot("after_phase_2_1_escape_incs", func, interner);
 
     // Phase 2.5: DP-2/DP-3 burden-op elimination.
-    // Consumes post-emission IR with full burden ops present; removes
-    // redundant `BurdenInc` / `BurdenDec*` sites whose lattice state
-    // satisfies `is_rc_inc_elidable` / `is_rc_dec_unnecessary`. Runs
-    // BEFORE Phase 3 coalesce so coalesce operates on the post-elimination
-    // IR with redundant ops already removed.
-    if !*BURDEN_ELIM_DISABLED {
-        super::eliminate_burden_ops(func, state_map);
+    eliminate_burden_ops_phase(func, state_map, interner, predicate_stack_rc_disabled);
+
+    if predicate_stack_rc_disabled {
+        emit_burden_path_probe_tail(
+            func,
+            state_map,
+            pool,
+            interner,
+            &all_borrowed_defs,
+            &take_move_facts,
+            &block_deferred,
+        );
     }
-    trace_phase_snapshot("after_phase_2_5_burden_elim", func, interner);
 
     // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
     for block in &mut func.blocks {
@@ -249,15 +267,139 @@ pub(super) fn emit_rc_unified(
     (rc_count, all_death_events, all_alloc_events, synergy)
 }
 
+/// Phase 2.5: DP-2/DP-3 burden-op elimination. Consumes post-emission IR with
+/// full burden ops present; removes redundant `BurdenInc` / `BurdenDec*` sites
+/// whose lattice state satisfies `is_rc_inc_elidable` / `is_rc_dec_unnecessary`.
+/// Runs BEFORE Phase 3 coalesce so coalesce operates on the post-elimination IR.
+///
+/// Coexistence-handshake scope (CH-comp): DP-2/DP-3 elision over the burden
+/// baseline is sound on the default path because the predicate stack co-emits
+/// the RC the lattice proves redundant. Under the probe
+/// (`predicate_stack_rc_disabled`) the burden path is the SOLE real-RC emitter —
+/// the lattice "redundant" verdict assumes a co-emitter that is off, so eliding
+/// a sole-emitter release leaks. Skipping elimination on the probe path at worst
+/// over-retains a genuinely-redundant pair that lowers to a net-zero
+/// `RcInc`/`RcDec` (harmless); the default path is unchanged.
+fn eliminate_burden_ops_phase(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
+) {
+    if !*BURDEN_ELIM_DISABLED && !predicate_stack_rc_disabled {
+        super::eliminate_burden_ops(func, state_map);
+    }
+    trace_phase_snapshot("after_phase_2_5_burden_elim", func, interner);
+}
+
+/// Probe-path realization tail (`ORI_DISABLE_PREDICATE_STACK_RC=1`): the
+/// burden path is the sole RC emitter, so the predicate-stack Phases 1/1.5/2/2.1
+/// are skipped above. Two steps run here:
+///
+/// - Phase 6.5 — burden-path dying-edge cleanup. The Phase-5 burden walk
+///   (`burden_lower`) defers the dec for vars live-out of a block to the
+///   predicate-stack `emit_edge_cleanup` (RL-4), which is off under the probe.
+///   `emit_edge_cleanup(..., burden_only=true)` restores that deferred release,
+///   emitting a `BurdenDec` on each dying CFG edge for the SAME
+///   `compute_branch_edge_dead_set` / `compute_invoke_edge_dead_set` SSOT the
+///   default-path emitter consumes. Without it, a value discarded on a branch
+///   edge (e.g. the Err variant of a `Result` discarded by `??`) leaks its heap
+///   payload.
+/// - Phase 7 — mechanical burden lowering (`lower_burden_ops_to_rc`): the
+///   Phase-6.5 + surviving whole-var `BurdenInc`/`BurdenDec` become real
+///   `RcInc`/`RcDec`.
+///
+/// Spec: Annex E §AIMS RL-4 (edge-specific dec) + RL-comp (lowered net-balance).
+fn emit_burden_path_probe_tail(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
+    block_deferred: &FxHashMap<usize, Vec<DeferredDec>>,
+) {
+    crate::aims::emit_rc::emit_edge_cleanup(
+        func,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+        block_deferred,
+        true,
+    );
+    trace_phase_snapshot("after_phase_6_5_burden_edge_cleanup", func, interner);
+
+    lower_burden_ops_to_rc(func, pool);
+    trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+}
+
+/// Phase 7 (probe): mechanically lower surviving whole-var burden ops to real
+/// RC instructions.
+///
+/// `BurdenInc { var }` → `RcInc { var, count: 1, strategy, atomicity }` and
+/// whole-var `BurdenDec { var }` → `RcDec { var, strategy, atomicity }`, with
+/// the canonical `RcStrategy::from_var` (same strategy the predicate-stack
+/// emitter embeds) and `atomicity = Atomic` (RL-19/20/21 thread-local dispatch
+/// pending).
+///
+/// Field-grain `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` are
+/// NOT rewritten — codegen already emits their per-field / per-variant drop glue
+/// (`skip_fields`-aware partial drop, `SetTag` pre-drop variant walk, `Set`
+/// old-value field drop); a whole-var `RcDec` would double-drop. They reach
+/// codegen unchanged.
+///
+/// `Scalar` reprs cannot reach here — `emit_burden_ops` filters them (Spec:
+/// Annex E §AIMS RE-2 / DP-1). A `Scalar` or out-of-range `var_repr` leaves the
+/// burden op in place rather than synthesizing an unsound `RcDec`.
+///
+/// Spec: Annex E §AIMS RL-comp (lowered `BurdenInc`/`BurdenDec` net-preservation).
+fn lower_burden_ops_to_rc(func: &mut ArcFunction, pool: &Pool) {
+    for block_idx in 0..func.blocks.len() {
+        let body_len = func.blocks[block_idx].body.len();
+        for instr_idx in 0..body_len {
+            let (ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var }) =
+                func.blocks[block_idx].body[instr_idx]
+            else {
+                continue;
+            };
+            // RE-2 backstop: scalars carry no RcStrategy. emit_burden_ops never
+            // emits whole-var burden ops on scalars (burden_carries_rc filter),
+            // so a Scalar/absent repr here is a contract violation — leave the
+            // burden op in place (codegen no-ops it) rather than emit unsound RC.
+            let Some(repr) = func.var_repr(var) else {
+                continue;
+            };
+            if matches!(repr, crate::ir::ValueRepr::Scalar) {
+                continue;
+            }
+            let ty = func.var_type(var);
+            let strategy = RcStrategy::from_var(repr, pool, ty);
+            let atomicity = RcAtomicity::default_atomic();
+            let lowered = match func.blocks[block_idx].body[instr_idx] {
+                ArcInstr::BurdenInc { var } => ArcInstr::RcInc {
+                    var,
+                    count: 1,
+                    strategy,
+                    atomicity,
+                },
+                ArcInstr::BurdenDec { var } => ArcInstr::RcDec {
+                    var,
+                    strategy,
+                    atomicity,
+                },
+                _ => unreachable!("filtered to whole-var burden ops above"),
+            };
+            func.blocks[block_idx].body[instr_idx] = lowered;
+        }
+    }
+}
+
 /// Function-wide realization-context borrows shared by the per-block RC
 /// emitters.
 ///
-/// Bundles the converged analysis inputs that [`build_global_pin4_emits`]
-/// and [`emit_block_rc`] both read to build a [`BlockCtx`] per block: the
-/// state map, the pool, the borrowed/iter/inline-enum/project def sets, the
-/// take-project facts, the return-transfer sets, the alias/inc-target maps,
-/// the same-alloc reps, the post-dominator tree, and the interned `iter`
-/// name. Every field is a shared borrow read together by the per-block walk.
+/// Converged analysis inputs that [`build_global_pin4_emits`] and
+/// [`emit_block_rc`] both read to build a per-block [`BlockCtx`].
 #[derive(Clone, Copy)]
 struct RealizeEnv<'a> {
     state_map: &'a AimsStateMap,
@@ -276,12 +418,11 @@ struct RealizeEnv<'a> {
     iter_fn_name: ori_ir::Name,
 }
 
-/// Emit RC operations for a single block via the unified forward walk.
-///
-/// Returns `(death_events, alloc_events, walk_metrics)`.
 /// Build the function-level dec-emitter map: every emitting SSA-alias-class
 /// member tagged with its block index. Consumed by `class_member_suppresses`
 /// (with the post-dominator tree) so a class spanning blocks decs once per path.
+///
+/// Also returns the retained-lineage map (`lineage_roots`).
 fn build_global_pin4_emits(
     func: &ArcFunction,
     env: &RealizeEnv<'_>,
@@ -365,17 +506,14 @@ fn build_global_pin4_emits(
     }
     let mut lineage_roots =
         super::walk::build_lineage_map(func, &retained_roots, state_map.apply_result_aliases());
-    // Consumption-aware filter — keep a retained lineage ONLY when its reference
-    // DIES within the class (some lineage member is a predicted dec emitter in
-    // `global`). A retained alias that later TRANSFERS OUT (consumed by a
-    // Construct / owned-arg / Jump-arg — RL-2 ownership transfer suppresses its
-    // dec prediction, so it is ABSENT from `global`) is balanced by the
-    // enclosing value's drop and needs NO class dec; keeping it would over-split
-    // the class into a spurious extra lineage and double-free (the broad-split
-    // 28 -> 1950 over-application). Filtering to within-class-dying lineages
-    // leaves only genuine distinct owned references, so the per-lineage dedup
-    // emits exactly `1 + (retained that die in class)` per path — the correct
-    // count (string_sso's b/c die at the comparisons; a transferred copy drops).
+
+    // Keep a retained lineage ONLY when its reference dies within the class
+    // (some member is a predicted dec emitter in `global`). A retained alias that
+    // transfers out (Construct / owned-arg / Jump-arg — RL-2 suppresses its dec
+    // prediction, so it is absent from `global`) is balanced by the enclosing
+    // value's drop and needs no class dec; keeping it would over-split the class
+    // into a spurious lineage and double-free. Filtering to within-class-dying
+    // lineages nets exactly `1 + (retained dying in class)` decs per path.
     let emitter_vars: FxHashSet<ArcVarId> = global
         .values()
         .flat_map(|s| s.iter().map(|&(v, _, _)| v))
@@ -390,6 +528,9 @@ fn build_global_pin4_emits(
     (global, lineage_roots)
 }
 
+/// Emit RC operations for a single block via the unified forward walk.
+///
+/// Returns `(death_events, alloc_events, walk_metrics)`.
 fn emit_block_rc(
     func: &mut ArcFunction,
     block_idx: usize,
@@ -547,19 +688,9 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
         .count()
 }
 
-/// Precompute the per-Project compensating-Inc target map for return-transfer.
-///
-/// Identifies every `Project { dst, value, field }` instruction whose `dst`
-/// flows to a `Return` terminator AND whose `value` resolves (via Let-alias
-/// chain) to a function param `p` whose `ParamContract.return_alias` is
-/// `Some(Project { field: F })` with `F == field`. Fires regardless of `p`'s
-/// own access class — the Inc compensates for the `AggFields` walk that fires
-/// at whichever scope holds the parent allocation when the call returns,
-/// callee-side (Owned-callee scope-exit drop) or caller-side (Owned-caller
-/// arg drop after the Apply).
-///
-/// Per-function setup bundle for return-transfer / alias / Project-Inc state.
-/// Built once in `emit_rc_unified` and threaded into the per-block walk.
+/// Per-function return-transfer setup — transfer-param set, alias→param map, and
+/// Project-Inc targets. Built once in `emit_rc_unified`, threaded into the
+/// per-block walk.
 struct ReturnTransferSetup {
     return_transfer_params: FxHashSet<ArcVarId>,
     alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>>,
@@ -617,14 +748,21 @@ fn build_return_transfer_setup(
     }
 }
 
-/// Each such `dst` maps to its `RcStrategy`. The realize walk consumes this
-/// map to emit `RcInc dst [strategy]` immediately after the Project. Without
-/// this Inc, the field-walk inside `[AggFields]` decrements the projected
-/// allocation to 0 BEFORE the consumer of `dst` (Return → caller's xs) reads
-/// it — use-after-free.
+/// Precompute the per-Project compensating-Inc target map for return-transfer.
 ///
-/// Returns an empty map when the contract has no Project `return_alias` entries
-/// — bypasses Project-instruction iteration entirely in the common case.
+/// Identifies every `Project { dst, value, field }` whose `dst` flows to a
+/// `Return` AND whose `value` resolves (via Let-alias chain) to a param `p`
+/// with `ParamContract.return_alias == Some(Project { field: F })`, `F == field`.
+/// Fires regardless of `p`'s access class — the Inc compensates for the
+/// `AggFields` walk at whichever scope holds the parent allocation on return
+/// (callee Owned scope-exit drop, or caller Owned arg drop after the Apply).
+///
+/// Each `dst` maps to its `RcStrategy`; the realize walk emits `RcInc dst` right
+/// after the Project. Without it, the `[AggFields]` field-walk decrements the
+/// projected allocation to 0 before the consumer of `dst` reads it — UAF.
+///
+/// Empty when the contract has no Project `return_alias` entries — skips the
+/// Project-instruction scan in the common case.
 #[expect(clippy::too_many_lines, reason = "pre-existing")]
 fn build_return_project_inc_targets(
     func: &ArcFunction,

@@ -376,6 +376,7 @@ impl TestRunner {
                 interner,
                 &function_sigs,
                 &type_result.typed.types,
+                &type_result.typed.collection_burdens,
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,

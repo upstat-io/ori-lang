@@ -56,6 +56,7 @@ pub mod operators;
 pub mod panic;
 pub mod patterns;
 pub mod poly_lambda_mono;
+pub mod predicate_stack_probe;
 pub mod rc_matrix;
 pub mod realize_rc_reuse;
 pub mod recursion;

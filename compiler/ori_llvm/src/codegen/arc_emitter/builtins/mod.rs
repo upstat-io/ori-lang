@@ -325,9 +325,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         arc_args: args,
                         arc_func,
                     };
-                    let iter_result = iterator::dispatch(self, &iter_ctx);
-                    if iter_result.is_some() {
-                        return iter_result;
+                    if let Some(iter_val) = iterator::dispatch(self, &iter_ctx) {
+                        return Some(self.collect_auto_iter_result(iter_val, dst_ty));
                     }
                 }
             }
@@ -346,6 +345,45 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         None
+    }
+
+    /// Materialize an auto-iter-promoted iterator handle back into its
+    /// declared result collection.
+    ///
+    /// Auto-iter promotion (`try_emit_builtin_method`) handles an eager
+    /// collection method (`[T].filter`, `[T].map`, etc.) by implicitly
+    /// `.iter()`-ing the receiver and dispatching the iterator adapter, which
+    /// yields an opaque runtime iterator handle (`ptr`). But the method's
+    /// result type per Spec: Annex C is the eager collection (`[T]` for list
+    /// adapters), not an iterator. The handle's representation (opaque `ptr`)
+    /// must agree with its type (a `{len,cap,data}` fat pointer) before any
+    /// downstream `.len()` / indexing / RC op runs — otherwise codegen does
+    /// `extract_value` on the opaque handle. So when `dst_ty` resolves to a
+    /// collection, collect the iterator back into that collection.
+    ///
+    /// Consumer methods (`count → int`, `any → bool`, `fold → T`) have a
+    /// non-collection `dst_ty`; the dispatch already produced the final value
+    /// and this is the identity. Explicit `.iter()...collect()` chains keep an
+    /// `Iterator`-typed `dst_ty` at the adapter step and likewise pass through.
+    fn collect_auto_iter_result(&mut self, iter_val: ValueId, dst_ty: Idx) -> ValueId {
+        let resolved = self.pool.resolve_fully(dst_ty);
+        match self.pool.tag(resolved) {
+            ori_types::Tag::List => {
+                let elem_ty = self.pool.list_elem(resolved);
+                self.emit_iter_collect(iter_val, elem_ty)
+                    .unwrap_or(iter_val)
+            }
+            ori_types::Tag::Set => {
+                let elem_ty = self.pool.set_elem(resolved);
+                self.emit_iter_collect_set(iter_val, elem_ty)
+                    .unwrap_or(iter_val)
+            }
+            // Non-collection result (`count`/`any`/`all`/`fold`/`find`
+            // consumers → int/bool/T) or a genuinely iterator-typed result
+            // (explicit `.iter()` chains) — the dispatch already produced the
+            // correct value; no collect-back.
+            _ => iter_val,
+        }
     }
 
     /// Emit slice-aware RC increment for a value.

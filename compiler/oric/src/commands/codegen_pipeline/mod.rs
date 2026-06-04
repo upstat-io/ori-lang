@@ -398,22 +398,26 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             );
         }
 
+        // Reconstruct the TypeRegistry the type-checker populated, from the
+        // TypedModule exports. `finish_with_pool` consumes the live registry
+        // (into_entries drains nominal TypeEntry; drain_collection_burdens
+        // drains the monomorphized-collection side-table), so no registry
+        // survives to codegen. Rebuilding from `types` + `collection_burdens`
+        // surfaces the composed UserBurdenSpec for [T] / {K:V} / Set<T> /
+        // closure-env types to the Phase-5 burden walker. Spec: Annex E §AIMS.
+        let type_registry = ori_types::TypeRegistry::from_typed_exports(
+            type_result.typed.types.clone(),
+            type_result.typed.collection_burdens.clone(),
+        );
+
         // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
-        //
-        // PREREQUISITE PLACEHOLDER (§04A.0 ITEM-0a): TypeRegistry is not yet
-        // surfaced from the type-checker output here. Pass an empty default
-        // so the AimsPipelineConfig wiring compiles; the burden walker that
-        // would consume the registry is not yet active in this dump path.
-        // §04A.0 ITEM-1 surfacing of the live registry from
-        // ModuleChecker::finish_with_pool is the follow-up.
-        let placeholder_type_registry = ori_types::TypeRegistry::default();
         finalize::dump_arc_phases(
             &arc_cache,
             &annotated_sigs,
             &classifier,
             pool,
             interner,
-            &placeholder_type_registry,
+            &type_registry,
             source_path,
         );
 
@@ -481,6 +485,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &resolver,
             interner,
             pool,
+            &type_registry,
             symbol_prefix,
             &annotated_sigs,
             &classifier,

@@ -156,6 +156,27 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_BURDEN=1 ori build file.ori`
     ORI_DUMP_AFTER_BURDEN
 
+    /// Dump each function's ARC IR to stderr immediately after the DP-2/DP-3
+    /// burden-op elimination pass.
+    ///
+    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline`. Surfaces
+    /// the post-elimination `BurdenInc` / `BurdenDec*` set so the eliminator's
+    /// effect can be bisected against the pre-elimination `ORI_DUMP_AFTER_BURDEN`
+    /// snapshot.
+    /// Usage: `ORI_DUMP_AFTER_BURDEN_ELIM=1 ori build file.ori`
+    ORI_DUMP_AFTER_BURDEN_ELIM
+
+    /// Disable the predicate-stack `RcInc` / `RcDec` realization phases, leaving
+    /// the burden path (elimination + mechanical `BurdenInc → RcInc` /
+    /// `BurdenDec → RcDec` lowering) as the sole real-RC emitter.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` to drive the burden-path
+    /// self-sufficiency probe. When set, the predicate-stack emission is suppressed
+    /// and surviving whole-var burden ops lower to real RC; default (unset) leaves
+    /// the default emission path byte-identical.
+    /// Usage: `ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
+    ORI_DISABLE_PREDICATE_STACK_RC
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

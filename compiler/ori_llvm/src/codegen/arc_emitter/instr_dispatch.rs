@@ -537,7 +537,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // (drop-fn body path) and BurdenDecField (single-field
                 // mid-block cleanup).
                 let base_ty = func.var_type(*var);
-                let base_val = self.var(*var);
                 // RE-2 defense-in-depth: compute_drop_info returns None
                 // for scalars. Upstream burden_lower's
                 // owned_vars_needing_rc guard already suppresses
@@ -548,29 +547,63 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 else {
                     return;
                 };
-                let ori_arc::DropKind::Fields {
-                    fields,
-                    user_drop: _,
-                } = drop_info.kind
-                else {
-                    debug_assert!(
-                        false,
-                        "BurdenDecPartial on non-struct drop shape: {:?}",
-                        drop_info.kind
-                    );
-                    return;
-                };
-                // BurdenDecPartial is the mid-block partial-move cleanup
-                // path; the user `@drop` body has NOT fired here (drop fires
-                // at refcount-zero via `emit_drop_fields`'s AUGMENT body,
-                // not at SetField mid-mutation). Walk RC'd fields only.
-                self.emit_drop_field_loop(
-                    base_val,
-                    base_ty,
-                    &fields,
-                    Some(skip_fields),
-                    "burden_dec_partial",
-                );
+                // Spill a by-value aggregate base to a stack alloca before
+                // field addressing per AB-5; pass through an RcPointer base.
+                // After the scalar guard so a scalar base emits no dead alloca.
+                let base_val = self.var_field_base_ptr(*var, base_ty);
+                // BurdenDecPartial is the mid-block partial-move cleanup path;
+                // the user `@drop` body has NOT fired here (drop fires at
+                // refcount-zero via the drop-fn AUGMENT body, not at the move).
+                // Walk RC'd payloads only, skipping the moved-out positions.
+                match drop_info.kind {
+                    // Struct / tuple partial-move: drop owned fields NOT in
+                    // skip_fields (the moved-out top-level field indices).
+                    ori_arc::DropKind::Fields { fields, .. } => {
+                        self.emit_drop_field_loop(
+                            base_val,
+                            base_ty,
+                            &fields,
+                            Some(skip_fields),
+                            "burden_dec_partial",
+                        );
+                    }
+                    // Enum / Option / Result partial-move: a payload projected
+                    // out of one variant transfers that payload's ownership to
+                    // the projection consumer (RL-2). The surviving variants'
+                    // payloads still owe a release. For Option/Result the
+                    // moved-out top-level field index IS the source-variant
+                    // ordinal (Ok payload → field 0, Err payload → field 1; the
+                    // `Project %v.0`/`%v.1` lowering), and each variant carries a
+                    // single payload at variant-local field index 0. Skip the
+                    // source variant by ordinal, then walk the remainder through
+                    // the per-variant burden-walk SSOT (3-encoding dispatch
+                    // shared with the drop-fn path).
+                    ori_arc::DropKind::Enum { variants, .. } => {
+                        let surviving: Vec<Vec<(u32, Idx)>> = variants
+                            .into_iter()
+                            .enumerate()
+                            .map(|(ordinal, fields)| {
+                                if skip_fields.contains(&(ordinal as u32)) {
+                                    Vec::new()
+                                } else {
+                                    fields
+                                }
+                            })
+                            .collect();
+                        self.emit_variant_burden_walk(
+                            self.current_function,
+                            base_val,
+                            base_ty,
+                            &surviving,
+                        );
+                    }
+                    other => {
+                        debug_assert!(
+                            false,
+                            "BurdenDecPartial on unsupported drop shape: {other:?}"
+                        );
+                    }
+                }
             }
 
             ArcInstr::BurdenDecVariant { var } => {
@@ -588,7 +621,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // generation at drop_gen.rs:84-95. Reusing the SSOT avoids
                 // parallel-derivation drift.
                 let base_ty = func.var_type(*var);
-                let base_val = self.var(*var);
                 // RE-2 defense-in-depth: compute_drop_info returns None for
                 // scalars. The upstream burden_lower's `owned_vars_needing_rc`
                 // guard already suppresses BurdenDecVariant emission on
@@ -610,6 +642,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
                     return;
                 };
+                // Spill a by-value aggregate base to a stack alloca before
+                // tag/payload addressing per AB-5; pass through an RcPointer
+                // base. After the guards so a scalar base emits no dead alloca.
+                let base_val = self.var_field_base_ptr(*var, base_ty);
                 // BurdenDecVariant is the mid-block SetTag pre-drop path;
                 // the user `@drop` body has NOT fired (it fires at
                 // refcount-zero via `emit_drop_enum`'s AUGMENT body, not
@@ -629,12 +665,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // dispatch surface. Shape mirrors emit_drop_fields:
                 // struct_gep + load + emit_drop_rc_dec.
                 let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
-                if repr == ValueRepr::RcPointer {
-                    let base_val = self.var(*base);
+                if repr == ValueRepr::Scalar {
+                    // Scalar-repr base has no heap field layout to GEP into;
+                    // no drop required (RE-2 + scalar base is unreachable per
+                    // Set's symmetric guard).
+                    tracing::trace!(
+                        base = base.raw(),
+                        field,
+                        ?repr,
+                        "BurdenDecField on scalar base — skipping (unreachable)"
+                    );
+                } else {
                     let base_ty = func.var_type(*base);
                     let field_pos = *field as usize;
                     let struct_fields = self.pool.struct_fields(base_ty);
                     if let Some(&(_, field_type)) = struct_fields.get(field_pos) {
+                        // Spill a by-value aggregate base to a stack alloca
+                        // before field addressing per AB-5; pass through an
+                        // RcPointer base. Inside the in-range branch so an
+                        // out-of-range field emits no dead alloca.
+                        let base_val = self.var_field_base_ptr(*base, base_ty);
                         // Delegate to the canonical struct-field-drop SSOT
                         // at drop_gen.rs. Single-field slice for the
                         // length-1 BurdenDecField shape; no skip filter.
@@ -653,17 +703,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                              likely tuple or non-struct base; skipping"
                         );
                     }
-                } else {
-                    // Non-pointer base: scalar-repr value has no heap field
-                    // layout to GEP into; no drop required (RE-2 + scalar
-                    // base is unreachable per Set's symmetric guard at
-                    // line 559-568).
-                    tracing::trace!(
-                        base = base.raw(),
-                        field,
-                        ?repr,
-                        "BurdenDecField on non-pointer base — skipping (unreachable)"
-                    );
                 }
             }
 

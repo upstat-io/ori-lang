@@ -1,8 +1,6 @@
 //! Unified realization — one decision surface for all AIMS outputs.
 //!
-//! Replaces the four separate emission passes (`emit_rc_ops`, `emit_reuse`,
-//! `compute_aims_cow_annotations`, `compute_aims_drop_hints`) with a
-//! two-phase realization that reads the converged [`AimsStateMap`] through
+//! Two-phase realization reading the converged [`AimsStateMap`] through
 //! unified decision functions.
 //!
 //! # Architecture
@@ -114,6 +112,11 @@ pub fn realize_rc_reuse(
     interner: &ori_ir::StringInterner,
     _builtins: &BuiltinOwnershipSets,
     pool: &Pool,
+    // Probe (per the canonical burden RC-emission path, Spec: Annex E §AIMS): `true`
+    // suppresses the predicate-stack `RcInc`/`RcDec` emission below and lowers
+    // surviving `BurdenInc → RcInc` / `BurdenDec → RcDec` instead, proving the
+    // burden path is a complete standalone RC emitter. `false` = today's path.
+    predicate_stack_rc_disabled: bool,
 ) -> RealizationResult {
     // emit_arg_ownership runs as a Step 4b-prelude in
     // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
@@ -121,30 +124,49 @@ pub fn realize_rc_reuse(
     // observes converged arg_ownership at emission time (AIMS Invariant 3 —
     // no stale summaries). This function therefore does NOT invoke
     // emit_arg_ownership — the prelude has already populated arg_ownership
-    // before it runs. The `_` bindings on contracts/interner/builtins/pool keep
-    // the public signature stable; downstream Sub-steps A2 / B / C consume them.
+    // before it runs. `_builtins` is unused here (kept for signature
+    // stability); contracts / interner / pool are consumed by Sub-steps
+    // A2 / B / C below.
 
     // Sub-step A2: insert RcInc for borrowed-param COW receivers.
     // Borrowed function params at COW call receiver positions need an RcInc
     // to prevent the runtime from seeing the buffer as unique (RC=1) when the
     // caller also holds a reference. Without this, COW push/set/insert may
     // realloc in place or dec the old buffer, invalidating the caller's pointer.
-    inject_cow_borrowed_receiver_incs(func, interner, pool);
+    //
+    // Predicate-stack RcInc — suppressed under the probe; the burden path's
+    // own RL-1 duplication inc (emit_burden_ops dup-alias / FRESH-site inc)
+    // covers the borrowed-receiver retain via the Phase-7 BurdenInc → RcInc
+    // lowering below.
+    if !predicate_stack_rc_disabled {
+        inject_cow_borrowed_receiver_incs(func, interner, pool);
+    }
 
-    // Sub-step B: unified RC emission + inline event collection.
-    // Replaces emit_rc_ops() with a forward walk routing all decisions
+    // Sub-step B: unified RC emission — forward walk routing all decisions
     // through decide(), collecting death/alloc events inline.
     //
     // `contracts` is threaded through so emit_rc_unified can compute
     // `return_transfer_params` from the function's MemoryContract for
     // BUG-04-090's `should_suppress_return_transfer_dec` (BlockCtx
     // field).
+    //
+    // `predicate_stack_rc_disabled` (probe): when `true`, emit_rc_unified
+    // skips the predicate-stack `RcInc`/`RcDec` walk + cleanup passes and
+    // mechanically lowers surviving `BurdenInc → RcInc` / `BurdenDec → RcDec`
+    // (Phase 7) so the burden path alone emits real RC.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
-        emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts)
+        emit_unified::emit_rc_unified(
+            func,
+            state_map,
+            pool,
+            interner,
+            contracts,
+            predicate_stack_rc_disabled,
+        )
     };
 
-    // Sub-step C: emit reuse from collected events (replaces emit_reuse scan).
+    // Sub-step C: emit reuse from the collected death/alloc events.
     let (reuse_ops_inserted, fip_evidence) = {
         let _span = tracing::debug_span!("realize_reuse").entered();
         let reuse_result = crate::aims::emit_reuse::emit_reuse_from_events(
@@ -185,11 +207,8 @@ pub fn realize_rc_reuse(
     }
 }
 
-/// Converged-analysis inputs for [`realize_annotations`].
-///
-/// Bundles the state map, interner/pool, interprocedural `contracts`, the
-/// builtin ownership sets, and the analyzed-function name set. Every field
-/// is read together by the Phase 2 walk.
+/// Converged-analysis inputs for [`realize_annotations`], read together by the
+/// Phase 2 walk.
 pub struct AnnotationEnv<'a> {
     pub state_map: &'a AimsStateMap,
     pub interner: &'a ori_ir::StringInterner,
@@ -322,11 +341,10 @@ fn annotate_block(
         };
 
         let state = ctx.state_map.var_state_at_block_entry(blk, var);
-        // BUG-04-065: read uniqueness via the contract-aware effective
-        // helper so a callee's ReturnContract reaches the COW Apply
-        // annotation site. Other dimensions (access, consumption,
-        // cardinality) are not contract-narrowed by TF-6 and continue
-        // reading the raw lattice value.
+        // Read uniqueness via the contract-aware effective helper so a
+        // callee's ReturnContract reaches the COW Apply annotation site.
+        // Other dimensions (access, consumption, cardinality) are not
+        // contract-narrowed by TF-6 and continue reading the raw lattice value.
         let site_ctx = AnnotationSiteContext {
             var,
             uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
@@ -371,10 +389,9 @@ fn annotate_block(
         if ctx.cow_names.contains(callee) && !args.is_empty() {
             let receiver = args[0];
             let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
-            // BUG-04-065: same effective_uniqueness migration as the
-            // body-Apply path above; symmetric for Invoke terminators
-            // whose dst's contract narrowing is populated by
-            // populate_call_result_states.
+            // Same effective-uniqueness helper as the body-Apply path
+            // above; symmetric for Invoke terminators whose dst contract
+            // narrowing is populated by populate_call_result_states.
             let site_ctx = AnnotationSiteContext {
                 var: receiver,
                 uniqueness: ctx
@@ -403,8 +420,6 @@ fn annotate_block(
         }
     }
 }
-
-// emit_rc_unified and count_rc_ops moved to emit_unified.rs
 
 /// Pre-pass: inject `RcInc` before COW calls whose receiver is a borrowed
 /// function parameter (or alias thereof).

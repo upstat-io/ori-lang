@@ -76,7 +76,6 @@ Eight Ori-specific breaking rules for special constructs:
 | `NestedForRule` | Rust-style indentation for nested `for` |
 | `ParenthesesRule` | Preserve user parens, add when needed |
 | `RunRule` | Top-level stacked, nested width-based |
-| `LoopRule` | Complex body (run/try/match/for) breaks |
 
 ### Layer 5: Orchestration (`formatter/`)
 

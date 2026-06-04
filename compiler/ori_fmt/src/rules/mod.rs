@@ -20,7 +20,6 @@
 //! 5. **`NestedForRule`**: Rust-style indentation for nested `for`
 //! 6. **`ParenthesesRule`**: Preserve user parens, add when needed
 //! 7. **`FunctionSeq helpers`**: Query functions for try, match, generic `FunctionSeq`
-//! 8. **`LoopRule`**: Complex body (try/match/for) breaks
 //!
 //! # Spec Reference
 //!
@@ -29,7 +28,6 @@
 
 mod boolean_break;
 mod chained_else_if;
-mod loop_rule;
 mod method_chain;
 mod nested_for;
 mod parentheses;
@@ -38,7 +36,6 @@ mod short_body;
 
 pub use boolean_break::{collect_or_clauses, is_or_expression, BooleanBreakRule};
 pub use chained_else_if::{collect_if_chain, ChainedElseIfRule, ElseIfBranch, IfChain};
-pub use loop_rule::{get_loop_body, is_loop, is_simple_conditional_body, LoopRule};
 pub use method_chain::{
     collect_method_chain, is_method_chain, ChainedCall, MethodChain, MethodChainRule,
 };

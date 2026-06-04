@@ -47,6 +47,13 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // dec in a block the value outlives.
     pub(super) live_out_per_block: &'a [FxHashSet<ArcVarId>],
     pub(super) contracts: &'a FxHashMap<Name, MemoryContract>,
+    // Probe flag (`ORI_DISABLE_PREDICATE_STACK_RC=1`). When set, the predicate
+    // stack RC emitter is off and the burden path is the sole real-RC emitter:
+    // instruction-level transfer-suppression in `emit_last_use_decs` is lifted so
+    // a value consumed at an owned instruction position (e.g. an `ApplyIndirect`
+    // closure receiver) emits its release here instead of deferring to the
+    // (disabled) predicate stack. Default-path (false) suppression is unchanged.
+    pub(super) predicate_stack_rc_disabled: bool,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -62,6 +69,7 @@ pub(super) fn emit_burden_ops_for_blocks(
     analysis: &BurdenAnalysisCtx<'_>,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
     terminator_inc_per_block: &[Vec<ArcVarId>],
+    predicate_stack_rc_disabled: bool,
 ) {
     // Per-block Inc count map for symmetric Dec emission at terminator-transfer
     // points. Populated DURING the emit walk so the Dec emission sees every Inc
@@ -106,7 +114,17 @@ pub(super) fn emit_burden_ops_for_blocks(
                 *inc_counts.entry(*var).or_insert(0) += 1;
             }
         }
-        let terminator_borrowed_args = invoke_terminator_borrowed_args(&block.terminator);
+        // When the predicate stack is disabled (probe), the burden walk is the
+        // sole RC emitter: it MUST emit the borrowed-Invoke-arg scope-exit dec
+        // itself (the predicate stack's `release_with_burden_edge` is off).
+        // Passing an empty borrowed-arg set un-suppresses those decs. On the
+        // default path the predicate stack co-emits, so suppression stays.
+        let empty_borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
+        let terminator_borrowed_args = if predicate_stack_rc_disabled {
+            empty_borrowed
+        } else {
+            invoke_terminator_borrowed_args(&block.terminator)
+        };
         emit_terminator_burden_decs(
             &mut new_body,
             block_idx,
@@ -188,11 +206,38 @@ struct BurdenEmitCtx<'a> {
 /// `owned_vars_needing_rc.contains(&dst)` per the coexistence handshake —
 /// scalars naturally excluded per the `burden_carries_rc` filter.
 fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &BurdenEmitCtx<'_>) {
-    emit_fresh_site_burden_inc(new_body, &instr, ctx);
+    // Owned-position Incs + in-place-mutation drops reference PRE-EXISTING
+    // args, so they precede the instruction.
     emit_owned_position_incs(new_body, &instr, ctx);
     emit_in_place_mutation_drops(new_body, &instr, ctx);
     let transfer_vars = instr_transfer_vars(&instr);
-    new_body.push(instr);
+    // The FRESH-site Inc references `dst`, DEFINED by `instr`. Under the probe
+    // (`predicate_stack_rc_disabled`) the surviving whole-var burden ops lower
+    // mechanically to real `RcInc`/`RcDec`, so a `BurdenInc dst` placed BEFORE
+    // the defining `Construct` / `PartialApply` / `Reuse` / `Apply`-result /
+    // dup-`Let` would lower to an `RcInc` on an undefined var (the ArcIrEmitter
+    // rejects it) — emit the Inc AFTER the instruction so the lowered RcInc
+    // sees a defined value. On the DEFAULT path the burden ops are accounting
+    // markers consumed by Phase-6 elimination / the predicate-stack coexistence
+    // (never lowered to real RC at this site), so the historical pre-instruction
+    // placement is byte-identical and MUST be preserved to keep default-path
+    // codegen unchanged.
+    let fresh_inc_dst = fresh_site_burden_inc_dst(&instr, ctx);
+    if ctx.analysis.predicate_stack_rc_disabled {
+        // Probe path: emit the FRESH-site Inc AFTER the defining instruction so
+        // the lowered RcInc references a defined dst.
+        new_body.push(instr);
+        if let Some(dst) = fresh_inc_dst {
+            new_body.push(ArcInstr::BurdenInc { var: dst });
+        }
+    } else {
+        // Default path: historical pre-instruction placement (burden ops are
+        // codegen no-op markers here — byte-identical to keep AOT unchanged).
+        if let Some(dst) = fresh_inc_dst {
+            new_body.push(ArcInstr::BurdenInc { var: dst });
+        }
+        new_body.push(instr);
+    }
     emit_last_use_decs(new_body, ctx, &transfer_vars);
 }
 
@@ -306,9 +351,23 @@ fn emit_last_use_decs(
         return;
     };
     for &var in last_use_vars {
-        if transfer_vars.contains(&var)
-            || ctx.analysis.full_move_vars.contains(&var)
+        // `transfer_vars` = consumed at THIS instruction's owned position. On the
+        // default path the downstream owned-position RcDec (or predicate stack)
+        // discharges the release, so suppress the dec here. Under the probe the
+        // predicate stack is off and a value consumed at an owned position whose
+        // callee BORROWS (no real transfer) must be released by the burden path —
+        // the ApplyIndirect closure-receiver + borrowed-Apply-arg case. Lift only
+        // this instruction-local suppression under the probe.
+        let instr_transfer_suppressed =
+            !ctx.analysis.predicate_stack_rc_disabled && transfer_vars.contains(&var);
+        // `transfer_via_move_alias` = the value genuinely moves downstream through
+        // a Let-Var move-alias chain to a real transfer point; its release is
+        // discharged THERE, not at the move-alias site (else a double dec on the
+        // shared allocation). Suppressed on BOTH paths. `full_move_vars` likewise
+        // (container drop emits the field-grain decs).
+        if instr_transfer_suppressed
             || ctx.analysis.transfer_via_move_alias.contains(&var)
+            || ctx.analysis.full_move_vars.contains(&var)
         {
             continue;
         }
@@ -371,11 +430,7 @@ fn emit_last_use_decs(
 /// `MaybeShared` return). Indirect calls (`ApplyIndirect` / `InvokeIndirect`)
 /// have no callee identity, so their dst is treated as `MaybeShared` per AIMS
 /// TF-5a / TF-6c — also emits the Inc when dst is in `owned_vars_needing_rc`.
-fn emit_fresh_site_burden_inc(
-    new_body: &mut Vec<ArcInstr>,
-    instr: &ArcInstr,
-    ctx: &BurdenEmitCtx<'_>,
-) {
+fn fresh_site_burden_inc_dst(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Option<ArcVarId> {
     let dst = match instr {
         ArcInstr::Let {
             dst,
@@ -402,7 +457,7 @@ fn emit_fresh_site_burden_inc(
             match ctx.analysis.contracts.get(func) {
                 Some(c) => match c.return_info.uniqueness {
                     Uniqueness::Unique | Uniqueness::MaybeShared => *dst,
-                    Uniqueness::Shared => return,
+                    Uniqueness::Shared => return None,
                 },
                 None => *dst,
             }
@@ -412,7 +467,7 @@ fn emit_fresh_site_burden_inc(
             // MaybeShared. Emit FRESH-site Inc to balance the last-use Dec.
             *dst
         }
-        _ => return,
+        _ => return None,
     };
     // Suppress the FRESH-site Inc when dst is move-transferred into an owned
     // position: its paired BurdenDec is transfer-suppressed (RL-2), so emitting
@@ -421,7 +476,9 @@ fn emit_fresh_site_burden_inc(
     if ctx.analysis.owned_vars_needing_rc.contains(&dst)
         && !ctx.analysis.inc_suppressed_vars.contains(&dst)
     {
-        new_body.push(ArcInstr::BurdenInc { var: dst });
+        Some(dst)
+    } else {
+        None
     }
 }
 
@@ -555,7 +612,10 @@ fn emit_terminator_burden_decs(
             // Borrowed Invoke arg: the value survives the borrowed call and is
             // released at the successor by the predicate-stack edge cleanup,
             // which co-emits the paired scope-exit BurdenDec. A terminator dec
-            // here too double-counts (VF-1 net=-1 per terminal path).
+            // here too double-counts (VF-1 net=-1 per terminal path). The probe
+            // completeness pass (`emit_burden_scope_exit_decs`) restores the
+            // release for fresh-owned values orphaned by this deferral when the
+            // predicate stack is off.
             if terminator_borrowed_args.contains(&var) {
                 continue;
             }

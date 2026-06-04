@@ -173,6 +173,12 @@ pub(crate) fn emit_edge_cleanup(
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &super::take_project::TakeMoveFacts,
     deferred_parent_decs: &FxHashMap<usize, Vec<DeferredDec>>,
+    // Probe path (`ORI_DISABLE_PREDICATE_STACK_RC=1`): emit dying-edge releases
+    // as `BurdenDec` only (no predicate-stack `RcDec`) so the burden path is the
+    // sole RC emitter; Phase 7 lowers the `BurdenDec` to a real `RcDec`. Default
+    // (`false`): emit the predicate-stack `RcDec` + adjacent `BurdenDec` ledger
+    // marker as before. Spec: Annex E §AIMS RL-4.
+    burden_only: bool,
 ) {
     let predecessors = compute_predecessors(func);
     let same_alloc_reps = compute_same_alloc_reps(func, state_map.apply_result_aliases());
@@ -264,7 +270,7 @@ pub(crate) fn emit_edge_cleanup(
         collect_branch_edge_decs(env, block_idx, blk, &successors, &mut edge_decs);
     }
 
-    apply_edge_decs(func, &predecessors, edge_decs);
+    apply_edge_decs(func, &predecessors, edge_decs, burden_only);
 }
 
 /// Collect branch/switch/jump edge `RcDec`s by mapping the shared edge-dead-set
@@ -451,6 +457,7 @@ fn apply_edge_decs(
     func: &mut ArcFunction,
     predecessors: &[Vec<usize>],
     edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)>,
+    burden_only: bool,
 ) {
     if tracing::enabled!(tracing::Level::DEBUG) {
         let burden_true = func.burden_emitted.iter().filter(|b| **b).count();
@@ -490,7 +497,11 @@ fn apply_edge_decs(
             let dec_instrs: Vec<ArcInstr> = decs
                 .iter()
                 .flat_map(|&(var, strategy)| {
-                    super::release_with_burden_edge(func, *pred, var, strategy)
+                    if burden_only {
+                        super::release_burden_only_edge(func, *pred, var)
+                    } else {
+                        super::release_with_burden_edge(func, *pred, var, strategy)
+                    }
                 })
                 .collect();
             let body = &mut func.blocks[*succ].body;
@@ -503,7 +514,7 @@ fn apply_edge_decs(
     }
 
     for (pred, succ, decs) in trampolines {
-        insert_trampoline(func, pred, succ, &decs);
+        insert_trampoline(func, pred, succ, &decs, burden_only);
     }
 }
 

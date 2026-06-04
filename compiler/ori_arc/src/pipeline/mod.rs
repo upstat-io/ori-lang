@@ -70,6 +70,7 @@ pub fn run_arc_pipeline(
         observer: None,
         sigs,
         type_registry,
+        predicate_stack_rc_disabled: *aims_pipeline::PREDICATE_STACK_RC_DISABLED,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }
@@ -133,6 +134,7 @@ pub fn run_arc_pipeline_with_observer<'a>(
         observer: Some(observer),
         sigs,
         type_registry,
+        predicate_stack_rc_disabled: *aims_pipeline::PREDICATE_STACK_RC_DISABLED,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }

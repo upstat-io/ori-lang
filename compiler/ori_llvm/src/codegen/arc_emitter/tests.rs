@@ -1020,7 +1020,7 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
     drop(em);
 } // set_on_boxed_recursive_field_boxes_value_before_store
 
-// ─── BurdenDecField codegen wire matrix ───
+// BurdenDecField codegen wire matrix
 
 /// Positive pin: `BurdenDecField` on a heap-typed (str) field MUST emit
 /// GEP + load + `RcDec` on the prior field value BEFORE the upstream `Set`
@@ -1284,7 +1284,151 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
     drop(em);
 } // burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit
 
-// ─── BurdenDecVariant codegen wire matrix ───
+/// Regression: `BurdenDecField` on a BY-VALUE aggregate base (repr
+/// `Aggregate`, e.g. a struct phi `%vN = phi %ori.Record` flowing through
+/// a loop) MUST spill the aggregate to a stack alloca + store BEFORE
+/// `struct_gep` per AB-5 / `FastISel` discipline — a by-value aggregate has
+/// no addressable storage, so `struct_gep` on the SSA value itself is a
+/// `struct_gep on non-pointer value` (E5001). A non-`RcPointer` aggregate
+/// base must not be skipped as an unreachable scalar (that leaves the heap
+/// field uncleaned). Positive pin: the spill (`burden.spill` alloca +
+/// store) AND the field GEP+load+RcDec emit.
+#[test]
+fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
+    use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
+    use ori_arc::Ownership;
+
+    use super::test_utils::{burden_dec_field_first, entry_block, set_first};
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Struct with one str field — heap-burdened; MUST emit RcDec. The base
+    // var carries repr Aggregate (by-value), NOT RcPointer.
+    let struct_ty = pool.struct_type(
+        ori_ir::Name::from_raw(320),
+        &[(ori_ir::Name::from_raw(321), Idx::STR)],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_burden_dec_field_aggr"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_bdf_aggr", &[ptr_ty, ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_bdf_aggr"),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: struct_ty,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: struct_ty,
+        blocks: vec![entry_block(
+            vec![
+                burden_dec_field_first(ArcVarId::new(0)),
+                set_first(ArcVarId::new(0), ArcVarId::new(1)),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        var_types: vec![struct_ty, Idx::STR],
+        // Base var (0) is a BY-VALUE aggregate (the bug shape), NOT RcPointer.
+        var_reprs: vec![ValueRepr::Aggregate, ValueRepr::RcPointer],
+        spans: vec![vec![None, None]],
+        ..Default::default()
+    };
+
+    let abi = FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern("base"),
+                ty: struct_ty,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+            ParamAbi {
+                name: interner.intern("val"),
+                ty: Idx::STR,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: struct_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Semantic pin: the by-value aggregate is spilled to a stack alloca + store
+    // before any field addressing (AB-5).
+    assert!(
+        ir.contains("burden.spill") && ir.contains("alloca"),
+        "BurdenDecField on a by-value aggregate base MUST spill to a `burden.spill` alloca; ir:\n{ir}",
+    );
+    // Pin: the field GEP + load + RcDec still emit off the spilled pointer.
+    assert!(
+        ir.contains("burden_dec_field.0.ptr"),
+        "BurdenDecField MUST emit struct_gep for field position off the spilled pointer; ir:\n{ir}",
+    );
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "BurdenDecField on str-typed field of an aggregate base MUST route through ori_rc_dec; ir:\n{ir}",
+    );
+    // Negative pin: the field GEP MUST address the spilled alloca pointer
+    // (`%burden.spill`), NEVER the by-value aggregate SSA value directly —
+    // the latter is `struct_gep on non-pointer value` (E5001). Assert the
+    // GEP operand is the spill slot.
+    assert!(
+        ir.contains("getelementptr inbounds nuw %ori.320, ptr %burden.spill"),
+        "BurdenDecField field GEP MUST address the spilled alloca pointer, not a by-value aggregate; ir:\n{ir}",
+    );
+    // The store-before-GEP ordering MUST hold (spill materialized first).
+    let spill_store = ir.find("store ptr %0, ptr %burden.spill");
+    let field_gep = ir.find("%burden_dec_field.0.ptr = getelementptr");
+    assert!(
+        matches!((spill_store, field_gep), (Some(s), Some(g)) if s < g),
+        "spill `store` MUST precede the field GEP; ir:\n{ir}",
+    );
+
+    drop(em);
+} // burden_dec_field_aggregate_base_spills_to_alloca_before_gep
+
+// BurdenDecVariant codegen wire matrix
 
 /// Test-only classifier that classifies a specific enum `Idx` as
 /// `DefiniteRef` so `compute_drop_info` walks per-variant fields rather

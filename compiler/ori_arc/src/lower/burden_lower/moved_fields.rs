@@ -69,8 +69,20 @@ pub(super) fn populate_moved_out_fields(
     ctx: &mut BurdenLowerCtx<'_>,
     func: &ArcFunction,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+    type_registry: &TypeRegistry,
 ) {
     // Pass 1: collect (project_dst → (project_src, field)) tuples.
+    //
+    // A `Project` of a SCALAR field transfers NO RC ownership (`Spec: Annex E
+    // §AIMS L-9` scalar exclusion + TF-4 Project-is-Borrowed): moving an int /
+    // bool / float payload out of an aggregate does not release any heap
+    // allocation, so it must NOT contribute a moved-out field. Recording a
+    // scalar projection would wrongly populate `skip_fields`, suppressing the
+    // surviving RC'd payload's `BurdenDec` and leaking it (the Result<int, str>
+    // `?? ` shape: the scalar Ok-int projection produces a `Project %r.1`-shaped
+    // moved-field that would otherwise skip variant 1's surviving heap str).
+    // Gate the record on the projected dst carrying an RC burden — scalars
+    // return `None` from `lookup_burden` and are skipped.
     let mut project_origins: FxHashMap<ArcVarId, (ArcVarId, u32)> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -78,6 +90,18 @@ pub(super) fn populate_moved_out_fields(
                 dst, value, field, ..
             } = instr
             {
+                let dst_ty: TypeRef = idx_to_type_ref(func.var_types[dst.index()], type_registry);
+                // A scalar / non-RC dst carries no allocation to move. `int`
+                // resolves a builtin burden entry that is EMPTY (no owned
+                // fields, no self-heap-alloc) — `is_some()` is NOT a sufficient
+                // gate; require `burden_carries_rc` (the same RC-bearing
+                // predicate `owned_vars_needing_rc` uses).
+                let carries_rc = lookup_burden(dst_ty, type_registry)
+                    .as_ref()
+                    .is_some_and(super::burden_carries_rc);
+                if !carries_rc {
+                    continue;
+                }
                 project_origins.insert(*dst, (*value, *field));
             }
         }

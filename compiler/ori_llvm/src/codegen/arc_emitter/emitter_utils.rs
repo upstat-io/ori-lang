@@ -195,6 +195,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.var_emitted(v).into_raw()
     }
 
+    /// Return a POINTER to the field/variant layout of an ARC variable,
+    /// suitable for `struct_gep`-based field addressing.
+    ///
+    /// - `RcPointer` repr → the heap pointer itself (already addressable).
+    /// - Any by-value repr (`Aggregate` / `FatValue` / `Immediate`) → spill
+    ///   the SSA value to a fresh stack `alloca` + `store` and return the
+    ///   slot pointer.
+    ///
+    /// Per AB-5 (the 16-byte indirect-passing / `FastISel` aggregate rule): a
+    /// by-value aggregate SSA value (e.g. a struct phi `%vN = phi %ori.Record`)
+    /// has no addressable storage, so `struct_gep` on the value itself is a
+    /// `struct_gep on non-pointer value`. The spill mirrors the enum RC-op
+    /// path's `alloca` + `store` at `rc_helpers.rs` `emit_enum_rc_op`.
+    pub(super) fn var_field_base_ptr(&mut self, v: ArcVarId, base_ty: Idx) -> ValueId {
+        let emitted = self.var_emitted(v);
+        if let EmittedValue::RcPointer(ptr) = emitted {
+            return ptr;
+        }
+        let llvm_ty = self.resolve_type(base_ty);
+        let slot = self.builder.alloca(llvm_ty, "burden.spill");
+        self.builder.store(emitted.into_raw(), slot);
+        slot
+    }
+
     /// Look up the typed emitted value for an ARC variable.
     ///
     /// Returns the full [`EmittedValue`] including representation info.

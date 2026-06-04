@@ -75,7 +75,7 @@ pub use packing::{
 };
 pub use rules::{
     needs_parens, BooleanBreakRule, BreakPoint, ChainedElseIfRule, ElseIfBranch, ForChain,
-    ForLevel, IfChain, LoopRule, MethodChainRule, NestedForRule, ParenPosition, ParenthesesRule,
+    ForLevel, IfChain, MethodChainRule, NestedForRule, ParenPosition, ParenthesesRule,
     ShortBodyRule,
 };
 pub use shape::Shape;

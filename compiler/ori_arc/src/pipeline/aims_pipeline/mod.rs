@@ -51,6 +51,22 @@ pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
 static BURDEN_OPS_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_PREDICATE_STACK_RC=1` is the symmetric twin of
+/// `ORI_DISABLE_BURDEN_OPS`: with burden ops ON, it suppresses the
+/// predicate-stack `RcInc`/`RcDec` emission (Phase 1 walk + edge / dead /
+/// project-escape cleanup) and instead lowers surviving `BurdenInc → RcInc` /
+/// `BurdenDec → RcDec` mechanically (Phase 7), so the burden path alone is the
+/// real RC emitter. PROBE flag — verification-only; the shipped predicate-stack
+/// deletion + real-RC activation is owned elsewhere. The default (flag unset)
+/// path is byte-for-byte unchanged: burden ops stay codegen no-ops, the
+/// predicate stack emits RC as today. Seeds the per-pipeline
+/// `AimsPipelineConfig.predicate_stack_rc_disabled` at the production entry
+/// points; tests set the config field directly (no env mutation — the env read
+/// is process-global via `LazyLock`, so a per-test toggle is impossible). Read
+/// once at first access; zero overhead when unset.
+pub(crate) static PREDICATE_STACK_RC_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() == Ok("1"));
+
 /// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
 /// after Step 4b `emit_burden_ops`, before any realization. Surfaces the
 /// faithful Phase-5 `BurdenInc` / `BurdenDec*` emission for VF-1 residual
@@ -64,7 +80,7 @@ static DUMP_AFTER_BURDEN: LazyLock<bool> =
 /// before any predicate-stack realization. Surfaces which `BurdenInc` /
 /// `BurdenDec*` survive DP-2/DP-3 elimination — the ledger that Phase-7
 /// mechanical lowering would turn into real `RcInc`/`RcDec`. Read once at
-/// first access; zero overhead when unset. (per .claude/rules/tooling-first.md §4)
+/// first access; zero overhead when unset.
 static DUMP_AFTER_BURDEN_ELIM: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN_ELIM").as_deref() == Ok("1"));
 
@@ -174,6 +190,15 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// input"). Call sites pass either the live module `TypeRegistry` (`oric`
     /// codegen path) or an empty placeholder (`TypeRegistry::default`).
     pub type_registry: &'a TypeRegistry,
+    /// Probe flag (per the canonical burden RC-emission path, Spec: Annex E §AIMS):
+    /// when `true`, suppress the predicate-stack `RcInc`/`RcDec` emission and
+    /// instead mechanically lower surviving `BurdenInc → RcInc` /
+    /// `BurdenDec → RcDec` (Phase 7), proving the burden path is a complete
+    /// standalone RC emitter. Production entry points seed this from
+    /// [`PREDICATE_STACK_RC_DISABLED`] (the `ORI_DISABLE_PREDICATE_STACK_RC`
+    /// env `LazyLock`); tests set it directly so the env read stays single
+    /// process-global. Default `false` — predicate-stack RC as today.
+    pub predicate_stack_rc_disabled: bool,
 }
 
 /// Result of `run_aims_pipeline` for a single function.
@@ -263,21 +288,7 @@ pub(crate) fn run_aims_pipeline(
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    //
-    // ORI_DISABLE_BURDEN_OPS=1 skips emission entirely so the predicate-stack
-    // realization path runs unchanged. Used for ITEM-4 empty-harness predicate
-    // parity check.
-    if !*BURDEN_OPS_DISABLED {
-        let _span = tracing::info_span!("emit_burden_ops").entered();
-        let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
-        let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
-            func,
-            config.type_registry,
-            &derived_ownership,
-            &immortals,
-            config.contracts,
-        );
-    }
+    emit_burden_ops_step(func, config, &derived_ownership);
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
     if *DUMP_AFTER_BURDEN {
@@ -287,14 +298,7 @@ pub(crate) fn run_aims_pipeline(
         );
     }
 
-    if *DUMP_AFTER_BURDEN_ELIM {
-        let mut clone = func.clone();
-        crate::aims::realize::eliminate_burden_ops(&mut clone, &state_map);
-        eprintln!(
-            "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
-            crate::ir::format::format_function(&clone, config.pool, config.interner)
-        );
-    }
+    dump_after_burden_elim(func, &state_map, config);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -306,6 +310,7 @@ pub(crate) fn run_aims_pipeline(
             config.interner,
             config.builtins,
             config.pool,
+            config.predicate_stack_rc_disabled,
         )
     };
     trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner, config.observer);
@@ -338,6 +343,69 @@ pub(crate) fn run_aims_pipeline(
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
     })
+}
+
+/// Step 4b: emit `BurdenInc`/`BurdenDec*` ops from the converged state map.
+///
+/// `ORI_DISABLE_BURDEN_OPS=1` skips emission entirely so the predicate-stack
+/// realization path runs unchanged.
+///
+/// The DEFAULT path (predicate stack ON) passes an EMPTY `TypeRegistry` so
+/// `lookup_burden` resolves only the builtin (`BURDEN_TABLE`) partition;
+/// user-side `[T]` / `{K:V}` / `Set<T>` / closure-env / struct burdens
+/// (`TypeRegistry::burden(idx)`) return `None`, so no field-grain
+/// `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` ops are emitted on
+/// the default path. Those field-grain ops have UNCONDITIONAL codegen glue
+/// (`instr_dispatch.rs` `struct_gep`s the aggregate) that is unsound on a
+/// by-value aggregate phi (Spec: Annex E §AIMS RE / codegen AB-5), so surfacing
+/// them on the default path breaks byte-identity. The live registry is threaded
+/// ONLY under the predicate-stack-disabled probe, where the burden path is the
+/// sole real-RC emitter and the field-grain codegen glue is exercised by the
+/// probe corpus.
+fn emit_burden_ops_step(
+    func: &mut ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+    derived_ownership: &[crate::ownership::DerivedOwnership],
+) {
+    if *BURDEN_OPS_DISABLED {
+        return;
+    }
+    let _span = tracing::info_span!("emit_burden_ops").entered();
+    let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
+    let empty_registry: ori_types::TypeRegistry;
+    let burden_registry = if config.predicate_stack_rc_disabled {
+        config.type_registry
+    } else {
+        empty_registry = ori_types::TypeRegistry::default();
+        &empty_registry
+    };
+    let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
+        func,
+        burden_registry,
+        derived_ownership,
+        &immortals,
+        config.contracts,
+        config.predicate_stack_rc_disabled,
+    );
+}
+
+/// Dump the post-`eliminate_burden_ops` ARC IR to stderr when
+/// `ORI_DUMP_AFTER_BURDEN_ELIM=1`. Operates on a clone so the live pipeline
+/// IR is untouched; no-op when the flag is unset.
+fn dump_after_burden_elim(
+    func: &ArcFunction,
+    state_map: &crate::aims::intraprocedural::AimsStateMap,
+    config: &AimsPipelineConfig<'_>,
+) {
+    if !*DUMP_AFTER_BURDEN_ELIM {
+        return;
+    }
+    let mut clone = func.clone();
+    crate::aims::realize::eliminate_burden_ops(&mut clone, state_map);
+    eprintln!(
+        "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
+        crate::ir::format::format_function(&clone, config.pool, config.interner)
+    );
 }
 
 /// Phase 2: COW + drop hints (post-merge) followed by post-realize

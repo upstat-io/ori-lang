@@ -1,5 +1,5 @@
-// Spec: 09-expressions.md § While Expression
-// Spec: 19-control-flow.md § Loop Control
+// Spec: 14-expressions.md § While Expression
+// Spec: 16-control-flow.md § Loop Control
 // while cond do body — sugar for loop { if !cond then break; body }; type void.
 // grammar.ebnf: while_expr = "while" [label] expression "do" expression
 
