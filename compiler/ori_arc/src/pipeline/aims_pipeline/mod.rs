@@ -386,6 +386,7 @@ fn emit_burden_ops_step(
         &immortals,
         config.contracts,
         config.predicate_stack_rc_disabled,
+        config.interner,
     );
 }
 

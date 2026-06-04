@@ -6,13 +6,63 @@ use ori_ir::Name;
 use ori_types::{Idx, TypeRegistry};
 use rustc_hash::FxHashMap;
 
-use super::{emit_burden_ops, BurdenLowerCtx};
+use super::{emit_burden_ops as emit_burden_ops_impl, BurdenLowerCtx};
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-    ArgOwnership, CtorKind, LitValue,
+    ArgOwnership, CtorKind, LitValue, PrimOp, ValueRepr,
 };
 use crate::lower::test_utils::{entry_block, project_first, set_first};
 use crate::ownership::{DerivedOwnership, Ownership};
+
+/// Test wrapper forwarding to the real `emit_burden_ops` with a fresh empty
+/// `StringInterner`. The iterator-element exclusion (`collect_iter_element_defs`)
+/// resolves the `__iter_next` protocol-builtin name through the interner; tests
+/// that exercise iterator-element exclusion pass their own interner via
+/// [`emit_burden_ops_with_interner`]. Synthetic-`Name` fixtures never collide
+/// with the interned `__iter_next`, so the fresh interner is a no-op for them —
+/// preserving the existing call shape across the suite without 78-site churn.
+fn emit_burden_ops<'a>(
+    func: &mut ArcFunction,
+    type_registry: &'a TypeRegistry,
+    derived_ownership: &[DerivedOwnership],
+    immortals: &[bool],
+    contracts: &FxHashMap<Name, crate::aims::contract::MemoryContract>,
+    predicate_stack_rc_disabled: bool,
+) -> BurdenLowerCtx<'a> {
+    let interner = ori_ir::StringInterner::new();
+    emit_burden_ops_impl(
+        func,
+        type_registry,
+        derived_ownership,
+        immortals,
+        contracts,
+        predicate_stack_rc_disabled,
+        &interner,
+    )
+}
+
+/// Test wrapper threading a caller-supplied interner — used by the
+/// iterator-element-exclusion pins which must intern `__iter_next` so the
+/// `Apply` callee `Name` matches `collect_iter_element_defs`.
+fn emit_burden_ops_with_interner<'a>(
+    func: &mut ArcFunction,
+    type_registry: &'a TypeRegistry,
+    derived_ownership: &[DerivedOwnership],
+    immortals: &[bool],
+    contracts: &FxHashMap<Name, crate::aims::contract::MemoryContract>,
+    predicate_stack_rc_disabled: bool,
+    interner: &ori_ir::StringInterner,
+) -> BurdenLowerCtx<'a> {
+    emit_burden_ops_impl(
+        func,
+        type_registry,
+        derived_ownership,
+        immortals,
+        contracts,
+        predicate_stack_rc_disabled,
+        interner,
+    )
+}
 
 fn empty_func() -> ArcFunction {
     ArcFunction::default()
@@ -199,7 +249,7 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
     // has a follow-up use (Let-Var alias keeps it alive past the Construct).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -216,12 +266,21 @@ fn construct_emits_burden_inc_immediately_before_consuming_construct() {
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
                 },
-                // Follow-up use keeps the Construct result var(1) live, so the
-                // FRESH-site BurdenInc is emitted (a DEAD result is correctly
-                // suppressed — its cleanup is predicate-stack-managed per the
-                // proven CH-comp case-3 coexistence handshake).
+                // TWO follow-up aliases keep the Construct result var(1)
+                // GENUINELY live (use-count >= 2 => a DUPLICATION, not a
+                // single-use move): the FRESH-site BurdenInc IS emitted. A
+                // single-use move-alias to a dead var is a MOVE (RL-2 ownership
+                // transfer): the source's inc is suppressed and the lineage's
+                // single inc+dec lands at the dst — a DEAD/move result is
+                // correctly inc-suppressed per the proven CH-comp case-3
+                // coexistence handshake.
                 ArcInstr::Let {
                     dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(1)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(1)),
                 },
@@ -276,7 +335,7 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
     // Idx::STR (heap-burden) per VF-1 RcOnScalar mirror.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -297,9 +356,17 @@ fn apply_emits_burden_inc_immediately_before_consuming_apply() {
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
                 },
-                // Keep the result var(1) live so its FRESH-site BurdenInc emits.
+                // TWO follow-up aliases keep result var(1) GENUINELY live
+                // (use-count >= 2 = duplication, not a single-use move), so its
+                // FRESH-site BurdenInc emits. A single-use move-alias is an RL-2
+                // ownership transfer whose source inc is correctly suppressed.
                 ArcInstr::Let {
                     dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(1)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(1)),
                 },
@@ -1222,7 +1289,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
     // Per `RL-2` ownership-transferring exception.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1234,9 +1301,17 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
                     args: vec![ArcVarId::new(1)],
                     arg_ownership: Vec::new(), // empty → all-Borrowed default
                 },
-                // Keep the result var(2) live so its FRESH-site BurdenInc emits.
+                // TWO follow-up aliases keep result var(2) GENUINELY live
+                // (use-count >= 2 = duplication, not a single-use move): the
+                // FRESH-site BurdenInc fires. A single-use move-alias is an RL-2
+                // ownership transfer whose source inc is correctly suppressed.
                 ArcInstr::Let {
                     dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
                 },
@@ -1357,6 +1432,7 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
             Idx::STR,
             Idx::STR,
             Idx::STR,
+            Idx::STR,
         ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -1383,9 +1459,17 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
                 },
-                // Keep the result var(3) live so its FRESH-site BurdenInc emits.
+                // TWO follow-up aliases keep result var(3) GENUINELY live
+                // (use-count >= 2 = duplication, not a single-use move): the
+                // FRESH-site BurdenInc fires. A single-use move-alias is an RL-2
+                // ownership transfer whose source inc is correctly suppressed.
                 ArcInstr::Let {
                     dst: ArcVarId::new(7),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(8),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(3)),
                 },
@@ -1570,6 +1654,7 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
             Idx::STR,
             Idx::STR,
             Idx::STR,
+            Idx::STR,
         ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -1600,6 +1685,11 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
                 // Keep the result var(3) live so its FRESH-site BurdenInc emits.
                 ArcInstr::Let {
                     dst: ArcVarId::new(6),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(7),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(3)),
                 },
@@ -1724,7 +1814,7 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
     // potentially passing the PartialApply pin.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1739,6 +1829,11 @@ fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
                 // Keep the result var(2) live so its FRESH-site BurdenInc emits.
                 ArcInstr::Let {
                     dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
                 },
@@ -1846,6 +1941,7 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
             Idx::STR,
             Idx::STR,
             Idx::STR,
+            Idx::STR,
         ],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -1870,6 +1966,11 @@ fn construct_multi_arg_mixed_types_emits_burden_inc_for_heap_burden_args_only() 
                 // Keep the result var(3) live so its FRESH-site BurdenInc emits.
                 ArcInstr::Let {
                     dst: ArcVarId::new(6),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(3)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(7),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(3)),
                 },
@@ -1918,7 +2019,7 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
     //  Clamping clamp-from-all-sides.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1936,6 +2037,11 @@ fn apply_all_borrowed_args_emits_zero_burden_inc() {
                 // managed per the proven CH-comp case-3 coexistence handshake).
                 ArcInstr::Let {
                     dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(4),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(2)),
                 },
@@ -1979,7 +2085,7 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
     // empty, single-element, boundary).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -1996,6 +2102,11 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
                 // coexistence handshake).
                 ArcInstr::Let {
                     dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
                 },
@@ -2038,7 +2149,7 @@ fn construct_empty_args_emits_zero_burden_inc() {
     // args=[] → predicate false for all pos → zero BurdenInc.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
-        var_types: vec![Idx::STR, Idx::STR],
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -2052,6 +2163,11 @@ fn construct_empty_args_emits_zero_burden_inc() {
                 // Keep the result var(0) live so its FRESH-site BurdenInc emits.
                 ArcInstr::Let {
                     dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
                     ty: Idx::STR,
                     value: ArcValue::Var(ArcVarId::new(0)),
                 },
@@ -4503,7 +4619,16 @@ fn apply_alias_caller_func(
         });
         next_var += 1;
     }
-    // Keep the result live so its FRESH-site BurdenInc emits.
+    // TWO follow-up aliases keep the result GENUINELY live (use-count >= 2 =
+    // duplication, not a single-use move): the FRESH-site BurdenInc fires. A
+    // single-use move-alias is an RL-2 ownership transfer whose source inc is
+    // correctly suppressed (the lineage's single inc+dec lands at the dst).
+    body.push(ArcInstr::Let {
+        dst: ArcVarId::new(next_var),
+        ty: Idx::STR,
+        value: ArcValue::Var(dst),
+    });
+    next_var += 1;
     body.push(ArcInstr::Let {
         dst: ArcVarId::new(next_var),
         ty: Idx::STR,
@@ -5540,5 +5665,366 @@ fn string_literal_var_still_emits_burden_dec() {
         dec_count, 1,
         "heap str `Let {{ Literal(String) }}` var MUST still emit its BurdenDec \
          (scalar-Literal exclusion is String-exempt); body={body:?}",
+    );
+}
+
+// ── §07B.1 iterator-from-collection + collection-element standalone ledger ──
+
+/// Build the `for x in xs do x.len()` post-burden fixture: `%0` `[str]` coll,
+/// `%1 = iter(%0)`, `%2 = __iter_next(%1, marker %3)`, `%4 = Project %2.1`
+/// (str element view), `Invoke @len(%4 [borrow])`. Shared by the projection pin.
+fn iter_next_projection_func(interner: &ori_ir::StringInterner) -> ArcFunction {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let iter_next = interner.intern(ProtocolBuiltin::IterNext.name());
+    let iter_fn = interner.intern(ProtocolBuiltin::Iter.name());
+    ArcFunction {
+        var_types: vec![
+            Idx::from_raw(50),
+            Idx::INT,
+            Idx::INT,
+            Idx::STR,
+            Idx::STR,
+            Idx::INT,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::from_raw(50),
+                        ctor: CtorKind::ListLiteral,
+                        args: Vec::new(),
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::INT,
+                        func: iter_fn,
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::INT,
+                        func: iter_next,
+                        args: vec![ArcVarId::new(1), ArcVarId::new(3)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(4),
+                        ty: Idx::STR,
+                        value: ArcVarId::new(2),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(5),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(4)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(5),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+/// §07B.1 task 3 (inverse) — iterator-element borrow-views projected from an
+/// `Apply @__iter_next` result MUST receive zero `BurdenDec`. The yielded
+/// element (`Project { field: 1 }` of the `__iter_next` result) is a BORROWED
+/// view into the collection buffer per `Spec: Annex E §AIMS Protocol Builtins`
+/// (`IterNext` Owned iterator + Borrowed element-type marker); the element is
+/// owned by the collection and freed by `elem_dec_fn` when the iterator handle
+/// drops via `ori_iter_drop`. Emitting a last-use `BurdenDec` on the element
+/// view is a double-free in the standalone ledger (the `fat_ptr_iter` failure
+/// shape under `ORI_DISABLE_PREDICATE_STACK_RC=1`).
+///
+/// Shape mirrors the post-burden IR of `for x in xs do x.len()`:
+///   %0: [str] collection. %1 = Apply @iter(%0). %2 = Apply `@__iter_next(%1, %m)`
+///   (%m = element-type marker). %3 = Project %2.1 (str element view).
+///   Invoke @len(%3 [borrow]) — %3 borrowed, not transferred.
+/// Negative pin (revert): if `collect_iter_element_defs` exclusion is removed,
+/// %3 (declared `str`, RcPtr-burden) receives a last-use `BurdenDec` → the
+/// standalone-ledger double-free this section fixes.
+#[test]
+fn iter_next_element_projection_gets_no_burden_dec() {
+    let interner = ori_ir::StringInterner::new();
+    let registry = TypeRegistry::new();
+    let mut func = iter_next_projection_func(&interner);
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        true,
+        &interner,
+    );
+    // Semantic pin: the element view (%4) projected from __iter_next.1 receives
+    // ZERO BurdenDec — it is a borrowed collection-buffer view (elem_dec_fn owns
+    // its release). Negative direction: reverting the exclusion emits a dec here
+    // → standalone-ledger double-free.
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(4)),
+        0,
+        "iterator element view (Project __iter_next.1) MUST receive zero \
+         BurdenDec under the standalone ledger (borrowed buffer view; \
+         elem_dec_fn owns release — a dec double-frees); body={:?}",
+        func.blocks[0].body,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(4)),
+        0,
+        "iterator element view MUST receive zero BurdenInc; body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+/// §07B.1 collection-element scope cell — a Let-Var alias of the iterator
+/// element view also receives no `BurdenDec`. Mirrors `for (k, v) in m` and the
+/// `x = elem` rebinding shapes the `elem_dec_scope` / `collections_ext` clusters
+/// exercise: the element view flows through `Let { Var }` aliases (and block
+/// params), each of which inherits the borrowed-buffer-view classification via
+/// `collect_iter_element_defs`'s transitive closure. A dec on any alias of the
+/// element view is the same double-free.
+#[test]
+fn iter_next_element_let_alias_gets_no_burden_dec() {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let registry = TypeRegistry::new();
+    let interner = ori_ir::StringInterner::new();
+    let iter_next = interner.intern(ProtocolBuiltin::IterNext.name());
+    // %0 __iter_next result (scalar), %1 marker (str), %2 element view (str),
+    // %3 Let-Var alias of %2 (str), %4 len result (int).
+    let mut func = ArcFunction {
+        var_types: vec![Idx::INT, Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::INT,
+                        func: iter_next,
+                        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::STR,
+                        value: ArcVarId::new(0),
+                        field: 1,
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(ArcVarId::new(2)),
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(4),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(3)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        true,
+        &interner,
+    );
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(2)),
+        0,
+        "iterator element view MUST receive zero BurdenDec; body={:?}",
+        func.blocks[0].body,
+    );
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(3)),
+        0,
+        "Let-Var alias of an iterator element view MUST receive zero BurdenDec \
+         (transitive borrowed-buffer-view classification); body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+// ── concat dual-consuming operand: no spurious scope-exit BurdenDec ──
+
+/// Semantic pin: a list-concat `Let { PrimOp Binary(Add) }` consumes BOTH
+/// `RcPointer` operands (`ori_list_concat_cow` dec/frees them — `codegen-rules.md`
+/// operators §"List + list → COW concat"). The Phase-5 burden walk MUST NOT emit
+/// a scope-exit `BurdenDec` on a concat operand whose last-use is the concat —
+/// the helper's internal consume IS the release; a paired `BurdenDec` double-frees
+/// the buffer (the `coll_list_cow_concat_shared` SIGSEGV under the probe). Per
+/// AIMS RL-2 (concat operand = ownership-transfer position).
+#[test]
+fn list_concat_operand_at_last_use_gets_no_burden_dec() {
+    let mut registry = TypeRegistry::new();
+    let list_idx = Idx::from_raw(320);
+    register_list_burden(&mut registry, list_idx, Idx::INT);
+    // %0/%1 fresh lists, %2 = %0 + %1 (concat consumes both), %3 = %2 kept live;
+    // %0/%1 last-use is the concat. var_reprs := RcPointer (the list discriminator
+    // `list_concat_consumed_operands` reads; not populated by `emit_burden_ops`).
+    let mut func = ArcFunction {
+        var_types: vec![list_idx, list_idx, list_idx, list_idx],
+        var_reprs: vec![ValueRepr::RcPointer; 4],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(0),
+                    ty: list_idx,
+                    ctor: CtorKind::ListLiteral,
+                    args: Vec::new(),
+                },
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(1),
+                    ty: list_idx,
+                    ctor: CtorKind::ListLiteral,
+                    args: Vec::new(),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: list_idx,
+                    value: ArcValue::PrimOp {
+                        op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+                    },
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: list_idx,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        0,
+        "concat LHS operand (consumed by ori_list_concat_cow) MUST receive ZERO \
+         scope-exit BurdenDec; body={body:?}",
+    );
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(1)),
+        0,
+        "concat RHS operand (consumed by ori_list_concat_cow) MUST receive ZERO \
+         scope-exit BurdenDec; body={body:?}",
+    );
+}
+
+/// Negative pin: a `str` concat (`var_repr == FatValue`) is NOT consuming —
+/// `ori_str_concat` takes `*const OriStr` (BORROWED) and the caller RC-decs after.
+/// The list-concat consume suppression MUST NOT fire for a str operand: a heap
+/// str operand whose last-use is the concat STILL receives its scope-exit
+/// `BurdenDec` (distinguishes the list `RcPointer` consume from the str
+/// `FatValue` borrow — guards against an over-broad `Binary(Add)` rule).
+#[test]
+fn str_concat_operand_still_gets_burden_dec() {
+    let registry = TypeRegistry::new();
+    // %0/%1 fresh str, %2 = %0 + %1 (str concat — borrowed), %3 = %2 kept live;
+    // var_reprs := FatValue (str), the non-list discriminator.
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        var_reprs: vec![ValueRepr::FatValue; 4],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(2))),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::STR,
+                    value: ArcValue::PrimOp {
+                        op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+                    },
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(ArcVarId::new(2)),
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    let body = &func.blocks[0].body;
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        1,
+        "str concat operand (BORROWED by ori_str_concat) MUST still receive its \
+         scope-exit BurdenDec (list-consume suppression is FatValue-exempt); body={body:?}",
     );
 }

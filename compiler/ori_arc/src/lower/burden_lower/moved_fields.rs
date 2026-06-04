@@ -116,7 +116,7 @@ pub(super) fn populate_moved_out_fields(
     // consumed by Pass 3's merge.
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for instr in &block.body {
-            let transfer_vars = instr_transfer_vars(instr);
+            let transfer_vars = instr_transfer_vars(instr, func);
             for var in &transfer_vars {
                 if let Some(&(src, field)) = project_origins.get(var) {
                     ctx.moved_out_fields_block_local[block_idx]

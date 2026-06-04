@@ -16,7 +16,10 @@ use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, RcStrategy};
+use crate::ir::{
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, RcAtomicity, RcStrategy,
+    ValueRepr,
+};
 
 use super::metrics;
 use super::walk;
@@ -254,6 +257,7 @@ pub(super) fn emit_rc_unified(
             &all_borrowed_defs,
             &take_move_facts,
             &block_deferred,
+            &same_alloc_reps,
         );
     }
 
@@ -310,6 +314,13 @@ fn eliminate_burden_ops_phase(
 ///   `RcInc`/`RcDec`.
 ///
 /// Spec: Annex E §AIMS RL-4 (edge-specific dec) + RL-comp (lowered net-balance).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "probe-path realization tail threads the function-wide realization \
+              context (state map, pool, interner, borrowed defs, take-move facts, \
+              deferred decs, same-alloc reps) the two phases below consume; \
+              bundling into a struct fragments the single probe-tail orchestration"
+)]
 fn emit_burden_path_probe_tail(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -318,6 +329,7 @@ fn emit_burden_path_probe_tail(
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     block_deferred: &FxHashMap<usize, Vec<DeferredDec>>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) {
     crate::aims::emit_rc::emit_edge_cleanup(
         func,
@@ -330,8 +342,344 @@ fn emit_burden_path_probe_tail(
     );
     trace_phase_snapshot("after_phase_6_5_burden_edge_cleanup", func, interner);
 
-    lower_burden_ops_to_rc(func, pool);
+    let elidable_fresh_incs =
+        compute_elidable_fresh_self_alloc_incs(func, same_alloc_reps, interner);
+    lower_burden_ops_to_rc(func, pool, &elidable_fresh_incs);
     trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+}
+
+/// Compute the set of FRESH self-allocation `BurdenInc` def-sites whose paired
+/// fresh inc is REDUNDANT under Phase-7 lowering (the allocation already
+/// supplies the lineage's `+1`, so lowering the fresh inc would over-count by
+/// one and leak the value).
+///
+/// A FRESH self-allocation (`Construct` / `Reuse` / `CollectionReuse` /
+/// `PartialApply` / `Let { String }`) is created at runtime RC = 1: the alloc
+/// IS the `+1`. The Phase-5 burden walk emits a paired `BurdenInc` at that
+/// def-site for per-value ledger symmetry on the predicate-stack-ON path (where
+/// burden ops are codegen no-ops). Under sole-emitter lowering that fresh inc
+/// becomes a real `RcInc`, double-counting the allocation's implicit `+1`.
+///
+/// The fresh inc is ELIDABLE iff removing it preserves the lineage's alloc-aware
+/// net = 0 — i.e. the value is genuinely single-reference / read-only and the
+/// alloc's `+1` alone balances every release. It is LOAD-BEARING (kept) iff the
+/// lineage flows into a COW-mutation operand: a value-mutation site
+/// (`push`/`set`/`insert`/`remove`/`sort`/`reverse` at an owned `Apply`/`Invoke`
+/// arg, or a collection `+`/concat `PrimOp Binary` with an `RcPtr` operand) reads
+/// the operand's runtime refcount to choose copy-vs-mutate-in-place. Dropping
+/// the fresh inc there leaves the value at RC = 1 at the mutation point → the
+/// COW helper mutates the SHARED value in place, corrupting an aliased holder.
+/// Keeping the inc raises the runtime RC ≥ 2 so the COW helper COPIES (RL-1: a
+/// COW-mutation operand of a value re-read afterward is a DUPLICATING use, so
+/// the inc is not elidable per `AimsProof.Realization::RL1_emit_iff_not_elidable`).
+///
+/// Discriminator = per-`(var, same-alloc-lineage)` COW-operand flow, the DIRECT
+/// measure of fresh-inc load-bearingness — NOT use-count / type / def-block
+/// uniqueness (all dead-ends per `decisions/LEDGER.md §B.2`). Spec: Annex E
+/// §AIMS RL-1 (`!incElidable`) + RL-comp net-preservation.
+fn compute_elidable_fresh_self_alloc_incs(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    // Lineage reps whose value flows into a COW-mutation operand — the fresh inc
+    // for any FRESH self-alloc in such a lineage is LOAD-BEARING (keep it): the
+    // COW helper reads the operand's runtime refcount, and the fresh inc raises
+    // it to ≥ 2 so the helper COPIES instead of mutating the shared value.
+    let cow_mutated_reps = compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner);
+    // Per-lineage alloc-aware static net = `Σ self-alloc(+1) + Σ BurdenInc −
+    // Σ BurdenDec*` over the SSA-alias lineage (M3). Counting the allocation's
+    // implicit `+1` per the compiled-Lean `rcBalance` (a released FRESH value's
+    // full lifecycle counting alloc nets 0). A redundant fresh-site inc shows up
+    // as net == 1 (the inc is the surplus over balance); eliding it brings the
+    // lineage back to 0. A net != 1 means the fresh inc is balancing a
+    // COW-consume / move-alias dec (e.g. `length_one`: net 0 with all incs →
+    // eliding drops to −1, a double-free) → keep.
+    let lineage_net = compute_lineage_alloc_aware_net(func, same_alloc_reps);
+
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+
+    let mut elidable: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let Some(dst) = fresh_self_alloc_dst(instr) else {
+                continue;
+            };
+            // Only elide non-scalar RcPtr/FatValue self-allocs (scalars carry no
+            // burden ops; aggregates may have heap children whose RC the fresh
+            // inc does not double-count — restrict to single-pointer reprs the
+            // allocation's own `+1` covers).
+            if !matches!(
+                func.var_repr(dst),
+                Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+            ) {
+                continue;
+            }
+            let rep = rep_of(dst);
+            if cow_mutated_reps.contains(&rep) {
+                continue;
+            }
+            // Elide ONLY when the lineage net == 1: removing exactly one fresh
+            // inc restores the alloc-aware balance to 0. Any other net means the
+            // fresh inc is load-bearing for a non-elision reason (move-alias dec,
+            // unbalanced dup) — keep it (eliding would net −1 = double-free).
+            if lineage_net.get(&rep).copied().unwrap_or(0) != 1 {
+                continue;
+            }
+            elidable.insert(dst);
+        }
+    }
+    elidable
+}
+
+/// Per-SSA-alias-lineage alloc-aware PER-PATH terminal net (M3 — the shared
+/// Phase-7 accounting foundation). For each same-alloc rep, runs the per-path
+/// forward burden dataflow (`compute_burden_entry_nets`) over per-block deltas
+/// `Σ fresh-self-alloc(+1) + Σ BurdenInc − Σ whole-var BurdenDec*` attributed to
+/// the lineage rep. The fresh-self-alloc `+1` models the compiled-Lean
+/// `rcBalance` allocation term (`AimsProof.Realization::rcBalance` — a value
+/// allocated at RC = 1, counting the allocation, nets 0 when released exactly
+/// once on the path).
+///
+/// Per-path is load-bearing: a flat op-count summed across the CFG
+/// double-counts mutually-exclusive paths (e.g. an `Invoke` normal release vs
+/// its unwind-edge dec), masking the true per-path balance. The dataflow seeds
+/// `entry_net[entry]=0`, propagates predecessor exits, and records merge
+/// disagreement. The returned net for a rep is the agreed terminal net on the
+/// reachable terminal blocks; `None` for a rep with merge disagreement
+/// (conservatively NOT elidable).
+///
+/// A correctly-balanced released lineage nets 0 per path; a lineage carrying a
+/// redundant fresh-site inc nets 1 per path (the surplus inc). `BurdenDecField`
+/// is excluded (field-grain, per `burden_delta::whole_var_dec_target`).
+fn compute_lineage_alloc_aware_net(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashMap<ArcVarId, i64> {
+    use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let preds = crate::graph::compute_predecessors(func);
+
+    // Collect every lineage rep that has at least one fresh self-alloc member —
+    // the only reps an elision decision queries.
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let Some(dst) = fresh_self_alloc_dst(instr) {
+                if matches!(
+                    func.var_repr(dst),
+                    Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                ) {
+                    reps.insert(rep_of(dst));
+                }
+            }
+        }
+    }
+
+    let mut result: FxHashMap<ArcVarId, i64> = FxHashMap::default();
+    for rep in reps {
+        // Per-block delta for this lineage rep: alloc(+1) for each fresh
+        // self-alloc whose lineage rep == `rep`, +1 per `BurdenInc`, −1 per
+        // whole-var `BurdenDec*`.
+        let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+        for (b, block) in func.blocks.iter().enumerate() {
+            for instr in &block.body {
+                if let Some(dst) = fresh_self_alloc_dst(instr) {
+                    if rep_of(dst) == rep
+                        && matches!(
+                            func.var_repr(dst),
+                            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                        )
+                    {
+                        delta[b] += 1;
+                    }
+                }
+                if matches!(instr, ArcInstr::BurdenInc { var } if rep_of(*var) == rep) {
+                    delta[b] += 1;
+                } else if whole_var_dec_target(instr).map(rep_of) == Some(rep) {
+                    delta[b] -= 1;
+                }
+            }
+        }
+        let nets = compute_burden_entry_nets(func, &preds, &delta);
+        if !nets.disagree_blocks.is_empty() {
+            // Merge disagreement on this lineage → conservatively NOT elidable
+            // (omit from the map; the elision gate's `!= 1` check then keeps it).
+            continue;
+        }
+        // Agreed terminal net across reachable terminal blocks.
+        let mut terminal_net: Option<i64> = None;
+        for (b, block) in func.blocks.iter().enumerate() {
+            let Some(eb) = nets.entry_net[b] else {
+                continue;
+            };
+            if !matches!(
+                block.terminator,
+                ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
+            ) {
+                continue;
+            }
+            let exit = eb + delta[b];
+            match terminal_net {
+                None => terminal_net = Some(exit),
+                // Divergent terminal nets across paths → not elidable.
+                Some(t) if t != exit => {
+                    terminal_net = None;
+                    break;
+                }
+                Some(_) => {}
+            }
+        }
+        if let Some(n) = terminal_net {
+            result.insert(rep, n);
+        }
+    }
+    result
+}
+
+/// The `dst` of a FRESH self-allocation instruction (created at runtime RC = 1),
+/// or `None`. Mirrors the FRESH-site set `fresh_site_burden_inc_dst`
+/// (`burden_lower/emit.rs`) treats as self-allocating: `Construct` / `Reuse` /
+/// `CollectionReuse` / `PartialApply` / `Let { String }`. `Apply` / `Invoke`
+/// results are NOT self-allocs — they inherit an owned reference from the callee
+/// (the callee's allocation, not a fresh one created here), so their fresh inc
+/// is the caller's genuine acquire, never the redundant alloc double-count.
+#[expect(
+    clippy::match_same_arms,
+    reason = "the heap-ctor arm and the Let{String} arm are distinct instruction \
+              shapes that happen to share a `Some(*dst)` body; merging them would \
+              obscure the two FRESH-site categories the burden walk distinguishes"
+)]
+fn fresh_self_alloc_dst(instr: &ArcInstr) -> Option<ArcVarId> {
+    match instr {
+        ArcInstr::Construct { dst, .. }
+        | ArcInstr::Reuse { dst, .. }
+        | ArcInstr::CollectionReuse { dst, .. }
+        | ArcInstr::PartialApply { dst, .. } => Some(*dst),
+        ArcInstr::Let {
+            dst,
+            value: ArcValue::Literal(crate::ir::LitValue::String(_)),
+            ..
+        } => Some(*dst),
+        _ => None,
+    }
+}
+
+/// Same-alloc lineage reps whose value is consumed at a COW-mutation operand —
+/// a runtime site that reads the operand's refcount to choose copy-vs-mutate.
+/// Three site kinds:
+/// - an owned `Apply` / `Invoke` / `CollectionReuse` arg position whose argument
+///   is an `RcPtr` collection (the value-mutation builtins `push` / `set` /
+///   `insert` / `remove` / `sort` / `reverse` consume the receiver at an owned
+///   position and COW it);
+/// - a `Let { PrimOp { Binary, args } }` with an `RcPtr` operand (collection
+///   `+`/concat — `ori_list_concat_cow` / `ori_map_*_cow` read `ori_rc_is_unique`
+///   on the operand to choose buffer-takeover vs copy);
+/// - an `RcPtr` arg passed to any NON-protocol-builtin `Apply` / `Invoke` (a
+///   user function / stdlib method `Invoke @<name>` whose `<name>` is not
+///   `__`-prefixed). Such a callee may COW-mutate a collection param
+///   INTERPROCEDURALLY (e.g. `@check` doing `list.push(...)` on a borrowed
+///   param), reading the CALLER's runtime refcount through the call boundary;
+///   eliding the caller's fresh inc drops the value to RC = 1 at the callee's
+///   COW point → mutate-in-place corrupts the caller's still-live holder (the
+///   `arc_borrowed_param_cow_push_use_after` shape). The borrowed-param contract
+///   does NOT surface that internal COW (the param is borrowed-readonly at the
+///   ABI boundary yet the callee still reads rc), so a contract check cannot
+///   prove non-COW — conservatively keep the fresh inc for any non-builtin call
+///   argument. Protocol builtins (`__`-prefixed `Apply` — `__index` etc.) are
+///   compiler-interceptable with known read-only ownership (`arc.md §Protocol
+///   Builtins`) and stay elidable.
+fn compute_cow_mutated_lineage_reps(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let is_rcptr = |v: ArcVarId| {
+        matches!(
+            func.var_repr(v),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    // True iff a callee MAY COW/share an RcPtr arg. A callee
+    // that internally COW-mutates a collection param reads the caller's runtime
+    // refcount across the call boundary, so the caller's fresh inc is
+    // load-bearing. Protocol builtins (`__`-prefixed `Apply` — `__index`,
+    // `__iter_next`, etc.) are compiler-interceptable with known read-only
+    // ownership (`arc.md §Protocol Builtins`); a fresh value flowing ONLY into
+    // those is safely elidable. EVERY other call (a user function / stdlib
+    // method `Invoke`/`Apply` by `Name`) is conservatively COW-risk —
+    // INTERPROCEDURALLY, the callee may COW-mutate a collection param internally
+    // (e.g. `@check` doing `list.push(...)` on a borrowed param) whose runtime
+    // refcount is the CALLER's; the borrowed-param contract does NOT surface
+    // that internal COW (the param is borrowed-readonly at the ABI boundary yet
+    // the callee still reads rc), so the contract cannot prove non-COW. Keep the
+    // fresh inc for any non-builtin call argument — sound over-approximation;
+    // the directive's RL-1 "not elidable on a duplicating/COW use" governs.
+    let callee_may_cow = |callee: Name| -> bool { !interner.lookup(callee).starts_with("__") };
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            // Owned-position consume of an RcPtr collection (value-mutation
+            // builtin). `is_owned_position` covers Construct/PartialApply/
+            // CollectionReuse/Apply/ApplyIndirect; the value-mutation builtins
+            // (`push`/`set`/...) lower to `Apply`/`Invoke @<method>` with the
+            // receiver at an owned arg position.
+            let used = instr.used_vars();
+            for (pos, &arg) in used.iter().enumerate() {
+                if instr.is_owned_position(pos) && is_rcptr(arg) {
+                    reps.insert(rep_of(arg));
+                }
+            }
+            // Interprocedural COW: an RcPtr arg to a may-COW user `Apply`.
+            // `Apply.args` are positional user args (no leading closure), so the
+            // used-var index IS the param index.
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                for &arg in args {
+                    if is_rcptr(arg) && callee_may_cow(*callee) {
+                        reps.insert(rep_of(arg));
+                    }
+                }
+            }
+            // Collection `+`/concat: a Binary PrimOp with an RcPtr operand.
+            if let ArcInstr::Let {
+                value: ArcValue::PrimOp { op, args },
+                ..
+            } = instr
+            {
+                if matches!(op, PrimOp::Binary(_)) {
+                    for &arg in args {
+                        if is_rcptr(arg) {
+                            reps.insert(rep_of(arg));
+                        }
+                    }
+                }
+            }
+        }
+        // Terminator-position owned consume (Invoke/InvokeIndirect owned args).
+        let term_used = block.terminator.used_vars();
+        for (pos, &arg) in term_used.iter().enumerate() {
+            if block.terminator.is_owned_position(pos) && is_rcptr(arg) {
+                reps.insert(rep_of(arg));
+            }
+        }
+        // Interprocedural COW at an `Invoke` terminator: RcPtr args to a may-COW
+        // callee. `Invoke.args` are positional user args (param index == arg idx).
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            for &arg in args {
+                if is_rcptr(arg) && callee_may_cow(*callee) {
+                    reps.insert(rep_of(arg));
+                }
+            }
+        }
+    }
+    reps
 }
 
 /// Phase 7 (probe): mechanically lower surviving whole-var burden ops to real
@@ -353,8 +701,22 @@ fn emit_burden_path_probe_tail(
 /// Annex E §AIMS RE-2 / DP-1). A `Scalar` or out-of-range `var_repr` leaves the
 /// burden op in place rather than synthesizing an unsound `RcDec`.
 ///
+/// `elidable_fresh_incs` (per `compute_elidable_fresh_self_alloc_incs`): FRESH
+/// self-allocation `BurdenInc` def-sites whose paired fresh inc is REDUNDANT
+/// under lowering — the allocation already supplies the lineage's `+1`. The
+/// FIRST `BurdenInc` encountered for such a var is left as a no-op `BurdenInc`
+/// marker (codegen no-ops it) instead of lowering to `RcInc`, so the lineage's
+/// alloc-aware net stays 0 (no leak). Subsequent `BurdenInc`s for the same var
+/// (genuine dup-alias acquires) still lower — only the ONE redundant fresh-site
+/// inc per var is elided.
+///
 /// Spec: Annex E §AIMS RL-comp (lowered `BurdenInc`/`BurdenDec` net-preservation).
-fn lower_burden_ops_to_rc(func: &mut ArcFunction, pool: &Pool) {
+fn lower_burden_ops_to_rc(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    elidable_fresh_incs: &FxHashSet<ArcVarId>,
+) {
+    let mut fresh_inc_elided: FxHashSet<ArcVarId> = FxHashSet::default();
     for block_idx in 0..func.blocks.len() {
         let body_len = func.blocks[block_idx].body.len();
         for instr_idx in 0..body_len {
@@ -363,6 +725,18 @@ fn lower_burden_ops_to_rc(func: &mut ArcFunction, pool: &Pool) {
             else {
                 continue;
             };
+            // Elide the ONE redundant fresh-site inc: the first `BurdenInc` for
+            // an elidable FRESH self-alloc var stays a codegen-no-op marker
+            // (allocation already supplies the `+1`). Later incs for the var are
+            // genuine dup-alias acquires and lower normally.
+            if matches!(
+                func.blocks[block_idx].body[instr_idx],
+                ArcInstr::BurdenInc { .. }
+            ) && elidable_fresh_incs.contains(&var)
+                && fresh_inc_elided.insert(var)
+            {
+                continue;
+            }
             // RE-2 backstop: scalars carry no RcStrategy. emit_burden_ops never
             // emits whole-var burden ops on scalars (burden_carries_rc filter),
             // so a Scalar/absent repr here is a contract violation — leave the

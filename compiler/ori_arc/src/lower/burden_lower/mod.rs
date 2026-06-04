@@ -16,7 +16,7 @@ mod moved_fields;
 mod terminator;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, LitValue};
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, LitValue, PrimOp, ValueRepr};
 use crate::ownership::{DerivedOwnership, Ownership};
 use ori_ir::Name;
 use ori_types::TypeRegistry;
@@ -177,6 +177,12 @@ pub(crate) fn emit_burden_ops<'a>(
     // `emit_terminator_burden_decs`. On the default path (false) the dec stays
     // deferred so the two paths do not double-count.
     predicate_stack_rc_disabled: bool,
+    // String interner — threaded so the iterator-element exclusion can resolve
+    // the `__iter_next` protocol-builtin name via `collect_iter_element_defs`
+    // (`Spec: Annex E §AIMS Protocol Builtins`). The SSOT element-classification
+    // set is the predicate stack's `collect_iter_element_defs`; the burden walk
+    // consumes it (AIMS Invariant 5 — no parallel iterator-element tracker).
+    interner: &ori_ir::StringInterner,
 ) -> BurdenLowerCtx<'a> {
     let mut ctx = BurdenLowerCtx::new(func);
     collect_owned_burdens(&mut ctx, func, type_registry);
@@ -211,6 +217,22 @@ pub(crate) fn emit_burden_ops<'a>(
     // The exclusion restores INC/DEC symmetry on the DEFINITION grain.
     let scalar_literal_vars = compute_scalar_literal_vars(func);
     owned_vars_needing_rc.retain(|v| !scalar_literal_vars.contains(v));
+    // Exclude iterator-element borrow-views: a `Project { field: 1 }` of an
+    // `Apply @__iter_next` result (and its Let/Project/block-param closure) is
+    // a BORROWED view into the collection buffer (`Spec: Annex E §AIMS Protocol
+    // Builtins`: `IterNext` yields a borrowed element-type marker; the element
+    // itself is owned by the collection, freed by `elem_dec_fn` when the
+    // collection / iterator handle drops via `ori_iter_drop` / `CollectSet`).
+    // The burden walk classifies such a `[str]`/`str` projection as owned (its
+    // declared `var_types` carries RC burden) and would emit a last-use
+    // `BurdenDec` — a double-free under the standalone ledger (the element view
+    // owns no allocation). `compute_borrowed_alias_vars` only source-gates on
+    // borrowed PARAMS, and the `__iter_next` result is a scalar handle (not a
+    // borrowed param), so the projection slips through. Consume the predicate
+    // stack's `collect_iter_element_defs` SSOT (AIMS Invariant 5 — no parallel
+    // iterator-element tracker) to exclude the element-view lineage.
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    owned_vars_needing_rc.retain(|v| !iter_element_defs.contains(v));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
@@ -274,7 +296,7 @@ pub(crate) fn emit_burden_ops<'a>(
             let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
                 continue;
             };
-            let tv = instr_transfer_vars(instr);
+            let tv = instr_transfer_vars(instr, func);
             for &var in last_used {
                 if tv.contains(&var) {
                     inc_suppressed_vars.insert(var);
@@ -310,8 +332,12 @@ pub(crate) fn emit_burden_ops<'a>(
     // `%1 = %0; Return %1` would dec `%0` though its ownership returns to the
     // caller). Backward-propagate transfer-suppression through every move-alias
     // hop to a fixpoint; the source set suppresses the source's last-use dec.
-    let transfer_via_move_alias =
-        compute_transfer_via_move_alias(func, &terminator_transfer_per_block, &use_counts);
+    let transfer_via_move_alias = compute_transfer_via_move_alias(
+        func,
+        &terminator_transfer_per_block,
+        &use_counts,
+        &owned_vars_needing_rc,
+    );
 
     // Symmetry: a FRESH move source whose last-use dec is suppressed (it
     // transfers out via the alias chain) must also have its FRESH-site inc
@@ -358,6 +384,15 @@ pub(crate) fn emit_burden_ops<'a>(
     // `compute_live_out_owned`.
     let live_out_per_block = compute_live_out_owned(func, &owned_vars_needing_rc);
 
+    // Function-wide list-concat consume set (precomputed: the `&mut` emit walk
+    // cannot re-borrow `func` for `var_repr`). SSOT: `list_concat_consumed_operands`.
+    let mut list_concat_transfer_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            list_concat_transfer_vars.extend(list_concat_consumed_operands(instr, func));
+        }
+    }
+
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,
         last_uses_at: &last_uses_at,
@@ -369,13 +404,13 @@ pub(crate) fn emit_burden_ops<'a>(
         live_out_per_block: &live_out_per_block,
         contracts,
         predicate_stack_rc_disabled,
+        list_concat_transfer_vars: &list_concat_transfer_vars,
     };
     emit_burden_ops_for_blocks(
         func,
         &analysis,
         &terminator_transfer_per_block,
         &terminator_inc_per_block,
-        predicate_stack_rc_disabled,
     );
     populate_burden_emitted(func);
     ctx
@@ -642,6 +677,7 @@ fn compute_transfer_via_move_alias(
     func: &ArcFunction,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
     use_counts: &FxHashMap<ArcVarId, u32>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
     let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
     // Seed: terminator-transferred vars.
@@ -651,7 +687,7 @@ fn compute_transfer_via_move_alias(
     // Seed: instruction owned-position transfers (Construct/Apply/Set/etc.).
     for block in &func.blocks {
         for instr in &block.body {
-            transferred.extend(instr_transfer_vars(instr).iter().copied());
+            transferred.extend(instr_transfer_vars(instr, func).iter().copied());
         }
     }
     // Move-alias edges `dst -> src` (src used exactly once = a move).
@@ -668,6 +704,23 @@ fn compute_transfer_via_move_alias(
                     move_edges.push((*dst, *src));
                 }
             }
+        }
+    }
+    // Seed: a move-alias source `%s` (`%d = %s`, `%s` used once) whose dst `%d`
+    // is owned-RC has its SINGLE release discharged BY `%d` — either `%d`
+    // transfers out (seeded above) OR `%d` gets its own last-use dec. The move
+    // hands `%s`'s one allocation to `%d`; emitting `%s`'s own last-use dec
+    // would double-release the shared buffer, and emitting `%s`'s FRESH-site inc
+    // would orphan (the move is not a duplication — `%d` does NOT get a paired
+    // inc, so the lineage carries exactly one inc+dec at the `%d` end). Both
+    // halves suppressed via this set (dec here, inc via `inc_suppressed_vars`),
+    // matching the transfer-out case. Witness: `coll_list_cow_concat_shared`
+    // `%14 = %8` (fresh concat result moved to a borrow-used alias) — `%8`'s
+    // scope-exit dec double-frees the buffer `%14` decs. Per AIMS RL-2
+    // (move = ownership transfer, single release at the lineage's terminal owner).
+    for &(dst, src) in &move_edges {
+        if owned_vars_needing_rc.contains(&dst) {
+            transferred.insert(src);
         }
     }
     // Fixpoint: a move source transfers out when its dst transfers out.
@@ -867,8 +920,23 @@ fn compute_owned_gen_kill(
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress
 /// `BurdenDec` at transfer points per AIMS RL-2. `Set.value` is added
 /// explicitly per AIMS TF-15 (`is_owned_position`'s `_ => false` catch-all
-/// excludes it). Shared by the driver, `moved_fields`, and `emit` submodules.
-pub(super) fn instr_transfer_vars(instr: &ArcInstr) -> FxHashSet<ArcVarId> {
+/// excludes it). A list-concat `PrimOp Binary(Add)` `RcPointer` operand is added
+/// per the dual-consuming `ori_list_concat_cow` runtime contract (`codegen-rules.md`
+/// operators §List + list → COW concat: the helper dec/frees BOTH input buffers;
+/// `is_owned_position`'s `_ => false` excludes `Let { PrimOp }`). Shared by the
+/// driver, `moved_fields`, and `emit` submodules.
+pub(super) fn instr_transfer_vars(instr: &ArcInstr, func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut transfer_vars = instr_owned_position_transfer_vars(instr);
+    transfer_vars.extend(list_concat_consumed_operands(instr, func));
+    transfer_vars
+}
+
+/// The `func`-free subset of `instr_transfer_vars`: vars consumed at an
+/// `is_owned_position` arg plus the `Set.value` TF-15 carve-out. Used at the
+/// `&mut`-walk emission site where `func` cannot be re-borrowed for `var_repr`;
+/// the list-concat consume set is consulted there via the precomputed
+/// `BurdenAnalysisCtx::list_concat_transfer_vars` instead.
+pub(super) fn instr_owned_position_transfer_vars(instr: &ArcInstr) -> FxHashSet<ArcVarId> {
     let mut transfer_vars: FxHashSet<ArcVarId> = instr
         .used_vars()
         .iter()
@@ -879,6 +947,38 @@ pub(super) fn instr_transfer_vars(instr: &ArcInstr) -> FxHashSet<ArcVarId> {
         transfer_vars.insert(*value);
     }
     transfer_vars
+}
+
+/// Operands consumed by the dual-consuming `ori_list_concat_cow` runtime helper:
+/// the `RcPointer` operands of a `Let { PrimOp Binary(Add) }`. SSOT for the
+/// list-concat consume set — consulted by `instr_transfer_vars` (last-use dec
+/// suppression) AND precomputed function-wide in `emit_burden_ops_for_blocks`
+/// (the `&mut` walk cannot re-borrow `func` for `var_repr`).
+///
+/// `RcPointer` is the list discriminator: `str`/closure operands are `FatValue`
+/// and BORROWED by `ori_str_concat`'s `*const OriStr` contract (not consumed);
+/// scalar `Add` operands carry no RC (filtered by `owned_vars_needing_rc`).
+/// User `Add` impls dispatch via trait `Apply`/`Invoke`, never `PrimOp Binary`.
+/// Per `codegen-rules.md` operators §"List + list → COW concat".
+pub(super) fn list_concat_consumed_operands(
+    instr: &ArcInstr,
+    func: &ArcFunction,
+) -> FxHashSet<ArcVarId> {
+    let mut consumed = FxHashSet::default();
+    if let ArcInstr::Let {
+        value: ArcValue::PrimOp { op, args },
+        ..
+    } = instr
+    {
+        if matches!(op, PrimOp::Binary(ori_ir::BinaryOp::Add)) {
+            for &arg in args {
+                if matches!(func.var_repr(arg), Some(ValueRepr::RcPointer)) {
+                    consumed.insert(arg);
+                }
+            }
+        }
+    }
+    consumed
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitVal
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::instr_transfer_vars;
+use super::instr_owned_position_transfer_vars;
 
 /// Function-wide analysis results consumed by burden emission. Bundled into
 /// one struct so per-instruction and per-terminator helpers share a single
@@ -54,6 +54,13 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // closure receiver) emits its release here instead of deferring to the
     // (disabled) predicate stack. Default-path (false) suppression is unchanged.
     pub(super) predicate_stack_rc_disabled: bool,
+    // Vars consumed as a list-concat `PrimOp Binary(Add)` `RcPointer` operand
+    // (`ori_list_concat_cow` dual-consuming contract). Precomputed before the
+    // `&mut` emit walk (var reprs are stable), consulted by `emit_last_use_decs`
+    // to suppress the spurious scope-exit `BurdenDec` whose double-dec with the
+    // helper's internal consume frees the list buffer twice. SSOT for the
+    // membership predicate is `instr_transfer_vars` (`burden_lower/mod.rs`).
+    pub(super) list_concat_transfer_vars: &'a FxHashSet<ArcVarId>,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -69,7 +76,6 @@ pub(super) fn emit_burden_ops_for_blocks(
     analysis: &BurdenAnalysisCtx<'_>,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
     terminator_inc_per_block: &[Vec<ArcVarId>],
-    predicate_stack_rc_disabled: bool,
 ) {
     // Per-block Inc count map for symmetric Dec emission at terminator-transfer
     // points. Populated DURING the emit walk so the Dec emission sees every Inc
@@ -120,7 +126,7 @@ pub(super) fn emit_burden_ops_for_blocks(
         // Passing an empty borrowed-arg set un-suppresses those decs. On the
         // default path the predicate stack co-emits, so suppression stays.
         let empty_borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
-        let terminator_borrowed_args = if predicate_stack_rc_disabled {
+        let terminator_borrowed_args = if analysis.predicate_stack_rc_disabled {
             empty_borrowed
         } else {
             invoke_terminator_borrowed_args(&block.terminator)
@@ -210,7 +216,7 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
     // args, so they precede the instruction.
     emit_owned_position_incs(new_body, &instr, ctx);
     emit_in_place_mutation_drops(new_body, &instr, ctx);
-    let transfer_vars = instr_transfer_vars(&instr);
+    let transfer_vars = instr_owned_position_transfer_vars(&instr);
     // The FRESH-site Inc references `dst`, DEFINED by `instr`. Under the probe
     // (`predicate_stack_rc_disabled`) the surviving whole-var burden ops lower
     // mechanically to real `RcInc`/`RcDec`, so a `BurdenInc dst` placed BEFORE
@@ -365,9 +371,13 @@ fn emit_last_use_decs(
         // discharged THERE, not at the move-alias site (else a double dec on the
         // shared allocation). Suppressed on BOTH paths. `full_move_vars` likewise
         // (container drop emits the field-grain decs).
+        // List-concat consume (`ori_list_concat_cow` dual-consuming): the helper
+        // dec/frees the operand buffer. Suppress on BOTH paths — the consume IS
+        // the release; a scope-exit `BurdenDec` would double-free the buffer.
         if instr_transfer_suppressed
             || ctx.analysis.transfer_via_move_alias.contains(&var)
             || ctx.analysis.full_move_vars.contains(&var)
+            || ctx.analysis.list_concat_transfer_vars.contains(&var)
         {
             continue;
         }
@@ -612,10 +622,7 @@ fn emit_terminator_burden_decs(
             // Borrowed Invoke arg: the value survives the borrowed call and is
             // released at the successor by the predicate-stack edge cleanup,
             // which co-emits the paired scope-exit BurdenDec. A terminator dec
-            // here too double-counts (VF-1 net=-1 per terminal path). The probe
-            // completeness pass (`emit_burden_scope_exit_decs`) restores the
-            // release for fresh-owned values orphaned by this deferral when the
-            // predicate stack is off.
+            // here too double-counts (VF-1 net=-1 per terminal path).
             if terminator_borrowed_args.contains(&var) {
                 continue;
             }
