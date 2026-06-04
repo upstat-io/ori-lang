@@ -59,7 +59,10 @@ pub(super) use blocks::should_generalize;
 pub(super) use blocks::{
     infer_block, infer_lambda, infer_let, maybe_generalize, pattern_first_name,
 };
-pub(super) use calls::{infer_call, infer_call_named, infer_method_call, infer_method_call_named};
+pub(super) use calls::{
+    compose_builtin_burdens_for_resolved_types, infer_call, infer_call_named, infer_method_call,
+    infer_method_call_named,
+};
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
     infer_range, infer_tuple,
@@ -71,7 +74,7 @@ pub(super) use constructors::{
 };
 pub(super) use control_flow::{
     check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
-    substitute_type_params_with_map,
+    infer_while, substitute_type_params_with_map,
 };
 pub(super) use format::infer_template_literal;
 pub(super) use identifiers::{
@@ -175,16 +178,19 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         } => infer_if(engine, arena, *cond, *then_branch, *else_branch, span),
         ExprKind::Match { scrutinee, arms } => infer_match(engine, arena, *scrutinee, *arms, span),
         ExprKind::For {
+            label,
             pattern,
             iter,
             guard,
             body,
             is_yield,
-            ..
         } => infer_for(
-            engine, arena, *pattern, *iter, *guard, *body, *is_yield, span,
+            engine, arena, *label, *pattern, *iter, *guard, *body, *is_yield, span,
         ),
-        ExprKind::Loop { body, .. } => infer_loop(engine, arena, *body, span),
+        ExprKind::Loop { label, body } => infer_loop(engine, arena, *label, *body, span),
+        ExprKind::While { label, cond, body } => {
+            infer_while(engine, arena, *label, *cond, *body, span)
+        }
 
         // Blocks and Bindings
         ExprKind::Block { stmts, result } => infer_block(engine, arena, *stmts, *result, span),
@@ -243,8 +249,8 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::None => infer_none(engine),
 
         // Control Flow Expressions
-        ExprKind::Break { value, .. } => infer_break(engine, arena, *value, span),
-        ExprKind::Continue { value, .. } => infer_continue(engine, arena, *value, span),
+        ExprKind::Break { label, value } => infer_break(engine, arena, *label, *value, span),
+        ExprKind::Continue { label, value } => infer_continue(engine, arena, *label, *value, span),
         ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner),
         ExprKind::Try(inner) => infer_try(engine, arena, *inner, span),
         ExprKind::Await(inner) => infer_await(engine, arena, *inner, span),

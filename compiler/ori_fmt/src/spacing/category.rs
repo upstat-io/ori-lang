@@ -78,6 +78,8 @@ pub enum TokenCategory {
     Void,
     /// where
     Where,
+    /// while
+    While,
     /// with
     With,
     /// yield
@@ -353,6 +355,7 @@ impl TokenCategory {
                 | TokenCategory::Uses
                 | TokenCategory::Void
                 | TokenCategory::Where
+                | TokenCategory::While
                 | TokenCategory::With
                 | TokenCategory::Yield
                 | TokenCategory::Tests
@@ -412,6 +415,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Uses => TokenCategory::Uses,
             TokenKind::Void => TokenCategory::Void,
             TokenKind::Where => TokenCategory::Where,
+            TokenKind::While => TokenCategory::While,
             TokenKind::With => TokenCategory::With,
             TokenKind::Yield => TokenCategory::Yield,
             TokenKind::Tests => TokenCategory::Tests,

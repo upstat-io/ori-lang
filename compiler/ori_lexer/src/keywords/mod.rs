@@ -102,6 +102,7 @@ pub(crate) fn lookup(text: &str) -> Option<TokenKind> {
             "tests" => Some(TokenKind::Tests),
             "trait" => Some(TokenKind::Trait),
             "where" => Some(TokenKind::Where),
+            "while" => Some(TokenKind::While),
             "yield" => Some(TokenKind::Yield),
             _ => None,
         },

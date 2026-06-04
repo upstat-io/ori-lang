@@ -1,0 +1,221 @@
+// Spec: 09-expressions.md § While Expression
+// Spec: 19-control-flow.md § Loop Control
+// while cond do body — sugar for loop { if !cond then break; body }; type void.
+// grammar.ebnf: while_expr = "while" [label] expression "do" expression
+
+use std.testing { assert, assert_eq }
+
+// While Basic — block body
+
+@test_while_basic tests @while_basic () -> void = {
+    assert_eq(actual: while_basic(), expected: 10)
+}
+
+@while_basic () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 5 do {
+        sum = sum + i;
+        i = i + 1
+    };
+    sum  // 0 + 1 + 2 + 3 + 4
+}
+
+// While Basic — bare expression body
+
+@test_while_bare_body tests @while_bare_body () -> void = {
+    assert_eq(actual: while_bare_body(), expected: 4)
+}
+
+@while_bare_body () -> int = {
+    let i = 0;
+    while i < 4 do i = i + 2;
+    i  // 0 -> 2 -> 4; exits when 4 < 4 is false
+}
+
+// While that never enters (condition false at entry)
+
+@test_while_never_enters tests @while_never_enters () -> void = {
+    assert(cond: !while_never_enters())
+}
+
+@while_never_enters () -> bool = {
+    let entered = false;
+    while false do entered = true;
+    entered
+}
+
+// While returns void
+
+@test_while_is_void tests @while_is_void () -> void = {
+    let i = 0;
+    while i < 3 do i = i + 1;
+    assert_eq(actual: i, expected: 3)
+}
+
+@while_returns_void () -> void = {
+    let i = 0;
+    while i < 3 do i = i + 1
+}
+
+// While with break (early exit from body)
+
+@test_while_break tests @while_break () -> void = {
+    assert_eq(actual: while_break(), expected: 6)
+}
+
+@while_break () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 100 do {
+        if i == 4 then break;
+        sum = sum + i;
+        i = i + 1
+    };
+    sum  // 0 + 1 + 2 + 3
+}
+
+// While with continue (skip rest of body)
+
+@test_while_continue tests @while_continue () -> void = {
+    assert_eq(actual: while_continue(), expected: 25)
+}
+
+@while_continue () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 10 do {
+        i = i + 1;
+        if i % 2 == 0 then continue;
+        sum = sum + i
+    };
+    sum  // 1 + 3 + 5 + 7 + 9
+}
+
+// While with && condition (multi-clause guard)
+
+@test_while_and_condition tests @while_and_condition () -> void = {
+    assert_eq(actual: while_and_condition(), expected: 4)
+}
+
+@while_and_condition () -> int = {
+    let i = 0;
+    let count = 0;
+    while i < 100 && count < 4 do {
+        i = i + 1;
+        count = count + 1
+    };
+    count
+}
+
+// Nested while
+
+@test_nested_while tests @nested_while () -> void = {
+    assert_eq(actual: nested_while(), expected: 90)
+}
+
+@nested_while () -> int = {
+    let outer = 0;
+    let sum = 0;
+    while outer < 2 do {
+        let inner = 0;
+        while inner < 2 do {
+            sum = sum + (outer + 1) * (inner + 1) * 10;
+            inner = inner + 1
+        };
+        outer = outer + 1
+    };
+    sum  // 1*1*10 + 1*2*10 + 2*1*10 + 2*2*10 = 10+20+20+40
+}
+
+// Negative pins — `break value` / `continue value` rejected inside `while`
+// Spec: 16-control-flow.md § Loop Control — `while...do` is void-typed:
+// `break value` is E0860, `continue value` is E0861.
+
+#compile_fail(code: "E0860")
+@test_while_break_value_rejected tests _ () -> void = {
+    let i = 0;
+    while i < 5 do break 5
+}
+
+#compile_fail(code: "E0861")
+@test_while_continue_value_rejected tests _ () -> void = {
+    let i = 0;
+    while i < 5 do continue 5
+}
+
+// Positive pin — bare `break` / `continue` inside `while` still type-check.
+// (The negative pins above must NOT make the compiler reject valueless forms.)
+
+@test_while_bare_break_continue tests @while_bare_break_continue () -> void = {
+    assert_eq(actual: while_bare_break_continue(), expected: 4)
+}
+
+@while_bare_break_continue () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 10 do {
+        i = i + 1;
+        if i == 5 then break;
+        if i % 2 == 0 then continue;
+        sum = sum + i
+    };
+    sum  // i = 1,2,3,4 then breaks at 5; odd contributions 1 + 3 = 4
+}
+
+// Labeled break/continue value-permission resolves against the LABELED target
+// loop's form, NOT the innermost loop.
+// Spec: 16-control-flow.md §16.3 — a labeled `break:name`/`continue:name`
+// targets the named loop; value-permission follows that loop's form.
+// The labeled branches below are guarded false so the body never exercises the
+// (separately-tracked) labeled-break/continue runtime path — these pin the
+// typeck rule: a labeled break/continue to an OUTER value-permitting loop from
+// inside an inner void/non-collecting loop type-checks (no spurious E0860/E0861).
+
+// `break:outer value` targets `loop:outer` (permits break value) from inside an
+// inner `while...do` (forbids break value). Must NOT emit E0860.
+@test_labeled_break_outer_from_while tests @labeled_break_outer_from_while () -> void = {
+    assert_eq(actual: labeled_break_outer_from_while(), expected: 99)
+}
+
+@labeled_break_outer_from_while () -> int = {
+    let go = false;
+    loop:outer {
+        let n = 0;
+        while n < 1 do {
+            if go then break:outer 7;
+            break
+        };
+        break 99
+    }
+}
+
+// `continue:outer value` targets `for:outer...yield` (permits continue value
+// per spec 16.3.6) from inside an inner `for...do` (forbids it).
+// Must NOT emit E0861.
+@test_labeled_continue_outer_from_for_do tests @labeled_continue_outer_from_for_do () -> void = {
+    assert_eq(actual: labeled_continue_outer_from_for_do(), expected: [1, 2])
+}
+
+@labeled_continue_outer_from_for_do () -> [int] = {
+    let go = false;
+    for:outer x in [1, 2] yield {
+        for y in [10] do {
+            if go then continue:outer x * y
+        };
+        x
+    }
+}
+
+// Negative clamp: a labeled `continue:outer value` resolving to an outer `loop`
+// (non-collecting) MUST still be E0861 — labeled resolution checks the TARGET
+// loop's form, it does not blanket-accept every labeled continue value.
+#compile_fail(code: "E0861")
+@test_labeled_continue_value_outer_loop_rejected tests _ () -> void = {
+    loop:outer {
+        for x in [1, 2] do {
+            continue:outer 5
+        };
+        break
+    }
+}

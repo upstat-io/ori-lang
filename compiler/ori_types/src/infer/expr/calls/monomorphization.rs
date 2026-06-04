@@ -151,36 +151,35 @@ pub(super) fn maybe_record_mono_instance(
     // `DeferredMonoCall` to carry `call_expr_id`.
     engine.record_mono_with_dispatch(call_expr_id, instance);
 
-    // §02.1 burden composition: for every fully-resolved generic-builtin
-    // Idx the monomorphization produced, look up the template in
-    // BURDEN_TABLE and compose a UserBurdenSpec. Spec: Annex E §AIMS —
-    // composition at type-instantiation time prevents Phase 5 from
-    // emitting indirect dispatch on each burden walk. Entries land in
-    // `composed_burdens` for later flush into `TypeRegistry::burden`
-    // when the mutable-registry surface lands.
-    compose_builtin_burdens_for_resolved_types(engine);
+    // Burden composition for generic-builtin instances runs once per body at
+    // `InferEngine::take_composed_burdens` (a single full-pool sweep), NOT
+    // per-monomorphization here — the per-call sweep was a quadratic full-pool
+    // walk on every generic call AND missed collection instances minted by
+    // literals that never flow through a generic free-function call. Spec:
+    // Annex E §AIMS — composition at type-instantiation time prevents Phase 5
+    // from emitting indirect dispatch on each burden walk.
 }
 
-/// After a monomorphization completes, walk every concrete Applied / generic-
-/// builtin Idx in scope (from the engine's pool) and compose its
-/// `UserBurdenSpec` once per first-instantiation. This is a STRUCTURAL pass
-/// over the freshly-registered concrete types; the composition function is
-/// pure (no pool/registry mutation).
-fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngine<'_>) {
+/// Walk every fully-resolved generic-builtin `Idx` in the engine's pool and
+/// compose its `UserBurdenSpec`, pushing each into the engine's
+/// `composed_burdens` accumulator. Runs as a STRUCTURAL pass over the pool;
+/// the composition function is pure (no pool/registry mutation).
+///
+/// Two callers cover the two ways a collection instance enters the pool:
+/// (1) after a generic free-function monomorphization (the original
+/// `maybe_record_mono_instance` site), and (2) the body-final sweep
+/// (`InferEngine::compose_resolved_builtin_burdens`) which catches collection
+/// instances minted by literals (`["a", "b"]`, `{k: v}`, `Set` builders) that
+/// never flow through a generic call. The `compose_for_idx` accumulator dedups
+/// repeat hits, so running both is idempotent in effect.
+pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngine<'_>) {
     // The concrete types produced by this monomorphization sit in the
     // engine's pool. Walking the entire pool every call is quadratic;
-    // we restrict to types newly minted by this monomorphization by
-    // consulting the engine's `composed_burdens` accumulator as a
-    // dedup index plus the most-recent mono instance's
-    // concrete_param_types + concrete_return_type.
-    //
-    // Forward reference: a richer integration would (a) consume
-    // `body_type_map` directly to enumerate every monomorphized Idx and
-    // (b) flush composed specs into `TypeRegistry::burden` immediately.
-    // Both depend on a mutable-registry surface at the body-checking
-    // pass, which is a §02.1 follow-up integration. The composition
-    // function itself is the §02.1 deliverable; the accumulator is the
-    // SSOT carrier until the integration site lands.
+    // `collect_candidate_indices` restricts to generic-builtin tags whose
+    // flags show no remaining type variables. Composed specs accumulate in
+    // the engine's `composed_burdens` Vec, drained at body-pass end via
+    // `take_composed_burdens` and flushed into the TypeRegistry burden
+    // surface by `ModuleChecker::flush_composed_burdens`.
     let snapshot_indices: Vec<Idx> = {
         let pool = engine.pool();
         collect_candidate_indices(pool)

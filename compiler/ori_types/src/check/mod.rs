@@ -375,6 +375,13 @@ impl<'a> ModuleChecker<'a> {
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
         functions.sort_by_key(|f| f.name);
 
+        // Drain the monomorphized-collection burden side-table before
+        // `into_entries` consumes the registry — these instances carry no
+        // nominal `TypeEntry`, so `types` (below) excludes them by
+        // construction. Exporting them lets the ARC pipeline reconstruct the
+        // side-table for Phase 5 burden emission (Spec: Annex E §AIMS).
+        let collection_burdens = self.types.drain_collection_burdens();
+
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 
@@ -534,6 +541,7 @@ impl<'a> ModuleChecker<'a> {
             type_descriptors,
             exported_type_metadata,
             exported_collection_surfaces,
+            collection_burdens,
         };
 
         (TypeCheckResult::from_typed(typed), pool)

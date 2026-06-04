@@ -138,6 +138,11 @@ impl AstCopier<'_> {
                 label: *label,
                 body: self.copy_expr(*body, new_arena),
             },
+            ExprKind::While { label, cond, body } => ExprKind::While {
+                label: *label,
+                cond: self.copy_expr(*cond, new_arena),
+                body: self.copy_expr(*body, new_arena),
+            },
             ExprKind::Block { stmts, result } => self.copy_block_kind(*stmts, *result, new_arena),
 
             // Bindings

@@ -60,6 +60,7 @@ const ALL_RESERVED_KEYWORDS: &[(&str, TokenKind)] = &[
     ("uses", TokenKind::Uses),
     ("void", TokenKind::Void),
     ("where", TokenKind::Where),
+    ("while", TokenKind::While),
     ("with", TokenKind::With),
     ("yield", TokenKind::Yield),
 ];

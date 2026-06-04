@@ -84,6 +84,8 @@ define_error_codes! {
     E0013, "Standalone backslash";
     E0014, "Decimal not representable as whole base units";
     E0015, "Reserved-future keyword used as identifier";
+    E0860, "`break` with value in a void-typed loop";
+    E0861, "`continue` with value in a non-collecting loop";
     E0911, "Floating-point duration/size literal not supported";
     E0932, "Invalid feature name";
 

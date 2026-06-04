@@ -296,6 +296,13 @@ pub(super) fn dump_expr(
             dump_expr(out, *body, arena, typed, pool, interner, depth + 1);
             return;
         }
+        ExprKind::While { label, cond, body } => {
+            let label_str = format_label(*label, interner);
+            writeln!(out, "{indent}While{label_str}{ty}").unwrap();
+            dump_expr(out, *cond, arena, typed, pool, interner, depth + 1);
+            dump_expr(out, *body, arena, typed, pool, interner, depth + 1);
+            return;
+        }
         ExprKind::Break { label, value } => {
             let label_str = format_label(*label, interner);
             writeln!(out, "{indent}Break{label_str}{ty}").unwrap();

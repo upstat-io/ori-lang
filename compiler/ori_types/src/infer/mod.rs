@@ -39,6 +39,7 @@ mod env;
 mod expr;
 pub(crate) use expr::{NestedPathStep, RefutableReason};
 mod scope;
+pub(crate) use scope::{LoopContext, LoopForm};
 mod state;
 mod type_builders;
 
@@ -120,9 +121,12 @@ pub struct InferEngine<'pool> {
     /// Current impl's `Self` type (for `Self` in type annotations within impl blocks).
     impl_self_type: Option<Idx>,
 
-    /// Stack of expected break value types for nested loops.
-    /// Each `loop()` pushes a fresh type variable; `break expr` unifies with it.
-    loop_break_types: Vec<Idx>,
+    /// Stack of enclosing-loop contexts for nested loops.
+    /// Each loop form pushes a [`LoopContext`] recording the expected break
+    /// value type plus whether `break value` / `continue value` are permitted
+    /// (per spec: `loop` and `for...yield` carry values; `while` / `for...do`
+    /// do not). `break` / `continue` consult the innermost entry.
+    loop_contexts: Vec<scope::LoopContext>,
 
     /// Capabilities declared by the current function (`uses` clause).
     current_capabilities: FxHashSet<Name>,
@@ -286,7 +290,7 @@ impl<'pool> InferEngine<'pool> {
             type_registry: None,
             self_type: None,
             impl_self_type: None,
-            loop_break_types: Vec::new(),
+            loop_contexts: Vec::new(),
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),

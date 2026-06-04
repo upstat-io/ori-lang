@@ -383,6 +383,10 @@ fn push_children_for_kind(arena: &ExprArena, kind: ExprKind, out: &mut Vec<ExprI
             out.push(body);
         }
         ExprKind::Loop { body, .. } => out.push(body),
+        ExprKind::While { cond, body, .. } => {
+            out.push(cond);
+            out.push(body);
+        }
         ExprKind::Block { stmts, result } => {
             for stmt in arena.get_stmt_range(stmts) {
                 match stmt.kind {

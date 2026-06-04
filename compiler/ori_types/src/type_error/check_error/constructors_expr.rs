@@ -6,7 +6,7 @@
 use ori_diagnostic::Suggestion;
 use ori_ir::{Name, Span};
 
-use super::kind::{ErrorContext, TypeErrorKind};
+use super::kind::{ErrorContext, NonCollectingLoopKind, TypeErrorKind, VoidLoopKind};
 use super::TypeCheckError;
 use crate::type_error::TypeProblem;
 use crate::Idx;
@@ -391,6 +391,44 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 format!("this format type is only valid for {valid_for} types"),
+                0,
+            )],
+        }
+    }
+
+    /// Create a "`break` with value in a void-typed loop" error (E0860).
+    ///
+    /// Emitted when `break value` appears inside `while...do` or `for...do`,
+    /// which have type `void`. Spec: `14-expressions.md` § Break and Continue.
+    pub fn break_value_in_void_loop(span: Span, loop_kind: VoidLoopKind) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::BreakValueInVoidLoop { loop_kind },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use `loop { }` to produce a value, or drop the value and carry the result \
+                 in a mutable binding",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "`continue` with value in a non-collecting loop" error (E0861).
+    ///
+    /// Emitted when `continue value` appears inside `loop`, `while`, or
+    /// `for...do`. Only `for...yield` substitutes a `continue value`.
+    /// Spec: `14-expressions.md` § Break and Continue.
+    pub fn continue_value_in_non_collecting_loop(
+        span: Span,
+        loop_kind: NonCollectingLoopKind,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove the value (`continue` starts the next iteration), or use `for...yield` \
+                 to contribute a value per iteration",
                 0,
             )],
         }

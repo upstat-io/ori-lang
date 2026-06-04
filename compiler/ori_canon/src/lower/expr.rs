@@ -5,7 +5,7 @@
 //! helpers for lowering expression/statement lists.
 
 use ori_ir::canon::{CanExpr, CanId, CanRange};
-use ori_ir::{ExprId, ExprKind, ExprRange, TypeId};
+use ori_ir::{ExprId, ExprKind, ExprRange, Name, Span, TypeId, UnaryOp};
 use tracing::trace;
 
 use super::Lowerer;
@@ -103,6 +103,7 @@ impl Lowerer<'_> {
                 let body = self.lower_expr(body);
                 self.push(CanExpr::Loop { label, body }, span, ty)
             }
+            ExprKind::While { label, cond, body } => self.desugar_while(label, cond, body, span),
 
             // Binary nodes — lower both children
             ExprKind::Binary { op, left, right } => {
@@ -303,6 +304,66 @@ impl Lowerer<'_> {
                 self.desugar_struct_with_spread(name, fields, span, ty)
             }
         }
+    }
+
+    /// Desugar `while[:label] cond do body` into `loop[:label] { if !cond then break[:label]; body }`.
+    ///
+    /// Every synthetic node carries the source `while` span. The loop body is a
+    /// `Block` whose single statement is the `if !cond then break` guard and whose
+    /// result is the lowered body. The loop, block, and guard are all `void`; the
+    /// negated condition is `bool`; the break is `Never`. Desugaring here means the
+    /// evaluator and LLVM backend need zero new code — both already lower `Loop`,
+    /// `If`, `Unary`, `Break`, and `Block`.
+    fn desugar_while(&mut self, label: Name, cond: ExprId, body: ExprId, span: Span) -> CanId {
+        let cond_can = self.lower_expr(cond);
+        let not_cond = self.push(
+            CanExpr::Unary {
+                op: UnaryOp::Not,
+                operand: cond_can,
+            },
+            span,
+            TypeId::BOOL,
+        );
+        let break_node = self.push(
+            CanExpr::Break {
+                label,
+                value: CanId::INVALID,
+            },
+            span,
+            TypeId::NEVER,
+        );
+        let guard = self.push(
+            CanExpr::If {
+                cond: not_cond,
+                then_branch: break_node,
+                else_branch: CanId::INVALID,
+            },
+            span,
+            TypeId::UNIT,
+        );
+
+        let body_can = self.lower_expr(body);
+
+        let start = self.arena.start_expr_list();
+        self.arena.push_expr_list_item(guard);
+        let stmts = self.arena.finish_expr_list(start);
+        let loop_body = self.push(
+            CanExpr::Block {
+                stmts,
+                result: body_can,
+            },
+            span,
+            TypeId::UNIT,
+        );
+
+        self.push(
+            CanExpr::Loop {
+                label,
+                body: loop_body,
+            },
+            span,
+            TypeId::UNIT,
+        )
     }
 
     // Range Lowering Helpers

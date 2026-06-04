@@ -307,6 +307,18 @@ impl TypeCheckError {
                     }
                 }
             }
+            TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
+                format!(
+                    "`break` with a value is not allowed in {}: this loop form has type `void`",
+                    loop_kind.description()
+                )
+            }
+            TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind } => {
+                format!(
+                    "`continue` with a value is not allowed in {}: this loop does not accumulate values",
+                    loop_kind.description()
+                )
+            }
         }
     }
 
@@ -440,6 +452,11 @@ impl TypeCheckError {
             TypeErrorKind::DropPartialMove { .. } => ErrorCode::E2048,
             // E2049: Value + Drop mutual exclusion
             TypeErrorKind::ValueDropConflict { .. } => ErrorCode::E2049,
+
+            // E0860: break value in a void-typed loop
+            TypeErrorKind::BreakValueInVoidLoop { .. } => ErrorCode::E0860,
+            // E0861: continue value in a non-collecting loop
+            TypeErrorKind::ContinueValueInNonCollectingLoop { .. } => ErrorCode::E0861,
         }
     }
 }

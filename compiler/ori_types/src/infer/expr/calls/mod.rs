@@ -10,6 +10,7 @@ mod traits;
 
 pub(crate) use call_inference::{infer_call, infer_call_named};
 pub(crate) use method_call::{infer_method_call, infer_method_call_named};
+pub(crate) use monomorphization::compose_builtin_burdens_for_resolved_types;
 
 // Re-export for tests (accessed via `super::calls::type_satisfies_trait` etc.)
 #[cfg(test)]

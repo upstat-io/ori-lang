@@ -287,6 +287,50 @@ impl Parser<'_> {
         )))
     }
 
+    /// Parse while expression: `while cond do body`.
+    ///
+    /// Supports optional label: `while:label cond do body`.
+    /// Sugar for `loop { if !cond then break; body }`; desugared in `ori_canon`.
+    ///
+    /// Guard: returns `EmptyErr` if not at `while`.
+    pub(super) fn parse_while_expr(&mut self) -> ParseOutcome<ExprId> {
+        if !self.cursor.check(&TokenKind::While) {
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::While,
+                self.cursor.current_span().start as usize,
+            );
+        }
+
+        let span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::While));
+
+        let label = self.parse_optional_label();
+
+        // Parse condition without struct literals (PARSE:CF-3) — `do` delimits
+        // the condition, mirroring how `then` delimits an `if` condition.
+        let cond = require!(
+            self,
+            self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr),
+            "condition in while expression"
+        );
+
+        committed!(self.cursor.expect(&TokenKind::Do));
+        self.cursor.skip_newlines();
+
+        // Parse body with IN_LOOP context (enables break/continue).
+        let body = require!(
+            self,
+            self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+            "while loop body"
+        );
+
+        let end_span = self.arena.get_expr(body).span;
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::While { label, cond, body },
+            span.merge(end_span),
+        )))
+    }
+
     /// Parse loop expression: `loop { body }`.
     ///
     /// Supports optional label: `loop:label { body }`.

@@ -7,6 +7,7 @@
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind};
 
 use crate::pool::TypeDescriptor;
+use crate::registry::burden::UserBurdenSpec;
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
@@ -176,6 +177,19 @@ pub struct TypedModule {
     /// Merged with imported collection surfaces for transitive forwarding
     /// (A→B→C propagation).
     pub exported_collection_surfaces: Vec<u64>,
+
+    /// Per-instance burden specs for monomorphized generic-builtin collection
+    /// instances (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, `Result<T, E>`,
+    /// `Range<T>`) that carry no nominal `TypeEntry`.
+    ///
+    /// These instances live in the in-memory `TypeRegistry`'s
+    /// `collection_burdens` side-table, which `types` (sourced from
+    /// `TypeRegistry::into_entries`) excludes by construction. Exporting them
+    /// here lets the ARC codegen pipeline reconstruct the side-table so
+    /// collection-instance burden reaches Phase 5 emission. Sorted ascending
+    /// by `Idx` for Salsa-deterministic output.
+    /// Spec: Annex E §AIMS.
+    pub collection_burdens: Vec<(Idx, UserBurdenSpec)>,
 }
 
 impl TypedModule {
@@ -200,6 +214,7 @@ impl TypedModule {
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
+            collection_burdens: Vec::new(),
         }
     }
 

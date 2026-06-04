@@ -203,6 +203,13 @@ pub(super) fn dump_expr(
             dump_expr(out, *body, arena, interner, depth + 1);
             return;
         }
+        ExprKind::While { label, cond, body } => {
+            let label_str = format_label(*label, interner);
+            writeln!(out, "{indent}While{label_str}").unwrap();
+            dump_expr(out, *cond, arena, interner, depth + 1);
+            dump_expr(out, *body, arena, interner, depth + 1);
+            return;
+        }
         ExprKind::Break { label, value } => {
             let label_str = format_label(*label, interner);
             writeln!(out, "{indent}Break{label_str}").unwrap();

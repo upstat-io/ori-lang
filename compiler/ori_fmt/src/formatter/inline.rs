@@ -455,6 +455,19 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.emit_inline(*body);
             }
 
+            // While
+            ExprKind::While { label, cond, body } => {
+                self.ctx.emit("while");
+                if *label != Name::EMPTY {
+                    self.ctx.emit(":");
+                    self.ctx.emit(self.interner.lookup(*label));
+                }
+                self.ctx.emit(" ");
+                self.emit_inline(*cond);
+                self.ctx.emit(" do ");
+                self.emit_inline(*body);
+            }
+
             // Block
             ExprKind::Block { stmts, result } => {
                 let stmts_list = self.arena.get_stmt_range(*stmts);

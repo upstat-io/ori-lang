@@ -115,6 +115,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
                 | ExprKind::Range { .. }
                 | ExprKind::For { .. }
                 | ExprKind::Loop { .. }
+                | ExprKind::While { .. }
                 | ExprKind::FunctionSeq(_)
                 | ExprKind::FunctionExp(_)
         ),
@@ -130,6 +131,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
                 | ExprKind::Range { .. }
                 | ExprKind::For { .. }
                 | ExprKind::Loop { .. }
+                | ExprKind::While { .. }
         ),
 
         // Spec lines 1003-1010: Iterator source needs parens for for/if/lambda/let

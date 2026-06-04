@@ -317,6 +317,15 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::PreContractUnknownIdent { name } => {
                 format!("unknown identifier `{}` in pre()", self.format_name(*name))
             }
+            TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
+                format!("`break` value not allowed in {}", loop_kind.description())
+            }
+            TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind } => {
+                format!(
+                    "`continue` value not allowed in {}",
+                    loop_kind.description()
+                )
+            }
         }
     }
 

@@ -141,6 +141,24 @@ pub(super) fn for_width<I: StringLookup>(
     total
 }
 
+/// Calculate width of `while[:label] cond do body`.
+pub(super) fn while_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    label: Name,
+    cond: ExprId,
+    body: ExprId,
+) -> usize {
+    let lw = label_width(calc, label);
+    let cond_w = calc.width(cond);
+    let body_w = calc.width(body);
+    if cond_w == ALWAYS_STACKED || body_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+
+    // "while" + label + " " + cond + " do " + body
+    5 + lw + 1 + cond_w + 4 + body_w
+}
+
 /// Calculate width of `{ stmts; result }` block.
 pub(super) fn block_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,

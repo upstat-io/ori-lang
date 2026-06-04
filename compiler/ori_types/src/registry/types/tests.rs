@@ -656,3 +656,156 @@ fn ori_types_cargo_does_not_depend_on_ori_arc() {
         }
     }
 }
+
+// Collection-instance burden side-table.
+//
+// Monomorphized generic-builtin instances (`[T]`, `{K: V}`, `Set<T>`) have NO
+// `TypeEntry` — they are structural pool types, not user-declared nominals.
+// `register_user_burden` lands their spec in the `collection_burdens`
+// side-table, read by `burden(idx)` as a fallback after `types_by_idx`. Matrix
+// covers (element-class: scalar vs heap) × (container shape: list vs map vs set)
+// plus negative pins (unregistered instance → None) and the nominal-path
+// regression (struct burden still resolves via the TypeEntry path).
+
+use crate::registry::burden_compose::compose_user_burden;
+use ori_registry::burden::table::{BurdenRegistry, TYPE_ID_LIST, TYPE_ID_MAP, TYPE_ID_SET};
+
+/// Build a real `[T]` burden via the composer, mirroring what
+/// monomorphization produces. `elem` is the concrete element `Idx`.
+fn list_burden(elem: Idx, pool: &Pool, registry: &TypeRegistry) -> UserBurdenSpec {
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_LIST) else {
+        panic!("List template missing from BURDEN_TABLE");
+    };
+    compose_user_burden(template, &[elem], pool, registry)
+}
+
+fn map_burden(key: Idx, val: Idx, pool: &Pool, registry: &TypeRegistry) -> UserBurdenSpec {
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_MAP) else {
+        panic!("Map template missing from BURDEN_TABLE");
+    };
+    compose_user_burden(template, &[key, val], pool, registry)
+}
+
+fn set_burden(elem: Idx, pool: &Pool, registry: &TypeRegistry) -> UserBurdenSpec {
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_SET) else {
+        panic!("Set template missing from BURDEN_TABLE");
+    };
+    compose_user_burden(template, &[elem], pool, registry)
+}
+
+#[test]
+fn burden_list_instance_without_type_entry_resolves_via_side_table() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    // A monomorphized `[str]` instance has no TypeEntry — collection pool idx.
+    let list_idx = Idx::from_raw(300);
+    assert!(
+        registry.burden(list_idx).is_none(),
+        "negative pin: unregistered collection instance has no burden"
+    );
+    let spec = list_burden(Idx::STR, &pool, &registry);
+    registry.register_user_burden(list_idx, spec);
+    let resolved = registry
+        .burden(list_idx)
+        .expect("registered [str] instance must resolve via side-table");
+    assert!(
+        resolved.self_heap_alloc,
+        "[str] backing buffer is always heap-allocated"
+    );
+}
+
+#[test]
+fn burden_list_scalar_element_is_buffer_only() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let list_idx = Idx::from_raw(301);
+    let spec = list_burden(Idx::INT, &pool, &registry);
+    registry.register_user_burden(list_idx, spec);
+    let resolved = registry
+        .burden(list_idx)
+        .expect("[int] instance resolves via side-table");
+    assert!(
+        resolved.self_heap_alloc,
+        "[int] backing buffer is heap (buffer-only free)"
+    );
+    assert!(
+        resolved.element_burden.is_none() || resolved.element_burden == Some(Idx::INT),
+        "scalar element carries no per-element heap obligation beyond buffer free"
+    );
+}
+
+#[test]
+fn burden_list_heap_element_carries_element_burden() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let list_idx = Idx::from_raw(302);
+    let spec = list_burden(Idx::STR, &pool, &registry);
+    registry.register_user_burden(list_idx, spec);
+    let resolved = registry
+        .burden(list_idx)
+        .expect("[str] instance resolves via side-table");
+    assert!(resolved.self_heap_alloc, "buffer is heap");
+    assert_eq!(
+        resolved.element_burden,
+        Some(Idx::STR),
+        "[str] carries per-element burden = STR (buffer free + element dec)"
+    );
+}
+
+#[test]
+fn burden_map_instance_resolves_via_side_table() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let map_idx = Idx::from_raw(303);
+    let spec = map_burden(Idx::INT, Idx::STR, &pool, &registry);
+    registry.register_user_burden(map_idx, spec);
+    let resolved = registry
+        .burden(map_idx)
+        .expect("{int: str} instance resolves via side-table");
+    assert!(resolved.self_heap_alloc, "map backing buffer is heap");
+}
+
+#[test]
+fn burden_set_instance_resolves_via_side_table() {
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let set_idx = Idx::from_raw(304);
+    let spec = set_burden(Idx::STR, &pool, &registry);
+    registry.register_user_burden(set_idx, spec);
+    let resolved = registry
+        .burden(set_idx)
+        .expect("Set<str> instance resolves via side-table");
+    assert!(resolved.self_heap_alloc, "set backing buffer is heap");
+    assert_eq!(
+        resolved.element_burden,
+        Some(Idx::STR),
+        "Set<str> carries per-element burden = STR"
+    );
+}
+
+#[test]
+fn burden_side_table_does_not_shadow_nominal_type_entry() {
+    // Regression: the side-table fallback must NOT intercept a nominal
+    // TypeEntry burden. A registered struct still resolves via types_by_idx.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let struct_name = test_name("HasHeap");
+    let struct_idx = Idx::from_raw(305);
+    let fields = vec![heap_str_field("payload")];
+    let struct_burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        struct_name,
+        struct_idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        struct_burden,
+    );
+    let spec = registry
+        .burden(struct_idx)
+        .expect("nominal struct burden resolves via TypeEntry, not side-table");
+    assert_eq!(spec.owned_fields.len(), 1, "struct's one owned heap field");
+}

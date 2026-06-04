@@ -98,7 +98,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             | ExprKind::Let { .. }
             | ExprKind::Lambda { .. }
             | ExprKind::WithCapability { .. }
-            | ExprKind::For { .. } => self.emit_broken(expr_id),
+            | ExprKind::For { .. }
+            | ExprKind::While { .. } => self.emit_broken(expr_id),
 
             // Inline-adequate: leaf/atoms and simple compounds
             //

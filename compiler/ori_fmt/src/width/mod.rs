@@ -46,7 +46,7 @@ use collections::{
 use compounds::{duration_width, size_width};
 use control::{
     assign_width, block_width, break_width, continue_width, field_width, for_width, if_width,
-    index_width, with_capability_width,
+    index_width, while_width, with_capability_width,
 };
 use helpers::{accumulate_widths, COMMA_SEPARATOR_WIDTH};
 use literals::{bool_width, char_width, float_width, int_width, string_width};
@@ -209,6 +209,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 is_yield,
             } => for_width(self, *label, *pattern, *iter, *guard, *body, *is_yield),
             ExprKind::Loop { label, body } => loop_width(self, *label, *body),
+            ExprKind::While { label, cond, body } => while_width(self, *label, *cond, *body),
             ExprKind::Block { stmts, result } => block_width(self, *stmts, *result),
 
             // Let binding - complex, kept inline

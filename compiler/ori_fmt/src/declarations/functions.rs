@@ -83,8 +83,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let expr = self.arena.get_expr(body);
 
         match &expr.kind {
-            // Per spec: If/For always break to newline (they have internal breaking structure)
-            ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. } => true,
+            // Per spec: If/For/While always break to newline (internal breaking structure)
+            ori_ir::ExprKind::If { .. }
+            | ori_ir::ExprKind::For { .. }
+            | ori_ir::ExprKind::While { .. } => true,
 
             // Method calls: break if receiver is If/For (needs to break internally)
             ori_ir::ExprKind::MethodCall { receiver, args, .. } => {

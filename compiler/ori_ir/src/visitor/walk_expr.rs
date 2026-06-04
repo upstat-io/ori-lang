@@ -50,6 +50,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Loop { body, .. } => {
             visitor.visit_expr_id(*body, arena);
         }
+        ExprKind::While { cond, body, .. } => {
+            visitor.visit_expr_id(*cond, arena);
+            visitor.visit_expr_id(*body, arena);
+        }
         ExprKind::Break { value, .. } | ExprKind::Continue { value, .. } => {
             if value.is_present() {
                 visitor.visit_expr_id(*value, arena);

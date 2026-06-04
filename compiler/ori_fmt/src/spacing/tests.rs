@@ -121,6 +121,7 @@ mod category_tests {
         assert!(TokenCategory::Then.is_keyword());
         assert!(TokenCategory::Else.is_keyword());
         assert!(TokenCategory::For.is_keyword());
+        assert!(TokenCategory::While.is_keyword());
         assert!(TokenCategory::Let.is_keyword());
         assert!(TokenCategory::Pub.is_keyword());
 

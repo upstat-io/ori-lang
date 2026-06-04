@@ -5201,3 +5201,222 @@ fn project_of_owned_source_dst_is_not_borrow_excluded() {
         "Project dst of an OWNED source MUST NOT be borrow-excluded (source-gate keys on source borrowed-ness)",
     );
 }
+
+// Collection-buffer last-use freeing dec.
+//
+// A monomorphized collection instance (`[str]`, `{int:str}`, `Set<str>`) has
+// NO `TypeEntry` — its burden lives in the `TypeRegistry` collection-burden
+// side-table, registered by the monomorphization-composer flush. Once the
+// burden resolves, `Construct List/Map/Set` enters `owned_vars_needing_rc` and
+// the buffer receives a FRESH-site `BurdenInc` (TF-3) plus a last-use
+// `BurdenDec` (RL-2). VF-1 net must stay 0 (every Inc paired with a Dec).
+//
+// These exercise `emit_burden_ops` with a registry whose side-table carries
+// the composed collection burden — the data path this exercises.
+
+/// Register a composed `[T]` collection burden against `idx` in the registry
+/// side-table, mirroring the monomorphization-composer flush.
+fn register_list_burden(registry: &mut TypeRegistry, idx: Idx, elem: Idx) {
+    use ori_registry::burden::table::{BurdenRegistry, TYPE_ID_LIST};
+    use ori_types::Pool;
+    let pool = Pool::new();
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_LIST) else {
+        panic!("List template missing from BURDEN_TABLE");
+    };
+    let spec = ori_types::burden_compose::compose_user_burden(template, &[elem], &pool, registry);
+    registry.register_user_burden(idx, spec);
+}
+
+fn register_map_burden(registry: &mut TypeRegistry, idx: Idx, key: Idx, val: Idx) {
+    use ori_registry::burden::table::{BurdenRegistry, TYPE_ID_MAP};
+    use ori_types::Pool;
+    let pool = Pool::new();
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_MAP) else {
+        panic!("Map template missing from BURDEN_TABLE");
+    };
+    let spec =
+        ori_types::burden_compose::compose_user_burden(template, &[key, val], &pool, registry);
+    registry.register_user_burden(idx, spec);
+}
+
+fn register_set_burden(registry: &mut TypeRegistry, idx: Idx, elem: Idx) {
+    use ori_registry::burden::table::{BurdenRegistry, TYPE_ID_SET};
+    use ori_types::Pool;
+    let pool = Pool::new();
+    let Some(template) = BurdenRegistry::lookup_builtin(TYPE_ID_SET) else {
+        panic!("Set template missing from BURDEN_TABLE");
+    };
+    let spec = ori_types::burden_compose::compose_user_burden(template, &[elem], &pool, registry);
+    registry.register_user_burden(idx, spec);
+}
+
+/// Count `BurdenInc(var)` and every `BurdenDec*`-family op targeting `var`
+/// across all blocks. VF-1 net = incs - decs MUST be 0 for a balanced buffer.
+fn burden_net_for(func: &ArcFunction, var: ArcVarId) -> i64 {
+    let mut net: i64 = 0;
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var: v } if *v == var => net += 1,
+                ArcInstr::BurdenDec { var: v } if *v == var => net -= 1,
+                ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => net -= 1,
+                ArcInstr::BurdenDecVariant { var: v } if *v == var => net -= 1,
+                ArcInstr::BurdenDecField { base, .. } if *base == var => net -= 1,
+                _ => {}
+            }
+        }
+    }
+    net
+}
+
+/// Build a single-block func mirroring `{ let $xs = [...]; xs.len() }`:
+/// construct a collection buffer at `%0`, then borrow it via an Apply (the
+/// `len` call), returning a scalar. The buffer's last use is the in-function
+/// borrow, so it owns a FRESH-site `BurdenInc` (TF-3) + a last-use freeing
+/// `BurdenDec` (RL-2) that net to 0 — the collection-buffer scenario.
+fn collection_buffer_then_borrow_func(buf_idx: Idx, ctor: CtorKind) -> ArcFunction {
+    ArcFunction {
+        // var 0: the constructed buffer; var 1: the scalar `len` result.
+        var_types: vec![buf_idx, Idx::INT],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(0),
+                    ty: buf_idx,
+                    ctor,
+                    args: Vec::new(),
+                },
+                // Borrowing use (mirrors `len(xs [borrow])`): the buffer's last
+                // use is here, so it receives a freeing BurdenDec after.
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn list_buffer_emits_fresh_inc_and_last_use_freeing_dec_vf1_zero() {
+    let mut registry = TypeRegistry::new();
+    let list_idx = Idx::from_raw(300);
+    register_list_burden(&mut registry, list_idx, Idx::STR);
+    let mut func = collection_buffer_then_borrow_func(list_idx, CtorKind::ListLiteral);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+
+    let buf = ArcVarId::new(0);
+    let body = &func.blocks[0].body;
+    let has_inc = body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == buf));
+    assert!(
+        has_inc,
+        "[str] buffer must receive a FRESH-site BurdenInc (TF-3); body={body:?}",
+    );
+    // The buffer's last use is the in-function borrow, so its freeing
+    // BurdenDec lands on the buffer var itself. VF-1 net on the buffer = 0.
+    let has_dec = body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == buf));
+    assert!(
+        has_dec,
+        "[str] buffer must receive a last-use freeing BurdenDec (RL-2); body={body:?}",
+    );
+    assert_eq!(
+        burden_net_for(&func, buf),
+        0,
+        "VF-1: [str] buffer Inc/Dec must net to 0; body={body:?}",
+    );
+}
+
+#[test]
+fn map_buffer_emits_fresh_inc_and_freeing_dec_vf1_zero() {
+    let mut registry = TypeRegistry::new();
+    let map_idx = Idx::from_raw(301);
+    register_map_burden(&mut registry, map_idx, Idx::INT, Idx::STR);
+    let mut func = collection_buffer_then_borrow_func(map_idx, CtorKind::MapLiteral);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+
+    let buf = ArcVarId::new(0);
+    let body = &func.blocks[0].body;
+    assert!(
+        body.iter()
+            .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == buf)),
+        "{{int:str}} buffer must receive a FRESH-site BurdenInc; body={body:?}",
+    );
+    assert!(
+        body.iter()
+            .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == buf)),
+        "{{int:str}} buffer must receive a last-use freeing BurdenDec; body={body:?}",
+    );
+    assert_eq!(
+        burden_net_for(&func, buf),
+        0,
+        "VF-1: map buffer Inc/Dec must net to 0; body={body:?}",
+    );
+}
+
+#[test]
+fn set_buffer_emits_fresh_inc_and_freeing_dec_vf1_zero() {
+    let mut registry = TypeRegistry::new();
+    let set_idx = Idx::from_raw(302);
+    register_set_burden(&mut registry, set_idx, Idx::STR);
+    let mut func = collection_buffer_then_borrow_func(set_idx, CtorKind::SetLiteral);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+
+    let buf = ArcVarId::new(0);
+    let body = &func.blocks[0].body;
+    assert!(
+        body.iter()
+            .any(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == buf)),
+        "Set<str> buffer must receive a FRESH-site BurdenInc; body={body:?}",
+    );
+    assert!(
+        body.iter()
+            .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == buf)),
+        "Set<str> buffer must receive a last-use freeing BurdenDec; body={body:?}",
+    );
+    assert_eq!(
+        burden_net_for(&func, buf),
+        0,
+        "VF-1: set buffer Inc/Dec must net to 0; body={body:?}",
+    );
+}
+
+#[test]
+fn unregistered_collection_buffer_emits_no_burden_ops() {
+    // Negative pin: WITHOUT a registered collection burden, the buffer
+    // resolves no burden, fails `burden_carries_rc`, and receives ZERO burden
+    // ops (the pre-fix no-emission path — VF-1=0 vacuously). Proves the Inc/Dec
+    // emergence above is driven by the registered side-table burden, not by
+    // unconditional Construct emission.
+    let registry = TypeRegistry::new();
+    let list_idx = Idx::from_raw(303);
+    let mut func = collection_buffer_then_borrow_func(list_idx, CtorKind::ListLiteral);
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default());
+    let buf = ArcVarId::new(0);
+    let body = &func.blocks[0].body;
+    let has_any_burden = body.iter().any(|i| {
+        matches!(
+            i,
+            ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var } if *var == buf
+        )
+    });
+    assert!(
+        !has_any_burden,
+        "unregistered [str] buffer must receive NO burden ops (no resolved burden); body={body:?}",
+    );
+}

@@ -1,0 +1,15 @@
+// While loop
+// Spec: 16-control-flow.md § While Expression
+@count_up (limit: int) -> int = {
+    let i = 0;
+    while i < limit do i = i + 1;
+
+    i
+}
+
+@count_labeled (limit: int) -> int = {
+    let i = 0;
+    while:outer i < limit do i = i + 1;
+
+    i
+}

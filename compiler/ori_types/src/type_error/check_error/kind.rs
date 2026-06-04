@@ -445,6 +445,69 @@ pub enum TypeErrorKind {
         /// The type name carrying both markers (e.g., `Point`).
         type_name: Name,
     },
+
+    /// `break value` in a void-typed loop (E0860).
+    ///
+    /// Spec: `14-expressions.md` § Break and Continue + `16-control-flow.md`
+    /// § Loop Control — `while...do` and `for...do` have type `void`, so a
+    /// value attached to `break` has no destination. Only `loop { }` and
+    /// `for...yield` carry a break value.
+    BreakValueInVoidLoop {
+        /// Which void-typed loop form the `break value` appeared in.
+        loop_kind: VoidLoopKind,
+    },
+
+    /// `continue value` in a non-collecting loop (E0861).
+    ///
+    /// Spec: `14-expressions.md` § Break and Continue + `16-control-flow.md`
+    /// § Loop Control — `loop`, `while`, and `for...do` do not accumulate
+    /// values, so a value attached to `continue` has no destination. Only
+    /// `for...yield` substitutes a `continue value`.
+    ContinueValueInNonCollectingLoop {
+        /// Which non-collecting loop form the `continue value` appeared in.
+        loop_kind: NonCollectingLoopKind,
+    },
+}
+
+/// Void-typed loop forms that reject `break value` (E0860).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum VoidLoopKind {
+    /// `while cond do body`.
+    While,
+    /// `for x in iter do body`.
+    ForDo,
+}
+
+impl VoidLoopKind {
+    /// The surface keyword form for diagnostic messages.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::While => "`while...do`",
+            Self::ForDo => "`for...do`",
+        }
+    }
+}
+
+/// Non-collecting loop forms that reject `continue value` (E0861).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum NonCollectingLoopKind {
+    /// `loop { body }`.
+    Loop,
+    /// `while cond do body`.
+    While,
+    /// `for x in iter do body`.
+    ForDo,
+}
+
+impl NonCollectingLoopKind {
+    /// The surface keyword form for diagnostic messages.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Loop => "`loop`",
+            Self::While => "`while`",
+            Self::ForDo => "`for...do`",
+        }
+    }
 }
 
 /// What kind of arity mismatch occurred.

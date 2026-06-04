@@ -11,22 +11,84 @@ use crate::Idx;
 
 use super::InferEngine;
 
+/// Per-loop context tracked while checking a loop body.
+///
+/// Records the break-value-type unification target plus whether `break value`
+/// and `continue value` are permitted in this loop form. Per spec
+/// (`14-expressions.md` / `16-control-flow.md`):
+/// - `loop { }` permits `break value`, forbids `continue value`.
+/// - `for...yield` permits both.
+/// - `while...do` / `for...do` forbid both (the loop has type `void`).
+#[derive(Copy, Clone, Debug)]
+pub struct LoopContext {
+    /// Label declared on this loop, or `Name::EMPTY` when unlabeled.
+    ///
+    /// A labeled `break`/`continue` resolves its value-permission against the
+    /// context whose `label` matches the target — not the innermost loop.
+    pub label: Name,
+    /// Unification target for `break value` (the loop's break type variable).
+    pub break_ty: Idx,
+    /// Whether `break value` is permitted in this loop form.
+    pub break_value_allowed: bool,
+    /// Whether `continue value` is permitted in this loop form.
+    pub continue_value_allowed: bool,
+    /// Which surface loop form this context describes (for diagnostics).
+    pub form: LoopForm,
+}
+
+/// The surface loop form that introduced a [`LoopContext`].
+///
+/// Used only to name the offending construct in E0860 / E0861 diagnostics.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LoopForm {
+    /// `loop { body }`.
+    Loop,
+    /// `while cond do body`.
+    While,
+    /// `for x in iter do body`.
+    ForDo,
+    /// `for x in iter yield body`.
+    ForYield,
+}
+
 impl InferEngine<'_> {
-    /// Push a loop break type variable onto the stack.
-    /// Called when entering a `loop()` expression.
-    pub fn push_loop_break_type(&mut self, ty: Idx) {
-        self.loop_break_types.push(ty);
+    /// Push a loop context onto the stack.
+    /// Called when entering any loop form.
+    pub fn push_loop_context(&mut self, ctx: LoopContext) {
+        self.loop_contexts.push(ctx);
     }
 
-    /// Pop the loop break type variable.
-    /// Called when exiting a `loop()` expression.
-    pub fn pop_loop_break_type(&mut self) -> Option<Idx> {
-        self.loop_break_types.pop()
+    /// Pop the innermost loop context.
+    /// Called when exiting a loop form.
+    pub fn pop_loop_context(&mut self) -> Option<LoopContext> {
+        self.loop_contexts.pop()
     }
 
-    /// Get the current loop's break type variable (innermost loop).
+    /// Get the innermost loop's context (the enclosing loop), if any.
+    pub fn current_loop_context(&self) -> Option<LoopContext> {
+        self.loop_contexts.last().copied()
+    }
+
+    /// Resolve the loop context a `break`/`continue` targets.
+    ///
+    /// `label == Name::EMPTY` (unlabeled) → innermost loop. A non-empty label
+    /// → the nearest enclosing loop whose `label` matches; `None` when no
+    /// enclosing loop carries that label (the label-resolution error path,
+    /// owned elsewhere, handles that case).
+    pub fn resolve_loop_context(&self, label: Name) -> Option<LoopContext> {
+        if label == Name::EMPTY {
+            return self.current_loop_context();
+        }
+        self.loop_contexts
+            .iter()
+            .rev()
+            .find(|ctx| ctx.label == label)
+            .copied()
+    }
+
+    /// Get the innermost loop's break type variable, if inside a loop.
     pub fn current_loop_break_type(&self) -> Option<Idx> {
-        self.loop_break_types.last().copied()
+        self.loop_contexts.last().map(|ctx| ctx.break_ty)
     }
 
     // Capability Management

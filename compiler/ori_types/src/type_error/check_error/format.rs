@@ -456,6 +456,18 @@ impl TypeCheckError {
                     }
                 }
             }
+            TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
+                format!(
+                    "`break` with a value is not allowed in {}: this loop form has type `void`",
+                    loop_kind.description()
+                )
+            }
+            TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind } => {
+                format!(
+                    "`continue` with a value is not allowed in {}: this loop does not accumulate values",
+                    loop_kind.description()
+                )
+            }
         }
     }
 

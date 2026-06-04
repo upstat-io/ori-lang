@@ -417,6 +417,31 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
+            // While - block body opens inline after `do`; non-block body on a new line.
+            ExprKind::While { label, cond, body } => {
+                self.ctx.emit("while");
+                if *label != Name::EMPTY {
+                    self.ctx.emit(":");
+                    self.ctx.emit(self.interner.lookup(*label));
+                }
+                self.ctx.emit(" ");
+                self.format(*cond);
+                self.ctx.emit(" do");
+                if matches!(self.arena.get_expr(*body).kind, ExprKind::Block { .. }) {
+                    // `do { ... }` — block renders its own brace inline + single indent,
+                    // matching the canonical `while c do { ... }` source form. Avoids the
+                    // double-indent that a forced newline + indent would introduce.
+                    self.ctx.emit(" ");
+                    self.format(*body);
+                } else {
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    self.ctx.emit_indent();
+                    self.format(*body);
+                    self.ctx.dedent();
+                }
+            }
+
             // Always-stacked constructs: delegate to stacked rendering
             ExprKind::Block { .. }
             | ExprKind::Match { .. }

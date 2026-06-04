@@ -62,6 +62,8 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E0003, include_str!("E0003.md")),
     (ErrorCode::E0004, include_str!("E0004.md")),
     (ErrorCode::E0005, include_str!("E0005.md")),
+    (ErrorCode::E0860, include_str!("E0860.md")),
+    (ErrorCode::E0861, include_str!("E0861.md")),
     // Parser errors (E1xxx)
     (ErrorCode::E1001, include_str!("E1001.md")),
     (ErrorCode::E1002, include_str!("E1002.md")),

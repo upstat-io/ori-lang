@@ -306,6 +306,7 @@ golden_test!(golden_tests_patterns_run, "patterns/run");
 golden_test!(golden_tests_patterns_try, "patterns/try");
 golden_test!(golden_tests_patterns_match, "patterns/match");
 golden_test!(golden_tests_patterns_for, "patterns/for");
+golden_test!(golden_tests_patterns_while, "patterns/while");
 // Note: loop(...) pattern not yet supported by parser (Phase 4 known limitation)
 
 // Collection Tests (Phase 5)

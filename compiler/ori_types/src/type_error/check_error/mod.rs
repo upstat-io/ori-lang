@@ -29,7 +29,8 @@ pub(crate) mod kind;
 mod message;
 
 pub use kind::{
-    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, TypeErrorKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, NonCollectingLoopKind,
+    TypeErrorKind, VoidLoopKind,
 };
 
 use ori_diagnostic::Suggestion;

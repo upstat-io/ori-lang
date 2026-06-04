@@ -51,6 +51,7 @@ impl TokenKind {
             Self::Let => TokenTag::KwLet as u8,
             Self::Loop => TokenTag::KwLoop as u8,
             Self::Match => TokenTag::KwMatch as u8,
+            Self::While => TokenTag::KwWhile as u8,
             Self::Pub => TokenTag::KwPub as u8,
             Self::SelfLower => TokenTag::KwSelfLower as u8,
             Self::SelfUpper => TokenTag::KwSelfUpper as u8,

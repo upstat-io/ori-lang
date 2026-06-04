@@ -131,6 +131,7 @@ impl Parser<'_> {
             TokenKind::TAG_IF => return self.parse_if_expr(),
             TokenKind::TAG_LET => return self.parse_let_expr(),
             TokenKind::TAG_LOOP => return self.parse_loop_expr(),
+            TokenKind::TAG_WHILE => return self.parse_while_expr(),
             TokenKind::TAG_SOME | TokenKind::TAG_NONE | TokenKind::TAG_OK | TokenKind::TAG_ERR => {
                 return self.parse_variant_primary()
             }
@@ -178,6 +179,7 @@ impl Parser<'_> {
             self.parse_if_expr(),
             self.parse_let_expr(),
             self.parse_loop_expr(),
+            self.parse_while_expr(),
             self.parse_for_loop(),
             self.parse_control_flow_primary(),
             self.parse_template_literal(),

@@ -131,9 +131,20 @@ impl InferEngine<'_> {
     /// `bodies::finalize_body_and_export`. Downstream codegen reads the
     /// registered spec via `TypeRegistry::burden(idx)` without
     /// re-deriving.
+    ///
+    /// Runs a final pool sweep (`compose_builtin_burdens_for_resolved_types`)
+    /// before draining so that collection instances minted by literals
+    /// (`["a", "b"]`, `{k: v}`, `Set` builders) — which never flow through a
+    /// generic free-function monomorphization — also get their
+    /// `UserBurdenSpec` composed. Without the sweep, a body that constructs a
+    /// `[str]` but calls no generic function would leak the backing buffer in
+    /// the standalone burden ledger (Spec: Annex E §AIMS, RL-2 — dec at
+    /// last-use). The accumulator dedups against entries already pushed by the
+    /// per-monomorphization site, so the sweep is idempotent in effect.
     pub fn take_composed_burdens(
         &mut self,
     ) -> Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)> {
+        crate::infer::expr::compose_builtin_burdens_for_resolved_types(self);
         std::mem::take(&mut self.composed_burdens)
     }
 

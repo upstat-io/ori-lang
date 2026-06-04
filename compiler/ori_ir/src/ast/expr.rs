@@ -197,6 +197,16 @@ pub enum ExprKind {
         body: ExprId,
     },
 
+    /// While loop: `while cond do body` or `while:label cond do body`.
+    ///
+    /// Sugar for `loop { if !cond then break; body }`; desugared in `ori_canon`.
+    While {
+        /// `Name::EMPTY` = no label.
+        label: Name,
+        cond: ExprId,
+        body: ExprId,
+    },
+
     /// Block: { stmts; result }
     Block {
         stmts: StmtRange,
@@ -429,6 +439,9 @@ impl fmt::Debug for ExprKind {
                 )
             }
             ExprKind::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),
+            ExprKind::While { label, cond, body } => {
+                write!(f, "While({label:?}, {cond:?}, {body:?})")
+            }
             ExprKind::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
             ExprKind::Let {
                 pattern,

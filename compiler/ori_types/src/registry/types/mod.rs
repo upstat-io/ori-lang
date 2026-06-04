@@ -55,6 +55,18 @@ pub struct TypeRegistry {
     /// constructor — Value-carrying types are a minority of registered
     /// types in practice.
     value_marker_types: FxHashSet<Idx>,
+
+    /// Burden side-table for monomorphized generic-builtin instances
+    /// (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, `Result<T, E>`, `Range<T>`)
+    /// that have NO `TypeEntry` — they are structural pool types, not
+    /// user-declared nominals (per `types.md §RG-1`). `register_user_burden`
+    /// writes here when `typeid` is absent from `types_by_idx`; `burden(idx)`
+    /// reads this as a fallback. Keyed by bare `Idx` — same shape as
+    /// `value_marker_types` for non-nominal pool indices. This is the
+    /// documented post-Signatures-freeze burden-only write path: it touches
+    /// no `TypeEntry`, so the registry's nominal-type freeze (RG-1) is
+    /// preserved.
+    collection_burdens: FxHashMap<Idx, UserBurdenSpec>,
 }
 
 /// A registered type definition.
@@ -204,6 +216,7 @@ impl TypeRegistry {
             variants_by_name: FxHashMap::default(),
             burden_by_signature: FxHashMap::default(),
             value_marker_types: FxHashSet::default(),
+            collection_burdens: FxHashMap::default(),
         }
     }
 
@@ -369,15 +382,19 @@ impl TypeRegistry {
 
     /// Look up the per-type burden spec for AIMS drop-walk and reuse analysis.
     ///
-    /// Returns `None` when the type has no burden (all-scalar fields, empty
-    /// newtype payload) or has not been registered. Lifetime is tied to the
-    /// `TypeRegistry` borrow.
+    /// Resolution order: the nominal `TypeEntry` burden (struct / enum /
+    /// newtype / alias) first, then the `collection_burdens` side-table for
+    /// monomorphized generic-builtin instances (`[T]`, `{K: V}`, `Set<T>`,
+    /// `Option<T>`, …) that have no `TypeEntry`. Returns `None` when the type
+    /// has no burden (all-scalar fields, empty newtype payload) or has not
+    /// been registered. Lifetime is tied to the `TypeRegistry` borrow.
     #[inline]
     #[must_use]
     pub fn burden(&self, idx: Idx) -> Option<&UserBurdenSpec> {
         self.types_by_idx
             .get(&idx)
             .and_then(|entry| entry.burden.as_ref())
+            .or_else(|| self.collection_burdens.get(&idx))
     }
 
     /// Record `idx` as carrying the `Value` marker.
@@ -423,12 +440,14 @@ impl TypeRegistry {
     /// reverse-index (the prior signature owner remains the canonical
     /// owner for the colliding key).
     ///
-    /// `typeid` MUST already be present in the registry as a
-    /// [`TypeKind::Struct`] / `TypeKind::Enum` / `TypeKind::Newtype` /
-    /// `TypeKind::Alias` entry. The burden field on that entry is
-    /// overwritten with the canonical spec. When the registry has no
-    /// entry for `typeid`, the call is a no-op returning `typeid`
-    /// unchanged.
+    /// When `typeid` is present in the registry as a [`TypeKind::Struct`] /
+    /// `TypeKind::Enum` / `TypeKind::Newtype` / `TypeKind::Alias` entry, the
+    /// burden field on that entry is overwritten with the canonical spec.
+    /// When the registry has no `TypeEntry` for `typeid` — the monomorphized
+    /// generic-builtin case (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, …) — the
+    /// spec lands in the `collection_burdens` side-table, read by
+    /// [`Self::burden`] as a fallback. Either way `burden(typeid)` returns
+    /// `Some(spec)` after this call.
     pub fn register_user_burden(&mut self, typeid: Idx, spec: UserBurdenSpec) -> Idx {
         let sig = BurdenSignature::compute_singlelevel(&spec);
 
@@ -447,15 +466,7 @@ impl TypeRegistry {
                 // different typeids) silently lose burden lookups, producing
                 // AIMS-realization-time miscompilation (AIMS Invariant 3 — no
                 // stale summaries).
-                if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
-                    entry.burden = Some(spec.clone());
-                }
-                for entry in self.types_by_name.values_mut() {
-                    if entry.idx == typeid {
-                        entry.burden = Some(spec);
-                        break;
-                    }
-                }
+                self.write_spec_to_idx(typeid, spec);
                 return existing_idx;
             }
             // Signature collision with a structurally different spec.
@@ -464,39 +475,51 @@ impl TypeRegistry {
             // the signature slot).
         }
 
-        // Insert the spec into both directions, but only claim the
-        // signature slot when it is currently vacant (collisions leave
-        // the prior owner intact per the Debug/Release Parity gate).
-        let signature_claimed = match self.burden_by_signature.entry(sig) {
-            std::collections::hash_map::Entry::Vacant(slot) => {
-                slot.insert(typeid);
-                true
-            }
-            std::collections::hash_map::Entry::Occupied(_) => false,
-        };
+        // Claim the signature slot when it is currently vacant (collisions
+        // leave the prior owner intact per the Debug/Release Parity gate).
+        // The slot claim is unconditional bookkeeping — `write_spec_to_idx`
+        // below always lands the spec (nominal entry OR side-table), so the
+        // claim never needs backing out.
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.burden_by_signature.entry(sig)
+        {
+            slot.insert(typeid);
+        }
 
-        // Update the burden on the TypeEntry. When the entry is missing
-        // (programmer error: registering a burden for an unregistered
-        // type), the call is a no-op except for the signature slot
-        // bookkeeping above; back out the bookkeeping to keep the maps
-        // consistent.
-        if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
-            entry.burden = Some(spec.clone());
-        } else {
-            if signature_claimed {
-                self.burden_by_signature.remove(&sig);
-            }
-            return typeid;
-        }
-        // Also update the by-name entry (TypeEntry stored in both maps).
-        for entry in self.types_by_name.values_mut() {
-            if entry.idx == typeid {
-                entry.burden = Some(spec);
-                break;
-            }
-        }
+        // Write the spec at `typeid`. A nominal `TypeEntry` (struct / enum /
+        // newtype / alias) takes the burden on its entry; a monomorphized
+        // generic-builtin instance (`[T]`, `{K: V}`, `Set<T>`, …) has no
+        // `TypeEntry` and lands in the `collection_burdens` side-table. The
+        // signature-slot bookkeeping above stands either way — the slot is
+        // claimed for both nominal and side-table specs so dedup spans both
+        // storage homes.
+        self.write_spec_to_idx(typeid, spec);
 
         typeid
+    }
+
+    /// Write `spec` at `typeid`, dispatching to the nominal `TypeEntry` burden
+    /// field when one exists or to the `collection_burdens` side-table when it
+    /// does not. The side-table home is the post-Signatures-freeze burden-only
+    /// write path for monomorphized generic-builtin instances that carry no
+    /// `TypeEntry` (per `types.md §RG-1`). SSOT for the
+    /// `register_user_burden` storage-dispatch so the structural-match and
+    /// fresh-insert paths cannot diverge.
+    fn write_spec_to_idx(&mut self, typeid: Idx, spec: UserBurdenSpec) {
+        if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
+            entry.burden = Some(spec.clone());
+            // Also update the by-name entry (TypeEntry stored in both maps).
+            for name_entry in self.types_by_name.values_mut() {
+                if name_entry.idx == typeid {
+                    name_entry.burden = Some(spec);
+                    break;
+                }
+            }
+        } else {
+            // No nominal entry — monomorphized collection / generic-builtin
+            // instance. Land in the side-table read by `burden(idx)` as a
+            // fallback after `types_by_idx`.
+            self.collection_burdens.insert(typeid, spec);
+        }
     }
 
     /// Number of distinct burden signatures currently registered.
@@ -627,6 +650,23 @@ impl TypeRegistry {
     /// Consume the registry and return all type entries in name order.
     pub fn into_entries(self) -> Vec<TypeEntry> {
         self.types_by_name.into_values().collect()
+    }
+
+    /// Drain the monomorphized-collection burden side-table into a
+    /// deterministically-ordered `Vec<(Idx, UserBurdenSpec)>`.
+    ///
+    /// Side-table entries (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`,
+    /// `Result<T, E>`, `Range<T>` instances with no nominal `TypeEntry`) are
+    /// keyed by bare `Idx` and never surface through `into_entries`. Export
+    /// time uses this to carry the side-table out of the in-memory
+    /// `TypeRegistry` onto `TypedModule`, where the ARC pipeline reconstructs
+    /// it. Sorted ascending by `Idx` for Salsa-deterministic output.
+    /// Spec: Annex E §AIMS.
+    #[must_use]
+    pub fn drain_collection_burdens(&mut self) -> Vec<(Idx, UserBurdenSpec)> {
+        let mut out: Vec<(Idx, UserBurdenSpec)> = self.collection_burdens.drain().collect();
+        out.sort_by_key(|(idx, _)| idx.raw());
+        out
     }
 
     /// Get the number of registered types.

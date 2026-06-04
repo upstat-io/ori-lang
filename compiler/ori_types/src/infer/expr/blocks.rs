@@ -430,6 +430,10 @@ fn body_captures_outer(
         }
         ExprKind::Let { init, .. } => body_captures_outer(arena, *init, param_names, outer_vars),
         ExprKind::Loop { body, .. } => body_captures_outer(arena, *body, param_names, outer_vars),
+        ExprKind::While { cond, body, .. } => {
+            body_captures_outer(arena, *cond, param_names, outer_vars)
+                || body_captures_outer(arena, *body, param_names, outer_vars)
+        }
         ExprKind::Field { receiver, .. } => {
             body_captures_outer(arena, *receiver, param_names, outer_vars)
         }

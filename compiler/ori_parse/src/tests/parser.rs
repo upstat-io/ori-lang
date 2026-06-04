@@ -1456,6 +1456,56 @@ fn test_labeled_loop() {
 }
 
 #[test]
+fn test_while_loop_parses_with_cond_and_body() {
+    let result = parse_source("@f () -> void = while true do break;");
+    assert!(!result.has_errors(), "while should parse: {result:?}");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::While { label, cond, body } = &body.kind {
+        assert_eq!(
+            *label,
+            ori_ir::Name::EMPTY,
+            "unlabeled while has empty label"
+        );
+        let cond_expr = result.arena.get_expr(*cond);
+        assert!(
+            matches!(cond_expr.kind, ExprKind::Bool(true)),
+            "while cond should be `true`, got {cond_expr:?}"
+        );
+        let body_expr = result.arena.get_expr(*body);
+        assert!(
+            matches!(body_expr.kind, ExprKind::Break { .. }),
+            "while body should be `break`, got {body_expr:?}"
+        );
+    } else {
+        panic!("expected While, got {body:?}");
+    }
+}
+
+#[test]
+fn test_labeled_while_loop_carries_label() {
+    let (result, interner) =
+        parse_source_with_interner("@f () -> void = while:outer true do break:outer;");
+    assert!(
+        !result.has_errors(),
+        "labeled while should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::While { label, .. } = &body.kind {
+        assert_eq!(
+            interner.lookup(*label),
+            "outer",
+            "while label should be 'outer'"
+        );
+    } else {
+        panic!("expected While, got {body:?}");
+    }
+}
+
+#[test]
 fn test_labeled_continue_with_value() {
     let result = parse_source(
         "@f () -> [int] = for:lp x in [1, 2, 3] yield {\
