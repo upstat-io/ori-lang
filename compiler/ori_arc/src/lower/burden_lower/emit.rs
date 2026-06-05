@@ -61,6 +61,21 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // helper's internal consume frees the list buffer twice. SSOT for the
     // membership predicate is `instr_transfer_vars` (`burden_lower/mod.rs`).
     pub(super) list_concat_transfer_vars: &'a FxHashSet<ArcVarId>,
+    // Step-1 COW-inc set (`compute_cow_inc_borrowed_aliases`): borrowed-param
+    // aliases consumed at an owned RcPtr COW-mutation / `iter` position. These
+    // vars are NOT in `owned_vars_needing_rc` (a borrowed alias carries no
+    // scope-exit dec, RL-2), so `emit_owned_position_incs` / the terminator inc
+    // path skip them — but RL-1 mandates a COW-inc on the duplicating use. The
+    // `BurdenInc` is emitted at the owned position; step 2 emits the paired
+    // freeing `BurdenDec` for COW-MUTATOR receivers (body after-call OR
+    // normal+unwind successor edges, RL-4). Probe-only: empty on the default path.
+    pub(super) cow_inc_borrowed_aliases: &'a FxHashSet<ArcVarId>,
+    // COW-MUTATOR builtin names = `all_cow_method_names` MINUS `iter`. Step 2
+    // releases a COW-inc'd receiver only when its consuming call is a COW
+    // MUTATOR (the result is FRESH, nothing else holds the original). An `iter`
+    // receiver's COW-inc is balanced by the runtime `ori_iter_drop`, never a
+    // burden-dec. Empty on the default path (no COW-inc emitted).
+    pub(super) cow_mutator_names: &'a FxHashSet<Name>,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -115,9 +130,25 @@ pub(super) fn emit_burden_ops_for_blocks(
         }
         let before_term_incs = new_body.len();
         emit_terminator_burden_incs(&mut new_body, &terminator_inc_per_block[block_idx]);
+        // Step-1 RL-1 COW-inc at terminator owned positions for borrowed-param
+        // aliases (NOT in `owned_vars_needing_rc`, so absent from
+        // `terminator_inc_per_block`). The paired freeing dec lands on the
+        // normal-successor edge (step 2). `inc_counts` does NOT tally these — the
+        // terminator-dec balancing path (`emit_terminator_burden_decs`) must NOT
+        // emit a paired terminator dec for a borrowed-arg COW-inc (the borrowed
+        // value survives the call; its release is the successor-edge dec, RL-4).
+        emit_terminator_cow_incs(
+            &mut new_body,
+            &block.terminator,
+            analysis.cow_inc_borrowed_aliases,
+        );
         for emitted in &new_body[before_term_incs..] {
             if let ArcInstr::BurdenInc { var } = emitted {
-                *inc_counts.entry(*var).or_insert(0) += 1;
+                // Tally only the non-COW terminator incs (the COW-inc set is
+                // balanced by the successor-edge dec, not a terminator dec).
+                if !analysis.cow_inc_borrowed_aliases.contains(var) {
+                    *inc_counts.entry(*var).or_insert(0) += 1;
+                }
             }
         }
         // When the predicate stack is disabled (probe), the burden walk is the
@@ -187,6 +218,31 @@ fn emit_terminator_burden_incs(new_body: &mut Vec<ArcInstr>, incs: &[ArcVarId]) 
     }
 }
 
+/// Emit the step-1 RL-1 COW-inc for borrowed-param aliases consumed at an OWNED
+/// arg position of an `Invoke` / `InvokeIndirect` terminator (the borrowed value
+/// is COW-mutated by the callee — a duplicating use whose inc is not elidable).
+/// The borrowed value SURVIVES the borrowed call's normal/unwind successors,
+/// where step 2's edge cleanup emits the paired freeing `BurdenDec` (RL-4).
+/// Non-Invoke terminators contribute no COW-inc — their owned transfers are
+/// genuine ownership handoffs covered by `terminator_inc_per_block`.
+fn emit_terminator_cow_incs(
+    new_body: &mut Vec<ArcInstr>,
+    term: &ArcTerminator,
+    cow_inc_borrowed_aliases: &FxHashSet<ArcVarId>,
+) {
+    if !matches!(
+        term,
+        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
+    ) {
+        return;
+    }
+    for (pos, &var) in term.used_vars().iter().enumerate() {
+        if term.is_owned_position(pos) && cow_inc_borrowed_aliases.contains(&var) {
+            new_body.push(ArcInstr::BurdenInc { var });
+        }
+    }
+}
+
 /// Read-only context bundle for per-instruction burden emission. Carries the
 /// position (`block_idx`/`instr_idx`) plus the loop-invariant analysis maps
 /// (`owned_vars_needing_rc`, `last_uses_at`, `full_move_vars`,
@@ -229,12 +285,27 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
     // placement is byte-identical and MUST be preserved to keep default-path
     // codegen unchanged.
     let fresh_inc_dst = fresh_site_burden_inc_dst(&instr, ctx);
+    // Step-2 (RL-4 / scope-exit release of the step-1 COW-inc): a borrowed-alias
+    // receiver consumed at an owned COW/iter position by THIS body instruction
+    // got a `BurdenInc` (step 1, before the instr). The duplicate reference's
+    // job — keeping rc ≥ 2 across the COW realloc / iterator-drop — ends once the
+    // call returns; emit the paired freeing `BurdenDec` AFTER the instr. The
+    // value is dead immediately after the consume (push → fresh COW result; iter
+    // → opaque iterator handle), so the dec releases exactly the inc'd reference
+    // (net 0 per `AimsProof.Realization::rcBalance`). Captured BEFORE `instr` is
+    // moved into `new_body`. Invoke-TERMINATOR COW-inc'd args are NOT released
+    // here — the value survives into the normal/unwind successors, released by
+    // step-2 edge cleanup (RL-4).
+    let cow_release_after: Vec<ArcVarId> = cow_inc_args_consumed_by_instr(&instr, ctx);
     if ctx.analysis.predicate_stack_rc_disabled {
         // Probe path: emit the FRESH-site Inc AFTER the defining instruction so
         // the lowered RcInc references a defined dst.
         new_body.push(instr);
         if let Some(dst) = fresh_inc_dst {
             new_body.push(ArcInstr::BurdenInc { var: dst });
+        }
+        for var in cow_release_after {
+            new_body.push(ArcInstr::BurdenDec { var });
         }
     } else {
         // Default path: historical pre-instruction placement (burden ops are
@@ -245,6 +316,46 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
         new_body.push(instr);
     }
     emit_last_use_decs(new_body, ctx, &transfer_vars);
+}
+
+/// Step-2 helper: COW-MUTATOR receivers consumed at an owned position of THIS
+/// body instruction that are in the step-1 COW-inc set. Their step-1 `BurdenInc`
+/// is paired with a freeing `BurdenDec` emitted AFTER the instruction (the COW
+/// realloc produced a FRESH result; the duplicate reference to the original is
+/// released, nothing else holds it).
+///
+/// Releases ONLY genuine COW-MUTATOR receivers (`push` / `insert` / `set` /
+/// `remove` / `pop` / `sort` / `reverse` / `add` / `concat` / map+set COW) and
+/// `Set` / `SetTag` in-place mutations. EXCLUDES `iter`: an `iter` receiver's
+/// COW-inc is balanced by the runtime `ori_iter_drop` (`IterState::Drop` calls
+/// `ori_buffer_rc_dec` on the held buffer), NOT by a burden-dec here — emitting
+/// one would double-release the buffer the iterator still holds (use-after-free).
+/// Empty on the default path (COW-inc set empty) and for non-COW instructions.
+fn cow_inc_args_consumed_by_instr(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Vec<ArcVarId> {
+    if ctx.analysis.cow_inc_borrowed_aliases.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<ArcVarId> = Vec::new();
+    // Only a COW-MUTATOR `Apply` releases its receiver here; `iter` does not
+    // (the iterator's `ori_iter_drop` releases the held buffer).
+    if let ArcInstr::Apply {
+        func: callee, args, ..
+    } = instr
+    {
+        if ctx.analysis.cow_mutator_names.contains(callee) {
+            if let Some(&recv) = args.first() {
+                if ctx.analysis.cow_inc_borrowed_aliases.contains(&recv) {
+                    out.push(recv);
+                }
+            }
+        }
+    }
+    if let ArcInstr::Set { base, .. } | ArcInstr::SetTag { base, .. } = instr {
+        if ctx.analysis.cow_inc_borrowed_aliases.contains(base) {
+            out.push(*base);
+        }
+    }
+    out
 }
 
 /// Emit `BurdenInc` for every owned-position arg of `instr` whose last-use is
@@ -273,6 +384,23 @@ fn emit_owned_position_incs(
                 continue;
             }
             new_body.push(ArcInstr::BurdenInc { var: arg });
+        }
+        // Step-1 RL-1 COW-inc: a borrowed-param alias consumed at an owned
+        // COW-mutation position (NOT in `owned_vars_needing_rc`, so the normal
+        // owned-position inc above skipped it). Always emit the inc — the
+        // duplicating COW-mutation use re-reads the refcount, so it is never
+        // last-use-elided (the value survives the call into the caller's hand).
+        else if instr.is_owned_position(pos)
+            && ctx.analysis.cow_inc_borrowed_aliases.contains(&arg)
+        {
+            new_body.push(ArcInstr::BurdenInc { var: arg });
+        }
+    }
+    // `Set`'s `base` (owned in-place mutation receiver per TF-15) is excluded by
+    // `is_owned_position`'s `_ => false`; emit its COW-inc explicitly.
+    if let ArcInstr::Set { base, .. } = instr {
+        if ctx.analysis.cow_inc_borrowed_aliases.contains(base) {
+            new_body.push(ArcInstr::BurdenInc { var: *base });
         }
     }
 }

@@ -1496,6 +1496,7 @@ fn callee_contract_locality_widens_arg() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1577,6 +1578,7 @@ fn callee_contract_function_local_preserves_arg() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1781,6 +1783,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1864,6 +1867,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1942,6 +1946,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2020,6 +2025,7 @@ fn owned_param_ignores_callee_may_share() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2254,6 +2260,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
+                iter_consumes: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2785,6 +2792,7 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            iter_consumes: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2861,6 +2869,7 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            iter_consumes: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -4091,6 +4100,7 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            iter_consumes: false,
         }],
         return_info,
         effects: EffectSummary::default(),

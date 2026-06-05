@@ -149,6 +149,15 @@ impl<'a> BurdenLowerCtx<'a> {
 ///
 /// Invoked from the AIMS pipeline at Phase 5 (ARC lowering); see
 /// `pipeline/aims_pipeline/`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "single Phase-5 burden-emission orchestration: the owned-burden \
+              collection, transfer-point detection, last-use detection, the \
+              suppression-set computations (borrowed-alias / move-alias / \
+              COW-inc / terminator-borrowed-arg), and the per-block emit walk \
+              are one cohesive pass; splitting mid-sequence fragments the \
+              load-bearing emission order"
+)]
 pub(crate) fn emit_burden_ops<'a>(
     func: &mut ArcFunction,
     type_registry: &'a TypeRegistry,
@@ -384,6 +393,16 @@ pub(crate) fn emit_burden_ops<'a>(
     // `compute_live_out_owned`.
     let live_out_per_block = compute_live_out_owned(func, &owned_vars_needing_rc);
 
+    // Step-1 COW-inc set + step-2 COW-mutator-release-gate names. Probe-only —
+    // empty on the default path (the predicate stack emits the equivalent RcInc,
+    // so default AOT codegen is byte-identical). Detail: `compute_cow_inc_and_mutators`.
+    let (cow_inc_borrowed_aliases, cow_mutator_names) = compute_cow_inc_and_mutators(
+        func,
+        &borrowed_aliases,
+        interner,
+        predicate_stack_rc_disabled,
+    );
+
     // Function-wide list-concat consume set (precomputed: the `&mut` emit walk
     // cannot re-borrow `func` for `var_repr`). SSOT: `list_concat_consumed_operands`.
     let mut list_concat_transfer_vars: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -405,6 +424,8 @@ pub(crate) fn emit_burden_ops<'a>(
         contracts,
         predicate_stack_rc_disabled,
         list_concat_transfer_vars: &list_concat_transfer_vars,
+        cow_inc_borrowed_aliases: &cow_inc_borrowed_aliases,
+        cow_mutator_names: &cow_mutator_names,
     };
     emit_burden_ops_for_blocks(
         func,
@@ -475,7 +496,7 @@ fn mark_emitted(emitted: &mut [bool], idx: usize) {
 /// Borrowed source yields a Borrowed projection while an Owned source does not.
 /// Forward fixpoint over both edge kinds (a 1-hop alias / projection of a
 /// borrowed alias is borrowed too).
-fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(crate) fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed: FxHashSet<ArcVarId> = func
         .params
         .iter()
@@ -510,6 +531,127 @@ fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
         }
     }
     borrowed
+}
+
+/// Compute the step-1 COW-inc set + the step-2 COW-mutator-release-gate names.
+/// PROBE-ONLY: both empty on the default path (`predicate_stack_rc_disabled =
+/// false`) — the predicate stack emits the equivalent `RcInc`, so default AOT
+/// codegen is byte-identical and step 2 is inert.
+///
+/// - `cow_inc`: `compute_cow_inc_borrowed_aliases` (borrowed-alias COW-MUTATOR
+///   receivers needing a step-1 `BurdenInc` per RL-1).
+/// - `cow_mutators`: the COW-MUTATOR method names (`all_cow_method_names` MINUS
+///   `iter`) gating step-2 release — a COW-mutator's result is fresh so the
+///   original receiver is released by step 2; `iter` is released by the runtime
+///   `ori_iter_drop`, never a burden-dec (the iterator owns the buffer).
+fn compute_cow_inc_and_mutators(
+    func: &ArcFunction,
+    borrowed_aliases: &FxHashSet<ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
+) -> (FxHashSet<ArcVarId>, FxHashSet<Name>) {
+    if !predicate_stack_rc_disabled {
+        return (FxHashSet::default(), FxHashSet::default());
+    }
+    let cow_inc = compute_cow_inc_borrowed_aliases(func, borrowed_aliases, interner);
+    let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
+    cow_mutators.remove(&interner.intern("iter"));
+    (cow_inc, cow_mutators)
+}
+
+/// Step-1 COW-inc set: borrowed-param-alias vars consumed as the RECEIVER (arg
+/// 0) of a COW-MUTATING builtin `Apply` / `Invoke`. Per AIMS RL-1, a COW-mutation
+/// operand re-read after the call is a DUPLICATING use whose inc is NOT elidable
+/// (`AimsProof.Realization::RL1_emit_iff_not_elidable`).
+///
+/// Discriminator = COW-MUTATING-METHOD-NAME on the `RcPtr` receiver: the COW
+/// mutators (`push`, `insert`, `set`, `remove`, `pop`, `sort`, `reverse`, `add`,
+/// `concat`, map+set COW per `crate::borrow::all_cow_method_names`). These
+/// builtins read the receiver's runtime refcount to choose copy-vs-mutate-in-place;
+/// the borrowed alias carries rc=1 absent an inc, so the helper mutates the
+/// SHARED buffer in place, corrupting the caller's still-live value. The inc
+/// raises the runtime rc to at least 2 so the helper COPIES.
+///
+/// The METHOD-NAME gate is load-bearing and narrower than a raw owned-position
+/// `RcPtr` test: `iter` is a consuming-receiver builtin (it takes the buffer
+/// owned into the iterator state) but is NOT a COW mutation — it does not realloc
+/// on a refcount read, so a COW-inc on an `iter` receiver leaks (the iterator's
+/// `ori_iter_drop` releases its hold but the orphaned inc never decs). `slice`
+/// and `substring` SHARE the receiver's buffer and take it BORROWED (already
+/// excluded by the receiver-owned-position requirement). Only COW mutators qualify.
+///
+/// `Set` / `SetTag` (TF-15 in-place mutation) on a borrowed-alias base are COW
+/// mutations too — the codegen guards them with `IsShared` and copies on a
+/// shared base; the inc keeps the runtime rc ≥ 2 so the guard copies.
+///
+/// `borrowed_aliases` is the precomputed `compute_borrowed_alias_vars` fixpoint
+/// set (borrowed params + their Let-Var/Project transitive closure). Only its
+/// members qualify — an OWNED value already gets a normal `BurdenInc` via
+/// `emit_owned_position_incs` / `terminator_inc_vars`.
+pub(crate) fn compute_cow_inc_borrowed_aliases(
+    func: &ArcFunction,
+    borrowed_aliases: &FxHashSet<ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let mut cow_inc: FxHashSet<ArcVarId> = FxHashSet::default();
+    if borrowed_aliases.is_empty() {
+        return cow_inc;
+    }
+    // COW-MUTATOR set = `all_cow_method_names` MINUS `iter` (A' scope). A
+    // COW-mutator (push / insert / set / remove / pop / sort / reverse / add /
+    // concat / map+set COW) reads the RcPtr receiver's refcount to choose
+    // copy-vs-mutate-in-place; a borrowed-alias receiver carries rc=1 absent an
+    // inc → the helper mutates the SHARED buffer in place, corrupting the
+    // caller's still-live value. The COW-inc raises rc ≥ 2 so the helper COPIES;
+    // step 2 emits the paired freeing dec (the result is fresh, nothing else
+    // holds the original). `iter` is EXCLUDED: it moves the buffer into the
+    // iterator state whose lifecycle is owned by the runtime `ori_iter_drop`
+    // (+ the caller's borrow) — the iterator-handle freeing is the runtime drop's
+    // job. A COW-inc on an `iter` receiver mis-balances multi-call / unwind
+    // iterator shapes (the runtime drop + caller borrow already account for the
+    // buffer).
+    let mut cow_methods = crate::borrow::all_cow_method_names(interner);
+    cow_methods.remove(&interner.intern("iter"));
+    let is_rcptr = |v: ArcVarId| matches!(func.var_repr(v), Some(ValueRepr::RcPointer));
+    // The COW receiver is arg 0 of the call. A COW-mutating builtin re-reads its
+    // refcount; the borrowed-alias receiver needs the inc so the COW helper copies.
+    let consider_call = |callee: &Name, args: &[ArcVarId], cow_inc: &mut FxHashSet<ArcVarId>| {
+        if !cow_methods.contains(callee) {
+            return;
+        }
+        if let Some(&recv) = args.first() {
+            if borrowed_aliases.contains(&recv) && is_rcptr(recv) {
+                cow_inc.insert(recv);
+            }
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => {
+                    consider_call(callee, args, &mut cow_inc);
+                }
+                // TF-15 in-place mutation on a borrowed-alias base: the codegen
+                // `IsShared`-guards it and copies on a shared base; the inc keeps
+                // rc ≥ 2 so the guard copies vs corrupting the caller's value.
+                ArcInstr::Set { base, .. } | ArcInstr::SetTag { base, .. } => {
+                    if borrowed_aliases.contains(base) && is_rcptr(*base) {
+                        cow_inc.insert(*base);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let crate::ir::ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            consider_call(callee, args, &mut cow_inc);
+        }
+    }
+    cow_inc
 }
 
 /// Compute the set of vars defined by a scalar `Literal`: a `Let { value:
@@ -960,7 +1102,7 @@ pub(super) fn instr_owned_position_transfer_vars(instr: &ArcInstr) -> FxHashSet<
 /// scalar `Add` operands carry no RC (filtered by `owned_vars_needing_rc`).
 /// User `Add` impls dispatch via trait `Apply`/`Invoke`, never `PrimOp Binary`.
 /// Per `codegen-rules.md` operators §"List + list → COW concat".
-pub(super) fn list_concat_consumed_operands(
+pub(crate) fn list_concat_consumed_operands(
     instr: &ArcInstr,
     func: &ArcFunction,
 ) -> FxHashSet<ArcVarId> {

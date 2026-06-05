@@ -57,10 +57,10 @@ pub fn analyze_program(
             if scc_funcs.is_empty() {
                 continue;
             }
-            let scc_sigs = analyze_scc_fixpoint(&scc_funcs, classifier, &all_sigs);
+            let scc_sigs = analyze_scc_fixpoint(&scc_funcs, classifier, &all_sigs, interner);
             all_sigs.extend(scc_sigs);
         } else if let Some(&func) = func_by_name.get(&scc.members[0]) {
-            let contract = analyze_scc_single(func, classifier, &all_sigs);
+            let contract = analyze_scc_single(func, classifier, &all_sigs, interner);
             all_sigs.insert(func.name, contract);
         }
         // External/FFI functions not in `func_by_name` are skipped —
@@ -108,12 +108,21 @@ fn analyze_scc_single(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> MemoryContract {
     let state_map = analyze_function(func, classifier, all_sigs, &[], Vec::new());
     // Non-recursive: empty SCC peer set → has_unbounded_stack = false.
     // No context regions for non-recursive (TRMC requires recursion).
     let empty_peers = rustc_hash::FxHashSet::default();
-    extract_contract(func, &state_map, classifier, all_sigs, &empty_peers, &[])
+    extract_contract(
+        func,
+        &state_map,
+        classifier,
+        all_sigs,
+        &empty_peers,
+        &[],
+        interner,
+    )
 }
 
 /// Analyze a mutually recursive SCC via fixed-point iteration.
@@ -126,6 +135,7 @@ fn analyze_scc_fixpoint(
     scc_funcs: &[&ArcFunction],
     classifier: &dyn ArcClassification,
     external_sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> FxHashMap<Name, MemoryContract> {
     // Build the SCC peer set for constant-stack analysis.
     let scc_peers: rustc_hash::FxHashSet<Name> = scc_funcs.iter().map(|f| f.name).collect();
@@ -173,6 +183,7 @@ fn analyze_scc_fixpoint(
                 &combined_sigs,
                 &scc_peers,
                 &context_regions,
+                interner,
             );
 
             let old_contract = &local_sigs[&func.name];

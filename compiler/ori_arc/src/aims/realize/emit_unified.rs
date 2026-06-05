@@ -16,9 +16,10 @@ use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
+use crate::aims::lattice::AccessClass;
 use crate::ir::{
-    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, RcAtomicity, RcStrategy,
-    ValueRepr,
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, PrimOp, RcAtomicity,
+    RcStrategy, ValueRepr,
 };
 
 use super::metrics;
@@ -254,6 +255,7 @@ pub(super) fn emit_rc_unified(
             state_map,
             pool,
             interner,
+            contracts,
             &all_borrowed_defs,
             &take_move_facts,
             &block_deferred,
@@ -317,15 +319,17 @@ fn eliminate_burden_ops_phase(
 #[expect(
     clippy::too_many_arguments,
     reason = "probe-path realization tail threads the function-wide realization \
-              context (state map, pool, interner, borrowed defs, take-move facts, \
-              deferred decs, same-alloc reps) the two phases below consume; \
-              bundling into a struct fragments the single probe-tail orchestration"
+              context (state map, pool, interner, callee contracts, borrowed defs, \
+              take-move facts, deferred decs, same-alloc reps) the phases below \
+              consume; bundling into a struct fragments the single probe-tail \
+              orchestration"
 )]
 fn emit_burden_path_probe_tail(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     block_deferred: &FxHashMap<usize, Vec<DeferredDec>>,
@@ -342,10 +346,2640 @@ fn emit_burden_path_probe_tail(
     );
     trace_phase_snapshot("after_phase_6_5_burden_edge_cleanup", func, interner);
 
+    // Step-2 RL-4 release of the step-1 COW-inc emitted at an `Invoke` TERMINATOR
+    // owned position (a may-unwind COW/iter call — `list.push(v)` lowers to
+    // `Invoke @push(recv [own], ...) normal/unwind`). The borrowed-alias receiver
+    // got a `BurdenInc` (step 1); the COW helper COPIES (rc ≥ 2), so the original
+    // SURVIVES the call into both successors and is dead at each — release it on
+    // the normal AND unwind successor edges (RL-4 `RL4_edge_release_balanced`,
+    // released exactly once per path). The probe-tail `emit_edge_cleanup`
+    // SUPPRESSES this via `is_owned_transfer_arg_at_terminator` (it treats the
+    // owned Invoke position as an ownership transfer), so the dedicated pass below
+    // is the freeing-dec emitter for the COW-inc'd lineage.
+    emit_cow_inc_terminator_edge_release(func, interner);
+    trace_phase_snapshot("after_phase_6_6_cow_inc_edge_release", func, interner);
+
+    // Phase 6.65 — RL-2/RL-4 relocation of a borrowed-terminator-Invoke arg's
+    // scope-exit BurdenDec that the Phase-5 walk placed INLINE in the block whose
+    // TERMINATOR is `Invoke @callee(recv [borrow]) normal N unwind U`. Inline, the
+    // dec runs BEFORE the call reads `recv` → the source collection (and its heap
+    // element strings, via the runtime val_inc / ori_iter_drop) is freed before
+    // the callee borrows it → use-after-free / double-free.
+    //
+    // Two escape-safe callee classes (per the callee `MemoryContract`):
+    //  - collection-conversion builtins (`@keys`/`@values`/`@split`/`@to_list`):
+    //    structurally COPY elements into a fresh result (the result never aliases
+    //    the source's payload). Source survives the borrowed call, dead on each
+    //    successor → relocate the release to BOTH normal AND unwind edges.
+    //  - non-conversion callees whose `ParamContract` for `recv` proves NO
+    //    return-view aliasing (`return_alias == None && !return_payload_contains_param`):
+    //    a borrow-and-return-fresh/scalar callee (`@len`, `@union`) behaves like a
+    //    conversion → BOTH edges; a transfer/iter-consume callee (`ParamContract.access
+    //    == Owned`, e.g. a user fn whose body `@iter`-consumes the arg, freeing it
+    //    via `ori_iter_drop` on the NORMAL path) → relocate to the UNWIND edge ONLY
+    //    (the callee owns/frees it on normal return; the caller releases only on the
+    //    unwind path where the callee may not have consumed it yet).
+    //
+    // Escape-over-fire guard: a callee that BORROWS-AND-RETURNS A VIEW into `recv`
+    // (`return_alias` = Direct/Project, or `return_payload_contains_param`, or a
+    // non-scalar result that may alias) needs the caller dec KEPT — relocating frees
+    // the returned view's backing. No contract for the callee → leave inline
+    // (conservative). RL-4 release exactly once per concrete path:
+    // `AimsProof.Realization::RL4_edge_release_balanced`; the non-transfer caller dec
+    // for a borrowed last use is `RL2_nontransfer_kinds_dec`, the transfer-kind no-dec
+    // is `RL2_transfer_kinds_no_dec`. Spec: Annex E §AIMS RL-2 + RL-4.
+    relocate_borrowed_terminator_arg_dec_to_edges(func, interner, contracts);
+    trace_phase_snapshot(
+        "after_phase_6_65_borrowed_terminator_arg_edge",
+        func,
+        interner,
+    );
+
+    // Phase 6.66 — MULTI-BORROW iter-consume source accounting (RL-1 keep-alive
+    // inc + RL-2 single release). The 6.65 relocation handles the SINGLE-borrow
+    // iter-consume source (its `lineage_live_out` guard declines a live-out
+    // source). This pass handles the live-out / multi-borrow case it declines: a
+    // source `coll` (RcPtr collection) flowing to N >= 2 iter-consuming `[own]`
+    // call positions, where the source SURVIVES the earlier calls. Two iter-consume
+    // kinds count: a USER callee whose `ParamContract.iter_consumes` is true, AND
+    // the INLINE for-loop `@iter(coll [own])` protocol builtin (`for x in coll`
+    // lowers to `@iter [own]` -> `ori_iter_drop`, which has no user contract). Each
+    // consuming position's `@iter [own]` -> `ori_iter_drop` frees the collection on
+    // every exit, so:
+    //  - the first N-1 uses are DUPLICATING uses (the value is duplicated into a
+    //    callee that will drop it) -> RL-1 emits a keep-alive `BurdenInc` per
+    //    non-last use (`AimsProof.Realization::RL1_emit_iff_not_elidable`);
+    //  - the caller emits NO `BurdenDec` on the source lineage (the callees free;
+    //    the Nth call's iter-drop IS the single release per
+    //    `RL2_iter_consuming_no_caller_dec` + `RL2_release_exactly_once`).
+    // The Phase-5 walk diverges: the multi-use source is not a single-use move
+    // (`compute_transfer_via_move_alias` requires use-count == 1) so it emits a
+    // spurious source `BurdenDec` at its multi-use move-alias point, which
+    // double-frees against the callee iter-drops. This pass rewrites the source
+    // lineage's normal-path burden ops to the proven oracle ledger: (N-1)
+    // keep-alive incs before the non-last consuming calls, zero source decs on
+    // the normal paths (unwind-edge decs are panic cleanup, left intact).
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    suppress_multi_borrow_iter_consume_source_decs(func, pool, interner, contracts);
+    trace_phase_snapshot("after_phase_6_66_multi_borrow_iter_consume", func, interner);
+
+    // Phase 6.67 — NESTED-loop iter-element-view keep-alive inc (RL-1). A nested
+    // `for inner in outer do { for x in inner do .. }` projects the inner
+    // collection `inner` out of the OUTER source's iter-element-view
+    // (`Project @__iter_next.1`) and consumes it `[own]` at the INNER `@iter`.
+    // The inner element view OWNS NO allocation — the buffer belongs to the
+    // outer collection, freed by the outer's `elem_dec_fn` when the outer
+    // `ori_iter_drop` runs. But the inner `@iter [own]` -> `ori_iter_drop` ALSO
+    // frees that buffer (the inner iterator took it owned), so the buffer is
+    // released TWICE -> double-free. The oracle emits one keep-alive `RcInc` on
+    // the inner element view immediately before the inner `@iter [own]`: the
+    // inner `ori_iter_drop` then drops rc 2->1 (its single release, RL-2) and
+    // the outer `elem_dec_fn` drops rc 1->0 (the buffer's true free). RL-1: the
+    // inner `@iter [own]` is a DUPLICATING consume of a borrowed element view.
+    // The recursion is automatic — the inner-of-inner element view is itself an
+    // iter-element-view of the inner `@__iter_next`, so each nesting level's
+    // `@iter [own]` arg lands in `collect_iter_element_defs` and gets its own
+    // keep-alive. Probe-gated -> default codegen byte-identical. Spec: Annex E
+    // §AIMS RL-1 (`RL1_emits_inc = !incElidable`) + RL-2 (`RL2_release_exactly_once`).
+    emit_iter_element_view_iter_consume_keepalive_inc(func, interner, contracts, pool);
+    trace_phase_snapshot(
+        "after_phase_6_67_nested_iter_element_keepalive",
+        func,
+        interner,
+    );
+
+    // Step-B' RL-5 release of a genuinely-leaked OWNED collection-source whose
+    // lineage flows (as a Jump-arg) into a block param dead at a normal terminal
+    // (loop-exit / Return) and is never freed there (e.g. `m.keys()` /
+    // `s.split()` / `set.to_list()`: the source map/set/str is borrowed by the
+    // conversion builtin, survives, then dies at the post-loop block without a
+    // dec). The whole-var `BurdenDec` lowers (Phase 7) to a `RcDec` whose
+    // `RcStrategy::HeapPointer` routes a `Tag::Map`/`Set`/`List` value through
+    // `ori_buffer_rc_dec`, which reads the V5 header's `elem_dec_fn`/`elem_count`
+    // and walks the element-drop glue — so freeing the buffer ALSO frees its
+    // owned element strings (the 2 key strings of `map_keys_str`), composing
+    // with `elem_dec_fn` instead of leaking them. SEED-not-reuse: emit ONLY for
+    // the jump-threaded-leaked owned collection-source lineage, excluding every
+    // iterator-element / iterator-handle / borrowed / already-decced / transfer
+    // var so it cannot double-free a for-loop iterator cluster (a naive
+    // dead-block-param dec there double-frees the iterator-owned buffer).
+    // Spec: Annex E §AIMS RL-5 (dead-block-param cleanup).
+    emit_burden_dead_collection_source_decs(func, pool, interner);
+    trace_phase_snapshot("after_phase_6_7_dead_collection_source", func, interner);
+
+    // Phase 6.8 — dead OWNED-COLLECTION / mutation-result freeing (RL-2 ScopeExit
+    // / ApplyToBorrowedParam). A FRESH owned collection bound as a body-local (a
+    // mutation RESULT `let ys = xs.sort()` / `xs.insert(..)` / `a.union(..)`, or a
+    // read-only `let m = {..}; m.contains_key(..)`), last-used at a BORROWED
+    // position then dead at function scope exit, leaks its allocation under
+    // sole-emitter lowering: the duplicating-use fresh-site `BurdenInc` (RL-1) +
+    // per-path scope-exit decs net the EXPLICIT ops to 0, leaving the alloc `+1`
+    // unreleased. The compiled-Lean `rcBalance` mandates the lifecycle-excluding-
+    // alloc net `-1`; this pass restores conformance by emitting ONE additional
+    // whole-var `BurdenDec` at each alloc-aware-net-positive last-use sink. The
+    // `RcDec { HeapPointer }` it lowers to routes a Map/Set/List through
+    // `ori_buffer_rc_dec` (the V5 `elem_dec_fn` walk) so heap element strings free
+    // too. Net-gated (net 0 = already freed; `let xs = [1,2,3]; xs.length()` and
+    // branch-merge phi never fire) + SEED-not-reuse (transferred / iterator-managed
+    // / conversion-source lineages excluded) so it cannot double-free.
+    // Spec: Annex E §AIMS RL-2.
+    emit_burden_dead_owned_collection_decs(func, pool, interner);
+    trace_phase_snapshot("after_phase_6_8_dead_owned_collection", func, interner);
+
+    // Phase 6.9 — dead in-function ITERATOR-HANDLE freeing (RL-2 ScopeExit). An
+    // `@iter`-family result is a FRESH owned `Tag::Iterator` / `DoubleEndedIterator`
+    // handle (no RC header; the source buffer is MOVED into the iterator state).
+    // Iterator handles carry no `BURDEN_TABLE` / `TypeRegistry::burden` burden
+    // (`UnmanagedPtr`, no refcount), so the Phase-5 walk emits ZERO ops on the
+    // handle / its containing aggregate — under sole-emitter lowering the value is
+    // never freed (the freeing is a destructor call `ori_iter_drop`, not a
+    // refcount dec). This pass emits ONE whole-var `BurdenDec` on the bare handle
+    // (lowered `RcStrategy::Iterator` → `ori_iter_drop`) OR the iterator-bearing
+    // aggregate (lowered `RcStrategy::AggregateFields`/`InlineEnum`, whose drop
+    // walks the iterator field) at its dead-at-scope-exit sink, restoring the RL-2
+    // single-release the compiled-Lean `rcBalance` mandates. SEED-not-reuse:
+    // for-loop-managed handles (`@ori_iter_drop` already emitted) + returned +
+    // owned-transferred lineages are excluded so it cannot double-free.
+    // Spec: Annex E §AIMS RL-2.
+    emit_burden_dead_iterator_handle_decs(func, pool, interner);
+    trace_phase_snapshot("after_phase_6_9_dead_iterator_handle", func, interner);
+
+    // Phase 6.95 — for_yield INDEX-consumed element RC (the joint yield-element-inc
+    // + index-result-element-dec). `for x in coll yield expr` moves each borrowed
+    // `Project @__iter_next.1` element view into `ori_list_push(scratch, w [own])`;
+    // the iter-element-view exclusion drops `w`'s `BurdenInc`. When the result is
+    // INDEX-consumed (`result[i]` -> `@__index`) the result owns its own element
+    // COPIES (the source's `IterState::Drop` frees the source copies), so the
+    // result needs a yield-element `BurdenInc` (RL-1: the push DUPLICATES the
+    // element into the result buffer) AND each `@__index` view needs a release
+    // (RL-2). An ITER-consumed result (a second `@iter [own]` -> `ori_iter_drop`)
+    // frees its own elements -> NO inc/dec (the move-vs-borrow discriminator; the
+    // `yield_identity_str_list` canary). Probe-gated -> default codegen
+    // byte-identical. Spec: Annex E §AIMS RL-1 + RL-2.
+    emit_for_yield_index_consumed_element_rc(func, pool, interner, same_alloc_reps);
+    trace_phase_snapshot("after_phase_6_95_for_yield_index_element", func, interner);
+
     let elidable_fresh_incs =
         compute_elidable_fresh_self_alloc_incs(func, same_alloc_reps, interner);
     lower_burden_ops_to_rc(func, pool, &elidable_fresh_incs);
     trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+}
+
+/// Step-2 RL-4 edge release for step-1 COW-inc'd borrowed-alias receivers
+/// consumed at an `Invoke` / `InvokeIndirect` TERMINATOR owned position.
+///
+/// A may-unwind COW/iter call (`Invoke @push(recv [own], ...) normal N unwind U`)
+/// where `recv` is a borrowed-param alias got a step-1 `BurdenInc` (the COW
+/// helper reads `recv`'s refcount; the inc raises it ≥ 2 so the helper COPIES,
+/// leaving the caller's value intact / the iterator's drop non-freeing). The
+/// inc'd reference then SURVIVES the call into both the normal and unwind
+/// successors, where it is dead — RL-4 mandates a freeing `BurdenDec recv` on
+/// EACH dying edge (the value is released exactly once per concrete path:
+/// `AimsProof.Realization::RL4_edge_release_balanced`).
+///
+/// Escape gate: relocate the freeing dec to
+/// the successor edge ONLY when the call result does NOT alias `recv`'s payload
+/// — i.e. `recv` is NOT also a borrowed arg of a SHARING call (`slice` /
+/// `substring`) whose result would carry the freed buffer. Step 1's set already
+/// excludes sharing methods (they take the receiver BORROWED, never owned), so
+/// the COW set is escape-safe by construction; the gate is the structural
+/// guarantee, not a runtime filter. The dec is emitted at the TOP of each
+/// successor block, before any other instruction, so a successor that re-reads
+/// `recv` (e.g. `@main`'s `if r1 == ...` after `Invoke @push`) is unaffected —
+/// `recv` is dead at the successor by the edge-dead precondition.
+fn emit_cow_inc_terminator_edge_release(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
+    let borrowed_aliases = crate::lower::burden_lower::compute_borrowed_alias_vars(func);
+    if borrowed_aliases.is_empty() {
+        return;
+    }
+    let cow_inc = crate::lower::burden_lower::compute_cow_inc_borrowed_aliases(
+        func,
+        &borrowed_aliases,
+        interner,
+    );
+    if cow_inc.is_empty() {
+        return;
+    }
+    // COW-MUTATOR names (release gate) = COW set MINUS `iter`. Only a COW-mutator
+    // `Invoke` releases its receiver on the successor edges — the result is fresh
+    // and nothing else holds the original. An `iter` Invoke's receiver inc is
+    // balanced by the runtime `ori_iter_drop` (the iterator state owns the held
+    // buffer), so it gets NO edge dec here.
+    let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
+    cow_mutators.remove(&interner.intern("iter"));
+    // Collect (successor_block_idx, recv) edges to release. A COW-MUTATOR-inc'd
+    // receiver at an owned Invoke-terminator position is released on its
+    // normal+unwind successors. Gather first (immutable borrow), then mutate.
+    let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
+    for block in &func.blocks {
+        use crate::ir::ArcTerminator;
+        let (succs, used, callee): (Vec<crate::ir::ArcBlockId>, &ArcTerminator, Option<&Name>) =
+            match &block.terminator {
+                ArcTerminator::Invoke {
+                    normal,
+                    unwind,
+                    func: callee,
+                    ..
+                } => (vec![*normal, *unwind], &block.terminator, Some(callee)),
+                // InvokeIndirect (closure call) is never a builtin COW mutator —
+                // closures dispatch through user code, not `all_cow_method_names`.
+                _ => continue,
+            };
+        let Some(callee) = callee else { continue };
+        if !cow_mutators.contains(callee) {
+            continue;
+        }
+        for (pos, &var) in used.used_vars().iter().enumerate() {
+            if used.is_owned_position(pos) && cow_inc.contains(&var) {
+                for s in &succs {
+                    releases.push((s.index(), var));
+                }
+            }
+        }
+    }
+    for (succ_idx, var) in releases {
+        if let Some(block) = func.blocks.get_mut(succ_idx) {
+            block.body.insert(0, ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
+/// RL-4 relocation: move a conversion-source's scope-exit `BurdenDec`, placed
+/// INLINE by the Phase-5 walk in the block whose TERMINATOR is the borrowed
+/// conversion `Invoke`, to the normal AND unwind successor edges.
+///
+/// Shape: `bbK: ... ; burden_dec %m ; Invoke @values(%m [borrow]) normal N
+/// unwind U`. The inline `burden_dec %m` lowers (Phase 7) to a `RcDec %m` that
+/// runs BEFORE `@values` reads `%m` → the source map/set/str (and its heap
+/// element strings, freed via the runtime's `val_inc` reading a now-freed header)
+/// is destroyed before the conversion borrows it → use-after-free. The release
+/// belongs on each dying successor edge (RL-4 `RL4_edge_release_balanced`): `%m`
+/// is dead on both the normal and unwind successors after the borrowed call
+/// returns, released exactly once per concrete path.
+///
+/// Single-borrow scope: relocates ONLY when the call is the arg's SOLE borrow
+/// (the value is not live past the call — `lineage_live_out` false). A source
+/// borrowed by SEVERAL calls (`m.values(); m.keys()`) requires joint inc/dec
+/// accounting across the move-aliases (the Phase-5 walk emits a duplication inc
+/// per alias) — out of scope for this dec-placement pass; the `live-out` guard
+/// skips it rather than emit a premature free.
+///
+/// Escape gate (per the callee `MemoryContract` — see [`borrowed_arg_release_verdict`]):
+///  - Conversion builtins (`@keys`/`@values`/`@split`/`@to_list`) are escape-safe
+///    by construction (the result is a fresh allocation that never aliases the
+///    source's payload) and borrow the receiver → `EdgeRelease::Both`.
+///  - Non-conversion callees relocate only when `ParamContract` for the receiver
+///    proves NO return-view aliasing (`return_alias == None &&
+///    !return_payload_contains_param`) — a borrow-and-return-view callee
+///    (`unwrap`/`slice`/`take`/`match`-alias) needs the caller dec KEPT, else the
+///    relocation frees the returned view's backing. A transfer/iter-consume callee
+///    (`access == Owned`, the callee frees on the normal path via `ori_iter_drop`)
+///    → `EdgeRelease::UnwindOnly`; a genuine borrow → `EdgeRelease::Both`.
+///  - No contract for the callee → keep the inline dec (conservative).
+///
+/// Probe-only effect: the relocation runs in the predicate-stack-disabled probe
+/// tail. On the default path the predicate stack co-emits the arg's release on
+/// the successor edge already, and this pass never runs — default codegen stays
+/// byte-identical. Spec: Annex E §AIMS RL-2 + RL-4.
+fn relocate_borrowed_terminator_arg_dec_to_edges(
+    func: &mut ArcFunction,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) {
+    let conversion_names = collection_conversion_names(interner);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let jt_reps = compute_jump_threaded_reps(func);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+
+    // (block_idx, var, normal, unwind, release) per relocation. Gather first
+    // (immutable borrow), then mutate.
+    let mut relocations: Vec<(usize, ArcVarId, usize, usize, EdgeRelease)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        // The terminator must be an `Invoke` with a BORROWED receiver (arg 0 at a
+        // non-owned position) — the value read but not (yet) consumed at the call.
+        let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            arg_ownership,
+            normal,
+            unwind,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+        let Some(&recv) = args.first() else { continue };
+        let recv_borrowed = arg_ownership
+            .first()
+            .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+        if !recv_borrowed {
+            continue;
+        }
+        // The receiver must itself be an RC-bearing collection (a heap pointer):
+        // only those carry a freeable scope-exit dec the Phase-5 walk misplaced.
+        if !matches!(func.var_repr(recv), Some(ValueRepr::RcPointer)) {
+            continue;
+        }
+        // Escape-safety + placement gate. `None` keeps the inline dec
+        // (return-view-risk callee or no contract).
+        let dst_scalar = matches!(func.var_repr(*dst), Some(ValueRepr::Scalar));
+        let Some(release) = borrowed_arg_release_verdict(
+            *callee,
+            0,
+            dst_scalar,
+            &conversion_names,
+            &builtins,
+            contracts,
+        ) else {
+            continue;
+        };
+        // Single-borrow guard: relocate only when the source genuinely dies after
+        // this call (not live-out). A source still live past the call (a later
+        // borrow or any use) needs joint multi-alias accounting — leave its decs
+        // as-is rather than free it prematurely.
+        if lineage_live_out(func, &jt_reps, rep_of(recv), b) {
+            continue;
+        }
+        // Find the INLINE scope-exit `BurdenDec recv` in this block's body — the
+        // misplaced release the Phase-5 walk emitted before the terminator.
+        if !block
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::BurdenDec { var } if *var == recv))
+        {
+            continue;
+        }
+        relocations.push((b, recv, normal.index(), unwind.index(), release));
+    }
+    // Remove the inline dec from each call block, then prepend the release to the
+    // successor edge(s) the verdict selected (RL-4: released exactly once per
+    // concrete path; the value is dead on each selected edge after the call). For a
+    // `Suppress` (iter-consume full transfer) ALSO remove a paired inline `BurdenInc`
+    // of the same var in the call block — a net-0 merge-carry inc/dec pair left with
+    // only its inc would net +1 on the normal path (leak); the callee frees on both
+    // exits, so the var carries NO caller burden ops.
+    for &(b, var, _, _, release) in &relocations {
+        if let Some(block) = func.blocks.get_mut(b) {
+            if let Some(dec_idx) = block
+                .body
+                .iter()
+                .position(|instr| matches!(instr, ArcInstr::BurdenDec { var: v } if *v == var))
+            {
+                block.body.remove(dec_idx);
+            }
+            if release == EdgeRelease::Suppress {
+                if let Some(inc_idx) = block
+                    .body
+                    .iter()
+                    .position(|instr| matches!(instr, ArcInstr::BurdenInc { var: v } if *v == var))
+                {
+                    block.body.remove(inc_idx);
+                }
+            }
+        }
+    }
+    for &(_, var, normal, unwind, release) in &relocations {
+        match release {
+            // Callee borrows-and-returns → release on both successor edges.
+            EdgeRelease::Both => {
+                if let Some(succ) = func.blocks.get_mut(normal) {
+                    succ.body.insert(0, ArcInstr::BurdenDec { var });
+                }
+                if normal != unwind {
+                    if let Some(succ) = func.blocks.get_mut(unwind) {
+                        succ.body.insert(0, ArcInstr::BurdenDec { var });
+                    }
+                }
+            }
+            // Owned-transfer callee frees on normal → caller releases on unwind only.
+            EdgeRelease::UnwindOnly => {
+                if normal != unwind {
+                    if let Some(succ) = func.blocks.get_mut(unwind) {
+                        succ.body.insert(0, ArcInstr::BurdenDec { var });
+                    }
+                }
+            }
+            // Iter-consume callee frees on EVERY exit → caller emits no dec on either
+            // edge (inline dec + paired inc already removed above).
+            EdgeRelease::Suppress => {}
+        }
+    }
+}
+
+/// Edge-placement verdict for a relocated borrowed-terminator-Invoke arg dec.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EdgeRelease {
+    /// Callee borrows-and-returns (conversion / builtin borrowing read like `@len`):
+    /// the arg survives the normal return and is dead on each successor → release on
+    /// BOTH the normal and unwind edges.
+    Both,
+    /// Callee TRANSFERS the arg on the NORMAL path only (an `ownParamsUsingArgs`
+    /// transfer — `ParamContract.access == Owned`): the callee owns/frees it on
+    /// normal return, but on the UNWIND path may not have reached the consume yet →
+    /// the caller releases only on the UNWIND edge.
+    UnwindOnly,
+    /// Callee ITER-CONSUMES the arg, freeing it on EVERY exit — normal AND unwind
+    /// (`for x in coll` → `@iter [own]` → `ori_iter_drop` on both the callee's
+    /// normal-return and its panic-unwind cleanup pad). The full inward transfer
+    /// (RL2 `RL2_iter_consuming_no_caller_dec`) means the caller emits NO dec on
+    /// EITHER edge: SUPPRESS the inline dec AND its paired inline inc (a net-0
+    /// merge-carry pair left intact would otherwise net +1 on the normal path →
+    /// leak), inserting on no edge. A unwind-edge dec would double-free against the
+    /// callee's own unwind iter-drop.
+    Suppress,
+}
+
+/// Escape-safety + placement verdict for `recv` (an RC collection) passed at a
+/// borrowed terminator-Invoke `arg_index` position to `callee`, whose result is
+/// `dst_scalar`. `None` = NOT escape-safe (keep the inline dec): the call may
+/// return a view aliasing `recv`'s payload.
+///
+/// Escape-safety is established by EITHER: (a) `dst_scalar` — a scalar result
+/// (`int`/`bool`) cannot hold a heap reference into `recv` (covers iter-consume
+/// user fns `@sum_values`/`@count_items` returning `int`, AND builtin reads `@len`
+/// returning `int` — the `match coll.first() { Some(s) -> s }` element-view case
+/// the contract's `return_alias` MISSES is excluded here because its result is a
+/// heap `str`, NOT scalar); OR (b) a collection-conversion builtin (structurally
+/// copies elements into a fresh result). A non-scalar-result non-conversion callee
+/// is conservatively NOT relocated (the result may alias `recv`).
+///
+/// Placement: a builtin borrowing read (`@len`, conversions) lets `recv` survive
+/// the call → `Both`; a user-fn transfer (`recv` lowers to `[own]` at Phase 7, OR
+/// the contract upgraded access to Owned) frees on normal → `UnwindOnly`.
+fn borrowed_arg_release_verdict(
+    callee: Name,
+    arg_index: usize,
+    dst_scalar: bool,
+    conversion_names: &FxHashSet<Name>,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Option<EdgeRelease> {
+    // Collection-conversion builtins are escape-safe by construction (the result
+    // is a fresh allocation that never aliases the source's payload) and borrow
+    // (not consume) the receiver → survives the call → Both edges.
+    if conversion_names.contains(&callee) {
+        return Some(EdgeRelease::Both);
+    }
+    // Escape-safety: a non-scalar result MAY alias `recv` (`first()`/`m[k]`/slice
+    // returns a view). Only a scalar result is provably non-aliasing here.
+    if !dst_scalar {
+        return None;
+    }
+    // A BUILTIN borrowing read with a scalar result (`@len`): `recv` survives the
+    // call and is dead on each successor → Both edges. No contract needed.
+    if builtins.is_builtin(callee) {
+        return Some(EdgeRelease::Both);
+    }
+    // A user fn requires a contract for the arg.
+    let param = contracts
+        .get(&callee)
+        .and_then(|c| c.params.get(arg_index))?;
+    // Return-view aliasing → the caller dec is load-bearing (the result threads the
+    // arg). Keep inline (defensive — should not co-occur with a scalar result).
+    if param.return_alias.is_some() || param.return_payload_contains_param {
+        return None;
+    }
+    // CASE (b): the iter-consume callee (`@sum_values`: `for x in coll do` →
+    // `@iter [own]` → `ori_iter_drop` frees the collection INSIDE the callee on
+    // EVERY exit, normal AND unwind) is a FULL inward transfer → the caller emits
+    // NO dec on EITHER edge (`Suppress`). An iter-consumer's `ori_iter_drop` runs
+    // on its unwind cleanup pad too, so a caller unwind-edge dec would double-free
+    // — `Suppress` (not `UnwindOnly`) is the iter-consume verdict. The borrow-read
+    // case (`@sum_list`: `xs.fold(..)` BORROWS, does NOT free) presents an IDENTICAL
+    // contract on every other dimension; `ParamContract.iter_consumes` is the sole
+    // discriminator (`AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
+    // Checked BEFORE the Owned-transfer branch: an iter-consuming callee freeing on
+    // both exits takes the both-exits-free `Suppress`, never the normal-only
+    // `UnwindOnly`.
+    if param.iter_consumes {
+        return Some(EdgeRelease::Suppress);
+    }
+    // A contract that upgraded the arg to Owned (a true consume at an owned
+    // position — the Lean `ownParamsUsingArgs` transfer) frees on the normal path
+    // → UnwindOnly.
+    if param.access == AccessClass::Owned {
+        return Some(EdgeRelease::UnwindOnly);
+    }
+    // A Borrowed-access non-iter-consuming scalar-returning user fn is NOT
+    // relocated (keep the inline dec — the borrow-read case).
+    None
+}
+
+/// An iter-consuming use of a collection lineage at a call site: `(block, instr)`
+/// — `instr = Some(i)` for a body `Apply` at instruction `i`; `instr = None` for
+/// a terminator `Invoke`/`InvokeIndirect`.
+#[derive(Clone, Copy)]
+struct IterConsumeUse {
+    block: usize,
+    instr: Option<usize>,
+}
+
+/// Phase 6.66: rewrite a MULTI-BORROW iter-consume source lineage's normal-path
+/// burden ops to the proven oracle ledger — (N-1) keep-alive `BurdenInc` + zero
+/// normal-path source `BurdenDec` (per `RL1_emit_iff_not_elidable` +
+/// `RL2_iter_consuming_no_caller_dec` + `RL2_release_exactly_once`).
+///
+/// A source lineage qualifies when ALL hold:
+///  - its representative is an `RcPtr` collection (the source buffer);
+///  - it flows to N >= 2 iter-consuming call positions on distinct call sites —
+///    the multi-borrow case. Two iter-consume kinds count (see
+///    [`record_iter_consume_uses`]): a USER callee whose `ParamContract.iter_consumes`
+///    is true, AND the INLINE for-loop `@iter(arg [own])` protocol builtin (`for x
+///    in coll` -> `@iter [own]` -> `ori_iter_drop`);
+///  - it is live-out at the first such call (the 6.65 single-borrow relocation
+///    already covers the dead-after-first-call case via its `Suppress` verdict;
+///    this pass is its live-out complement).
+///
+/// SCOPE GUARD (the over-fire boundary): a use is counted as iter-consuming ONLY
+/// via the two directly-detected signals — `ParamContract.iter_consumes` (user
+/// callee) or `@iter` with an `[own]` arg (inline for-loop). A borrow-read callee
+/// (`xs.fold(..)`, `iter_consumes == false`) and a non-`[own]` `@iter` arg are
+/// NOT counted, so their caller dec is NEVER suppressed (the borrow-read over-fire
+/// trap). Forwarding wrappers whose `iter_consumes` is not directly detected are
+/// out of scope here (left to the base path) rather than risk an `access == Owned`
+/// over-fire.
+///
+/// UNWIND SCOPE: only NORMAL-path lineage decs are removed; a dec in an
+/// unwind/`Resume` cleanup block is the panic-path release of the keep-alive inc
+/// and is left intact (matching the default-path oracle's unwind-edge decs).
+fn suppress_multi_borrow_iter_consume_source_decs(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) {
+    let jt_reps = compute_jump_threaded_reps(func);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let iter_name = interner.intern("iter");
+
+    // Collect iter-consuming uses per lineage rep.
+    let mut uses_per_rep: FxHashMap<ArcVarId, Vec<IterConsumeUse>> = FxHashMap::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        // Body `Apply` calls.
+        for (i, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                record_iter_consume_uses(
+                    *callee,
+                    args,
+                    arg_ownership,
+                    iter_name,
+                    b,
+                    Some(i),
+                    contracts,
+                    func,
+                    pool,
+                    &rep_of,
+                    &mut uses_per_rep,
+                );
+            }
+        }
+        // Terminator `Invoke` / `InvokeIndirect`.
+        if let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            arg_ownership,
+            ..
+        } = &block.terminator
+        {
+            record_iter_consume_uses(
+                *callee,
+                args,
+                arg_ownership,
+                iter_name,
+                b,
+                None,
+                contracts,
+                func,
+                pool,
+                &rep_of,
+                &mut uses_per_rep,
+            );
+        }
+    }
+
+    // Determine which blocks are unwind/Resume cleanup (excluded from dec removal).
+    let unwind_blocks = compute_unwind_reachable_blocks(func);
+
+    for (rep, mut uses) in uses_per_rep {
+        if uses.len() < 2 {
+            continue;
+        }
+        // Multi-borrow case only: the source must SURVIVE the first call (the
+        // single-borrow dead-after-call case is the 6.65 relocation's job).
+        // Order uses by (block, instr) to find the "first" call.
+        uses.sort_by_key(|u| (u.block, u.instr.unwrap_or(usize::MAX)));
+        let first = uses[0];
+        if !lineage_live_out_after_use(func, &jt_reps, rep, first.block, first.instr) {
+            continue;
+        }
+        // Remove every NORMAL-path `BurdenInc` / `BurdenDec` on the lineage's
+        // SSA-alias members. The keep-alive incs are re-emitted below from the
+        // call structure; normal-path source decs are dropped (the callees free).
+        for (b, block) in func.blocks.iter_mut().enumerate() {
+            if unwind_blocks.contains(&b) {
+                continue;
+            }
+            block.body.retain(|instr| match instr {
+                ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var } => rep_of(*var) != rep,
+                _ => true,
+            });
+        }
+        // Re-emit (N-1) keep-alive incs: one immediately before each non-last
+        // iter-consuming call's lineage value (the value the callee consumes).
+        // The Nth (last) call's iter-drop is the single release (RL-2); the
+        // source allocation rc=1 covers it, so no inc before the last call.
+        let n = uses.len();
+        for u in uses.iter().take(n - 1) {
+            let arg = lineage_arg_at_use(func, &jt_reps, rep, *u);
+            let Some(arg) = arg else { continue };
+            if let Some(block) = func.blocks.get_mut(u.block) {
+                let inc = ArcInstr::BurdenInc { var: arg };
+                match u.instr {
+                    Some(i) => block.body.insert(i, inc),
+                    // Terminator call: append the keep-alive inc at end of body.
+                    None => block.body.push(inc),
+                }
+            }
+        }
+    }
+
+    let _ = interner;
+}
+
+/// A pending keep-alive `BurdenInc` for
+/// [`emit_iter_element_view_iter_consume_keepalive_inc`]: insert `BurdenInc var`
+/// at `block` index `at` (`None` = append at end of body, for a terminator-
+/// position iter-consume).
+struct NestedIterKeepAlive {
+    block: usize,
+    at: Option<usize>,
+    var: ArcVarId,
+}
+
+/// True iff `callee(args, arg_ownership)` iter-consumes `args[pos]` — either the
+/// INLINE for-loop `@iter(arg [own])` protocol builtin or a USER callee whose
+/// `ParamContract.iter_consumes` is true for that parameter. Mirrors the SSOT
+/// iter-consume detection in [`record_iter_consume_uses`] (AIMS Invariant 5 — no
+/// parallel iter-consume tracker; this is a position-level predicate over the
+/// same two signals).
+fn arg_pos_iter_consumes(
+    callee: Name,
+    arg_ownership: &[ArgOwnership],
+    pos: usize,
+    iter_name: Name,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    if callee == iter_name {
+        return arg_ownership
+            .get(pos)
+            .is_some_and(|o| *o == ArgOwnership::Owned);
+    }
+    contracts
+        .get(&callee)
+        .and_then(|c| c.params.get(pos))
+        .is_some_and(|p| p.iter_consumes)
+}
+
+/// Phase 6.67 (probe): emit a keep-alive `BurdenInc` on every iter-element-view
+/// passed to an iter-consuming position.
+///
+/// For a nested `for inner in outer do { for x in inner do .. }` (or
+/// `for l in lists yield sum_list(l)`) the inner collection flows from
+/// `Project @__iter_next.1` of the outer source (an iter-element-view per
+/// [`collect_iter_element_defs`]) into an iter-consuming position — the INLINE
+/// inner `@iter(inner [own])`, OR a USER callee `@sum_list(inner)` whose
+/// `ParamContract.iter_consumes` is true (its body `@iter [own]` ->
+/// `ori_iter_drop`s the arg). The element view owns no allocation (the buffer is
+/// the outer collection's, freed by the outer `elem_dec_fn`), yet the inner
+/// iter-consume ALSO frees it -> double-free. The keep-alive inc raises the rc
+/// so the inner consume (RL-2 single release) and the outer `elem_dec_fn` each
+/// release exactly once. Nesting recurses automatically: an inner-of-inner view
+/// is an iter-element-view of the inner `@__iter_next`, so its consume position
+/// is also covered.
+///
+/// Gate (the over-fire boundary): the inc fires ONLY when the consumed arg is in
+/// `collect_iter_element_defs` (a borrow-view of an enclosing collection). A
+/// top-level iter-consume of the genuinely-owned source (NOT an element view) is
+/// freed solely by its own `ori_iter_drop` -> NO keep-alive (it would orphan a
+/// +1 -> leak). Probe-gated -> default codegen byte-identical. Spec: Annex E
+/// §AIMS RL-1 + RL-2.
+fn emit_iter_element_view_iter_consume_keepalive_inc(
+    func: &mut ArcFunction,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    pool: &Pool,
+) {
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    if iter_element_defs.is_empty() {
+        return;
+    }
+
+    // A keep-alive on `arg` is warranted iff `arg` is an iter-element-view of an
+    // ENCLOSING collection: it is in `iter_element_defs` AND it is a heap
+    // collection (`is_collection_dst` excludes scalar/closure element views that
+    // carry no buffer the outer `elem_dec_fn` frees — a closure element view's
+    // env is freed differently). The `RcPtr`/`FatVal` repr gate keeps scalar
+    // views out.
+    let warrants_keepalive = |arg: ArcVarId| -> bool {
+        iter_element_defs.contains(&arg)
+            && matches!(
+                func.var_repr(arg),
+                Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+            )
+    };
+
+    let mut inserts: Vec<NestedIterKeepAlive> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        for (i, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                for (pos, &arg) in args.iter().enumerate() {
+                    if arg_pos_iter_consumes(*callee, arg_ownership, pos, iter_name, contracts)
+                        && warrants_keepalive(arg)
+                    {
+                        inserts.push(NestedIterKeepAlive {
+                            block: b,
+                            at: Some(i),
+                            var: arg,
+                        });
+                    }
+                }
+            }
+        }
+        // Terminator-position iter-consume: `Invoke @callee(view) normal/unwind`
+        // where the callee iter-consumes the view (`for l in lists yield
+        // sum_list(l)` lowers `sum_list` to a may-unwind `Invoke`). The keep-alive
+        // inc appends at the end of the body, before the terminator reads the arg.
+        if let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            arg_ownership,
+            ..
+        } = &block.terminator
+        {
+            for (pos, &arg) in args.iter().enumerate() {
+                if arg_pos_iter_consumes(*callee, arg_ownership, pos, iter_name, contracts)
+                    && warrants_keepalive(arg)
+                {
+                    inserts.push(NestedIterKeepAlive {
+                        block: b,
+                        at: None,
+                        var: arg,
+                    });
+                }
+            }
+        }
+    }
+
+    let _ = pool;
+    // Apply back-to-front per block so earlier indices stay valid.
+    inserts.sort_by(|a, b| {
+        b.block
+            .cmp(&a.block)
+            .then(b.at.unwrap_or(usize::MAX).cmp(&a.at.unwrap_or(usize::MAX)))
+    });
+    for ins in inserts {
+        if let Some(block) = func.blocks.get_mut(ins.block) {
+            let inc = ArcInstr::BurdenInc { var: ins.var };
+            match ins.at {
+                Some(at) => block.body.insert(at.min(block.body.len()), inc),
+                None => block.body.push(inc),
+            }
+        }
+    }
+}
+
+/// Record each arg of `callee` that iter-consumes an `RcPtr`-collection lineage as
+/// an iter-consuming use of that rep. Two iter-consume kinds:
+///  - USER callee: a param whose `ParamContract.iter_consumes` is true (a user fn
+///    whose body `@iter [own]` -> `ori_iter_drop`s the arg).
+///  - INLINE for-loop: the `@iter` PROTOCOL builtin (`for x in coll` lowers to
+///    `Apply @iter(coll [own])` -> `ori_iter_drop`). `@iter` has no user
+///    `MemoryContract`, so the contract-keyed path misses it; the iter-consume
+///    signature is `callee == "iter"` with the arg passed `[own]` — the for-loop's
+///    iterator owns the buffer and frees it via the paired `ori_iter_drop`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared read-only context (func/pool/contracts/rep_of) + the accumulator; \
+              bundling into a struct would not reduce the genuine input set"
+)]
+fn record_iter_consume_uses(
+    callee: Name,
+    args: &[ArcVarId],
+    arg_ownership: &[ArgOwnership],
+    iter_name: Name,
+    block: usize,
+    instr: Option<usize>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    func: &ArcFunction,
+    pool: &Pool,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    uses_per_rep: &mut FxHashMap<ArcVarId, Vec<IterConsumeUse>>,
+) {
+    let mut record = |arg: ArcVarId| {
+        if !matches!(func.var_repr(arg), Some(ValueRepr::RcPointer)) {
+            return;
+        }
+        if !is_collection_dst(rep_of(arg), func, pool) && !is_collection_dst(arg, func, pool) {
+            return;
+        }
+        uses_per_rep
+            .entry(rep_of(arg))
+            .or_default()
+            .push(IterConsumeUse { block, instr });
+    };
+
+    // INLINE for-loop iter-consume: `@iter(coll [own])`. The for-loop's iterator
+    // takes ownership of the collection buffer and frees it via the paired
+    // `ori_iter_drop`, so an `[own]` `@iter` arg is an iter-consume position
+    // identical in transfer to a `ParamContract.iter_consumes` user callee.
+    if callee == iter_name {
+        for (pos, &arg) in args.iter().enumerate() {
+            if arg_ownership
+                .get(pos)
+                .is_some_and(|o| *o == ArgOwnership::Owned)
+            {
+                record(arg);
+            }
+        }
+        return;
+    }
+
+    // USER callee iter-consume: a param contract whose `iter_consumes` is true.
+    let Some(contract) = contracts.get(&callee) else {
+        return;
+    };
+    for (pos, &arg) in args.iter().enumerate() {
+        let Some(param) = contract.params.get(pos) else {
+            continue;
+        };
+        if !param.iter_consumes {
+            continue;
+        }
+        record(arg);
+    }
+}
+
+/// Blocks reachable ONLY via an unwind edge or that are `Resume` cleanup pads —
+/// where a lineage dec is the panic-path release of the keep-alive inc.
+fn compute_unwind_reachable_blocks(func: &ArcFunction) -> FxHashSet<usize> {
+    let mut unwind: FxHashSet<usize> = FxHashSet::default();
+    // Seed: every `Invoke`/`InvokeIndirect` unwind target + every `Resume` block.
+    let mut stack: Vec<usize> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        match &block.terminator {
+            ArcTerminator::Invoke { unwind: u, .. }
+            | ArcTerminator::InvokeIndirect { unwind: u, .. } => {
+                if unwind.insert(u.index()) {
+                    stack.push(u.index());
+                }
+            }
+            ArcTerminator::Resume => {
+                if unwind.insert(b) {
+                    stack.push(b);
+                }
+            }
+            _ => {}
+        }
+    }
+    // A block reachable from an unwind seed only via the seed subgraph is unwind
+    // cleanup. Conservative: include the full successor closure of each seed —
+    // a normal-path block that is ALSO reachable from a non-unwind predecessor is
+    // kept out by the seed-only nature of `Resume`/unwind targets in practice.
+    while let Some(b) = stack.pop() {
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        for s in crate::graph::successor_block_ids(&block.terminator) {
+            if unwind.insert(s.index()) {
+                stack.push(s.index());
+            }
+        }
+    }
+    unwind
+}
+
+/// Whether lineage `rep` is live at any program point AFTER the use at
+/// `(block, instr)` — a later instruction operand, terminator arg, or downstream
+/// block reference. A use that is the lineage's last reference returns false.
+fn lineage_live_out_after_use(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block: usize,
+    instr: Option<usize>,
+) -> bool {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let Some(start) = func.blocks.get(block) else {
+        return false;
+    };
+    // Remaining instructions in the use's block after the use position.
+    let after = match instr {
+        Some(i) => i + 1,
+        None => start.body.len(),
+    };
+    for later in start.body.iter().skip(after) {
+        if later.used_vars().iter().any(|&v| rep_of(v) == rep) {
+            return true;
+        }
+    }
+    // A body use (instr = Some) is followed by this block's terminator.
+    if instr.is_some()
+        && start
+            .terminator
+            .used_vars()
+            .iter()
+            .any(|&v| rep_of(v) == rep)
+    {
+        return true;
+    }
+    // Downstream successor blocks.
+    lineage_live_out(func, jt_reps, rep, block)
+}
+
+/// The actual arg var of lineage `rep` consumed at the call `u` (so the
+/// keep-alive inc names the value the callee receives, not the rep).
+fn lineage_arg_at_use(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    u: IterConsumeUse,
+) -> Option<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let block = func.blocks.get(u.block)?;
+    let used = match u.instr {
+        Some(i) => block.body.get(i)?.used_vars(),
+        None => block.terminator.used_vars(),
+    };
+    used.into_iter().find(|&v| rep_of(v) == rep)
+}
+
+/// Step-B' pass: free a genuinely-leaked OWNED collection-source whose lineage
+/// flows (as a Jump-arg) into a block param that is dead at a normal terminal
+/// (loop-exit / Return) without a freeing dec there.
+///
+/// The canonical shape is `m.keys()` / `m.values()` / `s.split()` /
+/// `set.to_list()`: a FRESH owned collection (the map/set/str) is BORROWED by
+/// the conversion builtin (so it survives the call), then loop-carried and dead
+/// at the post-loop block — the burden walk emits the freeing dec only on the
+/// unwind edges (RL-4), never on the normal dead-block-param path (RL-5), so the
+/// source buffer plus its owned element strings leak.
+///
+/// Part 1 — the jump-threaded leaked-source discriminator. The committed
+/// `same_alloc_reps` excludes Jump-arg→block-param edges BY DESIGN (to bound the
+/// fresh-inc-elision blast radius), so the source's lineage rep differs across the
+/// phi. [`compute_jump_threaded_reps`] threads that positional SSA rename LOCALLY
+/// here. The per-path alloc-aware net (`compute_burden_entry_nets` over the
+/// jump-threaded delta `Σ alloc(+1) + Σ BurdenInc − Σ BurdenDec*`) is positive
+/// at a terminal block exactly when the lineage is leaked on that path (the
+/// alloc's `+1` unbalanced by any release).
+///
+/// Part 2 — the freeing mechanism that COMPOSES with `elem_dec_fn`. The emitted
+/// whole-var `BurdenDec` lowers (Phase 7) to `RcDec { HeapPointer }`; the LLVM
+/// emitter routes a `Tag::Map`/`Set`/`List` `HeapPointer` dec through
+/// `ori_buffer_rc_dec`, which reads the V5 header's `elem_dec_fn`/`elem_count`
+/// and walks the element-drop glue — freeing the buffer AND its owned element
+/// strings (SSO-vs-heap, slice provenance handled by the runtime). A bare
+/// whole-var dec on the WRONG var (the conversion RESULT, freed by
+/// `ori_iter_drop`) would double-free; this pass emits ONLY for the source.
+///
+/// SEED-not-reuse exclusions (so it never double-frees a for-loop cluster — a
+/// naive whole-block dead-param dec double-frees the iterator-owned buffer): the
+/// leaked lineage rep must NOT intersect
+/// `collect_iter_element_defs` (iterator element views), any `ori_iter_drop`
+/// Apply argument (iterator handles freed by the runtime drop), the borrowed-def
+/// set, or a lineage that already carries a `BurdenDec` reaching the terminal
+/// block on the same path (already freed). Spec: Annex E §AIMS RL-5.
+fn emit_burden_dead_collection_source_decs(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) {
+    let releases = compute_dead_collection_source_releases(func, pool, interner);
+    // Emit at the TOP of each terminal block: the source is dead at block entry
+    // (RL-5 dead-at-entry), so the dec releases exactly the leaked reference
+    // before the block's own (scalar) computation runs.
+    for (block_idx, var) in releases {
+        if let Some(block) = func.blocks.get_mut(block_idx) {
+            block.body.insert(0, ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
+/// Emit the dead OWNED-COLLECTION / mutation-result freeing decs (RL-2
+/// `ScopeExit` / `ApplyToBorrowedParam`) for the burden path.
+///
+/// Distinct from [`emit_burden_dead_collection_source_decs`]: that pass frees a
+/// borrowed-then-dead CONVERSION SOURCE (`m.keys()` / `s.split()`) at a
+/// dead-block-param loop-exit sink. THIS pass frees a FRESH owned collection
+/// that is bound as a body-local (a mutation RESULT `let ys = xs.sort()` /
+/// `xs.insert(..)` / `xs.set(..)`, or a read-only `let m = {..}; m.contains_key(..)`),
+/// last-used at a BORROWED position, then dead at function scope exit.
+///
+/// The leak (under sole-emitter Phase-7 lowering): a multiply-used / duplicated
+/// FRESH owned collection gets a fresh-site `BurdenInc` (RL-1, the use is a
+/// duplicating use) plus per-path scope-exit `BurdenDec`s — the inc/dec pairs net
+/// the EXPLICIT ops to 0, but the allocation's implicit `+1` is never released.
+/// The compiled-Lean `rcBalance` (Realization.lean) mandates the lifecycle
+/// EXCLUDING the alloc net `-1`; the impl emits net 0 → the buffer leaks. This is
+/// an impl-conformance fix (the Lean is correct): emit ONE additional whole-var
+/// `BurdenDec` on the lineage's last-live value at each last-use sink, netting the
+/// lineage to release the alloc. The `RcDec { HeapPointer }` it lowers to routes a
+/// `Tag::Map`/`Set`/`List` value through `ori_buffer_rc_dec` (the V5 `elem_dec_fn`
+/// walk) so a heap-str-element collection ALSO frees its owned element strings.
+///
+/// SEED-not-reuse exclusions (so it never double-frees): the lineage must be a
+/// FRESH owned collection that is NEVER owned-consumed / transferred-out (only
+/// borrowed reads + scope exit — a sort/insert SOURCE is excluded because it is
+/// consumed owned by the mutator, while the RESULT survives), is NOT an
+/// iterator-element view, NOT an iterator handle freed by `ori_iter_drop`, NOT
+/// borrowed-def, and whose alloc-aware net at the sink is POSITIVE (net 0 =
+/// already freed — `let xs = [1,2,3]; xs.length()` and branch-merge phi shapes
+/// net 0 and never fire). Spec: Annex E §AIMS RL-2.
+fn emit_burden_dead_owned_collection_decs(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) {
+    let releases = compute_dead_owned_collection_releases(func, pool, interner);
+    // Placement (RL-2 / RL-4): the dec must follow the lineage's last borrowed READ.
+    // When that last use is a BODY instruction, end-of-body (after the read, before
+    // the terminator) is correct. When it is the TERMINATOR's borrowed arg (an
+    // `Invoke @insert(elem [borrow]) normal/unwind` — the runtime COPIES + incs the
+    // element via `key_inc`/`val_inc` DURING the call), end-of-body would place the
+    // dec BEFORE the call reads the element → use-after-free / double-free. The dec
+    // belongs on the NORMAL successor edge, after the borrowed call returns (RL-4
+    // `RL4_edge_release_balanced` — released exactly once on the path the value
+    // survives onto). Spec: Annex E §AIMS RL-2 + RL-4.
+    let jt_reps = compute_jump_threaded_reps(func);
+    for (block_idx, var) in releases {
+        match dead_collection_dec_placement(func, &jt_reps, block_idx, var) {
+            DeadDecPlacement::EndOfBody => {
+                if let Some(block) = func.blocks.get_mut(block_idx) {
+                    block.body.push(ArcInstr::BurdenDec { var });
+                }
+            }
+            DeadDecPlacement::NormalSuccessorFront(succ_idx) => {
+                if let Some(succ) = func.blocks.get_mut(succ_idx) {
+                    succ.body.insert(0, ArcInstr::BurdenDec { var });
+                }
+            }
+        }
+    }
+}
+
+/// Phase 6.9 — dead in-function ITERATOR-HANDLE freeing (RL-2 `ScopeExit`). An
+/// `@iter` / `@rev` / `@enumerate` result is a FRESH owned `Tag::Iterator` /
+/// `DoubleEndedIterator` handle (`ValueRepr::RcPointer`, no RC header — the
+/// source collection's buffer is MOVED into the iterator state). It must be freed
+/// by a scope-exit `RcDec [Iterator]` (= `ori_iter_drop`) at its last use. When
+/// the handle is MOVED into an aggregate field (`(int, Iterator<int>)` tuple /
+/// a struct field), the freeing burden transfers to the AGGREGATE — its
+/// scope-exit `RcDec [AggFields]` walks to the iterator field and `ori_iter_drop`s
+/// it. Either freeing value lowers through `RcStrategy::from_var` (Iterator for the
+/// bare handle, `AggregateFields` for the aggregate) to the same op the default path
+/// emits.
+///
+/// The leak under sole-emitter Phase-7 lowering: iterator handles carry NO RC
+/// burden in `BURDEN_TABLE` / `TypeRegistry::burden` (they are `UnmanagedPtr`, no
+/// refcount), so `collect_owned_burdens` never collects them and the Phase-5 walk
+/// emits zero burden ops on the handle / its aggregate — under the flag the value
+/// is never freed. The freeing is a DESTRUCTOR call (`ori_iter_drop`), not a
+/// refcount dec, which the burden registry does not model. This pass restores the
+/// RL-2 single-release the compiled-Lean `rcBalance` mandates for a fresh owned
+/// value: emit ONE whole-var `BurdenDec` on the dead-at-scope-exit handle /
+/// aggregate lineage.
+///
+/// SEED-not-reuse exclusions (so it never double-frees a for-loop cluster): the
+/// freeing-value lineage must NOT be in `compute_iter_drop_handle_lineages` (a
+/// for-loop `@iter` arg or `ori_iter_drop` arg — the loop lowering already emits
+/// the `@ori_iter_drop` Apply on every exit path), NOT returned / transferred-out,
+/// and NOT live past the sink block. A bare/aggregate handle that is consumed by
+/// `iter_next` / `ori_iter_drop` is for-loop-managed → excluded. Spec: Annex E
+/// §AIMS RL-2.
+fn emit_burden_dead_iterator_handle_decs(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) {
+    let releases = compute_dead_iterator_handle_releases(func, pool, interner);
+    for release in releases {
+        match release {
+            IterHandleRelease::EndOfBody { block_idx, var } => {
+                if let Some(block) = func.blocks.get_mut(block_idx) {
+                    block.body.push(ArcInstr::BurdenDec { var });
+                }
+            }
+            IterHandleRelease::SuccessorFront { succ_idx, var } => {
+                if let Some(succ) = func.blocks.get_mut(succ_idx) {
+                    succ.body.insert(0, ArcInstr::BurdenDec { var });
+                }
+            }
+        }
+    }
+}
+
+/// Where a dead iterator-handle release dec lands: at the END of the block body
+/// (the handle / aggregate is defined + dies in the same block — bare `Apply`
+/// `@iter`, `Construct` aggregate) OR prepended to a SUCCESSOR block (the handle
+/// is defined by this block's `Invoke @iter` TERMINATOR, so it is born on the
+/// successor edge and dies there — the dec belongs at the successor's front,
+/// after the handle is materialized, per RL-2 scope exit on that path).
+#[derive(Debug)]
+enum IterHandleRelease {
+    EndOfBody { block_idx: usize, var: ArcVarId },
+    SuccessorFront { succ_idx: usize, var: ArcVarId },
+}
+
+/// Compute the `(last_live_block_idx, var)` dead iterator-handle releases for
+/// [`emit_burden_dead_iterator_handle_decs`]. Split out for direct unit pins.
+///
+/// The freeing-value candidate set is two kinds:
+///   (a) a bare iterator handle — an `@iter`-family `Apply`/`Invoke` RESULT of
+///       `Tag::Iterator` / `DoubleEndedIterator` repr (the freeing value IS the
+///       handle, lowered `RcStrategy::Iterator`);
+///   (b) a fresh `Construct` aggregate (Tuple / Struct / Enum) that consumes an
+///       iterator handle at an owned position — the handle transferred ownership
+///       into the aggregate, so the AGGREGATE is the freeing value (lowered
+///       `RcStrategy::AggregateFields` / `InlineEnum`, whose drop walks to the
+///       iterator field).
+///
+/// Returns at most one release per (lineage, last-live block): the lineage's SSA
+/// value live at the END of the block after which it is dead and is NOT freed by a
+/// for-loop `@ori_iter_drop`.
+fn compute_dead_iterator_handle_releases(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) -> Vec<IterHandleRelease> {
+    let jt_reps = compute_jump_threaded_reps(func);
+    let candidate_reps = compute_dead_iterator_handle_candidates(func, pool, &jt_reps);
+    if candidate_reps.is_empty() {
+        return Vec::new();
+    }
+
+    // SEED-not-reuse exclusions. A for-loop iterator handle flows into `@iter_next`
+    // and `@ori_iter_drop` — the loop lowering ALREADY frees it on every exit path,
+    // so `compute_iter_drop_handle_lineages` (which collects `@iter` + `ori_iter_drop`
+    // args) holds it → excluded (a dec here double-frees). Returned lineages are
+    // RL-2 transfers (the caller inherits the release). A lineage consumed at an
+    // owned position somewhere is transferred-out (the consume releases / re-binds
+    // it) — though a candidate aggregate that is owned-consumed at scope exit is
+    // handled by the per-block owned-consume guard below, not excluded wholesale.
+    let iter_drop_handles = compute_iter_drop_handle_lineages(func, &jt_reps, interner);
+    let returned = compute_returned_lineages(func, &jt_reps);
+
+    let mut excluded: FxHashSet<ArcVarId> = iter_drop_handles;
+    excluded.extend(returned);
+
+    let mut releases: Vec<IterHandleRelease> = Vec::new();
+    for &rep in &candidate_reps {
+        if excluded.contains(&rep) {
+            continue;
+        }
+        // Case 1: the lineage is DEFINED by an `Invoke @iter` TERMINATOR (a
+        // may-unwind iter call). The handle is born on the normal-successor edge,
+        // never referenced in the defining block body — its sink is the front of
+        // the normal successor (where it is dead). The unwind edge is owned by the
+        // predicate-stack's RL-4 source cleanup (the iterator was not constructed
+        // on that path), so only the normal edge gets the handle dec.
+        if let Some((succ_idx, var)) = iter_handle_invoke_terminator_sink(func, &jt_reps, rep) {
+            if !lineage_live_out_from_block(func, &jt_reps, rep, succ_idx) {
+                releases.push(IterHandleRelease::SuccessorFront { succ_idx, var });
+            }
+            continue;
+        }
+        // Case 2: the lineage is defined + dies in one block (a bare `Apply @iter`
+        // result, or a `Construct` aggregate). End-of-body sink in the last block
+        // holding a live reference, after which it is dead.
+        for b in 0..func.blocks.len() {
+            let Some(var) = lineage_last_reference_in_block(func, &jt_reps, rep, b) else {
+                continue;
+            };
+            if lineage_live_out(func, &jt_reps, rep, b) {
+                continue;
+            }
+            // A block that consumes the lineage at an OWNED position transfers it
+            // out (moved into a callee / a parent Construct field) — the consume
+            // already re-binds ownership, so a dec here double-frees.
+            if block_owned_consumes_lineage(func, rep, &jt_reps, b) {
+                continue;
+            }
+            releases.push(IterHandleRelease::EndOfBody { block_idx: b, var });
+        }
+    }
+    releases
+}
+
+/// When the lineage `rep` is DEFINED by an `Invoke @iter`-family TERMINATOR
+/// (the iterator handle is born on the normal-successor edge), return
+/// `(normal_successor_idx, handle_var)`. The handle is materialized on the normal
+/// edge and never referenced in the defining block, so its scope-exit release
+/// lands at the front of the normal successor. Returns `None` when no candidate
+/// member is defined by an `Invoke` terminator.
+fn iter_handle_invoke_terminator_sink(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+) -> Option<(usize, ArcVarId)> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    for block in &func.blocks {
+        if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
+            if rep_of(*dst) == rep {
+                return Some((normal.index(), *dst));
+            }
+        }
+    }
+    None
+}
+
+/// Whether the lineage `rep` is live anywhere in `start_idx` OR its successor
+/// subgraph (the block ITSELF included — used for the Invoke-successor sink where
+/// the dec lands at the front of `start_idx`, so a live reference INSIDE
+/// `start_idx` means the handle survives and must not be freed at its front).
+fn lineage_live_out_from_block(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    start_idx: usize,
+) -> bool {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = vec![start_idx];
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        if b != start_idx && block.params.iter().any(|&(p, _)| rep_of(p) == rep) {
+            return true;
+        }
+        for instr in &block.body {
+            if instr.used_vars().iter().any(|&v| rep_of(v) == rep) {
+                return true;
+            }
+        }
+        if block
+            .terminator
+            .used_vars()
+            .iter()
+            .any(|&v| rep_of(v) == rep)
+        {
+            return true;
+        }
+        for s in crate::graph::successor_block_ids(&block.terminator) {
+            stack.push(s.index());
+        }
+    }
+    false
+}
+
+/// The freeing-value candidate reps (under `jt_reps`) for the dead-iterator-handle
+/// pass: bare `@iter`-family iterator-handle results, plus fresh `Construct`
+/// aggregates that consume an iterator handle at an owned field position.
+fn compute_dead_iterator_handle_candidates(
+    func: &ArcFunction,
+    pool: &Pool,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    // Iterator-handle reps: vars typed `Tag::Iterator` / `DoubleEndedIterator`,
+    // `ValueRepr::RcPointer` (the only iterator repr). Used to recognise both the
+    // bare candidate (the handle itself) and the aggregate trigger (a Construct
+    // arg that is an iterator handle).
+    let mut handle_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for raw in 0..func.var_types.len() {
+        let var = ArcVarId::new(u32::try_from(raw).unwrap_or(u32::MAX));
+        if is_iterator_handle_dst(var, func, pool) {
+            handle_reps.insert(rep_of(var));
+        }
+    }
+    if handle_reps.is_empty() {
+        return FxHashSet::default();
+    }
+    let mut candidates: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                // (a) Bare iterator-handle result: an `Apply`/`Invoke` whose dst is
+                // an iterator handle. `@iter` / `@rev` / `@enumerate` all produce a
+                // fresh owned iterator; the handle is the freeing value.
+                ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. }
+                    if is_iterator_handle_dst(*dst, func, pool) =>
+                {
+                    candidates.insert(rep_of(*dst));
+                }
+                // (b) Aggregate consuming an iterator handle: a `Construct`
+                // Tuple/Struct/Enum whose args include an iterator handle. The
+                // aggregate dst is the freeing value (its AggFields/InlineEnum drop
+                // walks the iterator field).
+                ArcInstr::Construct { dst, args, .. }
+                    if args.iter().any(|&a| handle_reps.contains(&rep_of(a))) =>
+                {
+                    candidates.insert(rep_of(*dst));
+                }
+                _ => {}
+            }
+        }
+        if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+            if is_iterator_handle_dst(*dst, func, pool) {
+                candidates.insert(rep_of(*dst));
+            }
+        }
+    }
+    candidates
+}
+
+/// Whether `dst` holds an owned iterator handle (`Tag::Iterator` /
+/// `DoubleEndedIterator`, `ValueRepr::RcPointer`). These map to
+/// `RcStrategy::Iterator` (= `ori_iter_drop`), NOT a refcount dec.
+fn is_iterator_handle_dst(dst: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
+    if !matches!(func.var_repr(dst), Some(ValueRepr::RcPointer)) {
+        return false;
+    }
+    matches!(
+        pool.tag(pool.resolve_fully(func.var_type(dst))),
+        ori_types::Tag::Iterator | ori_types::Tag::DoubleEndedIterator
+    )
+}
+
+/// The lineage's SSA value referenced (at ANY position) in `block_idx`, returning
+/// the LAST such reference, else `None`. Unlike [`lineage_last_use_in_block`]
+/// (borrowed positions only), this admits the DEFINING site as a reference — a
+/// bare unused iterator handle (`let _it = [..].iter(); 0`) and an aggregate never
+/// re-read have their only reference at the defining instruction's dst, which is
+/// the value to dec at scope exit.
+fn lineage_last_reference_in_block(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block_idx: usize,
+) -> Option<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let block = func.blocks.get(block_idx)?;
+    let mut found: Option<ArcVarId> = None;
+    for instr in &block.body {
+        if let Some(dst) = instr.defined_var() {
+            if rep_of(dst) == rep {
+                found = Some(dst);
+            }
+        }
+        for &arg in &instr.used_vars() {
+            if rep_of(arg) == rep {
+                found = Some(arg);
+            }
+        }
+    }
+    for &arg in &block.terminator.used_vars() {
+        if rep_of(arg) == rep {
+            found = Some(arg);
+        }
+    }
+    found
+}
+
+/// Where a dead-owned-collection-or-str release dec is emitted for `var` in
+/// `block_idx`: at the END of the block body (the last borrowed use is a body
+/// instruction) OR prepended to the NORMAL SUCCESSOR block (the last use is the
+/// block's terminator borrowed arg — the value is read DURING the call and
+/// survives onto the normal-return edge, so the release follows there per RL-4).
+enum DeadDecPlacement {
+    EndOfBody,
+    NormalSuccessorFront(usize),
+}
+
+/// Decide the placement for a dead-owned-collection release of the lineage of
+/// `var` in `block_idx`. When the block's terminator is a borrowed `Invoke` whose
+/// args include the lineage (the last use is the terminator), the dec follows on
+/// the normal-successor edge (RL-4). Otherwise end-of-body (the last use is a body
+/// read; the dec follows it before the terminator).
+fn dead_collection_dec_placement(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    block_idx: usize,
+    var: ArcVarId,
+) -> DeadDecPlacement {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let rep = rep_of(var);
+    let Some(block) = func.blocks.get(block_idx) else {
+        return DeadDecPlacement::EndOfBody;
+    };
+    // If the lineage is used by the terminator (a borrowed `Invoke` arg — the
+    // last-use sink predicate already established this block makes ONLY borrowed
+    // uses of the lineage), the read happens DURING the call: release on the normal
+    // successor edge. Only `Invoke` has a normal successor that can carry the dec;
+    // a `Return`/`Jump`/`Branch` terminator never has a borrowed-Invoke last use of
+    // an owned collection (it would be a transfer / handled elsewhere).
+    if let ArcTerminator::Invoke { args, normal, .. } = &block.terminator {
+        if args.iter().any(|&a| rep_of(a) == rep) {
+            return DeadDecPlacement::NormalSuccessorFront(normal.index());
+        }
+    }
+    DeadDecPlacement::EndOfBody
+}
+
+/// Compute the `(last_use_sink_block_idx, var)` dead owned-collection / mutation-
+/// result releases for [`emit_burden_dead_owned_collection_decs`]. Split out for
+/// direct unit pins.
+///
+/// Returns at most one release per (lineage, last-use sink block): the lineage's
+/// SSA value live at the END of each block that makes the last borrowed use of a
+/// FRESH owned-collection lineage whose alloc-aware net is still positive there
+/// (the allocation unreleased at the sink's exit).
+fn compute_dead_owned_collection_releases(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) -> Vec<(usize, ArcVarId)> {
+    let jt_reps = compute_jump_threaded_reps(func);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+
+    // The leaked-lineage candidate set: FRESH owned-collection self-alloc lineages
+    // (a `Construct` of List/Map/Set, or an `Apply`/`Invoke` returning an owned
+    // collection — a mutation RESULT like `xs.sort()` / `m.insert(..)`). The
+    // alloc-aware net gates which actually leak; the exclusions below remove every
+    // transferred / iterator-managed / conversion-source lineage so the net-gate
+    // never fires on a double-free.
+    let fresh_collection_reps = compute_fresh_owned_collection_reps(func, pool, &jt_reps, interner);
+    if fresh_collection_reps.is_empty() {
+        return Vec::new();
+    }
+
+    // Exclusion sets (SEED-not-reuse — never touch a for-loop / iterator cluster).
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    let borrowed_defs = crate::aims::emit_rc::collect_all_borrowed_defs(func, pool);
+    let iter_drop_handles = compute_iter_drop_handle_lineages(func, &jt_reps, interner);
+    // Owned-consumed lineages are transferred out (moved into a callee / Construct
+    // field / COW-mutator owned receiver / `@iter`): the consume already
+    // releases / re-binds them, so they are NOT leaked-at-scope-exit values. The
+    // mutation SOURCE (`xs` of `xs.sort()`) is owned-consumed by the mutator →
+    // excluded; the RESULT (`ys`, a distinct SSA lineage — Apply results are not
+    // jump-threaded to their owned args) survives and is eligible.
+    let owned_consumed = compute_owned_consumed_lineages(func, &jt_reps);
+    // RETURNED lineages are RL-2 transfers (the caller inherits the release): a
+    // freeing dec on a returned collection double-frees with the caller's release.
+    let returned = compute_returned_lineages(func, &jt_reps);
+    // PrimOp operands (list-concat `+` / comparison `==` / …) have their RC
+    // lifecycle owned by the PrimOp lowering — a dead-collection dec double-frees.
+    let primop_operands = compute_primop_operand_lineages(func, &jt_reps);
+    // USER-FUNCTION-CALL args: a collection passed to a non-builtin call is the
+    // callee's concern (transfer OR borrow-by-callee — and the arg ownership is not
+    // final at this phase). A scope-exit dec on such a lineage double-frees a
+    // transfer or trips the A' COW-through-borrow blocker; builtin borrowed reads
+    // (`@length`/`@contains_key`) are NOT in this set (the safe last-use reads).
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let user_call_args = compute_user_call_arg_lineages(func, &jt_reps, &builtins);
+    // OWNED-MOVED-into-collection strs/collections: a value MOVED into a `Construct`
+    // (collection-literal element) is the collection's sole reference (no inc) — its
+    // `elem_dec_fn` is the only release, so a scope-exit dec on the local double-
+    // frees. A COW-mutator borrowed element (`insert` key/val, `push` element) is
+    // COPIED (val_inc) — its LOCAL survives and IS freed here (RL-2 last-use dec).
+    let owned_moved = compute_collection_owned_moved_str_lineages(func, &jt_reps);
+    // The conversion SOURCES (`m` of `m.keys()`) are handled by the dedicated
+    // dead-collection-source pass at their loop-exit dead-block-param sink. Exclude
+    // them here so the two passes never both fire on the same lineage.
+    let conversion_sources = compute_conversion_source_reps(func, pool, &jt_reps, interner);
+
+    let mut excluded_reps: FxHashSet<ArcVarId> = iter_drop_handles;
+    excluded_reps.extend(owned_consumed);
+    excluded_reps.extend(returned);
+    excluded_reps.extend(primop_operands);
+    excluded_reps.extend(user_call_args);
+    excluded_reps.extend(owned_moved);
+    excluded_reps.extend(conversion_sources);
+    for &v in iter_element_defs.iter().chain(borrowed_defs.iter()) {
+        excluded_reps.insert(rep_of(v));
+    }
+
+    let preds = crate::graph::compute_predecessors(func);
+    let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
+
+    for &rep in &fresh_collection_reps {
+        if excluded_reps.contains(&rep) {
+            continue;
+        }
+        // Per-block alloc-aware delta: `Σ alloc(+1) for a FRESH member`
+        // `+ Σ BurdenInc(member) − Σ whole-var BurdenDec*(member)`.
+        let delta = compute_owned_collection_delta(func, pool, rep, &jt_reps, interner);
+        let nets =
+            crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
+
+        for (b, &block_entry_net) in nets.entry_net.iter().enumerate() {
+            // The last-use sink: a block that references the lineage at a BORROWED
+            // position and after which the lineage is dead (no successor uses it).
+            // The value survives its borrowed reads here (RL-2 dec follows the last
+            // read), then dies — so the surplus alloc is released at this block.
+            let Some(var) = lineage_last_use_in_block(func, &jt_reps, rep, b) else {
+                continue;
+            };
+            if lineage_live_out(func, &jt_reps, rep, b) {
+                continue;
+            }
+            // The lineage must be a borrowed-read-only sink: a block that consumes
+            // the lineage at an OWNED position transfers ownership (already
+            // released) — a dec here would double-free.
+            if block_owned_consumes_lineage(func, rep, &jt_reps, b) {
+                continue;
+            }
+            // Alloc-aware surplus at this block's EXIT: the net entering the block
+            // plus the block's own delta. Positive = the allocation is still
+            // unreleased here (the leak); 0 = already freed (don't fire); < 0 =
+            // over-released (skip).
+            let Some(entry_net) = block_entry_net else {
+                continue;
+            };
+            let exit_net = entry_net + delta[b];
+            if exit_net <= 0 {
+                continue;
+            }
+            releases.push((b, var));
+        }
+    }
+    releases
+}
+
+/// Compute the `(terminal_block_idx, var)` dead-collection-source releases for
+/// [`emit_burden_dead_collection_source_decs`]. Split out for direct unit pins.
+///
+/// Returns at most one release per (lineage, terminal block): the block-param /
+/// in-scope alias of the leaked owned collection-source at each normal terminal
+/// block whose jump-threaded per-path net is positive.
+fn compute_dead_collection_source_releases(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+) -> Vec<(usize, ArcVarId)> {
+    let jt_reps = compute_jump_threaded_reps(func);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+
+    // Exclusion sets (SEED-not-reuse — never touch a for-loop cluster).
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    let borrowed_defs = crate::aims::emit_rc::collect_all_borrowed_defs(func, pool);
+    let iter_drop_handles = compute_iter_drop_handle_lineages(func, &jt_reps, interner);
+    // Lineages CONSUMED at an owned position somewhere (COW-mutated by `push` /
+    // `set` / `insert` / concat, MOVED into a callee, transferred to a Construct
+    // field, or `@iter`-consumed): the consume already releases / re-binds the
+    // value, so it is NOT a borrowed-then-dead leaked source. The conversion
+    // shapes (`m.keys()` / `s.split()`) consume their source ONLY at a BORROWED
+    // position, so they survive this filter; a loop-reassigned `xs = xs.push(i)`
+    // or a COW-mutated list is owned-consumed → excluded (the `push_corruption` /
+    // loop-reassignment over-fires).
+    let owned_consumed = compute_owned_consumed_lineages(func, &jt_reps);
+
+    // A lineage rep is an excluded (non-source) lineage if ANY of its members is
+    // an iterator-element view, an iterator handle freed by `ori_iter_drop`, a
+    // borrowed value, or owned-consumed somewhere. Compute the excluded rep set
+    // once.
+    let mut excluded_reps: FxHashSet<ArcVarId> = iter_drop_handles;
+    excluded_reps.extend(owned_consumed);
+    for &v in iter_element_defs.iter().chain(borrowed_defs.iter()) {
+        excluded_reps.insert(rep_of(v));
+    }
+
+    // The leaked-source rep set: the lineage of a value passed at a BORROWED arg
+    // position to a COLLECTION-CONVERSION builtin (`@keys` / `@values` /
+    // `@split` / `@to_list`). This is the precise leaked shape — the
+    // map/set/str SOURCE that the conversion borrows, surviving the call, then
+    // dying at the post-loop block. Restricting to the conversion-borrowed-arg
+    // lineage (vs any owned collection source) excludes loop-carried / COW
+    // sources (`root = [1]`, `xs = xs.push(i)`) whose freeing the loop edge
+    // cleanup already owns — those over-fire as a second dec (double-free).
+    let source_reps = compute_conversion_source_reps(func, pool, &jt_reps, interner);
+    if source_reps.is_empty() {
+        return Vec::new();
+    }
+
+    let preds = crate::graph::compute_predecessors(func);
+    let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
+
+    for &rep in &source_reps {
+        if excluded_reps.contains(&rep) {
+            continue;
+        }
+        // Per-block jump-threaded alloc-aware delta for this lineage:
+        // `Σ alloc(+1) for a FRESH owned collection-source member`
+        // `+ Σ BurdenInc(member) − Σ whole-var BurdenDec*(member)`.
+        let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+        // Allocation `+1` per FRESH owned collection-source member of the lineage
+        // (attributed to the block that defines it — body instr or terminator).
+        for (b, block) in func.blocks.iter().enumerate() {
+            for instr in &block.body {
+                if let Some(dst) = collection_source_body_dst(instr, func, pool) {
+                    if rep_of(dst) == rep {
+                        delta[b] += 1;
+                    }
+                }
+                if matches!(instr, ArcInstr::BurdenInc { var } if rep_of(*var) == rep) {
+                    delta[b] += 1;
+                } else if crate::aims::verify::burden_delta::whole_var_dec_target(instr).map(rep_of)
+                    == Some(rep)
+                {
+                    delta[b] -= 1;
+                }
+            }
+            // Terminator-defined collection sources (`Invoke @keys(...)`).
+            if let ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } =
+                &block.terminator
+            {
+                if is_owned_collection_dst(*dst, func, pool) && rep_of(*dst) == rep {
+                    delta[b] += 1;
+                }
+            }
+        }
+        let nets =
+            crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
+
+        for b in 0..func.blocks.len() {
+            // The leaked source dies at the DEAD-SINK block for this lineage: it
+            // arrives (a lineage member is this block's param) but is NOT freed
+            // and does NOT flow onward live — no successor carries a lineage
+            // member via Jump-arg, and the block neither uses nor re-defines it
+            // (RL-5 dead-at-entry). An unwind sink (`Resume`) already received the
+            // RL-4 edge dec, so it is excluded.
+            if !is_lineage_dead_sink(func, &jt_reps, rep, b) {
+                continue;
+            }
+            let Some(entry_net) = nets.entry_net[b] else {
+                continue;
+            };
+            // A leaked lineage nets > 0 at the dead sink (the alloc's `+1`
+            // unbalanced by any release on this path). Net 0 = already freed
+            // (e.g. by the iterator drop); net < 0 = over-released (skip — a dec
+            // here would worsen it). Emit exactly one dec for the surplus.
+            if entry_net <= 0 {
+                continue;
+            }
+            // The var to dec: the lineage's block-param at this sink (the
+            // dead-at-entry collection-source). Freeing it frees the same
+            // allocation; the block-param is the in-scope SSA value at the sink.
+            let Some(var) = lineage_block_param(func, &jt_reps, rep, b) else {
+                continue;
+            };
+            releases.push((b, var));
+        }
+    }
+    releases
+}
+
+/// LOCAL jump-threaded same-allocation reps: `compute_same_alloc_reps`'s
+/// `Let{Var}` + apply-Direct/Conditional edges PLUS the Jump-arg→block-param
+/// POSITIONAL SSA-rename edges the committed reps exclude BY DESIGN.
+///
+/// Kept local to the dead-collection-source pass: threading the phi globally
+/// would widen `same_alloc_reps`, changing the fresh-inc-elision and the
+/// alloc-aware-net verdicts that depend on the unthreaded reps. Here the threaded
+/// rep is consumed only to attribute a dead-block-param to its allocation source.
+fn compute_jump_threaded_reps(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+        let p = *parent.get(&v).unwrap_or(&v);
+        if p == v {
+            return v;
+        }
+        let r = find(parent, p);
+        parent.insert(v, r);
+        r
+    }
+    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent.insert(ra, rb);
+        }
+    }
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    // Edge type 1: Let{Var} aliases.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                union(&mut parent, *dst, *src);
+            }
+        }
+    }
+    // Edge type 2: Jump-arg → successor block-param POSITIONAL rename. This is
+    // the edge `compute_same_alloc_reps` omits; threading it locally lets the
+    // dead-block-param at the loop-exit trace back to its allocation source.
+    for block in &func.blocks {
+        let (target, args) = match &block.terminator {
+            ArcTerminator::Jump { target, args } => (*target, args),
+            _ => continue,
+        };
+        let Some(succ) = func.blocks.get(target.index()) else {
+            continue;
+        };
+        for (pos, &arg) in args.iter().enumerate() {
+            if let Some(&(param, _)) = succ.params.get(pos) {
+                union(&mut parent, param, arg);
+            }
+        }
+    }
+    let keys: Vec<ArcVarId> = parent.keys().copied().collect();
+    let mut reps = FxHashMap::default();
+    for v in keys {
+        let r = find(&mut parent, v);
+        reps.insert(v, r);
+    }
+    reps
+}
+
+/// Whether `dst` holds a FRESH OWNED collection / string: an `RcPtr`/`FatVal`
+/// value whose resolved tag is `List` / `Map` / `Set` / `Str`. The SOURCES are:
+/// - a `Construct` of a collection ctor (the map/set/list literal source);
+/// - a `Let { Literal(String) }` (a heap string literal — the `str.split()`
+///   source `s` whose split parts are slice-views into its buffer);
+/// - an `Apply` / `Invoke` whose result is an owned collection (the conversion
+///   builtins `@keys` / `@values` / `@split` / `@to_list` etc. return a fresh
+///   owned `[T]`). The iterator-from-collection RESULT is excluded later by the
+///   iterator-handle / iter-element exclusion sets.
+///
+/// `Str` is included as a source because a borrowed-then-dead `str` (the source
+/// of `s.split()`) leaks its buffer on the normal dead-block-param path exactly
+/// like a map/set source; the whole-var dec lowers to `RcStrategy::FatPointer`
+/// → `ori_rc_dec` on the data ptr (slice-aware), freeing the underlying buffer.
+///
+/// Returns `false` for scalars, non-collection/string results, and iterator
+/// handles (`Tag::Iterator`).
+fn is_owned_collection_dst(dst: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
+    if !matches!(
+        func.var_repr(dst),
+        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+    ) {
+        return false;
+    }
+    let resolved = pool.resolve_fully(func.var_type(dst));
+    matches!(
+        pool.tag(resolved),
+        ori_types::Tag::List | ori_types::Tag::Map | ori_types::Tag::Set | ori_types::Tag::Str
+    )
+}
+
+/// Whether a body instruction DEFINES a FRESH owned collection / string source,
+/// returning its `dst`. Sources: `Construct` (collection ctor), `Let {
+/// Literal(String) }` (heap string literal), `Apply` / `ApplyIndirect` results
+/// (nounwind-call form of `@keys`/`@values`/`@split`/`@to_list`).
+#[expect(
+    clippy::match_same_arms,
+    reason = "the heap-ctor/call arm and the Let{String} arm are distinct \
+              instruction shapes that share a `Some(*dst)` body; merging them \
+              obscures the two FRESH-source categories the pass distinguishes \
+              (mirrors `fresh_self_alloc_dst`)"
+)]
+fn collection_source_body_dst(
+    instr: &ArcInstr,
+    func: &ArcFunction,
+    pool: &Pool,
+) -> Option<ArcVarId> {
+    let dst = match instr {
+        ArcInstr::Construct { dst, .. }
+        | ArcInstr::Apply { dst, .. }
+        | ArcInstr::ApplyIndirect { dst, .. } => *dst,
+        ArcInstr::Let {
+            dst,
+            value: ArcValue::Literal(crate::ir::LitValue::String(_)),
+            ..
+        } => *dst,
+        _ => return None,
+    };
+    is_owned_collection_dst(dst, func, pool).then_some(dst)
+}
+
+/// Lineage reps of the COLLECTION-CONVERSION SOURCE: a value passed at a
+/// BORROWED arg position (arg 0, the receiver) to a collection-from-collection
+/// conversion builtin (`@keys` / `@values` / `@split` / `@to_list`). The
+/// conversion borrows its source, returns a fresh owned collection, and the
+/// source survives — then dies at the post-loop block where this pass frees it.
+///
+/// Restricting the leaked-source set to exactly this shape (vs any owned
+/// collection source) is the precise scope: it excludes loop-carried
+/// invariants (`root = [1]`) and COW-reassigned lists (`xs = xs.push(i)`) whose
+/// release the loop edge cleanup already owns. The receiver must be a borrowed
+/// `RcPtr`/`FatVal` collection (`is_owned_collection_dst` confirms the tag).
+/// The collection-CONVERSION builtin name set (`keys` / `values` / `split` /
+/// `to_list`): a borrowed-receiver builtin producing a FRESH owned collection
+/// RESULT from its receiver's contents. SSOT shared by the conversion-source pass
+/// (which frees the borrowed SOURCE) and the dead-owned-collection candidate set
+/// (which frees the conversion RESULT — `let vals = m.values(); vals.len()` leaks
+/// the result list at scope exit). `iter` is NOT a conversion (its result is an
+/// iterator handle freed by `ori_iter_drop`, not a collection).
+fn collection_conversion_names(interner: &ori_ir::StringInterner) -> FxHashSet<Name> {
+    ["keys", "values", "split", "to_list"]
+        .iter()
+        .map(|n| interner.intern(n))
+        .collect()
+}
+
+fn compute_conversion_source_reps(
+    func: &ArcFunction,
+    pool: &Pool,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let conversion_names = collection_conversion_names(interner);
+    // The receiver (arg 0) at a borrowed position of a conversion builtin.
+    let consider = |callee: &Name,
+                    args: &[ArcVarId],
+                    ownership: &[crate::ir::ArgOwnership],
+                    reps: &mut FxHashSet<ArcVarId>| {
+        if !conversion_names.contains(callee) {
+            return;
+        }
+        let Some(&recv) = args.first() else { return };
+        // Receiver must be borrowed (the conversion does not consume it).
+        let borrowed = ownership
+            .first()
+            .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+        if borrowed && is_owned_collection_dst(recv, func, pool) {
+            reps.insert(rep_of(recv));
+        }
+    };
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                consider(callee, args, arg_ownership, &mut reps);
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            arg_ownership,
+            ..
+        } = &block.terminator
+        {
+            consider(callee, args, arg_ownership, &mut reps);
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) CONSUMED at an OWNED arg position by ANY body
+/// instruction OR terminator across the function — a COW-mutator receiver
+/// (`push`/`set`/`insert`/`remove`/`sort`/`reverse`), a concat operand, a value
+/// MOVED into a callee / Construct field, or an `@iter`-consumed collection. Such
+/// a lineage is released / re-bound by that consume, so it is NOT a
+/// borrowed-then-dead leaked source. The conversion sources (`m`/`s` of
+/// `m.keys()` / `s.split()`) are consumed ONLY at BORROWED positions → excluded
+/// from this set → eligible for the dead-source dec.
+fn compute_owned_consumed_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for (pos, &arg) in instr.used_vars().iter().enumerate() {
+                if instr.is_owned_position(pos) {
+                    reps.insert(rep_of(arg));
+                }
+            }
+        }
+        let term = &block.terminator;
+        for (pos, &arg) in term.used_vars().iter().enumerate() {
+            if term.is_owned_position(pos) {
+                reps.insert(rep_of(arg));
+            }
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) of every value passed as an argument to a
+/// NON-BUILTIN user-function call (`Apply`/`Invoke`/`ApplyIndirect`/`InvokeIndirect`
+/// whose callee is not a known builtin). A collection passed to a user function is
+/// the CALLEE's concern — it is either transferred (owned arg, the callee releases)
+/// or borrowed-by-the-callee, and crucially the call's arg ownership is NOT yet
+/// final at this phase: a non-unwinding `Invoke @user(coll [borrow])` lowers to an
+/// `Apply @user(coll [own])` at Phase 7, so a "borrowed" Phase-6.8 arg may become an
+/// owned transfer. EITHER way a scope-exit dead-collection dec on such a lineage is
+/// unsafe (double-free on transfer; the A' COW-through-borrow blocker on
+/// borrow-by-callee). Builtin borrowed reads (`@length`/`@contains_key`/`@first`)
+/// are NOT in this set — they truly borrow and are the safe last-use reads the pass
+/// frees after.
+fn compute_user_call_arg_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    let consider = |callee: Option<Name>, args: &[ArcVarId], reps: &mut FxHashSet<ArcVarId>| {
+        // A known builtin (borrowing read OR a COW-mutator handled elsewhere) is
+        // safe; an indirect closure call (callee `None`) or an unknown user
+        // function name is NOT.
+        if let Some(name) = callee {
+            if builtins.is_builtin(name) {
+                return;
+            }
+        }
+        for &arg in args {
+            if matches!(
+                func.var_repr(arg),
+                Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+            ) {
+                reps.insert(rep_of(arg));
+            }
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => consider(Some(*callee), args, &mut reps),
+                ArcInstr::ApplyIndirect { args, .. } => consider(None, args, &mut reps),
+                _ => {}
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                func: callee, args, ..
+            } => {
+                consider(Some(*callee), args, &mut reps);
+            }
+            ArcTerminator::InvokeIndirect { args, .. } => consider(None, args, &mut reps),
+            _ => {}
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) of every collection used as an operand of a
+/// `Let { PrimOp }` (`RcPointer`/`FatValue` repr). A `PrimOp` operand's RC lifecycle
+/// is owned by that `PrimOp`'s lowering: a list-concat `Binary(Add)` operand is
+/// CONSUMED by `ori_list_concat_cow` (frees both operands — the COW-shared-LHS
+/// `xs + ys; xs.length()` hazard); a list comparison `Binary(Eq)`/`Ne`/`Lt`…
+/// operand is BORROWED and balanced by the existing COW-operand inc/dec around the
+/// compare (the comparison-literal `x == [..]` hazard). EITHER way the operand's
+/// release is already accounted, so the dead-owned-collection pass MUST NOT emit a
+/// freeing dec on it (double-free). Scoped to the dead-owned-collection pass; the
+/// shared `compute_owned_consumed_lineages` is unchanged (the B' conversion-source
+/// pass does not see `PrimOp` operands).
+fn compute_primop_operand_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                value: crate::ir::ArcValue::PrimOp { args, .. },
+                ..
+            } = instr
+            {
+                for &arg in args {
+                    if matches!(
+                        func.var_repr(arg),
+                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                    ) {
+                        reps.insert(rep_of(arg));
+                    }
+                }
+            }
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) of every value passed to an `ori_iter_drop`
+/// Apply — the iterator handles the runtime drop frees. A leaked-source release
+/// MUST NOT touch these (their buffer is owned by the iterator state and freed
+/// by `ori_iter_drop`; a dec here double-frees the iterator-owned buffer).
+fn compute_iter_drop_handle_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let iter_drop = interner.intern("ori_iter_drop");
+    let iter_fn = interner.intern("iter");
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                // `ori_iter_drop(handle)` — the handle's lineage is iterator-owned.
+                // `iter(coll)` — the collection is MOVED into the iterator state;
+                // the iterator's `ori_iter_drop` frees that buffer, so the moved
+                // collection's lineage is iterator-managed too (e.g. the keys
+                // list of `map_keys_str`, consumed by `@iter` and freed by the
+                // loop's `ori_iter_drop`).
+                if *callee == iter_drop || *callee == iter_fn {
+                    for &a in args {
+                        reps.insert(rep_of(a));
+                    }
+                }
+            }
+        }
+    }
+    reps
+}
+
+/// The lineage's block PARAM (under `jt_reps`) at `block_idx`, or `None`. This
+/// is the dead-at-entry SSA value the emitted `BurdenDec` references at the sink.
+fn lineage_block_param(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block_idx: usize,
+) -> Option<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let block = func.blocks.get(block_idx)?;
+    block
+        .params
+        .iter()
+        .find(|&&(param, _)| rep_of(param) == rep)
+        .map(|&(param, _)| param)
+}
+
+/// Whether `block_idx` is the DEAD-SINK for the leaked-source lineage `rep`
+/// (RL-5 dead-at-entry): a lineage member ARRIVES as this block's param, but the
+/// lineage does NOT flow onward live and is not freed here. Concretely, ALL hold:
+/// - the lineage has a block PARAM here (it arrived via a Jump-arg);
+/// - the block's terminator is NOT `Resume` (an unwind sink already got the
+///   RL-4 edge dec — a dec here would double-free on the unwind path);
+/// - NO successor receives a lineage member via a Jump-arg / branch-arg (the
+///   lineage does not flow onward — it dies at this block);
+/// - the block body does NOT consume the lineage member at an owned position
+///   that already transfers ownership (no double-free with an in-block release).
+///
+/// The "no successor carries it" check is the structural liveness test that
+/// makes this the death block: a for-loop's back-edge block re-passes the
+/// iterator/collection params to the loop header, so it is NEVER a dead sink —
+/// only the post-loop block (which drops them) qualifies.
+fn is_lineage_dead_sink(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block_idx: usize,
+) -> bool {
+    let Some(block) = func.blocks.get(block_idx) else {
+        return false;
+    };
+    // Must arrive as a block param of this lineage.
+    if lineage_block_param(func, jt_reps, rep, block_idx).is_none() {
+        return false;
+    }
+    // Unwind sinks already received the RL-4 edge dec.
+    if matches!(block.terminator, ArcTerminator::Resume) {
+        return false;
+    }
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    // The lineage must NOT already be RELEASED in THIS block: a whole-var
+    // `BurdenDec*` of the lineage here means the burden walk already emits the
+    // freeing dec (the merge-phi case `xs = if c then [..] else [..]` — both
+    // branch Constructs jump into a block param whose last-use dec frees it).
+    // Emitting a sink dec on top of that existing dec double-frees.
+    for instr in &block.body {
+        if crate::aims::verify::burden_delta::whole_var_dec_target(instr).map(rep_of) == Some(rep) {
+            return false;
+        }
+        // A body instr that moves the lineage out at an OWNED position already
+        // transfers ownership (a transfer release); a pure borrowed read
+        // (`@len(x [borrow])`) does not, so it does not disqualify the sink.
+        if owned_position_consumes_lineage(instr, rep, jt_reps) {
+            return false;
+        }
+    }
+    // The lineage must NOT be LIVE-OUT: no block transitively reachable from this
+    // block's successors references a lineage member (as a param, operand, or
+    // terminator arg). A loop header whose param flows around the loop back to a
+    // later body block that re-passes it is therefore NOT a dead sink — the
+    // lineage is live through the loop. Only the post-loop block (no successor
+    // re-references the lineage) qualifies. This is the structural liveness test
+    // that the per-block direct-terminator-arg check alone cannot make (the
+    // lineage can flow to a successor's successor via a Jump-arg in a sibling
+    // block, e.g. bb3→bb6→bb5 carrying `%14`).
+    if lineage_live_out(func, jt_reps, rep, block_idx) {
+        return false;
+    }
+    true
+}
+
+/// Whether lineage `rep` is LIVE-OUT of `block_idx`: some block transitively
+/// reachable from `block_idx`'s successors references a lineage member (as a
+/// block param, an instruction operand, or a terminator arg). A reference at the
+/// candidate block itself does NOT count — only downstream blocks. Used to
+/// reject loop-header / mid-loop blocks whose lineage flows around the loop.
+fn lineage_live_out(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block_idx: usize,
+) -> bool {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let Some(start) = func.blocks.get(block_idx) else {
+        return false;
+    };
+    // BFS over the successor subgraph (excluding the start block itself).
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = crate::graph::successor_block_ids(&start.terminator)
+        .iter()
+        .map(|b| b.index())
+        .collect();
+    while let Some(b) = stack.pop() {
+        if b == block_idx || !visited.insert(b) {
+            continue;
+        }
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        // Param reference.
+        if block.params.iter().any(|&(p, _)| rep_of(p) == rep) {
+            return true;
+        }
+        // Operand reference in any body instr (a use keeps the lineage alive).
+        for instr in &block.body {
+            if instr.used_vars().iter().any(|&v| rep_of(v) == rep) {
+                return true;
+            }
+        }
+        // Terminator arg reference.
+        if block
+            .terminator
+            .used_vars()
+            .iter()
+            .any(|&v| rep_of(v) == rep)
+        {
+            return true;
+        }
+        for s in crate::graph::successor_block_ids(&block.terminator) {
+            stack.push(s.index());
+        }
+    }
+    false
+}
+
+/// Whether `instr` consumes a lineage member at an OWNED arg position (an
+/// ownership transfer that already releases the value). A borrowed-position read
+/// does NOT count. Used to keep the dead-sink dec from double-freeing a value
+/// the block body already moves out.
+fn owned_position_consumes_lineage(
+    instr: &ArcInstr,
+    rep: ArcVarId,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> bool {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    for (pos, &arg) in instr.used_vars().iter().enumerate() {
+        if instr.is_owned_position(pos) && rep_of(arg) == rep {
+            return true;
+        }
+    }
+    false
+}
+
+/// Lineage reps (under `jt_reps`) of every FRESH owned-collection self-allocation
+/// def-site: a non-empty `Construct` of a List/Map/Set, OR a COW-MUTATOR
+/// `Apply`/`Invoke` result whose receiver type is a collection (`xs.sort()` /
+/// `m.insert(..)` / `a.union(..)` — a `crate::borrow::all_cow_method_names`
+/// builtin whose result is always `Unique`, RC == 1, a genuine fresh allocation).
+///
+/// Restricting Apply/Invoke results to the COW-mutator name set is load-bearing:
+/// a `slice` / `substring` / `take` / `drop` result SHARES the receiver's backing
+/// buffer (NOT a fresh allocation — `crate::borrow::sharing_builtin_names`), and
+/// an arbitrary user function returning a collection is a transfer; neither
+/// allocates a buffer this lineage owns, so a freeing dec there would double-free
+/// the shared/transferred buffer. The empty-literal Construct (`{}`/`[]`) is
+/// excluded (no backing buffer). `Str` is NOT included: a borrowed-then-dead
+/// `str` source is the conversion-source pass's domain.
+///
+/// This is the leaked-lineage candidate set for [`compute_dead_owned_collection_releases`];
+/// the alloc-aware net + the Return-transfer / owned-consumed exclusions gate which
+/// candidates actually leak.
+fn compute_fresh_owned_collection_reps(
+    func: &ArcFunction,
+    pool: &Pool,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+    // The fresh-LOCAL-Construct lineage reps: a non-empty collection Construct
+    // DEFINED in this function (not a param). A COW-mutator result is freeable at
+    // scope exit ONLY when its consumed receiver traces to such a fresh local
+    // allocation (`let xs = [..]; xs.sort()` — the in-place reuse / COW-copy is
+    // genuinely this function's allocation). When the receiver is a BORROWED PARAM
+    // (`@check(list); list.push(..)`), the COW-through-borrowed-param interaction
+    // (the A' blocker — the borrowed original may be mutated in place under the
+    // flag) is NOT this pass's domain; excluding param-source COW results avoids
+    // the double-free.
+    let fresh_local_construct_reps =
+        compute_fresh_local_construct_reps(func, pool, jt_reps, interner);
+    let cow_receiver_is_fresh_local = |args: &[ArcVarId]| -> bool {
+        args.first()
+            .is_some_and(|&recv| fresh_local_construct_reps.contains(&rep_of(recv)))
+    };
+    // A collection-CONVERSION result (`m.values()` / `m.keys()` / `set.to_list()`)
+    // is a FRESH owned collection the runtime allocates from the receiver's
+    // contents — `let vals = m.values(); vals.len()` leaks the result list at
+    // scope exit (the conversion result is borrowed-read then dead, never freed).
+    // The conversion SOURCE is freed by the dedicated conversion-source pass; the
+    // RESULT is freed here.
+    let conversion_names = collection_conversion_names(interner);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let dst = match instr {
+                // A non-empty collection Construct is a fresh buffer allocation;
+                // an empty literal (`{}`/`[]`) has no buffer — skip it.
+                ArcInstr::Construct { dst, args, .. } if !args.is_empty() => *dst,
+                // A heap `str` LITERAL is a fresh FatPointer allocation; a fresh
+                // str borrowed-then-dead at scope exit (a lookup arg `contains_key(m,
+                // "key")` / a comparison-free read) leaks its buffer just like a
+                // collection. The STORE-into-collection exclusion (below, in the
+                // caller) removes strs that a Construct/COW-mutator takes ownership
+                // of (the collection's `elem_dec_fn` frees those).
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Literal(crate::ir::LitValue::String(_)),
+                    ..
+                } => *dst,
+                // A COW-mutator result is a genuine fresh allocation (always
+                // Unique) ONLY when its receiver is a fresh local Construct; non-COW
+                // Apply results (slices, user fns) and param-receiver COW results
+                // are excluded.
+                ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } if cow_names.contains(callee) && cow_receiver_is_fresh_local(args) => *dst,
+                // A collection-conversion result is a fresh owned collection.
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if conversion_names.contains(callee) => *dst,
+                _ => continue,
+            };
+            if is_collection_or_str_dst(dst, func, pool) {
+                reps.insert(rep_of(dst));
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            ..
+        } = &block.terminator
+        {
+            let is_fresh = (cow_names.contains(callee) && cow_receiver_is_fresh_local(args))
+                || conversion_names.contains(callee);
+            if is_fresh && is_collection_dst(*dst, func, pool) {
+                reps.insert(rep_of(*dst));
+            }
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) of every FRESH local collection allocation —
+/// fresh-local-EQUIVALENT: a non-empty `Construct` DEFINED in this function (a
+/// local allocation, NOT a function param), PLUS the transitive closure of
+/// COW-mutator results whose receiver is itself fresh-local-equivalent. A
+/// COW-mutator (`push` / `reverse` / `concat` / `sort` / `set` / `insert` /
+/// `remove`) consumes its receiver owned and produces a result that IS the same
+/// allocation (in-place reuse / COW realloc); when the chain ROOT is a fresh local
+/// Construct, every link is a single function-owned allocation. So the receiver of
+/// a chained mutation (`[1].push(2).push(3)` — the second push's receiver is the
+/// first push RESULT, not a `Construct`) is fresh-local-equivalent, making the
+/// chain TAIL freeable at its borrowed-read scope-exit sink. A borrowed-param
+/// receiver is the A' COW-through-borrow blocker's domain (excluded — never seeds
+/// the closure). Spec: Annex E §AIMS RL-2.
+fn compute_fresh_local_construct_reps(
+    func: &ArcFunction,
+    pool: &Pool,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    // Function-param reps — a COW receiver tracing here is NOT a fresh local.
+    let param_reps: FxHashSet<ArcVarId> = func.params.iter().map(|p| rep_of(p.var)).collect();
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    // Seed: non-empty fresh local `Construct` results.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct { dst, args, .. } = instr {
+                if !args.is_empty() && is_collection_dst(*dst, func, pool) {
+                    let r = rep_of(*dst);
+                    if !param_reps.contains(&r) {
+                        reps.insert(r);
+                    }
+                }
+            }
+        }
+    }
+    // Transitive closure over COW-mutator chains: a COW-mutator result whose
+    // receiver (arg 0) is already fresh-local-equivalent is itself
+    // fresh-local-equivalent (same allocation, transformed in place). Iterate to a
+    // fixpoint so an N-link chain (`xs.push().push().reverse()`) is fully covered.
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+    let receiver_in = |args: &[ArcVarId], set: &FxHashSet<ArcVarId>| -> bool {
+        args.first()
+            .is_some_and(|&recv| set.contains(&rep_of(recv)))
+    };
+    loop {
+        let mut grew = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                let cow_chain_dst = match instr {
+                    // A COW-mutator method (`push`/`reverse`/`sort`/…) whose receiver
+                    // is fresh-local-equivalent.
+                    ArcInstr::Apply {
+                        dst,
+                        func: callee,
+                        args,
+                        ..
+                    } if cow_names.contains(callee) && receiver_in(args, &reps) => Some(*dst),
+                    // A list-concat `PrimOp Binary(Add)` (`xs + ys`) consumes BOTH
+                    // RcPointer operands and reuses one's allocation; its result is
+                    // fresh-local-equivalent when EVERY RcPointer operand is. The
+                    // `list_concat_consumed_operands` SSOT filters to RcPointer list
+                    // operands (str/closure operands are FatValue, borrowed by
+                    // `ori_str_concat` — not a consuming list concat).
+                    ArcInstr::Let { dst, .. } => {
+                        let operands =
+                            crate::lower::burden_lower::list_concat_consumed_operands(instr, func);
+                        if !operands.is_empty()
+                            && operands.iter().all(|&o| reps.contains(&rep_of(o)))
+                        {
+                            Some(*dst)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(dst) = cow_chain_dst {
+                    if is_collection_dst(dst, func, pool) {
+                        let r = rep_of(dst);
+                        if !param_reps.contains(&r) && reps.insert(r) {
+                            grew = true;
+                        }
+                    }
+                }
+            }
+            if let ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = &block.terminator
+            {
+                if cow_names.contains(callee)
+                    && is_collection_dst(*dst, func, pool)
+                    && receiver_in(args, &reps)
+                {
+                    let r = rep_of(*dst);
+                    if !param_reps.contains(&r) && reps.insert(r) {
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    reps
+}
+
+/// Whether `dst` holds an owned List/Map/Set (an `RcPtr`/`FatVal` whose resolved
+/// tag is `List`/`Map`/`Set`). Shared by the fresh-collection detector and the
+/// alloc-aware delta. `Str` excluded — a COW-mutator RESULT is never a `Str`.
+fn is_collection_dst(dst: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
+    if !matches!(
+        func.var_repr(dst),
+        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+    ) {
+        return false;
+    }
+    matches!(
+        pool.tag(pool.resolve_fully(func.var_type(dst))),
+        ori_types::Tag::List | ori_types::Tag::Map | ori_types::Tag::Set
+    )
+}
+
+/// Whether `dst` holds an owned List/Map/Set/Str (the collection set PLUS `Str`).
+/// Used for the fresh-candidate detection where a heap `str` literal is a freeable
+/// borrowed-then-dead allocation alongside collections.
+fn is_collection_or_str_dst(dst: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
+    if !matches!(
+        func.var_repr(dst),
+        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+    ) {
+        return false;
+    }
+    matches!(
+        pool.tag(pool.resolve_fully(func.var_type(dst))),
+        ori_types::Tag::List | ori_types::Tag::Map | ori_types::Tag::Set | ori_types::Tag::Str
+    )
+}
+
+/// Lineage reps (under `jt_reps`) of every `str`/collection OWNED-MOVED into a
+/// collection — passed as an arg to a `Construct` (collection literal element). A
+/// `Construct` arg is MOVED (the runtime does NOT inc it — the collection's
+/// reference IS the value's sole reference, rc stays 1): its `elem_dec_fn` is the
+/// SOLE release on buffer teardown, so a scope-exit dec on the value's local
+/// lineage double-frees with the collection's element drop → exclude it.
+///
+/// A COW-mutator borrowed element arg (`insert(m, key, val)` key/value, `push(xs,
+/// v)` element) is COPIED, NOT moved: the runtime `copy_nonoverlapping`s the
+/// element bytes into the buffer AND calls `key_inc`/`val_inc`/`elem_inc` so the
+/// buffer's COPY has its OWN reference (rc → 2). The original LOCAL reference
+/// SURVIVES the borrowed call and is dead afterward (RL-2 `ApplyToBorrowedParam`
+/// mandates a dec on the local). So a copied element is NOT in this owned-move set
+/// — its local IS freed by the dead-owned-collection-or-str scope-exit pass. The
+/// receiver (arg 0) is the consumed collection, handled by `owned_consumed`.
+/// Spec: Annex E §AIMS RL-2.
+fn compute_collection_owned_moved_str_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            // Construct args are OWNED-MOVED elements (the collection owns the sole
+            // reference; the runtime does not inc them).
+            if let ArcInstr::Construct { args, .. } = instr {
+                for &arg in args {
+                    reps.insert(rep_of(arg));
+                }
+            }
+        }
+    }
+    reps
+}
+
+/// Lineage reps (under `jt_reps`) of every value flowing to a `Return { value }`
+/// terminator (a lineage member is the returned value). A returned collection is
+/// an RL-2 TRANSFER (the caller inherits the release obligation), so a scope-exit
+/// dead-collection dec MUST NOT fire on it — that would double-free with the
+/// caller's release.
+fn compute_returned_lineages(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        if let ArcTerminator::Return { value } = &block.terminator {
+            reps.insert(rep_of(*value));
+        }
+    }
+    reps
+}
+
+/// Per-block alloc-aware delta for a fresh owned-collection lineage `rep`:
+/// `Σ alloc(+1) for a FRESH member defined in the block`
+/// `+ Σ BurdenInc(member) − Σ whole-var BurdenDec*(member)`. Mirrors the delta
+/// [`compute_dead_collection_source_releases`] builds. The allocation `+1` is
+/// attributed ONLY to a genuine fresh allocation (a non-empty `Construct` or a
+/// COW-mutator `Apply`/`Invoke` result) — a sharing-method / user-fn collection
+/// result allocates no buffer this lineage owns, so it contributes no `+1` (it is
+/// already excluded from the candidate set, but the delta is kept consistent).
+fn compute_owned_collection_delta(
+    func: &ArcFunction,
+    pool: &Pool,
+    rep: ArcVarId,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> Vec<i64> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+    let conversion_names = collection_conversion_names(interner);
+    // A COW-mutator OR a collection-conversion result is a fresh allocation that
+    // contributes its `+1` to the lineage's alloc-aware net.
+    let allocates = |callee: &Name| cow_names.contains(callee) || conversion_names.contains(callee);
+    let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+    for (b, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            // A heap `str` literal allocation contributes its `+1` (mirrors the
+            // collection alloc) when the lineage is the candidate str.
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Literal(crate::ir::LitValue::String(_)),
+                ..
+            } = instr
+            {
+                if is_collection_or_str_dst(*dst, func, pool) && rep_of(*dst) == rep {
+                    delta[b] += 1;
+                }
+            }
+            let alloc_dst = match instr {
+                ArcInstr::Construct { dst, args, .. } if !args.is_empty() => Some(*dst),
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if allocates(callee) => Some(*dst),
+                _ => None,
+            };
+            if let Some(d) = alloc_dst {
+                if is_collection_dst(d, func, pool) && rep_of(d) == rep {
+                    delta[b] += 1;
+                }
+            }
+            if matches!(instr, ArcInstr::BurdenInc { var } if rep_of(*var) == rep) {
+                delta[b] += 1;
+            } else if crate::aims::verify::burden_delta::whole_var_dec_target(instr).map(rep_of)
+                == Some(rep)
+            {
+                delta[b] -= 1;
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst, func: callee, ..
+        } = &block.terminator
+        {
+            if allocates(callee) && is_collection_dst(*dst, func, pool) && rep_of(*dst) == rep {
+                delta[b] += 1;
+            }
+        }
+    }
+    delta
+}
+
+/// The lineage's SSA value live at `block_idx` if this block makes a BORROWED use
+/// of a `rep` member (an operand at a non-owned position), else `None`. The
+/// returned var is the actual SSA value referenced here (the in-scope value to
+/// dec at the block's last-use sink). A block that references the lineage ONLY at
+/// an owned position returns `None` (that is a transfer, not a borrowed read).
+fn lineage_last_use_in_block(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    block_idx: usize,
+) -> Option<ArcVarId> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let block = func.blocks.get(block_idx)?;
+    let mut found: Option<ArcVarId> = None;
+    for instr in &block.body {
+        for (pos, &arg) in instr.used_vars().iter().enumerate() {
+            if rep_of(arg) == rep && !instr.is_owned_position(pos) {
+                found = Some(arg);
+            }
+        }
+    }
+    for (pos, &arg) in block.terminator.used_vars().iter().enumerate() {
+        if rep_of(arg) == rep && !block.terminator.is_owned_position(pos) {
+            found = Some(arg);
+        }
+    }
+    found
+}
+
+/// Whether `block_idx` consumes a `rep` member at an OWNED position (a body instr
+/// or the terminator) — an ownership transfer that already releases the value, so
+/// a dead-owned-collection dec here would double-free.
+fn block_owned_consumes_lineage(
+    func: &ArcFunction,
+    rep: ArcVarId,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    block_idx: usize,
+) -> bool {
+    let Some(block) = func.blocks.get(block_idx) else {
+        return false;
+    };
+    for instr in &block.body {
+        if owned_position_consumes_lineage(instr, rep, jt_reps) {
+            return true;
+        }
+    }
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    for (pos, &arg) in block.terminator.used_vars().iter().enumerate() {
+        if block.terminator.is_owned_position(pos) && rep_of(arg) == rep {
+            return true;
+        }
+    }
+    false
 }
 
 /// Compute the set of FRESH self-allocation `BurdenInc` def-sites whose paired
@@ -375,8 +3009,8 @@ fn emit_burden_path_probe_tail(
 ///
 /// Discriminator = per-`(var, same-alloc-lineage)` COW-operand flow, the DIRECT
 /// measure of fresh-inc load-bearingness — NOT use-count / type / def-block
-/// uniqueness (all dead-ends per `decisions/LEDGER.md §B.2`). Spec: Annex E
-/// §AIMS RL-1 (`!incElidable`) + RL-comp net-preservation.
+/// uniqueness. Spec: Annex E §AIMS RL-1 (`!incElidable`) + RL-comp
+/// net-preservation.
 fn compute_elidable_fresh_self_alloc_incs(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -387,6 +3021,7 @@ fn compute_elidable_fresh_self_alloc_incs(
     // COW helper reads the operand's runtime refcount, and the fresh inc raises
     // it to ≥ 2 so the helper COPIES instead of mutating the shared value.
     let cow_mutated_reps = compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner);
+    let list_take_name = for_yield_result_finalizer_name(interner);
     // Per-lineage alloc-aware static net = `Σ self-alloc(+1) + Σ BurdenInc −
     // Σ BurdenDec*` over the SSA-alias lineage (M3). Counting the allocation's
     // implicit `+1` per the compiled-Lean `rcBalance` (a released FRESH value's
@@ -395,14 +3030,14 @@ fn compute_elidable_fresh_self_alloc_incs(
     // lineage back to 0. A net != 1 means the fresh inc is balancing a
     // COW-consume / move-alias dec (e.g. `length_one`: net 0 with all incs →
     // eliding drops to −1, a double-free) → keep.
-    let lineage_net = compute_lineage_alloc_aware_net(func, same_alloc_reps);
+    let lineage_net = compute_lineage_alloc_aware_net(func, same_alloc_reps, interner);
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
 
     let mut elidable: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            let Some(dst) = fresh_self_alloc_dst(instr) else {
+            let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) else {
                 continue;
             };
             // Only elide non-scalar RcPtr/FatValue self-allocs (scalars carry no
@@ -455,17 +3090,50 @@ fn compute_elidable_fresh_self_alloc_incs(
 fn compute_lineage_alloc_aware_net(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
 ) -> FxHashMap<ArcVarId, i64> {
     use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let preds = crate::graph::compute_predecessors(func);
+    let list_take_name = for_yield_result_finalizer_name(interner);
+
+    // PHI-AWARE attribution, scoped to the `for_yield` `ori_list_take` result.
+    // `same_alloc_reps` EXCLUDES the Jump-arg → block-param POSITIONAL rename edge
+    // BY DESIGN, so a for_yield result jump-threaded across a later loop's init
+    // block (the `for_yield_*_two_call` shape) has its lone downstream release
+    // attributed to a DIFFERENT rep — the unthreaded net then sees `alloc(+1) +
+    // fresh-inc(+1) − premature-paired-dec(−1) = +1`, mis-eliding the fresh inc
+    // and leaving `alloc(+1) − premature-dec − true-dec = −1` = a double-free.
+    // The phi-threaded view unions the Jump-phi forward edges so the WHOLE
+    // single-allocation chain nets together (→ 0, the fresh inc is load-bearing,
+    // kept). Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
+    //
+    // SCOPE GUARD — `ori_list_take`-rooted lineages ONLY. A loop-INVARIANT fresh
+    // value (a closure env `PartialApply` threaded unchanged through a loop's
+    // block-params) is also a `fresh_self_alloc_dst`, but its loop-body keep-alive
+    // inc/dec PAIRS are net-0 and live on SEPARATE unthreaded reps; folding them
+    // into the alloc class via phi-threading would leave the alloc's `+1`
+    // spuriously unbalanced (mis-eliding the keep-alive inc → a leak of the
+    // hof_closure_capture_in_loop / coll_map_index_in_loop shapes). The
+    // jump-threaded-result double-free is SPECIFIC to the `ori_list_take`
+    // finalizer (allocated in a POST-loop block, threaded forward into its
+    // consumers), so only those lineages take the threaded attribution; every
+    // other fresh-alloc kind stays on the unthreaded net (behaviour-identical to
+    // pre-change).
+    let phi = compute_list_take_phi_attribution(func, same_alloc_reps, list_take_name);
+    let phi_rep_of = |v: ArcVarId| phi.threaded.get(&v).copied().unwrap_or(v);
+    // A `same_alloc_reps` rep takes the phi-threaded attribution iff it is an
+    // `ori_list_take` result whose phi-threaded class merges exactly one such
+    // result (a 2-result phi-merge falls back to the unthreaded, double-free-safe
+    // net).
+    let use_phi_for = |sar: ArcVarId| -> bool { phi.eligible.contains(&sar) };
 
     // Collect every lineage rep that has at least one fresh self-alloc member —
     // the only reps an elision decision queries.
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            if let Some(dst) = fresh_self_alloc_dst(instr) {
+            if let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) {
                 if matches!(
                     func.var_repr(dst),
                     Some(ValueRepr::RcPointer | ValueRepr::FatValue)
@@ -478,25 +3146,44 @@ fn compute_lineage_alloc_aware_net(
 
     let mut result: FxHashMap<ArcVarId, i64> = FxHashMap::default();
     for rep in reps {
+        // Attribution predicate. For an `ori_list_take` result with a single-alloc
+        // phi class, ATTRIBUTE via the phi-threaded rep (counting the jump-threaded
+        // downstream release); every other lineage uses the unthreaded
+        // `same_alloc_reps` rep (behaviour-identical to pre-change).
+        let use_phi = use_phi_for(rep);
+        let target_phi_rep = phi_rep_of(rep);
+        let belongs = |var: ArcVarId| -> bool {
+            if use_phi {
+                phi_rep_of(var) == target_phi_rep
+            } else {
+                rep_of(var) == rep
+            }
+        };
         // Per-block delta for this lineage rep: alloc(+1) for each fresh
         // self-alloc whose lineage rep == `rep`, +1 per `BurdenInc`, −1 per
         // whole-var `BurdenDec*`.
         let mut delta: Vec<i64> = vec![0; func.blocks.len()];
+        // Blocks where the lineage's allocation occurs (a `fresh_self_alloc_dst`
+        // member of this rep). Tracked SEPARATELY from `delta` — a block's NET
+        // delta can be 0 even when it allocates (alloc +1 offset by paired decs),
+        // so `delta[b] > 0` is NOT a sound alloc-site predicate.
+        let mut alloc_in_block: Vec<bool> = vec![false; func.blocks.len()];
         for (b, block) in func.blocks.iter().enumerate() {
             for instr in &block.body {
-                if let Some(dst) = fresh_self_alloc_dst(instr) {
-                    if rep_of(dst) == rep
+                if let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) {
+                    if belongs(dst)
                         && matches!(
                             func.var_repr(dst),
                             Some(ValueRepr::RcPointer | ValueRepr::FatValue)
                         )
                     {
                         delta[b] += 1;
+                        alloc_in_block[b] = true;
                     }
                 }
-                if matches!(instr, ArcInstr::BurdenInc { var } if rep_of(*var) == rep) {
+                if matches!(instr, ArcInstr::BurdenInc { var } if belongs(*var)) {
                     delta[b] += 1;
-                } else if whole_var_dec_target(instr).map(rep_of) == Some(rep) {
+                } else if whole_var_dec_target(instr).is_some_and(belongs) {
                     delta[b] -= 1;
                 }
             }
@@ -507,12 +3194,27 @@ fn compute_lineage_alloc_aware_net(
             // (omit from the map; the elision gate's `!= 1` check then keeps it).
             continue;
         }
-        // Agreed terminal net across reachable terminal blocks.
+        // Forward-reachable set from the lineage's allocation blocks. A terminal
+        // block NOT reachable from any alloc block (an unwind `Resume` landing
+        // pad reached BEFORE the value was allocated — e.g. a for_yield result
+        // born post-loop, unreachable from a mid-loop body's unwind edge) is NOT
+        // a release path for this lineage: its net reflects "value never existed
+        // here" (0), not a balance verdict. Counting it as a divergent terminal
+        // would spuriously reject a per-normal-path-balanced lineage. RL-2
+        // release accounting applies only where the value is live.
+        let alloc_blocks: Vec<usize> = (0..func.blocks.len())
+            .filter(|&b| alloc_in_block[b])
+            .collect();
+        let alloc_reachable = forward_reachable_from(func, &alloc_blocks);
+        // Agreed terminal net across terminal blocks REACHABLE from the alloc.
         let mut terminal_net: Option<i64> = None;
         for (b, block) in func.blocks.iter().enumerate() {
             let Some(eb) = nets.entry_net[b] else {
                 continue;
             };
+            if !alloc_reachable.contains(&b) {
+                continue;
+            }
             if !matches!(
                 block.terminator,
                 ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
@@ -537,20 +3239,392 @@ fn compute_lineage_alloc_aware_net(
     result
 }
 
+/// Whether a `for_yield` `ori_list_take` RESULT (the lineage rep `result_rep`) is
+/// OWNERSHIP-TRANSFERRED OUT of the current function — either ITER-consumed (its
+/// lineage flows to an `@iter [own]` position: a second for-loop / `ori_iter_drop`)
+/// OR RETURNED (its lineage is the `Return` terminator value).
+///
+/// The move-vs-borrow discriminator for the joint yield-element RC: a transferred
+/// result frees / hands off its own element copies elsewhere — an ITER-consumed
+/// result via `ori_iter_drop`, a RETURNED result via the CALLER's consumption
+/// (which the callee cannot see). Either way the yielded elements need NO extra RC
+/// inside this function (the `yield_identity_str_list{,_two_calls,_borrowed_param}`
+/// canaries: `clone_list` RETURNS the result, the caller iter-consumes it). A
+/// result NEITHER iter-consumed NOR returned (index-consumed / length-consumed in
+/// the same function) owns its element copies locally → the yielded elements need
+/// the duplicating inc (RL-1), and `@__index`-extracted views need their own
+/// release (RL-2).
+fn for_yield_result_transferred_out(
+    func: &ArcFunction,
+    result_rep: ArcVarId,
+    phi_rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    iter_name: ori_ir::Name,
+) -> bool {
+    for block in &func.blocks {
+        // RETURNED: the terminator returns a value in the result's lineage.
+        if let ArcTerminator::Return { value } = &block.terminator {
+            if phi_rep_of(*value) == result_rep {
+                return true;
+            }
+        }
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                if *callee == iter_name
+                    && args.iter().zip(arg_ownership).any(|(&a, own)| {
+                        matches!(own, ArgOwnership::Owned) && phi_rep_of(a) == result_rep
+                    })
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// A pending burden-op insertion for [`emit_for_yield_index_consumed_element_rc`]:
+/// insert `BurdenInc`/`BurdenDec` (`is_inc`) on `var` AFTER `block`'s instruction
+/// index `after`.
+struct ForYieldElemInsert {
+    block: usize,
+    after: usize,
+    var: ArcVarId,
+    is_inc: bool,
+}
+
+/// Phase 6.95 (probe): `for_yield` NON-iter-consumed element RC. For each
+/// `ori_list_take` result that is NOT iter-consumed (per
+/// [`for_yield_result_iter_consumed`] = false — index-consumed / length-consumed
+/// / returned):
+/// - **yield-element-inc** (RL-1): on the element value moved at an OWNED position
+///   into the result's `ori_list_push(scratch, w [own])` — the push DUPLICATES the
+///   borrowed iter-element view into the result buffer, so the result needs its
+///   own `+1` (the iter-element-view exclusion drops it by default; without the
+///   inc the source `IterState::Drop` AND the result `elem_dec_fn` both free the
+///   element → double-free);
+/// - **index-result-element-dec** (RL-2): on each `@__index(result [borrow], _) ->
+///   view` extracted view, after the index call — the extracted `FatValue` view of
+///   a heap element needs its own release (the result buffer's `elem_dec_fn` frees
+///   the stored copies; the indexed VIEW is a separate borrow the oracle decs).
+///
+/// Probe-gated (runs only inside `emit_burden_path_probe_tail` behind
+/// `predicate_stack_rc_disabled`) -> default codegen byte-identical. Spec: Annex E
+/// §AIMS RL-1 (`RL1_emits_inc = !incElidable`) + RL-2 (`RL2_release_exactly_once`).
+fn emit_for_yield_index_consumed_element_rc(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    let take_name = for_yield_result_finalizer_name(interner);
+    let push_name = interner.intern("ori_list_push");
+    let index_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
+    let threaded = compute_phi_threaded_alloc_reps(func, same_alloc_reps);
+    let phi_rep_of = |v: ArcVarId| threaded.get(&v).copied().unwrap_or(v);
+
+    // NON-iter-consumed `ori_list_take` result lineage reps (phi-threaded) — the
+    // results whose yielded elements need the duplicating RC.
+    let mut eligible_result_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    // Map each result's SCRATCH buffer arg (the `ori_list_take(scratch)` arg) to
+    // the result's phi rep, so the matching `ori_list_push(scratch, w)` can be
+    // attributed to an eligible result.
+    let mut scratch_to_result_rep: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            {
+                if *callee == take_name
+                    && matches!(
+                        func.var_repr(*dst),
+                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                    )
+                {
+                    let result_rep = phi_rep_of(*dst);
+                    if !for_yield_result_transferred_out(func, result_rep, &phi_rep_of, iter_name) {
+                        eligible_result_reps.insert(result_rep);
+                        if let Some(&scratch) = args.first() {
+                            scratch_to_result_rep.insert(scratch, result_rep);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if eligible_result_reps.is_empty() {
+        return;
+    }
+
+    // Collect insertion points so we mutate after the read scan.
+    let mut inserts: Vec<ForYieldElemInsert> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        for (i, instr) in block.body.iter().enumerate() {
+            let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            else {
+                continue;
+            };
+            // yield-element-inc: `ori_list_push(scratch, w [own])` whose scratch
+            // belongs to an index-consumed result. `w` (args[1]) is the duplicated
+            // element view → emit a BurdenInc on it BEFORE the push (so the push's
+            // owned consume + the result's copy are both balanced).
+            if *callee == push_name && args.len() >= 2 {
+                if let Some(&scratch) = args.first() {
+                    if scratch_to_result_rep.contains_key(&scratch) {
+                        let w = args[1];
+                        // Only heap (non-scalar) element values carry RC.
+                        if matches!(
+                            func.var_repr(w),
+                            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                        ) {
+                            inserts.push(ForYieldElemInsert {
+                                block: b,
+                                after: i.saturating_sub(1),
+                                var: w,
+                                is_inc: true,
+                            });
+                        }
+                    }
+                }
+            }
+            // index-result-element-dec: `@__index(result [borrow], _) -> view`
+            // whose receiver belongs to an eligible (non-iter-consumed) result.
+            // Emit a BurdenDec on the extracted `view` (the dst) AFTER the index
+            // call.
+            if *callee == index_name
+                && args
+                    .first()
+                    .is_some_and(|&recv| eligible_result_reps.contains(&phi_rep_of(recv)))
+                && matches!(
+                    func.var_repr(*dst),
+                    Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                )
+            {
+                inserts.push(ForYieldElemInsert {
+                    block: b,
+                    after: i,
+                    var: *dst,
+                    is_inc: false,
+                });
+            }
+        }
+    }
+    let _ = pool;
+    // Apply insertions back-to-front per block so earlier indices stay valid.
+    inserts.sort_by(|a, b| b.block.cmp(&a.block).then(b.after.cmp(&a.after)));
+    for ins in inserts {
+        let op = if ins.is_inc {
+            ArcInstr::BurdenInc { var: ins.var }
+        } else {
+            ArcInstr::BurdenDec { var: ins.var }
+        };
+        let body = &mut func.blocks[ins.block].body;
+        let pos = (ins.after + 1).min(body.len());
+        body.insert(pos, op);
+    }
+}
+
+/// The phi-attribution view for [`compute_lineage_alloc_aware_net`]: the
+/// phi-threaded allocation-equivalence reps PLUS the precomputed set of
+/// `same_alloc_reps`-reps eligible for the phi-threaded net attribution
+/// (`ori_list_take` results whose phi-threaded class merges exactly one such
+/// result).
+struct ListTakePhiAttribution {
+    threaded: FxHashMap<ArcVarId, ArcVarId>,
+    eligible: FxHashSet<ArcVarId>,
+}
+
+/// Build the phi-attribution view scoped to `ori_list_take` results. The
+/// `eligible` set carries the single-alloc guard: a `same_alloc_reps`-rep is
+/// eligible iff it is an `ori_list_take` result AND its phi-threaded class merges
+/// exactly one such result (a 2-result phi-merge — the `04B.2-cross-class-uaf`
+/// shape — falls back to the unthreaded, double-free-safe net).
+fn compute_list_take_phi_attribution(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    list_take_name: ori_ir::Name,
+) -> ListTakePhiAttribution {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let threaded = compute_phi_threaded_alloc_reps(func, same_alloc_reps);
+    let phi_rep_of = |v: ArcVarId| threaded.get(&v).copied().unwrap_or(v);
+
+    // `ori_list_take`-result `same_alloc_reps`-reps, grouped by phi-threaded class.
+    let mut take_reps_per_phi_class: FxHashMap<ArcVarId, FxHashSet<ArcVarId>> =
+        FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            else {
+                continue;
+            };
+            if *callee == list_take_name
+                && matches!(
+                    func.var_repr(*dst),
+                    Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                )
+            {
+                take_reps_per_phi_class
+                    .entry(phi_rep_of(*dst))
+                    .or_default()
+                    .insert(rep_of(*dst));
+            }
+        }
+    }
+    // Single-alloc guard: keep only reps in a phi class merging exactly one take.
+    let mut eligible: FxHashSet<ArcVarId> = FxHashSet::default();
+    for take_reps in take_reps_per_phi_class.values() {
+        if take_reps.len() == 1 {
+            eligible.extend(take_reps.iter().copied());
+        }
+    }
+    ListTakePhiAttribution { threaded, eligible }
+}
+
+/// Phi-aware allocation-equivalence reps: the `same_alloc_reps` classes
+/// (`Let{Var}` + apply-result Direct/Conditional edges) UNIONED with the
+/// FORWARD Jump-arg → successor block-param POSITIONAL rename edges that
+/// `compute_same_alloc_reps` excludes BY DESIGN.
+///
+/// Consumed ONLY by [`compute_lineage_alloc_aware_net`], and there ONLY for an
+/// `ori_list_take` for_yield-result lineage, to ATTRIBUTE a jump-threaded
+/// downstream `BurdenDec` to its allocation rep — never to widen
+/// `same_alloc_reps` itself (which still drives the fresh-inc-elision CANDIDATE
+/// set + every other alloc-aware verdict on the unthreaded reps, per the
+/// local-only discipline of [`compute_jump_threaded_reps`]).
+///
+/// FORWARD-ONLY: a loop BACK-EDGE (`target` dominates the jumping block) is
+/// SKIPPED so a self-looping consumer block-param does not fold its own
+/// back-edge into the alloc class. The `for_yield` result is allocated in a
+/// POST-loop block and threads FORWARD into its consumers — an acyclic chain
+/// whose lone downstream release IS the phi-target's dec.
+fn compute_phi_threaded_alloc_reps(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+        let p = *parent.get(&v).unwrap_or(&v);
+        if p == v {
+            return v;
+        }
+        let r = find(parent, p);
+        parent.insert(v, r);
+        r
+    }
+    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent.insert(ra, rb);
+        }
+    }
+    let dom = crate::graph::DominatorTree::build(func);
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    // Seed with the committed `same_alloc_reps` equivalence (member → rep).
+    for (&member, &rep) in same_alloc_reps {
+        union(&mut parent, member, rep);
+    }
+    // Add the FORWARD Jump-arg → successor block-param POSITIONAL rename edge —
+    // the one `compute_same_alloc_reps` omits. Loop back-edges (`target`
+    // dominates the jumping block) are skipped.
+    for (b, block) in func.blocks.iter().enumerate() {
+        let ArcTerminator::Jump { target, args } = &block.terminator else {
+            continue;
+        };
+        let block_id = crate::ir::ArcBlockId::new(u32::try_from(b).unwrap_or(u32::MAX));
+        if dom.dominates(*target, block_id) {
+            continue;
+        }
+        let Some(succ) = func.blocks.get(target.index()) else {
+            continue;
+        };
+        for (pos, &arg) in args.iter().enumerate() {
+            if let Some(&(param, _)) = succ.params.get(pos) {
+                union(&mut parent, param, arg);
+            }
+        }
+    }
+    let keys: Vec<ArcVarId> = parent.keys().copied().collect();
+    let mut reps = FxHashMap::default();
+    for v in keys {
+        let r = find(&mut parent, v);
+        reps.insert(v, r);
+    }
+    reps
+}
+
+/// The set of block indices forward-reachable from any block in `starts`
+/// (inclusive of the starts), via `successor_block_ids` CFG edges. Used by
+/// [`compute_lineage_alloc_aware_net`] to restrict the terminal-net agreement to
+/// terminal blocks a lineage's allocation can actually reach — an unwind landing
+/// pad reached BEFORE the allocation is not a release path for that lineage.
+fn forward_reachable_from(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = starts.to_vec();
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        for s in crate::graph::successor_block_ids(&block.terminator) {
+            stack.push(s.index());
+        }
+    }
+    visited
+}
+
+/// The interned `ori_list_take` finalizer name — the `for x in coll yield expr`
+/// comprehension's result builder. The loop lowering (`lower/control_flow/
+/// for_yield.rs`, `for_yield_option.rs`) allocates a growable scratch via
+/// `ori_list_new`, pushes each body result, then `ori_list_take`s the scratch:
+/// the runtime MOVES the data buffer out of the scratch `OriList` (freeing only
+/// the struct, not the buffer — `ori_rt/src/list/mod.rs:269`), yielding a FRESH
+/// owned `[T]` at RC = 1. For alloc-aware-net accounting this result IS a fresh
+/// self-allocation (the buffer's own `+1`), so [`fresh_self_alloc_dst`] treats it
+/// like a `Construct`.
+fn for_yield_result_finalizer_name(interner: &ori_ir::StringInterner) -> ori_ir::Name {
+    interner.intern("ori_list_take")
+}
+
 /// The `dst` of a FRESH self-allocation instruction (created at runtime RC = 1),
 /// or `None`. Mirrors the FRESH-site set `fresh_site_burden_inc_dst`
 /// (`burden_lower/emit.rs`) treats as self-allocating: `Construct` / `Reuse` /
-/// `CollectionReuse` / `PartialApply` / `Let { String }`. `Apply` / `Invoke`
-/// results are NOT self-allocs — they inherit an owned reference from the callee
-/// (the callee's allocation, not a fresh one created here), so their fresh inc
-/// is the caller's genuine acquire, never the redundant alloc double-count.
+/// `CollectionReuse` / `PartialApply` / `Let { String }`, PLUS the `for_yield`
+/// `ori_list_take` finalizer (the comprehension result builder — moves a fresh
+/// buffer out of the scratch, RC = 1 like a `Construct`). General `Apply` /
+/// `Invoke` results are NOT self-allocs — they inherit an owned reference from
+/// the callee (the callee's allocation, not one created here), so their fresh
+/// inc is the caller's genuine acquire, never the redundant alloc double-count;
+/// `ori_list_take` is the exception because the buffer it returns was just
+/// allocated by the `for_yield` scratch in THIS function.
 #[expect(
     clippy::match_same_arms,
-    reason = "the heap-ctor arm and the Let{String} arm are distinct instruction \
-              shapes that happen to share a `Some(*dst)` body; merging them would \
-              obscure the two FRESH-site categories the burden walk distinguishes"
+    reason = "the heap-ctor arm, the Let{String} arm, and the list_take arm are \
+              distinct instruction shapes that share a `Some(*dst)` body; merging \
+              would obscure the FRESH-site categories the burden walk distinguishes"
 )]
-fn fresh_self_alloc_dst(instr: &ArcInstr) -> Option<ArcVarId> {
+fn fresh_self_alloc_dst(instr: &ArcInstr, list_take_name: ori_ir::Name) -> Option<ArcVarId> {
     match instr {
         ArcInstr::Construct { dst, .. }
         | ArcInstr::Reuse { dst, .. }
@@ -561,6 +3635,7 @@ fn fresh_self_alloc_dst(instr: &ArcInstr) -> Option<ArcVarId> {
             value: ArcValue::Literal(crate::ir::LitValue::String(_)),
             ..
         } => Some(*dst),
+        ArcInstr::Apply { dst, func, .. } if *func == list_take_name => Some(*dst),
         _ => None,
     }
 }
@@ -587,8 +3662,8 @@ fn fresh_self_alloc_dst(instr: &ArcInstr) -> Option<ArcVarId> {
 ///   ABI boundary yet the callee still reads rc), so a contract check cannot
 ///   prove non-COW — conservatively keep the fresh inc for any non-builtin call
 ///   argument. Protocol builtins (`__`-prefixed `Apply` — `__index` etc.) are
-///   compiler-interceptable with known read-only ownership (`arc.md §Protocol
-///   Builtins`) and stay elidable.
+///   compiler-interceptable with known read-only ownership (Spec: Annex E §AIMS Protocol
+///   Builtins) and stay elidable.
 fn compute_cow_mutated_lineage_reps(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -606,7 +3681,7 @@ fn compute_cow_mutated_lineage_reps(
     // refcount across the call boundary, so the caller's fresh inc is
     // load-bearing. Protocol builtins (`__`-prefixed `Apply` — `__index`,
     // `__iter_next`, etc.) are compiler-interceptable with known read-only
-    // ownership (`arc.md §Protocol Builtins`); a fresh value flowing ONLY into
+    // ownership (Spec: Annex E §AIMS Protocol Builtins); a fresh value flowing ONLY into
     // those is safely elidable. EVERY other call (a user function / stdlib
     // method `Invoke`/`Apply` by `Name`) is conservatively COW-risk —
     // INTERPROCEDURALLY, the callee may COW-mutate a collection param internally
@@ -615,8 +3690,14 @@ fn compute_cow_mutated_lineage_reps(
     // that internal COW (the param is borrowed-readonly at the ABI boundary yet
     // the callee still reads rc), so the contract cannot prove non-COW. Keep the
     // fresh inc for any non-builtin call argument — sound over-approximation;
-    // the directive's RL-1 "not elidable on a duplicating/COW use" governs.
-    let callee_may_cow = |callee: Name| -> bool { !interner.lookup(callee).starts_with("__") };
+    // RL-1 "not elidable on a duplicating/COW use" governs. `ori_list_take` (the
+    // for_yield finalizer) is exempt: it MOVES the scratch buffer out (consume-
+    // and-finalize), never reads the buffer's rc to COW it (`ori_rt/src/list/
+    // mod.rs:269`), so the scratch source flowing into it is not a COW operand.
+    let list_take_name = for_yield_result_finalizer_name(interner);
+    let callee_may_cow = |callee: Name| -> bool {
+        callee != list_take_name && !interner.lookup(callee).starts_with("__")
+    };
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {

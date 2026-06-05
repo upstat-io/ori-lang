@@ -133,12 +133,24 @@ theorem RL1_duplication_balanced (incElidable : Bool) :
 /-! ## §8.1 RL-2 — RC dec at last use / scope exit (annex-e §AIMS §8 RL-2)
 
     RL-2 emits an `RcDec` at an owned non-scalar value's terminal use iff the use
-    is NOT ownership-transferring. The 11 terminal-use kinds partition into 8
+    is NOT ownership-transferring. The 12 terminal-use kinds partition into 9
     transfer kinds (NO dec — the consumer inherits the obligation) and 3
     non-transfer kinds (dec emitted). Emitting a dec on a transfer use would
-    double-release. -/
+    double-release.
 
-/-- §8.1 RL-2 the terminal-use kinds (the 11-row coverage grid from the .proof). -/
+    `ApplyToIterConsumingParam` is the iter-consuming transfer kind: a collection
+    passed at a borrowed terminator-Invoke arg to a callee that iter-consumes it
+    (`for x in coll` lowering -> `@iter` [owned] -> `ori_iter_drop` frees the
+    collection INSIDE the callee). Despite the callee's parameter contract reading
+    `Borrowed`, ownership of the allocation transfers inward and the callee's
+    iterator machinery (`ori_iter_drop`) emits the release — so the caller emits
+    NO dec, exactly like the other transfer kinds. The distinction from
+    `ApplyToBorrowedParam` (a borrow-read such as `xs.fold(..)` that does NOT
+    free) is the proof basis: one kind cannot yield both the caller-dec and
+    no-dec verdicts, so a NEW transfer kind is required to express the
+    iter-consume case. -/
+
+/-- §8.1 RL-2 the terminal-use kinds (the 12-row coverage grid from the .proof). -/
 inductive TerminalUse
   | Return                  -- transfer
   | ConstructArg            -- transfer
@@ -148,14 +160,17 @@ inductive TerminalUse
   | PartialApplyCapture     -- transfer
   | ApplyToOwnedParam       -- transfer
   | JumpArg                 -- transfer (RL-4 exemption)
+  | ApplyToIterConsumingParam -- transfer (callee iter-consumes + frees via ori_iter_drop)
   | LastReadBeforeScopeExit -- non-transfer: dec
   | ScopeExit               -- non-transfer: dec
   | ApplyToBorrowedParam    -- non-transfer: dec
 deriving Repr, DecidableEq
 
-/-- §8.1 RL-2 ownership-transfer classification: the 8 transfer kinds hand off
+/-- §8.1 RL-2 ownership-transfer classification: the 9 transfer kinds hand off
     the reference; the 3 non-transfer kinds release it. MUST match the shipped
-    `is_ownership_transfer` exactly. -/
+    `is_ownership_transfer` exactly. `ApplyToIterConsumingParam` transfers — the
+    callee's `ori_iter_drop` frees the iter-consumed collection, so the caller
+    emits no dec. -/
 def rl2_use_transfers_ownership : TerminalUse → Bool
   | .Return                  => true
   | .ConstructArg            => true
@@ -165,6 +180,7 @@ def rl2_use_transfers_ownership : TerminalUse → Bool
   | .PartialApplyCapture     => true
   | .ApplyToOwnedParam       => true
   | .JumpArg                 => true
+  | .ApplyToIterConsumingParam => true
   | .LastReadBeforeScopeExit => false
   | .ScopeExit               => false
   | .ApplyToBorrowedParam    => false
@@ -173,12 +189,12 @@ def rl2_use_transfers_ownership : TerminalUse → Bool
 def rl2_emits_dec (use : TerminalUse) : Bool := !rl2_use_transfers_ownership use
 
 /-- §8.1 RL-2 (P1) emission decision: RL-2's emit-dec decision equals NOT
-    `rl2_use_transfers_ownership` on every one of the 11 terminal-use kinds (the
+    `rl2_use_transfers_ownership` on every one of the 12 terminal-use kinds (the
     coverage grid). -/
 theorem RL2_dec_at_last_use (use : TerminalUse) :
     rl2_emits_dec use = !rl2_use_transfers_ownership use := by rfl
 
-/-- §8.1 RL-2 the 8 transfer kinds emit NO dec (the consumer inherits the
+/-- §8.1 RL-2 the 9 transfer kinds emit NO dec (the consumer inherits the
     obligation; a dec here would double-release). -/
 theorem RL2_transfer_kinds_no_dec (use : TerminalUse)
     (h : rl2_use_transfers_ownership use = true) : rl2_emits_dec use = false := by
@@ -188,6 +204,31 @@ theorem RL2_transfer_kinds_no_dec (use : TerminalUse)
 theorem RL2_nontransfer_kinds_dec (use : TerminalUse)
     (h : rl2_use_transfers_ownership use = false) : rl2_emits_dec use = true := by
   unfold rl2_emits_dec; rw [h]; rfl
+
+/-- §8.1 RL-2 iter-consume transfer: `ApplyToIterConsumingParam` is a transfer
+    kind, so the caller emits NO dec — the callee's `ori_iter_drop` releases the
+    iter-consumed collection. -/
+theorem RL2_iter_consuming_no_caller_dec :
+    rl2_emits_dec TerminalUse.ApplyToIterConsumingParam = false := by decide
+
+/-- §8.1 RL-2 the iter-consume GAP: `ApplyToBorrowedParam` alone CANNOT express
+    both the caller-dec verdict (a borrow-read such as `xs.fold(..)` that does NOT
+    free wants a caller dec) AND the no-caller-dec verdict (an iter-consume that
+    DOES free wants none). One kind yields one verdict (`true` here); the two
+    verdicts split only with the distinct `ApplyToIterConsumingParam` transfer
+    kind — exactly what `RL2_iter_consuming_caller_dec_splits` proves. -/
+theorem RL2_borrowed_param_emits_caller_dec :
+    rl2_emits_dec TerminalUse.ApplyToBorrowedParam = true := by decide
+
+/-- §8.1 RL-2 the iter-consume distinction is observable at the caller: the
+    iter-consuming kind emits no caller dec (the callee frees), the borrow-read
+    kind emits one (the value survives the borrowed call) — the two verdicts a
+    single `ApplyToBorrowedParam` could not provide. This is the soundness basis
+    for the burden-path contract field that classifies a borrowed terminator-arg
+    as iter-consuming. -/
+theorem RL2_iter_consuming_caller_dec_splits :
+    rl2_emits_dec TerminalUse.ApplyToIterConsumingParam = false
+    ∧ rl2_emits_dec TerminalUse.ApplyToBorrowedParam = true := by decide
 
 /-- §8.1 RL-2 (P2) balance: an owned non-scalar value allocated at RC = 1 is
     released exactly once — either by an RL-2 last-use dec (`[inc-from-alloc-as

@@ -5,9 +5,18 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       "RC dec SHALL be emitted at last use of an owned value or scope exit,
       UNLESS the last use is ownership-transferring (Return, Construct /
       Reuse / CollectionReuse arg, Set value, PartialApply capture, Apply /
-      Invoke to an Owned param, Jump arg per the RL-4 exemption). RL-2
-      includes UNUSED owned non-scalar values (Dead / Absent) -> immediate
-      RcDec at definition."
+      Invoke to an Owned param, Jump arg per the RL-4 exemption, Apply /
+      Invoke to an iter-consuming param). RL-2 includes UNUSED owned
+      non-scalar values (Dead / Absent) -> immediate RcDec at definition."
+    - An iter-consuming param transfers ownership inward despite a Borrowed
+      parameter contract: a collection passed at a borrowed terminator
+      Invoke arg to a callee that iter-consumes it (`for x in coll`
+      lowering -> `@iter` [owned] -> `ori_iter_drop` frees the collection
+      inside the callee) is released by the callee's iterator machinery, so
+      the caller emits NO dec. The distinction from a borrow-read
+      (`xs.fold(..)`, does not free -> caller decs) is the proof basis: one
+      terminal-use kind cannot yield both verdicts, so the iter-consuming
+      kind is a DISTINCT transfer kind.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
@@ -60,14 +69,21 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       The verifier enumerates the terminal-use kinds and asserts RL-2's
       emit-dec decision equals NOT rl2_use_transfers_ownership(kind):
         Return / ConstructArg / ReuseArg / CollectionReuseArg / SetValue /
-        PartialApplyCapture / ApplyToOwnedParam / JumpArg
+        PartialApplyCapture / ApplyToOwnedParam / JumpArg /
+        ApplyToIterConsumingParam
                                               -> NO dec (ownership transfers)
         LastReadBeforeScopeExit / ScopeExit / ApplyToBorrowedParam
                                               -> dec emitted (terminal,
                                                  non-transfer)
-      Coverage gate: 11 use decisions (8 transfer + 3 non-transfer). The
+      Coverage gate: 12 use decisions (9 transfer + 3 non-transfer). The
       RL-2 exclusion list must match the shipped is_ownership_transfer
-      exactly; any divergence fails the proof.
+      exactly; any divergence fails the proof. The iter-consume GAP
+      (ApplyToBorrowedParam alone cannot split the caller-dec and
+      no-caller-dec verdicts) and the iter-consuming-kind soundness (a
+      transfer kind -> caller emits no dec; the callee's ori_iter_drop
+      releases) are discharged by the Lean mirror theorems
+      RL2_iter_consuming_no_caller_dec, RL2_borrowed_param_emits_caller_dec,
+      and RL2_iter_consuming_caller_dec_splits.
 
     Part (P2) — RC-count preservation (balance ledger):
 
@@ -99,4 +115,4 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
 
   Expected:
     status: valid
-    reason: section_08 rc_counting engine discharges RL-2 via (P1) the terminal-use dec decision cross-checked against the is_ownership_transfer exclusion list over an 11-row grid (8 transfer + 3 non-transfer) and (P2) the RC-count-preservation balance ledger (3 sound lifecycles + 2 negative-direction witnesses covering double-free and leak), grounded in the shipped realize/walk_dec.rs + emit_rc/helpers.rs is_ownership_transfer + emit_rc/dead_cleanup emission sites
+    reason: section_08 rc_counting engine discharges RL-2 via (P1) the terminal-use dec decision cross-checked against the is_ownership_transfer exclusion list over a 12-row grid (9 transfer + 3 non-transfer, the 9th transfer kind being ApplyToIterConsumingParam) and (P2) the RC-count-preservation balance ledger (3 sound lifecycles + 2 negative-direction witnesses covering double-free and leak), grounded in the shipped realize/walk_dec.rs + emit_rc/helpers.rs is_ownership_transfer + emit_rc/dead_cleanup emission sites

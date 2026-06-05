@@ -236,14 +236,27 @@ pub(crate) fn collect_iter_element_defs(
         }
     }
 
-    // Phase 2.5: propagate through transitive Project chains.
-    // Map iteration yields `(key, val)` tuples — destructuring produces
-    // Project chains: `%tuple = Project __iter_next.1`, then
-    // `%key = Project %tuple.0`, `%val = Project %tuple.1`.
-    // Without this phase, the destructured key/val are NOT in iter_elems,
-    // so AIMS emits spurious RcDec on them.
+    // Phase 2.5 + Phase 3 JOINT fixpoint: transitive Project chains INTERLEAVED
+    // with Let-alias / block-param propagation. A compound source element
+    // (`[Option<str>]` / `[Item]` / `[[int]]`) yields an iter-element-view whose
+    // INTERIOR sub-value the body projects out (`match opt { Some(s) -> .. }` =>
+    // `Project (variant payload).1`; `item.name` => `Project (struct).0`; the
+    // inner list of a nested loop => `Project (outer elem).1`). That nested
+    // projection's SOURCE often reaches the iter-element set only through a
+    // Let-alias hop (`%view = %iter_elem; %inner = Project %view.field`), so a
+    // Project-chain pass that completes BEFORE the Let-alias pass misses it ->
+    // the interior view slips through and the burden walk emits a spurious
+    // `BurdenDec` on a BORROW into the collection buffer -> double-free (the
+    // source's `elem_dec_fn` already frees the interior element via
+    // `ori_iter_drop` / `CollectSet`). The two propagation kinds must reach a
+    // SINGLE fixpoint together: each Project-chain step can expose a new alias
+    // source and each alias step can expose a new Project source. Both kinds
+    // monotonically GROW the borrow-view set (RL-2: "Borrowed variables do NOT
+    // receive decs"; the interior projection of a borrowed compound element is
+    // itself borrowed). Spec: Annex E §AIMS Protocol Builtins + RL-2.
     loop {
         let prev_len = iter_elems.len();
+        // Project-chain step: a Project of any member is a member.
         for block in &func.blocks {
             for instr in &block.body {
                 if let ArcInstr::Project { dst, value, .. } = instr {
@@ -253,13 +266,12 @@ pub(crate) fn collect_iter_element_defs(
                 }
             }
         }
+        // Let-alias / block-param step.
+        propagate_borrowed_closure(func, &mut iter_elems, &FxHashSet::default());
         if iter_elems.len() == prev_len {
             break;
         }
     }
-
-    // Phase 3: propagate through Let aliases and block params.
-    propagate_borrowed_closure(func, &mut iter_elems, &FxHashSet::default());
     iter_elems
 }
 

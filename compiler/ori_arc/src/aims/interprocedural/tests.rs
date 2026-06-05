@@ -4,7 +4,7 @@ use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::{ContextRegion, FipContract};
+use crate::aims::contract::{ContextRegion, FipContract, MemoryContract};
 use crate::aims::intraprocedural::analyze_function;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
@@ -100,6 +100,7 @@ fn extract_contract_literal_return() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     assert!(contract.params.is_empty());
@@ -138,6 +139,7 @@ fn extract_contract_param_used_once() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     assert_eq!(contract.params.len(), 1);
@@ -145,6 +147,80 @@ fn extract_contract_param_used_once() {
     assert_eq!(contract.params[0].cardinality, Cardinality::Once);
     // Returning a param → preserves freshness.
     assert!(contract.return_info.preserves_freshness);
+}
+
+#[test]
+fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
+    // fn wrapper(words: [str]) -> int { iterate_words(words) }
+    // where iterate_words.iter_consumes[0] == true (computed callee-first per
+    // IC-1). The wrapper forwards its param to the iter-consuming callee, so the
+    // wrapper's param contract MUST inherit `iter_consumes` (RL-2 transitive
+    // inward transfer). A borrow-read callee (iter_consumes=false) would NOT
+    // propagate.
+    let iterate_words = name(7);
+    let mut callee_contract = MemoryContract::conservative(1);
+    callee_contract.params[0].iter_consumes = true;
+    let mut sigs = FxHashMap::default();
+    sigs.insert(iterate_words, callee_contract);
+
+    let wrapper = ArcFunction {
+        name: name(8),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(1),
+                func: iterate_words,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = analyze_function(&wrapper, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &wrapper,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert!(
+        contract.params[0].iter_consumes,
+        "forwarding a param to an iter-consuming callee propagates iter_consumes"
+    );
+
+    // Negative: a callee whose param iter_consumes=false does NOT propagate.
+    let mut sigs_borrow = FxHashMap::default();
+    sigs_borrow.insert(iterate_words, MemoryContract::conservative(1));
+    let state_map_b = analyze_function(&wrapper, &classifier, &sigs_borrow, &[], Vec::new());
+    let contract_b = extract_contract(
+        &wrapper,
+        &state_map_b,
+        &classifier,
+        &sigs_borrow,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert!(
+        !contract_b.params[0].iter_consumes,
+        "forwarding to a NON-iter-consuming (borrow-read) callee does NOT propagate"
+    );
 }
 
 #[test]
@@ -191,6 +267,7 @@ fn extract_contract_construct_return_is_unique() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
@@ -1128,6 +1205,7 @@ fn extract_contract_token_balanced_produces_conditional() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     // Param v0 is consumed (Dead — never used after entry) and non-scalar.
@@ -1196,6 +1274,7 @@ fn extract_contract_net_positive_produces_bounded() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     // 2 Constructs - 1 consumed param = net 1 → Bounded(1).
@@ -1258,6 +1337,7 @@ fn extract_contract_conditional_requires_unique_vector() {
         &sigs,
         &FxHashSet::default(),
         &[],
+        &ori_ir::StringInterner::new(),
     );
 
     // Token balanced: 1 construct, 2 consumed non-scalar params (surplus).
@@ -1312,6 +1392,7 @@ fn extract_contract_no_trmc_has_default_context_behavior() {
         &sigs,
         &FxHashSet::default(),
         &[], // no context regions
+        &ori_ir::StringInterner::new(),
     );
 
     let cb = contract.context_behavior;
@@ -1393,6 +1474,7 @@ fn extract_contract_with_trmc_computes_context_behavior() {
         &sigs,
         &FxHashSet::default(),
         &regions,
+        &ori_ir::StringInterner::new(),
     );
 
     let cb = contract.context_behavior;

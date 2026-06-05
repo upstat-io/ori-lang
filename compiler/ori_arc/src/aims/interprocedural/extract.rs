@@ -32,6 +32,8 @@ use super::super::lattice::{AccessClass, Uniqueness};
 ///   via syntactic tail-position analysis.
 /// - `context_regions` — TRMC context regions detected by the normalization
 ///   pass. Used to compute `ContextBehavior` fields.
+/// - `interner` — string interner for protocol-builtin name lookup
+///   (`@iter` / `ori_iter_drop`), consumed by `find_iter_consume_params`.
 pub(crate) fn extract_contract(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -39,6 +41,7 @@ pub(crate) fn extract_contract(
     sigs: &FxHashMap<Name, MemoryContract>,
     scc_peers: &FxHashSet<Name>,
     context_regions: &[ContextRegion],
+    interner: &ori_ir::StringInterner,
 ) -> MemoryContract {
     // Build a map of param_var → param_index for lookup.
     let param_vars: FxHashMap<ArcVarId, usize> = func
@@ -70,8 +73,13 @@ pub(crate) fn extract_contract(
     // `Project { value: param's var, field }`. The Owned-only invariant
     //  is enforced by extending `consumed_params`
     // to include Project-Return params, which promotes their access to Owned.
-    let (consumed_params, return_flow_params, return_alias_shapes, payload_containment_params) =
-        detect_param_facts(func, sigs, &param_vars);
+    let (
+        consumed_params,
+        return_flow_params,
+        return_alias_shapes,
+        payload_containment_params,
+        iter_consume_params,
+    ) = detect_param_facts(func, sigs, &param_vars, interner);
 
     let params: Vec<ParamContract> = func
         .params
@@ -128,7 +136,7 @@ pub(crate) fn extract_contract(
                 // `transfers_through_return == true`
                 // IFF `return_alias == Some(Direct)`.
                 return_alias,
-                // BUG-04-118: structural payload-containment fact —
+                // Structural payload-containment fact —
                 // populated by `find_payload_containment_params` for the
                 // case where the param flows into a returned transitive-
                 // drop variant payload (e.g., `wrap_ok(m) = Ok(m)`).
@@ -137,6 +145,9 @@ pub(crate) fn extract_contract(
                 // param. Consumed by `populate_class_payload_of_with_liveness`
                 // gate at `intraprocedural/post_convergence.rs`.
                 return_payload_contains_param: payload_containment_params.contains(&i),
+                // RL-2 iter-consume transfer fact (proven sound:
+                // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
+                iter_consumes: iter_consume_params.contains(&i),
             }
         })
         .collect();
@@ -286,34 +297,45 @@ fn compute_context_behavior(
 /// into the merge-block's param r, so r aliases BOTH parameter indices.
 /// Select aliases work the same way (`true_val` and `false_val` both reach
 /// dst at runtime); the Select arm below tracks both as alias sources.
-/// Detect three facts at once for the param contract construction:
-/// 1. `consumed_params` — params consumed via callees OR returned (Owned promotion).
-/// 2. `return_flow_params` — params traced to a `Return { value }` (Direct
-///    case, sets `transfers_through_return`).
-/// 3. `return_alias_shapes` — per-param `ReturnAliasShape` (Direct or Project)
-///    used to populate `ParamContract::return_alias` for the BUG-04-090
-///    File 12 caller-side `apply_result_aliases` side-table.
-///
-/// Owned-only invariant: all three sets feed
-/// into `access` promotion. Borrowed-param Project returns must NOT set
-/// `return_alias`; this is enforced by extending `consumed_params` to
-/// include Project-Return params, which routes them through the Owned
-/// access path in `extract_contract`.
-fn detect_param_facts(
-    func: &ArcFunction,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    param_vars: &FxHashMap<ArcVarId, usize>,
-) -> (
+/// Per-param facts detected for contract construction by [`detect_param_facts`],
+/// in positional order: `(consumed, return_flow, return_alias_shapes,
+/// payload_containment, iter_consume)`.
+type ParamFacts = (
     FxHashSet<usize>,
     FxHashSet<usize>,
     FxHashMap<usize, ReturnAliasShape>,
     FxHashSet<usize>,
-) {
+    FxHashSet<usize>,
+);
+
+/// Detect the param-contract facts at once:
+/// 1. `consumed_params` — params consumed via callees OR returned (Owned promotion).
+/// 2. `return_flow_params` — params traced to a `Return { value }` (Direct
+///    case, sets `transfers_through_return`).
+/// 3. `return_alias_shapes` — per-param `ReturnAliasShape` (Direct or Project)
+///    used to populate `ParamContract::return_alias` for the caller-side
+///    `apply_result_aliases` side-table.
+/// 4. `payload_containment_params` — params flowing into a returned transitive-
+///    drop variant payload.
+/// 5. `iter_consume_params` — params iter-consumed (`@iter` → `ori_iter_drop`)
+///    inside the body (RL-2 inward transfer).
+///
+/// Owned-only invariant: the consume / return-flow sets feed `access` promotion.
+/// Borrowed-param Project returns must NOT set `return_alias`; this is enforced
+/// by extending `consumed_params` to include Project-Return params, which routes
+/// them through the Owned access path in `extract_contract`.
+fn detect_param_facts(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    param_vars: &FxHashMap<ArcVarId, usize>,
+    interner: &ori_ir::StringInterner,
+) -> ParamFacts {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
     let payload_containment = find_payload_containment_params(func, &alias_to_param);
+    let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -336,7 +358,129 @@ fn detect_param_facts(
         return_flow,
         return_alias_shapes,
         payload_containment,
+        iter_consume,
     )
+}
+
+/// Find params that are iter-consumed-and-freed by the callee body (RL-2
+/// iter-consume transfer).
+///
+/// A param qualifies when its lineage (through the `alias_to_param` map, which
+/// already threads Let-Var / Jump-arg / Select aliasing back to param indices)
+/// is passed at the source position of an `@iter` (`Iter`-protocol) `Apply`
+/// whose resulting iterator handle is later consumed by an `ori_iter_drop`
+/// (`IterDrop`-protocol) `Apply` in the same body. The `for x in coll` lowering
+/// produces exactly this shape: `%a = Let Var(param); %it = Apply @iter(%a
+/// [own]); ...; Apply @ori_iter_drop(%it [own])`.
+///
+/// PRECISION (the over-fire guard, per the §B.2 attempt-9/12 traps): the gate
+/// requires BOTH the `@iter` source AND a matching `ori_iter_drop` of that
+/// handle, matching the explicit `@iter`→`ori_iter_drop` handle pair (not merely
+/// "flows to any iterator") so the fire is scoped to the genuine free. A
+/// borrow-read callee (`xs.fold(..)`) routes its iterator to a fold/collect that
+/// frees the handle WITHOUT freeing the borrowed source via this `@iter`+drop
+/// pair; the discriminator is the `for ... do/yield` lowering of a BORROWED
+/// collection into the iterator source consumed by `ori_iter_drop`.
+fn find_iter_consume_params(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<usize> {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let iter_name = interner.intern(ProtocolBuiltin::Iter.name());
+    let iter_drop_name = interner.intern(ProtocolBuiltin::IterDrop.name());
+
+    let mut iter_consumed: FxHashSet<usize> = FxHashSet::default();
+
+    // Pass 1: collect iterator handles that are `ori_iter_drop`'d (freed).
+    let mut dropped_handles: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply { func: f, args, .. } = instr {
+                if *f == iter_drop_name {
+                    if let Some(&handle) = args.first() {
+                        dropped_handles.insert(handle);
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2 (DIRECT): an `@iter` whose dst handle is dropped AND whose source
+    // (arg 0, the collection being iterated) aliases a param marks that param
+    // iter-consumed.
+    if !dropped_handles.is_empty() {
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Apply {
+                    dst, func: f, args, ..
+                } = instr
+                {
+                    if *f == iter_name && dropped_handles.contains(dst) {
+                        if let Some(&src) = args.first() {
+                            if let Some(param_indices) = alias_to_param.get(&src) {
+                                for &i in param_indices {
+                                    iter_consumed.insert(i);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 3 (TRANSITIVE forwarding): a forwarding wrapper that passes a param's
+    // alias to a callee whose CORRESPONDING param `iter_consumes` is itself an
+    // iter-consumer of that param (`@wrapper(words)` -> `iterate_words(words)`
+    // where `iterate_words.iter_consumes[0]`). The buffer is freed by the
+    // forwarded callee's iterator machinery, so the wrapper transfers ownership
+    // inward exactly as a direct iter-consumer does (RL-2 inward transfer). The
+    // SCC fixpoint propagates this: `iterate_words`'s contract (computed first,
+    // callees-before-callers per IC-1) carries `iter_consumes`, which this pass
+    // reads from `sigs` to mark `wrapper`'s param. Borrow-read forwarders
+    // (`@sum_list(xs)` -> `xs.fold(..)`) do NOT qualify — `fold`'s param is not
+    // `iter_consumes` (it borrows, no `@iter`->`ori_iter_drop`), so the
+    // forwarder's param stays non-iter-consuming (the borrow-read over-fire
+    // boundary). Spec: Annex E §AIMS RL-2.
+    let scan_forward = |callee: Name, args: &[ArcVarId], iter_consumed: &mut FxHashSet<usize>| {
+        let Some(callee_contract) = sigs.get(&callee) else {
+            return;
+        };
+        for (pos, &arg) in args.iter().enumerate() {
+            if !callee_contract
+                .params
+                .get(pos)
+                .is_some_and(|p| p.iter_consumes)
+            {
+                continue;
+            }
+            if let Some(param_indices) = alias_to_param.get(&arg) {
+                for &i in param_indices {
+                    iter_consumed.insert(i);
+                }
+            }
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                scan_forward(*callee, args, &mut iter_consumed);
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            scan_forward(*callee, args, &mut iter_consumed);
+        }
+    }
+
+    iter_consumed
 }
 
 /// Compute `ReturnAliasShape` for every param that flows to a Return
@@ -662,7 +806,7 @@ fn find_return_flow_params(
 }
 
 /// Detect parameters that flow into a transitive-drop variant payload that
-/// is returned (BUG-04-118 path-c population).
+/// is returned (path-c population).
 ///
 /// Walks each `Return { value }` terminator, traces `value` to its defining
 /// instruction, and when that instruction is `Construct { ctor, args,.. }`
@@ -740,7 +884,7 @@ fn find_payload_containment_params(
                         ret_var = ret_var.raw(),
                         dst = dst.raw(),
                         is_variant_ctor = is_variant,
-                        "BUG-04-118 path-c: payload-containment Construct candidate"
+                        "path-c: payload-containment Construct candidate"
                     );
                     if !is_variant {
                         break;
@@ -753,7 +897,7 @@ fn find_payload_containment_params(
                                     func = ?func.name,
                                     arg = arg.raw(),
                                     param_idx = idx,
-                                    "BUG-04-118 path-c: param flows into returned transitive-drop payload"
+                                    "path-c: param flows into returned transitive-drop payload"
                                 );
                             }
                         }

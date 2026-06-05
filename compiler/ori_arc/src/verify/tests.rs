@@ -499,6 +499,7 @@ fn absent_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        iter_consumes: false,
     }
 }
 
@@ -514,6 +515,7 @@ fn used_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        iter_consumes: false,
     }
 }
 

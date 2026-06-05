@@ -5668,7 +5668,7 @@ fn string_literal_var_still_emits_burden_dec() {
     );
 }
 
-// ── §07B.1 iterator-from-collection + collection-element standalone ledger ──
+// iterator-from-collection + collection-element standalone ledger
 
 /// Build the `for x in xs do x.len()` post-burden fixture: `%0` `[str]` coll,
 /// `%1 = iter(%0)`, `%2 = __iter_next(%1, marker %3)`, `%4 = Project %2.1`
@@ -5752,7 +5752,7 @@ fn iter_next_projection_func(interner: &ori_ir::StringInterner) -> ArcFunction {
     }
 }
 
-/// §07B.1 task 3 (inverse) — iterator-element borrow-views projected from an
+/// Inverse case — iterator-element borrow-views projected from an
 /// `Apply @__iter_next` result MUST receive zero `BurdenDec`. The yielded
 /// element (`Project { field: 1 }` of the `__iter_next` result) is a BORROWED
 /// view into the collection buffer per `Spec: Annex E §AIMS Protocol Builtins`
@@ -5803,7 +5803,7 @@ fn iter_next_element_projection_gets_no_burden_dec() {
     );
 }
 
-/// §07B.1 collection-element scope cell — a Let-Var alias of the iterator
+/// Collection-element scope cell — a Let-Var alias of the iterator
 /// element view also receives no `BurdenDec`. Mirrors `for (k, v) in m` and the
 /// `x = elem` rebinding shapes the `elem_dec_scope` / `collections_ext` clusters
 /// exercise: the element view flows through `Let { Var }` aliases (and block
@@ -5899,11 +5899,11 @@ fn iter_next_element_let_alias_gets_no_burden_dec() {
     );
 }
 
-// ── concat dual-consuming operand: no spurious scope-exit BurdenDec ──
+// concat dual-consuming operand: no spurious scope-exit BurdenDec
 
 /// Semantic pin: a list-concat `Let { PrimOp Binary(Add) }` consumes BOTH
-/// `RcPointer` operands (`ori_list_concat_cow` dec/frees them — `codegen-rules.md`
-/// operators §"List + list → COW concat"). The Phase-5 burden walk MUST NOT emit
+/// `RcPointer` operands (`ori_list_concat_cow` dec/frees them — list + list → COW
+/// concat). The Phase-5 burden walk MUST NOT emit
 /// a scope-exit `BurdenDec` on a concat operand whose last-use is the concat —
 /// the helper's internal consume IS the release; a paired `BurdenDec` double-frees
 /// the buffer (the `coll_list_cow_concat_shared` SIGSEGV under the probe). Per
@@ -6026,5 +6026,420 @@ fn str_concat_operand_still_gets_burden_dec() {
         1,
         "str concat operand (BORROWED by ori_str_concat) MUST still receive its \
          scope-exit BurdenDec (list-consume suppression is FatValue-exempt); body={body:?}",
+    );
+}
+
+// A' COW-inc on borrowed-param alias (step 1)
+
+/// A' step-1 pin: a borrowed-param alias (`%1 = %0`, `%0: [int] [borrow]`)
+/// consumed as the RECEIVER (arg 0) of a COW-MUTATOR (`push`) at an OWNED
+/// `Invoke`-terminator position receives a `BurdenInc` under the probe
+/// (`predicate_stack_rc_disabled = true`). Per AIMS RL-1: the COW-mutation
+/// re-reads the receiver's refcount, so the borrowed-alias use is a DUPLICATING
+/// use whose inc is NOT elidable — the inc raises rc ≥ 2 so the COW helper
+/// COPIES vs corrupting the caller's still-live value
+/// (`AimsProof.Realization::RL1_emit_iff_not_elidable`). Semantic pin: would
+/// FAIL if `compute_cow_inc_borrowed_aliases` is reverted (the original `push`
+/// fixture leaks/corrupts under the standalone ledger).
+#[test]
+fn cow_mutator_borrowed_alias_receiver_emits_inc_under_probe() {
+    let registry = TypeRegistry::new();
+    let interner = ori_ir::StringInterner::new();
+    let push = interner.intern("push");
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::from_raw(100),
+            ownership: Ownership::Borrowed,
+        }],
+        var_types: vec![
+            Idx::from_raw(100),
+            Idx::from_raw(100),
+            Idx::INT,
+            Idx::from_raw(100),
+        ],
+        var_reprs: vec![
+            ValueRepr::RcPointer,
+            ValueRepr::RcPointer,
+            ValueRepr::Scalar,
+            ValueRepr::RcPointer,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::from_raw(100),
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(99)),
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::from_raw(100),
+                    func: push,
+                    args: vec![ArcVarId::new(1), ArcVarId::new(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        true, // probe path
+        &interner,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(1)),
+        1,
+        "borrowed-alias COW-mutator receiver MUST get exactly one step-1 BurdenInc under the probe; body={:?}",
+        func.blocks[0].body,
+    );
+    // burden_emitted must be set so step-2 edge release (carries_burden gate) fires.
+    assert!(
+        func.burden_emitted
+            .get(ArcVarId::new(1).index())
+            .copied()
+            .unwrap_or(false),
+        "COW-inc'd var MUST be marked in burden_emitted so step-2 edge cleanup releases it",
+    );
+}
+
+/// A' negative pin: the SAME borrowed-param alias consumed at a BORROWED
+/// position (`@len` — read-only) receives NO step-1 `BurdenInc`. Read-only
+/// borrows do not duplicate (no COW realloc), so the borrowed-alias exclusion
+/// (checkbox-1) is preserved. Would FAIL if the discriminator dropped the
+/// COW-method-name gate and fired on any owned-or-borrowed `RcPtr` position.
+#[test]
+fn borrowed_alias_at_read_only_position_emits_no_cow_inc() {
+    let registry = TypeRegistry::new();
+    let interner = ori_ir::StringInterner::new();
+    let len = interner.intern("len");
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::from_raw(100),
+            ownership: Ownership::Borrowed,
+        }],
+        var_types: vec![Idx::from_raw(100), Idx::from_raw(100), Idx::INT],
+        var_reprs: vec![
+            ValueRepr::RcPointer,
+            ValueRepr::RcPointer,
+            ValueRepr::Scalar,
+        ],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::from_raw(100),
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::INT,
+                    func: len,
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(2),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        true, // probe path
+        &interner,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(1)),
+        0,
+        "borrowed-alias at a READ-ONLY (@len, borrowed) position MUST get zero COW-inc (preserves borrowed-alias exclusion); body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+/// A' default-path pin: the COW-inc is PROBE-ONLY. On the default path
+/// (`predicate_stack_rc_disabled = false`) the predicate stack emits the
+/// equivalent `RcInc`, so the burden walk emits NO COW-inc — keeping default
+/// AOT codegen byte-identical. Would FAIL if `compute_cow_inc_borrowed_aliases`
+/// were not gated on the probe flag.
+#[test]
+fn cow_inc_is_probe_only_no_inc_on_default_path() {
+    let registry = TypeRegistry::new();
+    let interner = ori_ir::StringInterner::new();
+    let push = interner.intern("push");
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::from_raw(100),
+            ownership: Ownership::Borrowed,
+        }],
+        var_types: vec![
+            Idx::from_raw(100),
+            Idx::from_raw(100),
+            Idx::INT,
+            Idx::from_raw(100),
+        ],
+        var_reprs: vec![
+            ValueRepr::RcPointer,
+            ValueRepr::RcPointer,
+            ValueRepr::Scalar,
+            ValueRepr::RcPointer,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::from_raw(100),
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(99)),
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::from_raw(100),
+                    func: push,
+                    args: vec![ArcVarId::new(1), ArcVarId::new(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        false, // default path
+        &interner,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(1)),
+        0,
+        "COW-inc MUST be probe-only — zero BurdenInc on the default path (predicate stack emits the RcInc); body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+/// Joint-fixpoint pin: a NESTED projection of an iter-element-view that
+/// reaches the view ONLY through a `Let`-alias hop MUST receive zero `BurdenDec`.
+///
+/// Shape mirrors `for item in items yield match item { Some(s) -> s.length() }`:
+///   `%0: [str?]` source. `%1 = @iter(%0)`. `%2 = @__iter_next(%1, %m)`.
+///   `%4 = Project %2.1` (the `str?` compound element view — a borrow).
+///   `%5 = Let %4` (alias of the compound view).
+///   `%6 = Project %5.1` (the INTERIOR `str` payload, reached through the alias).
+///   `Invoke @length(%6 [borrow])` — %6 borrowed, not transferred.
+///
+/// `collect_iter_element_defs` runs the Project-chain and Let-alias propagations
+/// to a SINGLE fixpoint: %4 is a direct iter-element-view (`Project __iter_next.1`),
+/// %5 is its Let-alias, and %6 is a Project of %5. A Project-chain pass that
+/// completes BEFORE the Let-alias pass would miss %6 (its source %5 not yet in the
+/// set), emitting a spurious `BurdenDec %6` -> a double-free of the interior str
+/// (the source's `elem_dec_fn` already frees it). Negative direction (revert): if
+/// the two propagations run sequentially instead of jointly, %6 receives a dec.
+fn nested_let_aliased_iter_element_projection_func(
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let iter_next = interner.intern(ProtocolBuiltin::IterNext.name());
+    let iter_fn = interner.intern(ProtocolBuiltin::Iter.name());
+    // var_types: %0 [str?] list (Idx 50), %1 int handle, %2 int next-result,
+    // %3 marker (str?), %4 str? element view, %5 str? alias, %6 str payload,
+    // %7 int @length result.
+    ArcFunction {
+        var_types: vec![
+            Idx::from_raw(50),
+            Idx::INT,
+            Idx::INT,
+            Idx::from_raw(51),
+            Idx::from_raw(51),
+            Idx::from_raw(51),
+            Idx::STR,
+            Idx::INT,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::from_raw(50),
+                        ctor: CtorKind::ListLiteral,
+                        args: Vec::new(),
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::INT,
+                        func: iter_fn,
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::INT,
+                        func: iter_next,
+                        args: vec![ArcVarId::new(1), ArcVarId::new(3)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                    // %4 = Project %2.1 — the compound `str?` element view.
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(4),
+                        ty: Idx::from_raw(51),
+                        value: ArcVarId::new(2),
+                        field: 1,
+                    },
+                    // %5 = Let %4 — Let-alias of the compound view (this hop is
+                    // what a sequential Project-then-Let pass would not bridge).
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(5),
+                        ty: Idx::from_raw(51),
+                        value: crate::ir::ArcValue::Var(ArcVarId::new(4)),
+                    },
+                    // %6 = Project %5.1 — the INTERIOR str payload through %5.
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(6),
+                        ty: Idx::STR,
+                        value: ArcVarId::new(5),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: ArcVarId::new(7),
+                    ty: Idx::INT,
+                    func: Name::from_raw(99),
+                    args: vec![ArcVarId::new(6)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(7),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn nested_projection_through_let_alias_of_iter_element_view_gets_no_burden_dec() {
+    let interner = ori_ir::StringInterner::new();
+    let registry = TypeRegistry::new();
+    let mut func = nested_let_aliased_iter_element_projection_func(&interner);
+    emit_burden_ops_with_interner(
+        &mut func,
+        &registry,
+        &[],
+        &[],
+        &FxHashMap::default(),
+        true,
+        &interner,
+    );
+    // The interior str payload (%6), reached through the Let-aliased compound
+    // element view, MUST receive zero BurdenDec — it is a borrow into the
+    // collection buffer (elem_dec_fn owns its release).
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(6)),
+        0,
+        "interior projection of a Let-aliased iter-element-view MUST receive \
+         zero BurdenDec (joint Project+Let fixpoint); a dec double-frees the \
+         interior str; body={:?}",
+        func.blocks[0].body,
+    );
+    // And the compound view (%4) + its alias (%5) likewise.
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(4)) + count_burden_decs(&func, ArcVarId::new(5)),
+        0,
+        "compound iter-element-view + its Let-alias MUST receive zero BurdenDec; \
+         body={:?}",
+        func.blocks[0].body,
     );
 }

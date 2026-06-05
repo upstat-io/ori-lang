@@ -304,6 +304,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
+    iter_consumes: false,
 };
 
 /// Owned parameter consumed exactly once (linear).
@@ -318,6 +319,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
+    iter_consumes: false,
 };
 
 /// Return contract for methods producing unique results (COW operations).

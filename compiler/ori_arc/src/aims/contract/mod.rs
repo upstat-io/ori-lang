@@ -253,9 +253,10 @@ impl ReturnAliasShape {
     reason = "Each bool encodes a distinct AIMS facet not derivable from \
         the others: `may_escape` (legacy escape flag retained until \
         Locality SSOT migration), `may_share` (per-param sharing flag), \
-        `transfers_through_return` (Return-flow alias from BUG-04-090), \
-        `return_payload_contains_param` (transitive-drop containment \
-        from BUG-04-118). Bundling would obscure the analysis surface."
+        `transfers_through_return` (Return-flow alias), \
+        `return_payload_contains_param` (transitive-drop containment), \
+        `iter_consumes` (iter-consume inward-transfer, RL-2). \
+        Bundling would obscure the analysis surface."
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParamContract {
@@ -332,6 +333,30 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — no containment claim).
     pub return_payload_contains_param: bool,
+    /// Whether the callee iter-consumes this borrowed parameter and frees it
+    /// via the iterator drop (RL-2 iter-consume transfer).
+    ///
+    /// `true` when the parameter (through Let-Var aliases) flows into an
+    /// `@iter` / `Iter`-protocol owned-position consume whose resulting
+    /// iterator handle is `ori_iter_drop`'d in the callee body — the `for x in
+    /// coll` lowering frees the collection INSIDE the callee. The parameter
+    /// keeps `access: Borrowed` (the callee neither stores nor returns it), so
+    /// neither `transfers_through_return` nor an Owned-access upgrade fires; the
+    /// inward-transfer-into-iter-and-drop is a distinct fact this field is the
+    /// sole carrier of.
+    ///
+    /// Consumed on the CALLER side by
+    /// `realize::emit_unified::borrowed_arg_release_verdict`: a collection at a
+    /// borrowed terminator-`Invoke` arg whose callee param `iter_consumes` is
+    /// `true` is classified `ApplyToIterConsumingParam` (RL-2 TRANSFER) and its
+    /// caller burden dec is SUPPRESSED — the callee's `ori_iter_drop` is the
+    /// single release. Soundness:
+    /// `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`.
+    ///
+    /// IC-3 join: OR (once `true` on any path, stays `true`).
+    ///
+    /// Default: `false` (conservative — caller keeps its dec).
+    pub iter_consumes: bool,
 }
 
 impl ParamContract {
@@ -358,6 +383,9 @@ impl ParamContract {
         // extract_contract when the param flows into a transitive-drop
         // variant payload that is returned (BUG-04-118 fix).
         return_payload_contains_param: false,
+        // Conservative default: caller keeps its dec. Promoted by
+        // extract_contract when the borrowed param iter-consumes-and-frees.
+        iter_consumes: false,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -383,6 +411,9 @@ impl ParamContract {
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's structural payload-containment fact fires.
         return_payload_contains_param: false,
+        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
+        // any path's iter-consume-and-free fact fires.
+        iter_consumes: false,
     };
 
     /// Componentwise join toward conservative.
@@ -408,6 +439,9 @@ impl ParamContract {
             // Matches IC-3 componentwise-max semantics for boolean dimensions.
             return_payload_contains_param: self.return_payload_contains_param
                 || other.return_payload_contains_param,
+            // OR (conservative direction): once true on any path, stays true.
+            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            iter_consumes: self.iter_consumes || other.iter_consumes,
         }
     }
 }

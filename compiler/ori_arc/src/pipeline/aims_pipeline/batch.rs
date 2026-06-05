@@ -98,6 +98,7 @@ pub(crate) fn run_aims_pipeline_all(
         &reuse_updates,
         classifier,
         verify_arc,
+        interner,
     )?;
 
     // Contract coherence oracle: verify inferred contracts match what the
@@ -147,6 +148,7 @@ fn run_second_pass(
     reuse_updates: &[(Name, usize)],
     classifier: &dyn crate::ArcClassification,
     verify_arc: bool,
+    interner: &ori_ir::StringInterner,
 ) -> Result<(), Vec<crate::verify::VerifyError>> {
     // Phase 1: full contract refresh for TRMC-rewritten functions.
     // Re-run analysis + extraction on the rewritten IR to get accurate
@@ -176,6 +178,7 @@ fn run_second_pass(
                 contracts,
                 &rustc_hash::FxHashSet::default(),
                 &context_regions,
+                interner,
             );
             let old = contracts.get_mut_required(&name, "trmc_contract_refresh");
             tracing::debug!(
