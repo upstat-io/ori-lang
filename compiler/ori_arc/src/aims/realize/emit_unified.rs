@@ -551,6 +551,23 @@ fn emit_burden_path_probe_tail(
     emit_burden_dead_no_use_aggregate_decs(func, pool, interner, contracts);
     trace_phase_snapshot("after_phase_6_85_dead_no_use_aggregate", func, interner);
 
+    // Phase 6.86 — branch-dead fresh-value freeing (RL-4 edge cleanup). A FRESH
+    // owned non-scalar value (heap `str` FatValue / collection RcPointer /
+    // heap-bearing inline aggregate) used + released on one branch but DEAD on a
+    // sibling early-exit branch (`?`-None return, an `if/else` arm that never reads
+    // it) leaks on the dead branch: the Phase-5 walk emits the lineage's single
+    // release on the value-survives branch only, leaving the early-exit edge with
+    // no release. This pass emits ONE `BurdenDec` at the FRONT of the dead
+    // single-predecessor successor (RL-4: Owned, non-scalar, live at the split
+    // block's exit, dead at the successor's entry, not a Jump arg). SEED-not-reuse
+    // (returned / owned-consumed / PrimOp-operand / user-call-arg / owned-moved /
+    // iterator-managed / borrowed lineages excluded) so it never double-frees a
+    // transferred or already-released value. Distinct from Phase 6.85 (ZERO-use
+    // aggregates): the branch-dead value HAS a use (its release on the surviving
+    // branch). Spec: Annex E §AIMS RL-4.
+    emit_burden_branch_dead_value_decs(func, pool, interner, contracts);
+    trace_phase_snapshot("after_phase_6_86_branch_dead_value", func, interner);
+
     // Phase 6.9 — dead in-function ITERATOR-HANDLE freeing (RL-2 ScopeExit). An
     // `@iter`-family result is a FRESH owned `Tag::Iterator` / `DoubleEndedIterator`
     // handle (no RC header; the source buffer is MOVED into the iterator state).
@@ -641,7 +658,7 @@ fn emit_burden_path_probe_tail(
     // fields are PROJECTED + independently freed has no operand alias and never
     // fires. Probe-gated -> default codegen byte-identical. Spec: Annex E §AIMS
     // RL-1 (`RL1_emit_iff_not_elidable`) + RL-2 (`RL2_release_exactly_once`).
-    strip_comparison_operand_keepalive(func, pool);
+    strip_comparison_operand_keepalive(func, pool, same_alloc_reps);
     trace_phase_snapshot(
         "after_phase_6_97_comparison_operand_keepalive",
         func,
@@ -2298,6 +2315,199 @@ fn emit_burden_dead_no_use_aggregate_decs(
     }
 }
 
+/// Compute the `(dead_successor_idx, var)` branch-dead releases for
+/// [`emit_burden_branch_dead_value_decs`]. Split out for direct unit pins.
+///
+/// A FRESH owned non-scalar value (heap `str` `FatValue` / collection `RcPointer` /
+/// heap-bearing inline aggregate) defined before a control-flow split, USED (and
+/// released) on one branch but DEAD on a sibling early-exit branch, leaks its
+/// allocation on the dead branch under sole-emitter lowering: the base burden
+/// walk emits the lineage's single release on the value-survives branch only, so
+/// the early-exit edge (`?`-None return, `if/else` arm that never reads the value)
+/// carries no release. RL-4 edge-cleanup mandates one dec on that specific edge:
+/// the value is Owned, non-scalar, live at the split block's exit, dead at the
+/// dead successor's entry, and not a Jump arg (no ownership handed to a successor
+/// block param). The dec lands at the FRONT of the dead successor.
+///
+/// SEED-not-reuse (identical discipline to the dead-no-use-aggregate pass so the
+/// passes never both fire on one lineage): returned / owned-consumed /
+/// PrimOp-operand (concat / COW) / user-call-arg / owned-moved / iterator-managed
+/// / borrowed lineages are excluded — each is either a transfer (the consumer
+/// releases) or already-released. Single-predecessor dead successor only: a
+/// merge-point successor with ≥2 predecessors could double-count across edges, so
+/// the canonical safe edge is the single-pred branch (the predicate-stack
+/// `apply_edge_decs` targets the same single-pred edges). Spec: Annex E §AIMS RL-4
+/// (`RL4_edge_dec_decision` + `RL4_edge_release_balanced` + `RL4_jump_arg_exempt`).
+fn compute_branch_dead_value_releases(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Vec<(usize, ArcVarId)> {
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let list_take_name = for_yield_result_finalizer_name(interner);
+
+    // Candidate lineages: a FRESH owned heap `str` self-allocation ONLY — a
+    // `Let { Literal(String) }` (the immutable heap-str the early-`?`/branch-dead
+    // shape leaks). Scoped to `str` (FatValue + `Tag::Str`) deliberately: a
+    // collection (RcPointer) or an inline aggregate (struct / Option / Result /
+    // tuple) moved into a struct field / sum payload is an RL-2 OWNERSHIP TRANSFER
+    // whose consumer drop frees it — emitting an edge dec there double-frees (the
+    // `slice_element_into_*_field` / `owned_collection_field_into_struct` shapes).
+    // A `str` is immutable with no COW-through-borrow hazard and is not a
+    // transfer-into-aggregate candidate here, so the str-only carve-out is the
+    // sound boundary (mirroring the attempt-56 borrowed-str carve-out). The
+    // `fresh_self_alloc_dst` set covers the String-literal case via `is_str_dst`.
+    let mut candidate_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) {
+                if is_str_dst(dst, func, pool) {
+                    candidate_reps.insert(rep_of(dst));
+                }
+            }
+        }
+    }
+    if candidate_reps.is_empty() {
+        return Vec::new();
+    }
+
+    // Exclusion sets (SEED-not-reuse — same set the dead-no-use-aggregate pass
+    // uses). A transferred / consumed / already-released lineage must NOT receive
+    // an edge dec.
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    let borrowed_defs = crate::aims::emit_rc::collect_all_borrowed_defs(func, pool);
+    let iter_drop_handles = compute_iter_drop_handle_lineages(func, &jt_reps, interner);
+    let iterator_bearing = compute_dead_iterator_handle_candidates(func, pool, &jt_reps);
+    let owned_consumed = compute_owned_consumed_lineages(func, &jt_reps, &jt_reps);
+    let returned = compute_returned_lineages(func, &jt_reps);
+    let primop_operands = compute_primop_operand_lineages(func, &jt_reps);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let user_call_args =
+        compute_user_call_arg_lineages(func, pool, &jt_reps, &builtins, contracts, &jt_reps);
+    let owned_moved = compute_collection_owned_moved_str_lineages(func, &jt_reps);
+
+    let mut excluded_reps: FxHashSet<ArcVarId> = iter_drop_handles;
+    excluded_reps.extend(iterator_bearing);
+    excluded_reps.extend(owned_consumed);
+    excluded_reps.extend(returned);
+    excluded_reps.extend(primop_operands);
+    excluded_reps.extend(user_call_args);
+    excluded_reps.extend(owned_moved);
+    for &val in iter_element_defs.iter().chain(borrowed_defs.iter()) {
+        excluded_reps.insert(rep_of(val));
+    }
+
+    let preds = crate::graph::compute_predecessors(func);
+    // Unwind-cleanup blocks (every `Invoke`/`InvokeIndirect` unwind target +
+    // `Resume` + their successor closure). The unwind path's RC is owned by the
+    // panic-cleanup machinery, NOT a normal-path scope-exit dec — emitting an
+    // edge dec into an unwind block double-frees / hits the wrong-layout cleanup
+    // (`extract_value on non-struct value`). RL-4 edge-cleanup applies to NORMAL
+    // CFG edges only (per LEDGER §B.1 "unwind edges foil post-dominance").
+    let unwind_blocks = compute_unwind_reachable_blocks(func);
+    let dom = crate::graph::DominatorTree::build(func);
+    let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
+    let mut emitted: FxHashSet<(usize, ArcVarId)> = FxHashSet::default();
+    for &rep in &candidate_reps {
+        if excluded_reps.contains(&rep) {
+            continue;
+        }
+        // A genuine branch-dead value HAS a use somewhere (its release lives on
+        // the value-survives branch); a ZERO-use value is the dead-no-use-aggregate
+        // pass's domain (it emits the scope-exit dec at the defining block).
+        if !lineage_has_any_use(func, &jt_reps, rep) {
+            continue;
+        }
+        let Some((def_block, def_var)) = lineage_defining_block_and_var(func, &jt_reps, rep) else {
+            continue;
+        };
+        let def_block_id = crate::ir::ArcBlockId::new(u32::try_from(def_block).unwrap_or(u32::MAX));
+        // RL-4 edge condition per (split block B, successor S): the lineage is
+        // live-out of B (reaches its release on a sibling path) AND dead in the S
+        // subtree (no reference anywhere from S onward). The dec lands at S's
+        // front. Restrict S to a single-predecessor NORMAL block so the dec cannot
+        // double-count across merge edges or land on an unwind-cleanup path.
+        for (b, block) in func.blocks.iter().enumerate() {
+            // Only NORMAL control-flow splits (`Branch` / `Switch`) carry the
+            // value-survives-vs-dead branch shape; the `Invoke` normal/unwind split
+            // is handled by the unwind-block exclusion below, never an edge dec.
+            if !matches!(
+                block.terminator,
+                ArcTerminator::Branch { .. } | ArcTerminator::Switch { .. }
+            ) {
+                continue;
+            }
+            if !lineage_live_out(func, &jt_reps, rep, b) {
+                continue;
+            }
+            for succ in crate::graph::successor_block_ids(&block.terminator) {
+                let s = succ.index();
+                // Never emit into an unwind-cleanup block (panic-path RC is the
+                // cleanup machinery's, not a normal scope-exit dec).
+                if unwind_blocks.contains(&s) {
+                    continue;
+                }
+                // The value's def block MUST DOMINATE the dead successor S: the
+                // value is then allocated on EVERY path reaching S, so it genuinely
+                // leaks at S (vs a value defined INSIDE a sibling branch, which is
+                // not live across this split at all — `lineage_live_out` can
+                // over-report via jt-rep merging when a String-literal operand of a
+                // later branch shares a rep). Dominance is the precise live-across-
+                // the-branch test. Spec: Annex E §AIMS RL-4 (`live at exit`).
+                if !dom.dominates(def_block_id, succ) {
+                    continue;
+                }
+                // Jump-arg exemption (RL-4): a value handed to S as a Jump arg
+                // transfers ownership to S's block param — `lineage_live_out_from_block`
+                // already sees the param as a use, so a dead-in-subtree S never
+                // received the value as a Jump arg. Single-predecessor S only.
+                if preds.get(s).is_none_or(|p| p.len() != 1) {
+                    continue;
+                }
+                if lineage_live_out_from_block(func, &jt_reps, rep, s) {
+                    continue;
+                }
+                // Do not place the dec into the value's own defining block (the
+                // value is defined there, not dead-on-entry); the split must be a
+                // proper successor downstream of the def.
+                if s == def_block {
+                    continue;
+                }
+                if emitted.insert((s, def_var)) {
+                    releases.push((s, def_var));
+                }
+            }
+        }
+    }
+    releases
+}
+
+/// Phase 6.86 — branch-dead fresh-value freeing (RL-4 edge cleanup). A FRESH owned
+/// non-scalar value used (and released) on one branch but DEAD on a sibling
+/// early-exit branch leaks on the dead branch under sole-emitter lowering — the
+/// base burden walk releases it only on the value-survives branch. This pass emits
+/// ONE `BurdenDec` at the FRONT of the dead single-predecessor successor; Phase-7
+/// lowers it (`FatValue` / `RcPointer` / `Aggregate` repr) to the matching `RcDec`,
+/// byte-identical to the oracle's edge-cleanup dec. SEED-not-reuse: transferred /
+/// consumed / iterator-managed / borrowed lineages excluded so it never
+/// double-frees. Probe-gated -> default codegen byte-identical. Spec: Annex E
+/// §AIMS RL-4.
+fn emit_burden_branch_dead_value_decs(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) {
+    let releases = compute_branch_dead_value_releases(func, pool, interner, contracts);
+    for (succ_idx, var) in releases {
+        if let Some(succ) = func.blocks.get_mut(succ_idx) {
+            succ.body.insert(0, ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
 /// Set of project-borrowed-view vars whose whole-var `BurdenDec` is a redundant
 /// SECOND release of a heap field the source aggregate's `[AggFields]` /
 /// `[InlineEnum]` drop already frees — the spurious dec to STRIP for
@@ -2541,6 +2751,7 @@ pub(super) struct ComparisonOperandStrips {
 pub(super) fn compute_comparison_operand_keepalive_strips(
     func: &ArcFunction,
     pool: &Pool,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> ComparisonOperandStrips {
     let let_alias_map = build_let_alias_map(func);
     let resolve_root = |var: ArcVarId| -> ArcVarId {
@@ -2556,7 +2767,8 @@ pub(super) fn compute_comparison_operand_keepalive_strips(
 
     // M3: the comparison-operand aliases (dst -> compared-aggregate lineage root)
     // whose spurious keep-alive `BurdenInc dst` is stripped.
-    let operand_alias_root = compute_comparison_operand_aliases(func, pool, &resolve_root);
+    let operand_alias_root =
+        compute_comparison_operand_aliases(func, pool, &resolve_root, same_alloc_reps);
     if operand_alias_root.is_empty() {
         return ComparisonOperandStrips {
             inc_strips: FxHashSet::default(),
@@ -2590,12 +2802,22 @@ fn compute_comparison_operand_aliases(
     func: &ArcFunction,
     pool: &Pool,
     resolve_root: &impl Fn(ArcVarId) -> ArcVarId,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
     // Per-var non-RC use tally + whether EVERY non-RC use is a `Binary(Eq|NotEq)`
     // operand. An RC op is NOT a use; a `Let { Var }` reference IS a use of its
     // source (counted when that source's occurrences are walked).
     let mut non_rc_use_count: FxHashMap<ArcVarId, u32> = FxHashMap::default();
     let mut all_uses_are_compare_operand: FxHashMap<ArcVarId, bool> = FxHashMap::default();
+    // SAME-ROOT GUARD: operand vars of a `Binary(Eq|NotEq)` whose TWO operands
+    // trace to the SAME `same_alloc` rep. M3/M4's net reasoning assumes the two
+    // operands are DISTINCT allocations (two operand decs release two distinct
+    // refs); when both alias ONE allocation, the two operand decs release the SAME
+    // ref, so an added M4 whole-var strip over-releases (-1 double-free). Such
+    // operands are EXCLUDED -> the same-root comparison's incs/decs stay at the
+    // balanced baseline. RL-2 `RL2_release_exactly_once`: one allocation released
+    // exactly once per path.
+    let mut same_root_operands: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut note_use = |var: ArcVarId, is_compare_operand: bool| {
         *non_rc_use_count.entry(var).or_default() += 1;
         let entry = all_uses_are_compare_operand.entry(var).or_insert(true);
@@ -2616,6 +2838,16 @@ fn compute_comparison_operand_aliases(
                 for &arg in args {
                     note_use(arg, is_cmp);
                 }
+                // A binary compare with both operands in ONE allocation class is a
+                // same-root comparison; exclude its operands from the strip.
+                if is_cmp
+                    && args.len() == 2
+                    && crate::aims::emit_rc::same_alloc(same_alloc_reps, args[0], args[1])
+                {
+                    for &arg in args {
+                        same_root_operands.insert(arg);
+                    }
+                }
                 continue;
             }
             if whole_var_dec_or_inc(instr) {
@@ -2633,15 +2865,36 @@ fn compute_comparison_operand_aliases(
     let mut operand_alias_root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
-            let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            else {
-                continue;
+            // A `Let { dst, Var(src) }` aliasing a compared lineage, OR a `Let {
+            // dst, Literal(String) }` defining a fresh heap-str compared directly
+            // (`a == "lit"`). The Literal case is its OWN allocation root; its
+            // spurious operand keep-alive inc leaks the fresh literal buffer.
+            let (dst, root_src): (&ArcVarId, ArcVarId) = match instr {
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } => (dst, *src),
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Literal(crate::ir::LitValue::String(_)),
+                    ..
+                } => (dst, *dst),
+                _ => continue,
             };
-            if !matches!(func.var_repr(*dst), Some(ValueRepr::Aggregate)) {
+            // Widened from `Aggregate`-only to also cover heap-str / FatValue /
+            // RcPointer compared operands (str `==`, list/map/set `==`). A `==` /
+            // `!=` operand of any of these reprs is an RL-1 borrow-read
+            // (`incElidable`); the spurious keep-alive inc leaks the same way.
+            if !matches!(
+                func.var_repr(*dst),
+                Some(ValueRepr::Aggregate | ValueRepr::FatValue | ValueRepr::RcPointer)
+            ) {
+                continue;
+            }
+            // SAME-ROOT GUARD: skip an operand whose comparison's two operands
+            // share one allocation class (over-strip -> double-free otherwise).
+            if same_root_operands.contains(dst) {
                 continue;
             }
             let uses = non_rc_use_count.get(dst).copied().unwrap_or(0);
@@ -2652,7 +2905,7 @@ fn compute_comparison_operand_aliases(
             if uses != 1 || !all_cmp {
                 continue;
             }
-            let root = resolve_root(*src);
+            let root = resolve_root(root_src);
             // RECURSION GATE: a self-allocating (recursive boxed) aggregate's
             // multi-node allocation chain breaks the single-allocation net
             // reasoning -> excluded; only inline non-recursive aggregates fire.
@@ -2748,8 +3001,12 @@ fn compute_comparison_operand_dec_strips(
 /// operand dec balances the construct keep-alive, M4 removes the redundant
 /// branch whole-var dec the operand dec already covers. Probe-gated -> default
 /// codegen byte-identical. Spec: Annex E §AIMS RL-1 + RL-2.
-fn strip_comparison_operand_keepalive(func: &mut ArcFunction, pool: &Pool) {
-    let strips = compute_comparison_operand_keepalive_strips(func, pool);
+fn strip_comparison_operand_keepalive(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    let strips = compute_comparison_operand_keepalive_strips(func, pool, same_alloc_reps);
     if strips.inc_strips.is_empty() && strips.dec_strips.is_empty() {
         return;
     }

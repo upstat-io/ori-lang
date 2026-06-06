@@ -3221,6 +3221,87 @@ type Doc = { content: str }
 }
 
 #[test]
+fn probe_heap_str_clone_then_double_compare_freed() {
+    // POSITIVE (distinct-root comparison-operand widening): a heap `str` cloned
+    // then double-compared (`a == b && a == "literal"`). `clone` of a heap str is
+    // an rc-INC of the SAME buffer, but the clone RESULT is a DISTINCT
+    // `same_alloc` rep (an Invoke result, not a Let-Var alias), so each `==`
+    // compares operands of DISTINCT allocations. Each operand is an RL-1
+    // borrow-read (`incElidable`) wrongly given a spurious keep-alive inc that
+    // nets the compared allocation +1 -> the buffer (and the fresh `==`-literal)
+    // LEAK under flag. The comparison-operand strip (M3 inc + M4 dec), widened to
+    // FatValue/RcPointer/Literal(String) operands, frees both. FAILED=leak
+    // pre-cure -> PASS. Spec: Annex E §AIMS RL-1 + RL-2.
+    let src = r#"
+@main () -> int = {
+    let a = "this is a heap-allocated string!";
+    let b = a.clone();
+    if a == b && a == "this is a heap-allocated string!" then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_clone_then_double_compare");
+}
+
+#[test]
+fn probe_heap_str_same_root_multi_compare_no_double_free_negative() {
+    // CRITICAL NEGATIVE (same-root multi-compare over-strip clamp): `a == b && b
+    // == c` where `b`/`c` are Let-Var aliases of `a` -> ALL operands trace to ONE
+    // `same_alloc` rep. The comparison-operand strip's net reasoning holds for
+    // DISTINCT-root comparisons (two operand decs release two distinct refs); it
+    // BREAKS when the two compared operands alias ONE allocation (the two operand
+    // decs release the SAME ref, so an added whole-var dec strip over-releases ->
+    // double-free). The widened strip MUST exclude a comparison whose two operands
+    // share a `same_alloc` rep. Passes pre AND post the cure (must-not-double-free).
+    // RL-2 `RL2_release_exactly_once`: one allocation released exactly once per path.
+    let src = r#"
+@main () -> int = {
+    let a = "this is a heap string for alias chain";
+    let b = a;
+    let c = b;
+    if a == b && b == c then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_same_root_multi_compare");
+}
+
+#[test]
+fn probe_heap_str_same_root_three_compare_no_double_free_negative() {
+    // NEGATIVE (already-balanced same-root sibling): three separate `==` results
+    // (`r1 = a==b; r2 = b==c; r3 = a==c`) where `b`/`c` alias `a` -> one
+    // `same_alloc` rep, three same-root comparisons. The widened strip MUST leave
+    // every same-root comparison untouched. Passes pre AND post the cure.
+    let src = r#"
+@main () -> int = {
+    let a = "alias chain comparison string";
+    let b = a;
+    let c = b;
+    let $r1 = a == b;
+    let $r2 = b == c;
+    let $r3 = a == c;
+    if r1 && r2 && r3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_same_root_three_compare");
+}
+
+#[test]
+fn probe_heap_str_single_compare_no_double_free_negative() {
+    // NEGATIVE (single distinct-root compare balanced): two independent equal heap
+    // strings compared exactly once (`a == b`, distinct allocations, returns 0).
+    // Each operand is used once -> no spurious keep-alive inc; the per-operand
+    // burden dec nets each allocation to 0. The cure must not over-strip a genuine
+    // single release. Passes pre AND post the cure.
+    let src = r#"
+@main () -> int = {
+    let a = "equal heap string for single compare!";
+    let b = "equal heap string for single compare!";
+    if a == b then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_single_compare");
+}
+
+#[test]
 fn probe_sharing_view_list_slice_then_length_no_uaf() {
     // A seamless-slice producer (`slice`) borrows its receiver and rc-incs the
     // SHARED backing buffer (rc 1->2). The Phase-5 walk placed the receiver's
@@ -4120,4 +4201,73 @@ fn probe_let_bound_closure_single_invoke_no_double_free_negative() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "let_bound_closure_single_invoke_no_double_free");
+}
+
+#[test]
+fn probe_fresh_heap_str_dead_on_question_early_exit_freed() {
+    // POSITIVE (fresh heap value dead on an early-`?`-return branch): `name` is a
+    // fresh heap str defined before `opt?`; on the `?`-None branch the function
+    // early-returns the None variant and `name` is dead WITHOUT its release (the
+    // base burden walk emits `name`'s single release only on the value-survives
+    // branch). RL-4 edge-cleanup: `name` is owned non-scalar, live at the branch
+    // block's exit, dead at the early-return successor's entry, not a Jump arg ->
+    // one edge `BurdenDec` on that successor. Spec: Annex E §AIMS RL-4.
+    let src = r#"
+@process (opt: Option<int>) -> Option<int> = {
+    let name = "abcdefghijklmnopqrstuvwxyz1234";
+    let v = opt?;
+    Some(v + name.length())
+}
+
+@main () -> int = {
+    match process(opt: None) {
+        Some(_) -> 1,
+        None -> 0,
+    }
+}
+"#;
+    assert_burden_path_self_sufficient(src, "fresh_heap_str_dead_on_question_early_exit");
+}
+
+#[test]
+fn probe_fresh_heap_str_dead_on_explicit_branch_freed() {
+    // POSITIVE (fresh heap value dead on one explicit `if` branch): `tag` is a
+    // fresh heap str used only inside the `then` branch (`tag.length()`); the
+    // `else` branch leaves `tag` dead WITHOUT a release on that edge. Same RL-4
+    // edge-cleanup as the `?`-exit shape, via a plain `if/else` split rather than
+    // `?`-desugar. Spec: Annex E §AIMS RL-4.
+    let src = r#"
+@pick (b: bool) -> int = {
+    let tag = "a heap string well past the SSO inline threshold of 23!";
+    if b then tag.length() else 7
+}
+
+@main () -> int = {
+    let r = pick(b: false);
+    if r == 7 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "fresh_heap_str_dead_on_explicit_branch");
+}
+
+#[test]
+fn probe_fresh_heap_str_returned_on_early_exit_no_double_free_negative() {
+    // NEGATIVE (the over-fire boundary — fresh value TRANSFERRED on the dead-looking
+    // branch): `name` is RETURNED on the `b`-true branch (an RL-2 ownership transfer
+    // — the caller releases it). The branch-dead-value edge-dec MUST NOT fire on
+    // that branch, or `name` double-frees against the caller's release. The
+    // transferred-out (Return / Construct-arg) guard excludes it. PASS pre AND post
+    // cure. Spec: Annex E §AIMS RL-2 + RL-4.
+    let src = r#"
+@choose (b: bool) -> str = {
+    let name = "a heap string well past the SSO inline threshold of 23!";
+    if b then name else "other"
+}
+
+@main () -> int = {
+    let s = choose(b: true);
+    if s.length() == 55 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "fresh_heap_str_returned_on_early_exit_no_double_free");
 }

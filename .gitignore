@@ -128,9 +128,14 @@ venv/
 .venv/
 .pytest_cache/
 
+# Node
+node_modules/
+package-lock.json
+*.vsix
+
 /.claude/
 /.codex
 /.gemini/
-scratchpad
-scratch
+scratch/
+scratchpad/
 

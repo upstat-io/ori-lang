@@ -10,14 +10,15 @@
 
 use super::{
     borrow_survives_transform_names, borrowed_arg_release_verdict, collection_conversion_names,
-    collection_set_algebra_names, compute_comparison_operand_keepalive_strips,
-    compute_dead_collection_source_releases, compute_dead_iterator_handle_candidates,
-    compute_dead_iterator_handle_releases, compute_dead_no_use_aggregate_releases,
-    compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
-    compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
-    compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
-    emit_for_yield_index_consumed_element_rc, emit_iter_element_view_iter_consume_keepalive_inc,
-    is_burden_carrying_aggregate, iterator_consumer_collection_names, lower_burden_ops_to_rc,
+    collection_set_algebra_names, compute_branch_dead_value_releases,
+    compute_comparison_operand_keepalive_strips, compute_dead_collection_source_releases,
+    compute_dead_iterator_handle_candidates, compute_dead_iterator_handle_releases,
+    compute_dead_no_use_aggregate_releases, compute_dead_owned_collection_releases,
+    compute_elidable_fresh_self_alloc_incs, compute_fresh_owned_collection_reps,
+    compute_jump_threaded_reps, compute_lineage_alloc_aware_net,
+    compute_redundant_project_borrowed_view_dec_strips, emit_for_yield_index_consumed_element_rc,
+    emit_iter_element_view_iter_consume_keepalive_inc, is_burden_carrying_aggregate,
+    iterator_consumer_collection_names, lower_burden_ops_to_rc,
     relocate_borrowed_terminator_arg_dec_to_edges, sharing_view_relocation_names,
     suppress_multi_borrow_iter_consume_source_decs, EdgeRelease, EscapeSafeBorrowedNames,
     IterHandleRelease,
@@ -1526,7 +1527,9 @@ fn comparison_operand_strips_spurious_inc_and_misplaced_dec() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = comparison_operand_func(&mut pool, &interner, true);
-    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool, &same_alloc_reps);
     assert!(
         strips.inc_strips.contains(&v(9)) && strips.inc_strips.contains(&v(12)),
         "both comparison-operand keep-alive incs (%9, %12) are stripped; got {:?}",
@@ -1554,7 +1557,9 @@ fn comparison_operand_keeps_single_use_no_keepalive() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = comparison_operand_func(&mut pool, &interner, false);
-    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool, &same_alloc_reps);
     assert!(
         strips.dec_strips.is_empty(),
         "with no construct keep-alive inc, no whole-var dec is stripped; got {:?}",
@@ -1574,7 +1579,9 @@ fn comparison_operand_keeps_projected_field_no_compare() {
     // Reuse the project-borrowed-view shape: %2 = Project %1.0 (a field read, not a
     // comparison operand).
     let func = project_borrowed_view_func(&mut pool, &interner, false, true);
-    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool, &same_alloc_reps);
     assert!(
         strips.inc_strips.is_empty() && strips.dec_strips.is_empty(),
         "a projected-field (non-comparison) shape is never touched by the comparison-operand \
@@ -1582,6 +1589,95 @@ fn comparison_operand_keeps_projected_field_no_compare() {
         strips.inc_strips,
         strips.dec_strips,
     );
+}
+
+#[test]
+fn comparison_operand_same_root_excluded_no_strip() {
+    // CRITICAL NEGATIVE (same-root guard): a comparison whose TWO operands
+    // (%9, %10) both alias the SAME `Construct` %1 -> one `same_alloc` rep. The
+    // M3/M4 net reasoning holds only for DISTINCT-root operands; a same-root
+    // comparison's two operand decs release the SAME ref, so an added M4 whole-var
+    // strip over-releases (double-free). The guard MUST exclude both operands ->
+    // empty inc_strips AND empty dec_strips. Spec: Annex E §AIMS RL-2
+    // (`RL2_release_exactly_once`).
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = comparison_operand_same_root_func(&mut pool, &interner);
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool, &same_alloc_reps);
+    assert!(
+        strips.inc_strips.is_empty() && strips.dec_strips.is_empty(),
+        "a same-root comparison (both operands one allocation) is never stripped; \
+         got inc={:?} dec={:?}",
+        strips.inc_strips,
+        strips.dec_strips,
+    );
+}
+
+/// Same-root comparison shape for [`comparison_operand_same_root_excluded_no_strip`]:
+/// ONE `Construct` %1, two Let-Var aliases %9/%10 of it, `%9 == %10` (both operands
+/// trace to the single allocation). Mirrors `a == b` where `b = a`.
+fn comparison_operand_same_root_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let content = interner.intern("content");
+    let doc_name = interner.intern("Doc");
+    let doc_ty = pool.struct_type(doc_name, &[(content, Idx::STR)]);
+    let bb0 = vec![
+        ArcInstr::Construct {
+            dst: v(1),
+            ty: doc_ty,
+            ctor: CtorKind::Struct(doc_name),
+            args: vec![v(0)],
+        },
+        ArcInstr::BurdenInc { var: v(1) }, // construct keep-alive
+        // %9 = %1 and %10 = %1 — both alias the single allocation.
+        ArcInstr::Let {
+            dst: v(9),
+            ty: doc_ty,
+            value: ArcValue::Var(v(1)),
+        },
+        ArcInstr::Let {
+            dst: v(10),
+            ty: doc_ty,
+            value: ArcValue::Var(v(1)),
+        },
+        ArcInstr::BurdenInc { var: v(9) },
+        ArcInstr::BurdenInc { var: v(10) },
+        ArcInstr::Let {
+            dst: v(11),
+            ty: Idx::BOOL,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Eq),
+                args: vec![v(9), v(10)],
+            },
+        },
+        ArcInstr::BurdenDec { var: v(9) },
+        ArcInstr::BurdenDec { var: v(10) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    let mut var_types = vec![Idx::UNIT; 12];
+    var_types[1] = doc_ty;
+    var_types[9] = doc_ty;
+    var_types[10] = doc_ty;
+    var_types[11] = Idx::BOOL;
+    let mut var_reprs = vec![ValueRepr::Scalar; 12];
+    var_reprs[1] = ValueRepr::Aggregate;
+    var_reprs[9] = ValueRepr::Aggregate;
+    var_reprs[10] = ValueRepr::Aggregate;
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: bb0,
+            terminator: ArcTerminator::Return { value: v(11) },
+        }],
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -3744,5 +3840,126 @@ fn dead_owned_collection_frees_user_call_result_without_apply_direct_seed() {
         releases[0],
         (1, v(2)),
         "frees the user-call result's live SSA value %2 at the borrowed-read sink bb1",
+    );
+}
+
+/// Build a function exercising the branch-dead-value RL-4 edge shape: a fresh
+/// heap `str` `%0` defined in bb0, the function branches `%1 ? bb1 : bb2`; bb1
+/// reads `%0` borrowed (its release lives on this surviving path), bb2 is an
+/// early-return where `%0` is dead. `bb0` dominates bb2; the dead successor bb2 is
+/// a single-predecessor NORMAL block. When `return_str_on_dead_branch` is true,
+/// bb2 RETURNS `%0` (an RL-2 transfer) instead — the over-fire boundary.
+fn branch_dead_str_func(
+    interner: &ori_ir::StringInterner,
+    return_str_on_dead_branch: bool,
+) -> ArcFunction {
+    let lit = interner.intern("a heap string past the SSO inline threshold of 23!");
+    let read = interner.intern("__some_read");
+    // %0 = fresh str literal, %1 = branch scalar cond, %2 = scalar read result,
+    // %3 = scalar early-return value.
+    let bb2_term = if return_str_on_dead_branch {
+        ArcTerminator::Return { value: v(0) }
+    } else {
+        ArcTerminator::Return { value: v(3) }
+    };
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::INT, Idx::INT, Idx::INT],
+        var_reprs: vec![
+            ValueRepr::FatValue,
+            ValueRepr::Scalar,
+            ValueRepr::Scalar,
+            ValueRepr::Scalar,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(crate::ir::LitValue::String(lit)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // bb1: surviving path — borrowed read of %0 keeps the lineage alive.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    func: read,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            // bb2: early-return — %0 dead (or returned in the negative case).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                terminator: bb2_term,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn branch_dead_value_frees_str_on_early_exit_branch() {
+    // POSITIVE: a fresh heap str `%0` defined in bb0, read (released) on the bb1
+    // surviving path, DEAD on the bb2 early-return path. RL-4 edge cleanup emits
+    // exactly ONE dec at the FRONT of bb2 (the dead single-pred normal successor
+    // that bb0 dominates). Spec: Annex E §AIMS RL-4.
+    let interner = ori_ir::StringInterner::new();
+    let pool = ori_types::Pool::new();
+    let func = branch_dead_str_func(&interner, false);
+    let releases =
+        compute_branch_dead_value_releases(&func, &pool, &interner, &FxHashMap::default());
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly one branch-dead edge release (the str dead on bb2); got {releases:?}",
+    );
+    assert_eq!(
+        releases[0],
+        (2, v(0)),
+        "frees the str %0 at the dead early-return successor bb2",
+    );
+}
+
+#[test]
+fn branch_dead_value_skips_str_returned_on_dead_branch() {
+    // NEGATIVE (the over-fire boundary): the str `%0` is RETURNED on bb2 (an RL-2
+    // ownership transfer — the caller releases it). The `compute_returned_lineages`
+    // exclusion drops it, so NO edge dec fires; a dec here would double-free
+    // against the caller's release. Spec: Annex E §AIMS RL-2 + RL-4.
+    let interner = ori_ir::StringInterner::new();
+    let pool = ori_types::Pool::new();
+    let func = branch_dead_str_func(&interner, true);
+    let releases =
+        compute_branch_dead_value_releases(&func, &pool, &interner, &FxHashMap::default());
+    assert!(
+        releases.is_empty(),
+        "a str returned (transferred) on the dead-looking branch gets NO edge dec; got {releases:?}",
     );
 }
