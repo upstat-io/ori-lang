@@ -4334,36 +4334,35 @@ type Content = Title(text: str) | Items(list: [int]) | Nothing;
 }
 
 #[test]
-fn probe_heap_str_into_sum_variant_transferred_owned_no_double_free_negative() {
-    // CRITICAL NEGATIVE (the over-fire boundary — variant TRANSFERRED OWNED): the
-    // variant is passed at an OWNED call position (`consume` takes `Item` and
-    // owned-consumes it). That is an RL-2 ownership transfer — the callee frees the
-    // variant (and its moved-in str field). The scope-exit edge-release MUST NOT
-    // fire on the caller, or the str double-frees. The Borrowed-position gate +
-    // the owned-consumed exclusion keep it excluded. PASS pre AND post cure.
+fn probe_call_result_variant_borrow_read_no_double_free_negative() {
+    // CRITICAL NEGATIVE (the over-fire boundary — variant from a CALL RESULT,
+    // already balanced): the variant is the RESULT of `make()` (an owned transfer
+    // to the caller via RL-2 Return), then borrowed-read by `desc_len` and dead.
+    // The burden path ALREADY frees this lineage at scope exit under flag — the
+    // sum-variant edge-release MUST NOT also fire, or the str double-frees. The
+    // alloc-aware net (already-balanced, net 0) excludes it. PASS pre AND post
+    // cure. Spec: Annex E §AIMS RL-2.
     let src = r#"
 type Item = Named(description: str, count: int) | Anon(count: int);
 
-@consume (i: Item) -> int = {
-    let n = match i {
+@make () -> Item = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    Named(description: heap, count: 7)
+}
+
+@desc_len (i: Item) -> int =
+    match i {
         Named(description, count) -> description.length() + count,
         Anon(count) -> count,
     };
-    n
-}
-
-@take_owned (i: Item) -> int = consume(i: i);
 
 @main () -> int = {
-    let heap = "this is a long string that exceeds SSO threshold!!!";
-    let r = take_owned(i: Named(description: heap, count: 7));
+    let it = make();
+    let r = desc_len(i: it);
     if r == 58 then 0 else 1
 }
 "#;
-    assert_burden_path_self_sufficient(
-        src,
-        "heap_str_into_sum_variant_transferred_owned_no_double_free",
-    );
+    assert_burden_path_self_sufficient(src, "call_result_variant_borrow_read_no_double_free");
 }
 
 #[test]
