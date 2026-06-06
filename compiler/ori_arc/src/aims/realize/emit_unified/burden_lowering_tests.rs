@@ -10,15 +10,15 @@
 
 use super::{
     borrow_survives_transform_names, borrowed_arg_release_verdict, collection_conversion_names,
-    collection_set_algebra_names, compute_branch_dead_value_releases,
-    compute_comparison_operand_keepalive_strips, compute_dead_collection_source_releases,
-    compute_dead_iterator_handle_candidates, compute_dead_iterator_handle_releases,
-    compute_dead_no_use_aggregate_releases, compute_dead_owned_collection_releases,
-    compute_elidable_fresh_self_alloc_incs, compute_fresh_owned_collection_reps,
-    compute_jump_threaded_reps, compute_lineage_alloc_aware_net,
-    compute_redundant_project_borrowed_view_dec_strips, emit_for_yield_index_consumed_element_rc,
-    emit_iter_element_view_iter_consume_keepalive_inc, is_burden_carrying_aggregate,
-    iterator_consumer_collection_names, lower_burden_ops_to_rc,
+    collection_set_algebra_names, compute_borrowed_terminator_aggregate_relocations,
+    compute_branch_dead_value_releases, compute_comparison_operand_keepalive_strips,
+    compute_dead_collection_source_releases, compute_dead_iterator_handle_candidates,
+    compute_dead_iterator_handle_releases, compute_dead_no_use_aggregate_releases,
+    compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
+    compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
+    compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
+    emit_for_yield_index_consumed_element_rc, emit_iter_element_view_iter_consume_keepalive_inc,
+    is_burden_carrying_aggregate, iterator_consumer_collection_names, lower_burden_ops_to_rc,
     relocate_borrowed_terminator_arg_dec_to_edges, sharing_view_relocation_names,
     suppress_multi_borrow_iter_consume_source_decs, EdgeRelease, EscapeSafeBorrowedNames,
     IterHandleRelease,
@@ -3961,5 +3961,137 @@ fn branch_dead_value_skips_str_returned_on_dead_branch() {
     assert!(
         releases.is_empty(),
         "a str returned (transferred) on the dead-looking branch gets NO edge dec; got {releases:?}",
+    );
+}
+
+/// Build the fresh-aggregate-into-borrowed-call shape (the f06/f12 canonical).
+///
+/// A `Wrapper { s: str }` aggregate `%1` carries the coalesce-doomed `BurdenInc %1`
+/// then `BurdenDec %1` pair in bb0, whose terminator is an `Invoke` of `@desc_len`
+/// with `%1` at the receiver position (Borrowed, or Owned when `recv_owned`), normal
+/// successor bb1, unwind successor bb2. bb1 returns a scalar (the receiver is dead
+/// after the call); bb2 resumes (unwind). A struct holding a str field is the same
+/// `is_burden_carrying_aggregate` shape as a heap-payload sum variant; both lower the
+/// whole-var `BurdenDec` to a field-walking `RcDec` over the aggregate fields.
+fn borrowed_terminator_aggregate_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+    recv_owned: bool,
+) -> ArcFunction {
+    let s = interner.intern("s");
+    let wrapper_name = interner.intern("Wrapper");
+    let desc_len = interner.intern("desc_len");
+    let wrapper_ty = pool.struct_type(wrapper_name, &[(s, Idx::STR)]);
+    // %0 str field (consumed by Construct), %1 Wrapper aggregate, %2 scalar result.
+    let recv_ownership = if recv_owned {
+        ArgOwnership::Owned
+    } else {
+        ArgOwnership::Borrowed
+    };
+    ArcFunction {
+        var_types: vec![Idx::STR, wrapper_ty, Idx::INT],
+        var_reprs: vec![ValueRepr::FatValue, ValueRepr::Aggregate, ValueRepr::Scalar],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: wrapper_ty,
+                        ctor: CtorKind::Struct(wrapper_name),
+                        args: vec![v(0)],
+                    },
+                    ArcInstr::BurdenInc { var: v(1) },
+                    ArcInstr::BurdenDec { var: v(1) },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    func: desc_len,
+                    args: vec![v(1)],
+                    arg_ownership: vec![recv_ownership],
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+/// Borrow-read user-fn contract: `desc_len(i: Item) -> int` borrows the receiver
+/// (Borrowed access, no return-view aliasing, not iter-consume) so the relocation
+/// fires. Returns a one-param `MemoryContract` keyed by the callee name.
+fn borrow_read_contracts(
+    interner: &ori_ir::StringInterner,
+) -> FxHashMap<ori_ir::Name, MemoryContract> {
+    let desc_len = interner.intern("desc_len");
+    let mut c = MemoryContract::conservative(1);
+    c.params[0].access = AccessClass::Borrowed;
+    c.params[0].return_alias = None;
+    c.params[0].return_payload_contains_param = false;
+    c.params[0].iter_consumes = false;
+    let mut map = FxHashMap::default();
+    map.insert(desc_len, c);
+    map
+}
+
+#[test]
+fn borrowed_terminator_aggregate_relocates_dec_to_edges() {
+    // POSITIVE (the f06/f12 shape): a fresh `Wrapper { s: str }` aggregate `%1`
+    // carrying the coalesce-doomed `BurdenInc %1`/`BurdenDec %1` pair, passed
+    // BORROWED to a borrow-read callee at the bb0 `Invoke` terminator, dead after.
+    // The relocation fires ONE entry (block 0, recv %1, normal bb1, unwind bb2) so
+    // the moved-in str field is freed at the variant's scope-exit drop on the
+    // successor edges. Spec: Annex E §AIMS RL-2 + RL-4.
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = ori_types::Pool::new();
+    let func = borrowed_terminator_aggregate_func(&mut pool, &interner, false);
+    let contracts = borrow_read_contracts(&interner);
+    let relocations =
+        compute_borrowed_terminator_aggregate_relocations(&func, &pool, &interner, &contracts);
+    assert_eq!(
+        relocations.len(),
+        1,
+        "exactly one fresh-aggregate borrowed-call relocation; got {relocations:?}",
+    );
+    assert_eq!(
+        relocations[0],
+        (0, v(1), 1, 2),
+        "relocates recv %1's dec from bb0 to successors bb1 (normal) + bb2 (unwind)",
+    );
+}
+
+#[test]
+fn borrowed_terminator_aggregate_skips_owned_transfer() {
+    // NEGATIVE (the over-fire boundary — variant TRANSFERRED OWNED): the same
+    // aggregate passed at an OWNED `Invoke` position is an RL-2 ownership transfer
+    // (the callee frees it). The Borrowed-position gate excludes it — NO relocation,
+    // or the str double-frees against the callee's release. Spec: Annex E §AIMS RL-2.
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = ori_types::Pool::new();
+    let func = borrowed_terminator_aggregate_func(&mut pool, &interner, true);
+    let contracts = borrow_read_contracts(&interner);
+    let relocations =
+        compute_borrowed_terminator_aggregate_relocations(&func, &pool, &interner, &contracts);
+    assert!(
+        relocations.is_empty(),
+        "an owned-position aggregate transfer gets NO relocation; got {relocations:?}",
     );
 }

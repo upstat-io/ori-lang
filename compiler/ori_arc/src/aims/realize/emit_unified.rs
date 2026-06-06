@@ -568,6 +568,33 @@ fn emit_burden_path_probe_tail(
     emit_burden_branch_dead_value_decs(func, pool, interner, contracts);
     trace_phase_snapshot("after_phase_6_86_branch_dead_value", func, interner);
 
+    // Phase 6.87 — fresh INLINE-AGGREGATE-into-borrowed-call scope-exit release
+    // (RL-2 ApplyToBorrowedParam + RL-4 edge cleanup). A heap value (`str` / `[T]`)
+    // moved into an INLINE SUM VARIANT or struct (`ConstructArg` transfer INTO the
+    // aggregate), where the fresh aggregate is then passed BORROWED to a callee that
+    // borrow-reads it and is DEAD afterward, leaks the moved-in heap field. The
+    // Phase-5 walk emits a matched `BurdenInc v; BurdenDec v` pair on the aggregate
+    // BEFORE the borrowed call; the Phase-3 coalesce peephole cancels the adjacent
+    // pair to net-0, so no scope-exit `RcDec [InlineEnum]`/`[AggFields]` survives —
+    // the aggregate drop-glue (which walks the heap field) never runs. The moved-in
+    // field is an `RL2_transfer_kinds_no_dec` `ConstructArg` transfer INTO the
+    // aggregate, so the aggregate's own scope-exit drop is the field's sole release
+    // (`RL2_release_exactly_once`); the aggregate's last use is a borrowed call, an
+    // `rl2_emits_dec(.LastReadBeforeScopeExit)` non-transfer use whose release
+    // relocates to the dead successor edges (`RL4_edge_release_balanced`, released
+    // once per concrete path). This pass strips the coalesce-doomed inc/dec pair and
+    // emits ONE `BurdenDec` at the FRONT of both successor edges. SEED-not-reuse
+    // (returned / owned-consumed / owned-moved / iter-managed / Value-variant /
+    // return-view-aliasing-callee lineages excluded) so it never double-frees a
+    // transferred or already-balanced value. Probe-gated -> default codegen
+    // byte-identical. Spec: Annex E §AIMS RL-2 + RL-4.
+    relocate_borrowed_terminator_aggregate_dec(func, pool, interner, contracts);
+    trace_phase_snapshot(
+        "after_phase_6_87_borrowed_terminator_aggregate",
+        func,
+        interner,
+    );
+
     // Phase 6.9 — dead in-function ITERATOR-HANDLE freeing (RL-2 ScopeExit). An
     // `@iter`-family result is a FRESH owned `Tag::Iterator` / `DoubleEndedIterator`
     // handle (no RC header; the source buffer is MOVED into the iterator state).
@@ -2504,6 +2531,212 @@ fn emit_burden_branch_dead_value_decs(
     for (succ_idx, var) in releases {
         if let Some(succ) = func.blocks.get_mut(succ_idx) {
             succ.body.insert(0, ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
+/// Whether a callee BORROW-READS an aggregate receiver argument WITHOUT aliasing
+/// it into the result — i.e. the receiver survives the call and is releasable on
+/// the successor edges. Returns `false` for a callee that may return a view into
+/// the receiver, iter-consumes it, or upgrades it to an owned transfer (those keep
+/// or own the release elsewhere).
+///
+/// Reuses the proven [`borrowed_arg_release_verdict`] gate for the escape-safe
+/// builtin classes (conversion / survives-transform / accessor-retain / builtin
+/// scalar-read), and adds the user-fn borrow-read case the verdict declines (it
+/// returns `None` for a Borrowed-access non-iter-consuming non-return-aliasing user
+/// fn — the case where the inline dec is kept for a COLLECTION SOURCE; for a fresh
+/// dead-after AGGREGATE that case is a plain `Both` relocation). The user-fn arm
+/// requires a `MemoryContract` proving NO return-view aliasing (`return_alias ==
+/// None && !return_payload_contains_param`), Borrowed access, and NOT iter-consume.
+/// Spec: Annex E §AIMS RL-2 + RL-4.
+fn aggregate_borrow_read_relocatable(
+    callee: Name,
+    arg_index: usize,
+    names: &EscapeSafeBorrowedNames<'_>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    // The escape-safe builtin classes already resolve to `Both` (or PostDominator
+    // for sharing views — excluded here: a slice/substring of an aggregate is not
+    // this shape). Treat a `Both` verdict as relocatable.
+    if borrowed_arg_release_verdict(callee, arg_index, true, names, contracts)
+        == Some(EdgeRelease::Both)
+    {
+        return true;
+    }
+    // User-fn borrow-read (the f06/f12 `desc_len` / `get_size` shape): the verdict
+    // returns `None` for a Borrowed-access non-iter-consuming non-return-aliasing
+    // user fn. For a fresh dead-after aggregate receiver that IS a `Both`
+    // relocation. Require the contract to prove no return-view aliasing + Borrowed
+    // access + not iter-consume.
+    let Some(param) = contracts.get(&callee).and_then(|c| c.params.get(arg_index)) else {
+        return false;
+    };
+    param.return_alias.is_none()
+        && !param.return_payload_contains_param
+        && !param.iter_consumes
+        && param.access == AccessClass::Borrowed
+}
+
+/// Compute the `(call_block, recv, normal_succ, unwind_succ)` relocations for
+/// [`relocate_borrowed_terminator_aggregate_dec`]. Split out for direct unit pins.
+///
+/// A FRESH burden-carrying inline aggregate (a sum variant / struct / tuple /
+/// Option / Result holding a heap field — `is_burden_carrying_aggregate`) passed at
+/// a BORROWED terminator-`Invoke` receiver position to a borrow-read callee, dead
+/// after the call, leaks its moved-in heap field under sole-emitter lowering: the
+/// Phase-5 walk emits a matched `BurdenInc recv; BurdenDec recv` pair in the call
+/// block, the Phase-3 coalesce peephole cancels the adjacent pair to net-0, and no
+/// scope-exit release survives. RL-2 mandates the single scope-exit release of a
+/// fresh owned aggregate whose last use is a borrowed call
+/// (`rl2_emits_dec(.LastReadBeforeScopeExit)` + `RL2_release_exactly_once`); the
+/// moved-in field is an `RL2_transfer_kinds_no_dec` `ConstructArg` transfer INTO
+/// the aggregate so the aggregate's drop is the field's sole release. The release
+/// relocates to BOTH dead successor edges (RL-4 `RL4_edge_release_balanced`).
+///
+/// SEED-not-reuse exclusions (the SAME discipline as the dead-no-use-aggregate /
+/// branch-dead-value passes so it never double-frees a transferred or
+/// already-balanced lineage): the receiver must be FRESH (defined by a `Construct`
+/// OR an aggregate-returning call result), carry the coalesce-doomed `BurdenInc` +
+/// `BurdenDec` PAIR in the call block, be DEAD after the call (`!lineage_live_out`),
+/// and NOT be returned / owned-consumed / owned-moved-into-collection. The callee
+/// must borrow-read without return-view aliasing (`aggregate_borrow_read_relocatable`).
+/// Probe-gated -> default codegen byte-identical. Spec: Annex E §AIMS RL-2 + RL-4.
+fn compute_borrowed_terminator_aggregate_relocations(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Vec<(usize, ArcVarId, usize, usize)> {
+    let conversion_names = collection_conversion_names(interner);
+    let survives_transform_names = borrow_survives_transform_names(interner);
+    let accessor_retain_names = crate::borrow::accessor_retain_builtin_names(interner);
+    let sharing_view_names = sharing_view_relocation_names(interner);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let escape_safe_names = EscapeSafeBorrowedNames {
+        conversion: &conversion_names,
+        survives_transform: &survives_transform_names,
+        accessor_retain: &accessor_retain_names,
+        sharing_view: &sharing_view_names,
+        builtins: &builtins,
+    };
+
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+
+    // SEED-not-reuse exclusion sets (shared with the dead-no-use-aggregate pass).
+    let returned = compute_returned_lineages(func, &jt_reps);
+    let owned_consumed = compute_owned_consumed_lineages(func, &jt_reps, &jt_reps);
+    let owned_moved = compute_collection_owned_moved_str_lineages(func, &jt_reps);
+
+    let mut relocations: Vec<(usize, ArcVarId, usize, usize)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        // Terminator must be an `Invoke` with a BORROWED receiver (arg 0).
+        let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            arg_ownership,
+            normal,
+            unwind,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+        let Some(&recv) = args.first() else {
+            continue;
+        };
+        let recv_borrowed = arg_ownership
+            .first()
+            .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+        if !recv_borrowed {
+            continue;
+        }
+        // The receiver must be a FRESH burden-carrying inline aggregate (heap-bearing
+        // struct / tuple / Option / Result / sum variant). A Value-variant (scalar
+        // payload, triviality Trivial) is excluded — no heap field to free, a
+        // spurious `RcDec [InlineEnum]` on it is unsound.
+        if !is_burden_carrying_aggregate(recv, func, pool) {
+            continue;
+        }
+        let rep = rep_of(recv);
+        // The receiver must carry the coalesce-doomed `BurdenInc recv` AND
+        // `BurdenDec recv` pair in the call block — the Phase-5 mis-emission this
+        // pass corrects. Absent the pair, there is nothing to relocate.
+        let has_inc = block
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::BurdenInc { var } if rep_of(*var) == rep));
+        let has_dec = block
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::BurdenDec { var } if rep_of(*var) == rep));
+        if !has_inc || !has_dec {
+            continue;
+        }
+        // The callee must borrow-read without return-view aliasing.
+        if !aggregate_borrow_read_relocatable(*callee, 0, &escape_safe_names, contracts) {
+            continue;
+        }
+        // The receiver must die after the call (not live-out — a live-out aggregate
+        // needs joint multi-use accounting this dec-relocation does not model).
+        if lineage_live_out(func, &jt_reps, rep, b) {
+            continue;
+        }
+        // SEED-not-reuse: a returned / owned-consumed / owned-moved-into-collection
+        // lineage has its release elsewhere — relocating here double-frees.
+        if returned.contains(&rep) || owned_consumed.contains(&rep) || owned_moved.contains(&rep) {
+            continue;
+        }
+        relocations.push((b, recv, normal.index(), unwind.index()));
+    }
+    relocations
+}
+
+/// Phase 6.87: strip the coalesce-doomed pre-call `BurdenInc recv` + `BurdenDec
+/// recv` pair on a fresh borrow-read-into-call inline aggregate and emit ONE
+/// `BurdenDec recv` at the front of both dead successor edges (RL-4 `Both`).
+/// Probe-gated -> default codegen byte-identical. Spec: Annex E §AIMS RL-2 + RL-4.
+fn relocate_borrowed_terminator_aggregate_dec(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) {
+    let relocations =
+        compute_borrowed_terminator_aggregate_relocations(func, pool, interner, contracts);
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    // Strip the coalesce-doomed inc + dec pair from each call block (one of each —
+    // the matched pair the Phase-5 walk emitted before the terminator).
+    for &(b, recv, _, _) in &relocations {
+        let rep = rep_of(recv);
+        if let Some(block) = func.blocks.get_mut(b) {
+            if let Some(idx) = block
+                .body
+                .iter()
+                .position(|i| matches!(i, ArcInstr::BurdenInc { var } if rep_of(*var) == rep))
+            {
+                block.body.remove(idx);
+            }
+            if let Some(idx) = block
+                .body
+                .iter()
+                .position(|i| matches!(i, ArcInstr::BurdenDec { var } if rep_of(*var) == rep))
+            {
+                block.body.remove(idx);
+            }
+        }
+    }
+    // Insert the single relocated release at the front of both successor edges.
+    for &(_, recv, normal, unwind) in &relocations {
+        if let Some(succ) = func.blocks.get_mut(normal) {
+            succ.body.insert(0, ArcInstr::BurdenDec { var: recv });
+        }
+        if normal != unwind {
+            if let Some(succ) = func.blocks.get_mut(unwind) {
+                succ.body.insert(0, ArcInstr::BurdenDec { var: recv });
+            }
         }
     }
 }
