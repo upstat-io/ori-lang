@@ -4271,3 +4271,140 @@ fn probe_fresh_heap_str_returned_on_early_exit_no_double_free_negative() {
 "#;
     assert_burden_path_self_sufficient(src, "fresh_heap_str_returned_on_early_exit_no_double_free");
 }
+
+// A heap value (str / list) moved into an INLINE SUM VARIANT, where the fresh
+// variant is then passed BORROWED to a user callee that borrow-reads it and is
+// DEAD afterward, leaks the moved-in heap field under sole-emitter lowering. The
+// Phase-5 walk emits a matched `BurdenInc v; BurdenDec v` pair on the variant
+// BEFORE the borrowed call; the coalesce peephole cancels the adjacent pair to
+// net-0, so no scope-exit `RcDec [InlineEnum]` survives — the variant's
+// drop-glue (which would walk the heap field) never runs. RL-2 mandates the
+// single scope-exit release of a fresh owned aggregate whose last use is a
+// borrowed call (`RL2_release_exactly_once` + the borrowed-call last use is a
+// non-transfer kind, `rl2_emits_dec(.LastReadBeforeScopeExit)`); the moved-in
+// field is an RL-2 `ConstructArg` transfer INTO the variant, so the variant's
+// own drop is the field's sole release. Spec: Annex E §AIMS RL-2 + RL-4.
+
+#[test]
+fn probe_heap_str_into_sum_variant_borrow_read_freed() {
+    // POSITIVE (the f06 shape): a heap `str` (> 23-byte SSO threshold) moved into
+    // `Named(description: heap, count: int)`, the variant borrowed-read by
+    // `desc_len` and dead afterward. The moved-in str field must be freed at the
+    // variant's scope-exit drop. FAILED=leak pre-cure -> PASS.
+    let src = r#"
+type Item = Named(description: str, count: int) | Anon(count: int);
+
+@desc_len (i: Item) -> int =
+    match i {
+        Named(description, count) -> description.length() + count,
+        Anon(count) -> count,
+    };
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let r = desc_len(i: Named(description: heap, count: 7));
+    if r == 58 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_into_sum_variant_borrow_read_freed");
+}
+
+#[test]
+fn probe_heap_list_into_sum_variant_borrow_read_freed() {
+    // POSITIVE (the f12 shape): a heap `[int]` list moved into `Items(list)`, the
+    // variant borrowed-read by `get_size` and dead afterward. The moved-in list
+    // backing buffer must be freed at the variant's scope-exit drop. FAILED=leak
+    // pre-cure -> PASS.
+    let src = r#"
+type Content = Title(text: str) | Items(list: [int]) | Nothing;
+
+@get_size (c: Content) -> int =
+    match c {
+        Title(text) -> text.length(),
+        Items(list) -> list.length(),
+        Nothing -> 0,
+    };
+
+@main () -> int = {
+    let b = get_size(c: Items(list: [10, 20, 30]));
+    if b == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_list_into_sum_variant_borrow_read_freed");
+}
+
+#[test]
+fn probe_heap_str_into_sum_variant_transferred_owned_no_double_free_negative() {
+    // CRITICAL NEGATIVE (the over-fire boundary — variant TRANSFERRED OWNED): the
+    // variant is passed at an OWNED call position (`consume` takes `Item` and
+    // owned-consumes it). That is an RL-2 ownership transfer — the callee frees the
+    // variant (and its moved-in str field). The scope-exit edge-release MUST NOT
+    // fire on the caller, or the str double-frees. The Borrowed-position gate +
+    // the owned-consumed exclusion keep it excluded. PASS pre AND post cure.
+    let src = r#"
+type Item = Named(description: str, count: int) | Anon(count: int);
+
+@consume (i: Item) -> int = {
+    let n = match i {
+        Named(description, count) -> description.length() + count,
+        Anon(count) -> count,
+    };
+    n
+}
+
+@take_owned (i: Item) -> int = consume(i: i);
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let r = take_owned(i: Named(description: heap, count: 7));
+    if r == 58 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "heap_str_into_sum_variant_transferred_owned_no_double_free",
+    );
+}
+
+#[test]
+fn probe_value_variant_into_sum_no_spurious_dec_negative() {
+    // NEGATIVE (the Value-variant boundary): a variant carrying ONLY scalar fields
+    // (`Pair(a: int, b: int)`) is NOT burden-carrying (triviality Trivial — no heap
+    // field). The scope-exit edge-release MUST NOT fire (there is no field to free;
+    // a spurious `RcDec [InlineEnum]` on a scalar-only inline enum is unsound). The
+    // `is_burden_carrying_aggregate` gate excludes it. PASS pre AND post cure.
+    let src = r#"
+type Pair = Both(a: int, b: int) | Single(a: int);
+
+@sum_pair (p: Pair) -> int =
+    match p {
+        Both(a, b) -> a + b,
+        Single(a) -> a,
+    };
+
+@main () -> int = {
+    let r = sum_pair(p: Both(a: 12, b: 30));
+    if r == 42 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "value_variant_into_sum_no_spurious_dec");
+}
+
+#[test]
+fn probe_heap_str_into_sum_variant_already_balanced_sibling() {
+    // SIBLING (already-balanced): a heap str bound to a `let` FIRST, borrowed-read
+    // directly (NOT via a sum variant) then dead — the existing dead-owned /
+    // borrowed-read path already frees it. The new sum-variant edge-release MUST
+    // NOT also fire on this lineage (no variant wraps the str). Confirms the cure
+    // is scoped to the moved-into-variant shape only. PASS pre AND post cure.
+    let src = r#"
+@len_of (s: str) -> int = s.length();
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let n = len_of(s: heap);
+    if n == 51 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_into_sum_variant_already_balanced_sibling");
+}
