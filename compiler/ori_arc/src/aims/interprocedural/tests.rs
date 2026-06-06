@@ -13,7 +13,7 @@ use crate::ir::{
 use crate::ownership::Ownership;
 use crate::ArcClass;
 
-use super::super::lattice::{Cardinality, Uniqueness};
+use super::super::lattice::{AccessClass, Cardinality, Uniqueness};
 use super::*;
 
 // Test helpers
@@ -220,6 +220,118 @@ fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
     assert!(
         !contract_b.params[0].iter_consumes,
         "forwarding to a NON-iter-consuming (borrow-read) callee does NOT propagate"
+    );
+}
+
+#[test]
+fn borrowed_read_only_true_for_param_at_borrowed_user_call_position() {
+    // fn fwd(xs: [int]) -> int { read_only(xs) }  where read_only's param is
+    // Borrowed AND borrowed_read_only (a pure borrow-read callee). The param flows
+    // ONLY to a borrowed, read-only-forwarded position → fwd's param is
+    // `borrowed_read_only` (the caller carve-out may un-exclude a fresh-local
+    // collection passed here). Spec: Annex E §AIMS RL-2.
+    let read_only = name(7);
+    let mut callee = MemoryContract::conservative(1);
+    callee.params[0].access = AccessClass::Borrowed;
+    callee.params[0].borrowed_read_only = true;
+    let mut sigs = FxHashMap::default();
+    sigs.insert(read_only, callee);
+
+    let fwd = ArcFunction {
+        name: name(8),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(1),
+                func: read_only,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = analyze_function(&fwd, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &fwd,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert!(
+        contract.params[0].borrowed_read_only,
+        "a param flowing only to a borrowed read-only callee position is borrowed_read_only"
+    );
+}
+
+#[test]
+fn borrowed_read_only_false_for_param_at_owned_consumer_position() {
+    // fn fwd(xs: [int]) -> int { consume(xs) }  where consume's param is Owned
+    // (a COW-mutating / transferring callee — the Owned analogue of `xs.push(v)`).
+    // The param flows to an OWNED position → fwd's param is NOT borrowed_read_only,
+    // so the caller carve-out keeps a collection passed here EXCLUDED (un-excluding
+    // a COW-shared buffer would double-free). This is the load-bearing over-fire
+    // guard. Spec: Annex E §AIMS RL-2 (a COW-mutated param is NOT
+    // ApplyToBorrowedParam).
+    let consume = name(7);
+    let mut callee = MemoryContract::conservative(1);
+    callee.params[0].access = AccessClass::Owned;
+    callee.params[0].borrowed_read_only = false;
+    let mut sigs = FxHashMap::default();
+    sigs.insert(consume, callee);
+
+    let fwd = ArcFunction {
+        name: name(8),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(1),
+                func: consume,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = analyze_function(&fwd, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &fwd,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert!(
+        !contract.params[0].borrowed_read_only,
+        "a param flowing to an OWNED consumer position is NOT borrowed_read_only"
     );
 }
 

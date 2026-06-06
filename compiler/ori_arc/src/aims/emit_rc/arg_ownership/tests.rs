@@ -23,6 +23,7 @@ fn make_param_contract(access: AccessClass) -> ParamContract {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }
 }
 

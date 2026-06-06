@@ -6,7 +6,7 @@
 //!
 //! # Algorithm
 //!
-//! Follows Lean 4's approach (`src/Lean/Compiler/IR/Borrow.lean`):
+//! Historical influence: Lean 4's borrow-inference SHAPE (`Lean.Compiler.IR.Borrow`).
 //!
 //! 1. **Decompose**: Build call graph, compute SCCs via Tarjan's algorithm.
 //! 2. **Initialize**: All non-scalar parameters start as `Borrowed`.
@@ -47,9 +47,9 @@ mod per_scc;
 mod update;
 
 pub use builtins::{
-    all_cow_method_names, borrowing_builtin_names, consuming_receiver_builtin_names,
-    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
-    sharing_builtin_names, BuiltinOwnershipSets,
+    accessor_retain_builtin_names, all_cow_method_names, borrowing_builtin_names,
+    consuming_receiver_builtin_names, consuming_receiver_only_builtin_names,
+    consuming_second_arg_builtin_names, sharing_builtin_names, BuiltinOwnershipSets,
 };
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;

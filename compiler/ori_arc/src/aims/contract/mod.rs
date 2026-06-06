@@ -357,6 +357,43 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — caller keeps its dec).
     pub iter_consumes: bool,
+    /// Whether this borrowed parameter flows ONLY to borrowed positions in the
+    /// callee body — no owned-position consumer (no COW-mutation, no transfer).
+    ///
+    /// `true` when the parameter (through Let-Var / Jump-arg / Select aliases)
+    /// appears only at Borrowed arg positions of `Apply`/`Invoke` (a pure
+    /// borrow-read such as `xs.length()` / `xs[idx]`), never at an OWNED position
+    /// (a COW-mutator like `xs.push(v)` consumes the receiver `[own]`, an iter
+    /// consume routes through `@iter [own]`, a transfer hands it inward). Borrow
+    /// inference leaves a COW-mutated receiver param `access: Borrowed` (the
+    /// runtime manages the COW receiver's RC internally), so `access == Borrowed`
+    /// alone does NOT prove non-COW — this is the distinct per-param fact that
+    /// does, the affirmative read-only complement of `iter_consumes`.
+    ///
+    /// Consumed on the CALLER side by
+    /// `realize::emit_unified::compute_user_call_arg_lineages`: a fresh-local
+    /// COLLECTION at a Borrowed user-call arg whose callee param
+    /// `borrowed_read_only` is `true` SURVIVES the call and the caller retains
+    /// ownership — it stays ELIGIBLE for the dead-owned alloc-aware net, which
+    /// fires ONE RL-2 scope-exit release iff net +1 (the collection analogue of
+    /// the borrowed-`str` carve-out). A COW-mutating callee
+    /// (`borrowed_read_only == false`) stays EXCLUDED (a caller release would
+    /// double-free the COW-shared buffer).
+    ///
+    /// Soundness: a pure borrow-read of a surviving Borrowed collection is
+    /// `ApplyToBorrowedParam` (RL-2 NON-transfer → caller decs)
+    /// — `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec` +
+    /// `RL2_release_exactly_once`. A COW-mutated / iter-consumed param is a
+    /// transfer (NO caller dec) — `RL2_transfer_kinds_no_dec`.
+    ///
+    /// IC-3 join: AND (the read-only guarantee holds only if it holds on EVERY
+    /// path — any owned-position use on any path clears it).
+    ///
+    /// Scalar params: `false` (no RC, never a release target — the gate also
+    /// requires a non-scalar collection arg so the value is irrelevant for them).
+    ///
+    /// Default: `false` (conservative — caller keeps its exclusion, no release).
+    pub borrowed_read_only: bool,
 }
 
 impl ParamContract {
@@ -386,6 +423,10 @@ impl ParamContract {
         // Conservative default: caller keeps its dec. Promoted by
         // extract_contract when the borrowed param iter-consumes-and-frees.
         iter_consumes: false,
+        // Conservative default: caller keeps its exclusion (no read-only claim).
+        // AND-join bottom is `false` for the conservative contract — an unknown
+        // callee is assumed to consume the param, so the carve-out never fires.
+        borrowed_read_only: false,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -414,6 +455,11 @@ impl ParamContract {
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's iter-consume-and-free fact fires.
         iter_consumes: false,
+        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
+        // read-only). Join (AND) demotes to `false` when any path uses the param
+        // at an owned position. `extract_contract` overrides per-param from the
+        // body scan; OPTIMISTIC is the fixpoint seed only.
+        borrowed_read_only: true,
     };
 
     /// Componentwise join toward conservative.
@@ -442,6 +488,9 @@ impl ParamContract {
             // OR (conservative direction): once true on any path, stays true.
             // Matches IC-3 componentwise-max semantics for boolean dimensions.
             iter_consumes: self.iter_consumes || other.iter_consumes,
+            // AND (conservative direction): the read-only guarantee holds only if
+            // it holds on EVERY joined path — any owned-position use clears it.
+            borrowed_read_only: self.borrowed_read_only && other.borrowed_read_only,
         }
     }
 }

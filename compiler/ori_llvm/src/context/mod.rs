@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! Following Rust's `rustc_codegen_llvm` pattern, `SimpleCx` is a thin
+//! Historical influence: the `rustc_codegen_llvm` SHAPE — `SimpleCx` is a thin
 //! wrapper around LLVM's `Context` + `Module`. Type computation is handled
 //! by `TypeInfoStore` + `TypeLayoutResolver` in `codegen/type_info.rs`.
 

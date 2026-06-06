@@ -13,8 +13,8 @@
 //!
 //! # Reference
 //!
-//! Inspired by Gleam's `series_of()` combinator which handles comma-separated
-//! lists with trailing separator support.
+//! Historical influence: the `series_of()` combinator SHAPE from Gleam, which
+//! handles comma-separated lists with trailing separator support.
 
 use ori_ir::TokenKind;
 

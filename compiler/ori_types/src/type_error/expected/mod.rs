@@ -6,7 +6,7 @@
 //!
 //! # Design
 //!
-//! Inspired by Elm's `Expected` type from `Reporting/Error/Type.hs`:
+//! Historical influence: the `Expected`-type SHAPE from Elm (`Reporting/Error/Type.hs`):
 //! - Every type expectation carries its origin
 //! - Origins distinguish annotations from contextual expectations
 //! - Sequence contexts track which previous element set the expectation

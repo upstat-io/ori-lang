@@ -216,6 +216,42 @@ pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
         .collect()
 }
 
+/// Accessor methods that EXTRACT an owned heap payload out of a wrapper /
+/// collection and RETAIN it (codegen emits `inc_value_rc` on the extracted
+/// element/payload — `option_result.rs:emit_option_method`/`emit_result_method`,
+/// `list_builtins/helpers.rs:emit_list_first_or_last`, `list_builtins/mod.rs`
+/// list index, `map_builtins.rs:emit_map_get`).
+///
+/// The retain makes the result a FRESH owned reference, NOT a buffer-sharing view
+/// (contrast [`SHARING_METHOD_NAMES`] `slice`/`substring`, which return views over
+/// the receiver's backing without a retain). The receiver passed at a borrowed
+/// `Invoke` terminator arg therefore SURVIVES the call and its scope-exit release
+/// belongs on the successor edges (Spec: Annex E §AIMS RL-2 / RL-4) — not inline
+/// before the borrowed call, which would free the payload before the accessor
+/// retains it.
+///
+/// Sorted alphabetically.
+const ACCESSOR_RETAIN_METHOD_NAMES: &[&str] = &[
+    "expect",     // Option/Result.expect — retains Some/Ok payload
+    "expect_err", // Result.expect_err — retains Err payload
+    "first",      // list.first — retains first element copy
+    "get",        // list index / map.get — retains element/value copy
+    "last",       // list.last — retains last element copy
+    "unwrap",     // Option/Result.unwrap — retains Some/Ok payload
+    "unwrap_err", // Result.unwrap_err — retains Err payload
+];
+
+/// Collect interned [`Name`]s for accessor methods that retain their extracted
+/// payload.
+///
+/// See [`ACCESSOR_RETAIN_METHOD_NAMES`] for the full list and rationale.
+pub fn accessor_retain_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    ACCESSOR_RETAIN_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
 /// Pre-computed interned sets for ARC ownership annotation.
 ///
 /// Groups the builtin method name sets that

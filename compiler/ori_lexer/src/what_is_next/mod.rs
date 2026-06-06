@@ -1,7 +1,7 @@
 //! Context inspection for error message generation.
 //!
-//! Inspired by Elm's `whatIsNext` pattern: inspect what character or sequence
-//! the lexer got stuck on to produce tailored error messages.
+//! Historical influence: the Elm `whatIsNext` SHAPE — inspect what character or
+//! sequence the lexer got stuck on to produce tailored error messages.
 
 /// What was found at the position where the lexer got stuck.
 ///

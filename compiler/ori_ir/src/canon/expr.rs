@@ -380,7 +380,7 @@ impl fmt::Debug for CanExpr {
 /// carries the resolved type from the type checker. This means backends don't
 /// need to look up types separately — they're right there on the node.
 ///
-/// Following Roc's pattern where every `can::Expr` carries type variables.
+/// Historical influence: the Roc canonical-IR SHAPE where every node carries its type.
 ///
 /// # Note on `ty` field
 ///
@@ -439,9 +439,9 @@ pub struct CanField {
 
 /// A compile-time constant value stored in a [`ConstantPool`](super::pools::ConstantPool).
 ///
-/// These are produced by constant folding during canonicalization
-/// (Section 04). Only values that can be fully determined at compile
-/// time are represented here.
+/// These are produced by constant folding during canonicalization.
+/// Only values that can be fully determined at compile time are
+/// represented here.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConstValue {
     Int(i64),

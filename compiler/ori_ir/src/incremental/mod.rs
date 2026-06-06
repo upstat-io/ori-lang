@@ -4,8 +4,8 @@
 //!
 //! # Architecture
 //!
-//! This module provides the foundation for incremental parsing, following TypeScript's
-//! proven two-phase approach:
+//! This module provides the foundation for incremental parsing — historical
+//! influence: the TypeScript two-phase SHAPE:
 //!
 //! 1. **Text Change** - Represents an edit operation (insertion, deletion, replacement)
 //! 2. **Change Marker** - Determines which source regions are affected by the change
@@ -146,7 +146,7 @@ impl TextChange {
 ///
 /// To handle parser lookahead, the affected region is typically extended backward
 /// from the change start to include any tokens that might have been looked at
-/// during the original parse. This follows TypeScript's incremental parsing approach.
+/// during the original parse.
 ///
 /// # Examples
 ///

@@ -9,11 +9,17 @@
 //! RC counts use the SSOT `crate::pipeline::rc_count::count_rc_ops`.
 
 use super::{
-    compute_dead_collection_source_releases, compute_dead_iterator_handle_releases,
+    borrow_survives_transform_names, borrowed_arg_release_verdict, collection_conversion_names,
+    collection_set_algebra_names, compute_comparison_operand_keepalive_strips,
+    compute_dead_collection_source_releases, compute_dead_iterator_handle_candidates,
+    compute_dead_iterator_handle_releases, compute_dead_no_use_aggregate_releases,
     compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
-    compute_lineage_alloc_aware_net, emit_for_yield_index_consumed_element_rc,
-    emit_iter_element_view_iter_consume_keepalive_inc, lower_burden_ops_to_rc,
-    relocate_borrowed_terminator_arg_dec_to_edges, suppress_multi_borrow_iter_consume_source_decs,
+    compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
+    compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
+    emit_for_yield_index_consumed_element_rc, emit_iter_element_view_iter_consume_keepalive_inc,
+    is_burden_carrying_aggregate, iterator_consumer_collection_names, lower_burden_ops_to_rc,
+    relocate_borrowed_terminator_arg_dec_to_edges, sharing_view_relocation_names,
+    suppress_multi_borrow_iter_consume_source_decs, EdgeRelease, EscapeSafeBorrowedNames,
     IterHandleRelease,
 };
 use crate::aims::contract::{MemoryContract, ReturnAliasShape};
@@ -24,7 +30,7 @@ use crate::ir::{
 };
 use crate::pipeline::rc_count::count_rc_ops;
 use ori_ir::BinaryOp;
-use ori_types::{Idx, Pool};
+use ori_types::{EnumVariant, Idx, Pool};
 use rustc_hash::FxHashMap;
 
 fn v(n: u32) -> ArcVarId {
@@ -1035,7 +1041,13 @@ fn dead_owned_collection_frees_read_only_map_at_scope_exit() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = read_only_map_func(&mut pool, &interner);
-    let releases = compute_dead_owned_collection_releases(&func, &pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
     assert_eq!(
         releases.len(),
         1,
@@ -1078,7 +1090,13 @@ fn dead_owned_collection_skips_returned_map() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = returned_map_func(&mut pool, &interner);
-    let releases = compute_dead_owned_collection_releases(&func, &pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
     assert!(
         releases.is_empty(),
         "a RETURNED (transferred) collection gets NO scope-exit dec; got {releases:?}",
@@ -1138,10 +1156,486 @@ fn dead_owned_collection_skips_user_function_arg() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = map_to_user_fn_func(&mut pool, &interner);
-    let releases = compute_dead_owned_collection_releases(&func, &pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
     assert!(
         releases.is_empty(),
         "a collection passed to a user function gets NO scope-exit dec; got {releases:?}",
+    );
+}
+
+// === Dead-no-use INLINE-AGGREGATE pass (M1) ===
+
+/// Build a bare dead-no-use struct: `%1 = Construct Struct(Doc)(%0)` where `Doc =
+/// { content: str }` (an `Aggregate` repr, `NonTrivial` triviality), with ZERO
+/// uses. The single-block function returns a scalar (`%2`). The pass MUST emit
+/// exactly one scope-exit dec on `%1` (the heap str field leaks otherwise).
+fn dead_no_use_struct_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let content = interner.intern("content");
+    let doc_name = interner.intern("Doc");
+    let doc_ty = pool.struct_type(doc_name, &[(content, Idx::STR)]);
+    // %0 = the str field arg (FatValue), %1 = the Doc struct (Aggregate), %2 = scalar.
+    ArcFunction {
+        var_types: vec![Idx::STR, doc_ty, Idx::INT],
+        var_reprs: vec![ValueRepr::FatValue, ValueRepr::Aggregate, ValueRepr::Scalar],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: doc_ty,
+                ctor: CtorKind::Struct(doc_name),
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn dead_no_use_aggregate_frees_struct_with_str_at_scope_exit() {
+    // The dead-no-use `Doc { content: str }` struct (Aggregate repr, NonTrivial)
+    // has ZERO uses. The pass emits exactly ONE scope-exit dec on `%1` at the END
+    // of its defining block (bb0) — Phase 7 lowers it to `RcDec [AggFields]`
+    // walking the heap str field. Spec: Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = dead_no_use_struct_func(&mut pool, &interner);
+    // The gate recognises the burden-carrying aggregate.
+    assert!(
+        is_burden_carrying_aggregate(v(1), &func, &pool),
+        "a struct with a str field is a burden-carrying aggregate"
+    );
+    let releases =
+        compute_dead_no_use_aggregate_releases(&func, &pool, &interner, &FxHashMap::default());
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly one dead-no-use aggregate release (the leaked struct at scope exit); got {releases:?}",
+    );
+    let (block_idx, var) = releases[0];
+    assert_eq!(
+        block_idx, 0,
+        "release at the defining block bb0 (scope exit)"
+    );
+    assert_eq!(var, v(1), "frees the struct's SSA value %1");
+}
+
+#[test]
+fn dead_no_use_aggregate_skips_scalar_only_struct() {
+    // NEGATIVE pin: a scalar-only struct `{ x: int, y: int }` is `Trivial` (no heap
+    // field, no drop-glue) -> `is_burden_carrying_aggregate` is false -> the pass
+    // MUST emit nothing (a `RcDec [AggFields]` on a null-drop-glue struct is a
+    // spurious release). Spec: Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let x = interner.intern("x");
+    let y = interner.intern("y");
+    let point_name = interner.intern("Point");
+    let point_ty = pool.struct_type(point_name, &[(x, Idx::INT), (y, Idx::INT)]);
+    let func = ArcFunction {
+        var_types: vec![Idx::INT, Idx::INT, point_ty, Idx::INT],
+        var_reprs: vec![
+            ValueRepr::Scalar,
+            ValueRepr::Scalar,
+            ValueRepr::Aggregate,
+            ValueRepr::Scalar,
+        ],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Construct {
+                dst: v(2),
+                ty: point_ty,
+                ctor: CtorKind::Struct(point_name),
+                args: vec![v(0), v(1)],
+            }],
+            terminator: ArcTerminator::Return { value: v(3) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    };
+    assert!(
+        !is_burden_carrying_aggregate(v(2), &func, &pool),
+        "a scalar-only struct is NOT a burden-carrying aggregate"
+    );
+    let releases =
+        compute_dead_no_use_aggregate_releases(&func, &pool, &interner, &FxHashMap::default());
+    assert!(
+        releases.is_empty(),
+        "a scalar-only (Trivial) aggregate gets NO scope-exit dec; got {releases:?}",
+    );
+}
+
+#[test]
+fn dead_no_use_aggregate_skips_returned_struct() {
+    // NEGATIVE pin: a fresh aggregate that is RETURNED is an RL-2 transfer (the
+    // caller inherits the release). The pass MUST emit nothing (a dec here
+    // double-frees the heap field against the caller's release). Spec: Annex E
+    // §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let content = interner.intern("content");
+    let doc_name = interner.intern("Doc");
+    let doc_ty = pool.struct_type(doc_name, &[(content, Idx::STR)]);
+    // %0 = str field, %1 = Doc struct — RETURNED from bb0.
+    let func = ArcFunction {
+        var_types: vec![Idx::STR, doc_ty],
+        var_reprs: vec![ValueRepr::FatValue, ValueRepr::Aggregate],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: doc_ty,
+                ctor: CtorKind::Struct(doc_name),
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    };
+    let releases =
+        compute_dead_no_use_aggregate_releases(&func, &pool, &interner, &FxHashMap::default());
+    assert!(
+        releases.is_empty(),
+        "a RETURNED (transferred) aggregate gets NO scope-exit dec; got {releases:?}",
+    );
+}
+
+/// Build a project-borrowed-view double-free shape: `%0 = "..."` (str field),
+/// `%1 = Construct Struct(Wrapper)(%0)` (single-ref aggregate), `%2 = Project
+/// %1.0` (the borrow-view), `burden_dec %1` (the aggregate `[AggFields]` drop —
+/// frees `%0`), `burden_dec %2` (the SPURIOUS view dec — frees `%0` again),
+/// borrowed-read `@length(%2)`, return scalar. `paired_inc` controls whether the
+/// aggregate is bumped by a keep-alive `burden_inc %1` (shared -> KEEP) or stays
+/// single-ref (-> STRIP). `aggregate_dec` controls whether the aggregate's
+/// freeing dec is present (no dec -> the view dec is the only release -> KEEP).
+fn project_borrowed_view_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+    paired_inc: bool,
+    aggregate_dec: bool,
+) -> ArcFunction {
+    let s = interner.intern("s");
+    let wrapper_name = interner.intern("Wrapper");
+    let length_name = interner.intern("length");
+    let wrapper_ty = pool.struct_type(wrapper_name, &[(s, Idx::STR)]);
+    // %0 str field (bare FatValue slot, consumed by Construct), %1 Wrapper struct,
+    // %2 Project view, %3 length result (scalar).
+    let mut body = vec![ArcInstr::Construct {
+        dst: v(1),
+        ty: wrapper_ty,
+        ctor: CtorKind::Struct(wrapper_name),
+        args: vec![v(0)],
+    }];
+    if paired_inc {
+        body.push(ArcInstr::BurdenInc { var: v(1) });
+    }
+    body.push(ArcInstr::Project {
+        dst: v(2),
+        ty: Idx::STR,
+        value: v(1),
+        field: 0,
+    });
+    if aggregate_dec {
+        body.push(ArcInstr::BurdenDec { var: v(1) });
+    }
+    body.push(ArcInstr::BurdenDec { var: v(2) });
+    body.push(ArcInstr::Apply {
+        dst: v(3),
+        ty: Idx::INT,
+        func: length_name,
+        args: vec![v(2)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    });
+    ArcFunction {
+        var_types: vec![Idx::STR, wrapper_ty, Idx::STR, Idx::INT],
+        var_reprs: vec![
+            ValueRepr::FatValue,
+            ValueRepr::Aggregate,
+            ValueRepr::FatValue,
+            ValueRepr::Scalar,
+        ],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Return { value: v(3) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+/// Build the USED-and-compared aggregate `a == b` / `a != c` shape (the f13
+/// canonical). `%1` is the compared aggregate (`Doc { content: str }`), bumped by
+/// a construct keep-alive `BurdenInc %1` for its two comparisons.
+///
+/// bb0 builds a / b / c, the keep-alive, the operand alias `%9 = %1` with a
+/// spurious `BurdenInc %9`, the `%9 == %10` `PrimOp`, then `BurdenDec %9` /
+/// `BurdenDec %10`; branches to bb1 / bb2. bb1 (then, re-compares `%1`) holds the
+/// operand alias `%12 = %1` with a spurious `BurdenInc %12`, the `%12 != %13`
+/// `PrimOp`, the misplaced whole-var `BurdenDec %1` (M4), and the operand decs
+/// `BurdenDec %12` / `BurdenDec %13`. bb2 (else) holds the genuine
+/// complement-branch `BurdenDec %1`. `%10` / `%13` alias the other operands (`%4`
+/// is b, `%7` is c). With `keepalive` false the construct `BurdenInc %1` is
+/// omitted (single-use shape, nothing to strip, M4 must not fire).
+/// Var tables for `comparison_operand_func`: aggregates at %1/%4/%7/%9/%10/%12/%13,
+/// bool comparison results at %11/%14.
+fn comparison_operand_var_tables(doc_ty: Idx) -> (Vec<Idx>, Vec<ValueRepr>) {
+    let mut var_types = vec![Idx::STR; 15];
+    let mut var_reprs = vec![ValueRepr::FatValue; 15];
+    for &agg in &[1u32, 4, 7, 9, 10, 12, 13] {
+        var_types[agg as usize] = doc_ty;
+        var_reprs[agg as usize] = ValueRepr::Aggregate;
+    }
+    for &cmp in &[11u32, 14] {
+        var_types[cmp as usize] = Idx::BOOL;
+        var_reprs[cmp as usize] = ValueRepr::Scalar;
+    }
+
+    (var_types, var_reprs)
+}
+
+fn comparison_operand_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+    keepalive: bool,
+) -> ArcFunction {
+    let content = interner.intern("content");
+    let doc_name = interner.intern("Doc");
+    let doc_ty = pool.struct_type(doc_name, &[(content, Idx::STR)]);
+    let cmp = |dst: u32, a: u32, b: u32, op: BinaryOp| ArcInstr::Let {
+        dst: v(dst),
+        ty: Idx::BOOL,
+        value: ArcValue::PrimOp {
+            op: PrimOp::Binary(op),
+            args: vec![v(a), v(b)],
+        },
+    };
+    let mk = |dst: u32, ty: Idx, name: ori_ir::Name| ArcInstr::Construct {
+        dst: v(dst),
+        ty,
+        ctor: CtorKind::Struct(name),
+        args: vec![v(dst.saturating_sub(1))],
+    };
+    // bb0: build a (%1), b (%4), c (%7); construct keep-alive on %1; `a == b`.
+    let mut bb0 = vec![
+        mk(1, doc_ty, doc_name),
+        mk(4, doc_ty, doc_name),
+        mk(7, doc_ty, doc_name),
+    ];
+    if keepalive {
+        bb0.push(ArcInstr::BurdenInc { var: v(1) });
+    }
+    bb0.push(ArcInstr::Let {
+        dst: v(9),
+        ty: doc_ty,
+        value: ArcValue::Var(v(1)),
+    });
+    bb0.push(ArcInstr::Let {
+        dst: v(10),
+        ty: doc_ty,
+        value: ArcValue::Var(v(4)),
+    });
+    bb0.push(ArcInstr::BurdenInc { var: v(9) }); // spurious operand inc (M3 target)
+    bb0.push(cmp(11, 9, 10, BinaryOp::Eq));
+    bb0.push(ArcInstr::BurdenDec { var: v(9) });
+    bb0.push(ArcInstr::BurdenDec { var: v(10) });
+
+    // bb1 (then): `a != c`; misplaced whole-var dec of %1 (M4 target).
+    let bb1 = vec![
+        ArcInstr::Let {
+            dst: v(12),
+            ty: doc_ty,
+            value: ArcValue::Var(v(1)),
+        },
+        ArcInstr::Let {
+            dst: v(13),
+            ty: doc_ty,
+            value: ArcValue::Var(v(7)),
+        },
+        ArcInstr::BurdenInc { var: v(12) }, // spurious operand inc (M3 target)
+        cmp(14, 12, 13, BinaryOp::NotEq),
+        ArcInstr::BurdenDec { var: v(1) }, // misplaced (M4 target)
+        ArcInstr::BurdenDec { var: v(12) },
+        ArcInstr::BurdenDec { var: v(13) },
+    ];
+
+    // bb2 (else): genuine complement-branch %1 release (KEEP).
+    let bb2 = vec![ArcInstr::BurdenDec { var: v(1) }];
+
+    let (var_types, var_reprs) = comparison_operand_var_tables(doc_ty);
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: bb0,
+                terminator: ArcTerminator::Branch {
+                    cond: v(11),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: bb1,
+                terminator: ArcTerminator::Return { value: v(14) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: bb2,
+                terminator: ArcTerminator::Return { value: v(14) },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn comparison_operand_strips_spurious_inc_and_misplaced_dec() {
+    // POSITIVE: a multi-use compared aggregate `%1` (keep-alive inc present). The
+    // operand aliases `%9`/`%12` (sole use = `==`/`!=` operand) get their spurious
+    // `BurdenInc` stripped (M3); the misplaced bb1 `BurdenDec %1` (the operand dec
+    // already releases it there) gets stripped (M4). The bb2 `BurdenDec %1`
+    // (complement branch) stays. Spec: Annex E §AIMS RL-1 + RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = comparison_operand_func(&mut pool, &interner, true);
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    assert!(
+        strips.inc_strips.contains(&v(9)) && strips.inc_strips.contains(&v(12)),
+        "both comparison-operand keep-alive incs (%9, %12) are stripped; got {:?}",
+        strips.inc_strips,
+    );
+    assert!(
+        strips.dec_strips.contains(&(1usize, v(1))),
+        "the misplaced bb1 whole-var BurdenDec %1 is stripped (M4); got {:?}",
+        strips.dec_strips,
+    );
+    assert!(
+        !strips.dec_strips.contains(&(2usize, v(1))),
+        "the bb2 complement-branch BurdenDec %1 is KEPT (the genuine release); got {:?}",
+        strips.dec_strips,
+    );
+}
+
+#[test]
+fn comparison_operand_keeps_single_use_no_keepalive() {
+    // NEGATIVE: a single-comparison compared aggregate (NO construct keep-alive
+    // inc). `%1` is used once at the comparison, so its operand dec is the sole
+    // release. With no keep-alive inc on the `%1` lineage, the M4 whole-var
+    // strip must NOT fire (no redundant branch dec to remove). M3 still strips the
+    // operand incs, but the dec_strips set must be empty. Spec: Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = comparison_operand_func(&mut pool, &interner, false);
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    assert!(
+        strips.dec_strips.is_empty(),
+        "with no construct keep-alive inc, no whole-var dec is stripped; got {:?}",
+        strips.dec_strips,
+    );
+}
+
+#[test]
+fn comparison_operand_keeps_projected_field_no_compare() {
+    // NEGATIVE (the Config boundary): a struct whose field is PROJECTED (`Project
+    // %1.0`) and read, with NO `==`/`!=` comparison operand. The projected view is
+    // not a comparison operand, so no inc is stripped and no dec is stripped — the
+    // M3+M4 cure never touches the inline-struct-projected shape. Spec: Annex E
+    // §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    // Reuse the project-borrowed-view shape: %2 = Project %1.0 (a field read, not a
+    // comparison operand).
+    let func = project_borrowed_view_func(&mut pool, &interner, false, true);
+    let strips = compute_comparison_operand_keepalive_strips(&func, &pool);
+    assert!(
+        strips.inc_strips.is_empty() && strips.dec_strips.is_empty(),
+        "a projected-field (non-comparison) shape is never touched by the comparison-operand \
+         cure; got inc={:?} dec={:?}",
+        strips.inc_strips,
+        strips.dec_strips,
+    );
+}
+
+#[test]
+fn project_borrowed_view_strips_single_ref_str_field_dec() {
+    // The str-field view `%2 = Project %1.0` of a SINGLE-REF aggregate `%1` whose
+    // `[AggFields]` drop (`burden_dec %1`) frees the field: the view's
+    // `burden_dec %2` is the redundant SECOND release -> STRIP. Spec: Annex E
+    // §AIMS RL-2 + RL-4.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = project_borrowed_view_func(&mut pool, &interner, false, true);
+    let pbd = crate::aims::emit_rc::borrowed_defs::collect_project_borrowed_defs(&func, &pool);
+    assert!(pbd.contains(&v(2)), "%2 is a non-take Project borrow-view");
+    let strips = compute_redundant_project_borrowed_view_dec_strips(&func, &pool, &pbd);
+    assert!(
+        strips.contains(&v(2)),
+        "the single-ref str-field view dec is redundant (the aggregate drop frees the field); \
+         got {strips:?}",
+    );
+}
+
+#[test]
+fn project_borrowed_view_keeps_paired_inc_shared_aggregate_dec() {
+    // NEGATIVE pin: the aggregate `%1` IS bumped by a keep-alive `burden_inc %1`
+    // (shared, rc >= 2 at the projection point). The view's `burden_dec %2`
+    // releases the EXTRA reference, NOT a redundant second release of a single-ref
+    // field -> KEEP. Spec: Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = project_borrowed_view_func(&mut pool, &interner, true, true);
+    let pbd = crate::aims::emit_rc::borrowed_defs::collect_project_borrowed_defs(&func, &pool);
+    let strips = compute_redundant_project_borrowed_view_dec_strips(&func, &pool, &pbd);
+    assert!(
+        strips.is_empty(),
+        "a paired-inc shared-aggregate projection dec releases the extra ref and is KEPT; \
+         got {strips:?}",
+    );
+}
+
+#[test]
+fn project_borrowed_view_keeps_view_dec_when_no_aggregate_dec() {
+    // NEGATIVE pin: the aggregate `%1` carries NO freeing `burden_dec` (the field
+    // release is carried by the view dec alone — the no-scope-exit-aggregate-dec
+    // tuple shape). Stripping the view dec would LEAK the field -> KEEP. Spec:
+    // Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = project_borrowed_view_func(&mut pool, &interner, false, false);
+    let pbd = crate::aims::emit_rc::borrowed_defs::collect_project_borrowed_defs(&func, &pool);
+    let strips = compute_redundant_project_borrowed_view_dec_strips(&func, &pool, &pbd);
+    assert!(
+        strips.is_empty(),
+        "with no aggregate freeing dec, the view dec is the field's only release and is KEPT; \
+         got {strips:?}",
     );
 }
 
@@ -1255,7 +1749,13 @@ fn dead_owned_collection_frees_cow_mutator_chain_tail() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = push_chain_list_func(&mut pool, &interner);
-    let releases = compute_dead_owned_collection_releases(&func, &pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
     assert_eq!(
         releases.len(),
         1,
@@ -1361,13 +1861,267 @@ fn dead_owned_collection_frees_conversion_result() {
     let mut pool = ori_types::Pool::new();
     let interner = ori_ir::StringInterner::new();
     let func = values_result_func(&mut pool, &interner);
-    let releases = compute_dead_owned_collection_releases(&func, &pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
     assert_eq!(
         releases.len(),
         1,
         "exactly one release on the conversion RESULT; got {releases:?}",
     );
     assert_eq!(releases[0].1, v(1), "frees the @values result list %1");
+}
+
+/// Single-block-then-successors function modelling `a.union(b)`: two fresh Set
+/// Constructs `%0`(a)/`%1`(b), a `union` Invoke producing the fresh owned Set
+/// result `%2`, borrowed-read by `@len` then dead at scope exit. The result %2
+/// carries the dup-use fresh inc + a paired scope-exit dec (net 0 on explicit
+/// ops; the alloc `+1` leaks pre-cure). Models the set-algebra fresh-owned-result
+/// shape for [`compute_dead_owned_collection_releases`].
+fn set_union_result_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let set_ty = pool.set(Idx::INT);
+    let union_name = interner.intern("union");
+    let len_name = interner.intern("len");
+    // %0 set a, %1 set b, %2 union result set, %3 scalar len, %4 scalar return,
+    // %5/%6 scalar elements for the two literals.
+    let var_types = vec![
+        set_ty,
+        set_ty,
+        set_ty,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+    ];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+    ];
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: set_ty,
+                        ctor: CtorKind::SetLiteral,
+                        args: vec![v(5)],
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: set_ty,
+                        ctor: CtorKind::SetLiteral,
+                        args: vec![v(6)],
+                    },
+                    // The result %2 carries the dup-use fresh inc + a scope-exit dec
+                    // (net 0 on explicit ops; alloc +1 leaks pre-cure).
+                    ArcInstr::BurdenInc { var: v(2) },
+                    ArcInstr::BurdenDec { var: v(2) },
+                ],
+                // %2 = @union(%0 [own], %1 [borrow]) — fresh owned Set result.
+                terminator: ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: set_ty,
+                    func: union_name,
+                    args: vec![v(0), v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                // @len(%2 [borrow]) — borrowed read; %2 dead afterward.
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    func: len_name,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(4),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(4) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(4),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn fresh_owned_collection_reps_includes_set_union_result() {
+    // The set-algebra result (`a.union(b)`, the Invoke-terminator result %2) is a
+    // FRESH owned Set the recognizer MUST classify so the alloc-aware net frees
+    // it at its borrowed-read scope-exit sink (RL-2). Pre-cure the recognizer
+    // omits set-algebra producers (only conversion / iter-consumer / COW results)
+    // and %2 leaks; post-cure %2's jump-threaded rep is in the candidate set.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = set_union_result_func(&mut pool, &interner);
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let reps =
+        compute_fresh_owned_collection_reps(&func, &pool, &jt_reps, &same_alloc_reps, &interner);
+    assert!(
+        reps.contains(&rep_of(v(2))),
+        "the @union result %2 must be a fresh-owned-collection candidate; got {reps:?}",
+    );
+}
+
+#[test]
+fn set_algebra_names_covers_union_difference_intersection() {
+    // The set-algebra name set is the SSOT for the three fresh-Set producers.
+    let interner = ori_ir::StringInterner::new();
+    let names = collection_set_algebra_names(&interner);
+    for n in ["union", "difference", "intersection"] {
+        assert!(
+            names.contains(&interner.intern(n)),
+            "set-algebra name set must contain {n}",
+        );
+    }
+    // A non-producer (`to_list` is a conversion, not set-algebra) is NOT in this set.
+    assert!(
+        !names.contains(&interner.intern("to_list")),
+        "to_list is a conversion, not a set-algebra producer",
+    );
+}
+
+/// Single-block-then-successors function where a USER-FUNCTION call returns a
+/// fresh owned `str` (`%2 = Apply @make_label(%0 [own])`), the result carries a
+/// dup-use keep-alive `BurdenInc` + scope-exit `BurdenDec` (net 0 on explicit
+/// ops; alloc +1 leaks pre-cure), then `%2` is borrowed-read by
+/// `@contains(%2 [borrow])` and dead. `%0` is a scalar seed arg (NOT same-alloc
+/// with `%2`), so the result is a genuine fresh str — not a Direct-transfer
+/// forwarder. `func` for [`compute_fresh_owned_collection_reps`].
+fn user_call_str_result_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let _ = pool;
+    let make_label = interner.intern("make_label");
+    let contains = interner.intern("contains");
+    // %0 scalar arg, %1 scalar substr-arg slot, %2 fresh str result, %3 scalar
+    // bool result, %4 scalar return.
+    let var_types = vec![Idx::INT, Idx::STR, Idx::STR, Idx::INT, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::Scalar,
+        ValueRepr::FatValue,
+        ValueRepr::FatValue,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+    ];
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    // %2 = @make_label(%0 [own]) — fresh owned str result.
+                    ArcInstr::Apply {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: make_label,
+                        args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                    // dup-use keep-alive inc + scope-exit dec (net 0 explicit; alloc +1).
+                    ArcInstr::BurdenInc { var: v(2) },
+                    ArcInstr::BurdenDec { var: v(2) },
+                ],
+                // @contains(%2 [borrow], %1 [borrow]) — borrowed read; %2 dead after.
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    func: contains,
+                    args: vec![v(2), v(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(4) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn fresh_owned_collection_reps_includes_user_call_str_result() {
+    // The fresh owned `str` returned by a non-builtin user call (`%2 =
+    // @make_label(..)`, dup-read then dead) MUST be a fresh-owned candidate so the
+    // alloc-aware net frees it at its borrowed-read scope-exit sink (RL-2). Pre-cure
+    // the user-call recognizer arm gated on `is_collection_dst` (List/Map/Set only)
+    // and a str result was omitted -> leak. Post-cure the gate is
+    // `is_collection_or_str_dst` and %2's jump-threaded rep is in the candidate set.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = user_call_str_result_func(&mut pool, &interner);
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let reps =
+        compute_fresh_owned_collection_reps(&func, &pool, &jt_reps, &same_alloc_reps, &interner);
+    assert!(
+        reps.contains(&rep_of(v(2))),
+        "the fresh user-call str result %2 must be a fresh-owned candidate; got {reps:?}",
+    );
 }
 
 /// Single-block-then-successors function where the map SOURCE `%0` carries an
@@ -2416,5 +3170,579 @@ fn nested_iter_element_view_consumed_by_inner_iter_gets_keepalive_inc() {
         "the top-level owned source (not an element view) MUST NOT get a \
          keep-alive inc; body={:?}",
         func.blocks[0].body,
+    );
+}
+
+/// `MaybeIter = Empty | Holds(it: Iterator<int>)` constructed via a `Construct
+/// Variant`, then the iterator PROJECTED OUT on the `Holds` arm. Var layout:
+/// %0 list, %1 iterator handle, %2 `MaybeIter` source enum, %3 projected iterator
+/// (`Project %2.1`), %4 scalar elem. Single-block; the source enum is the
+/// take-project source; %3 is the projected iterator handle.
+fn take_project_source_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::INT);
+    let iter_ty = pool.double_ended_iterator(Idx::INT);
+    let enum_name = interner.intern("MaybeIter");
+    let empty_name = interner.intern("Empty");
+    let holds_name = interner.intern("Holds");
+    let enum_ty = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: empty_name,
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: holds_name,
+                field_types: vec![iter_ty],
+            },
+        ],
+    );
+    let iter_name = interner.intern("iter");
+    // %0 list, %1 iter handle, %2 enum, %3 projected iter, %4 scalar.
+    let var_types = vec![list_ty, iter_ty, enum_ty, iter_ty, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::Aggregate,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+    ];
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(0),
+                    ty: list_ty,
+                    ctor: CtorKind::ListLiteral,
+                    args: vec![v(4)],
+                },
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: iter_ty,
+                    func: iter_name,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Construct {
+                    dst: v(2),
+                    ty: enum_ty,
+                    ctor: CtorKind::EnumVariant {
+                        enum_name,
+                        variant: 1,
+                    },
+                    args: vec![v(1)],
+                },
+                // `Project %2.1` — the iterator projected OUT of the enum (a
+                // take-project site: source `Tag::Enum`, dst `Tag::Iterator`).
+                ArcInstr::Project {
+                    dst: v(3),
+                    ty: iter_ty,
+                    value: v(2),
+                    field: 1,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(4) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn take_project_candidate_includes_projected_iterator_handle() {
+    // Phase-6.9 candidate case (c): an iterator PROJECTED OUT of an enum
+    // (`%3 = Project %2.1`, `Tag::Iterator`) is a dead-iterator-handle candidate —
+    // on a take-project UNUSED arm it is the freeing value (the source enum's own
+    // dec is suppressed by the Phase-6.10 strip). Without this the unused-binding
+    // projected iterator leaks.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = take_project_source_func(&mut pool, &interner);
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let candidates = compute_dead_iterator_handle_candidates(&func, &pool, &jt_reps);
+    assert!(
+        candidates.contains(&v(3)),
+        "the projected iterator handle %3 must be a dead-iterator-handle candidate; \
+         got {candidates:?}",
+    );
+}
+
+#[test]
+fn take_project_source_plan_strips_source_enum_not_projected_handle() {
+    // Phase-6.10 strip-var classification: the take-project SOURCE enum (%2,
+    // InlineEnum) is in the strip set (its spurious copy/last-use ops are removed);
+    // the iterator PROJECTED OUT of it (%3, `is_iterator_handle_dst`) is NOT — it is
+    // a separate freeing value owned by Phase 6.9. A full plan needs the per-block
+    // entry-state map; this pin verifies the source-rep + iterator-handle-exclusion
+    // classification the plan is built on.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = take_project_source_func(&mut pool, &interner);
+    let take_move_facts = crate::aims::emit_rc::take_project::analyze(&func, &pool);
+
+    // The source enum %2 IS a take-project source (the `value` of the `Project`).
+    let sites = crate::aims::emit_rc::take_project::collect_take_project_sites(&func, &pool);
+    assert!(
+        sites.iter().any(|&(_, src)| src == v(2)),
+        "the source enum %2 must be a take-project site source; got {sites:?}",
+    );
+    // %2 is in-class (the take-project membership set).
+    assert!(
+        take_move_facts.is_in_class(v(2)),
+        "the source enum %2 must be in the take-project class",
+    );
+    // %2 is NOT a bare iterator handle (it is the InlineEnum source -> stripped).
+    assert!(
+        !super::is_iterator_handle_dst(v(2), &func, &pool),
+        "the source enum %2 is an Aggregate-repr enum, NOT a bare iterator handle",
+    );
+    // %3 (the projected iterator) IS a bare iterator handle -> excluded from the
+    // strip set (Phase 6.9 owns its freeing).
+    assert!(
+        super::is_iterator_handle_dst(v(3), &func, &pool),
+        "the projected iterator %3 must be a bare iterator handle (excluded from strip)",
+    );
+}
+
+#[test]
+fn borrow_survives_transform_set_and_verdict_classification() {
+    // The borrow-survives set covers filter/map (fresh result) + clone (rc-inc
+    // alias) — all relocate the borrowed source dec to BOTH successor edges
+    // (`EdgeRelease::Both`). Seamless-slice / shared-buffer methods (slice/take/
+    // substring) are EXCLUDED: empirically they over-fire (a relocated source dec
+    // double-frees on slice/take shapes where the source is not single-dead-after-
+    // call). The clone inclusion resolves the clone-vs-buffer-sharing
+    // contract-indistinguishability via the escape-gated relocation.
+    let interner = ori_ir::StringInterner::new();
+    let set = borrow_survives_transform_names(&interner);
+    let conversion = collection_conversion_names(&interner);
+    let accessor = crate::borrow::accessor_retain_builtin_names(&interner);
+    let sharing_view = sharing_view_relocation_names(&interner);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
+    let names = EscapeSafeBorrowedNames {
+        conversion: &conversion,
+        survives_transform: &set,
+        accessor_retain: &accessor,
+        sharing_view: &sharing_view,
+        builtins: &builtins,
+    };
+
+    // Positive set membership.
+    for name in ["filter", "map", "clone"] {
+        assert!(
+            set.contains(&interner.intern(name)),
+            "{name} must be in the borrow-survives transform set",
+        );
+    }
+    // Negative set membership: sharing-view methods stay OUT (they over-fire).
+    for name in ["slice", "take", "substring"] {
+        assert!(
+            !set.contains(&interner.intern(name)),
+            "{name} must NOT be in the borrow-survives transform set (over-fires)",
+        );
+    }
+
+    // Verdict: a NON-scalar (`[int]`) result of a borrow-survives transform yields
+    // `Both` (relocate to both edges) DESPITE the scalar gate the verdict applies
+    // to other non-conversion callees.
+    for name in ["filter", "map", "clone"] {
+        assert_eq!(
+            borrowed_arg_release_verdict(
+                interner.intern(name),
+                0,
+                false, // non-scalar [int] result
+                &names,
+                &contracts,
+            ),
+            Some(EdgeRelease::Both),
+            "{name} with a non-scalar result must relocate to Both edges",
+        );
+    }
+    // Verdict: a sharing-view method (`slice`/`substring`/`take`/`drop`) with a
+    // non-scalar shared-buffer result relocates to ONE post-dominating edge
+    // (`PostDominator`), NOT `Both` (which over-fires when the result is read
+    // across `&&` branches). Checked for every sharing-view producer.
+    for name in ["slice", "substring", "take", "drop"] {
+        assert_eq!(
+            borrowed_arg_release_verdict(interner.intern(name), 0, false, &names, &contracts),
+            Some(EdgeRelease::PostDominator),
+            "{name} (sharing view) must relocate to one post-dominating edge",
+        );
+    }
+}
+
+#[test]
+fn sharing_view_relocation_names_covers_slice_substring_take_drop() {
+    // The sharing-view set extends the `crate::borrow::sharing_builtin_names`
+    // SSOT (`slice`/`substring`) with `take`/`drop` (also `make_slice_cap` slice
+    // views) and excludes COW-mutator / conversion producers (those allocate a
+    // FRESH buffer, NOT a shared view).
+    let interner = ori_ir::StringInterner::new();
+    let set = sharing_view_relocation_names(&interner);
+    for name in ["slice", "substring", "take", "drop"] {
+        assert!(
+            set.contains(&interner.intern(name)),
+            "{name} must be in the sharing-view relocation set",
+        );
+    }
+    for name in [
+        "filter", "map", "clone", "keys", "values", "union", "to_list",
+    ] {
+        assert!(
+            !set.contains(&interner.intern(name)),
+            "{name} (fresh-buffer producer) must NOT be in the sharing-view set",
+        );
+    }
+}
+
+#[test]
+fn iterator_consumer_collection_names_covers_collect_not_adapters() {
+    // The iterator-consumer set covers `collect` / `collect_set` (fresh owned
+    // collection results) and EXCLUDES the iterator adapters / sources (`iter` /
+    // `map` / `filter` produce iterator HANDLES freed by `ori_iter_drop`, not
+    // collections) and the conversion builtins (handled by their own set).
+    let interner = ori_ir::StringInterner::new();
+    let set = iterator_consumer_collection_names(&interner);
+    for name in ["collect", "collect_set"] {
+        assert!(
+            set.contains(&interner.intern(name)),
+            "{name} must be in the iterator-consumer collection set",
+        );
+    }
+    for name in ["iter", "map", "filter", "keys", "values"] {
+        assert!(
+            !set.contains(&interner.intern(name)),
+            "{name} must NOT be in the iterator-consumer collection set",
+        );
+    }
+}
+
+/// Build an iter-chain collect shape: a fresh `Construct List` source (`%0`) is
+/// consumed at the OWNED arg of `@collect` (`%0` -> iterator-drop machinery), which
+/// produces a FRESH owned `[int]` result `%1`; `%1` is aliased to `%2` and
+/// borrowed-read by `@length`, then dead at scope exit. The collect result is the
+/// leaked fresh-owned collection (the Phase-5 walk emits zero ops on it).
+fn iter_collect_result_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::INT);
+    let collect_name = interner.intern("collect");
+    let length_name = interner.intern("length");
+    // %0 source list, %1 collect result, %2 result alias, %3 scalar len, %4 elem.
+    let var_types = vec![list_ty, list_ty, list_ty, Idx::INT, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+    ];
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: list_ty,
+                        ctor: CtorKind::ListLiteral,
+                        args: vec![v(4)],
+                    },
+                    // `@collect(%0 [own])` -> fresh `[int]` result %1.
+                    ArcInstr::Apply {
+                        dst: v(1),
+                        ty: list_ty,
+                        func: collect_name,
+                        args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: list_ty,
+                        value: ArcValue::Var(v(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    func: length_name,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn dead_owned_collection_frees_iter_collect_result_at_scope_exit() {
+    // The `@collect` result (%1 -> %2) is a FRESH owned `[int]` the runtime
+    // allocates (alloc-aware net `+1`), borrowed-read by `@length`, dead at scope
+    // exit. The pass emits exactly ONE freeing dec on the result's live SSA value
+    // (%2) at the borrowed-read sink bb0 (RL-2 scope-exit dec). The source list %0
+    // is owned-consumed by `@collect` (excluded — the iterator-drop frees it).
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = iter_collect_result_func(&mut pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly one dead-owned-collection release (the leaked collect result); got {releases:?}",
+    );
+    let (block_idx, var) = releases[0];
+    assert_eq!(block_idx, 0, "release at the borrowed-read sink bb0");
+    assert_eq!(
+        var,
+        v(2),
+        "frees the collect result's live SSA value %2 at the borrowed-read sink"
+    );
+}
+
+/// A `transfers_through_return ∧ Direct` forwarder result shape: `%0 = Construct
+/// List` (bb0), `Invoke @id(%0 [own]) -> %1` (bb0 terminator), the result `%1`
+/// Let-aliased to `%2` and borrowed-read by `@len` (bb1), dead at scope exit
+/// (Return scalar bb3). The result `%1` IS the same allocation as `%0` — the
+/// apply-Direct merge is supplied via `same_alloc_reps = {%1 → %0, %2 → %1}`.
+fn forwarder_result_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::INT);
+    let id_name = interner.intern("id");
+    let len_name = interner.intern("len");
+    // %0 fresh list, %1 forwarder result, %2 result alias, %3 scalar len, %4 elem.
+    let var_types = vec![list_ty, list_ty, list_ty, Idx::INT, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+        ValueRepr::Scalar,
+    ];
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(4),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                    },
+                    // Non-empty Construct (the buffer alloc the lineage owns).
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: list_ty,
+                        ctor: CtorKind::ListLiteral,
+                        args: vec![v(4)],
+                    },
+                ],
+                // The forwarder: `@id(%0 [own])` returns its owned arg Direct, so
+                // %1 IS %0's allocation.
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: list_ty,
+                    func: id_name,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: v(2),
+                    ty: list_ty,
+                    value: ArcValue::Var(v(1)),
+                }],
+                // Borrowed read of the result, then dead at scope exit.
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    func: len_name,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(4),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(4),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn dead_owned_collection_frees_forwarder_result_with_apply_direct_seed() {
+    // With the apply-Direct seed (`same_alloc_reps` merges %1 → %0), the forwarder
+    // result %1 joins %0's fresh-owned-collection lineage. The owned-position arg %0
+    // to `@id` is a Direct pass-through (the result carries it forward), so it is NOT
+    // excluded as a user-call arg / owned-consume. The lineage's single unbalanced
+    // allocation `+1` is released at the result's one borrowed-read dead sink (bb1):
+    // exactly one freeing dec on the result's live SSA value (%2).
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = forwarder_result_func(&mut pool, &interner);
+    let mut same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    same_alloc_reps.insert(v(1), v(0));
+    same_alloc_reps.insert(v(2), v(0));
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &same_alloc_reps,
+    );
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly one forwarder-result release (the leaked allocation at scope exit); got {releases:?}",
+    );
+    let (block_idx, var) = releases[0];
+    assert_eq!(
+        block_idx, 1,
+        "release at the result's borrowed-read sink bb1"
+    );
+    assert_eq!(
+        var,
+        v(2),
+        "frees the forwarder result's live SSA value %2 at the borrowed-read sink"
+    );
+}
+
+#[test]
+fn fresh_owned_collection_reps_classifies_user_call_result_and_excludes_direct_transfer() {
+    // The recognizer admits a user-function call returning a collection as a
+    // fresh-owned candidate. With NO same-alloc merge (empty map), the `@id` result
+    // %1 is a genuine-fresh user-call result → IN the candidate set. With the
+    // apply-Direct merge (%1 → %0), the result is a Direct-transfer pass-through →
+    // recognized via %0's Construct (the user-call arm excludes it because it
+    // same-allocs an arg), so the candidate is %0's rep, never a phantom %1 fresh
+    // alloc. Spec: Annex E §AIMS RL-2.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = forwarder_result_func(&mut pool, &interner);
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
+
+    // Empty same-alloc: the `@id` result %1 reads as a genuine-fresh user-call result.
+    let no_merge: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let reps_no_merge =
+        compute_fresh_owned_collection_reps(&func, &pool, &jt_reps, &no_merge, &interner);
+    assert!(
+        reps_no_merge.contains(&rep_of(v(1))),
+        "user-call result %1 must be a fresh-owned candidate without a same-alloc merge; got {reps_no_merge:?}",
+    );
+
+    // Direct-transfer merge: %1 → %0 → the user-call arm excludes %1 (same-allocs the
+    // arg %0); the Construct %0 is the candidate, not a separate fresh %1.
+    let mut merged: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    merged.insert(v(1), v(0));
+    merged.insert(v(2), v(0));
+    let reps_merged =
+        compute_fresh_owned_collection_reps(&func, &pool, &jt_reps, &merged, &interner);
+    assert!(
+        reps_merged.contains(&rep_of(v(0))),
+        "the Construct %0 lineage must be the candidate under the Direct-transfer merge; got {reps_merged:?}",
+    );
+}
+
+#[test]
+fn dead_owned_collection_frees_user_call_result_without_apply_direct_seed() {
+    // Without the apply-Direct seed (empty `same_alloc_reps`), the forwarder result
+    // %1 is a DISTINCT rep from %0, but the user-call-fresh-result path recognizes
+    // %1 as a fresh owned `[int]` returned by the non-builtin `@id` (no same-alloc
+    // merge with any arg → treated as a genuine fresh allocation). The lineage nets
+    // `+1` and the pass emits EXACTLY ONE release of the result at its borrowed-read
+    // dead sink (bb1, %2) — the allocation is freed exactly once either way. With the
+    // seed (the companion `_with_apply_direct_seed` test), the same single release
+    // fires via the merged `%0` Construct lineage with the user-call `+1` suppressed
+    // (Direct-transfer detected); the two recognition paths converge on one release,
+    // never double-fire. Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let func = forwarder_result_func(&mut pool, &interner);
+    let releases = compute_dead_owned_collection_releases(
+        &func,
+        &pool,
+        &interner,
+        &FxHashMap::default(),
+        &FxHashMap::default(),
+    );
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly one user-call-result release without the seed (the result is the freed allocation); got {releases:?}",
+    );
+    assert_eq!(
+        releases[0],
+        (1, v(2)),
+        "frees the user-call result's live SSA value %2 at the borrowed-read sink bb1",
     );
 }

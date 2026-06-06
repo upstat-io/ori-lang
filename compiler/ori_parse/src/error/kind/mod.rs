@@ -9,8 +9,8 @@ use ori_ir::{Span, TokenKind};
 /// Structured parse error kinds with contextual data.
 ///
 /// Each variant captures the specific information needed to generate
-/// helpful error messages and suggestions. Inspired by Gleam's 50+
-/// error variants and Roc's nested error context.
+/// helpful error messages and suggestions. Historical influence: the
+/// 50+ error-variant SHAPE from Gleam and nested error context from Roc.
 #[derive(Clone, Debug)]
 pub enum ParseErrorKind {
     // === Token-level errors ===

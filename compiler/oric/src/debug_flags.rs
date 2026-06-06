@@ -14,7 +14,7 @@
 //!
 //! # Pattern
 //!
-//! Inspired by Roc's `debug_flags` crate pattern:
+//! Historical influence: the `debug_flags` crate SHAPE from Roc:
 //! - `dbg_set!` — returns `true` if the flag is set
 //! - `dbg_do!` — executes an expression if the flag is set
 //! - `flags!` — defines flag constants with doc comments
@@ -125,21 +125,20 @@ flags! {
 
     /// Disable the post-realize redundant project-alias dec cleanup pass.
     ///
-    /// Consumed in `ori_arc::aims::realize::cleanup_redundant` per BUG-04-118 §05.
+    /// Consumed in `ori_arc::aims::realize::cleanup_redundant`.
     /// Defined here for documentation and `check-debug-flags.sh` consistency.
     /// Usage: `ORI_DISABLE_REDUNDANT_CLEANUP=1 ori build file.ori`
     ORI_DISABLE_REDUNDANT_CLEANUP
 
-    /// Disable the §04A burden-op emission pass (Step 4b of the AIMS pipeline).
+    /// Disable the burden-op emission pass (Step 4b of the AIMS pipeline).
     ///
-    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline` per the
-    /// §04A.1 ITEM-4 empty-harness predicate-parity check. When set, `emit_burden_ops`
-    /// is skipped entirely and the predicate-stack realization path runs as in the
-    /// pre-§04A baseline.
+    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline` for the
+    /// empty-harness predicate-parity check. When set, `emit_burden_ops` is skipped
+    /// entirely and the predicate-stack realization path runs as the baseline.
     /// Usage: `ORI_DISABLE_BURDEN_OPS=1 ori build file.ori`
     ORI_DISABLE_BURDEN_OPS
 
-    /// Disable the §02.5 DP-2/DP-3 burden-op elimination pass.
+    /// Disable the DP-2/DP-3 burden-op elimination pass.
     ///
     /// Consumed in `ori_arc::aims::realize::emit_unified` to conditionally
     /// bypass burden-op elimination for diagnostic bisection.

@@ -79,6 +79,7 @@ pub(crate) fn extract_contract(
         return_alias_shapes,
         payload_containment_params,
         iter_consume_params,
+        borrowed_read_only_params,
     ) = detect_param_facts(func, sigs, &param_vars, interner);
 
     let params: Vec<ParamContract> = func
@@ -148,6 +149,13 @@ pub(crate) fn extract_contract(
                 // RL-2 iter-consume transfer fact (proven sound:
                 // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
                 iter_consumes: iter_consume_params.contains(&i),
+                // RL-2 borrowed-read-only fact: the param flows ONLY to borrowed
+                // positions in the body (no owned-position COW/transfer consumer),
+                // so a surviving Borrowed collection arg is `ApplyToBorrowedParam`
+                // (caller decs). The caller carve-out gate reads this; a
+                // COW-mutated param is excluded. Proven sound:
+                // `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec`.
+                borrowed_read_only: borrowed_read_only_params.contains(&i),
             }
         })
         .collect();
@@ -299,11 +307,12 @@ fn compute_context_behavior(
 /// dst at runtime); the Select arm below tracks both as alias sources.
 /// Per-param facts detected for contract construction by [`detect_param_facts`],
 /// in positional order: `(consumed, return_flow, return_alias_shapes,
-/// payload_containment, iter_consume)`.
+/// payload_containment, iter_consume, borrowed_read_only)`.
 type ParamFacts = (
     FxHashSet<usize>,
     FxHashSet<usize>,
     FxHashMap<usize, ReturnAliasShape>,
+    FxHashSet<usize>,
     FxHashSet<usize>,
     FxHashSet<usize>,
 );
@@ -319,6 +328,9 @@ type ParamFacts = (
 ///    drop variant payload.
 /// 5. `iter_consume_params` — params iter-consumed (`@iter` → `ori_iter_drop`)
 ///    inside the body (RL-2 inward transfer).
+/// 6. `borrowed_read_only_params` — params that flow ONLY to borrowed positions
+///    in the body (no owned-position COW/transfer consumer), the affirmative
+///    read-only complement of (1)+(5) feeding the caller carve-out gate.
 ///
 /// Owned-only invariant: the consume / return-flow sets feed `access` promotion.
 /// Borrowed-param Project returns must NOT set `return_alias`; this is enforced
@@ -336,6 +348,7 @@ fn detect_param_facts(
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
     let payload_containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
+    let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -359,6 +372,7 @@ fn detect_param_facts(
         return_alias_shapes,
         payload_containment,
         iter_consume,
+        borrowed_read_only,
     )
 }
 
@@ -481,6 +495,147 @@ fn find_iter_consume_params(
     }
 
     iter_consumed
+}
+
+/// Find non-scalar params that flow ONLY to BORROWED positions in the callee
+/// body: no owned-position consumer (no COW-mutation, no transfer, no
+/// iter-consume). The affirmative read-only complement consumed by the caller
+/// carve-out gate (`compute_user_call_arg_lineages`): a Borrowed collection
+/// passed to such a param SURVIVES the call (`ApplyToBorrowedParam`, RL-2
+/// NON-transfer, caller decs).
+///
+/// A param is read-only iff EVERY occurrence of its alias (via `alias_to_param`)
+/// as an `Apply`/`Invoke` arg sits at a BORROWED arg position. "Owned position"
+/// and forward-safety are decided by `borrowed_ro_arg_is_owned_position` /
+/// `borrowed_ro_arg_forward_safe`, mirroring `compute_arg_ownership`. The COW
+/// `xs.push(v)` (`@push` receiver, pos 0) or an iter-consume (`@iter [own]`)
+/// clears the fact; pure builtin reads (`@len`/`@length`/`@__index`) leave it.
+/// Params not appearing as any call arg are NOT read-only by this fact (the
+/// caller gate handles those lineages via its other exclusions).
+/// Spec: Annex E §AIMS RL-2 (`RL2_borrowed_param_emits_caller_dec`).
+fn find_borrowed_read_only_params(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<usize> {
+    // The COW-builtin ownership sets are a pure function of the interner; the
+    // ownership authority here matches `compute_arg_ownership`. Constructed
+    // locally (not threaded) to keep the contract-extraction surface stable.
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+
+    // Params whose alias appears at an OWNED or unsafe-forward position (NOT
+    // read-only), and params that appear as SOME call arg (gate-eligible).
+    let mut not_read_only: FxHashSet<usize> = FxHashSet::default();
+    let mut used_as_call_arg: FxHashSet<usize> = FxHashSet::default();
+
+    let mut scan = |callee: Option<Name>, args: &[ArcVarId]| {
+        for (pos, &arg) in args.iter().enumerate() {
+            let Some(param_indices) = alias_to_param.get(&arg) else {
+                continue;
+            };
+            used_as_call_arg.extend(param_indices.iter().copied());
+            // Indirect / unknown callee (`None`): conservatively clears read-only.
+            let clears = match callee {
+                None => true,
+                Some(name) => {
+                    borrowed_ro_arg_is_owned_position(name, pos, &builtins, sigs)
+                        || !borrowed_ro_arg_forward_safe(name, pos, &builtins, sigs, interner)
+                }
+            };
+            if clears {
+                not_read_only.extend(param_indices.iter().copied());
+            }
+        }
+    };
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => scan(Some(*callee), args),
+                ArcInstr::ApplyIndirect { args, .. } => scan(None, args),
+                _ => {}
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                func: callee, args, ..
+            } => scan(Some(*callee), args),
+            ArcTerminator::InvokeIndirect { args, .. } => scan(None, args),
+            _ => {}
+        }
+    }
+
+    // Read-only iff it reaches some call arg AND never an owned/unsafe position.
+    used_as_call_arg
+        .difference(&not_read_only)
+        .copied()
+        .collect()
+}
+
+/// Does `callee` consume its `pos`-th arg at an OWNED position? Mirrors
+/// `compute_arg_ownership`: COW receiver / second-arg, protocol owned positions,
+/// or a user-fn param contract `access == Owned`. Unknown non-builtin callees are
+/// conservatively Owned. Companion to [`find_borrowed_read_only_params`].
+fn borrowed_ro_arg_is_owned_position(
+    callee: Name,
+    pos: usize,
+    builtins: &crate::BuiltinOwnershipSets,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    if builtins.consuming_receiver.contains(&callee)
+        || builtins.consuming_receiver_only.contains(&callee)
+    {
+        if pos == 0 {
+            return true;
+        }
+        if pos == 1 && builtins.consuming_second_arg.contains(&callee) {
+            return true;
+        }
+    }
+    if let Some(ownership) = builtins.protocol.get(&callee) {
+        return matches!(
+            ownership.get(pos),
+            Some(ori_ir::builtin_constants::protocol::ProtocolArgOwnership::Owned)
+        );
+    }
+    if let Some(contract) = sigs.get(&callee) {
+        return contract
+            .params
+            .get(pos)
+            .is_some_and(|p| p.access == AccessClass::Owned);
+    }
+    // Unknown non-builtin callee: conservative Owned (clears the read-only fact),
+    // matching `compute_arg_ownership`'s unknown-owned default.
+    true
+}
+
+/// Is a BORROWED `pos`-th arg of `callee` read-only-safe to forward? Builtin and
+/// `ori_*` borrowed positions are leaf-safe (no deeper user COW). A user-fn
+/// borrowed position is safe only when that callee's corresponding param is itself
+/// `borrowed_read_only` (SCC: inner contract finalized first per IC-1). Companion
+/// to [`find_borrowed_read_only_params`].
+fn borrowed_ro_arg_forward_safe(
+    callee: Name,
+    pos: usize,
+    builtins: &crate::BuiltinOwnershipSets,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    if builtins.is_builtin(callee) {
+        return true;
+    }
+    if interner
+        .try_lookup(callee)
+        .is_some_and(|n| n.starts_with("ori_"))
+    {
+        return true;
+    }
+    sigs.get(&callee)
+        .and_then(|c| c.params.get(pos))
+        .is_some_and(|p| p.borrowed_read_only)
 }
 
 /// Compute `ReturnAliasShape` for every param that flows to a Return

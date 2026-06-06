@@ -13,7 +13,6 @@ use ori_patterns::ControlAction;
 /// The `?` operator emits `Propagate(Value::Err(e))` or `Propagate(Value::None)` to signal
 /// early return from the enclosing function. At the function call boundary, this signal must
 /// be converted back to a normal return value — the function "returns" the error/none value.
-/// This mirrors Rust's `?` semantics: `fn foo() -> Result<T,E>` returns `Err(e)` on `?`.
 #[inline]
 fn catch_propagation(result: EvalResult) -> EvalResult {
     match result {

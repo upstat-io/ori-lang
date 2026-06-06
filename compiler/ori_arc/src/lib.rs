@@ -18,9 +18,10 @@
 //! # Design
 //!
 //! Three-way classification (`isScalar` / `isPossibleRef` / `isDefiniteRef`
-//! on `IRType`) over an LCNF basic-block IR. Classification is
-//! **monomorphized** — it operates on concrete types after type parameter
-//! substitution.
+//! on `IRType`) over an LCNF basic-block IR — historical influence: Lean 4's
+//! three-way classification SHAPE; Ori's formulation per Spec: Annex E §AIMS.
+//! Classification is **monomorphized** — it operates on concrete types after
+//! type parameter substitution.
 //!
 //! # Pipeline (AIMS unified lattice)
 //!

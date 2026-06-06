@@ -500,6 +500,7 @@ fn absent_param() -> ParamContract {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }
 }
 
@@ -516,6 +517,7 @@ fn used_param() -> ParamContract {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }
 }
 

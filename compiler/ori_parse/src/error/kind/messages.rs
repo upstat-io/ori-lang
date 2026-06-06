@@ -8,8 +8,8 @@ use crate::error::mistakes::{closing_delimiter, delimiter_name};
 impl ParseErrorKind {
     /// Get an empathetic, conversational explanation of this error.
     ///
-    /// Uses first-person phrasing ("I found...", "I was expecting...")
-    /// inspired by Elm's error messages.
+    /// Uses first-person phrasing ("I found...", "I was expecting...") —
+    /// historical influence: the Elm error-message voice.
     #[expect(
         clippy::too_many_lines,
         reason = "exhaustive ParseErrorKind -> user message dispatch"

@@ -7,7 +7,8 @@
 //! This is NOT Unicode identifier support — Ori source is ASCII-only per spec.
 //! This table exists solely for better error messages.
 //!
-//! Inspired by Rust's `unicode_chars.rs` and Go's curly quote detection.
+//! Historical influence: confusable-detection SHAPEs in prior compilers
+//! (Rust, Go curly-quote detection); the table below is Ori's own.
 
 /// Maps Unicode characters that are visually similar to ASCII to their
 /// ASCII equivalents. Sorted by Unicode codepoint for binary search.

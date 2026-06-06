@@ -134,6 +134,21 @@ impl PostDominatorTree {
         Self { ipdom }
     }
 
+    /// The immediate post-dominator of `block`, if any.
+    ///
+    /// Returns `None` when `block` is an exit block (its ipdom is the virtual
+    /// exit), is unreachable, or is out of range. A real block index otherwise —
+    /// the nearest block that every forward path from `block` passes through.
+    pub fn immediate_post_dominator(&self, block: ArcBlockId) -> Option<ArcBlockId> {
+        let n = self.ipdom.len();
+        match self.ipdom.get(block.index()).copied().flatten() {
+            Some(dom) if dom != block.index() && dom < n => {
+                Some(ArcBlockId::new(u32::try_from(dom).unwrap_or(u32::MAX)))
+            }
+            _ => None,
+        }
+    }
+
     /// Does block `a` post-dominate block `b`?
     ///
     /// Returns `true` if every path from `b` to any function exit must

@@ -182,7 +182,7 @@ The additional dimensions (Access, Uniqueness, Locality, Shape, Effect) provide 
 
 **Appel's "Modern Compiler Implementation"** (Section 10.1) is the standard reference for backward dataflow analysis. AIMS's algorithm follows the textbook structure (postorder iteration, fixed-point convergence) but generalizes from boolean liveness to a 7-dimensional product lattice.
 
-**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/LiveVars.lean`) uses backward liveness for RC insertion via the Perceus algorithm. AIMS extends this with additional dimensions that enable unified realization rather than separate passes.
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/LiveVars.lean`) uses backward liveness for RC insertion via the Perceus algorithm — the historical influence on the backward direction. AIMS's analysis is Ori's own multi-dimensional formulation: liveness is one facet of the seven-dimension product, enabling unified realization rather than separate passes (proven independently; see Spec: Annex E §AIMS).
 
 **[GHC](https://github.com/ghc/ghc)** (`compiler/GHC/Core/Opt/DmdAnal.hs`) uses a backward demand analysis with a product lattice (usage × strictness × unboxing) that influenced AIMS's multi-dimensional approach. GHC's `Demand` type is a product of `SubDemand` and `Card` (cardinality), analogous to AIMS's product of Consumption and Cardinality.
 

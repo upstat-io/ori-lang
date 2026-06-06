@@ -12,7 +12,7 @@
 //! References:
 //! - Perceus dup/drop placement (Reinking et al., PLDI 2021)
 //! - GHC demand analysis `seq_add`/`alt_join` (Sergey et al., POPL 2014)
-//! - Lean 4 `updateLiveVars` / `addInc` / `addDec` (Ullrich & de Moura, IFL 2019)
+//! - `updateLiveVars` / `addInc` / `addDec` borrow-liveness shape (Ullrich & de Moura, IFL 2019, Lean 4)
 
 #[cfg(test)]
 #[expect(
@@ -255,7 +255,7 @@ pub fn transfer_terminator_def(term: &ArcTerminator) -> Option<DefTransfer> {
 /// demand on the variable. The analysis engine applies this via
 /// [`Cardinality::seq_add`] when walking backward.
 ///
-/// Based on GHC demand analysis (Sergey et al., POPL 2014):
+/// Historical influence: GHC demand analysis SHAPE (Sergey et al., POPL 2014):
 /// - Sequential: `seq_add` along one execution path
 /// - Alternative: `alt_join` at control-flow merge points
 pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 4]> {

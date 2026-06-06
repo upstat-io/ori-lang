@@ -614,7 +614,10 @@ fn compute_bypass_safe_entries(
 
 /// Collect every take-project `Project` instruction in the function as
 /// a `(block_idx, source_var)` pair.
-fn collect_take_project_sites(func: &ArcFunction, pool: &Pool) -> Vec<(usize, ArcVarId)> {
+pub(crate) fn collect_take_project_sites(
+    func: &ArcFunction,
+    pool: &Pool,
+) -> Vec<(usize, ArcVarId)> {
     let mut sites = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for instr in &block.body {

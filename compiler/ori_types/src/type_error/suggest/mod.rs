@@ -6,7 +6,7 @@
 //!
 //! # Design
 //!
-//! Based on Elm's approach:
+//! Historical influence: the Elm suggestion SHAPE:
 //! - Suggestions have priority (lower = more likely to be relevant)
 //! - Some suggestions include code replacements
 //! - Problems generate multiple suggestions when appropriate

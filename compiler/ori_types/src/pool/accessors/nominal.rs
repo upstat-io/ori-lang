@@ -146,4 +146,63 @@ impl Pool {
 
         result
     }
+
+    /// Whether an aggregate type (struct / enum / tuple / Option / Result) is
+    /// SELF-REFERENTIAL — a field/variant-payload chain that reaches the type
+    /// itself. A recursive type cannot have a finite inline size, so it is
+    /// heap-boxed (the runtime allocates each node). Non-recursive aggregates
+    /// are inline (no self-allocation; their heap children allocate separately).
+    ///
+    /// Returns `false` for non-aggregate tags (scalars, collections, str,
+    /// function). Follows nominal resolution (Struct fields, Enum variant
+    /// payloads, Tuple elements, Option/Result inners) with cycle detection.
+    pub fn aggregate_type_is_recursive(&self, idx: Idx) -> bool {
+        let resolved = self.resolve_fully(idx);
+        let mut visiting = rustc_hash::FxHashSet::default();
+        self.reaches_self(resolved, resolved, &mut visiting)
+    }
+
+    /// Whether `current` (or any nominal descendant) resolves to `target`.
+    fn reaches_self(
+        &self,
+        current: Idx,
+        target: Idx,
+        visiting: &mut rustc_hash::FxHashSet<Idx>,
+    ) -> bool {
+        let resolved = self.resolve_fully(current);
+        if !visiting.insert(resolved) {
+            // Already on the walk stack → a cycle that does NOT pass through
+            // `target` (target is handled by the `== target` check below).
+            return false;
+        }
+        let hit = self.aggregate_children(resolved).iter().any(|&child| {
+            let cr = self.resolve_fully(child);
+            cr == target || self.reaches_self(cr, target, visiting)
+        });
+        visiting.remove(&resolved);
+        hit
+    }
+
+    /// The directly-nested type indices of an aggregate (Struct fields, Enum
+    /// variant payloads, Tuple elements, Option/Result inners). Empty for
+    /// non-aggregate tags.
+    fn aggregate_children(&self, idx: Idx) -> Vec<Idx> {
+        let resolved = self.resolve_fully(idx);
+        match self.tag(resolved) {
+            Tag::Struct => self
+                .struct_fields(resolved)
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect(),
+            Tag::Enum => self
+                .enum_variants(resolved)
+                .into_iter()
+                .flat_map(|(_, payloads)| payloads)
+                .collect(),
+            Tag::Tuple => self.tuple_elems(resolved),
+            Tag::Option => vec![self.option_inner(resolved)],
+            Tag::Result => vec![self.result_ok(resolved), self.result_err(resolved)],
+            _ => Vec::new(),
+        }
+    }
 }

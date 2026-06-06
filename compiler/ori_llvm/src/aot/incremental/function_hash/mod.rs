@@ -7,7 +7,8 @@
 //!
 //! # Design
 //!
-//! Inspired by Rust's incremental compilation and Lean 4's LCNF caching:
+//! Historical influence: the incremental-compilation SHAPE of Rust incremental
+//! and Lean 4 LCNF caching; Ori's per-function hashing is its own formulation:
 //! - **Body change**: Only that function needs recompilation
 //! - **Signature change**: All callers must also be recompiled
 //!

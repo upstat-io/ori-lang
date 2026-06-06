@@ -5,7 +5,7 @@
 //!
 //! # Design
 //!
-//! Based on Gleam's unification approach:
+//! Historical influence: the Gleam unification SHAPE:
 //! - Variables are linked directly to their unified type (no substitution maps)
 //! - Path compression shortens chains during resolution
 //! - Flag-gated occurs check skips traversal when `HAS_VAR` is false

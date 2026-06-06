@@ -3,7 +3,8 @@
 //! This crate provides the `MachineRepr` type and `ReprPlan` data structure
 //! that records all narrowing decisions between type checking and codegen.
 //! The type checker never sees machine representations; codegen never makes
-//! narrowing decisions. This separation mirrors Lean 4's LCNF phase.
+//! narrowing decisions. Historical influence: the Lean 4 LCNF phase-separation
+//! SHAPE.
 //!
 //! # Architecture
 //!

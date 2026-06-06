@@ -129,6 +129,7 @@ fn oracle_accepts_matching_contract() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -165,6 +166,7 @@ fn oracle_accepts_conservative_inference() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -206,6 +208,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -368,6 +371,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
@@ -717,6 +721,7 @@ fn oracle_accepts_conservative_may_share() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -783,6 +788,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             return_alias: None,
             return_payload_contains_param: false,
             iter_consumes: false,
+            borrowed_read_only: false,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -796,6 +802,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             return_alias: None,
             return_payload_contains_param: false,
             iter_consumes: false,
+            borrowed_read_only: false,
         },
     ]);
 
@@ -830,6 +837,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         return_alias: None,
         return_payload_contains_param: false,
         iter_consumes: false,
+        borrowed_read_only: false,
     }]);
 
     // Should not panic — zip truncates to the shorter (1 param from contract).

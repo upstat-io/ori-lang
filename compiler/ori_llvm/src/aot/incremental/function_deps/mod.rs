@@ -7,8 +7,8 @@
 //!
 //! # Design
 //!
-//! Inspired by Lean 4's dependency tracking in `src/Lean/Compiler/LCNF/`
-//! and Rust's query-based incremental compilation.
+//! Historical influence: dependency-tracking SHAPEs from Lean 4 (LCNF) and
+//! query-based incremental compilation in Rust; Ori's formulation is its own.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

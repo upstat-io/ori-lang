@@ -142,7 +142,7 @@ FBIP diagnostics are available with `ORI_DUMP_AFTER_ARC=1`.
 
 ## Prior Art
 
-**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/ExpandResetReuse.lean`) pioneered the token-based reset/reuse pattern. AIMS follows Lean's design with additions for cross-block detection, projection-increment erasure, self-set elimination, collection recycling, and lattice-driven eligibility.
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/ExpandResetReuse.lean`) pioneered the token-based reset/reuse shape — the historical influence here. AIMS's formulation is Ori's own, proven independently (see Spec: Annex E §AIMS): it adds cross-block detection, projection-increment erasure, self-set elimination, collection recycling, and lattice-driven eligibility.
 
 **[Koka](https://github.com/koka-lang/koka)** and the [Perceus paper](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) formalize reuse as part of the Perceus framework and introduce the FBIP concept. The [FP2 paper](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (2023) extends this with guaranteed zero-net-allocation for qualifying functions. AIMS implements FBIP as a lattice-derived certification rather than a separate diagnostic pass.
 

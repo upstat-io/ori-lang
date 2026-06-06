@@ -198,7 +198,7 @@ pub fn collect_mono_functions(
 /// Each generic argument is encoded with a length prefix (`<bytes>_<payload>`)
 /// so the encoding is injection-bijective even when user identifiers contain
 /// `_` or other characters that would otherwise collide with an inter-arg
-/// separator. The prefix follows Rust's `_ZN<N><name>E` convention — the
+/// separator. The length prefix makes the encoding self-delimiting — the
 /// decoder reads the byte length, slices exactly that many bytes, and parses
 /// the next argument unambiguously.
 ///
