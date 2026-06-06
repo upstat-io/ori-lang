@@ -1,0 +1,96 @@
+{
+    "Function (expression body)": {
+        "prefix": "fn",
+        "body": "@${1:name} (${2:param}: ${3:int}) -> ${4:int} = ${0:expr};",
+        "description": "Function with expression body"
+    },
+    "Function (block body)": {
+        "prefix": "fnb",
+        "body": [
+            "@${1:name} (${2:param}: ${3:int}) -> ${4:int} = {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Function with block body"
+    },
+    "Main function": {
+        "prefix": "main",
+        "body": [
+            "@main () -> void = {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Program entry point"
+    },
+    "Test function": {
+        "prefix": "test",
+        "body": [
+            "@${1:test_name} tests @${2:target} () -> void = {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Test bound to a target function"
+    },
+    "Struct type": {
+        "prefix": "type",
+        "body": [
+            "type ${1:Name} = {",
+            "\t${2:field}: ${3:int},",
+            "}"
+        ],
+        "description": "Struct type declaration"
+    },
+    "Sum type": {
+        "prefix": "sum",
+        "body": "type ${1:Name} = ${2:VariantA} | ${3:VariantB};",
+        "description": "Sum type declaration"
+    },
+    "Trait": {
+        "prefix": "trait",
+        "body": [
+            "trait ${1:Name} {",
+            "\t@${2:method} (self) -> ${3:int};",
+            "}"
+        ],
+        "description": "Trait declaration"
+    },
+    "Trait impl": {
+        "prefix": "impl",
+        "body": [
+            "impl ${1:Type}: ${2:Trait} {",
+            "\t@${3:method} (self) -> ${4:int} = $0",
+            "}"
+        ],
+        "description": "Trait implementation (impl Type: Trait)"
+    },
+    "Match expression": {
+        "prefix": "match",
+        "body": [
+            "match ${1:expr} {",
+            "\t${2:pattern} -> ${3:result},",
+            "\t_ -> ${4:default},",
+            "}"
+        ],
+        "description": "Match expression"
+    },
+    "For do loop": {
+        "prefix": "for",
+        "body": "for ${1:x} in ${2:items} do ${0:body}",
+        "description": "For loop (side effects)"
+    },
+    "For yield comprehension": {
+        "prefix": "fory",
+        "body": "for ${1:x} in ${2:items} yield ${0:expr}",
+        "description": "For comprehension (collects values)"
+    },
+    "Immutable binding": {
+        "prefix": "let",
+        "body": "let \\$${1:name} = ${2:value};",
+        "description": "Immutable let binding"
+    },
+    "Module import": {
+        "prefix": "use",
+        "body": "use ${1:std.testing} { ${2:assert_eq} };",
+        "description": "Module import with item list"
+    }
+}
