@@ -227,8 +227,9 @@ fn process_call(
                 }
             }
         }
-        // Both whole-object dec ABI variants (per super::is_rc_dec_symbol).
-        "ori_rc_dec" | "ori_rc_dec_unwind" => {
+        // Both whole-object dec ABI variants — consume the SSOT predicate
+        // so a future dec ABI variant cannot silently drift past this match.
+        name if super::is_rc_dec_symbol(name) => {
             // First operand (index 0) is the pointer being decremented
             if let Some(ptr_name) = operand_name(inst, 0) {
                 match tracker.record_dec(&ptr_name) {

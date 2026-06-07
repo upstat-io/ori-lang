@@ -12,7 +12,7 @@ use ori_ir::{CLOSURE_FIELD_ENV, FIELD_DATA};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
-use super::drop_enum::compute_variant_field_offsets;
+use super::drop_enum::{compute_variant_field_offsets, variant_field_offset};
 use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
 use crate::codegen::value_id::{BlockId, LLVMTypeId, ValueId};
@@ -57,7 +57,7 @@ impl FieldWalkOps for TaggedEnumPayloadOps {
                     .builder
                     .struct_gep(self.enum_llvm_ty, self.alloca, 1, "dec.payload");
             let i8_ty = emitter.builder.i8_type();
-            let byte_off = self.offsets.get(field_index as usize).copied().unwrap_or(0);
+            let byte_off = variant_field_offset(&self.offsets, field_index as usize);
             let off = emitter.builder.const_i64(byte_off as i64);
             emitter
                 .builder
@@ -525,7 +525,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .builder
                     .struct_gep(enum_llvm_ty, alloca, 1, "inc.payload");
                 let i8_ty = self.builder.i8_type();
-                let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                let byte_off = variant_field_offset(offsets, field_index as usize);
                 let off = self.builder.const_i64(byte_off as i64);
                 self.builder
                     .gep(i8_ty, payload_ptr, &[off], "inc.field.ptr")

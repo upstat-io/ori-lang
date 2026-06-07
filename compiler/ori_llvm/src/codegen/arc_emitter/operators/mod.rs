@@ -204,7 +204,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
 
         match &ret_passing {
             ReturnPassing::Sret { .. } => {
@@ -265,7 +265,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
 
         let result = match &ret_passing {
             ReturnPassing::Direct | ReturnPassing::Void => {
@@ -318,7 +318,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             };
 
             let raw_args = [lhs, rhs];
-            let passed_args = self.apply_param_passing(&raw_args, &params);
+            let passed_args = self.apply_param_passing(&raw_args, None, &params);
 
             match &ret_passing {
                 ReturnPassing::Sret { .. } => {
@@ -391,7 +391,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let raw_args = [operand];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
 
         match &ret_passing {
             ReturnPassing::Sret { .. } => {

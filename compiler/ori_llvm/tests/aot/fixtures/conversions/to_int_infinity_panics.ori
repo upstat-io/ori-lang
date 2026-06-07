@@ -1,0 +1,5 @@
+@main () -> int = {
+    let inf = 1.0 / 0.0;
+    let x = inf.to_int();
+    if x == 0 then 1 else 2
+}

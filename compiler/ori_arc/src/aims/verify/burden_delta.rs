@@ -63,6 +63,10 @@ pub(crate) fn compute_burden_entry_nets(
     let mut changed = true;
     let mut iterations: usize = 0;
     while changed && iterations < iter_cap {
+        // Loop exit is either convergence (`!changed`) or cap exhaustion —
+        // cap exhaustion is surfaced loud below (IC-7 convergence
+        // discipline: a verifier silently under-verifying on stale entry
+        // nets is a false-negative vector).
         changed = false;
         iterations += 1;
         for b in 0..n {
@@ -92,6 +96,24 @@ pub(crate) fn compute_burden_entry_nets(
                 }
             }
         }
+    }
+
+    if changed {
+        // Cap exhaustion is a REACHABLE degraded state on real corpora
+        // (cyclic CFGs with disagreeing predecessor nets oscillate; the
+        // disagree_blocks imbalance below carries the verdict), so it
+        // surfaces as a warning in every profile — an assert here ICEs
+        // on inputs the verifier is designed to flag. VF-1.1 consumers
+        // (balance_verdict skips None/stale entry nets) do not silently
+        // pass vars whose nets were never fully propagated.
+        tracing::warn!(
+            iterations,
+            iter_cap,
+            blocks = n,
+            "burden entry-net dataflow exhausted its iteration cap before \
+             convergence — entry nets may be stale; burden-balance \
+             verification may under-verify"
+        );
     }
 
     BurdenEntryNets {

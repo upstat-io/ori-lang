@@ -62,13 +62,23 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
 }
 
 /// Apply an attribute to a declared function.
-fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
+///
+/// `param_count` is the FINAL declared parameter count (after any sret
+/// pointer prepend) — `Attr::NoaliasLastParam` resolves against it.
+fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr, param_count: u32) {
     match attr {
         Attr::Nounwind => builder.add_nounwind_attribute(func),
         Attr::Noreturn => builder.add_noreturn_attribute(func),
         Attr::Cold => builder.add_cold_attribute(func),
         Attr::NoaliasReturn => builder.add_noalias_return_attribute(func),
         Attr::MemArgmemRW => builder.add_memory_argmem_readwrite_attribute(func),
+        Attr::NoaliasLastParam => {
+            assert!(
+                param_count > 0,
+                "Attr::NoaliasLastParam requires at least one declared parameter"
+            );
+            builder.add_noalias_attribute(func, param_count - 1);
+        }
     }
 }
 
@@ -104,16 +114,9 @@ fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
         builder.add_noalias_attribute(id, 0);
     }
 
-    // COW functions: last param (out_ptr) is always a fresh stack alloca from
-    // the caller — it never aliases any other accessible pointer. Marking it
-    // noalias lets LLVM optimize stores to the output without alias concerns.
-    if spec.name.ends_with("_cow") && !spec.params.is_empty() {
-        let out_ptr_idx = spec.params.len() as u32 - 1;
-        builder.add_noalias_attribute(id, out_ptr_idx);
-    }
-
+    let param_count = u32::try_from(params.len()).expect("runtime fn param count fits u32");
     for &attr in spec.attrs {
-        apply_attr(builder, id, attr);
+        apply_attr(builder, id, attr, param_count);
     }
     id
 }

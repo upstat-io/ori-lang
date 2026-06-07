@@ -22,7 +22,7 @@ use rustc_hash::FxHashSet;
 use tracing::debug;
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{CallConv, FunctionAbi};
+use crate::codegen::abi::{select_call_conv, CallConvSite, FunctionAbi};
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -213,7 +213,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Non-capturing lambdas use `ccc` so they match the closure calling
         // convention directly: `(ptr %env, user_args...) -> ret`.
         if is_non_capturing {
-            abi.call_conv = CallConv::C;
+            abi.call_conv = select_call_conv(CallConvSite::NonCapturingLambda);
         }
 
         // Lambda names are globally unique from lowering (include parent function

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let huge = -1.0e30;
+    let x = int(huge);
+    if x == 0 then 1 else 2
+}

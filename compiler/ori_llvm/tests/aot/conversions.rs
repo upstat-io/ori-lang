@@ -455,3 +455,78 @@ fn test_cast_int_to_char_beyond_u32_panics() {
         "not a valid Unicode codepoint",
     );
 }
+
+// ─── checked float -> int (to_int / int()) panic guards ───
+//
+// `to_int` / `int()` are CHECKED conversions: NaN / infinity /
+// out-of-i64-range panic with eval-matching messages (dual-execution
+// parity; raw fptosi would be poison on those inputs). Panic-termination
+// semantics documented on `util::assert_panic_exit`.
+
+use crate::util::{assert_panic_exit, compile_and_run_capture};
+
+#[test]
+fn test_to_int_in_range_truncates_toward_zero() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/to_int_in_range_round_trip.ori"),
+        "to_int_in_range",
+    );
+}
+
+#[test]
+fn test_to_int_nan_panics() {
+    let (exit_code, _stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/conversions/to_int_nan_panics.ori"));
+    assert_panic_exit(exit_code, "float.to_int(NaN)", &stderr);
+    assert!(
+        stderr.contains("cannot convert NaN to int"),
+        "panic message should match eval's NaN message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_to_int_infinity_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/to_int_infinity_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "float.to_int(inf)", &stderr);
+    assert!(
+        stderr.contains("cannot convert infinity to int"),
+        "panic message should match eval's infinity message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_to_int_out_of_range_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/to_int_out_of_range_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "float.to_int(1e30)", &stderr);
+    assert!(
+        stderr.contains("out of range for int"),
+        "panic message should match eval's range message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_int_function_nan_panics() {
+    let (exit_code, _stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/conversions/int_fn_nan_panics.ori"));
+    assert_panic_exit(exit_code, "int(NaN)", &stderr);
+    assert!(
+        stderr.contains("cannot convert NaN to int"),
+        "panic message should match eval's NaN message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_int_function_out_of_range_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/int_fn_out_of_range_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "int(-1e30)", &stderr);
+    assert!(
+        stderr.contains("out of range for int"),
+        "panic message should match eval's range message, got: {stderr}"
+    );
+}

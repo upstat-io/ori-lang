@@ -142,7 +142,7 @@ impl FieldWalkOps for HeapEnumPayloadOps {
                     .builder
                     .struct_gep(self.enum_llvm_ty, self.data_ptr, 1, "payload");
             let i8_ty = emitter.builder.i8_type();
-            let byte_off = self.offsets.get(field_index as usize).copied().unwrap_or(0);
+            let byte_off = variant_field_offset(&self.offsets, field_index as usize);
             let off = emitter.builder.const_i64(byte_off as i64);
             emitter
                 .builder
@@ -578,6 +578,22 @@ pub(super) fn compute_variant_field_offsets(
     }
 
     offsets
+}
+
+/// Look up a variant field's byte offset from a pre-sized offset table.
+///
+/// The table from [`compute_variant_field_offsets`] carries one entry per
+/// variant field — an out-of-range index is an upstream invariant break.
+/// A silent `0` fallback would GEP the first field's address (wrong-address
+/// store/load corruption), so the lookup fails loud instead.
+pub(super) fn variant_field_offset(offsets: &[u64], field_index: usize) -> u64 {
+    offsets.get(field_index).copied().unwrap_or_else(|| {
+        unreachable!(
+            "variant field offset table pre-sized for fields: index {field_index} \
+             out of range for {} offsets",
+            offsets.len()
+        )
+    })
 }
 
 /// Resolve a type's Pool tag, following Named/Applied/Alias indirections.

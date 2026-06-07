@@ -339,7 +339,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
-        if let Some(val) = self.try_emit_format_call(func_name_str, arc_args, arc_func) {
+        if let Some(val) = self.try_emit_format_call(callee, arc_args, arc_func) {
             self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
@@ -639,7 +639,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         mode: InvokeMode,
         arc_func: &ArcFunction,
     ) {
-        let passed_args = self.apply_param_passing_with_forwarding(arg_vals, arc_vars, params);
+        let passed_args = self.apply_param_passing(arg_vals, Some(arc_vars), params);
         let result = match &ret_passing {
             ReturnPassing::Sret { .. } => {
                 let ret_ty = self.resolve_type(ret_ty_idx);

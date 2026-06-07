@@ -92,9 +92,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Apply param passing: `Indirect`/`Reference` (alloca+store+pass ptr),
     /// `Direct` (pass through), `Void` (skip).
+    ///
+    /// When `arc_vars` is `Some`, borrowed pointer FORWARDING is active: a
+    /// `Reference`/`Indirect` callee parameter whose argument was itself
+    /// received as a borrowed parameter pointer forwards the original
+    /// pointer directly — eliminating the `ptr → load → alloca → store →
+    /// ptr` round-trip. Callers without ARC-variable context pass `None`
+    /// (every Indirect/Reference arg is spilled to a fresh alloca).
     pub(super) fn apply_param_passing(
         &mut self,
         args: &[ValueId],
+        arc_vars: Option<&[ArcVarId]>,
         params: &[crate::codegen::abi::ParamAbi],
     ) -> Vec<ValueId> {
         let mut result = Vec::with_capacity(args.len());
@@ -108,66 +116,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             match &param_abi.passing {
                 crate::codegen::abi::ParamPassing::Indirect { .. }
                 | crate::codegen::abi::ParamPassing::Reference => {
-                    let param_ty = self.resolve_type(param_abi.ty);
-                    let alloca = self.builder.create_entry_alloca(
-                        self.current_function,
-                        "ref_arg",
-                        param_ty,
-                    );
-                    self.builder.store(args[arg_idx], alloca);
-                    result.push(alloca);
-                    arg_idx += 1;
-                }
-                crate::codegen::abi::ParamPassing::Direct => {
-                    result.push(args[arg_idx]);
-                    arg_idx += 1;
-                }
-                crate::codegen::abi::ParamPassing::Void => {
-                    // Void params are not physically passed — skip
-                }
-            }
-        }
-
-        // Pass remaining args directly (shouldn't happen in well-typed code)
-        while arg_idx < args.len() {
-            result.push(args[arg_idx]);
-            arg_idx += 1;
-        }
-
-        result
-    }
-
-    /// Apply parameter passing with borrowed pointer forwarding.
-    ///
-    /// Like [`apply_param_passing`], but when a `Reference`/`Indirect` callee
-    /// parameter matches an argument that was itself received as a borrowed
-    /// parameter pointer, forwards the original pointer directly instead of
-    /// creating an alloca+store round-trip.
-    ///
-    /// This eliminates the pattern: `ptr → load → alloca → store → ptr`.
-    pub(super) fn apply_param_passing_with_forwarding(
-        &mut self,
-        args: &[ValueId],
-        arc_vars: &[ArcVarId],
-        params: &[crate::codegen::abi::ParamAbi],
-    ) -> Vec<ValueId> {
-        let mut result = Vec::with_capacity(args.len());
-        let mut arg_idx = 0;
-
-        for param_abi in params {
-            if arg_idx >= args.len() {
-                break;
-            }
-
-            match &param_abi.passing {
-                crate::codegen::abi::ParamPassing::Indirect { .. }
-                | crate::codegen::abi::ParamPassing::Reference => {
-                    // Check if this argument has a known source pointer from
-                    // a borrowed parameter — forward it directly.
-                    if let Some(&src_ptr) = arc_vars
-                        .get(arg_idx)
+                    // Forwarding: this argument has a known source pointer
+                    // from a borrowed parameter — forward it directly.
+                    let forwarded = arc_vars
+                        .and_then(|vars| vars.get(arg_idx))
                         .and_then(|var| self.borrowed_param_ptrs.get(var))
-                    {
+                        .copied();
+                    if let Some(src_ptr) = forwarded {
                         result.push(src_ptr);
                     } else {
                         let param_ty = self.resolve_type(param_abi.ty);

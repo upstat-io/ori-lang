@@ -314,24 +314,26 @@ fn return_passing_sret_for_map() {
 // -- Calling convention tests --
 
 #[test]
-fn call_conv_fast_for_normal_functions() {
-    assert_eq!(select_call_conv("my_func", false, false), CallConv::Fast);
-    assert_eq!(select_call_conv("add", false, false), CallConv::Fast);
+fn call_conv_fast_for_ordinary_functions() {
+    assert_eq!(select_call_conv(CallConvSite::OriFunction), CallConv::Fast);
 }
 
 #[test]
 fn call_conv_c_for_main() {
-    assert_eq!(select_call_conv("main", true, false), CallConv::C);
+    assert_eq!(select_call_conv(CallConvSite::Main), CallConv::C);
 }
 
 #[test]
-fn call_conv_c_for_extern() {
-    assert_eq!(select_call_conv("ffi_func", false, true), CallConv::C);
+fn call_conv_c_for_non_capturing_lambda() {
+    assert_eq!(
+        select_call_conv(CallConvSite::NonCapturingLambda),
+        CallConv::C
+    );
 }
 
 #[test]
-fn call_conv_c_for_runtime() {
-    assert_eq!(select_call_conv("ori_print", false, false), CallConv::C);
+fn call_conv_c_for_test_wrapper() {
+    assert_eq!(select_call_conv(CallConvSite::TestWrapper), CallConv::C);
 }
 
 // -- compute_function_abi e2e --
@@ -669,4 +671,204 @@ fn abi_with_ownership_none_falls_through() {
         abi.params[0].passing,
         ParamPassing::Indirect { alignment: 8 }
     );
+}
+
+// -- abi_size / abi_alignment ↔ LLVM layout sync tests --
+//
+// The abi walkers in `size.rs` mirror `TypeLayoutResolver`'s lowered LLVM
+// layouts. These tests enforce the mirror mechanically: for a representative
+// type corpus, the abi-side size/alignment MUST equal the store size /
+// alignment of the LLVM type the resolver actually produces. A divergence
+// flips AB-1 Direct/Indirect classification (register-misalignment SIGSEGV
+// class).
+
+use inkwell::context::Context;
+
+use crate::codegen::type_info::type_size::{type_abi_alignment, type_store_size};
+use crate::codegen::type_info::TypeLayoutResolver;
+use crate::context::SimpleCx;
+
+/// Representative corpus: primitives, fat pointers, Option/Result (niche +
+/// explicit), tagless/explicit/payload enums, padded structs and tuples.
+fn layout_sync_corpus(pool: &mut Pool) -> Vec<(&'static str, Idx)> {
+    let list_int = pool.list(Idx::INT);
+    let map_str_int = pool.map(Idx::STR, Idx::INT);
+    let set_int = pool.set(Idx::INT);
+    let opt_int = pool.option(Idx::INT);
+    let opt_str = pool.option(Idx::STR);
+    let opt_opt_int = {
+        let inner = pool.option(Idx::INT);
+        pool.option(inner)
+    };
+    let res_int_str = pool.result(Idx::INT, Idx::STR);
+    let res_str_str = pool.result(Idx::STR, Idx::STR);
+    let tup_mixed = pool.tuple(&[Idx::BYTE, Idx::INT, Idx::BYTE]);
+    let tup_small = pool.tuple(&[Idx::BYTE, Idx::BYTE, Idx::BYTE]);
+    let tup_large = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::STR]);
+    let struct_padded = pool.struct_type(
+        Name::from_raw(960),
+        &[
+            (Name::from_raw(961), Idx::BYTE),
+            (Name::from_raw(962), Idx::INT),
+            (Name::from_raw(963), Idx::CHAR),
+        ],
+    );
+    let struct_nested = pool.struct_type(
+        Name::from_raw(964),
+        &[
+            (Name::from_raw(965), struct_padded),
+            (Name::from_raw(966), Idx::STR),
+        ],
+    );
+    let mut corpus = vec![
+        ("int", Idx::INT),
+        ("float", Idx::FLOAT),
+        ("bool", Idx::BOOL),
+        ("char", Idx::CHAR),
+        ("byte", Idx::BYTE),
+        ("unit", Idx::UNIT),
+        ("ordering", Idx::ORDERING),
+        ("str", Idx::STR),
+        ("[int]", list_int),
+        ("{str: int}", map_str_int),
+        ("Set<int>", set_int),
+        ("Option<int>", opt_int),
+        ("Option<str>", opt_str),
+        ("Option<Option<int>>", opt_opt_int),
+        ("Result<int, str>", res_int_str),
+        ("Result<str, str>", res_str_str),
+        ("(byte, int, byte)", tup_mixed),
+        ("(byte, byte, byte)", tup_small),
+        ("(int, float, str)", tup_large),
+        ("struct{byte,int,char}", struct_padded),
+        ("struct{struct,str}", struct_nested),
+    ];
+    corpus.extend(layout_sync_enum_corpus(pool));
+    corpus
+}
+
+/// Enum cells of the layout sync corpus (all-unit, payload, single-variant
+/// tagless, void-payload-field, and an all-unit enum embedded in a struct).
+fn layout_sync_enum_corpus(pool: &mut Pool) -> Vec<(&'static str, Idx)> {
+    let enum_all_unit = pool.enum_type(
+        Name::from_raw(970),
+        &[
+            EnumVariant {
+                name: Name::from_raw(971),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(972),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(973),
+                field_types: vec![],
+            },
+        ],
+    );
+    let enum_payload = pool.enum_type(
+        Name::from_raw(974),
+        &[
+            EnumVariant {
+                name: Name::from_raw(975),
+                field_types: vec![Idx::INT, Idx::BOOL],
+            },
+            EnumVariant {
+                name: Name::from_raw(976),
+                field_types: vec![],
+            },
+        ],
+    );
+    let enum_single_variant = pool.enum_type(
+        Name::from_raw(977),
+        &[EnumVariant {
+            name: Name::from_raw(978),
+            field_types: vec![Idx::INT, Idx::FLOAT],
+        }],
+    );
+    // Void payload fields are skipped by the resolver's payload sizing —
+    // the abi walker must skip them identically.
+    let enum_unit_payload = pool.enum_type(
+        Name::from_raw(980),
+        &[
+            EnumVariant {
+                name: Name::from_raw(981),
+                field_types: vec![Idx::UNIT, Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(982),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(983),
+                field_types: vec![],
+            },
+        ],
+    );
+    // All-unit enum embedded in a struct — pins the tag-only alignment
+    // (1, not 8) inside aggregate padding computation.
+    let struct_with_unit_enum = pool.struct_type(
+        Name::from_raw(984),
+        &[
+            (Name::from_raw(985), Idx::BYTE),
+            (Name::from_raw(986), enum_all_unit),
+            (Name::from_raw(987), Idx::INT),
+        ],
+    );
+
+    vec![
+        ("enum all-unit x3", enum_all_unit),
+        ("enum A(int,bool)|B", enum_payload),
+        ("enum single-variant", enum_single_variant),
+        ("enum A(void,int)|B|C", enum_unit_payload),
+        ("struct{byte,all-unit-enum,int}", struct_with_unit_enum),
+    ]
+}
+
+/// Assert size + alignment agreement for every corpus entry under one
+/// `repr_plan` configuration.
+fn assert_layout_sync(
+    pool: &Pool,
+    corpus: &[(&'static str, Idx)],
+    repr_plan: Option<&ReprPlan>,
+    config_label: &str,
+) {
+    let store = TypeInfoStore::new(pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "abi_sync_test");
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, repr_plan);
+
+    for &(label, ty) in corpus {
+        let llvm_ty = resolver.resolve(ty);
+        assert_eq!(
+            abi_size(ty, &store, repr_plan),
+            type_store_size(llvm_ty),
+            "{config_label}: abi_size diverges from LLVM store size for {label}"
+        );
+        assert_eq!(
+            abi_alignment(ty, &store, repr_plan, 0),
+            type_abi_alignment(llvm_ty),
+            "{config_label}: abi_alignment diverges from LLVM alignment for {label}"
+        );
+    }
+}
+
+#[test]
+fn abi_size_and_alignment_match_llvm_layout_without_repr_plan() {
+    let mut pool = Pool::new();
+    let corpus = layout_sync_corpus(&mut pool);
+    assert_layout_sync(&pool, &corpus, None, "repr_plan=None");
+}
+
+#[test]
+fn abi_size_and_alignment_match_llvm_layout_with_niche_fallback_plan() {
+    // An empty ReprPlan still activates the canonical niche/tagless fallback
+    // ladder (`enum_repr_with_fallback`) on BOTH the abi walkers and the
+    // layout resolver — covering the niche-encoded Option/Result and
+    // tagless-enum layouts production codegen sees.
+    let mut pool = Pool::new();
+    let corpus = layout_sync_corpus(&mut pool);
+    let plan = ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
+    assert_layout_sync(&pool, &corpus, Some(&plan), "repr_plan=empty(fallback)");
 }

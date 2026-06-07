@@ -8,7 +8,7 @@ use ori_arc::ir::{ArcFunction, ArcInstr, ArcVarId, RcStrategy, ValueRepr};
 use ori_types::{Idx, Tag};
 
 use super::context::{is_boxed_enum_field, EmittedValue};
-use super::drop_enum::compute_variant_field_offsets;
+use super::drop_enum::{compute_variant_field_offsets, variant_field_offset};
 use super::ArcIrEmitter;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
@@ -37,7 +37,7 @@ fn enum_payload_byte_offset(
     for (_, fields) in &variants {
         if fi < fields.len() && emitter.pool.resolve_fully(fields[fi]) == resolved_ft {
             let offsets = compute_variant_field_offsets(fields, resolved, emitter);
-            return offsets.get(fi).copied().unwrap_or(0);
+            return variant_field_offset(&offsets, fi);
         }
     }
     // Fallback: assume single-slot fields

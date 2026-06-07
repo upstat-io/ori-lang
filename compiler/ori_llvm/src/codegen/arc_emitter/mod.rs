@@ -34,6 +34,7 @@
 //! - [`terminators`] — `ArcTerminator` → LLVM control flow emission
 
 mod apply;
+mod apply_casts;
 mod apply_helpers;
 mod apply_protocols;
 pub(crate) mod builtins;
@@ -108,6 +109,50 @@ impl ListRtNames {
     }
 }
 
+/// Pre-interned `Name`s for the `ori_format_*` intercepts (per interning
+/// discipline: identity comparison goes through `Name`, pre-interned once).
+/// [`FormatRtNames::lookup`] is the single dispatch point — it carries the
+/// runtime symbol AND whether the formatted value itself is a string struct
+/// needing ptr coercion, so adding a format runtime function extends this
+/// registry rather than a free-floating literal match.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FormatRtNames {
+    int: Name,
+    float: Name,
+    str: Name,
+    bool: Name,
+    char: Name,
+}
+
+impl FormatRtNames {
+    fn from_interner(interner: &StringInterner) -> Self {
+        Self {
+            int: interner.intern("ori_format_int"),
+            float: interner.intern("ori_format_float"),
+            str: interner.intern("ori_format_str"),
+            bool: interner.intern("ori_format_bool"),
+            char: interner.intern("ori_format_char"),
+        }
+    }
+
+    /// Resolve a callee `Name` to `(runtime_symbol, value_is_str)`.
+    pub(super) fn lookup(&self, callee: Name) -> Option<(&'static str, bool)> {
+        if callee == self.int {
+            Some(("ori_format_int", false))
+        } else if callee == self.float {
+            Some(("ori_format_float", false))
+        } else if callee == self.str {
+            Some(("ori_format_str", true))
+        } else if callee == self.bool {
+            Some(("ori_format_bool", false))
+        } else if callee == self.char {
+            Some(("ori_format_char", false))
+        } else {
+            None
+        }
+    }
+}
+
 /// Whether the current funclet is a catch handler or a cleanup block.
 ///
 /// SEH funclets exit differently: catch pads use `catchret` (can branch to
@@ -142,6 +187,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     interner: &'a StringInterner,
     /// Pre-interned list-runtime-symbol names for emission-site identity checks.
     list_rt_names: ListRtNames,
+    format_rt_names: FormatRtNames,
     /// Type pool for structural queries (used by drop function generation).
     pool: &'a Pool,
     /// ARC type classifier for drop function generation.
@@ -295,6 +341,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             type_info,
             type_resolver,
             list_rt_names: ListRtNames::from_interner(interner),
+            format_rt_names: FormatRtNames::from_interner(interner),
             interner,
             pool,
             classifier,

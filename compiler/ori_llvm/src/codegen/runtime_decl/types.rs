@@ -31,13 +31,19 @@ impl Ty {
 }
 
 /// Function attribute applied after declaration.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Attr {
     Nounwind,
     Noreturn,
     Cold,
     NoaliasReturn,
     MemArgmemRW,
+    /// `noalias` on the LAST declared parameter — the COW out-pointer
+    /// convention: the caller always passes a fresh stack alloca that never
+    /// aliases any other accessible pointer. Declared per-entry in the
+    /// `RT_FUNCTIONS` table (the attribute SSOT), never derived from the
+    /// function's name.
+    NoaliasLastParam,
 }
 
 /// Runtime function specification: name, signature, and attributes.

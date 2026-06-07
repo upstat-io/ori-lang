@@ -8,7 +8,7 @@ use ori_arc::ir::ArcVarId;
 use ori_types::Idx;
 
 use super::context::is_boxed_enum_field;
-use super::drop_enum::compute_variant_field_offsets;
+use super::drop_enum::{compute_variant_field_offsets, variant_field_offset};
 use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
 
@@ -142,7 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let offsets = compute_variant_field_offsets(variant_field_types, ty, self);
 
             for (i, &val) in arg_vals.iter().enumerate() {
-                let byte_offset = offsets.get(i).copied().unwrap_or(0);
+                let byte_offset = variant_field_offset(&offsets, i);
                 let idx = self.builder.const_i64(byte_offset as i64);
                 let slot = self
                     .builder

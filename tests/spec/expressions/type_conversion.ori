@@ -184,3 +184,97 @@ use std.testing { assert, assert_eq };
 
     assert_eq(actual: next, expected: 'B')
 }
+
+// Checked conversion surfaces: float.to_int() and int(float) panic on
+// NaN / infinity / out-of-i64-range (unlike saturating `as int`).
+// Dual-backend parity: eval raises EvalError; LLVM emits guard branches
+// to ori_panic_cstr with matching messages.
+
+@test_float_to_int_method_truncates_toward_zero tests _ () -> void = {
+    let pos = 9.9;
+    let neg = -9.9;
+
+    assert_eq(actual: pos.to_int(), expected: 9);
+    assert_eq(actual: neg.to_int(), expected: -9)
+}
+
+#fail("cannot convert NaN to int")
+@test_float_to_int_method_nan_panics tests _ () -> void = {
+    let nan = 0.0 / 0.0;
+    let x = nan.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("cannot convert infinity to int")
+@test_float_to_int_method_positive_infinity_panics tests _ () -> void = {
+    let inf = 1.0 / 0.0;
+    let x = inf.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("cannot convert infinity to int")
+@test_float_to_int_method_negative_infinity_panics tests _ () -> void = {
+    let inf = -1.0 / 0.0;
+    let x = inf.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("out of range for int")
+@test_float_to_int_method_above_range_panics tests _ () -> void = {
+    let huge = 1.0e30;
+    let x = huge.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("out of range for int")
+@test_float_to_int_method_below_range_panics tests _ () -> void = {
+    let huge = -1.0e30;
+    let x = huge.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+// 2^63 is not representable in i64 — it must panic, never saturate to
+// int MAX (negative pin against the saturating-`as` semantics leaking
+// into the checked surface).
+#fail("out of range for int")
+@test_float_to_int_method_two_pow_63_panics tests _ () -> void = {
+    let boundary = 9223372036854775808.0;
+    let x = boundary.to_int();
+
+    assert_eq(actual: x, expected: 0)
+}
+
+@test_int_function_truncates_float tests _ () -> void = {
+    let v = 3.7;
+
+    assert_eq(actual: int(v), expected: 3)
+}
+
+#fail("cannot convert NaN to int")
+@test_int_function_nan_panics tests _ () -> void = {
+    let nan = 0.0 / 0.0;
+    let x = int(nan);
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("cannot convert infinity to int")
+@test_int_function_infinity_panics tests _ () -> void = {
+    let inf = 1.0 / 0.0;
+    let x = int(inf);
+
+    assert_eq(actual: x, expected: 0)
+}
+
+#fail("out of range for int")
+@test_int_function_out_of_range_panics tests _ () -> void = {
+    let huge = 1.0e30;
+    let x = int(huge);
+
+    assert_eq(actual: x, expected: 0)
+}

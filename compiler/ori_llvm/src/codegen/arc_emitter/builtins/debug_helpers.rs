@@ -519,7 +519,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let raw_args = [val];
-        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &abi.params);
 
         // Debug returns str (24 bytes), which uses sret return convention.
         match &abi.return_abi.passing {

@@ -53,10 +53,11 @@ pub(super) fn classify_rc_call(name: &str) -> Option<RcOpKind> {
         | "ori_set_literal_alloc" => Some(RcOpKind::Alloc),
         // Inc: core + type-specific inc
         "ori_rc_inc" | "ori_str_rc_inc" | "ori_list_rc_inc" => Some(RcOpKind::Inc),
-        // Dec: core (both ABI variants per super::is_rc_dec_symbol) + type-specific dec
-        "ori_rc_dec"
-        | "ori_rc_dec_unwind"
-        | "ori_str_rc_dec"
+        // Dec: core whole-object variants via the SSOT predicate (a future
+        // dec ABI variant cannot silently drift past this classifier).
+        name if super::is_rc_dec_symbol(name) => Some(RcOpKind::Dec),
+        // Dec: type-specific dec wrappers
+        "ori_str_rc_dec"
         | "ori_buffer_rc_dec"
         | "ori_map_buffer_rc_dec"
         | "ori_set_buffer_rc_dec" => Some(RcOpKind::Dec),

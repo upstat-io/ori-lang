@@ -94,7 +94,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         // Apply ABI param passing to get the LLVM-level args
-        let passed_args = self.apply_param_passing(&arg_vals, &params);
+        let passed_args = self.apply_param_passing(&arg_vals, None, &params);
 
         // Build context struct type: [passed_args..., result]
         let has_result = !matches!(ret_abi.passing, ReturnPassing::Void);

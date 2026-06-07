@@ -223,7 +223,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (*fid, abi.params.clone())
         };
         let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_eq")
     }
 
@@ -405,7 +405,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (*fid, abi.params.clone())
         };
         let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_cmp")
     }
 
@@ -454,7 +454,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (*fid, abi.params.clone())
         };
         let raw_args = [val];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+        let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_hash")
     }
 }

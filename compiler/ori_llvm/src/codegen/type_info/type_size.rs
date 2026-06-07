@@ -63,6 +63,15 @@ fn type_store_size_inner(ty: BasicTypeEnum<'_>, depth: u32) -> u64 {
     }
 }
 
+/// ABI alignment of an LLVM type in bytes (store-layout alignment).
+///
+/// Cross-check surface for the `abi_alignment` walker in `codegen::abi` —
+/// the abi sync tests compare the two over a type corpus.
+#[cfg(test)]
+pub(crate) fn type_abi_alignment(ty: BasicTypeEnum<'_>) -> u64 {
+    type_alignment(ty, 0)
+}
+
 /// Alignment of an LLVM type in bytes.
 fn type_alignment(ty: BasicTypeEnum<'_>, depth: u32) -> u64 {
     if depth > 16 {

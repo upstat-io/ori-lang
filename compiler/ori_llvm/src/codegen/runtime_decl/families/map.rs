@@ -116,7 +116,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[Attr::Nounwind, Attr::NoaliasLastParam],
         jit_allowed: true,
     },
     RtFn {
@@ -139,7 +139,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[Attr::Nounwind, Attr::NoaliasLastParam],
         jit_allowed: true,
     },
     RtFn {

@@ -15,7 +15,8 @@ use tracing::{debug, trace};
 
 use super::FunctionCompiler;
 use crate::codegen::abi::{
-    compute_param_passing, compute_return_passing, CallConv, FunctionAbi, ParamAbi, ReturnAbi,
+    compute_param_passing, compute_return_passing, select_call_conv, CallConvSite, FunctionAbi,
+    ParamAbi, ReturnAbi,
 };
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
@@ -333,7 +334,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         FunctionAbi {
             params,
             return_abi,
-            call_conv: CallConv::Fast,
+            call_conv: select_call_conv(CallConvSite::OriFunction),
         }
     }
 

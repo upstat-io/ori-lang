@@ -407,20 +407,21 @@ pub fn dispatch_float_method(
         } else if a.is_infinite() {
             Err(EvalError::new("cannot convert infinity to int").into())
         } else {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "float->int truncation is the defined conversion"
-            )]
-            let n = a as i64;
-            // Check if conversion is valid by round-tripping
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "checking round-trip for float->int conversion"
-            )]
-            if (n as f64 - a).abs() > 1.0 {
+            let truncated = a.trunc();
+            // Exact f64 bounds: 2^63 and -2^63 are exactly representable;
+            // valid range is -2^63 <= truncated < 2^63. 2^63 itself must
+            // be rejected, not saturated to i64::MAX (the prior round-trip
+            // tolerance accepted it). Matches `function_val_int` and the
+            // LLVM checked-conversion guards (dual-execution parity).
+            let two_pow_63 = 2.0_f64.powi(63);
+            if truncated >= two_pow_63 || truncated < -two_pow_63 {
                 Err(EvalError::new(format!("float {a} out of range for int conversion")).into())
             } else {
-                Ok(Value::int(n))
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "bounds-checked: -2^63 <= truncated < 2^63"
+                )]
+                Ok(Value::int(truncated as i64))
             }
         }
     // Float signum

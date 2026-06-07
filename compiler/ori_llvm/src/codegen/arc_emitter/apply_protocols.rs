@@ -186,47 +186,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(list_val, FIELD_DATA, "slice.data")?;
 
         // Compute element size from the list's element type
-        // Use narrowed element size if available.
+        // (narrowed element size when available). A non-List receiver on the
+        // ListRest slice-drop path is a phase-contract violation — a silent
+        // element-size fallback would feed a wrong stride into the runtime's
+        // buffer walk (memory corruption), so fail loud instead.
         let resolved = self.pool.resolve_fully(list_ty);
-        let elem_ty = if self.pool.tag(resolved) == ori_types::Tag::List {
-            self.pool.list_elem(resolved)
-        } else {
-            ori_types::Idx::INT // fallback
-        };
+        assert!(
+            self.pool.tag(resolved) == ori_types::Tag::List,
+            "ori_list_slice_drop receiver must resolve to Tag::List (got {:?})",
+            self.pool.tag(resolved)
+        );
+        let elem_ty = self.pool.list_elem(resolved);
         let elem_size = self.collection_elem_size(resolved, elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        // Alloca {i64, i64, ptr} for the sret result
-        let list_struct_ty = self.builder.register_type(
-            self.builder
-                .scx()
-                .type_struct(
-                    &[
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-        );
-        let out_alloca = self.builder.create_entry_alloca(
-            self.current_function,
-            "slice_drop.out",
-            list_struct_ty,
-        );
-
-        // Call ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr)
-        self.builder.call(
+        let list_struct_ty = self.fat_ptr_llvm_type();
+        self.call_with_manual_sret_out(
             func_id,
-            &[data, len, cap, start_val, elem_size_val, out_alloca],
+            &[data, len, cap, start_val, elem_size_val],
+            list_struct_ty,
             "slice_drop",
-        );
-
-        // Load the result struct
-        Some(
-            self.builder
-                .load(list_struct_ty, out_alloca, "slice_drop.val"),
         )
     }
 
@@ -238,34 +217,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_take");
         let list_ptr = self.var(list_var);
 
-        // Alloca {i64, i64, ptr} for the result
-        let list_struct_ty = self.builder.register_type(
-            self.builder
-                .scx()
-                .type_struct(
-                    &[
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
+        let list_struct_ty = self.fat_ptr_llvm_type();
+        self.call_with_manual_sret_out(func_id, &[list_ptr], list_struct_ty, "list_take")
+    }
+
+    /// The canonical `{ i64, i64, ptr }` fat-pointer LLVM type — the runtime
+    /// ABI shape (RT-6) `ori_list_take` / `ori_list_slice_drop` write through
+    /// their out-pointer, independent of the receiver's repr. Single
+    /// definition site for the manual-sret result layout.
+    fn fat_ptr_llvm_type(&mut self) -> crate::codegen::value_id::LLVMTypeId {
+        let scx = self.builder.scx();
+        let st = scx.type_struct(
+            &[
+                scx.type_i64().into(),
+                scx.type_i64().into(),
+                scx.type_ptr().into(),
+            ],
+            false,
         );
+        self.builder.register_type(st.into())
+    }
+
+    /// Call a runtime function using the manual-sret convention: the result
+    /// pointer is appended as the LAST argument (`void(args..., ptr out)`),
+    /// then the result struct is loaded from the alloca.
+    fn call_with_manual_sret_out(
+        &mut self,
+        func_id: crate::codegen::value_id::FunctionId,
+        args: &[ValueId],
+        result_ty: crate::codegen::value_id::LLVMTypeId,
+        label: &str,
+    ) -> Option<ValueId> {
         let out_alloca = self.builder.create_entry_alloca(
             self.current_function,
-            "list_take.out",
-            list_struct_ty,
+            &format!("{label}.out"),
+            result_ty,
         );
-
-        // Call ori_list_take(list_ptr, out_alloca) — void return
-        self.builder
-            .call(func_id, &[list_ptr, out_alloca], "list_take");
-
-        // Load the result struct from the alloca
+        let mut full_args = Vec::with_capacity(args.len() + 1);
+        full_args.extend_from_slice(args);
+        full_args.push(out_alloca);
+        self.builder.call(func_id, &full_args, label);
         Some(
             self.builder
-                .load(list_struct_ty, out_alloca, "list_take.val"),
+                .load(result_ty, out_alloca, &format!("{label}.val")),
         )
     }
 }

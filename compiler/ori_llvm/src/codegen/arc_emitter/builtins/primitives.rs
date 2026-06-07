@@ -72,10 +72,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // to_int: convert to i64
             "to_int" => match type_info {
                 TypeInfo::Int => Some(receiver),
-                TypeInfo::Float => {
-                    let i64_ty = self.builder.i64_type();
-                    Some(self.builder.fp_to_si(receiver, i64_ty, "to_int"))
-                }
+                TypeInfo::Float => self.emit_checked_float_to_int(receiver, "to_int"),
                 TypeInfo::Bool => {
                     let i64_ty = self.builder.i64_type();
                     Some(self.builder.zext(receiver, i64_ty, "to_int"))
@@ -158,6 +155,66 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             _ => None,
         }
+    }
+
+    /// Emit a checked float -> int conversion (panics on NaN / infinity /
+    /// out-of-i64-range, matching eval's `to_int` / `int()` semantics for
+    /// dual-execution parity — raw `fptosi` is poison on those inputs).
+    ///
+    /// Guard order matches eval: NaN first, then infinity, then the exact
+    /// f64 range bounds (`-2^63 <= value < 2^63`; both bounds exactly
+    /// representable in f64). The surviving path emits plain `fptosi`,
+    /// which is defined for every value the guards admit.
+    pub(crate) fn emit_checked_float_to_int(
+        &mut self,
+        receiver: ValueId,
+        label: &str,
+    ) -> Option<ValueId> {
+        // NaN: `fcmp ord x, x` is false iff x is NaN.
+        let not_nan = self
+            .builder
+            .fcmp_ord(receiver, receiver, &format!("{label}.ord"));
+        self.emit_unwrap_branch(
+            not_nan,
+            "cannot convert NaN to int",
+            &format!("{label}.nan"),
+        )?;
+
+        // Infinity: ordered != against both infinities (NaN already excluded).
+        let pos_inf = self.builder.const_f64(f64::INFINITY);
+        let neg_inf = self.builder.const_f64(f64::NEG_INFINITY);
+        let ne_pos = self
+            .builder
+            .fcmp_one(receiver, pos_inf, &format!("{label}.ne_pinf"));
+        let ne_neg = self
+            .builder
+            .fcmp_one(receiver, neg_inf, &format!("{label}.ne_ninf"));
+        let not_inf = self.builder.and(ne_pos, ne_neg, &format!("{label}.finite"));
+        self.emit_unwrap_branch(
+            not_inf,
+            "cannot convert infinity to int",
+            &format!("{label}.inf"),
+        )?;
+
+        // Range: -2^63 <= value < 2^63 (2^63 itself is NOT representable
+        // in i64 — it must panic, not saturate to i64::MAX).
+        let lo = self.builder.const_f64(-9_223_372_036_854_775_808.0);
+        let hi = self.builder.const_f64(9_223_372_036_854_775_808.0);
+        let ge_lo = self
+            .builder
+            .fcmp_oge(receiver, lo, &format!("{label}.ge_lo"));
+        let lt_hi = self
+            .builder
+            .fcmp_olt(receiver, hi, &format!("{label}.lt_hi"));
+        let in_range = self.builder.and(ge_lo, lt_hi, &format!("{label}.in_range"));
+        self.emit_unwrap_branch(
+            in_range,
+            "float out of range for int conversion",
+            &format!("{label}.range"),
+        )?;
+
+        let i64_ty = self.builder.i64_type();
+        Some(self.builder.fp_to_si(receiver, i64_ty, label))
     }
 
     /// Emit `to_str` for a primitive type via runtime conversion function.

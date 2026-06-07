@@ -8,13 +8,15 @@
 //!
 //! - [`apply_protocols`](super::apply_protocols) — internal protocol intercepts
 //!   (`__iter_next`, `__collect_set`, `ori_list_take`, `__index`)
+//! - [`apply_casts`](super::apply_casts) — `__cast` conversions and
+//!   `ori_format_*` intercepts
 //! - [`apply_helpers`](super::apply_helpers) — ABI parameter passing, sret,
 //!   and aggregate-to-pointer coercion
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
-use ori_types::{Idx, Tag};
+use ori_types::Idx;
 
 use super::{ArcIrEmitter, EmittedValue};
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
@@ -207,7 +209,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
-        if let Some(val) = self.try_emit_format_call(callee_name_str, args, func) {
+        if let Some(val) = self.try_emit_format_call(callee, args, func) {
             self.def_var_repr(dst, val, func);
             return;
         }
@@ -225,7 +227,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.resolve_callee(callee, args, dst, func, mono_instance_id);
 
         let result = if let Some((func_id, params, ret_abi)) = resolved {
-            let passed_args = self.apply_param_passing_with_forwarding(&arg_vals, args, &params);
+            let passed_args = self.apply_param_passing(&arg_vals, Some(args), &params);
             match &ret_abi.passing {
                 ReturnPassing::Sret { .. } => {
                     let ret_ty = self.resolve_type(ret_abi.ty);
@@ -267,91 +269,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Same pattern as emit_abi_resolved_call() for Invoke terminators.
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
-        }
-    }
-
-    /// Emit a primitive `as` cast (the `__cast` intercept). Returns the
-    /// converted value, or `None` for source/target pairs handled elsewhere
-    /// (str parse, value→str) so the caller falls through.
-    ///
-    /// Matches `ori_eval::eval_can_cast` for the conversions emitted here:
-    /// identity (same primitive — no-op), int→float (sitofp), float→int
-    /// (fptosi), byte→int / char→int (zext — lossless for valid values),
-    /// int→byte / int→char (range-checked; panics on out-of-range).
-    pub(super) fn try_emit_cast(
-        &mut self,
-        dst: ArcVarId,
-        args: &[ArcVarId],
-        func: &ArcFunction,
-    ) -> Option<ValueId> {
-        if args.len() != 1 {
-            return None;
-        }
-        let val = self.var(args[0]);
-        let src_tag = self
-            .pool
-            .tag(self.pool.resolve_fully(func.var_type(args[0])));
-        let tgt_tag = self.pool.tag(self.pool.resolve_fully(func.var_type(dst)));
-
-        // Identity conversion (same primitive type) — no-op.
-        if src_tag == tgt_tag {
-            return Some(val);
-        }
-
-        match (src_tag, tgt_tag) {
-            (Tag::Int, Tag::Float) => {
-                let f64_ty = self.builder.f64_type();
-                Some(self.builder.si_to_fp(val, f64_ty, "cast.int.float"))
-            }
-            (Tag::Float, Tag::Int) => {
-                // Saturating conversion — NaN -> 0, out-of-range clamps to
-                // i64 MIN/MAX (parity with eval's Rust `as` semantics; raw
-                // fptosi is poison on those inputs).
-                let i64_ty = self.builder.i64_type();
-                Some(self.builder.fp_to_si_sat(val, i64_ty, "cast.float.int"))
-            }
-            (Tag::Byte | Tag::Char, Tag::Int) => {
-                let i64_ty = self.builder.i64_type();
-                Some(self.builder.zext(val, i64_ty, "cast.widen.int"))
-            }
-            (Tag::Int, Tag::Byte) => {
-                // Range check 0..=255, panic out of range (parity with
-                // eval's "value N out of range for byte (0-255)").
-                let lo = self.builder.const_i64(0);
-                let hi = self.builder.const_i64(255);
-                let ge = self.builder.icmp_sge(val, lo, "cast.byte.ge");
-                let le = self.builder.icmp_sle(val, hi, "cast.byte.le");
-                let valid = self.builder.and(ge, le, "cast.byte.valid");
-                self.emit_unwrap_branch(valid, "value out of range for byte (0-255)", "cast.byte")?;
-                let i8_ty = self.builder.i8_type();
-                Some(self.builder.trunc(val, i8_ty, "cast.int.byte"))
-            }
-            (Tag::Int, Tag::Char) => {
-                // Valid Unicode scalar: [0, 0xD7FF] or [0xE000, 0x10FFFF].
-                // Checked on the full i64 BEFORE truncation (parity with
-                // eval — high bits must not wrap into the valid range).
-                let zero = self.builder.const_i64(0);
-                let surrogate_lo = self.builder.const_i64(0xD7FF);
-                let surrogate_hi = self.builder.const_i64(0xE000);
-                let max_scalar = self.builder.const_i64(0x0010_FFFF);
-                let ge_zero = self.builder.icmp_sge(val, zero, "cast.char.ge0");
-                let below_surrogates = self.builder.icmp_sle(val, surrogate_lo, "cast.char.bmp");
-                let low_ok = self.builder.and(ge_zero, below_surrogates, "cast.char.low");
-                let above_surrogates = self.builder.icmp_sge(val, surrogate_hi, "cast.char.astral");
-                let le_max = self.builder.icmp_sle(val, max_scalar, "cast.char.max");
-                let high_ok = self.builder.and(above_surrogates, le_max, "cast.char.high");
-                let valid = self.builder.or(low_ok, high_ok, "cast.char.valid");
-                self.emit_unwrap_branch(
-                    valid,
-                    "value is not a valid Unicode codepoint",
-                    "cast.char",
-                )?;
-                let i32_ty = self.builder.i32_type();
-                Some(self.builder.trunc(val, i32_ty, "cast.int.char"))
-            }
-            // str→int / str→float (parse) and value→str (to_str) need the
-            // cast runtime surface — not emitted here; caller falls through.
-            _ => None,
         }
     }
 
@@ -475,67 +392,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // Format call decomposition
-
-    /// Intercept `ori_format_*` calls and decompose the string spec argument.
-    ///
-    /// ARC IR emits `Apply("ori_format_int", [val, spec_str])` with 2 args.
-    /// Runtime expects `ori_format_int(val, spec_ptr, spec_len)` — 3 args.
-    /// The `spec_str` is `{i64 len, ptr data}` that needs decomposition.
-    pub(super) fn try_emit_format_call(
-        &mut self,
-        callee_name: &str,
-        args: &[ArcVarId],
-        func: &ArcFunction,
-    ) -> Option<ValueId> {
-        if args.len() < 2 {
-            return None;
-        }
-
-        // Single dispatch point: resolve the runtime function AND whether the
-        // formatted value itself is a string struct needing ptr coercion.
-        let (func_id, value_is_str) = match callee_name {
-            "ori_format_int" => (self.builder.runtime_fn("ori_format_int"), false),
-            "ori_format_float" => (self.builder.runtime_fn("ori_format_float"), false),
-            "ori_format_str" => (self.builder.runtime_fn("ori_format_str"), true),
-            "ori_format_bool" => (self.builder.runtime_fn("ori_format_bool"), false),
-            "ori_format_char" => (self.builder.runtime_fn("ori_format_char"), false),
-            _ => return None,
-        };
-
-        // args[0] = the value to format
-        let value = self.var(args[0]);
-        // args[1] = spec string {i64 len, ptr data}
-        let spec_str = self.var(args[1]);
-
-        // For ori_format_str, the value arg is also a string struct — coerce to ptr.
-        let value_arg = if value_is_str {
-            let val_ty = func.var_type(args[0]);
-            self.coerce_aggregate_to_ptr(value, val_ty)
-        } else {
-            value
-        };
-
-        // Decompose spec string via SSO-safe runtime helpers.
-        // Field extraction is WRONG for SSO strings (field 0 = inline bytes, not len).
-        let spec_str_ptr = self.str_to_ptr(spec_str, "fmt.spec");
-        let len_fn = self.builder.runtime_fn("ori_str_len");
-        let spec_len = self
-            .builder
-            .call(len_fn, &[spec_str_ptr], "fmt.spec_len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let data_fn = self.builder.runtime_fn("ori_str_data");
-        let spec_ptr = self
-            .builder
-            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-
-        // Call runtime: ori_format_*(value, spec_ptr, spec_len) → Str via sret
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        self.builder
-            .call_with_sret(func_id, &[value_arg, spec_ptr, spec_len], str_ty, "fmt")
-    }
-
     // String runtime call helpers
 
     /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
@@ -566,14 +422,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // ori_str_concat uses sret convention (24-byte return)
             self.builder
                 .call_with_sret(func_id, &[lhs_ptr, rhs_ptr], str_ty, func_name)
-                .unwrap_or_else(|| {
-                    tracing::warn!("ArcIrEmitter: string runtime call returned no value");
-                    self.builder.const_i64(0)
-                })
+                .expect("str-returning runtime call uses sret; builder yields the loaded value")
         } else {
             // ori_str_eq / ori_str_ne return i1 (bool) — direct return
             let result = self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name);
-            result.unwrap_or_else(|| self.builder.const_bool(false))
+            result.expect("str comparison runtime fn is non-void; builder.call returns Some")
         }
     }
 }

@@ -89,7 +89,9 @@ fn emit_int<'scx: 'ctx, 'ctx>(
 
     match &type_info {
         TypeInfo::Int => Some(arg_val),
-        TypeInfo::Float => Some(emitter.builder.fp_to_si(arg_val, i64_ty, "int_cast")),
+        // Checked conversion — panics on NaN / infinity / out-of-range
+        // (parity with eval's `function_val_int`).
+        TypeInfo::Float => emitter.emit_checked_float_to_int(arg_val, "int_cast"),
         TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Char => {
             Some(emitter.builder.zext(arg_val, i64_ty, "int_cast"))
         }

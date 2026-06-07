@@ -459,3 +459,31 @@ fn no_raw_get_function_for_runtime_fns() {
         violations.join("\n")
     );
 }
+
+/// The COW out-pointer convention is declared per-entry in the table
+/// (`Attr::NoaliasLastParam`), never derived from the `_cow` name suffix.
+/// Pin the table: every `*_cow` entry declares the attribute, and every
+/// entry declaring it has at least one parameter to attach it to.
+#[test]
+fn cow_entries_declare_noalias_last_param_in_table() {
+    for spec in RT_FUNCTIONS.iter() {
+        let has_attr = spec
+            .attrs
+            .iter()
+            .any(|a| matches!(a, Attr::NoaliasLastParam));
+        if spec.name.ends_with("_cow") {
+            assert!(
+                has_attr,
+                "{}: COW runtime fn must declare Attr::NoaliasLastParam in the table",
+                spec.name
+            );
+        }
+        if has_attr {
+            assert!(
+                !spec.params.is_empty(),
+                "{}: Attr::NoaliasLastParam requires at least one parameter",
+                spec.name
+            );
+        }
+    }
+}

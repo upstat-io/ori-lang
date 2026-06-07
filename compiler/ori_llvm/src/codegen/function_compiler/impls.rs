@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace, warn};
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
+use crate::codegen::abi::{select_call_conv, CallConvSite, FunctionAbi, ReturnAbi, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -60,7 +60,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     ty: Idx::UNIT,
                     passing: ReturnPassing::Void,
                 },
-                call_conv: CallConv::C,
+                call_conv: select_call_conv(CallConvSite::TestWrapper),
             };
 
             let emitted = if use_invoke_wrapper {
