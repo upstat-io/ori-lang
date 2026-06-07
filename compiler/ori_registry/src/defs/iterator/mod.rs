@@ -22,6 +22,14 @@ use super::params::{COUNT_PARAM, SEPARATOR_PARAM};
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
+const SELF: ReturnTag = ReturnTag::SelfType;
+const FRESH: ReturnTag = ReturnTag::Fresh;
+const UNIT: ReturnTag = ReturnTag::Unit;
+const NEXT: ReturnTag = ReturnTag::NextResult;
+const OPT_ELEM: ReturnTag = ReturnTag::OptionOf(TypeProjection::Element);
+const ITER_ELEM: ReturnTag = ReturnTag::IteratorOf(TypeProjection::Element);
+const LIST_ELEM: ReturnTag = ReturnTag::ListOf(TypeProjection::Element);
+const IDX_PAIRS: ReturnTag = ReturnTag::IteratorOfTupleIntElement;
 
 // Parameter arrays
 
@@ -123,31 +131,31 @@ const NA: DeiPropagation = DeiPropagation::NotApplicable;
 /// LLVM backend and evaluator directly.
 #[rustfmt::skip]
 static ITERATOR_METHODS: &[MethodDef] = &[
-    //                    name          params              returns                                        dei_only  dei_prop  backend
-    iter("all",           &PREDICATE_PARAM,  BOOL,                                                        false,    NA,       true),
-    iter("any",           &PREDICATE_PARAM,  BOOL,                                                        false,    NA,       true),
-    iter("chain",         &OTHER_ITER_PARAM, ReturnTag::IteratorOf(TypeProjection::Element),               false,    D,        true),
-    iter("collect",       &[],               ReturnTag::ListOf(TypeProjection::Element),                   false,    NA,       true),
-    iter("count",         &[],               INT,                                                         false,    NA,       true),
-    iter("cycle",         &[],               ReturnTag::IteratorOf(TypeProjection::Element),               false,    D,        false),
-    iter("enumerate",     &[],               ReturnTag::IteratorOfTupleIntElement,                         false,    D,        true),
-    iter("filter",        &PREDICATE_PARAM,  ReturnTag::SelfType,                                         false,    P,        true),
-    iter("find",          &PREDICATE_PARAM,  ReturnTag::OptionOf(TypeProjection::Element),                 false,    NA,       true),
-    iter("flat_map",      &TRANSFORM_PARAM,  ReturnTag::Fresh,                                            false,    D,        false),
-    iter("flatten",       &[],               ReturnTag::Fresh,                                            false,    D,        false),
-    iter("fold",          &FOLD_PARAMS,      ReturnTag::Fresh,                                            false,    NA,       true),
-    iter("for_each",      &ACTION_PARAM,     ReturnTag::Unit,                                             false,    NA,       true),
-    iter("join",          &SEPARATOR_PARAM,  STR,                                                         false,    NA,       false),
-    iter("last",          &[],               ReturnTag::OptionOf(TypeProjection::Element),                 true,     NA,       false),
-    iter("map",           &TRANSFORM_PARAM,  ReturnTag::Fresh,                                            false,    P,        true),
-    iter("next",          &[],               ReturnTag::NextResult,                                       false,    NA,       false),
-    iter("next_back",     &[],               ReturnTag::NextResult,                                       true,     NA,       false),
-    iter("rev",           &[],               ReturnTag::SelfType,                                         true,     NA,       false),
-    iter("rfind",         &PREDICATE_PARAM,  ReturnTag::OptionOf(TypeProjection::Element),                 true,     NA,       false),
-    iter("rfold",         &FOLD_PARAMS,      ReturnTag::Fresh,                                            true,     NA,       false),
-    iter("skip",          &COUNT_PARAM,      ReturnTag::IteratorOf(TypeProjection::Element),               false,    D,        true),
-    iter("take",          &COUNT_PARAM,      ReturnTag::IteratorOf(TypeProjection::Element),               false,    D,        true),
-    iter("zip",           &OTHER_ITER_PARAM, ReturnTag::Fresh,                                            false,    D,        true),
+    //   name         params             returns    dei_only  dei_prop  backend
+    iter("all",       &PREDICATE_PARAM,  BOOL,      false,    NA,       true),
+    iter("any",       &PREDICATE_PARAM,  BOOL,      false,    NA,       true),
+    iter("chain",     &OTHER_ITER_PARAM, ITER_ELEM, false,    D,        true),
+    iter("collect",   &[],               LIST_ELEM, false,    NA,       true),
+    iter("count",     &[],               INT,       false,    NA,       true),
+    iter("cycle",     &[],               ITER_ELEM, false,    D,        false),
+    iter("enumerate", &[],               IDX_PAIRS, false,    D,        true),
+    iter("filter",    &PREDICATE_PARAM,  SELF,      false,    P,        true),
+    iter("find",      &PREDICATE_PARAM,  OPT_ELEM,  false,    NA,       true),
+    iter("flat_map",  &TRANSFORM_PARAM,  FRESH,     false,    D,        false),
+    iter("flatten",   &[],               FRESH,     false,    D,        false),
+    iter("fold",      &FOLD_PARAMS,      FRESH,     false,    NA,       true),
+    iter("for_each",  &ACTION_PARAM,     UNIT,      false,    NA,       true),
+    iter("join",      &SEPARATOR_PARAM,  STR,       false,    NA,       false),
+    iter("last",      &[],               OPT_ELEM,  true,     NA,       false),
+    iter("map",       &TRANSFORM_PARAM,  FRESH,     false,    P,        true),
+    iter("next",      &[],               NEXT,      false,    NA,       false),
+    iter("next_back", &[],               NEXT,      true,     NA,       false),
+    iter("rev",       &[],               SELF,      true,     NA,       false),
+    iter("rfind",     &PREDICATE_PARAM,  OPT_ELEM,  true,     NA,       false),
+    iter("rfold",     &FOLD_PARAMS,      FRESH,     true,     NA,       false),
+    iter("skip",      &COUNT_PARAM,      ITER_ELEM, false,    D,        true),
+    iter("take",      &COUNT_PARAM,      ITER_ELEM, false,    D,        true),
+    iter("zip",       &OTHER_ITER_PARAM, FRESH,     false,    D,        true),
 ];
 
 /// `Iterator<T>` — lazy sequence with adapter/consumer protocol.
