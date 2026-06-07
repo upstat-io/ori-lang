@@ -42,6 +42,30 @@ use std.testing { assert_eq }
     assert_eq(actual: list_unique_update(), expected: [1, 2, 99]);
 
 // =============================================================================
+// List COW — ARC-managed (str) elements: aliased receiver, alias unchanged
+// =============================================================================
+
+@list_str_aliased_update_alias_unchanged () -> [str] = {
+    let a = ["a", "b", "c"];
+    let b = a;
+    let c = a.updated(key: 0, value: "Z");
+    b
+}
+
+@test_list_str_aliased_update_alias_unchanged tests @list_str_aliased_update_alias_unchanged () -> void =
+    assert_eq(actual: list_str_aliased_update_alias_unchanged(), expected: ["a", "b", "c"]);
+
+@list_str_aliased_update_result_new () -> [str] = {
+    let a = ["a", "b", "c"];
+    let b = a;
+    let c = a.updated(key: 0, value: "Z");
+    c
+}
+
+@test_list_str_aliased_update_result_new tests @list_str_aliased_update_result_new () -> void =
+    assert_eq(actual: list_str_aliased_update_result_new(), expected: ["Z", "b", "c"]);
+
+// =============================================================================
 // Map COW — aliased receiver: alias unchanged after update (copy fires)
 // =============================================================================
 

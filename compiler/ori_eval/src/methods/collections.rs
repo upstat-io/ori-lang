@@ -528,12 +528,19 @@ impl Interpreter<'_> {
                 Some(v) => Ok(Value::some(v.clone())),
                 None => Ok(Value::None),
             }
-        } else if method == n.insert {
-            require_args("insert", 2, args.len())?;
+        } else if method == n.insert || method == n.updated {
+            // `IndexSet.updated` is insert-or-replace, identical to `insert`;
+            // map keys never go out of bounds, so neither form panics.
+            let name = if method == n.insert {
+                "insert"
+            } else {
+                "updated"
+            };
+            require_args(name, 2, args.len())?;
             let mut args = args;
             let value = args.swap_remove(1);
             let key = args.swap_remove(0);
-            self.bucket_insert(map.make_mut(), key, value, "insert")?;
+            self.bucket_insert(map.make_mut(), key, value, name)?;
             Ok(Value::Map(map))
         } else if method == n.remove {
             require_args("remove", 1, args.len())?;
