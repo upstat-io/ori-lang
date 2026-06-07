@@ -223,42 +223,19 @@ fn emit_defined_dead(
     }
 
     if decision.rc == RcDecision::Dec {
-        // Take-projected payloads transferred ownership OUT of the parent sum
-        // type; the parent's scope-exit drop is suppressed, so NO ancestor
-        // covers this binding's RC slot — it MUST get its own drop. PIN-6
-        // inter-class payload-of suppression assumes
-        // the parent's drop covers the projected child, which is false for a
-        // take-project (the payload was moved out). Skip PIN-6 for take-
-        // projects so the moved-out binding drops at scope exit (RL-2).
+        // Why: a take-project moved the payload OUT of the parent sum type
+        // (parent's scope-exit drop is suppressed), so no ancestor covers this
+        // binding's RC slot — skip PIN-6; it drops at scope exit (RL-2).
         let is_take = is_take_project(instr, ctx.func, ctx.pool);
-        // PIN-6: inter-class payload-of suppression. Runs
-        // BEFORE PIN-4 + PIN-5 — a positive PIN-6 hit makes
-        // the per-class checks below redundant (parent's drop covers
-        // regardless of whether the dst is also an apply-alias source).
-        if is_take {
-            // No PIN-6 suppression — fall through to class check + emit.
-        } else if let Some(class_id) = ctx.state_map.ssa_alias_class_of(dst) {
-            if pin6_any_ancestor_will_cover(ctx, class_id, dst, instr_idx, classes_dying_here) {
-                return;
-            }
-        } else if ctx
-            .state_map
-            .project_alias_sources()
-            .get(&dst)
-            .is_some_and(|s| !s.is_empty())
-        {
-            // Project-alias-singleton fallback. Pure
-            // Project destinations are PIN-2 singletons: ssa_alias_class_of
-            // returns None for them. The existing pin6 entry skips. But
-            // their project_alias_sources may surface a transitive-drop
-            // ancestor in another class that covers their RC slot at
-            // scope exit (the canonical nested-Project-chain double-free
-            // shape). Use dst.raw() as the singleton class id; pin6's
-            // own internal singleton-guard fires, the project-alias seed
-            // walks the source chain, and the BFS finds covering parents.
-            if pin6_any_ancestor_will_cover(ctx, dst.raw(), dst, instr_idx, classes_dying_here) {
-                return;
-            }
+        if !is_take && pin6_covers(ctx, dst, instr_idx, classes_dying_here) {
+            tracing::debug!(
+                target: "ori_arc::aims::realize::defined_dead",
+                func = ?ctx.func.name, var = dst.raw(),
+                class = ?ctx.state_map.ssa_alias_class_of(dst),
+                reason = "pin6-ancestor-covers",
+                "defined-dead RcDec SUPPRESSED"
+            );
+            return;
         }
 
         // PIN-4 + PIN-5: class-aware suppression.
@@ -380,40 +357,11 @@ fn apply_last_use_decision(
                     return;
                 }
 
-                // PIN-6: inter-class payload-of suppression.
-                // Runs BEFORE PIN-4 + PIN-5 — when class B's
-                // transitive drop covers class A's RC slot at-or-after this
-                // instr (alive-after parent OR same-emission parent), class A's
-                // canonical dec is suppressed to avoid double-free. The pre-
-                // collected `classes_dying_here` is the same-emission signal.
-                let pin6_class = ctx.state_map.ssa_alias_class_of(var);
-                if let Some(class_id) = pin6_class {
-                    if pin6_any_ancestor_will_cover(
-                        ctx,
-                        class_id,
-                        var,
-                        instr_idx,
-                        classes_dying_here,
-                    ) {
-                        return;
-                    }
-                } else if ctx
-                    .state_map
-                    .project_alias_sources()
-                    .get(&var)
-                    .is_some_and(|s| !s.is_empty())
-                {
-                    // Project-alias-singleton fallback — same rationale as
-                    // the defined-dead path in `emit_defined_dead`.
-                    if pin6_any_ancestor_will_cover(
-                        ctx,
-                        var.raw(),
-                        var,
-                        instr_idx,
-                        classes_dying_here,
-                    ) {
-                        return;
-                    }
+                // PIN-6: inter-class payload-of suppression — runs BEFORE
+                // PIN-4 + PIN-5; an ancestor's transitive drop covering this
+                // slot makes the canonical dec a double-free.
+                if pin6_covers(ctx, var, instr_idx, classes_dying_here) {
+                    return;
                 }
 
                 // PIN-4 + PIN-5: class-aware suppression at the emission point.
@@ -451,6 +399,33 @@ fn apply_last_use_decision(
         }
         _ => {}
     }
+}
+
+/// PIN-6 coverage dispatch shared by the defined-dead and last-use paths.
+///
+/// Resolves `var`'s PIN-6 query class — its SSA-alias class, or the
+/// project-alias-singleton fallback (`var.raw()` as the singleton class id)
+/// when `var` is a pure Project destination with recorded alias sources
+/// (PIN-2: Project never unions classes, so `ssa_alias_class_of` is `None`;
+/// the source chain may still surface a covering transitive-drop ancestor) —
+/// then queries [`pin6_any_ancestor_will_cover`]. `true` means an ancestor's
+/// transitive drop covers `var`'s RC slot; the canonical dec is redundant.
+fn pin6_covers(
+    ctx: &BlockCtx<'_>,
+    var: ArcVarId,
+    instr_idx: usize,
+    classes_dying_here: &FxHashMap<u32, FxHashSet<ArcVarId>>,
+) -> bool {
+    if let Some(class_id) = ctx.state_map.ssa_alias_class_of(var) {
+        return pin6_any_ancestor_will_cover(ctx, class_id, var, instr_idx, classes_dying_here);
+    }
+    let has_alias_sources = ctx
+        .state_map
+        .project_alias_sources()
+        .get(&var)
+        .is_some_and(|s| !s.is_empty());
+    has_alias_sources
+        && pin6_any_ancestor_will_cover(ctx, var.raw(), var, instr_idx, classes_dying_here)
 }
 
 /// PIN-4 + PIN-5 class-aware emission filter.
@@ -629,6 +604,18 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
         // edge); alloc B's later obligation must NOT suppress alloc A's dec,
         // or alloc A leaks every iteration (RL-4 P1 + under-elim
         // per-path-net-0). `same_alloc` excludes the phi edge.
+        //
+        // The later obligation must ALSO be one that actually emits a dec
+        // (`obligation_emits_dec`). The obligation table records SYNTACTIC
+        // last-use sites; an ownership-TRANSFER site (owned arg of an
+        // Apply/Invoke, Construct arg, transparent Let alias) hands the
+        // reference to the consumer and emits NO dec (RL-2 transfer
+        // exemption) — such phantom obligations must not suppress this
+        // var's dec, or the class's surplus reference leaks (canonical
+        // shape: a dead `let b = a;` alias of a receiver consumed by a COW
+        // method — Construct+Inc = 2 refs, the transfer consumes 1, the
+        // dead alias's dec is the only balance for the other; per-path
+        // net-0 per RL-2/RL-4/RL-5).
         let later_obligation_exists =
             entry
                 .intra_block_obligations
@@ -637,6 +624,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
                     other_var != var
                         && other_idx > instr_idx
                         && same_alloc(ctx.same_alloc_reps, other_var, var)
+                        && obligation_emits_dec(ctx, other_var, other_idx)
                 });
         if later_obligation_exists {
             return true;
@@ -647,6 +635,46 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // (BUG-04-111 fallback — Let aliases RC-inert per AIMS
     // lattice when no class member actually emits).
     false
+}
+
+/// Whether a recorded class obligation `(var, idx)` will ACTUALLY emit a
+/// dec at its site.
+///
+/// The obligation table (`populate_class_dec_obligations`) records
+/// syntactic last-use positions. A use at an ownership-transfer site emits
+/// no dec (RL-2 transfer exemption): owned args of `Apply`/`Invoke`
+/// transfer the reference to the callee; `Construct`/`PartialApply` args
+/// move into the aggregate; transparent `Let { Var }` aliases are RC-inert
+/// per AIMS §3 TF-11. Only non-owned positions at non-transfer sites fire
+/// a real dec (body-walk `emit_last_use_decs` / RL-4 edge cleanup for
+/// terminator borrows).
+fn obligation_emits_dec(ctx: &BlockCtx<'_>, var: ArcVarId, idx: usize) -> bool {
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    if idx >= block.body.len() {
+        // Terminator obligation (recorded with idx == body.len()). Owned
+        // terminator args (Invoke/InvokeIndirect ownership transfer, Jump
+        // arg per the RL-4 exemption) emit no dec; borrowed positions get
+        // RL-4 edge decs on the successor edges.
+        let term = &block.terminator;
+        return term
+            .used_vars()
+            .into_iter()
+            .enumerate()
+            .filter(|&(_, v)| v == var)
+            .any(|(pos, _)| !term.is_owned_position(pos));
+    }
+    let Some(instr) = block.body.get(idx) else {
+        return false;
+    };
+    if is_consuming_primop(instr, ctx.func) || is_ownership_transfer(instr, ctx.func, ctx.pool) {
+        return false;
+    }
+    instr
+        .used_vars()
+        .into_iter()
+        .enumerate()
+        .filter(|&(_, v)| v == var)
+        .any(|(pos, _)| !instr.is_owned_position(pos))
 }
 
 /// Obligation-table filter: detect classes formed

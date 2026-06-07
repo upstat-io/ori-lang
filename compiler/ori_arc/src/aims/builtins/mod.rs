@@ -32,6 +32,8 @@ use super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness
 /// - **COW receiver** methods: consume receiver, return unique result
 /// - **COW receiver+arg** methods: consume receiver and second arg
 /// - **COW receiver-only** methods: consume receiver, borrow other args
+/// - **COW indexed update** (`updated`): consume receiver and value (arg 2),
+///   borrow key (arg 1)
 /// - **Sharing** methods: return values sharing receiver's backing storage
 #[expect(
     clippy::implicit_hasher,
@@ -45,6 +47,18 @@ pub fn seed_builtin_contracts(
     // COW methods seeded first — they have specific ownership requirements
     // and take precedence over borrowing when the same method name appears
     // in both sets (method names are not type-qualified in ARC IR).
+
+    // IndexSet `updated(key, value)`: receiver consumed-and-returned, key
+    // borrowed, value MOVED into the collection. Seeded BEFORE the generic
+    // COW loops — `updated` is also in `consuming_receiver`, whose 1-param
+    // base contract cannot express the value-param ownership transfer.
+    // One uniform contract across `[T]` / `[T, max N]` / `{K: V}` (fixed
+    // lists erase to the List tag). Without the Owned value param, AIMS
+    // emits an erroneous RcDec on the moved value (double-free on the
+    // unique in-place path; reference-balance leak on copy paths).
+    for &name in &builtins.consuming_third_arg {
+        sigs.entry(name).or_insert_with(cow_indexed_update_contract);
+    }
 
     // COW map/set methods: receiver consumed, other args borrowed.
     // Seeded BEFORE consuming_receiver because some methods (e.g., "remove")
@@ -239,6 +253,28 @@ fn cow_receiver_only_contract() -> MemoryContract {
     // has 3+ params, extend this function or use a parameterized variant.
     MemoryContract {
         params: vec![PARAM_OWNED_LINEAR, PARAM_BORROWED],
+        return_info: RETURN_UNIQUE,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    }
+}
+
+/// COW indexed update (`updated(key, value)` — IndexSet): key borrowed,
+/// value consumed (moved into the collection), return Unique.
+///
+/// The 2-param [`cow_receiver_only_contract`] cannot express the value-param
+/// ownership transfer — `updated` is 3-param (`self, key, value`) and the
+/// runtime takes ownership of `value` (no caller-side `RcDec` after insert).
+///
+/// The receiver is seeded Borrowed (COW base-contract idiom, same as the
+/// `consuming_receiver` loop): `apply_consuming_overrides` marks it Owned
+/// at collection call sites, so the consumed-and-returned receiver shares
+/// the proven realization path of the sibling COW methods (`set`, `push`).
+fn cow_indexed_update_contract() -> MemoryContract {
+    MemoryContract {
+        params: vec![PARAM_BORROWED, PARAM_BORROWED, PARAM_OWNED_LINEAR],
         return_info: RETURN_UNIQUE,
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),

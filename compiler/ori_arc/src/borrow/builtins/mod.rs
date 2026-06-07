@@ -54,6 +54,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "set",         // list.set (COW set at index)
     "sort",        // list.sort (COW sort, unstable)
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
+    "updated",     // list/map.updated (IndexSet COW replace / insert-or-replace)
 ];
 
 /// COW list methods that consume both receiver AND second argument.
@@ -72,6 +73,23 @@ const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "add",    // list + list (COW concat)
     "concat", // list.concat(other)
     "push",   // list.push(value) — element stored in list buffer
+];
+
+/// COW methods that consume receiver AND third argument (the inserted value).
+///
+/// `updated(key, value)` (IndexSet): the runtime takes ownership of `value` —
+/// the element is moved into the collection (`ori_list_updated_cow` writes it
+/// without an inc; `ori_map_updated_cow` releases the caller's reference after
+/// the buffer inc). The key (arg[1]) stays borrowed: an index for lists, a
+/// comparison/copied key for maps.
+///
+/// The ARC pipeline must mark arg[2] as `Owned` (no extra `RcDec`) in addition
+/// to the receiver — a caller-side dec on the moved value double-frees on the
+/// unique in-place path and leaks the buffer's reference balance on copy paths.
+///
+/// Sorted alphabetically.
+const CONSUMING_THIRD_ARG_METHOD_NAMES: &[&str] = &[
+    "updated", // list/map.updated(key, value) — value moved into the collection
 ];
 
 /// COW methods that consume ONLY the receiver; non-receiver args are borrowed.
@@ -153,6 +171,21 @@ pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<
 /// See [`CONSUMING_SECOND_ARG_METHOD_NAMES`] for the full list.
 pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     CONSUMING_SECOND_ARG_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
+/// Collect interned [`Name`]s for COW methods that also consume their
+/// third argument (the inserted value).
+///
+/// When the receiver is a collection type and `args.len() >= 3`, the ARC
+/// pipeline marks `arg_ownership[2]` as `Owned` — the runtime takes ownership
+/// of the inserted value (move semantics).
+///
+/// See [`CONSUMING_THIRD_ARG_METHOD_NAMES`] for the full list.
+pub fn consuming_third_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    CONSUMING_THIRD_ARG_METHOD_NAMES
         .iter()
         .map(|name| interner.intern(name))
         .collect()
@@ -265,6 +298,9 @@ pub struct BuiltinOwnershipSets {
     pub consuming_receiver: FxHashSet<Name>,
     /// COW list methods that also consume their second argument (e.g., `add`, `concat`).
     pub consuming_second_arg: FxHashSet<Name>,
+    /// COW methods that also consume their third argument (`updated` — the
+    /// inserted value is moved into the collection).
+    pub consuming_third_arg: FxHashSet<Name>,
     /// COW methods that consume only the receiver; other args are borrowed.
     ///
     /// For Map/Set operations like `remove(key)` and `union(other)`, the
@@ -286,6 +322,7 @@ impl BuiltinOwnershipSets {
             borrowing: borrowing_builtin_names(interner),
             consuming_receiver: consuming_receiver_builtin_names(interner),
             consuming_second_arg: consuming_second_arg_builtin_names(interner),
+            consuming_third_arg: consuming_third_arg_builtin_names(interner),
             consuming_receiver_only: consuming_receiver_only_builtin_names(interner),
             protocol: ProtocolBuiltin::ALL
                 .iter()
@@ -308,6 +345,7 @@ impl BuiltinOwnershipSets {
             borrowing: FxHashSet::default(),
             consuming_receiver: FxHashSet::default(),
             consuming_second_arg: FxHashSet::default(),
+            consuming_third_arg: FxHashSet::default(),
             consuming_receiver_only: FxHashSet::default(),
             protocol: FxHashMap::default(),
         }

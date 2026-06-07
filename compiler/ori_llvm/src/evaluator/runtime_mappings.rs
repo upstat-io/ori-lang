@@ -106,6 +106,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_push_cow" => runtime::ori_list_push_cow as *const () as usize,
         "ori_list_pop_cow" => runtime::ori_list_pop_cow as *const () as usize,
         "ori_list_set_cow" => runtime::ori_list_set_cow as *const () as usize,
+        "ori_list_updated_cow" => runtime::ori_list_updated_cow as *const () as usize,
         "ori_list_insert_cow" => runtime::ori_list_insert_cow as *const () as usize,
         "ori_list_remove_cow" => runtime::ori_list_remove_cow as *const () as usize,
         "ori_list_reverse_cow" => runtime::ori_list_reverse_cow as *const () as usize,
@@ -199,6 +200,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_map_values_to_list" => runtime::map::ori_map_values_to_list as *const () as usize,
         "ori_map_get" => runtime::map::ori_map_get as *const () as usize,
         "ori_map_insert_cow" => runtime::map::cow::ori_map_insert_cow as *const () as usize,
+        "ori_map_updated_cow" => {
+            runtime::map::cow_updated::ori_map_updated_cow as *const () as usize
+        }
         "ori_map_remove_cow" => runtime::map::cow::ori_map_remove_cow as *const () as usize,
         "ori_map_buffer_rc_dec" => runtime::ori_map_buffer_rc_dec as *const () as usize,
         "ori_map_buffer_drop_unique" => runtime::ori_map_buffer_drop_unique as *const () as usize,

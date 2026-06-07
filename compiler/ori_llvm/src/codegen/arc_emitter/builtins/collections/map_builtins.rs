@@ -318,6 +318,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,
     ///         key_eq, key_hash, key_inc, val_inc, val_dec, cow_mode, out_ptr)`.
+    /// Key and value are borrowed (the buffer copy gets its own RC increment).
     pub(crate) fn emit_map_insert(
         &mut self,
         receiver: ValueId,
@@ -328,7 +329,64 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         map_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_map_insert_cow");
+        self.emit_map_insert_like(
+            "ori_map_insert_cow",
+            receiver,
+            key,
+            value,
+            key_ty,
+            val_ty,
+            cow_mode,
+            map_ty,
+        )
+    }
+
+    /// Emit `map.updated(key, value)` — COW insert-or-replace (`IndexSet.updated`).
+    ///
+    /// Same runtime substrate as `insert`; the value is MOVED into the map
+    /// (`ori_map_updated_cow` releases the caller's reference after the buffer
+    /// increment — `arg_ownership` marks the value `Owned`, so no caller-side
+    /// `RcDec` follows).
+    pub(crate) fn emit_map_updated(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        value: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+        cow_mode: ValueId,
+        map_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_map_insert_like(
+            "ori_map_updated_cow",
+            receiver,
+            key,
+            value,
+            key_ty,
+            val_ty,
+            cow_mode,
+            map_ty,
+        )
+    }
+
+    /// Shared emission for `insert` / `updated` — both call a runtime function
+    /// with the `ori_map_insert_cow` parameter shape.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "map COW call site threads independent ABI scalars"
+    )]
+    fn emit_map_insert_like(
+        &mut self,
+        runtime_fn: &'static str,
+        receiver: ValueId,
+        key: ValueId,
+        value: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+        cow_mode: ValueId,
+        map_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn(runtime_fn);
 
         let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));

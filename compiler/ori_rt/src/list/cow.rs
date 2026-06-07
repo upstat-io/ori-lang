@@ -367,6 +367,31 @@ pub extern "C" fn ori_list_set_cow(
     }
 
     // SLOW PATH: shared — copy entire list, overwrite in copy
+    slow_copy_replace_element(data, len, cap, idx, elem_ptr, es, ea, inc_fn, out_ptr);
+}
+
+/// Shared-buffer replacement: copy the list, overwrite the element at `idx`.
+///
+/// Slow path shared by `ori_list_set_cow` and `ori_list_updated_cow`. The
+/// replacement element keeps the caller's reference (no inc); all other copied
+/// elements get their RC incremented for the new buffer. The old buffer's
+/// reference is released slice-aware; the old element at `idx` stays owned by
+/// the old buffer (or is released by its teardown).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "COW list parameters cannot be grouped — all independent ABI scalars"
+)]
+pub(super) fn slow_copy_replace_element(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    idx: usize,
+    elem_ptr: *const u8,
+    es: usize,
+    ea: usize,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
     let old_len = len as usize;
     let new_data = ori_rc_alloc(old_len * es, ea);
 

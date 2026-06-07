@@ -330,6 +330,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     }
                 }
             }
+
+            // Eval-parity unknown-method trap. The receiver is a builtin type
+            // and every dispatch surface missed (submodule chain, auto-iter
+            // promotion). The interpreter resolves builtin methods at dispatch
+            // time and raises `no method '<name>' on type <type>` as a RUNTIME
+            // panic — mirror that here instead of failing codegen, preserving
+            // dual-execution parity for typechecked-but-undispatchable calls
+            // (e.g. `str.updated(...)` — str implements Index, not IndexSet).
+            // Gates:
+            // - Runtime-function names (`ori_*`, `__*`) are excluded — they
+            //   resolve via the runtime-fn fallback after this returns None.
+            // - Methods the registry DOES define on this receiver type are
+            //   excluded — a missing dispatch arm for a real method is a
+            //   codegen gap (keep the unresolved-function error), not an
+            //   unknown method.
+            // - Names the registry defines as an ASSOCIATED function on any
+            //   type are excluded — associated calls (`Size.from_bytes`)
+            //   carry no receiver, so `args[0]` is an ordinary argument and
+            //   the receiver-type heuristic misattributes it.
+            if !method_name.starts_with("ori_")
+                && !method_name.starts_with("__")
+                && !registry_defines_method(type_name, method_name)
+                && !registry_has_associated_fn(method_name)
+            {
+                return Some(self.emit_unknown_method_panic(type_name, method_name, dst_ty));
+            }
         }
 
         // Types without builtin names: Unit, Struct, Enum, Function
@@ -345,6 +371,41 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         None
+    }
+
+    /// Emit the eval-parity `no method '<name>' on type <type>` runtime panic.
+    ///
+    /// Emits an unconditional branch to a panic block (`ori_panic_cstr` +
+    /// `unreachable`), then positions the builder at an unreachable
+    /// continuation block and returns a zero value of the destination type so
+    /// the caller's normal-block wiring stays well-formed. Mirrors the
+    /// interpreter's unknown-method dispatch error (dual-execution parity).
+    fn emit_unknown_method_panic(
+        &mut self,
+        type_name: &str,
+        method_name: &str,
+        dst_ty: Idx,
+    ) -> ValueId {
+        let panic_bb = self
+            .builder
+            .append_block(self.current_function, "no_method.panic");
+        let cont_bb = self
+            .builder
+            .append_block(self.current_function, "no_method.cont");
+        self.builder.br(panic_bb);
+
+        self.builder.position_at_end(panic_bb);
+        let msg = format!("no method '{method_name}' on type {type_name}");
+        let msg_ptr = self.builder.build_global_string_ptr(&msg, "no_method.msg");
+        let panic_fn = self.builder.runtime_fn("ori_panic_cstr");
+        self.emit_rt_call(panic_fn, &[msg_ptr], "");
+        self.builder.unreachable();
+
+        // Unreachable continuation — keeps the caller's `br` to the normal
+        // block well-formed; the zero value is never observed.
+        self.builder.position_at_end(cont_bb);
+        let dst_llvm_ty = self.resolve_type(dst_ty);
+        self.builder.const_zero_ty(dst_llvm_ty)
     }
 
     /// Materialize an auto-iter-promoted iterator handle back into its
@@ -470,6 +531,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => None,
         }
     }
+}
+
+/// Whether the registry defines `method` on the builtin type whose legacy
+/// dispatch name is `type_name` (any method kind).
+fn registry_defines_method(type_name: &str, method: &str) -> bool {
+    ori_registry::BUILTIN_TYPES.iter().any(|td| {
+        ori_registry::legacy_type_name(td.name) == type_name
+            && td.methods.iter().any(|m| m.name == method)
+    })
+}
+
+/// Whether ANY builtin type defines `method` as an ASSOCIATED function
+/// (factory — no receiver; `args[0]` is an ordinary argument).
+fn registry_has_associated_fn(method: &str) -> bool {
+    ori_registry::BUILTIN_TYPES.iter().any(|td| {
+        td.methods
+            .iter()
+            .any(|m| m.name == method && m.kind == ori_registry::MethodKind::Associated)
+    })
 }
 
 use iterators_guard::{auto_iter_element_type, is_iterator_method};

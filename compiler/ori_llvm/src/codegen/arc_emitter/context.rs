@@ -66,8 +66,13 @@ pub(super) fn tagged_union_has_boxed_inner(pool: &Pool, union_type: Idx) -> bool
 /// `codegen/arc_emitter/builtins/option_result_helpers.rs`
 /// (`emit_expect_branch`, `emit_unwrap_branch`). Keep this list in sync
 /// with the dispatch table in `option_result.rs`.
+///
+/// `updated` (`IndexSet`) is included because the list lowering calls
+/// `ori_list_updated_cow`, which panics on out-of-bounds keys (matching
+/// `list[key]`). Matching is by unqualified method name, so map `updated`
+/// (never panics) is conservatively included too.
 pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] =
-    &["unwrap", "unwrap_err", "expect", "expect_err"];
+    &["unwrap", "unwrap_err", "expect", "expect_err", "updated"];
 
 /// Check if a callee will be intercepted by builtin handlers during emission.
 ///

@@ -567,9 +567,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Inner helper: emit indirect invoke (with unwind edge) and define `dst`.
     ///
-    /// For sret returns, falls back to `call` + `br` since `invoke_indirect`
-    /// doesn't directly support sret convention. For direct returns, uses a
-    /// real LLVM `invoke` instruction.
+    /// Both return shapes use a real LLVM `invoke` instruction: direct
+    /// returns via `invoke_indirect`, sret returns via
+    /// `invoke_indirect_with_sret` (sret attribute on the first parameter,
+    /// result loaded on the normal edge).
     #[expect(
         clippy::too_many_arguments,
         reason = "indirect invoke emission requires all parameters"
@@ -587,20 +588,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
     ) {
         if ret_is_indirect {
-            // Sret: emit call + br (invoke_indirect doesn't support sret
-            // convention directly). The unwind edge is sacrificed for
-            // correctness of the ABI — closure sret invoke is rare.
-            self.emit_invoke_indirect_call(
-                dst,
+            // Sret: real LLVM `invoke` with the sret attribute on the first
+            // parameter — preserves the unwind edge (required by
+            // `catch(expr:)` over closures returning >16-byte types).
+            let sret_alloca = self.builder.alloca(ret_ty, "icall.sret");
+            self.builder.invoke_indirect_with_sret(
                 ret_ty,
-                ret_is_indirect,
-                fn_ptr,
                 param_types,
+                fn_ptr,
+                sret_alloca,
                 arg_vals,
-                arc_func,
+                normal_block,
+                unwind_block,
             );
-            self.br_exiting_catchpad(normal_block);
+            // The sret slot is only valid on the normal edge — load it there.
             self.builder.position_at_end(normal_block);
+            let loaded = self.builder.load(ret_ty, sret_alloca, "icall.sret.load");
+            self.def_var_repr(dst, loaded, arc_func);
         } else {
             let result = self.builder.invoke_indirect(
                 ret_ty,

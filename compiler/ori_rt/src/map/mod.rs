@@ -12,9 +12,12 @@
 //!
 //! - `cow` — COW mutation functions (`ori_map_insert_cow`, etc.) with consuming
 //!   semantics: fast path mutates in place when RC==1, slow path copies.
+//! - `cow_updated` — `ori_map_updated_cow` (`IndexSet.updated`): insert-or-replace
+//!   with consuming (moved) value semantics.
 //! - `hash_table` — Core hash table logic (layout, probing, rehashing).
 
 pub mod cow;
+pub mod cow_updated;
 pub(crate) mod hash_table;
 
 use crate::list::write_array_to_list;

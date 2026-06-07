@@ -114,6 +114,27 @@ pub(in crate::codegen::runtime_decl) static LIST: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::NoaliasLastParam],
         jit_allowed: true,
     },
+    // extern "C-unwind" — panics on out-of-bounds key (matches ori_list_get)
+    RtFn {
+        name: "ori_list_updated_cow",
+        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, dec_fn, cow_mode, out_ptr
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I32,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::NoaliasLastParam],
+        jit_allowed: true,
+    },
     RtFn {
         name: "ori_list_insert_cow",
         // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, cow_mode, out_ptr

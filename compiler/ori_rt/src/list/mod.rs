@@ -5,14 +5,16 @@
 //! - **Allocation**: `ori_list_new`, `ori_list_alloc_data`, `ori_list_box_new`
 //! - **Lifecycle**: `ori_list_free`, `ori_list_free_data`
 //! - **COW mutations**: `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`,
-//!   `ori_list_insert_cow`, `ori_list_remove_cow`, `ori_list_concat_cow`,
-//!   `ori_list_reverse_cow`, `ori_list_sort_cow`, `ori_list_sort_stable_cow`
+//!   `ori_list_updated_cow`, `ori_list_insert_cow`, `ori_list_remove_cow`,
+//!   `ori_list_concat_cow`, `ori_list_reverse_cow`, `ori_list_sort_cow`,
+//!   `ori_list_sort_stable_cow`
 //! - **Queries**: `ori_list_first`, `ori_list_last`, `ori_list_contains_*`
 //! - **Functional**: `ori_list_reverse`, `ori_list_concat`
 
 mod cow;
 mod cow_sort;
 mod cow_structural;
+mod cow_updated;
 mod query;
 mod reset;
 pub mod slice;
@@ -20,6 +22,7 @@ pub mod slice;
 pub use cow::*;
 pub use cow_sort::*;
 pub use cow_structural::*;
+pub use cow_updated::*;
 pub use query::*;
 pub use reset::*;
 pub use slice::*;

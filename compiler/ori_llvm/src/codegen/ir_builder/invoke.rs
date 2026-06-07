@@ -4,7 +4,7 @@
 //! unwind), landing pads, and resume instructions — the Itanium EH ABI
 //! surface. For SEH (Windows MSVC), see [`super::seh`].
 
-use inkwell::types::{BasicMetadataTypeEnum, BasicType};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicType};
 use inkwell::values::BasicValueEnum;
 
 use super::IrBuilder;
@@ -86,6 +86,77 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .try_as_basic_value()
             .basic()
             .map(|v| self.arena.push_value(v))
+    }
+
+    /// Build an indirect invoke through a function pointer with an sret
+    /// first parameter.
+    ///
+    /// Like [`invoke_indirect`](Self::invoke_indirect) but for closures
+    /// returning large types (>16 bytes): the callee returns void and writes
+    /// the result through `sret_ptr`, which carries the `sret` + `noalias`
+    /// attributes so LLVM passes it in the ABI-correct register (X8 on ARM64,
+    /// RDI on `x86_64`). On normal return execution continues at `then_block`;
+    /// on unwind at `catch_block` — the unwind edge is preserved (required by
+    /// `catch(expr:)` over closures with sret returns).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "indirect sret invoke requires fn type, sret slot, and both edges"
+    )]
+    pub fn invoke_indirect_with_sret(
+        &mut self,
+        sret_type: LLVMTypeId,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        sret_ptr: ValueId,
+        args: &[ValueId],
+        then_block: BlockId,
+        catch_block: BlockId,
+    ) {
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "invoke_indirect_with_sret on non-pointer");
+            self.record_codegen_error();
+            return;
+        }
+        let ptr = raw.into_pointer_value();
+
+        // Build full arg list: sret_ptr + remaining args
+        let mut all_args: Vec<BasicValueEnum<'ctx>> = Vec::with_capacity(1 + args.len());
+        all_args.push(self.arena.get_value(sret_ptr));
+        for &id in args {
+            all_args.push(self.arena.get_value(id));
+        }
+
+        // Build function type: void(ptr, param_types...)
+        let ptr_ty: BasicMetadataTypeEnum<'ctx> = self.scx.type_ptr().into();
+        let mut all_param_tys: Vec<BasicMetadataTypeEnum<'ctx>> =
+            Vec::with_capacity(1 + param_types.len());
+        all_param_tys.push(ptr_ty);
+        for &id in param_types {
+            all_param_tys.push(self.arena.get_type(id).into());
+        }
+        let fn_type = self.scx.type_void_func(&all_param_tys);
+
+        let then_bb = self.arena.get_block(then_block);
+        let catch_bb = self.arena.get_block(catch_block);
+        let call_val = self
+            .builder
+            .build_indirect_invoke(fn_type, ptr, &all_args, then_bb, catch_bb, "")
+            .expect("invoke_indirect_with_sret");
+
+        // Add sret attribute to the first parameter of the invoke instruction.
+        let sret_ty = self.arena.get_type(sret_type);
+        let sret_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("sret");
+        let sret_attr = self
+            .scx
+            .llcx
+            .create_type_attribute(sret_kind, sret_ty.as_any_type_enum());
+        call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), sret_attr);
+
+        // Also add noalias on the sret parameter (required by x86_64 ABI).
+        let noalias_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
+        let noalias_attr = self.scx.llcx.create_enum_attribute(noalias_kind, 0);
+        call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), noalias_attr);
     }
 
     /// Build a `landingpad` instruction for exception handling cleanup.

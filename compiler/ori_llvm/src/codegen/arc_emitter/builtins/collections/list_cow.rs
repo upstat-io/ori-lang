@@ -140,6 +140,58 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_struct_ty, out, "set.val"))
     }
 
+    /// Emit `list.updated(key, value)` — COW replacement returning modified list
+    /// (`IndexSet.updated`).
+    ///
+    /// Fast path (unique): releases the replaced element, overwrites in place.
+    /// Slow path (shared): copies buffer, overwrites target index.
+    /// Out-of-bounds keys PANIC in the runtime (matching `list[key]`).
+    ///
+    /// The value is MOVED into the list (`arg_ownership` marks it `Owned`, the
+    /// runtime takes the caller's reference) — no caller-side `RcDec` follows.
+    pub(crate) fn emit_list_updated_cow(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_updated_cow");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
+        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
+        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+        let dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+
+        let list_struct_ty = self.list_struct_type();
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "updated.out", list_struct_ty);
+
+        self.emit_rt_call(
+            func_id,
+            &[
+                data_ptr,
+                len,
+                cap,
+                key,
+                elem_ptr,
+                elem_size_val,
+                elem_align_val,
+                inc_fn,
+                dec_fn,
+                cow_mode,
+                out,
+            ],
+            "updated",
+        );
+
+        Some(self.builder.load(list_struct_ty, out, "updated.val"))
+    }
+
     /// Emit `list.insert(index, value)` — COW insert returning modified list.
     ///
     /// Fast path (unique + capacity): memmove + write in place.

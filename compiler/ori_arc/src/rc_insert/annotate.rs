@@ -142,6 +142,11 @@ fn compute_arg_ownership(
 /// `concat`) where the runtime also consumes the second argument (list2).
 /// When the receiver is `List` and `args.len() >= 2`, arg[1] is also `Owned`.
 ///
+/// `builtins.consuming_third_arg` identifies COW methods (`updated`) where
+/// the runtime moves the third argument (the inserted value) into the
+/// collection. When the receiver is a collection and `args.len() >= 3`,
+/// arg[2] is also `Owned`.
+///
 /// `builtins.consuming_receiver_only` identifies COW methods (e.g., `remove`,
 /// `union`) that consume the receiver but only read/compare other arguments.
 /// These produce `[Owned, Borrowed, ...]` in `compute_arg_ownership`.
@@ -160,6 +165,7 @@ pub fn annotate_arg_ownership(
     let consuming_ctx = ConsumingCtx {
         consuming_receiver_builtins: &builtins.consuming_receiver,
         consuming_second_arg_builtins: &builtins.consuming_second_arg,
+        consuming_third_arg_builtins: &builtins.consuming_third_arg,
         var_types: &func.var_types,
         pool,
         interner,
@@ -317,12 +323,15 @@ fn resolve_indirect_arg_ownership(
 
 /// Override borrowing ownership for COW list methods with consuming semantics.
 ///
-/// Applies two overrides for list-typed receivers:
+/// Applies three overrides for collection-typed receivers:
 /// 1. **Receiver** (arg[0]): When `callee` is in `consuming_receiver_builtins`
 ///    and the receiver is `List`, marks arg[0] as `Owned`.
 /// 2. **Second arg** (arg[1]): When `callee` is *also* in
 ///    `consuming_second_arg_builtins` and the receiver is `List`, marks
 ///    arg[1] as `Owned` too — the runtime consumes list2's buffer.
+/// 3. **Third arg** (arg[2]): When `callee` is *also* in
+///    `consuming_third_arg_builtins` (`updated`), marks arg[2] as `Owned` —
+///    the runtime moves the inserted value into the collection.
 ///
 /// Type-qualified: `"add"` and `"concat"` are shared names — borrowing for
 /// strings, consuming for lists. Only the list case is overridden here.
@@ -330,6 +339,7 @@ fn resolve_indirect_arg_ownership(
 struct ConsumingCtx<'a> {
     consuming_receiver_builtins: &'a FxHashSet<ori_ir::Name>,
     consuming_second_arg_builtins: &'a FxHashSet<ori_ir::Name>,
+    consuming_third_arg_builtins: &'a FxHashSet<ori_ir::Name>,
     var_types: &'a [ori_types::Idx],
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
@@ -424,5 +434,14 @@ fn apply_consuming_overrides(
         && arg_ownership.len() >= 2
     {
         arg_ownership[1] = ArgOwnership::Owned;
+    }
+
+    // Also mark third arg as Owned if this method moves the inserted value
+    // into the collection (`updated(key, value)` — IndexSet).
+    if ctx.consuming_third_arg_builtins.contains(&callee)
+        && args.len() >= 3
+        && arg_ownership.len() >= 3
+    {
+        arg_ownership[2] = ArgOwnership::Owned;
     }
 }

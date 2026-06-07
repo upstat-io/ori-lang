@@ -217,6 +217,20 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("list", "updated") => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                let r = emitter.emit_list_updated_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty);
+                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
+                r
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("list", "insert") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -345,6 +359,20 @@ declare_builtins! { emitter, ctx;
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
                 let r = emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value, cm, ctx.receiver_ty);
+                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
+                r
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("map", "updated") => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::Map { key, value } = ctx.type_info {
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                let r = emitter.emit_map_updated(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
