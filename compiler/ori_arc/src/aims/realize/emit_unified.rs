@@ -5801,19 +5801,14 @@ fn compute_elidable_fresh_self_alloc_incs(
     let mut elidable: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) else {
+            // A FRESH self-alloc is either a `Construct`/literal/`ori_list_take`
+            // (`fresh_self_alloc_dst`) or a self-allocating builtin collection-source
+            // `Apply` result (`fresh_collection_source_apply_dst`) — both create a
+            // fresh rc=1 buffer whose Phase-5 fresh-site inc the M1 alloc-aware-net
+            // elision can drop when the lineage net is +1 (Spec: Annex E §AIMS RL-1).
+            let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) else {
                 continue;
             };
-            // Only elide non-scalar RcPtr/FatValue self-allocs (scalars carry no
-            // burden ops; aggregates may have heap children whose RC the fresh
-            // inc does not double-count — restrict to single-pointer reprs the
-            // allocation's own `+1` covers).
-            if !matches!(
-                func.var_repr(dst),
-                Some(ValueRepr::RcPointer | ValueRepr::FatValue)
-            ) {
-                continue;
-            }
             let rep = rep_of(dst);
             let cow = cow_mutated_reps.contains(&rep);
             let net = lineage_net.get(&rep).copied().unwrap_or(0);
@@ -5909,13 +5904,8 @@ fn compute_lineage_alloc_aware_net(
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            if let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) {
-                if matches!(
-                    func.var_repr(dst),
-                    Some(ValueRepr::RcPointer | ValueRepr::FatValue)
-                ) {
-                    reps.insert(rep_of(dst));
-                }
+            if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
+                reps.insert(rep_of(dst));
             }
         }
     }
@@ -5946,13 +5936,8 @@ fn compute_lineage_alloc_aware_net(
         let mut alloc_in_block: Vec<bool> = vec![false; func.blocks.len()];
         for (b, block) in func.blocks.iter().enumerate() {
             for instr in &block.body {
-                if let Some(dst) = fresh_self_alloc_dst(instr, list_take_name) {
-                    if belongs(dst)
-                        && matches!(
-                            func.var_repr(dst),
-                            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
-                        )
-                    {
+                if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
+                    if belongs(dst) {
                         delta[b] += 1;
                         alloc_in_block[b] = true;
                     }
@@ -6416,6 +6401,83 @@ fn fresh_self_alloc_dst(instr: &ArcInstr, list_take_name: ori_ir::Name) -> Optio
     }
 }
 
+/// The `dst` of a SELF-ALLOCATING builtin collection-source `Apply`/`Invoke`
+/// result (created at runtime RC = 1 from a fresh `ori_rc_alloc`'d buffer), or
+/// `None`. These are the `@collect` / `@collect_set` iterator-consumer results,
+/// the `@union` / `@difference` / `@intersection` set-algebra results, the
+/// `@keys` / `@values` / `@split` / `@to_list` conversion results, the COW-method
+/// results, and the fresh-str-producing method results — the same name sets the
+/// `allocates` predicate in [`compute_owned_collection_delta`] recognizes as a
+/// fresh-buffer-allocating callee.
+///
+/// Distinct from [`fresh_self_alloc_dst`] (`Construct` / literal / `ori_list_take`
+/// only): Phase-5 `fresh_site_burden_inc_dst` emits a fresh-site `BurdenInc` on
+/// EVERY `Apply`/`Invoke` result with a Unique/MaybeShared return contract,
+/// treating the result as a caller-acquires-owned-reference. For a SELF-allocating
+/// builtin (rc = 1 fresh buffer, distinct from any operand) that inc is the M1
+/// over-count under Phase-7 sole-emitter lowering (`alloc(+1) + RcInc − RcDec =
+/// +1` -> leak). The M1 alloc-aware-net elision drops it once the result is
+/// recognized as a fresh self-alloc here. Restricted to BUILTIN callees: a
+/// user-function collection result needs the `transfers_through_return ∧ Direct`
+/// forwarder discriminator (a forwarder returns an EXISTING allocation, NOT a
+/// fresh one — eliding its inc over-frees the shared buffer), which the
+/// `owned_consumed` / forwarder machinery owns; keeping this builtin-only is the
+/// conservative scope. Spec: Annex E §AIMS RL-1 + RL-2.
+fn fresh_collection_source_apply_dst(
+    instr: &ArcInstr,
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> Option<ArcVarId> {
+    let (dst, callee) = match instr {
+        ArcInstr::Apply {
+            dst, func: callee, ..
+        } => (*dst, *callee),
+        _ => return None,
+    };
+    if !matches!(
+        func.var_repr(dst),
+        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+    ) {
+        return None;
+    }
+    // `.collect()` into a `Set` lowers to the `__collect_set` PROTOCOL builtin
+    // (`Apply @__collect_set`, prefixed), distinct from the `@collect` /
+    // `@collect_set` method names in `iterator_consumer_collection_names`. The
+    // protocol builtin self-allocates a fresh Set buffer (rc=1) and has no
+    // contract, so Phase-5 emits the conservative fresh-site inc — the M1
+    // over-count under sole-emitter lowering.
+    let collect_set_protocol = interner.intern("__collect_set");
+    let is_self_allocating_builtin = callee == collect_set_protocol
+        || crate::borrow::all_cow_method_names(interner).contains(&callee)
+        || collection_conversion_names(interner).contains(&callee)
+        || iterator_consumer_collection_names(interner).contains(&callee)
+        || collection_set_algebra_names(interner).contains(&callee)
+        || fresh_str_producing_method_names(interner).contains(&callee);
+    is_self_allocating_builtin.then_some(dst)
+}
+
+/// The `dst` of ANY fresh RcPtr/FatValue self-allocation, or `None`: the union of
+/// [`fresh_self_alloc_dst`] (`Construct`/literal/`ori_list_take`, repr-gated to
+/// RcPtr/FatValue) and [`fresh_collection_source_apply_dst`] (self-allocating
+/// builtin collection-source `Apply` result). The single recognizer the M1
+/// alloc-aware-net + fresh-inc elision both query for "is this a fresh rc=1
+/// buffer whose Phase-5 fresh-site inc the alloc supplies." Spec: Annex E §AIMS RL-1.
+fn fresh_rc_alloc_dst(
+    instr: &ArcInstr,
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+    list_take_name: ori_ir::Name,
+) -> Option<ArcVarId> {
+    fresh_self_alloc_dst(instr, list_take_name)
+        .filter(|&d| {
+            matches!(
+                func.var_repr(d),
+                Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+            )
+        })
+        .or_else(|| fresh_collection_source_apply_dst(instr, func, interner))
+}
+
 /// Same-alloc lineage reps whose value is consumed at a COW-mutation operand —
 /// a runtime site that reads the operand's refcount to choose copy-vs-mutate.
 /// Three site kinds:
@@ -6471,8 +6533,21 @@ fn compute_cow_mutated_lineage_reps(
     // and-finalize), never reads the buffer's rc to COW it (`ori_rt/src/list/
     // mod.rs:269`), so the scratch source flowing into it is not a COW operand.
     let list_take_name = for_yield_result_finalizer_name(interner);
+    // A KNOWN builtin method has compiler-known ownership: its COW-mutators
+    // (`push`/`set`/`insert`/`remove`/`sort`/`reverse`) take the receiver at an
+    // OWNED position (already caught by the `consumed_owned` owned-position check),
+    // while its read-only methods (`contains`/`len`/`get`/`first`/`last`) take it
+    // BORROWED and never COW it. Only NON-builtin (user-function) callees are the
+    // interprocedural-COW-through-borrowed-param risk (`@check` doing
+    // `list.push(..)` on a borrowed param). Flagging a borrowed-position
+    // read-only builtin arg as may-COW spuriously keeps a fresh inc and leaks
+    // (`.collect()` borrow-read by `@contains`/`@len` then dead). Spec: Annex E
+    // §AIMS RL-1.
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let callee_may_cow = |callee: Name| -> bool {
-        callee != list_take_name && !interner.lookup(callee).starts_with("__")
+        callee != list_take_name
+            && !interner.lookup(callee).starts_with("__")
+            && !builtins.is_builtin(callee)
     };
     // Two consume classes, distinguished by RC certainty:
     // - `consumed_owned`: a GENUINE in-loop CONSUME — an owned-position

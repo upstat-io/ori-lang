@@ -4407,3 +4407,93 @@ fn probe_heap_str_into_sum_variant_already_balanced_sibling() {
 "#;
     assert_burden_path_self_sufficient(src, "heap_str_into_sum_variant_already_balanced_sibling");
 }
+
+// A self-allocating collection-SOURCE Apply result (`.collect()` / `.collect()`
+// into a Set / set-algebra `.union()`) borrowed-read across MULTIPLE branches and
+// dead after leaks the result buffer under sole-emitter lowering: Phase-5
+// `fresh_site_burden_inc_dst` emits a fresh-site `BurdenInc` on EVERY `Apply`
+// result with a Unique/MaybeShared return contract, treating it as a
+// caller-acquires-owned-reference. But `@collect`/`@collect_set`/`@union` are
+// SELF-allocating (the runtime allocates a fresh rc=1 buffer distinct from any
+// operand), so under Phase-7 lowering that fresh inc is the M1 over-count:
+// `alloc(+1) + RcInc − RcDec = +1` -> LEAK. RL-1 (`RL1_emit_iff_not_elidable`):
+// a non-duplicated FRESH value's single use is move-once-linear -> inc elidable
+// -> NO fresh inc; the alloc IS the +1, one dec frees it. The M1 alloc-aware-net
+// elision drops the spurious fresh inc once the collection-source result is
+// recognized as a fresh self-alloc. Spec: Annex E §AIMS RL-1 + RL-2.
+
+#[test]
+fn probe_collect_set_result_multibranch_dead_freed() {
+    // POSITIVE (the rc_matrix/narrowing `test_set_int_operations_canonical` shape):
+    // `[..].iter().collect()` into a `Set<int>`, borrow-read by `.contains()` across
+    // a chain of `if/else if` branches, dead after the last read. The fresh-site
+    // `BurdenInc` on the `@collect_set` result is the M1 over-count -> the result
+    // buffer leaks. The alloc-aware-net elision must drop it. Spec: Annex E §AIMS RL-1.
+    let src = r#"
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    if !s.contains(value: 10) then 1
+    else if !s.contains(value: 20) then 2
+    else if !s.contains(value: 30) then 3
+    else if s.contains(value: 40) then 4
+    else if s.len() != 3 then 5
+    else 0
+}
+"#;
+    assert_burden_path_self_sufficient(src, "collect_set_result_multibranch_dead");
+}
+
+#[test]
+fn probe_collect_list_result_multibranch_dead_freed() {
+    // POSITIVE (the `narrowing::test_iter_map_on_narrowed_int_list` shape): a
+    // `.iter().map(..).collect()` list result borrow-read across `if/else if`
+    // branches and dead after. Same M1 fresh-inc over-count on the `@collect`
+    // result. Spec: Annex E §AIMS RL-1.
+    let src = r#"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3].iter().map((x) -> x * 1000).collect();
+    if xs[0] != 1000 then 1
+    else if xs[1] != 2000 then 2
+    else if xs[2] != 3000 then 3
+    else 0
+}
+"#;
+    assert_burden_path_self_sufficient(src, "collect_list_result_multibranch_dead");
+}
+
+#[test]
+fn probe_collect_result_duplicated_not_double_freed_negative() {
+    // CRITICAL NEGATIVE (the over-fire boundary): a `.collect()` result that is
+    // DUPLICATED (`let b = a; both read`) has a LOAD-BEARING fresh inc — the second
+    // alias needs the +1 so each alias's dec balances. The alloc-aware net of the
+    // duplicated lineage is NOT +1 (the dup-alias dec balances the fresh inc), so
+    // the elision MUST NOT fire; eliding here would net -1 -> DOUBLE-FREE. The
+    // `net == 1` gate excludes it. PASS pre AND post cure. Spec: Annex E §AIMS RL-1.
+    let src = r#"
+@main () -> int = {
+    let a: [int] = [1, 2, 3].iter().map((x) -> x * 2).collect();
+    let b = a;
+    if a[0] == 2 && b[2] == 6 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "collect_result_duplicated_not_double_freed");
+}
+
+#[test]
+fn probe_collect_result_straightline_dead_already_balanced_sibling() {
+    // SIBLING (already-balanced): a `.collect()` result borrow-read ONCE on a
+    // straight-line path then dead — the existing dead-owned-collection pass
+    // (Phase 6.8) already frees it. The fresh-inc elision must leave this net-0
+    // lineage freed exactly once (no double-free from a redundant elision). PASS
+    // pre AND post cure. Spec: Annex E §AIMS RL-2.
+    let src = r#"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3].iter().map((x) -> x * 2).collect();
+    if xs.len() == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "collect_result_straightline_dead_already_balanced_sibling",
+    );
+}
