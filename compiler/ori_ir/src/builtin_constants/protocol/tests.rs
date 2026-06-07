@@ -9,6 +9,7 @@ fn pin_arg_counts() {
     assert_eq!(ProtocolBuiltin::IterNext.arg_count(), 2);
     assert_eq!(ProtocolBuiltin::IterDrop.arg_count(), 1);
     assert_eq!(ProtocolBuiltin::CollectSet.arg_count(), 1);
+    assert_eq!(ProtocolBuiltin::Cast.arg_count(), 1);
 }
 
 /// Guard: adding a new `ProtocolBuiltin` variant without updating these
@@ -20,7 +21,7 @@ fn pin_arg_counts() {
 /// the case where match arms are updated but `ALL` or test assertions are not.
 #[test]
 fn all_variants_covered() {
-    assert_eq!(ProtocolBuiltin::ALL.len(), 5);
+    assert_eq!(ProtocolBuiltin::ALL.len(), 6);
     for &pb in ProtocolBuiltin::ALL {
         assert!(!pb.name().is_empty());
         assert!(ProtocolBuiltin::from_name(pb.name()) == Some(pb));
@@ -77,6 +78,27 @@ fn collect_set_ownership_is_owned() {
 }
 
 #[test]
+fn cast_ownership_is_borrowed() {
+    // `value as Target` reads the source value; the caller retains
+    // ownership and emits the dec — the cast never consumes.
+    let ownership = ProtocolBuiltin::Cast.arg_ownership();
+    assert_eq!(ownership.len(), 1);
+    assert_eq!(ownership[0], ProtocolArgOwnership::Borrowed);
+}
+
+#[test]
+fn cast_name_round_trips_through_registry() {
+    // Negative pin for the raw-literal desync class: the producer
+    // (ARC lowering) and consumer (LLVM intercept) both resolve the
+    // marker through the registry, so a rename cannot half-apply.
+    assert_eq!(ProtocolBuiltin::Cast.name(), "__cast");
+    assert_eq!(
+        ProtocolBuiltin::from_name("__cast"),
+        Some(ProtocolBuiltin::Cast)
+    );
+}
+
+#[test]
 fn is_intercepted_matches_dispatch() {
     // Iter and IterDrop go through normal function dispatch, not protocol intercept.
     assert!(!ProtocolBuiltin::Iter.is_intercepted());
@@ -85,6 +107,7 @@ fn is_intercepted_matches_dispatch() {
     assert!(ProtocolBuiltin::Index.is_intercepted());
     assert!(ProtocolBuiltin::IterNext.is_intercepted());
     assert!(ProtocolBuiltin::CollectSet.is_intercepted());
+    assert!(ProtocolBuiltin::Cast.is_intercepted());
 }
 
 #[test]

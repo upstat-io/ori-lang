@@ -18,8 +18,7 @@ mod for_yield;
 mod for_yield_option;
 mod loops;
 mod type_layout;
-#[cfg(test)]
-pub(crate) use type_layout::pool_type_store_size;
+pub use type_layout::pool_type_store_size;
 
 use crate::ir::{ArcValue, ArcVarId};
 

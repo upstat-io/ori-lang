@@ -29,7 +29,7 @@ fn test_cow_map_insert_shared_preserves_original() {
 }
 
 #[test]
-fn test_cow_map_insert_shared_values_correct() {
+fn test_cow_map_insert_shared_preserves_original_entries() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_insert_shared_values_correct.ori"),
         "cow_map_insert_shared_values_correct",
@@ -55,7 +55,7 @@ fn test_cow_map_remove_shared_preserves_original() {
 }
 
 #[test]
-fn test_cow_map_remove_shared_values_correct() {
+fn test_cow_map_remove_shared_original_keeps_key() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_remove_shared_values_correct.ori"),
         "cow_map_remove_shared_values_correct",
@@ -161,7 +161,7 @@ fn test_cow_map_insert_loop_100() {
 }
 
 #[test]
-fn test_cow_map_insert_loop_values_correct() {
+fn test_cow_map_insert_loop_accumulates_entries() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_insert_loop_values_correct.ori"),
         "cow_map_insert_loop_values_correct",

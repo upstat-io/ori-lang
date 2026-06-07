@@ -122,3 +122,89 @@ pub(crate) fn compute_var_block_deltas(func: &ArcFunction, var: ArcVarId) -> Vec
     }
     delta
 }
+
+/// The kind of per-var burden-balance violation a verdict carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BalanceViolationKind {
+    /// CFG-merge predecessors exit with divergent nets — per-path imbalance.
+    MergeDisagree,
+    /// A reachable terminal block (`Return` / `Resume` / `Unreachable`)
+    /// nets nonzero — function-exit imbalance on a straight-line path.
+    TerminalNonZero,
+}
+
+/// First per-var burden-balance violation, with the per-block delta the
+/// verdict was derived from (consumers reuse it for diagnostics).
+pub(crate) struct BalanceVerdict {
+    pub violation: Option<BalanceViolation>,
+    pub delta: Vec<i64>,
+}
+
+/// One burden-balance violation: the block index where it surfaced and the
+/// observed net (`expected_net` is always 0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BalanceViolation {
+    pub kind: BalanceViolationKind,
+    pub block_idx: usize,
+    pub observed_net: i64,
+}
+
+/// Per-var burden-balance verdict — SSOT for the verdict-extraction layer
+/// shared by `verify_burden_balance` (full-function VF-1) and
+/// `verify_trmc_burden_balance` (TRMC PL-10). Both map the verdict to their
+/// error type; neither re-derives the merge-suppression semantics.
+///
+/// Merge disagreement is reported FIRST and suppresses the terminal-net
+/// check (the function-exit net is undefined when a merge point already
+/// diverges). Otherwise the first reachable terminal block whose
+/// `entry_net + delta != 0` is the violation. At most one violation per var.
+pub(crate) fn balance_verdict(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    var: ArcVarId,
+) -> BalanceVerdict {
+    let delta = compute_var_block_deltas(func, var);
+    let nets = compute_burden_entry_nets(func, preds, &delta);
+
+    if let Some(&(block_idx, observed_net)) = nets.disagree_blocks.first() {
+        return BalanceVerdict {
+            violation: Some(BalanceViolation {
+                kind: BalanceViolationKind::MergeDisagree,
+                block_idx,
+                observed_net,
+            }),
+            delta,
+        };
+    }
+
+    for (b, block) in func.blocks.iter().enumerate() {
+        let Some(eb) = nets.entry_net[b] else {
+            continue;
+        };
+        let is_terminal = matches!(
+            block.terminator,
+            crate::ir::ArcTerminator::Return { .. }
+                | crate::ir::ArcTerminator::Resume
+                | crate::ir::ArcTerminator::Unreachable
+        );
+        if !is_terminal {
+            continue;
+        }
+        let observed = eb + delta[b];
+        if observed != 0 {
+            return BalanceVerdict {
+                violation: Some(BalanceViolation {
+                    kind: BalanceViolationKind::TerminalNonZero,
+                    block_idx: b,
+                    observed_net: observed,
+                }),
+                delta,
+            };
+        }
+    }
+
+    BalanceVerdict {
+        violation: None,
+        delta,
+    }
+}

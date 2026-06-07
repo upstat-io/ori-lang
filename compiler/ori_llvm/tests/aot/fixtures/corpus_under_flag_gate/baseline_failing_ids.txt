@@ -1,0 +1,48 @@
+# Corpus-under-flag baseline failing-ID SET (Spec: Annex E §AIMS).
+#
+# This is the LEFT operand of the predicate-stack-retirement readiness gate:
+# the SET of AOT-corpus test IDs that fail with the predicate stack ON, on a
+# clean no-valgrind run (`cargo test -p ori_llvm --test aot`). The gate asserts
+#
+#     failing_ids_under_flag (ORI_DISABLE_PREDICATE_STACK_RC=1)
+#         is a SUBSET of  baseline_failing_ids (this file)
+#
+# i.e. running the corpus with the burden path as the sole RC emitter adds NO
+# new failing ID outside this set. A SET-subset assertion, NOT an equal-or-lower
+# count: a count-only check masks a regression when a pre-existing baseline
+# failure is incidentally fixed and a NEW failure swaps in at the same count.
+#
+# These IDs are the predicate-stack-coupled cohort that dissolves at predicate-
+# stack retirement + the BurdenInc -> RcInc activation (Spec: Annex E §AIMS RL-2
+# / RL-4 / RL-5); they stay IN the baseline set. The gate forbids only ADDITIONS.
+#
+# RE-CAPTURE PROTOCOL (mandatory): any change to predicate-stack RC emission
+# re-captures this baseline before the subset assertion is trustworthy. Run
+# `cargo test -p ori_llvm --test aot` with the predicate stack ON (default, flag
+# unset), collect the failing test NAMES, and replace the list below. A stale
+# baseline (captured against a different predicate-stack-emission revision)
+# invalidates the subset verdict. A valgrind-present environment surfaces 2
+# additional flaky names not in this canonical no-valgrind baseline
+# (`drop_augment::drop_recoverable_panic_path_no_leak_under_valgrind` and the
+# `generics::test_generic_forwarder_result_list_str` valgrind variant) -- those
+# are environment-flaky, NOT part of the canonical SET.
+#
+# Lines starting with `#` are comments; blank lines are ignored. Each remaining
+# line is one `<module>::<test_name>` ID. Captured against the predicate-stack-ON
+# AOT corpus.
+aims_burden_alias::test_burden_alias_inner_survives_result_destructure
+aims_interactions::test_h12_rc_merge_preserves_rc_ops
+borrow_independence::test_borrow_separate_heap_types
+for_yield_option::test_for_yield_option_str_conditional_break
+for_yield_option::test_for_yield_option_str_conditional_continue_value
+generics::test_borrow_list_int_nested_pin6_chain_then_return_no_leak
+generics::test_edge_project_return_not_param_keeps_outer_dec
+generics::test_generic_forwarder_option_list_returns_intact
+generics::test_generic_forwarder_result_list_str_returns_intact
+generics::test_path_sensitive_triple_list_balances_rc_on_all_three_paths
+higher_order::test_hof_closure_capture_in_loop
+higher_order::test_hof_make_predicate
+match_alias::test_match_arm_alias_result_str
+match_alias::test_option_intlist_select_branch_return
+match_alias::test_unwind_path_alias
+tagless_enum::tagless_enum_list_payload_reads_and_drops

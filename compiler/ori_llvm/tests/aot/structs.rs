@@ -124,7 +124,7 @@ fn test_struct_update_with_string() {
 // ─── Nested structs ───
 
 #[test]
-fn test_struct_nested_basic() {
+fn test_struct_nested_field_access_two_levels() {
     assert_aot_success(
         include_str!("fixtures/structs/struct_nested_basic.ori"),
         "struct_nested_basic",

@@ -30,15 +30,17 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
             return self.scx.type_ptr().into();
         }
 
-        // Check ReprPlan for niche/tagless encoding.
-        // Use resolve_fully to match the Idx used by canonical population.
-        let resolved_idx = self.store.pool().resolve_fully(idx);
-        if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx)) {
+        // Check ReprPlan for niche/tagless encoding via the SSOT ladder
+        // (plan-first, canonical fallback for variable-residue enum shapes).
+        if let Some(enum_repr) = self
+            .repr_plan
+            .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx))
+        {
             if enum_repr.tag.is_tagless() {
                 return self.resolve_enum_tagless(idx, variants.first());
             }
             if enum_repr.tag.is_niche() {
-                return self.resolve_enum_niche(idx, variants, enum_repr);
+                return self.resolve_enum_niche(idx, variants, &enum_repr);
             }
             if enum_repr.tag.is_tagged_ptr() {
                 return self.resolve_enum_tagged_ptr(idx);

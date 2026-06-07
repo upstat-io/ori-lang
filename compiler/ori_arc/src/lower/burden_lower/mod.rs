@@ -555,7 +555,9 @@ fn compute_cow_inc_and_mutators(
     }
     let cow_inc = compute_cow_inc_borrowed_aliases(func, borrowed_aliases, interner);
     let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
-    cow_mutators.remove(&interner.intern("iter"));
+    cow_mutators.remove(
+        &interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name()),
+    );
     (cow_inc, cow_mutators)
 }
 
@@ -611,7 +613,9 @@ pub(crate) fn compute_cow_inc_borrowed_aliases(
     // iterator shapes (the runtime drop + caller borrow already account for the
     // buffer).
     let mut cow_methods = crate::borrow::all_cow_method_names(interner);
-    cow_methods.remove(&interner.intern("iter"));
+    cow_methods.remove(
+        &interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name()),
+    );
     let is_rcptr = |v: ArcVarId| matches!(func.var_repr(v), Some(ValueRepr::RcPointer));
     // The COW receiver is arg 0 of the call. A COW-mutating builtin re-reads its
     // refcount; the borrowed-alias receiver needs the inc so the COW helper copies.

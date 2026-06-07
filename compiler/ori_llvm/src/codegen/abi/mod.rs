@@ -126,7 +126,7 @@ pub fn abi_size(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>
 /// Check if a type has niche encoding in the `ReprPlan`.
 fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
     repr_plan
-        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
+        .and_then(|plan| plan.enum_repr_with_fallback(store.pool(), ty))
         .is_some_and(|e| e.tag.is_niche())
 }
 
@@ -136,7 +136,7 @@ fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprP
 /// them as a single Direct register, identical to a regular pointer or i64.
 fn is_tagged_ptr_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
     repr_plan
-        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
+        .and_then(|plan| plan.enum_repr_with_fallback(store.pool(), ty))
         .is_some_and(|e| e.tag.is_tagged_ptr())
 }
 
@@ -151,8 +151,7 @@ fn niche_enum_size(
     visiting: &mut FxHashSet<Idx>,
 ) -> Option<u64> {
     let plan = repr_plan?;
-    let resolved = store.pool().resolve_fully(ty);
-    let enum_repr = plan.get_enum_repr(resolved)?;
+    let enum_repr = plan.enum_repr_with_fallback(store.pool(), ty)?;
 
     if enum_repr.tag.is_tagless() {
         let variant = variants.first()?;
@@ -203,16 +202,10 @@ fn abi_size_inner(
         return 8;
     }
 
-    // Dynamic-size types: compute recursively
-    //
-    // TODO(codegen): abi_size_inner sums field sizes WITHOUT
-    // alignment padding. A struct { byte, int, byte } computes as 10 bytes
-    // here, but LLVM lays it out as 24 bytes (1+7 padding + 8 + 1+7 padding).
-    // This can misclassify as Direct (≤16) when Indirect (>16) is needed.
-    // Currently safe because built-in composite types (Range, Option, etc.)
-    // use pre-computed TypeInfo::size that accounts for LLVM layout.
-    // Needs LLVM TargetData query when user-defined structs land in Pool.
-    // Also safe for dereferenceable(N) — underestimating is legal (minimum).
+    // Dynamic-size types: compute recursively. Struct/tuple aggregates use
+    // alignment-aware padded layout (matching LLVM's struct layout) so
+    // Direct/Indirect classification agrees with the size LLVM actually
+    // lays out. dereferenceable(N) remains legal either way (minimum).
     let result = match &info {
         TypeInfo::Option { inner } => {
             if is_niche_encoded(ty, store, repr_plan) {
@@ -232,14 +225,15 @@ fn abi_size_inner(
                 8 + ok_size.max(err_size)
             }
         }
-        TypeInfo::Tuple { elements } => elements
-            .iter()
-            .map(|&e| abi_size_inner(e, store, repr_plan, visiting))
-            .sum(),
-        TypeInfo::Struct { fields } => fields
-            .iter()
-            .map(|&(_, ty)| abi_size_inner(ty, store, repr_plan, visiting))
-            .sum(),
+        TypeInfo::Tuple { elements } => {
+            aggregate_size_with_padding(elements.iter().copied(), store, repr_plan, visiting)
+        }
+        TypeInfo::Struct { fields } => aggregate_size_with_padding(
+            fields.iter().map(|&(_, ty)| ty),
+            store,
+            repr_plan,
+            visiting,
+        ),
         TypeInfo::Enum { variants } => {
             //.A: Tagged-pointer enums are a single 8-byte slot
             // regardless of variant count or payload size. Check before the
@@ -283,6 +277,55 @@ fn abi_size_inner(
 
     visiting.remove(&ty);
     result
+}
+
+/// Aggregate (struct/tuple) size with inter-field alignment padding plus
+/// trailing padding to the max field alignment — matches LLVM's struct
+/// layout so Direct/Indirect classification (AB-1) agrees with the size
+/// LLVM lays out.
+fn aggregate_size_with_padding(
+    fields: impl Iterator<Item = Idx>,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    visiting: &mut FxHashSet<Idx>,
+) -> u64 {
+    let mut offset = 0u64;
+    let mut max_align = 1u64;
+    for field in fields {
+        let align = abi_alignment(field, store, 0);
+        if align > 1 {
+            offset = offset.div_ceil(align) * align;
+        }
+        offset += abi_size_inner(field, store, repr_plan, visiting);
+        max_align = max_align.max(align);
+    }
+    if max_align > 1 {
+        offset = offset.div_ceil(max_align) * max_align;
+    }
+    offset
+}
+
+/// Recursive ABI alignment for a type — max field alignment for
+/// struct/tuple aggregates, [`TypeInfo::alignment`] for everything else.
+fn abi_alignment(ty: Idx, store: &TypeInfoStore<'_>, depth: u32) -> u64 {
+    use super::type_info::TypeInfo;
+
+    if depth > 16 {
+        return 8;
+    }
+    match &store.get(ty) {
+        TypeInfo::Tuple { elements } => elements
+            .iter()
+            .map(|&e| abi_alignment(e, store, depth + 1))
+            .max()
+            .unwrap_or(1),
+        TypeInfo::Struct { fields } => fields
+            .iter()
+            .map(|&(_, t)| abi_alignment(t, store, depth + 1))
+            .max()
+            .unwrap_or(1),
+        info => u64::from(info.alignment()),
+    }
 }
 
 /// Compute the passing mode for a function parameter.

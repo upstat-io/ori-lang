@@ -20,7 +20,7 @@ use crate::util::{assert_aot_success, compile_and_run_capture};
 // 3.0.1: Len Trait — .len() codegen
 
 #[test]
-fn test_aot_list_len_basic() {
+fn test_aot_list_len_three_elements() {
     assert_aot_success(
         include_str!("fixtures/traits/aot_list_len_basic.ori"),
         "list_len_basic",

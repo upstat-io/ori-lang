@@ -208,9 +208,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
             // Tagged unions with possible recursive payloads.
             TypeInfo::Option { inner } => {
-                // Check ReprPlan for niche encoding.
+                // Check ReprPlan for niche encoding via the SSOT ladder.
                 let resolved_idx = self.store.pool().resolve_fully(idx);
-                let repr_entry = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx));
+                let repr_entry = self
+                    .repr_plan
+                    .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx));
                 if let Some(enum_repr) = repr_entry {
                     if enum_repr.tag.is_niche() {
                         // Niche layout: use the inner type directly (no tag, no wrapper).
@@ -239,9 +241,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     .into()
             }
             TypeInfo::Result { ok, err } => {
-                // Check ReprPlan for niche encoding.
+                // Check ReprPlan for niche encoding via the SSOT ladder.
                 let resolved_idx = self.store.pool().resolve_fully(idx);
-                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
+                if let Some(enum_repr) = self
+                    .repr_plan
+                    .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx))
                 {
                     if enum_repr.tag.is_niche() {
                         // Niche layout: use the data variant's payload type directly.

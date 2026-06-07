@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_derive_module_name_simple() {
+fn test_derive_module_name_no_base_uses_file_stem() {
     let path = Path::new("/project/src/helper.ori");
     assert_eq!(derive_module_name(path, None), "helper");
 }
@@ -91,7 +91,7 @@ fn test_multi_file_config() {
 }
 
 #[test]
-fn test_extract_imports_basic() {
+fn test_extract_imports_relative_and_aliased_use() {
     let content = r#"
 use "./helper" { add }
 use "./utils" as util

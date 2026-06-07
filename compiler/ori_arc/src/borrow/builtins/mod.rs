@@ -105,7 +105,7 @@ const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
 ///    methods with `receiver: Ownership::Borrow`, excluding Iterator methods
 ///    and `.iter()`.
 /// 2. **Protocol builtins**: `ProtocolBuiltin::ALL` entries with all-borrowed
-///    args (currently only `__index`). These are ARC pipeline internals, not
+///    args (`__index`, `__cast`). These are ARC pipeline internals, not
 ///    regular builtin methods, so they live in `ori_ir` rather than the registry.
 pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     // Base set from registry (type method definitions)
@@ -115,7 +115,7 @@ pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
         .collect();
 
     // Append all-borrowed protocol builtins (ARC pipeline internals,
-    // not in registry BUILTIN_TYPES). Currently only "__index".
+    // not in registry BUILTIN_TYPES): "__index", "__cast".
     for pb in ProtocolBuiltin::ALL {
         if pb
             .arg_ownership()

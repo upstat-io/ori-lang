@@ -28,7 +28,8 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 /// find all iterator variables live at the Invoke point and insert
 /// `Apply @ori_iter_drop(iter_var)` before the Resume.
 pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
-    let iter_name = interner.intern("iter");
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
     let iter_drop_name = interner.intern("ori_iter_drop");
 
     // Phase 1: collect iterator creations, drops, and Invokes.

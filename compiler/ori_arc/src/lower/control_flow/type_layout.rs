@@ -11,13 +11,13 @@ use ori_types::{Idx, Tag};
 
 /// Recursive store-size computation from Pool type information.
 ///
-/// TODO(type_strategy_registry/section-11): Extract shared type layout logic to `ori_ir`.
-/// This function duplicates `ori_llvm::codegen::type_info::TypeLayoutResolver::type_store_size`.
-///
-/// **Sync point**: Must agree with `TypeLayoutResolver::type_store_size` in `ori_llvm`
-/// (`compiler/ori_llvm/src/codegen/type_info/mod.rs`). Both compute the same logical size
-/// for every type.
-pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
+/// **Sync point**: Must agree with `type_store_size` in `ori_llvm`
+/// (`compiler/ori_llvm/src/codegen/type_info/type_size.rs`). Both compute the
+/// same logical size for every type; the agreement is pinned by the
+/// Tag-matrix cross-check test in `ori_llvm`'s `type_info/tests.rs`
+/// (`pool_store_size_matches_llvm_store_size_across_tag_matrix`). `pub`
+/// solely so that cross-crate test can consume this side of the contract.
+pub fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
     if depth > 16 {
         return 8; // Prevent infinite recursion on recursive types
     }

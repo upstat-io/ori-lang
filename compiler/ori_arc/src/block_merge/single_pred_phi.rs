@@ -49,20 +49,20 @@ pub(crate) fn eliminate_single_pred_params(func: &mut ArcFunction) {
 
         let a_idx = predecessors[b_idx][0];
 
-        // Check if the single predecessor is a Jump with args
-        let is_jump_with_args = matches!(
-            &func.blocks[a_idx].terminator,
+        // Single destructure: predecessor terminating in a Jump targeting
+        // `b` with args carries the incoming param values.
+        let jump_args = match &func.blocks[a_idx].terminator {
             ArcTerminator::Jump { args, target, .. }
-                if !args.is_empty() && target.index() == b_idx
-        );
+                if !args.is_empty() && target.index() == b_idx =>
+            {
+                Some(args.clone())
+            }
+            _ => None,
+        };
 
-        if is_jump_with_args {
+        if let Some(jump_args) = jump_args {
             // Jump predecessor: convert params to Let bindings.
             let b_params = func.blocks[b_idx].params.clone();
-            let jump_args = match &func.blocks[a_idx].terminator {
-                ArcTerminator::Jump { args, .. } => args.clone(),
-                _ => unreachable!(),
-            };
 
             debug_assert_eq!(
                 b_params.len(),

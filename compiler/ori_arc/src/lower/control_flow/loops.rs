@@ -172,7 +172,9 @@ impl ArcLowerer<'_> {
             // then use the iterator-based loop.
             let elem_ty = self.extract_iterable_elem_type(tag, iter_ty);
 
-            let iter_name = self.interner.intern("iter");
+            let iter_name = self
+                .interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
             // Use INT for the iterator handle — it's an opaque pointer with no
             // RC semantics (cleanup is via ori_iter_drop, not RC dec).
             let iter_result =

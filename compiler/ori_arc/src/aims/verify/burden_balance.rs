@@ -18,17 +18,17 @@
 //! 4. Terminal block `t` (`Return`/`Resume`/`Unreachable`) MUST have
 //!    `entry_net[t] + delta[t] == 0`.
 //!
-//! Full VF-1 (per-edge dataflow + SCC net-zero obligation) is deferred to
-//! later verification work; this module ships the basic function-exit form
-//! that gates burden-op emission, elimination, and the coexistence handshake.
+//! Full VF-1 (per-edge dataflow + SCC net-zero obligation) is target-only;
+//! this module ships the basic function-exit form that gates burden-op
+//! emission, elimination, and the coexistence handshake.
 //!
 //! Set `ORI_LOG=ori_arc::aims::verify::burden_balance=debug` to emit a
 //! per-block burden-delta breakdown for each imbalanced var (locates the
 //! surplus/deficit block for missing CFG-edge or dead-at-entry decs).
 
-use crate::aims::verify::burden_delta::{compute_burden_entry_nets, compute_var_block_deltas};
+use crate::aims::verify::burden_delta::balance_verdict;
 use crate::graph::compute_predecessors;
-use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcVarId};
 use crate::verify::BurdenBalanceError;
 
 /// Verify per-variable burden balance for every `v ∈ func.burden_emitted`.
@@ -60,24 +60,18 @@ pub(crate) fn verify_burden_balance(func: &ArcFunction) -> Vec<BurdenBalanceErro
             reason = "ArcFunction var counts fit in u32"
         )]
         let var = ArcVarId::new(raw as u32);
-        let delta = compute_var_block_deltas(func, var);
-        let errs_before = errors.len();
-        let nets = compute_burden_entry_nets(func, &preds, &delta);
-        // Merge disagreement is reported FIRST and suppresses the terminal-net
-        // check for this var (the function-exit net is undefined when a merge
-        // point already diverges) — matching the prior stop-at-first semantics.
-        if let Some(&(b, observed)) = nets.disagree_blocks.first() {
+        // Verdict extraction (merge-disagree first, suppressing the
+        // terminal-net check; else first nonzero terminal) is the SSOT at
+        // `burden_delta::balance_verdict` — shared with the TRMC verifier.
+        let verdict = balance_verdict(func, &preds, var);
+        if let Some(v) = verdict.violation {
             errors.push(BurdenBalanceError {
                 var,
                 expected_net: 0,
-                observed_net: observed,
-                exit_block: func.blocks[b].id,
+                observed_net: v.observed_net,
+                exit_block: func.blocks[v.block_idx].id,
             });
-        } else {
-            check_terminal_zero(func, var, &delta, &nets.entry_net, &mut errors);
-        }
-        if errors.len() > errs_before {
-            trace_burden_imbalance(func, var, &delta);
+            trace_burden_imbalance(func, var, &verdict.delta);
         }
     }
 
@@ -126,41 +120,6 @@ fn trace_burden_imbalance(func: &ArcFunction, var: ArcVarId, delta: &[i64]) {
         burden_sites = %sites.join(" "),
         "burden imbalance per-block delta + burden-op sites (nonzero blocks)",
     );
-}
-
-/// Every reachable terminal block (`Return` / `Resume` / `Unreachable`)
-/// MUST have `entry_net + delta == 0`. Straight-line CFGs with uniform
-/// non-zero net are caught here (no merge point fires the predecessor
-/// check). The first violation per `var` is recorded.
-fn check_terminal_zero(
-    func: &ArcFunction,
-    var: ArcVarId,
-    delta: &[i64],
-    entry_net: &[Option<i64>],
-    errors: &mut Vec<BurdenBalanceError>,
-) {
-    for (b, block) in func.blocks.iter().enumerate() {
-        let Some(eb) = entry_net[b] else {
-            continue;
-        };
-        let is_terminal = matches!(
-            block.terminator,
-            ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
-        );
-        if !is_terminal {
-            continue;
-        }
-        let observed = eb + delta[b];
-        if observed != 0 {
-            errors.push(BurdenBalanceError {
-                var,
-                expected_net: 0,
-                observed_net: observed,
-                exit_block: block.id,
-            });
-            break;
-        }
-    }
 }
 
 #[cfg(test)]

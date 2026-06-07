@@ -361,16 +361,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        let resolved =
-            self.resolve_invoke_callee(callee, arc_args, dst, arc_func, mono_instance_id);
+        let resolved = self.resolve_callee(callee, arc_args, dst, arc_func, mono_instance_id);
 
-        if let Some((func_id, params, ret_passing, ret_ty_idx)) = resolved {
+        if let Some((func_id, params, ret_abi)) = resolved {
             self.emit_abi_resolved_call(
                 dst,
                 func_id,
                 &params,
-                ret_passing,
-                ret_ty_idx,
+                ret_abi.passing,
+                ret_abi.ty,
                 &arg_vals,
                 arc_args,
                 mode,
@@ -627,35 +626,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Resolve the callee for an Invoke terminator via the 5-step dispatch chain.
-    ///
-    /// Tries: receiver-based → return-type-based → unqualified → monomorphized → fallback.
-    /// `mono_instance_id` is forwarded into `lookup_mono_dispatch` for the
-    /// abstract-index fast path (sub-step 1e); when `None`, the chain
-    /// degrades to argument-type matching.
-    fn resolve_invoke_callee(
-        &self,
-        callee: Name,
-        arc_args: &[ArcVarId],
-        dst: ArcVarId,
-        arc_func: &ArcFunction,
-        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
-    ) -> Option<(FunctionId, Vec<ParamAbi>, ReturnPassing, Idx)> {
-        self.lookup_method_by_receiver(callee, arc_args, arc_func)
-            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
-            .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func, mono_instance_id))
-            .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| {
-                (
-                    *fid,
-                    abi.params.clone(),
-                    abi.return_abi.passing,
-                    abi.return_abi.ty,
-                )
-            })
-    }
-
     /// Emit an ABI-aware call/invoke for a resolved callee.
     ///
     /// Handles sret return passing (stack-allocated return slot), direct returns,
@@ -725,40 +695,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         mode: InvokeMode,
         arc_func: &ArcFunction,
     ) {
-        let is_list_push = func_name_str == "ori_list_push";
-        let is_list_new = func_name_str == "ori_list_new";
-        let mut coerced_args: Vec<ValueId> = arc_args
-            .iter()
-            .zip(arg_vals.iter())
-            .enumerate()
-            .map(|(i, (arc_var, &val))| {
-                let arg_ty = arc_func.var_type(*arc_var);
-                if is_list_push && i == 1 {
-                    self.coerce_any_to_ptr(val, arg_ty)
-                } else {
-                    self.coerce_aggregate_to_ptr(val, arg_ty)
-                }
-            })
-            .collect();
-
-        // Replace elem_size for int-element for-yield lists.
-        // Only override when the pre-scan identified this elem_size_var as
-        // belonging to an int-element for-yield (prevents corrupting non-int
-        // accumulators like [str] when narrowed [int] exists in the program).
-        if let Some(width) = self.narrowed_int_collection_element_width() {
-            let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
-            if is_list_new
-                && arc_args.len() == 2
-                && self.for_yield_int_elem_sizes.contains(&arc_args[1])
-            {
-                coerced_args[1] = narrowed_size;
-            } else if is_list_push
-                && arc_args.len() == 3
-                && self.for_yield_int_elem_sizes.contains(&arc_args[2])
-            {
-                coerced_args[2] = narrowed_size;
-            }
-        }
+        let coerced_args = self.coerce_runtime_fn_args(func_name_str, arc_args, arg_vals, arc_func);
 
         if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
             self.builder.position_at_end(mode.normal_block());

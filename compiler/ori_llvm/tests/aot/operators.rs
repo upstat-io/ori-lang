@@ -459,7 +459,7 @@ fn test_op_no_overflow_neg_zero() {
 }
 
 #[test]
-fn test_op_no_overflow_neg_normal() {
+fn test_op_negation_within_range_no_overflow() {
     // -42 = -42, no overflow
     assert_aot_success(
         include_str!("fixtures/operators/op_no_overflow_neg_normal.ori"),

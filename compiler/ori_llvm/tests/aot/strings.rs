@@ -15,7 +15,7 @@ use crate::util::assert_aot_success;
 // ─── length / len ───
 
 #[test]
-fn test_str_length_basic() {
+fn test_str_length_ascii_five() {
     assert_aot_success(
         include_str!("fixtures/strings/str_length_basic.ori"),
         "str_length_basic",
@@ -91,7 +91,7 @@ fn test_str_is_empty_space() {
 // ─── concat ───
 
 #[test]
-fn test_str_concat_basic() {
+fn test_str_concat_joins_two_strs() {
     assert_aot_success(
         include_str!("fixtures/strings/str_concat_basic.ori"),
         "str_concat_basic",

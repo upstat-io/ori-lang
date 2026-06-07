@@ -535,7 +535,7 @@ fn already_narrow_field_untouched() {
 // Tuple element narrowing
 
 #[test]
-fn tuple_elements_not_narrowed_phase_a() {
+fn tuple_elements_not_narrowed_by_field_pass() {
     // Phase A: tuples are skipped — they're used as collection elements,
     // iterator state, and intermediate values where element_store_size()
     // assumes canonical field widths. Tuple narrowing is Phase C.
@@ -1423,7 +1423,7 @@ fn collection_element_width(plan: &ReprPlan, idx: Idx) -> Option<IntWidth> {
 
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_list_bounded_elements_narrow_to_i8() {
+fn list_bounded_elements_narrow_to_i8() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1444,7 +1444,7 @@ fn phase_c_list_bounded_elements_narrow_to_i8() {
 
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_list_bounded_elements_narrow_to_i16() {
+fn list_bounded_elements_narrow_to_i16() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1464,7 +1464,7 @@ fn phase_c_list_bounded_elements_narrow_to_i16() {
 }
 
 #[test]
-fn phase_c_list_top_range_stays_i64() {
+fn list_top_range_stays_i64() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1482,7 +1482,7 @@ fn phase_c_list_top_range_stays_i64() {
 }
 
 #[test]
-fn phase_c_public_collection_not_narrowed() {
+fn public_collection_not_narrowed() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1503,7 +1503,7 @@ fn phase_c_public_collection_not_narrowed() {
 }
 
 #[test]
-fn phase_c_disabled_policy_suppresses_narrowing() {
+fn disabled_policy_suppresses_elem_narrowing() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1521,7 +1521,7 @@ fn phase_c_disabled_policy_suppresses_narrowing() {
 }
 
 #[test]
-fn phase_c_repr_c_collection_not_narrowed() {
+fn repr_c_collection_not_narrowed() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1541,7 +1541,7 @@ fn phase_c_repr_c_collection_not_narrowed() {
 
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_semantic_pin_only_passes_with_narrowing() {
+fn elem_semantic_pin_only_passes_with_narrowing() {
     // Semantic pin: this test ONLY passes if collection element narrowing is
     // active. Without it, the element width would remain I64.
     let mut pool = Pool::default();
@@ -1570,7 +1570,7 @@ fn phase_c_semantic_pin_only_passes_with_narrowing() {
 }
 
 #[test]
-fn phase_c_negative_pin_wide_range_stays_canonical() {
+fn elem_negative_pin_wide_range_stays_canonical() {
     // Negative pin: full i64 range stays at i64.
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1597,7 +1597,7 @@ fn phase_c_negative_pin_wide_range_stays_canonical() {
 
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_multiple_construction_sites_join_ranges() {
+fn multiple_construction_sites_join_ranges() {
     // Two construction sites with different ranges → joined range.
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1619,7 +1619,7 @@ fn phase_c_multiple_construction_sites_join_ranges() {
 }
 
 #[test]
-fn phase_c_multiple_sites_one_wide_prevents_narrowing() {
+fn multiple_sites_one_wide_prevents_narrowing() {
     // One construction site with wide range prevents narrowing.
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1642,7 +1642,7 @@ fn phase_c_multiple_sites_one_wide_prevents_narrowing() {
 
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_i32_boundary_narrows_correctly() {
+fn elem_i32_boundary_values_narrow_to_i32() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1672,7 +1672,7 @@ fn phase_c_i32_boundary_narrows_correctly() {
 /// pointers. Narrowing set elements would cause the thunks to read past
 /// the narrowed slot.
 #[test]
-fn phase_c_set_int_not_narrowed() {
+fn set_int_not_narrowed() {
     let mut pool = Pool::default();
     let set_int = pool.set(Idx::INT);
 
@@ -1696,7 +1696,7 @@ fn phase_c_set_int_not_narrowed() {
 /// is narrowed. The set stays canonical.
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_list_narrowed_but_set_stays_canonical() {
+fn list_narrowed_but_set_stays_canonical() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
     let set_int = pool.set(Idx::INT);
@@ -1728,7 +1728,7 @@ fn phase_c_list_narrowed_but_set_stays_canonical() {
 /// Regression:
 #[test]
 #[ignore = "BUG-07-038: collection element narrowing disabled"]
-fn phase_c_imported_surface_allows_narrowing() {
+fn imported_surface_allows_elem_narrowing() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
     let list_hash = pool.hash(list_int);
@@ -1764,7 +1764,7 @@ fn phase_c_imported_surface_allows_narrowing() {
 /// Counterpart to `phase_c_imported_surface_allows_narrowing` — proves
 /// the `is_public_type()` gate is still active for same-module public APIs.
 #[test]
-fn phase_c_local_public_blocks_narrowing() {
+fn local_public_blocks_elem_narrowing() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
 
@@ -1788,7 +1788,7 @@ fn phase_c_local_public_blocks_narrowing() {
 /// the element summary to Top, preventing unsound narrowing when push/map/
 /// user functions produce elements outside the literal-only range.
 #[test]
-fn phase_c_apply_returning_list_int_widens_to_top() {
+fn apply_returning_list_int_widens_to_top() {
     use ori_arc::ir::{ArcInstr, ArgOwnership};
     use ori_arc::ArcVarId;
     use std::collections::HashMap;
@@ -1828,7 +1828,7 @@ fn phase_c_apply_returning_list_int_widens_to_top() {
 /// When both a literal construction [1] and an Apply returning [int] exist,
 /// the joined element range must be Top (not [1,1]).
 #[test]
-fn phase_c_literal_plus_apply_widens_to_top() {
+fn literal_plus_apply_widens_to_top() {
     use ori_arc::ir::{ArcInstr, ArgOwnership, CtorKind};
     use ori_arc::ArcVarId;
     use std::collections::HashMap;
@@ -1886,7 +1886,7 @@ fn phase_c_literal_plus_apply_widens_to_top() {
 /// Negative pin: Apply returning a non-collection type (e.g., int) must not
 /// affect element summaries.
 #[test]
-fn phase_c_apply_returning_int_does_not_affect_elements() {
+fn apply_returning_int_does_not_affect_elements() {
     use ori_arc::ir::{ArcInstr, ArgOwnership};
     use ori_arc::ArcVarId;
     use std::collections::HashMap;
@@ -1926,7 +1926,7 @@ fn phase_c_apply_returning_int_does_not_affect_elements() {
 /// This is the most common path for push/insert — they're lowered as
 /// Invoke because they can panic.
 #[test]
-fn phase_c_invoke_returning_list_int_widens_to_top() {
+fn invoke_returning_list_int_widens_to_top() {
     use crate::range::field_summary::update_element_summaries_from_terminator;
     use ori_arc::ir::{ArcTerminator, ArgOwnership};
     use ori_arc::{ArcBlockId, ArcVarId};
@@ -1957,7 +1957,7 @@ fn phase_c_invoke_returning_list_int_widens_to_top() {
 
 /// `ApplyIndirect` (closure call) returning `[int]` must also widen to Top.
 #[test]
-fn phase_c_apply_indirect_returning_list_int_widens_to_top() {
+fn apply_indirect_returning_list_int_widens_to_top() {
     use ori_arc::ir::ArcInstr;
     use ori_arc::ArcVarId;
     use std::collections::HashMap;

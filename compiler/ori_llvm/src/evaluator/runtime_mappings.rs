@@ -62,12 +62,15 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
 
 /// Resolve a runtime function name to its native address.
 ///
-/// TODO: Generate this mapping from `RT_FUNCTIONS` data
-/// instead of maintaining a manual mirror.
+/// Manual mirror of the `jit_allowed` entries in `RT_FUNCTIONS` — it cannot
+/// be mechanically generated (each arm binds a Rust fn pointer, which
+/// requires a literal path). Drift is doubly contained: the `_` arm panics
+/// on unknown names, and `jit_symbol_mappings_match_jit_allowed` in
+/// `runtime_decl/tests.rs` asserts exact set equality in both directions.
 ///
 /// This is the single point where function names are mapped to Rust function
 /// pointers. Adding a new `jit_allowed: true` entry to `RT_FUNCTIONS` requires
-/// adding a corresponding arm here — the `_` arm panics to catch omissions.
+/// adding a corresponding arm here.
 #[expect(
     clippy::too_many_lines,
     reason = "JIT symbol dispatch table — one arm per runtime function"

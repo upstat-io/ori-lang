@@ -304,9 +304,10 @@ impl ArcLowerer<'_> {
                 );
                 self.builder.terminate_return(none);
             }
+            // PANIC: typeck rejects `?` on non-Option/Result scrutinees
+            // (PC-2), so reaching this arm is a compiler bug.
             other => {
-                tracing::warn!(?other, "lower_try: unexpected type tag for ? operator");
-                self.builder.terminate_return(scrut);
+                unreachable!("PC-2 violation: `?` operator on non-Option/Result tag {other:?}")
             }
         }
 
@@ -325,7 +326,9 @@ impl ArcLowerer<'_> {
         span: Span,
     ) -> ArcVarId {
         let val = self.lower_expr(expr);
-        let cast_fn = self.interner.intern("__cast");
+        let cast_fn = self
+            .interner
+            .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Cast.name());
         self.builder
             .emit_apply(ty, cast_fn, vec![val], Some(span), None)
     }
@@ -362,12 +365,13 @@ impl ArcLowerer<'_> {
             }
         }
 
-        tracing::debug!(
-            ?recv_ty,
-            ?field,
-            "could not resolve field index — defaulting to 0"
+        // PANIC: typeck resolves every field access (PC-2), so a field name
+        // resolving in neither the struct fields nor as a tuple ordinal is a
+        // compiler bug. Defaulting would silently project the wrong field.
+        unreachable!(
+            "PC-2 violation: field `{}` unresolvable on receiver type {recv_ty:?} (tag {tag:?})",
+            self.interner.lookup(field)
         );
-        0
     }
 }
 

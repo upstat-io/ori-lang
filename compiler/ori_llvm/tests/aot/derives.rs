@@ -60,7 +60,7 @@ fn all_derived_traits_have_codegen() {
 // 3.5.1: Derive Eq
 
 #[test]
-fn test_aot_derive_eq_basic() {
+fn test_aot_derive_eq_equal_and_unequal_points() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_eq_basic.ori"),
         "derive_eq_basic",
@@ -94,7 +94,7 @@ fn test_aot_derive_eq_single_field() {
 // 3.5.2: Derive Clone
 
 #[test]
-fn test_aot_derive_clone_basic() {
+fn test_aot_derive_clone_equals_original() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_clone_basic.ori"),
         "derive_clone_basic",
@@ -130,7 +130,7 @@ fn test_aot_derive_hash_different_values() {
 // 3.5.4: Derive Printable
 
 #[test]
-fn test_aot_derive_printable_basic() {
+fn test_aot_derive_printable_to_str_nonempty() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_printable_basic.ori"),
         "derive_printable_basic",
@@ -140,7 +140,7 @@ fn test_aot_derive_printable_basic() {
 // 3.5.5: Derive Default
 
 #[test]
-fn test_aot_derive_default_basic() {
+fn test_aot_derive_default_zeroes_int_fields() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_default_basic.ori"),
         "derive_default_basic",
@@ -292,7 +292,7 @@ fn test_aot_clone_tuple_triple() {
 // 3.14: Derive Comparable
 
 #[test]
-fn test_aot_derive_comparable_basic() {
+fn test_aot_derive_comparable_less_and_equal() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_comparable_basic.ori"),
         "derive_comparable_basic",

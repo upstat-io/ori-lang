@@ -702,7 +702,9 @@ pub(super) fn get_or_create_derive_hash_thunk<'a>(
             TypeInfo::Float => fc.builder_mut().bitcast(val, i64_ty, "h"),
             TypeInfo::Bool | TypeInfo::Byte => fc.builder_mut().zext(val, i64_ty, "h"),
             TypeInfo::Char => fc.builder_mut().sext(val, i64_ty, "h"),
-            _ => unreachable!(),
+            other => {
+                unreachable!("non-primitive TypeInfo {other:?} passed to primitive hash thunk")
+            }
         };
         fc.builder_mut().ret(result);
 

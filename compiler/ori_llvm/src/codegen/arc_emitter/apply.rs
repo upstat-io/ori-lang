@@ -161,6 +161,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .and_then(|(_, mangled)| self.ctx.functions.get(mangled))
     }
 
+    /// Resolve a callee via the 5-step dispatch chain (shared by `Apply`
+    /// emission and `Invoke` terminator emission):
+    ///
+    /// 1. Receiver-based: use first arg's type (instance methods)
+    /// 2. Return-type-based: use dst's type (static methods like default)
+    /// 3. Unqualified: bare function name (free functions)
+    /// 4. Monomorphized generic: abstract-index fast path via
+    ///    `mono_instance_id`, degrading to argument-type matching
+    /// 5. Diagnostic fallback: logs warning, returns None
+    pub(super) fn resolve_callee(
+        &self,
+        callee: Name,
+        args: &[ArcVarId],
+        dst: ArcVarId,
+        func: &ArcFunction,
+        mono_instance_id: Option<MonoInstanceId>,
+    ) -> Option<(
+        FunctionId,
+        Vec<crate::codegen::abi::ParamAbi>,
+        crate::codegen::abi::ReturnAbi,
+    )> {
+        self.lookup_method_by_receiver(callee, args, func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
+            .or_else(|| self.ctx.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, args, func, mono_instance_id))
+            .or_else(|| self.lookup_method_fallback(callee))
+            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi))
+    }
+
     /// Emit an `Apply` instruction (ABI-aware direct call).
     pub(super) fn emit_apply(
         &mut self,
@@ -175,18 +204,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Internal protocol intercepts (__iter_next, __collect_set, etc.)
         if self.try_emit_protocol(dst, callee_name_str, args, func) {
             return;
-        }
-
-        // `__cast` intercept: `as` conversions lower to `Apply __cast` (ARC IR
-        // has no cast instruction). Emit the primitive conversion directly,
-        // matching `ori_eval::eval_can_cast` for dual-execution parity. Source/
-        // target pairs not handled here (str parse, range-checked int→byte/char)
-        // fall through to normal dispatch (unresolved — current behavior).
-        if callee_name_str == "__cast" {
-            if let Some(val) = self.try_emit_cast(dst, args, func) {
-                self.def_var_repr(dst, val, func);
-                return;
-            }
         }
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
@@ -205,19 +222,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        // Method dispatch chain (same as emit_invoke):
-        // 1. Receiver-based: use first arg's type (instance methods)
-        // 2. Return-type-based: use dst's type (static methods like default)
-        // 3. Unqualified: bare function name (free functions)
-        // 4. Monomorphized generic: match arg types → mangled specialization
-        // 5. Diagnostic fallback: logs warning, returns None
-        let resolved = self
-            .lookup_method_by_receiver(callee, args, func)
-            .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
-            .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, args, func, mono_instance_id))
-            .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
+        let resolved = self.resolve_callee(callee, args, dst, func, mono_instance_id);
 
         let result = if let Some((func_id, params, ret_abi)) = resolved {
             let passed_args = self.apply_param_passing_with_forwarding(&arg_vals, args, &params);
@@ -235,60 +240,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         {
             Some(val)
         } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
-            // Runtime function fallback: coerce aggregate args to pointers.
-            // Runtime functions (ori_print, ori_str_*, etc.) take ptr params,
-            // but ARC IR passes aggregate structs (Str, List, etc.) by value.
-            // When a variable has a known source pointer (borrowed parameter),
-            // forward it directly instead of alloca+store.
-            let is_list_push = callee_name_str == "ori_list_push";
-            let is_list_new = callee_name_str == "ori_list_new";
-            let mut coerced_args: Vec<ValueId> = args
-                .iter()
-                .zip(arg_vals.iter())
-                .enumerate()
-                .map(|(i, (arc_var, &val))| {
-                    let arg_ty = func.var_type(*arc_var);
-                    if is_list_push && i == 1 {
-                        // ori_list_push(list_ptr, elem_ptr, elem_size):
-                        // arg[1] is the element value that must be coerced
-                        // to a pointer regardless of its type (even scalars).
-                        self.coerce_any_to_ptr(val, arg_ty)
-                    } else if let Some(&src_ptr) = self.borrowed_param_ptrs.get(arc_var) {
-                        // Borrowed parameter forwarding: forward the original
-                        // pointer directly to the runtime function.
-                        let tag = self.pool.tag(arg_ty);
-                        if matches!(tag, Tag::Str | Tag::List | Tag::Set | Tag::Map) {
-                            src_ptr
-                        } else {
-                            self.coerce_aggregate_to_ptr(val, arg_ty)
-                        }
-                    } else {
-                        self.coerce_aggregate_to_ptr(val, arg_ty)
-                    }
-                })
-                .collect();
-
-            // Replace elem_size in for-yield list runtime calls
-            // with narrowed size when the accumulator element type is int.
-            // ARC IR lowering bakes canonical elem_size=8 at lowering time
-            // (before the ReprPlan exists), so the LLVM emitter must override it.
-            // The elem_size_var is shared between ori_list_new and ori_list_push
-            // in the same for-yield — the pre-scan identifies which vars belong
-            // to int-element for-yields.
-            if let Some(width) = self.narrowed_int_collection_element_width() {
-                let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
-                if is_list_new
-                    && args.len() == 2
-                    && self.for_yield_int_elem_sizes.contains(&args[1])
-                {
-                    coerced_args[1] = narrowed_size;
-                } else if is_list_push
-                    && args.len() == 3
-                    && self.for_yield_int_elem_sizes.contains(&args[2])
-                {
-                    coerced_args[2] = narrowed_size;
-                }
-            }
+            let coerced_args = self.coerce_runtime_fn_args(callee_name_str, args, &arg_vals, func);
 
             // Large struct returns (Str, List, Map) use sret convention.
             if crate::codegen::runtime_decl::rt_fn_needs_sret(callee_name_str) {
@@ -326,7 +278,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Matches `ori_eval::eval_can_cast` for the conversions emitted here:
     /// identity (same primitive — no-op), int→float (sitofp), float→int
     /// (fptosi), byte→int / char→int (zext — lossless for valid values).
-    fn try_emit_cast(
+    pub(super) fn try_emit_cast(
         &mut self,
         dst: ArcVarId,
         args: &[ArcVarId],

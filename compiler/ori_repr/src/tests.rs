@@ -3918,3 +3918,43 @@ fn canonical_single_variant_unit_enum_is_tagless() {
         panic!("expected Enum, got {repr:?}");
     }
 }
+
+// ── ReprPlan::enum_repr_with_fallback (SSOT ladder) ─────────────
+
+/// A plan-miss on an enum-shaped type recomputes the canonical repr
+/// instead of answering `None` — pins the single ladder every emission
+/// surface (ABI sizing, type-info layout, ARC emission) consults, so a
+/// variable-residue Option cannot be niche-encoded by one surface and
+/// tag-sized by another.
+#[test]
+fn enum_repr_with_fallback_plan_miss_recomputes_canonical_option() {
+    use ori_types::Pool;
+
+    let mut pool = Pool::new();
+    let opt_str = pool.option(ori_types::Idx::STR);
+
+    // Empty plan: direct lookup misses.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(plan.get_enum_repr(opt_str).is_none());
+
+    // The ladder falls back to the canonical computation.
+    let via_ladder = plan
+        .enum_repr_with_fallback(&pool, opt_str)
+        .unwrap_or_else(|| panic!("fallback must recompute canonical for Option<str>"));
+    let canonical = crate::canonical_enum_for_type(&pool, opt_str)
+        .unwrap_or_else(|| panic!("canonical_enum_for_type must cover Option<str>"));
+    assert_eq!(*via_ladder, canonical);
+}
+
+/// Non-enum-shaped types stay `None` through the ladder (no spurious
+/// canonical recomputation for scalars).
+#[test]
+fn enum_repr_with_fallback_non_enum_type_returns_none() {
+    use ori_types::Pool;
+
+    let pool = Pool::new();
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(plan
+        .enum_repr_with_fallback(&pool, ori_types::Idx::INT)
+        .is_none());
+}

@@ -156,7 +156,7 @@ fn test_coll_list_string_iter_count() {
 // Map: length
 
 #[test]
-fn test_coll_map_length_basic() {
+fn test_coll_map_length_two_entries() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_map_length_basic.ori"),
         "coll_map_len_basic",
@@ -354,7 +354,7 @@ fn test_coll_list_push_multi() {
 }
 
 #[test]
-fn test_coll_list_concat_basic() {
+fn test_coll_list_concat_lengths_sum() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_list_concat_basic.ori"),
         "coll_list_concat_basic",
@@ -436,7 +436,7 @@ fn test_coll_list_concat_reverse() {
 // COW list set/insert/remove/sort
 
 #[test]
-fn test_coll_list_set_basic() {
+fn test_coll_list_set_middle_keeps_ends() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_list_set_basic.ori"),
         "coll_list_set_basic",

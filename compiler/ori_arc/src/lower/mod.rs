@@ -27,6 +27,7 @@ mod calls;
 pub(crate) mod collections;
 mod constructs;
 mod control_flow;
+pub use control_flow::pool_type_store_size;
 mod expr;
 mod patterns;
 pub(crate) mod scope;

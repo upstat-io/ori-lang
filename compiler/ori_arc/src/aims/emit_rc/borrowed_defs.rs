@@ -507,7 +507,8 @@ pub(crate) fn collect_cow_borrowed_receivers(
 ) -> FxHashSet<ArcVarId> {
     let cow_names = crate::borrow::all_cow_method_names(interner);
     // iter takes ownership but never mutates/frees — exclude from guard.
-    let iter_name = interner.intern("iter");
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
     let param_borrowed = collect_param_borrowed_vars(func);
     if param_borrowed.is_empty() {
         return FxHashSet::default();

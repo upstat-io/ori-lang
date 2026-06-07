@@ -44,7 +44,9 @@ impl ArcLowerer<'_> {
     /// Returns `(iterator_ptr_var, element_type)`.
     fn prepare_iterator(&mut self, iter_val: ArcVarId, iter_ty: Idx, tag: Tag) -> (ArcVarId, Idx) {
         if tag == Tag::Range {
-            let iter_name = self.interner.intern("iter");
+            let iter_name = self
+                .interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
@@ -55,7 +57,9 @@ impl ArcLowerer<'_> {
         } else {
             let elem_ty = self.extract_yield_elem_type(tag, iter_ty);
 
-            let iter_name = self.interner.intern("iter");
+            let iter_name = self
+                .interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);

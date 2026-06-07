@@ -32,7 +32,6 @@ use ori_ir::Name;
 use crate::aims::contract::ContextRegion;
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::{ShapeClass, Uniqueness};
-use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::graph::{compute_predecessors, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue};
 
@@ -621,29 +620,19 @@ pub(crate) fn verify_trmc_burden_balance(
     let preds = compute_predecessors(func);
 
     for &var in &context_hole_vars {
-        let delta = crate::aims::verify::burden_delta::compute_var_block_deltas(func, var);
-        let nets = compute_burden_entry_nets(func, &preds, &delta);
-        // Merge disagreement is reported FIRST and suppresses the terminal-net
-        // check for this var (the function-exit net is undefined when a merge
-        // point already diverges) — mirrors `verify_burden_balance` in
-        // `aims/verify/burden_balance.rs`. The merge block is the divergence
+        // Verdict extraction (merge-disagree first, suppressing the
+        // terminal-net check; else first nonzero terminal) is the SSOT at
+        // `burden_delta::balance_verdict` — shared with
+        // `verify_burden_balance`. The violation block is the divergence
         // anchor surfaced in the diagnostic `path`.
-        if let Some(&(b, _observed)) = nets.disagree_blocks.first() {
+        let verdict = crate::aims::verify::burden_delta::balance_verdict(func, &preds, var);
+        if let Some(v) = verdict.violation {
             errors.push(TrmcVerificationError::BurdenImbalance {
                 function: func.name,
                 var,
                 region: ctx.loop_header,
-                path: vec![func.blocks[b].id],
+                path: vec![func.blocks[v.block_idx].id],
             });
-        } else {
-            check_burden_terminal_zero(
-                func,
-                var,
-                ctx.loop_header,
-                &delta,
-                &nets.entry_net,
-                &mut errors,
-            );
         }
     }
 
@@ -665,44 +654,7 @@ fn collect_context_hole_vars(func: &ArcFunction, state_map: &AimsStateMap) -> Ve
     out
 }
 
-// Burden-entry-net forward dataflow (`compute_burden_entry_nets`) and the
-// per-block delta (`compute_var_block_deltas`) share a canonical home at
-// `aims/verify/burden_delta.rs` — single source of truth, no parallel walk.
-// This verifier consumes that SSOT and translates the first `disagree_blocks`
-// entry into a `BurdenImbalance` (TRMC rollback signal), mirroring
-// `verify_burden_balance`'s `disagree_blocks.first()` handling.
-
-/// Every path-terminal block (`Return` / `Resume` / `Unreachable`) MUST
-/// have `exit_net == 0` per VF-1 per-edge balance. Straight-line CFGs
-/// have no merge point, so `compute_burden_entry_nets` never fires on a
-/// uniform non-zero net; this terminal check catches that class.
-fn check_burden_terminal_zero(
-    func: &ArcFunction,
-    var: ArcVarId,
-    region: ArcBlockId,
-    delta: &[i64],
-    entry_net: &[Option<i64>],
-    errors: &mut Vec<TrmcVerificationError>,
-) {
-    for (b, block) in func.blocks.iter().enumerate() {
-        let Some(eb) = entry_net[b] else {
-            continue;
-        };
-        let is_terminal = matches!(
-            block.terminator,
-            ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
-        );
-        if !is_terminal {
-            continue;
-        }
-        if eb + delta[b] != 0 {
-            errors.push(TrmcVerificationError::BurdenImbalance {
-                function: func.name,
-                var,
-                region,
-                path: vec![func.blocks[b].id],
-            });
-            break;
-        }
-    }
-}
+// Burden-balance dataflow + verdict extraction share a canonical home at
+// `aims/verify/burden_delta.rs` (`balance_verdict`) — single source of
+// truth, no parallel walk. This verifier maps the verdict to the
+// `BurdenImbalance` TRMC rollback signal.

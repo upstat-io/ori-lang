@@ -17,6 +17,76 @@ use super::ArcIrEmitter;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Coerce runtime-function (`ori_*`) arguments to pointers and apply the
+    /// for-yield narrowed elem-size override. Shared by `Apply` emission and
+    /// the `Invoke` terminator's `emit_runtime_fn_call` so the two call
+    /// shapes cannot drift.
+    ///
+    /// Runtime functions take `ptr` params, but ARC IR passes aggregate
+    /// structs (Str, List, etc.) by value:
+    ///
+    /// - `ori_list_push` arg 1 is the element value — coerced to a pointer
+    ///   regardless of its type (even scalars).
+    /// - Borrowed parameters with a known source pointer forward that
+    ///   pointer directly (no alloca+store copy) on call AND invoke paths —
+    ///   the source pointer is a function parameter that outlives the call,
+    ///   and the runtime must observe the original buffer (COW uniqueness),
+    ///   not a fresh copy.
+    /// - Other aggregates are spilled to an alloca and passed by pointer.
+    ///
+    /// The elem-size override replaces canonical `elem_size=8` baked at ARC
+    /// lowering time (before the `ReprPlan` exists) with the narrowed size for
+    /// int-element for-yield lists. Only `elem_size` vars identified by the
+    /// pre-scan are overridden (prevents corrupting non-int accumulators
+    /// like `[str]` when a narrowed `[int]` exists in the program).
+    pub(super) fn coerce_runtime_fn_args(
+        &mut self,
+        func_name_str: &str,
+        arc_args: &[ArcVarId],
+        arg_vals: &[ValueId],
+        arc_func: &ori_arc::ir::ArcFunction,
+    ) -> Vec<ValueId> {
+        let is_list_push = func_name_str == "ori_list_push";
+        let is_list_new = func_name_str == "ori_list_new";
+        let mut coerced_args: Vec<ValueId> = arc_args
+            .iter()
+            .zip(arg_vals.iter())
+            .enumerate()
+            .map(|(i, (arc_var, &val))| {
+                let arg_ty = arc_func.var_type(*arc_var);
+                if is_list_push && i == 1 {
+                    self.coerce_any_to_ptr(val, arg_ty)
+                } else if let Some(&src_ptr) = self.borrowed_param_ptrs.get(arc_var) {
+                    let tag = self.pool.tag(arg_ty);
+                    if matches!(tag, Tag::Str | Tag::List | Tag::Set | Tag::Map) {
+                        src_ptr
+                    } else {
+                        self.coerce_aggregate_to_ptr(val, arg_ty)
+                    }
+                } else {
+                    self.coerce_aggregate_to_ptr(val, arg_ty)
+                }
+            })
+            .collect();
+
+        if let Some(width) = self.narrowed_int_collection_element_width() {
+            let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
+            if is_list_new
+                && arc_args.len() == 2
+                && self.for_yield_int_elem_sizes.contains(&arc_args[1])
+            {
+                coerced_args[1] = narrowed_size;
+            } else if is_list_push
+                && arc_args.len() == 3
+                && self.for_yield_int_elem_sizes.contains(&arc_args[2])
+            {
+                coerced_args[2] = narrowed_size;
+            }
+        }
+
+        coerced_args
+    }
+
     /// Apply parameter passing modes to argument values.
     ///
     /// Apply param passing: `Indirect`/`Reference` (alloca+store+pass ptr),

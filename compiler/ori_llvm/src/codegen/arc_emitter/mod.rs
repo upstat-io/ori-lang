@@ -500,36 +500,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    /// Resolve the `EnumRepr` for `ty` — `ReprPlan`-first, with on-the-fly
-    /// canonical recomputation for enum-shaped types with variable residue
-    /// (e.g., `Option<Var(T→str)>`) that weren't in the plan.
+    /// Resolve the `EnumRepr` for `ty` via the `ReprPlan` SSOT ladder
+    /// (`ReprPlan::enum_repr_with_fallback` — plan-first, canonical
+    /// recomputation for variable-residue enum shapes).
     ///
-    /// SSOT for the plan-lookup + canonical-fallback ladder shared by
-    /// [`Self::get_niche_encoding`], [`Self::is_tagless_enum`], and
+    /// Shared by [`Self::get_niche_encoding`], [`Self::is_tagless_enum`], and
     /// [`Self::get_tagged_ptr_encoding`] — never re-derive it at call sites.
-    /// The fallback delegates to `ori_repr::canonical_enum_for_type`, so the
-    /// layout authority stays in `ori_repr` either way.
     fn enum_repr_for(&self, ty: Idx) -> Option<std::borrow::Cow<'_, ori_repr::EnumRepr>> {
-        let plan = self.repr_plan?;
-        let resolved = self.pool.resolve_fully(ty);
-
-        // Direct lookup in the plan — fast path for most types.
-        if let Some(enum_repr) = plan.get_enum_repr(resolved) {
-            return Some(std::borrow::Cow::Borrowed(enum_repr));
-        }
-
-        // Fallback: recompute canonical for types not in the plan (variable residue).
-        let tag = self.pool.tag(resolved);
-        if matches!(
-            tag,
-            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
-        ) {
-            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
-                return Some(std::borrow::Cow::Owned(enum_repr));
-            }
-        }
-
-        None
+        self.repr_plan?.enum_repr_with_fallback(self.pool, ty)
     }
 
     /// Whether `ty` is a tagless single-variant enum (`EnumTag::None`).

@@ -192,6 +192,40 @@ impl ReprPlan {
         }
     }
 
+    /// Resolve the `EnumRepr` for `idx` — plan-first, with on-the-fly
+    /// canonical recomputation for enum-shaped types with variable residue
+    /// (e.g., `Option<Var(T resolved to str)>`) that were not in the plan when it
+    /// was computed.
+    ///
+    /// SSOT for the plan-lookup + canonical-fallback ladder. Every consumer
+    /// (ABI sizing, type-info layout resolution, ARC emission) routes through
+    /// this so a variable-residue enum cannot answer differently across
+    /// emission surfaces. The fallback delegates to
+    /// [`crate::canonical_enum_for_type`], keeping layout authority here.
+    #[must_use]
+    pub fn enum_repr_with_fallback<'p>(
+        &'p self,
+        pool: &Pool,
+        idx: Idx,
+    ) -> Option<std::borrow::Cow<'p, EnumRepr>> {
+        let resolved = pool.resolve_fully(idx);
+
+        if let Some(enum_repr) = self.get_enum_repr(resolved) {
+            return Some(std::borrow::Cow::Borrowed(enum_repr));
+        }
+
+        if matches!(
+            pool.tag(resolved),
+            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
+        ) {
+            if let Some(enum_repr) = crate::canonical::canonical_enum_for_type(pool, resolved) {
+                return Some(std::borrow::Cow::Owned(enum_repr));
+            }
+        }
+
+        None
+    }
+
     /// Record per-variable range analysis results for a function.
     ///
     /// Called by range analysis after `range_fixpoint()` completes for a function.

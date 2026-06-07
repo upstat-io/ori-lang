@@ -83,28 +83,51 @@ fn large_tuple_exceeds_threshold() {
 }
 
 #[test]
-fn mixed_alignment_tuple_ignores_padding() {
-    // Documents the known limitation: abi_size_inner sums field sizes
-    // without alignment padding. A tuple (byte, int, byte) computes as
-    // 10 bytes here, but LLVM would lay it out as 24 bytes with padding.
-    //
-    // This is currently safe because all types that reach this path
-    // are uniform-alignment (all-i64, all-ptr), so padding is zero.
-    // When mixed-alignment user structs are supported, this will need
-    // to query LLVM's TargetData for actual layout size.
+fn mixed_alignment_tuple_includes_padding() {
+    // abi_size matches LLVM layout for mixed-alignment aggregates:
+    // (byte, int, byte) = 1 + 7 pad + 8 + 1 + 7 trailing pad = 24.
     let mut pool = Pool::new();
     let tup = pool.tuple(&[Idx::BYTE, Idx::INT, Idx::BYTE]);
     let store = TypeInfoStore::new(&pool);
 
-    // Without padding: 1 + 8 + 1 = 10 (under-counts vs LLVM's 24)
-    assert_eq!(abi_size(tup, &store, None), 10);
+    assert_eq!(abi_size(tup, &store, None), 24);
 
-    // This causes Direct classification (≤16) when LLVM layout would be
-    // Indirect (24 > 16). Acceptable for now — see FIXME in abi_size_inner.
+    // 24 > 16 — classified Indirect, matching the LLVM layout the
+    // callee actually sees. A padding-unaware Direct here misaligns
+    // registers (the BUG-04-071 misclassification class).
     assert_eq!(
         compute_param_passing(tup, &store, None),
-        ParamPassing::Direct,
-        "known limitation: mixed-alignment tuple classified as Direct due to padding-unaware size"
+        ParamPassing::Indirect { alignment: 8 },
+        "mixed-alignment tuple must classify by padded LLVM size"
+    );
+}
+
+#[test]
+fn mixed_alignment_struct_includes_padding() {
+    // struct { byte, int } = 1 + 7 pad + 8 = 16 — boundary Direct.
+    let mut pool = Pool::new();
+    let s = pool.struct_type(
+        Name::from_raw(950),
+        &[
+            (Name::from_raw(951), Idx::BYTE),
+            (Name::from_raw(952), Idx::INT),
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+    assert_eq!(abi_size(s, &store, None), 16);
+    assert_eq!(compute_param_passing(s, &store, None), ParamPassing::Direct);
+}
+
+#[test]
+fn uniform_small_alignment_tuple_stays_compact() {
+    // (byte, byte, byte) = 3 bytes, alignment 1 — no padding inflation.
+    let mut pool = Pool::new();
+    let tup = pool.tuple(&[Idx::BYTE, Idx::BYTE, Idx::BYTE]);
+    let store = TypeInfoStore::new(&pool);
+    assert_eq!(abi_size(tup, &store, None), 3);
+    assert_eq!(
+        compute_param_passing(tup, &store, None),
+        ParamPassing::Direct
     );
 }
 

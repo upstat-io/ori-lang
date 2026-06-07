@@ -44,7 +44,7 @@ const EXIT_CODE_PROGRAM: &str = include_str!("fixtures/cli/exit_code_program.ori
 ///
 /// Verifies that basic compilation works and produces a runnable binary.
 #[test]
-fn test_build_basic() {
+fn test_build_produces_runnable_executable() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let source = create_test_source(&temp_dir, "hello.ori", SIMPLE_PROGRAM);
     let output = temp_dir.path().join("hello");

@@ -1396,7 +1396,7 @@ fn integration_compile_through_type_system() {
 /// Phase A fallback for 12 primitives: empty ReprPlan produces the same
 /// LLVM types as TypeInfoStore alone.
 #[test]
-fn phase_a_fallback_primitives() {
+fn store_fallback_resolves_primitives() {
     let pool = test_pool();
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
@@ -1442,7 +1442,7 @@ fn phase_a_fallback_primitives() {
 /// vs `%ori.400.0`), so we compare field counts and field types instead
 /// of pointer identity.
 #[test]
-fn phase_a_fallback_composites() {
+fn store_fallback_resolves_composites() {
     use inkwell::types::BasicTypeEnum::StructType as ST;
 
     let mut pool = Pool::new();
@@ -1521,7 +1521,7 @@ fn phase_a_fallback_composites() {
 /// Phase A override: populate ReprPlan with a narrowed decision for Int,
 /// verify the ReprPlan path is used (produces i32 instead of i64).
 #[test]
-fn phase_a_override_uses_repr_plan() {
+fn repr_plan_override_takes_precedence_over_store() {
     let pool = test_pool();
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
@@ -1566,7 +1566,7 @@ fn phase_a_override_uses_repr_plan() {
 /// Phase A with None ReprPlan: backward-compatibility test — all lookups
 /// go through TypeInfoStore exclusively.
 #[test]
-fn phase_a_none_repr_plan_backward_compat() {
+fn none_repr_plan_resolves_via_store() {
     let pool = test_pool();
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
@@ -1591,7 +1591,7 @@ fn phase_a_none_repr_plan_backward_compat() {
 /// ReprPlan for all resolvable primitive types. This test guards against
 /// Phase A introducing any behavioral change.
 #[test]
-fn phase_a_semantic_pin_empty_plan_equals_no_plan() {
+fn semantic_pin_empty_plan_equals_no_plan() {
     let mut pool = Pool::new();
 
     // Add some dynamic types to test beyond primitives.
@@ -1922,4 +1922,110 @@ fn iterator_triviality_paths_agree() {
         production_store.is_trivial(iter_str),
         "fallback and production must agree on Iterator<str>"
     );
+}
+
+// -- pool_type_store_size <-> type_store_size cross-crate sync pin --
+
+/// Tag-matrix cross-check: `ori_arc::lower::pool_type_store_size` (Pool
+/// level) and `type_size::type_store_size` (LLVM level) compute the same
+/// store size for every representable shape. The two are a manual sync
+/// contract (lowering bakes elem sizes before the ReprPlan exists); this
+/// pin makes drift loud instead of silently miscompiling buffer strides.
+#[test]
+fn pool_store_size_matches_llvm_store_size_across_tag_matrix() {
+    use super::type_size::type_store_size;
+    use ori_arc::lower::pool_type_store_size;
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+
+    let struct_mixed = pool.struct_type(
+        Name::from_raw(900),
+        &[
+            (Name::from_raw(901), Idx::BYTE),
+            (Name::from_raw(902), Idx::INT),
+            (Name::from_raw(903), Idx::BYTE),
+        ],
+    );
+    let struct_heap = pool.struct_type(
+        Name::from_raw(904),
+        &[
+            (Name::from_raw(905), Idx::STR),
+            (Name::from_raw(906), Idx::INT),
+        ],
+    );
+    let tuple_mixed = pool.tuple(&[Idx::CHAR, Idx::CHAR, Idx::INT]);
+    let list_int = pool.list(Idx::INT);
+    let map_str_int = pool.map(Idx::STR, Idx::INT);
+    let set_int = pool.set(Idx::INT);
+    let opt_int = pool.option(Idx::INT);
+    let opt_str = pool.option(Idx::STR);
+    let res_int_str = pool.result(Idx::INT, Idx::STR);
+    let enum_all_unit = pool.enum_type(
+        Name::from_raw(910),
+        &[
+            EnumVariant {
+                name: Name::from_raw(911),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(912),
+                field_types: vec![],
+            },
+        ],
+    );
+    let enum_payload = pool.enum_type(
+        Name::from_raw(913),
+        &[
+            EnumVariant {
+                name: Name::from_raw(914),
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(915),
+                field_types: vec![Idx::STR],
+            },
+        ],
+    );
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test");
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    let matrix: &[(&str, Idx)] = &[
+        ("int", Idx::INT),
+        ("float", Idx::FLOAT),
+        ("bool", Idx::BOOL),
+        ("byte", Idx::BYTE),
+        ("char", Idx::CHAR),
+        ("ordering", Idx::ORDERING),
+        ("duration", Idx::DURATION),
+        ("size", Idx::SIZE),
+        ("str", Idx::STR),
+        ("list_int", list_int),
+        ("map_str_int", map_str_int),
+        ("set_int", set_int),
+        ("struct_mixed", struct_mixed),
+        ("struct_heap", struct_heap),
+        ("tuple_mixed", tuple_mixed),
+        ("opt_int", opt_int),
+        ("opt_str", opt_str),
+        ("res_int_str", res_int_str),
+        ("enum_all_unit", enum_all_unit),
+        ("enum_payload", enum_payload),
+    ];
+
+    let mut visited = 0usize;
+    for &(label, idx) in matrix {
+        let pool_size = pool_type_store_size(idx, &pool, 0);
+        let llvm_size = type_store_size(resolver.resolve(idx));
+        assert_eq!(
+            u64::try_from(pool_size).unwrap_or(u64::MAX),
+            llvm_size,
+            "store-size sync drift for `{label}`: pool={pool_size}, llvm={llvm_size}"
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, matrix.len(), "matrix cell skipped");
 }

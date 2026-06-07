@@ -334,12 +334,12 @@ fn test_mixed_field_struct_ir_pin_no_narrowing() {
     );
 }
 
-// ---- Phase B: Local Variable Narrowing Tests ----
+// ---- Local-variable narrowing tests ----
 
 // Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
 // The program must produce correct results regardless of narrowing.
 #[test]
-fn test_phase_b_loop_behavioral() {
+fn test_narrowed_local_manual_loop_break_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_loop_behavioral.ori"),
         "phase_b_loop_behavioral",
@@ -348,7 +348,7 @@ fn test_phase_b_loop_behavioral() {
 
 // Behavioral test: for-range loop with bounded counter.
 #[test]
-fn test_phase_b_for_range_behavioral() {
+fn test_narrowed_local_for_range_counter_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_for_range_behavioral.ori"),
         "phase_b_for_range_behavioral",
@@ -357,7 +357,7 @@ fn test_phase_b_for_range_behavioral() {
 
 // Behavioral test: loop with negative values (signed i8 range [-128, 127]).
 #[test]
-fn test_phase_b_negative_loop_behavioral() {
+fn test_narrowed_local_loop_negative_i8_range_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_negative_loop_behavioral.ori"),
         "phase_b_negative_loop_behavioral",
@@ -368,7 +368,7 @@ fn test_phase_b_negative_loop_behavioral() {
 // Range [0, 9] fits in signed i8 [-128, 127].
 // This test ONLY passes with Phase B local variable narrowing.
 #[test]
-fn test_phase_b_ir_pin_loop_counter_phi() {
+fn test_narrowed_local_ir_pin_loop_counter_phi_i8() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_loop_counter_phi.ori"
     ));
@@ -390,7 +390,7 @@ fn test_phase_b_ir_pin_loop_counter_phi() {
 // IR semantic pin: sext must be present to widen narrowed loop variables
 // before canonical-width arithmetic (overflow-checked i64 add).
 #[test]
-fn test_phase_b_ir_pin_loop_sext() {
+fn test_narrowed_local_ir_pin_loop_sext_to_canonical() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_loop_sext.ori"
     ));
@@ -412,7 +412,7 @@ fn test_phase_b_ir_pin_loop_sext() {
 // Negative IR pin: wide-range loop variables must NOT be narrowed.
 // Loop counter up to 50000 exceeds i8 range, should stay i64 (or i16).
 #[test]
-fn test_phase_b_ir_pin_wide_range_no_i8() {
+fn test_wide_range_local_ir_pin_no_i8_narrowing() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_wide_range_no_i8.ori"
     ));
@@ -484,7 +484,7 @@ fn test_narrowed_comparison_ordering_chain() {
 /// LLVM, but the ADD result flows through `def_var_repr()` and gets narrowed.
 /// This test ONLY passes with Phase B straight-line local narrowing.
 #[test]
-fn test_phase_b_ir_pin_straight_line_add_narrowed() {
+fn test_narrowed_local_ir_pin_straight_line_add() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_straight_line_add_narrowed.ori"
     ));
@@ -506,7 +506,7 @@ fn test_phase_b_ir_pin_straight_line_add_narrowed() {
 /// IR semantic pin: multiple narrowed locals produce multiple trunc+sext pairs.
 /// Each narrowed variable definition inserts its own trunc+sext pair.
 #[test]
-fn test_phase_b_ir_pin_multiple_narrowed_locals() {
+fn test_multiple_narrowed_locals_ir_pin_each_truncated() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_multiple_narrowed_locals.ori"
     ));
@@ -529,7 +529,7 @@ fn test_phase_b_ir_pin_multiple_narrowed_locals() {
 /// Even if only called with value 5, the parameter stays i64 because
 /// external callers might pass any value.
 #[test]
-fn test_phase_b_negative_public_param_not_narrowed() {
+fn test_public_param_local_not_narrowed() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_negative_public_param_not_narrowed.ori"
     ));
@@ -549,7 +549,7 @@ fn test_phase_b_negative_public_param_not_narrowed() {
 /// Negative pin: `let x = 3_000_000_000` exceeds i32 range — must stay i64.
 /// Range [3B, 3B] does not fit in i32 [-2^31, 2^31-1].
 #[test]
-fn test_phase_b_negative_wide_constant_stays_i64() {
+fn test_wide_constant_local_stays_i64() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_negative_wide_constant_stays_i64.ori"
     ));
@@ -572,7 +572,7 @@ fn test_phase_b_negative_wide_constant_stays_i64() {
 ///
 /// This test ONLY passes once the Select path uses `def_var_repr()`.
 #[test]
-fn test_phase_b_ir_pin_select_narrowed() {
+fn test_narrowed_local_select_ir_pin_trunc_sext() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_ir_pin_select_narrowed.ori"
     ));
@@ -598,7 +598,7 @@ fn test_phase_b_ir_pin_select_narrowed() {
 /// Behavioral test: narrowed Select result produces correct values.
 /// Verifies both branches of a narrowed select yield correct runtime output.
 #[test]
-fn test_phase_b_select_narrowed_behavior() {
+fn test_narrowed_local_select_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_select_narrowed_behavior.ori"),
         "select_narrowed_behavior",
@@ -608,7 +608,7 @@ fn test_phase_b_select_narrowed_behavior() {
 /// Behavioral test: narrowed Select with negative values preserves sign.
 /// Catches zext bugs — negative values through narrowed select must retain sign.
 #[test]
-fn test_phase_b_select_narrowed_negative_values() {
+fn test_narrowed_local_select_negative_values_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_select_narrowed_negative_values.ori"),
         "select_narrowed_negative_values",
@@ -621,7 +621,7 @@ fn test_phase_b_select_narrowed_negative_values() {
 /// and `min_width()` selects the smallest type that fits the computed range.
 /// No explicit overflow guard is needed.
 #[test]
-fn test_phase_b_overflow_guard_widens_to_i16() {
+fn test_local_overflow_guard_widens_to_i16() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/phase_b_overflow_guard_widens_to_i16.ori"
     ));
@@ -646,7 +646,7 @@ fn test_phase_b_overflow_guard_widens_to_i16() {
 
 /// Behavioral test: overflow guard correctness — 100 + 50 = 150 (exceeds i8).
 #[test]
-fn test_phase_b_overflow_guard_behavior() {
+fn test_local_overflow_guard_correct_output() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_b_overflow_guard_behavior.ori"),
         "overflow_guard_behavior",
@@ -1307,12 +1307,12 @@ fn test_for_yield_range_to_enum() {
     );
 }
 
-// Phase C — Collection element narrowing with mutations
+// Collection-element narrowing with mutations
 
 /// Regression: A program with `[1]` literal + push of values
 /// >= 128 must not corrupt data via i8 narrowing.
 #[test]
-fn test_phase_c_push_corruption_guard() {
+fn test_narrowed_list_push_above_i8_no_corruption() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_c_push_corruption_guard.ori"),
         "phase_c_push_corruption_guard",
@@ -1321,7 +1321,7 @@ fn test_phase_c_push_corruption_guard() {
 
 /// Positive pin: literal-only [int] lists should still benefit from narrowing.
 #[test]
-fn test_phase_c_only_literals_still_narrows() {
+fn test_literal_only_int_list_still_narrows() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_c_only_literals_still_narrows.ori"),
         "phase_c_only_literals_still_narrows",
@@ -1330,7 +1330,7 @@ fn test_phase_c_only_literals_still_narrows() {
 
 /// Edge case: push values spanning i8/i16 boundaries.
 #[test]
-fn test_phase_c_push_large_values() {
+fn test_narrowed_list_push_i8_i16_boundary_values() {
     assert_aot_success(
         include_str!("fixtures/narrowing/phase_c_push_large_values.ori"),
         "phase_c_push_large_values",

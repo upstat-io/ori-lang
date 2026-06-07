@@ -15,6 +15,7 @@
 //! | `__iter_next`         | For-loop iteration protocol              | Yes              |
 //! | `__collect_set`       | Collect iterator into `Set<T>`           | Yes              |
 //! | `__index`             | `receiver[index]` desugaring             | Yes              |
+//! | `__cast`              | `value as Target` conversion             | Yes (supported pairs) |
 //! | `iter`                | Iterator creation (borrow inference only) | No (normal call) |
 //! | `ori_iter_drop`       | Iterator cleanup (borrow inference only)  | No (normal call) |
 //! | `ori_list_take`       | For-yield list finalization (non-PB)     | Yes (non-PB)     |
@@ -67,6 +68,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // borrow inference only — they go through normal function
                 // dispatch (real runtime calls), not protocol intercept.
                 ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => return false,
+
+                ProtocolBuiltin::Cast => {
+                    // __cast(value) — `as` conversions (ARC IR has no cast
+                    // instruction). Supported primitive pairs emit inline,
+                    // matching `ori_eval::eval_can_cast` for dual-execution
+                    // parity. Unsupported pairs (str parse, range-checked
+                    // int->byte/char) fall through to normal dispatch
+                    // (unresolved-function error).
+                    return match self.try_emit_cast(dst, args, func) {
+                        Some(val) => {
+                            self.def_var_repr(dst, val, func);
+                            true
+                        }
+                        None => false,
+                    };
+                }
 
                 ProtocolBuiltin::CollectSet => {
                     // __collect_set(iter).

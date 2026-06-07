@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Test-naming hygiene linter.
+"""Test-naming hygiene linter — ephemeral identifiers only.
 
-Enforces test function name shape `<subject>_<scenario>_<expected>`.
-Ephemeral identifiers (bug IDs, plan names, section numbers, TPR codes,
-dates, authors, commit hashes) belong in doc comments, never in function
-names.
+Ephemeral identifiers (bug IDs, plan names, section/phase tokens, TPR
+codes, dates, authors, commit hashes) belong in doc comments, never in
+function names (target shape: `<subject>_<scenario>_<expected>`).
+
+Weak-descriptor detection (`_basic`, `_default`, ...) is NOT this lint's
+job: those need per-name domain-word adjudication (`_ok` as Result-Ok
+subject, `_default` as Default-trait subject) and are surfaced
+reviewer-time by the hygiene-lint `test-weak` check.
 
 Usage:
   scripts/test-naming-lint.py [paths...]   # paths default to compiler workspace
@@ -30,6 +34,7 @@ BANNED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("issue-id", re.compile(r"(?:^|_)issue_\d+", re.IGNORECASE)),
     ("issue-id", re.compile(r"(?:^|_)fix_\d+", re.IGNORECASE)),
     ("plan-section", re.compile(r"(?:^|_)section_\d+(?:_\d+)?", re.IGNORECASE)),
+    ("plan-phase", re.compile(r"(?:^|_)phase_[a-z0-9](?:_|$)", re.IGNORECASE)),
     ("plan-section", re.compile(r"_\d+_\d+_(?:phase|step)_[a-z0-9]+", re.IGNORECASE)),
     ("plan-section", re.compile(r"_§\d+", re.IGNORECASE)),
     ("tpr-code", re.compile(r"(?:^|_)TPR[_-]?\d+", re.IGNORECASE)),
@@ -40,20 +45,6 @@ BANNED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("commit-hash", re.compile(r"(?:^|_)[0-9a-f]{7,40}(?:_|$)")),
     ("author-initials", re.compile(r"_(?:eric|alice|bob|es|ab)_(?:fix|repro|patch)", re.IGNORECASE)),
 ]
-
-WEAK_DESCRIPTORS: set[str] = {
-    "test_works",
-    "test_works_correctly",
-    "test_it_works",
-    "test_basic",
-    "test_simple",
-    "test_default",
-    "test_normal",
-    "test_correct",
-    "test_valid",
-    "test_ok",
-    "test_sanity",
-}
 
 RUST_TEST_RE = re.compile(r"^\s*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(")
 RUST_ATTR_TEST = re.compile(r"#\[test\]|#\[tokio::test\]|#\[rstest\]")
@@ -80,8 +71,6 @@ class Finding:
 
 
 def classify(name: str) -> tuple[str, str] | None:
-    if name in WEAK_DESCRIPTORS:
-        return ("weak-descriptor", "describe subject_scenario_expected vs generic")
     for label, pat in BANNED_PATTERNS:
         if pat.search(name):
             cure = "move provenance to /// doc comment; rename per <subject>_<scenario>_<expected>"

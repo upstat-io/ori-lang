@@ -108,7 +108,7 @@ pub(crate) fn is_callee_intercepted(
     }
     // All protocol builtins are nounwind (iterator creation/cleanup don't
     // panic), so they're always safe to emit as `call` rather than `invoke`.
-    // Some (Index, IterNext, CollectSet) are also intercepted by
+    // Some (Index, IterNext, CollectSet, Cast) are also intercepted by
     // try_emit_protocol(); others (Iter, IterDrop) go through normal
     // function dispatch but are still nounwind.
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
