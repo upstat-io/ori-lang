@@ -249,6 +249,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 {
                     if enum_repr.tag.is_niche() {
                         // Niche layout: use the data variant's payload type directly.
+                        // BUG-05-010: picking the larger-SIZE arm can under-align
+                        // the storage vs the repr plan's max(ok, err) alignment
+                        // when size and alignment invert.
                         self.resolving.borrow_mut().insert(idx);
                         let ok_ty = self.resolve(*ok);
                         let err_ty = self.resolve(*err);

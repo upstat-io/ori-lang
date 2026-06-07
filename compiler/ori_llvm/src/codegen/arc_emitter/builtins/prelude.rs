@@ -122,7 +122,9 @@ fn emit_float<'scx: 'ctx, 'ctx>(
     }
 }
 
-/// Emit `byte(value)` — inline LLVM casts.
+/// Emit `byte(value)` — range-checked conversions (parity with the
+/// interpreter's `function_val_byte`: int errors outside 0..=255, char
+/// errors above codepoint 255; silent truncation diverges on those inputs).
 fn emit_byte<'scx: 'ctx, 'ctx>(
     emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
     args: &[ArcVarId],
@@ -138,7 +140,23 @@ fn emit_byte<'scx: 'ctx, 'ctx>(
 
     match &type_info {
         TypeInfo::Byte => Some(arg_val),
-        TypeInfo::Int | TypeInfo::Char => Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast")),
+        TypeInfo::Int => {
+            let lo = emitter.builder.const_i64(0);
+            let hi = emitter.builder.const_i64(255);
+            let ge = emitter.builder.icmp_sge(arg_val, lo, "byte.ge");
+            let le = emitter.builder.icmp_sle(arg_val, hi, "byte.le");
+            let valid = emitter.builder.and(ge, le, "byte.valid");
+            emitter.emit_unwrap_branch(valid, "byte value out of range (0-255)", "byte.int")?;
+            Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast"))
+        }
+        TypeInfo::Char => {
+            // Codepoints above 255 do not fit a byte — the interpreter
+            // errors via u8::try_from on the codepoint (Latin-1 accepted).
+            let byte_limit = emitter.builder.const_i32(256);
+            let valid = emitter.builder.icmp_ult(arg_val, byte_limit, "byte.fits");
+            emitter.emit_unwrap_branch(valid, "out of byte range (0-255)", "byte.char")?;
+            Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast"))
+        }
         _ => None,
     }
 }

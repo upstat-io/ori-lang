@@ -99,9 +99,11 @@ pub fn function_val_byte(args: &[Value]) -> Result<Value, EvalError> {
             .map(Value::Byte)
             .map_err(|_| EvalError::new(format!("byte value {} out of range (0-255)", n.raw()))),
         Value::Byte(b) => Ok(Value::Byte(*b)),
-        Value::Char(c) => u8::try_from(u32::from(*c))
-            .map(Value::Byte)
-            .map_err(|_| EvalError::new(format!("cannot convert non-ASCII char '{c}' to byte"))),
+        Value::Char(c) => u8::try_from(u32::from(*c)).map(Value::Byte).map_err(|_| {
+            EvalError::new(format!(
+                "cannot convert char '{c}' to byte: out of byte range (0-255)"
+            ))
+        }),
         _ => Err(EvalError::new(format!(
             "cannot convert {} to byte",
             args[0].type_name()

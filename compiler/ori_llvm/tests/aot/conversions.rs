@@ -187,10 +187,13 @@ fn test_conv_int_to_byte() {
 }
 
 #[test]
-fn test_conv_int_to_byte_truncates() {
-    assert_aot_success(
-        include_str!("fixtures/conversions/conv_int_to_byte_truncates.ori"),
-        "conv_int_to_byte_trunc",
+fn test_conv_int_to_byte_out_of_range_panics() {
+    // Parity with the interpreter: 256 errors ("out of byte range (0-255)")
+    // rather than truncating to 0.
+    assert_cast_panics(
+        include_str!("fixtures/conversions/conv_int_to_byte_out_of_range_panics.ori"),
+        "conv_int_to_byte_oor",
+        "range (0-255)",
     );
 }
 

@@ -2,6 +2,6 @@
     let x = 256;
     let b = x.byte();
     let back = b.to_int();
-    // 256 truncated to byte = 0
+
     if back == 0 then 0 else 1
 }
