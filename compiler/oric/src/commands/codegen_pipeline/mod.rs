@@ -53,26 +53,13 @@ pub(super) struct BorrowInferenceResult {
 
 /// Run ARC borrow inference on all non-generic module functions.
 ///
-/// Lowers each function to ARC IR and runs per-SCC Salsa-tracked borrow
-/// inference queries. Returns both the annotated signatures and a cache of
-/// pre-lowered ARC functions for zero-copy consumption by codegen.
-///
+/// Lowers each function (local, mono, imported mono) to ARC IR and runs
+/// per-SCC Salsa-tracked borrow inference queries. Returns annotated
+/// signatures plus a cache of pre-lowered ARC functions for zero-copy
+/// consumption by codegen; Salsa memoizes per-SCC results, so only SCCs with
+/// changed bodies re-analyze on recompilation.
 /// Returns `None` when ARC lowering reported errors (diagnostics already
-/// emitted) — mirrors the JIT runner's `lower_and_infer_borrows`; the caller
-/// aborts codegen instead of continuing with an empty arc cache.
-///
-/// # Flow
-///
-/// 1. Lower each function to ARC IR
-/// 2. Clone into flat map for Salsa, keep grouped cache for codegen
-/// 3. Create [`ArcModuleInput`] Salsa input from lowered functions
-/// 4. Query [`arc_scc_decomposition`] for SCC structure
-/// 5. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
-/// 6. Return `(annotated_sigs, arc_cache)`
-///
-/// Salsa memoizes per-SCC results. On recompilation, only SCCs with changed
-/// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
-/// borrow signatures are unchanged.
+/// emitted); the caller aborts codegen instead of continuing with an empty cache.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
@@ -102,16 +89,12 @@ pub(super) fn run_borrow_inference(
         re_interned_canons,
     } = imported;
 
-    // 1. Lower functions to ARC IR.
-    // We build both a grouped cache (parent → lambdas) for codegen and a flat
-    // map for Salsa. The flat map is cloned from the grouped data before being
-    // consumed by ArcModuleInput::sorted_functions.
+    // Grouped cache (parent → lambdas) feeds codegen; a flat clone feeds Salsa.
     let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
         FxHashMap::default();
     let mut arc_problems = Vec::new();
 
-    // PC-2 diagnostic localization (PC-2); primary seam owns
-    // record_codegen_error(). Empty exempt set: pre-mono skips generics via
+    // Why: the PC-2 exempt set is empty — pre-mono skips generics via
     // sig.is_generic(); mono instances are fully substituted (empty scheme_var_ids).
     let exempt: FxHashSet<u32> = FxHashSet::default();
 
@@ -147,9 +130,7 @@ pub(super) fn run_borrow_inference(
     }
 
     // Lower monomorphized generic functions.
-    // The JIT runner already does this (runner/mod.rs), but the AOT path was
-    // missing it — mono function names would be absent from annotated_sigs,
-    // causing the warn! fallback to all-Owned in define_function_body_arc_with_subst.
+    // Why: without mono entries in annotated_sigs, borrow lookup falls back to all-Owned.
     let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
         mono_instances,
         function_sigs,
@@ -181,20 +162,9 @@ pub(super) fn run_borrow_inference(
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
-    // Lower imported monomorphized generic functions via body-import
-    // linkage. Mirrors the test-runner specialization loop in
-    // `oric/src/test/runner/arc_lowering.rs`. Each `ImportedMonoFn`
-    // carries the source body name + module index; the source body lives in
-    // the SOURCE module's `CanonResult` after re-interning into merged_pool.
-    // `re_interned_canons[source_module_idx]` provides the source canon in
-    // merged-pool coordinates; `arc_lowering::lower_to_arc` looks up the
-    // generic body via `canon.root_for(source_body_name)`.
-    //
-    // For single-file AOT (no imported_mono_fns) the loop is a no-op. When
-    // `source_module_idx` is out-of-bounds (re_interned_canons empty in
-    // legacy callers), the host canon is the fallback — preserving the
-    // pre-merged-pool-re-interning behavior of `lower_to_arc(...source_body_name..., canon...)`
-    // for tests that have not yet been wired through the merged-pool path.
+    // Lower imported monos via body-import linkage; an out-of-bounds
+    // source_module_idx falls back to the host canon.
+    // Why: the generic body lives in the SOURCE module's re-interned canon.
     for (mono_fn, source_module_idx, source_body_name) in imported_mono_fns {
         let source_canon = re_interned_canons.get(*source_module_idx).unwrap_or(canon);
         let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
@@ -228,9 +198,8 @@ pub(super) fn run_borrow_inference(
         }
     }
 
-    // 2. Build flat map for Salsa (clone from grouped cache).
-    // The clone cost is negligible vs borrow inference + LLVM codegen,
-    // and it replaces a full second lowering pass.
+    // Why: cloning the grouped cache into a flat Salsa map is negligible vs
+    // re-lowering every function.
     let mut arc_functions_map: FxHashMap<Name, ori_arc::ArcFunction> = FxHashMap::default();
     for (parent, lambdas) in arc_cache.values() {
         arc_functions_map.insert(parent.name, parent.clone());
@@ -239,7 +208,6 @@ pub(super) fn run_borrow_inference(
         }
     }
 
-    // 3. Create ArcModuleInput Salsa input.
     debug_assert!(
         db.pool_cache()
             .get(&std::path::PathBuf::from(source_path))
@@ -255,10 +223,8 @@ pub(super) fn run_borrow_inference(
         "created ArcModuleInput for Salsa borrow inference"
     );
 
-    // 4. Query SCC decomposition (Salsa-tracked).
     let decomp = arc_scc_decomposition(db, module);
 
-    // 5. Query per-SCC borrow inference and collect results.
     let mut annotated_sigs = FxHashMap::default();
     #[expect(
         clippy::cast_possible_truncation,
@@ -277,10 +243,8 @@ pub(super) fn run_borrow_inference(
         "Salsa borrow inference complete"
     );
 
-    // Merge imported monos into mono_functions so codegen's
-    // declare_mono_functions / prepare_mono_cached sees them alongside local
-    // monos via the body-import path: both flow through the same emission
-    // path.
+    // Why: imported monos merge into mono_functions so declare/prepare sees
+    // them through the same emission path as local monos.
     let mut all_mono_functions = mono_functions;
     all_mono_functions.extend(imported_mono_fns.iter().map(|(mf, _, _)| mf.clone()));
 
@@ -293,20 +257,12 @@ pub(super) fn run_borrow_inference(
 
 /// Run the codegen pipeline on a pre-checked module.
 ///
-/// Shared implementation for [`compile_to_llvm`] and [`compile_to_llvm_with_imports`].
-/// The pipeline:
-/// 1. Declares runtime functions
-/// 2. Registers user-defined types
-/// 3. Runs ARC borrow inference (per-SCC Salsa queries)
-/// 4. Two-pass function compilation (declare, then define)
-/// 5. Monomorphization of generic functions
-/// 6. Impl method and derived trait compilation
-/// 7. Main wrapper generation
-///
-/// `symbol_prefix` controls symbol mangling: `""` for single-file (no module
-/// prefix on symbols), or the module name for multi-file compilation.
-/// `import_sigs` declares external symbols from other modules; pass `&[]` for
-/// single-file compilation.
+/// Shared by `compile_to_llvm_with_imported_monos` and
+/// `compile_to_llvm_with_imports`: borrow inference, repr planning, two-pass
+/// function compilation, monomorphization, impl + derive emission, and
+/// main-wrapper generation.
+/// `symbol_prefix`: `""` (single-file) or the module name (multi-file).
+/// `import_sigs`: external symbols from other modules; `&[]` for single-file.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
@@ -345,13 +301,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
     let interner = db.interner();
 
-    // ManuallyDrop + raw-pointer reborrow to work around a borrow checker
-    // limitation: FunctionCompiler's lifetime parameters tie the compilation
-    // block's borrow of `scx` to the return lifetime, preventing us from
-    // consuming `scx` afterward. The raw-pointer roundtrip creates a detached
-    // reference whose borrow doesn't leak out of the block. Sound because `scx`
-    // lives for the entire function and compilation borrows end at the block
-    // boundary.
+    // SAFETY: FunctionCompiler's lifetimes tie the block's borrow of `scx` to
+    // the return lifetime; ManuallyDrop + raw-pointer reborrow detaches it.
+    // Sound: `scx` lives for the whole function and the borrows end at the block.
     let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
     let (codegen_errors, codegen_descriptions) = {
@@ -361,13 +313,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         let eh_model = target_triple.map_or(EhModel::Itanium, EhModel::from_triple);
         let mut builder = IrBuilder::new_aot(scx_ref, eh_model);
 
-        // Runtime functions are declared lazily via `builder.runtime_fn(name)`.
-        // No eager `declare_runtime()` call needed — each function is declared
-        // on first use during codegen and cached thereafter.
-
-        // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)
-        // Returns both annotated sigs and pre-lowered ARC functions to
-        // eliminate the redundant second lowering pass during codegen.
+        // Runtime functions are declared lazily on first `builder.runtime_fn(name)` use.
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
         let Some(BorrowInferenceResult {
@@ -388,9 +334,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &type_result.typed.mono_instances,
         )
         else {
-            // ARC lowering errored; diagnostics already emitted. Continuing
-            // with an empty arc cache would recurse in codegen resolving
-            // missing callees — abort instead.
+            // Why: diagnostics are already emitted; continuing with an empty
+            // arc cache would recurse in codegen resolving missing callees.
             return Err("ARC lowering reported errors; codegen aborted".to_string());
         };
 
@@ -408,13 +353,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             );
         }
 
-        // Reconstruct the TypeRegistry the type-checker populated, from the
-        // TypedModule exports. `finish_with_pool` consumes the live registry
-        // (into_entries drains nominal TypeEntry; drain_collection_burdens
-        // drains the monomorphized-collection side-table), so no registry
-        // survives to codegen. Rebuilding from `types` + `collection_burdens`
-        // surfaces the composed UserBurdenSpec for [T] / {K:V} / Set<T> /
-        // closure-env types to the Phase-5 burden walker. Spec: Annex E §AIMS.
+        // Why: finish_with_pool consumes the live registry, so codegen rebuilds
+        // it from TypedModule exports to surface UserBurdenSpec to the burden walker.
+        // Spec: Annex E §AIMS.
         let type_registry = ori_types::TypeRegistry::from_typed_exports(
             type_result.typed.types.clone(),
             type_result.typed.collection_burdens.clone(),
@@ -431,11 +372,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             source_path,
         );
 
-        // 3a. Compute representation plan.
-        // Include impl methods in the analysis set so interprocedural range
-        // analysis sees their call sites. They are ARC-lowered into a separate
-        // vec (not the codegen arc_cache) to avoid interfering with
-        // compile_impls() which does its own ARC lowering for LLVM emission.
+        // Why: impl methods join the analysis set so interprocedural range
+        // analysis sees their call sites; they go into a separate vec to avoid
+        // interfering with compile_impls()'s own ARC lowering.
         let all_arc_funcs = {
             let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             funcs.extend(super::repr_setup::lower_impl_methods_for_analysis(
@@ -447,8 +386,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             ));
             funcs
         };
-        // Only count non-generic impl methods — generic ones are skipped by
-        // the ARC lowering loop, so they don't enter the analysis set.
+        // Why: only non-generic impl methods enter the analysis set — generics
+        // are skipped by the ARC lowering loop.
         let has_impl_methods = type_result
             .typed
             .impl_sigs
@@ -465,30 +404,25 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             has_impl_methods,
         );
 
-        // Create type store with repr plan for triviality delegation.
         let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
-        // Create type resolver with the repr plan.
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
 
-        // Register user-defined types (creates named LLVM struct types).
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3b. Interprocedural uniqueness analysis (COW check elimination).
-        // Runs AFTER borrow inference (needs ownership annotations) and BEFORE
-        // per-function ARC pipeline (which uses summaries for CowMode annotation).
+        // INVARIANT: uniqueness analysis runs after borrow inference (needs
+        // ownership annotations) and before the per-function ARC pipeline
+        // (which consumes the summaries for CowMode annotation).
         let uniqueness_summaries = {
             let all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
         };
 
-        // 3c. AIMS interprocedural contracts (param/arg ownership).
         let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
         let aims_contracts = {
             let mut all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
         };
 
-        // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
             &mut builder,
             &store,
@@ -505,17 +439,14 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
 
-        // Declare imports (no-op when import_sigs is empty for single-file compilation)
         if !import_sigs.is_empty() {
             fc.declare_imports(import_sigs);
         }
         fc.declare_all(&parse_result.module.functions, &function_sigs);
-
-        // 4b. Declare monomorphized generic functions (reused from borrow inference)
         fc.declare_mono_functions(&mono_functions);
 
-        // 5. Compile impl methods (still inline — they use type-qualified
-        // canon lookup paths and are not pre-lowered for borrow inference)
+        // Why: impl methods use type-qualified canon lookup paths and are not
+        // pre-lowered for borrow inference, so they compile inline here.
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
                 &parse_result.module.impls,
@@ -525,7 +456,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             );
         }
 
-        // 5b. Compile derived trait methods
         if parse_result
             .module
             .types
@@ -535,10 +465,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             fc.compile_derives(&parse_result.module, &type_result.typed.types);
         }
 
-        // 6. Two-pass function compilation for sound nounwind analysis:
-        //    a) Lower all functions to ARC IR (no LLVM emission)
-        //    b) Build complete nounwind set via fixed-point analysis
-        //    c) Emit LLVM IR using the complete nounwind set
+        // Why: two-pass (prepare everything, then emit) so the nounwind set is
+        // complete before any LLVM IR is emitted.
         let mut prepared = fc.prepare_all_cached(
             &parse_result.module.functions,
             &function_sigs,
@@ -546,20 +474,15 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &mut arc_cache,
         );
 
-        // 6b. Prepare monomorphized function bodies from pre-lowered cache.
         prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
 
-        // 6c. Build complete nounwind set and emit LLVM IR
         fc.compute_nounwind_set(&prepared);
         fc.emit_prepared_functions(prepared);
 
-        // 6d. Post-hoc nounwind: catch impl methods and functions whose
-        // ARC IR Apply callees were inlined (e.g., built-in @length) leaving
-        // no invoke instructions in the final LLVM IR.
+        // Why: inlined Apply callees (e.g. built-in @length) can leave no invoke
+        // instructions, so nounwind is re-derived post-hoc.
         fc.apply_posthoc_nounwind();
 
-        // 7. Generate C main() entry-point wrapper for @main (AOT only),
-        // registering the @panic handler with it when present.
         let panic_name = parse_result
             .module
             .functions
@@ -576,20 +499,17 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             fc.generate_main_wrapper(func.name, sig, panic_name);
         }
 
-        // Extract soft codegen error info before builder goes out of scope.
-        // The JIT path checks this in evaluator/compile.rs; the AOT path
-        // must also check to avoid producing crashing binaries.
+        // Why: AOT must check soft codegen errors (as the JIT path does) to
+        // avoid emitting crashing binaries.
         (
             builder.codegen_error_count() + store.type_error_count(),
             builder.codegen_error_descriptions(),
         )
     };
 
-    // SAFETY: ManuallyDrop is used only to suppress the borrow checker — the
-    // compilation block's borrows have ended. `finalize_module` runs post-codegen
-    // dump + audit + verify and returns the cloned module. We can't call
-    // into_inner() because SimpleCx has other fields that would be moved while
-    // the ManuallyDrop still exists, so the helper clones the module internally.
+    // SAFETY: the compilation block's borrows have ended; ManuallyDrop only
+    // suppressed the borrow checker. `into_inner()` would move SimpleCx's other
+    // fields while the ManuallyDrop exists, so `finalize_module` clones the module.
     finalize::finalize_module(
         &scx,
         codegen_errors,

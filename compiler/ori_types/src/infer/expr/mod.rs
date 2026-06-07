@@ -42,6 +42,7 @@ mod constructors;
 mod control_flow;
 mod format;
 mod identifiers;
+mod lambdas;
 mod methods;
 mod operators;
 mod refutability;
@@ -54,11 +55,7 @@ mod type_resolution;
 // Named re-exports for tests and sibling access. Kept alphabetical per
 // submodule so drift is easy to spot at review time.
 
-#[cfg(test)]
-pub(super) use blocks::should_generalize;
-pub(super) use blocks::{
-    infer_block, infer_lambda, infer_let, maybe_generalize, pattern_first_name,
-};
+pub(super) use blocks::{infer_block, infer_let, pattern_first_name};
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, infer_call, infer_call_named, infer_method_call,
     infer_method_call_named,
@@ -80,6 +77,9 @@ pub(super) use format::infer_template_literal;
 pub(super) use identifiers::{
     find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
 };
+#[cfg(test)]
+pub(super) use lambdas::should_generalize;
+pub(super) use lambdas::{infer_lambda, maybe_generalize};
 pub(super) use methods::resolve_builtin_method;
 // `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
 // source visibility — re-exporting at the same level lets `calls/method_call.rs`

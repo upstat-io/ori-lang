@@ -13,7 +13,7 @@
 
 use crate::util::{assert_aot_success, assert_panic_exit, compile_and_run_capture};
 
-// ─── List: unique receiver (in-place fast path) ───
+// List: unique receiver (in-place fast path)
 
 #[test]
 fn test_updated_list_unique_replaces_element() {
@@ -29,7 +29,7 @@ fn test_updated_list_unique_replaces_element() {
     );
 }
 
-// ─── List: shared receiver (COW copy path) — alias unchanged, no leak ───
+// List: shared receiver (COW copy path) - alias unchanged, no leak
 
 #[test]
 fn test_updated_list_shared_preserves_alias() {
@@ -64,7 +64,7 @@ fn test_updated_list_dead_alias_no_leak() {
     );
 }
 
-// ─── List: ARC-managed (str) elements — moved value, released replacee ───
+// List: ARC-managed (str) elements - moved value, released replacee
 
 #[test]
 fn test_updated_list_str_elements_no_leak() {
@@ -96,7 +96,7 @@ fn test_updated_list_str_shared_copy_no_double_free() {
     );
 }
 
-// ─── List: OOB key panics (matching `list[key]` index semantics) ───
+// List: OOB key panics (matching `list[key]` index semantics)
 
 #[test]
 fn test_updated_list_oob_panics() {
@@ -130,7 +130,7 @@ fn test_updated_list_negative_key_panics() {
     assert_panic_exit(exit_code, "updated_list_negative_key_panics", &stderr);
 }
 
-// ─── Fixed-capacity list (erases to the List tag) ───
+// Fixed-capacity list (erases to the List tag)
 
 #[test]
 fn test_updated_fixed_list_replaces_element() {
@@ -160,7 +160,7 @@ fn test_updated_fixed_list_oob_panics() {
     assert_panic_exit(exit_code, "updated_fixed_list_oob_panics", &stderr);
 }
 
-// ─── Map: insert-or-replace, moved ARC-managed value, never panics ───
+// Map: insert-or-replace, moved ARC-managed value, never panics
 
 #[test]
 fn test_updated_map_replaces_existing_key() {

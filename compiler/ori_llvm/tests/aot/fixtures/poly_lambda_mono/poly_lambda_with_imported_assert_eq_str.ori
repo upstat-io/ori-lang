@@ -1,11 +1,7 @@
-// AOT integration test for —
-// polymorphic-lambda host module with imported `assert_eq<str>` call.
-//
-// Pairs with the int variant to pin dual-execution parity across type widths
-// (scalar i64 vs fat-pointer {i64,i64,ptr}) through the same producer-side
-// leak path. The str variant additionally exercises RC management on the
-// assertion failure message build-up (`+` concat, `.debug()`) — any
-// downstream RC regression tied to the §08.3 fix surfaces here first.
+// Polymorphic identity lambda in the host module with an imported
+// `assert_eq<str>` call — pairs with the int variant to pin both type widths
+// (scalar i64 vs fat-pointer {i64,i64,ptr}) plus RC management on the
+// assertion-failure message build-up.
 
 use std.testing { assert_eq }
 

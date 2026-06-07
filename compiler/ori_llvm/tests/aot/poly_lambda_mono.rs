@@ -1,55 +1,15 @@
-//! Polymorphic-Lambda + Imported-Generic AOT Tests
+//! Cross-module imported-generic monomorphization AOT matrix — four type
+//! cells (int, str, [int], struct) covering `ori build` routing through
+//! `import_sig_by_name` in `collect_mono_functions` plus the merged-pool
+//! re-interning consumer in the multi-file build pipeline.
 //!
-//! Cross-module imported generic monomorphization matrix —
-//! covers the four type cells (int, str, [int], struct) for `ori build`
-//! routing through `import_sig_by_name` in `collect_mono_functions`
-//! plus the merged-pool re-interning consumer in
-//! `multi.rs::compile_single_module`.
-//!
-//! ## Pre-fix failure mode
-//!
-//! Before merged-pool re-interning + the imported-mono carrier promotion,
-//! `ori build` failed with `E5001 unresolved function '<name>' in
-//! apply/invoke — missing mono instance` at LLVM verification because
-//! `collect_mono_functions` silently skipped imported generic instances
-//! (their `fn_name` was not in the host module's `function_sigs` /
-//! `impl_sigs` tables; `import_sigs` was not yet threaded through).
-//!
-//! Before merged-pool re-interning, the additional failure mode for the polymorphic-lambda
-//! tests (`test_poly_lambda_with_imported_assert_eq_*`) layered on top:
-//! `ori_llvm::codegen::type_info::store::get_impl()` emitted "unresolved
-//! type variable at codegen" when the poly-lambda return-position
-//! `Tag::Var(Unbound)` leaked past typeck's PC-2 validator and reached
-//! codegen still carrying `Tag::Var(Generalized)` — sibling pass
-//! `default_unbound_vars_from_polylambda_returns` cures that leak before
-//! `validate_body_types` runs.
-//!
-//! ## Post-fix shape
-//!
-//! `collect_mono_functions` consults `import_sig_by_name` for top-level
-//! call sites whose `instance.receiver_type.is_none()`; the merged-pool
-//! re-interning consumer assembles an `imported_mono_fns: Vec<ImportedMonoFn>`
-//! from retained per-module `TypeCheckResult.imported` metadata + per-module
-//! `CanonResult` slots; `arc_lowering` specializes each imported mono locally
-//! against the SOURCE module's `CanonResult` via `lower_to_arc(mangled_name,
-//! sig, source_body_name, source_canon, ...)`. The body-import path
-//! emits the body in the host module through `declare_mono_functions` —
-//! no `declare_imported_mono` ghost exists.
-//!
-//! ## Asserted invariant
-//!
-//! Each test asserts both Ok behavior (correct result via assertions) AND
-//! a regression guard: reverting the `import_sig_by_name` lookup branch in `collect_mono_functions`
-//! re-surfaces `E5001 unresolved function`, failing `assert_aot_success`
-//! with exit code `-1`. The matrix is the regression guard.
-//!
-//! ## Clean-failure mode
-//!
-//! `test_unimported_generic_still_fails_cleanly` confirms the failure
-//! mode for a generic not present in `import_sigs` is a CLEAN diagnostic
-//! (compile-time type error) — not a silent miscompilation, not a crash.
-//!
-//! These AOT tests complement the JIT-path spec test at
+//! Each matrix test pins Ok behavior AND a regression guard: reverting the
+//! `import_sig_by_name` lookup branch re-surfaces `E5001 unresolved
+//! function` at LLVM verification.
+//! `test_unimported_generic_still_fails_cleanly` pins the inverse: a generic
+//! absent from `import_sigs` fails with a clean type-check diagnostic — not
+//! a crash, not a silent miscompilation.
+//! Complements the JIT-path spec test
 //! `tests/spec/expressions/poly_lambda_with_imported_generic.ori`.
 
 #![allow(
@@ -99,16 +59,11 @@ const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/
 /// `[int]` matrix cell — imported `identity<[int]>` + `first<int>` from a
 /// custom helper module.
 ///
-/// Pins:
-/// - Ok behavior: `first(identity([10, 20, 30])) == 10` (passes when mono
-///   dispatch succeeds through the `import_sig_by_name` lookup).
-/// - Regression guard: reverting the `import_sig_by_name` lookup branch re-surfaces `E5001 unresolved function`
-///   for `identity` AND `first` — `assert_multifile_aot_success` panics
-///   with the captured stderr.
-///
-/// The `[int]` element type pins the 24-byte `{ len, cap, data }`
-/// fat-pointer layout through the imported generic body, exercising the
-/// indirect-passing path (size exceeds the 16-byte direct threshold).
+/// Pins `first(identity([10, 20, 30])) == 10` through imported-mono dispatch
+/// and the regression guard: reverting the `import_sig_by_name` lookup
+/// re-surfaces `E5001` for both functions. The `[int]` element pins the
+/// 24-byte `{ len, cap, data }` fat-pointer layout through the imported
+/// generic body (indirect passing above the 16-byte direct threshold).
 #[test]
 fn test_imported_generic_fn_list_int() {
     assert_multifile_aot_success(
@@ -124,22 +79,13 @@ fn test_imported_generic_fn_list_int() {
 }
 
 /// User-struct matrix cell — imported `identity<Point>` + `pair<Point>`
-/// from a custom helper module where `Point` is defined in the host.
+/// where `Point` is defined in the host module.
 ///
-/// Pins:
-/// - Ok behavior: struct-field projection through the mono'd `identity`
-///   returns the original field values; `pair` returns a 2-element list
-///   with both points intact.
-/// - Regression guard: reverting the `import_sig_by_name` lookup branch produces `E5001` for both `identity`
-///   AND `pair`; reverting the merged-pool re-interning produces
-///   `Tag::Var` codegen errors because `Point`'s `Idx` is not re-interned
-///   into the merged pool.
-///
-/// `Point` (`{ x: int, y: int }`) is 16 bytes — sits exactly at the
-/// 16-byte direct/indirect ABI passing boundary, threading user-type Idx
-/// through the imported generic body. The struct dimension distinguishes
-/// scalar / fat-pointer / struct ABI cases without requiring stdlib
-/// involvement.
+/// Pins field projection through the mono'd `identity` plus a 2-element
+/// `pair` result; reverting the `import_sig_by_name` lookup produces `E5001`,
+/// and reverting merged-pool re-interning produces `Tag::Var` codegen errors
+/// (`Point`'s `Idx` not re-interned). `Point` (`{ x: int, y: int }`) is 16
+/// bytes — exactly at the direct/indirect ABI passing boundary.
 #[test]
 fn test_imported_generic_fn_struct() {
     assert_multifile_aot_success(
@@ -157,22 +103,14 @@ fn test_imported_generic_fn_struct() {
 // Clean-failure mode — generic referenced without import produces a CLEAN
 // diagnostic, not a silent miscompilation or crash.
 
-/// A generic that is NOT in `import_sigs` (because the host omits the
-/// `use` statement) MUST fail at type-check with a clean unresolved
-/// identifier diagnostic — NOT a silent miscompilation, NOT a crash.
+/// A generic NOT in `import_sigs` (the host omits the `use` statement) MUST
+/// fail at type-check with a clean unresolved-identifier diagnostic — not a
+/// crash, not a silent miscompilation.
 ///
-/// This is the clean-failure regression guard that proves the `import_sig_by_name`
-/// lookup is the boundary: when the boundary is not crossed (no import),
-/// the failure mode is diagnostic. When it IS crossed (import present),
-/// the mono instance is registered and codegen succeeds. The asymmetry
-/// is the spec; this test asserts one side, the matrix tests assert
-/// the other.
-///
-/// Asserts:
-/// - Compilation fails (exit code `-1` from `compile_multifile_and_run_capture`).
-/// - Stderr is non-empty (a diagnostic was emitted).
-/// - The diagnostic is structural (an unresolved-name / undefined-function
-///   error), not a panic / segfault / silent zero-exit.
+/// Proves the `import_sig_by_name` lookup is the boundary: without the
+/// import the failure is diagnostic; with it (the matrix tests) the mono
+/// instance is registered and codegen succeeds. Asserts a non-zero exit,
+/// non-empty stderr, and a structural unresolved-name diagnostic.
 #[test]
 fn test_unimported_generic_still_fails_cleanly() {
     // Host module references `identity` and `first` without importing them

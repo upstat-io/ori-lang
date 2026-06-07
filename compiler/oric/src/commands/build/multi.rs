@@ -27,7 +27,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
 
     use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
-    // Step 1: Build dependency graph
     if options.verbose {
         eprintln!("  Building dependency graph...");
     }
@@ -77,7 +76,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         }
     }
 
-    // Step 2: Configure target
     let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 
     if options.verbose {
@@ -85,8 +83,7 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         eprintln!("  Optimization: {:?}", options.opt_level);
     }
 
-    // Step 3: Compile each module in topological order
-    // Use tempfile for unique directory to avoid race conditions in parallel builds
+    // Why: tempfile gives a unique directory, avoiding races in parallel builds.
     let temp_dir = match TempDir::new() {
         Ok(dir) => dir,
         Err(e) => {
@@ -134,15 +131,13 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         verbose: options.verbose,
         narrowing_policy: options.narrowing_policy,
         arc_cache,
-        module_hash: None, // Per-module hashes computed below if needed
+        module_hash: None, // Never computed on this path; compile_to_llvm_with_imports discards it.
     };
 
-    // Pre-allocate vectors with known capacity to avoid reallocation
     let module_count = dep_result.compilation_order.len();
     let mut compiled_modules: Vec<CompiledModuleInfo> = Vec::with_capacity(module_count);
     let mut object_files: Vec<PathBuf> = Vec::with_capacity(module_count);
 
-    // Compile each module in topological order
     for source_path in &dep_result.compilation_order {
         match compile_single_module(&compile_ctx, source_path, &compiled_modules) {
             Some((obj_path, module_info)) => {
@@ -153,11 +148,9 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         }
     }
 
-    // Drop compile_ctx to release borrows on opt_config, target, etc.
-    // before they're reused in the LTO merge step below.
+    // Why: release compile_ctx borrows before opt_config/target are reused in LTO merge.
     drop(compile_ctx);
 
-    // Step 4: LTO merge (if enabled) or direct linking
     let is_lto = !matches!(options.lto, LtoMode::Off);
     let final_object_files = if is_lto && object_files.len() > 1 {
         lto_merge(&object_files, &obj_dir, &target, &opt_config, options)
@@ -165,7 +158,7 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         object_files
     };
 
-    // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
+    // INVARIANT: temp_dir stays alive until linking completes.
     let output_path = determine_output_path(path, options);
     link_and_finish(
         final_object_files,
@@ -176,7 +169,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         start,
     );
 
-    // temp_dir automatically cleans up when it goes out of scope
     drop(temp_dir);
 }
 
@@ -215,8 +207,7 @@ pub(super) struct CompiledModuleInfo {
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
     /// Merkle hashes of collection types in public function signatures.
-    /// Enables cross-module protection of collection element layouts from
-    /// narrowing. See
+    /// Forwarded for downstream metadata only; does not suppress narrowing.
     pub(super) exported_collection_surfaces: Vec<u64>,
     /// Type-check result retained for cross-module imported-generic mono
     /// dispatch via body-import linkage. The host
@@ -316,7 +307,6 @@ fn compile_single_module(
         eprintln!("  Compiling {}...", source_path.display());
     }
 
-    // Read source content
     let content = match std::fs::read_to_string(source_path) {
         Ok(c) => c,
         Err(e) => {
@@ -332,15 +322,12 @@ fn compile_single_module(
         }
     };
 
-    // Derive module name
     let module_name = derive_module_name(source_path, Some(ctx.base_dir));
 
-    // Load and check the source
     let file = SourceFile::new(ctx.db, source_path.to_path_buf(), content);
     let (parse_result, type_result, pool, canon_result) =
         check_source(ctx.db, file, &source_path_str)?;
 
-    // Extract public function signatures with actual types from type checking
     let public_functions = extract_public_function_types(
         &parse_result,
         &type_result,
@@ -349,7 +336,6 @@ fn compile_single_module(
         ctx.db,
     );
 
-    // Build list of imported functions for this module
     let imported_functions = build_import_infos(
         source_path,
         ctx.graph,
@@ -358,31 +344,17 @@ fn compile_single_module(
         ctx.mangler,
     );
 
-    // Collect exported type metadata from imported modules for repr plan
-    // construction. This ensures imported `pub` and `#repr(...)` types are
-    // correctly exempted from integer narrowing. See
+    // Why: imported `pub` and `#repr(...)` types must be exempted from integer
+    // narrowing when the repr plan is constructed.
     let imported_type_metadata =
         collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
     let imported_collection_surfaces =
         collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
-    // Build imported_mono_fns + merged pool for cross-module imported-generic
-    // body specialization via body-import linkage. The merged pool is the host
-    // pool with imported types re-interned alongside; imported generic sigs +
-    // imported canons are remapped to merged-pool coordinates so
-    // `arc_lowering::lower_to_arc` can specialize the imported body locally
-    // against the SOURCE module's canon with merged-pool Idx values.
-    //
-    // When the host has no imported generic instantiations (single-file
-    // entry, or every imported function is non-generic), the helper short-
-    // circuits — `merged_pool` ends up Idx-equivalent to the host pool, and
-    // both `re_interned_canons` and `imported_mono_fns` are empty.
     let imported_state =
         build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
 
-    // Compile to LLVM IR (with ARC cache if available).
-    // Salsa/ArtifactCache boundary: typed() results flow into codegen via
-    // function content hashes; ArcIrCache provides Layer 1 caching.
+    // Salsa/ArtifactCache boundary: Salsa queries end here; ArcIrCache caches codegen.
     let context = Context::create();
     let llvm_module = lower_module_to_llvm(
         &context,
@@ -400,18 +372,10 @@ fn compile_single_module(
         imported_state.surfaces(),
     )?;
 
-    // Configure target, optimize, and emit object/bitcode
     let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name, &source_path_str)?;
 
-    // Transitive metadata forwarding now happens in the type checker
-    // (generate_exported_type_metadata merges imported metadata at finish_with_pool).
-    // No post-check merge needed here.
-    //
-    // Retain type_result + canon_result + pool for the host module's
-    // imported-generic mono dispatch via body-import linkage. Each
-    // importer consumes these via `build_imported_mono_functions` +
-    // `arc_lowering`'s `lower_to_arc` of the imported generic body. Pool
-    // is `Arc<Pool>` so the clone is cheap.
+    // Why: type_result + canon_result + pool are retained so importers can
+    // specialize this module's generic bodies via body-import linkage.
     let exported_type_metadata = type_result.typed.exported_type_metadata.clone();
     let exported_collection_surfaces = type_result.typed.exported_collection_surfaces.clone();
     let retained_pool = std::sync::Arc::clone(&pool);
@@ -447,8 +411,8 @@ fn extract_public_function_types(
     let interner = db.interner();
     let mut public_functions = Vec::new();
 
-    // Build a name-based lookup map because typed.functions is sorted by name
-    // (for Salsa determinism) while module.functions is in source order.
+    // Why: typed.functions is name-sorted (Salsa determinism) while
+    // module.functions is in source order, so match by name.
     let sig_map: rustc_hash::FxHashMap<oric::ir::Name, &ori_types::FunctionSig> = type_result
         .typed
         .functions
@@ -456,16 +420,8 @@ fn extract_public_function_types(
         .map(|ft| (ft.name, ft))
         .collect();
 
-    // Match parsed functions with their type-checked signatures by name.
-    //
-    // Skip generic functions: their `param_types` / `return_type` carry
-    // `Tag::BoundVar` leaves bound by an enclosing scheme, which are
-    // meaningless when copied into another module's pool. Imported generic
-    // call sites are handled by the mono-dispatch path
-    // (`build_imported_mono_state` + `compile_to_llvm_with_imports`'s
-    // `imported_mono_fns` parameter) which monomorphizes each instance
-    // with the concrete type. Mirrors the JIT runner pattern at
-    // `oric/src/test/runner/llvm_backend.rs:213`.
+    // Why: generic sigs carry scheme-bound BoundVar leaves that are meaningless
+    // across pools — imported generic call sites use the mono-dispatch path.
     for func in &parse_result.module.functions {
         if !func.visibility.is_public() {
             continue;
@@ -505,7 +461,6 @@ fn imported_module_infos<'a>(
         return Vec::new();
     };
 
-    // Build index once for O(1) lookups instead of O(n) linear scan per import
     let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
         .iter()
         .map(|m| (m.path.as_path(), m))
@@ -543,9 +498,6 @@ fn build_import_infos(
             continue;
         };
 
-        // Add each public function using the actual types from type checking
-        // The mangled names are pre-computed when the module was compiled
-        // Pre-allocate to avoid reallocations in the inner loop
         imported_functions.reserve(module_info.public_functions.len());
         for (mangled_name, param_types, return_type) in &module_info.public_functions {
             imported_functions.push(crate::commands::compile_common::ImportedFunctionInfo {
@@ -559,16 +511,11 @@ fn build_import_infos(
     imported_functions
 }
 
-/// Merge imported metadata into a module's own exported type metadata.
-///
-/// When module B imports module C, C's `ExportedTypeMetadata` (repr attrs,
-/// public visibility) must be forwarded into B's exports. This ensures that
-/// when module A imports only B, it still receives C's metadata transitively.
 /// Collect exported type metadata from all modules this module imports.
 ///
 /// Mirrors `build_import_infos()` but collects `ExportedTypeMetadata` instead
-/// of function signatures. This metadata enables `ReprPlan` to correctly exempt
-/// imported `pub` and `#repr(...)` types from integer narrowing.
+/// of function signatures. Enables `ReprPlan` to exempt imported `pub` and
+/// `#repr(...)` types from integer narrowing.
 pub(super) fn collect_imported_type_metadata(
     source_path: &Path,
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
@@ -586,10 +533,9 @@ pub(super) fn collect_imported_type_metadata(
 /// Collect imported collection surface hashes from dependency modules.
 ///
 /// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
-/// of collection types (List, Set) that appear in imported public function
-/// signatures. Used for transitive forwarding metadata (A→B→C propagation).
-/// After imported surfaces no longer suppress narrowing — they
-/// are forwarded for downstream metadata only. See
+/// of collection types (List, Set) in imported public function signatures.
+/// Forwarded for downstream metadata only (A→B→C transitive propagation);
+/// imported surfaces do not suppress narrowing.
 pub(super) fn collect_imported_collection_surfaces(
     source_path: &Path,
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
@@ -641,40 +587,12 @@ impl ImportedMonoState {
     }
 }
 
-/// Build the merged-pool re-interning state for cross-module imported
-/// generic body specialization via body-import linkage.
-///
-/// Mirrors the JIT-side dance at
-/// `compiler/oric/src/test/runner/llvm_backend.rs:135-292`:
-///
-/// 1. Clone the host pool to obtain a mutable `merged_pool`. Host `Idx`
-///    values remain valid in the clone.
-/// 2. Resolve the host's imports via `resolve_imports` to get function-level
-///    cross-references (`local_name`, `original_name`, `module_index`).
-/// 3. For each imported module, locate the corresponding `CompiledModuleInfo`
-///    by path, re-intern its `canon_result` arena into `merged_pool` (using
-///    shared per-module cache + `var_remap` maps so subsequent sig re-intern
-///    reuses them), and record the resulting `CanonResult`.
-/// 4. For each `ImportedFunctionRef`, find its `FunctionSig` in the source
-///    module's type-check result, skip non-generics, re-intern the sig into
-///    `merged_pool`, and key by `local_name` per JIT comment at
-///    `llvm_backend.rs:243-248` (`MonoInstance.fn_name` is the call-site
-///    identifier).
-/// 5. Call `build_imported_mono_functions` with the host's `MonoInstance`
-///    list to produce one `ImportedMonoFn` triple per unique instance.
-///
-/// Short-circuits to host-pool clone + empty vectors when the host has no
-/// imports or no imported function refs survive the generic filter. This
-/// keeps single-file builds and host-only-generic builds zero-cost on the
-/// cross-module path.
 /// Type-check + canonicalize every imported module returned by
-/// `resolve_imports`. Salsa memoizes — modules already processed during the
-/// host module's compilation hit the cache; stdlib modules pick up cached
-/// results from the prelude resolution path or are loaded on demand. Each
-/// returned vector is index-aligned with `resolved_imports.modules`; modules
-/// whose type-check returns `None` (internal Pool cache miss) get empty
-/// placeholders to preserve index alignment with `imported_mono_fns[i]
-/// .source_module_idx`.
+/// `resolve_imports`, via the Salsa-cached query helpers.
+///
+/// Each returned vector is index-aligned with `resolved_imports.modules`;
+/// modules whose type-check returns `None` (internal Pool cache miss) get
+/// empty placeholders to preserve the alignment.
 fn type_check_and_canonicalize_imports(
     db: &oric::CompilerDb,
     resolved_imports: &crate::imports::ResolvedImports,
@@ -724,6 +642,14 @@ fn type_check_and_canonicalize_imports(
     )
 }
 
+/// Build the merged-pool re-interning state for cross-module imported
+/// generic body specialization via body-import linkage.
+///
+/// Clones the host pool (host `Idx` values stay valid), re-interns each
+/// imported module's canon arena + generic sigs into the merged pool, and
+/// resolves the host's `MonoInstance` list into `ImportedMonoFn` triples.
+/// Short-circuits to a host-pool clone + empty vectors when the host has no
+/// imports or no imported generic refs — zero-cost for single-file builds.
 pub(crate) fn build_imported_mono_state(
     db: &oric::CompilerDb,
     source_path: &Path,
@@ -735,20 +661,11 @@ pub(crate) fn build_imported_mono_state(
 
     let interner = db.interner();
 
-    // Clone the host pool — host Idx values are preserved by clone. All
-    // imported types will be re-interned alongside via Pool::intern, which
-    // never mutates existing entries.
+    // INVARIANT: host Idx values are preserved by clone; re-interning only appends.
     let mut merged_pool = (**host_pool).clone();
 
-    // Resolve imports for this module (function-level cross-references).
-    // resolve_imports populates resolved.modules from EVERY `use` statement,
-    // including stdlib (`use std.testing { ... }`) — broader than the
-    // multi-file build dependency graph (which filters stdlib out via
-    // `extract_imports` in ori_llvm/aot/multi_file). We re-type-check +
-    // re-canonicalize EACH imported module here via the shared Salsa-cached
-    // query helpers; this works uniformly for relative-path imports AND
-    // stdlib imports, mirroring the JIT runner's pattern at
-    // `oric/src/test/runner/llvm_backend.rs:103-133`.
+    // Why: resolve_imports covers EVERY `use` statement, including stdlib —
+    // broader than the build dependency graph, which filters stdlib out.
     let resolved_imports = crate::imports::resolve_imports(db, parse_result, source_path);
 
     if resolved_imports.modules.is_empty() {
@@ -759,26 +676,16 @@ pub(crate) fn build_imported_mono_state(
         };
     }
 
-    // Type-check + canonicalize each imported module via the Salsa-cached
-    // query path. Each entry is index-aligned with `resolved_imports.modules`
-    // so `imported_mono_fns[i].source_module_idx` references the correct
-    // re-interned canon.
     let (imported_type_results, imported_pools, imported_canon_results) =
         type_check_and_canonicalize_imports(db, &resolved_imports);
 
-    // Per-module re-intern caches + var_remaps, indexed by
-    // resolved_imports.modules entry index. SAME cache + var_remap shared
-    // across canon arena re-intern + sig re-intern per JIT pattern at
-    // `llvm_backend.rs:152-156` so scheme_var_ids + leaf Tag::Var ids stay
-    // coherent.
+    // INVARIANT: the same per-module cache + var_remap is shared across canon-arena
+    // and sig re-interning so scheme_var_ids + leaf Tag::Var ids stay coherent.
     let mut per_module_caches: Vec<FxHashMap<ori_types::Idx, ori_types::Idx>> =
         vec![FxHashMap::default(); resolved_imports.modules.len()];
     let mut per_module_var_remaps: Vec<FxHashMap<u32, u32>> =
         vec![FxHashMap::default(); resolved_imports.modules.len()];
 
-    // Re-intern each imported module's canon arena into merged_pool. Each
-    // import's TypeIds must be remapped independently into the merged pool
-    // so scheme_var_ids and leaf Tag::Var ids resolve coherently per import.
     let re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
         .iter()
         .enumerate()
@@ -803,10 +710,8 @@ pub(crate) fn build_imported_mono_state(
         })
         .collect();
 
-    // Build imported_generic_sigs: { local_name → (re_interned_sig,
-    // module_idx, original_name) }. Keyed by LOCAL name per JIT comment at
-    // `llvm_backend.rs:243-248`: MonoInstance.fn_name uses the call-site
-    // identifier (which is the local/aliased name from the use statement).
+    // Why: imported_generic_sigs is keyed by LOCAL name — MonoInstance.fn_name
+    // is the call-site identifier (the local/aliased name from the use statement).
     let mut imported_generic_sigs: FxHashMap<
         ori_ir::Name,
         (ori_types::FunctionSig, usize, ori_ir::Name),
@@ -842,10 +747,8 @@ pub(crate) fn build_imported_mono_state(
         );
     }
 
-    // Build ImportedMonoFn triples from host MonoInstances filtered against
-    // imported_generic_sigs. Delegates to the SSOT entry point — same
-    // builder consumed by the JIT test runner via body-import linkage
-    // (single monomorphization mechanism for JIT + AOT).
+    // Why: delegates to the SSOT builder shared with the JIT test runner —
+    // one monomorphization mechanism for JIT + AOT.
     let imported_mono_fns = crate::commands::build_imported_mono_functions_for_test_runner(
         type_result,
         &imported_generic_sigs,

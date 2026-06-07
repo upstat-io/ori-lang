@@ -81,15 +81,12 @@ fn lower_one_impl_method(
 
 /// Lower all functions to ARC IR and run borrow inference.
 ///
-/// This is the analysis phase that was previously embedded in the evaluator.
-/// It lowers each function exactly once, runs `infer_borrows_scc` on the flat
+/// Lowers each function exactly once, runs `infer_borrows_scc` on the flat
 /// list, then builds a cache mapping `Name → (ArcFunction, Vec<ArcFunction>)`
 /// for zero-copy consumption by `prepare_all_cached`.
 ///
 /// Functions lowered: module functions, imported functions, impl methods,
 /// and monomorphized generic functions.
-///
-/// Maps function names to their ARC-lowered forms with borrow annotations.
 #[expect(
     clippy::too_many_arguments,
     reason = "mirrors the data flow from run_file_llvm — all inputs are required"
@@ -136,8 +133,8 @@ pub(crate) fn lower_and_infer_borrows(
     }
 
     // Lower imported functions using the main pool. All Idx values in
-    // imp_fn.sig and imp_fn.canon have been re-interned into the main pool
-    // by the caller, so we can safely use the same pool and classifier.
+    // imp_fn.sig and imp_fn.canon were re-interned into the main pool by the
+    // caller, so the same pool and classifier apply.
     let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
     let mut imported_sigs: FxHashMap<Name, ori_arc::AnnotatedSig> = FxHashMap::default();
     for imp_fn in imported_functions {
@@ -282,18 +279,9 @@ pub(crate) fn lower_and_infer_borrows(
         local_lowered.push((arc_fn, lambdas));
     }
 
-    // Check for ARC lowering problems (unsupported patterns, internal errors).
-    // Mirrors the check in compile_common.rs — without this, the JIT runner
-    // silently swallows lowering errors that the AOT path would report.
-    //
-    // Returning `None` (vs. `Some(empty_maps)`) is load-bearing: the caller
-    // distinguishes "analysis errored" from "nothing to compile" and treats
-    // the former as a compile failure. Compiling with an empty arc_cache when
-    // tests expect live function definitions recurses in codegen trying to
-    // resolve the missing callees — reproducible on
-    // `tests/run-pass/rosetta/001_100_doors/` via the index-assignment
-    // feature gap (E4003: index assignment is not yet supported in ARC
-    // lowering).
+    // INVARIANT: None = ARC lowering errored (a compile failure) — distinct
+    // from Some(empty) (nothing to compile); an empty arc_cache recurses in
+    // codegen resolving missing callees.
     if !arc_problems.is_empty() {
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
         let mut acc = CodegenDiagnostics::new();

@@ -50,24 +50,12 @@ pub struct MonoFunction {
 
 /// Collect monomorphized functions from type-checker `MonoInstance` records.
 ///
-/// For each unique instance, looks up the generic function's signature,
-/// builds a concrete (non-generic) signature with substituted types, and
-/// computes a mangled name. Returns one `MonoFunction` per instance.
-///
-/// Instance shape determines which signature list is consulted:
-/// - **Top-level instances** (`receiver_type = None`) look up
-///   `function_sigs` by `fn_name`; on miss, consult `import_sigs` for
-///   cross-module imported generic top-level functions.
-/// - **Method instances** (`receiver_type = Some(_)`) look up `impl_sigs`
-///   by `fn_name`. Multiple impls may register the same method name; the
-///   first match supplies metadata (param names, capabilities, defaults)
-///   that does not depend on the receiver type. Imported methods are NOT
-///   resolved via `import_sigs` — the inherent-method-on-imported-type
-///   surface is owned by a separate work scope and gains its own
-///   `impl_sigs` extension.
-///
-/// Instances whose original function cannot be found in any list are
-/// silently skipped (the generic function may be from an uncompiled module).
+/// Builds one deduped `MonoFunction` (mangled name + concrete sig) per
+/// unique instance. Lookup chain by instance shape: top-level instances
+/// (`receiver_type = None`) consult `function_sigs`, then `import_sigs`;
+/// method instances consult `impl_sigs` only (imported methods are out of
+/// scope for this chain). Instances whose generic function is in no list
+/// are silently skipped (it may live in an uncompiled module).
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
@@ -76,11 +64,7 @@ pub fn collect_mono_functions(
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
-    // Build name → sig lookups for O(1) access. The impl-side map keeps the
-    // first registered signature per method name; receiver-type discrimination
-    // is enforced upstream by `MonoInstance` dedup (`receiver_type` is part of
-    // the dedup predicate), so any impl-side match supplies the same shared
-    // metadata regardless of which receiver registered first.
+    // INVARIANT: receiver-type discrimination is enforced upstream by MonoInstance dedup.
     let fn_sig_by_name: FxHashMap<Name, &FunctionSig> =
         function_sigs.iter().map(|s| (s.name, s)).collect();
     let mut impl_sig_by_name: FxHashMap<Name, &FunctionSig> =
@@ -88,9 +72,7 @@ pub fn collect_mono_functions(
     for (name, sig) in impl_sigs {
         impl_sig_by_name.entry(*name).or_insert(sig);
     }
-    // Imported-function sig map — consulted after `function_sigs` misses on
-    // the top-level path. First registration wins on duplicate names; in
-    // practice each imported function appears at most once per module.
+    // Consulted after `function_sigs` misses on the top-level path; first registration wins.
     let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
     for (name, sig) in import_sigs {
@@ -106,9 +88,6 @@ pub fn collect_mono_functions(
     )]
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId(idx as u32);
-        // Top-level (receiver_type.is_none()): function_sigs → import_sigs.
-        // Method (receiver_type.is_some()): impl_sigs only; imported methods
-        // are out of scope for this lookup chain.
         let (lookup, is_imported) = if instance.receiver_type.is_some() {
             (impl_sig_by_name.get(&instance.fn_name), false)
         } else if let Some(sig) = fn_sig_by_name.get(&instance.fn_name) {
@@ -136,10 +115,8 @@ pub fn collect_mono_functions(
             pool,
         );
 
-        // Dedup specializations sharing a mangled name (same function + same
-        // type args from multiple call sites). The first instance produces the
-        // MonoFunction; later collisions append their id so the abstract-index
-        // dispatch table can map every contributing instance to the survivor.
+        // Why: colliding instances append their id so the abstract-index
+        // dispatch table maps every contributing instance to the survivor.
         if let Some(&existing) = name_to_index.get(&mangled_name) {
             result[existing].instance_ids.push(instance_id);
             continue;

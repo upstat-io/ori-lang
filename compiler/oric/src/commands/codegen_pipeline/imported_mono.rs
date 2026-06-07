@@ -1,15 +1,9 @@
 //! Build imported monomorphization `MonoFunction` structs for the AOT path.
 //!
-//! Promoted from the JIT test-runner equivalent at
-//! `oric/src/test/runner/imported_mono.rs`. The production AOT pipeline
-//! (`compile_to_llvm_with_imports` → `run_codegen_pipeline` →
-//! `run_borrow_inference`) and the JIT test runner share the same carrier
-//! shape via the body-imported AOT dispatch path.
-//!
 //! For each `MonoInstance` in the host module's type-check output that
 //! references an imported generic, construct the concrete `MonoFunction` —
 //! mangled name, concrete sig, fresh `body_type_map` — keyed to merged-pool
-//! `Idx` values. The caller owns the merged pool; this function mutates it
+//! `Idx` values. The caller owns the merged pool; this module mutates it
 //! via `build_mono_body_type_map` (which pre-interns scheme-var `BoundVar`
 //! entries per the type pool's re-intern contract).
 
@@ -120,22 +114,11 @@ pub(crate) fn build_imported_mono_functions(
 /// Build the `body_type_map` (`generic_idx` → `concrete_idx`) for one mono
 /// instance on the merged pool.
 ///
-/// Steps:
-/// 1. Seed `var_subst` from `scheme_var_ids` × `generic_args`.
-/// 2. Ensure the merged pool has `VarState` capacity for every `var_id`
-///    we may follow during substitution — `substitute_in_pool` panics on
-///    out-of-bounds `var_id`s. The merged pool's own `next_var_id()` is
-///    the authoritative upper bound; `ensure_var_capacity` is a no-op
-///    when the pool is already sized.
-/// 3. Extend `var_subst` with union-find root `var_id`s via the shared
-///    SSOT helper. Mirrors the eager-path site in
-///    `ori_types::check::exports::resolve_deferred_mono_calls` and the
-///    deferred-path site in
-///    `ori_types::infer::expr::calls::monomorphization::maybe_record_mono_instance`.
-/// 4. Delegate to `build_mono_body_type_map` — `FxHashMap` sink variant
-///    for LLVM-side `MonoFunction` consumption. The helper handles the
-///    `HAS_VAR|HAS_BOUND_VAR` mask + scheme-var `BoundVar` pre-intern
-///    contract.
+/// Seeds `var_subst` from `scheme_var_ids` × `generic_args`, extends it with
+/// union-find root var ids via the shared SSOT helper, and delegates to
+/// `build_mono_body_type_map` (which handles the `HAS_VAR|HAS_BOUND_VAR`
+/// mask + scheme-var `BoundVar` pre-intern contract). Var capacity is
+/// ensured up front because `substitute_in_pool` panics on out-of-bounds ids.
 #[cfg(feature = "llvm")]
 fn build_body_type_map(
     merged_pool: &mut Pool,

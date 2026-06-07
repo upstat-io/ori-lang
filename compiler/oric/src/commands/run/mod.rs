@@ -147,7 +147,6 @@ pub fn run_file_compiled(path: &str) {
         .filter(|v| v != "0" && !v.is_empty());
     crate::commands::build::check_clang_for_sanitizers(sanitizer_env.as_deref());
 
-    // Read source file
     let content = read_file(path);
 
     // Compute content hash for caching.
@@ -322,7 +321,6 @@ fn compile_and_cache(
         );
     }
 
-    // Ensure cache directory exists
     if let Err(e) = std::fs::create_dir_all(cache_dir) {
         eprintln!("warning: could not create cache directory: {e}");
     }
@@ -381,7 +379,6 @@ fn compile_and_cache(
         crate::problem::codegen::report_codegen_error(e);
     }
 
-    // Clean up object file
     let _ = std::fs::remove_file(&obj_path);
 }
 

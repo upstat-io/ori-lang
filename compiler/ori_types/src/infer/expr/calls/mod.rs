@@ -4,6 +4,7 @@ mod call_inference;
 mod closure_unify;
 mod constraints;
 mod impl_lookup;
+mod infinite_iterator;
 mod method_call;
 mod monomorphization;
 mod traits;
@@ -14,7 +15,7 @@ pub(crate) use monomorphization::compose_builtin_burdens_for_resolved_types;
 
 // Re-export for tests (accessed via `super::calls::type_satisfies_trait` etc.)
 #[cfg(test)]
-pub(crate) use method_call::find_infinite_source;
+pub(crate) use infinite_iterator::find_infinite_source;
 #[cfg(test)]
 pub(crate) use method_call::suggest_iterator_fix;
 #[cfg(test)]

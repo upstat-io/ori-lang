@@ -319,17 +319,10 @@ fn collect_prefers_function_sigs_over_import_sigs_on_name_collision() {
     assert_eq!(interner.lookup(mf.mangled_name), "identity$m$3_int");
 }
 
-// Supplementary mangling edge cases: these unit-tests verify the four
-// mangling shapes — top-level, method-impl-only, method-with-method-args,
-// and method-no-impl-args — at the API surface, independent of upstream
-// typeck wiring.
-
 #[test]
 fn mangle_method_distinct_from_top_level() {
-    // Top-level vs method distinction.
-    // A top-level instance with one type arg and a method instance whose
-    // impl_args carry the same type arg MUST produce different symbols —
-    // the trailing $im$ separator on the method form is the discriminator.
+    // INVARIANT: identical type args under top-level vs method mangling produce
+    // distinct symbols — the trailing $im$ separator is the discriminator.
     let interner = make_interner();
     let pool = Pool::new();
     let identity_name = interner.intern("identity");
@@ -381,10 +374,8 @@ fn mangle_method_impl_and_method_args() {
 
 #[test]
 fn mangle_method_no_impl_args() {
-    // Method-level only (no impl-level generics)
-    // — `impl Box<int> { @m<U> ... }` shape. Empty impl_args section
-    // between `$m$` and `$im$` is load-bearing — it preserves bijectivity
-    // when the method-arg payload happens to look like an impl-arg payload.
+    // INVARIANT: the empty impl_args section between $m$ and $im$ preserves
+    // bijectivity when a method-arg payload looks like an impl-arg payload.
     let interner = make_interner();
     let pool = Pool::new();
     let m_name = interner.intern("m");

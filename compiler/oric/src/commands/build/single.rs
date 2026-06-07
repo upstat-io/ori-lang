@@ -27,7 +27,6 @@ pub(super) fn build_file_single(
     use crate::commands::compile_common::{check_source, compile_to_llvm_with_imported_monos};
     use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
-    // Step 1: Parse and type-check the source file
     if options.verbose {
         eprintln!("  Compiling {path}...");
     }
@@ -35,13 +34,11 @@ pub(super) fn build_file_single(
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
 
-    // Check for parse and type errors
     let Some((parse_result, type_result, pool, canon_result)) = check_source(&db, file, path)
     else {
         std::process::exit(1)
     };
 
-    // Step 2: Configure target
     let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 
     if options.verbose {
@@ -49,20 +46,14 @@ pub(super) fn build_file_single(
         eprintln!("  Optimization: {:?}", options.opt_level);
     }
 
-    // Step 3: Build cross-module imported-generic mono state. Handles stdlib
-    // imports (`use std.testing { assert_eq }`) uniformly with relative-path
-    // imports — both flow through `resolve_imports`. Without this, imported
-    // generic instances (e.g. `assert_eq<int>`) fail LLVM verification with
-    // "unresolved function in apply/invoke — missing mono instance?". Local
-    // ownership keeps the merged pool alive across the codegen call so the
-    // returned LLVM module's type references (which point into the merged
-    // pool) remain valid.
+    // Why: imported generic instances (stdlib or relative imports) need mono
+    // state or LLVM verification fails with an unresolved mono instance.
+    // INVARIANT: the merged pool outlives the codegen call — the returned LLVM
+    // module's type references point into it.
     let imported_state =
         build_imported_mono_state(&db, Path::new(path), &parse_result, &type_result, &pool);
 
-    // Step 4: Generate LLVM IR
-    // This is the Salsa/ArtifactCache boundary: Salsa queries (tokens -> parsed ->
-    // typed) are done; codegen uses ArtifactCache for incremental caching.
+    // Salsa/ArtifactCache boundary: Salsa queries end here; codegen uses ArtifactCache.
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imported_monos(
         &context,
@@ -78,7 +69,6 @@ pub(super) fn build_file_single(
     )
     .unwrap_or_else(|e| report_codegen_error(CodegenProblem::VerificationFailed { message: e }));
 
-    // Configure module for target
     let emitter = ObjectEmitter::new(&target).unwrap_or_else(|e| report_codegen_error(e));
 
     if let Err(e) = emitter.configure_module(&llvm_module) {
@@ -87,13 +77,9 @@ pub(super) fn build_file_single(
         });
     }
 
-    // Step 4: Build optimization config
     let opt_config = build_optimization_config(options);
-
-    // Step 5: Determine output path
     let output_path = determine_output_path(path, options);
 
-    // Step 6: Emit based on emit type (--emit flag)
     if let Some(emit_type) = options.emit {
         handle_emit_type(
             &llvm_module,
@@ -107,8 +93,7 @@ pub(super) fn build_file_single(
         return;
     }
 
-    // Step 7: Verify -> optimize -> emit object file via unified pipeline
-    // Use tempfile for unique directory to avoid race conditions in parallel builds
+    // Why: tempfile gives a unique directory, avoiding races in parallel builds.
     let temp_dir = match TempDir::new() {
         Ok(dir) => dir,
         Err(e) => {
@@ -140,8 +125,7 @@ pub(super) fn build_file_single(
         report_codegen_error(e);
     }
 
-    // Step 8: Link into executable
-    // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
+    // INVARIANT: temp_dir stays alive until linking completes (cleaned on drop).
     link_and_finish(
         vec![obj_path],
         &output_path,

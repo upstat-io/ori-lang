@@ -1,13 +1,5 @@
 //! Shared compilation utilities for AOT build and run commands.
 //!
-//! This module extracts common compilation logic to avoid duplication between
-//! `build_file` and `run_file_compiled`. Both commands need to:
-//! 1. Parse and type-check source files
-//! 2. Print accumulated errors
-//! 3. Generate LLVM IR
-//!
-//! By centralizing this logic, bug fixes and enhancements apply to both commands.
-//!
 //! # Salsa/ArtifactCache Boundary
 //!
 //! The compilation pipeline uses a **hybrid caching strategy**:
@@ -56,16 +48,12 @@ pub struct ImportedFunctionInfo {
 
 /// Check a source file for parse and type errors, then canonicalize.
 ///
-/// Prints all errors to stderr and returns `None` if any errors occurred.
-/// This accumulates all errors before reporting, giving users a complete picture.
-///
-/// Returns the Pool (as `Arc<Pool>`) and `SharedCanonResult` alongside parse/type
-/// results so callers can pass them to LLVM codegen. The `SharedCanonResult` contains
-/// the canonical IR that both `ori_arc` and `ori_llvm` backends will consume.
-/// It is stored in `CanonCache` for session-scoped reuse.
-///
-/// Uses `typed()` Salsa query so the type check result is cached — subsequent calls
-/// (e.g., from `evaluated()`) reuse the same result.
+/// Accumulates all errors, prints them to stderr, and returns `None` if any
+/// occurred. Returns the `Arc<Pool>` and `SharedCanonResult` alongside the
+/// parse/type results for LLVM codegen; the canonical IR is consumed by both
+/// the `ori_arc` and `ori_llvm` backends and cached session-scoped in
+/// `CanonCache`. Uses the `typed()` Salsa query so the type-check result is
+/// reused by later consumers (e.g. `evaluated()`).
 #[cfg(feature = "llvm")]
 pub fn check_source(
     db: &CompilerDb,
@@ -83,9 +71,6 @@ pub fn check_source(
         .with_source(file.text(db).as_str())
         .with_file_path(path);
 
-    // Run frontend pipeline: lex → parse → typecheck, reporting all errors.
-    // This catches lex errors (unterminated strings, etc.) that were previously
-    // silent, and uses TypeErrorRenderer for consistent error quality.
     let frontend = super::report_frontend_errors(db, file, &mut emitter)?;
 
     if frontend.has_errors() {
@@ -113,19 +98,11 @@ pub fn check_source(
 /// Compile source to LLVM IR with imported-mono state for cross-module
 /// generic dispatch.
 ///
-/// Used by single-file builds whose source contains imports that resolve
-/// to imported generic instantiations (e.g., `assert_eq<int>` from
-/// `std.testing`). The caller is responsible for building the
-/// `ImportedMonoState` ahead of this call — typically via
-/// `crate::commands::build::build_imported_mono_state`. The
-/// `imported_state.merged_pool` MUST outlive the returned LLVM module;
-/// `'ctx` ties the LLVM context, the merged pool, and the returned module
-/// together so the borrow checker enforces this.
-///
-/// Without this entry point, single-file programs with stdlib imports
-/// (e.g., `use std.testing { assert_eq }`) yield `unresolved function in
-/// apply/invoke — missing mono instance?` at LLVM verification because
-/// `collect_mono_functions` silently skips imported generic instances.
+/// Used by single-file builds whose imports resolve to imported generic
+/// instantiations (e.g. `assert_eq<int>` from `std.testing`). The caller
+/// builds the `ImportedMonoState` ahead of this call via
+/// `build_imported_mono_state`; `imported_state.merged_pool` MUST outlive the
+/// returned LLVM module — `'ctx` ties context, pool, and module together.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
@@ -167,23 +144,14 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
     )
 }
 
-/// Compile source to LLVM IR with explicit module name and import declarations.
+/// Compile source to LLVM IR with explicit module name and import
+/// declarations, for multi-file compilation.
 ///
-/// This is used for multi-file compilation where:
-/// - The module name is explicitly provided for proper symbol mangling
-/// - Imported functions are declared as external symbols
-///
-/// The `arc_cache` and `module_hash` parameters are reserved for future ARC IR
-/// disk caching integration with the Salsa watch-mode path.
-/// Currently unused — they are accepted but discarded.
-///
-/// The Pool is required for proper compound type resolution during codegen.
-/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
-///
-/// `imported` carries the promoted `ImportedMonoFn` triples plus re-interned
-/// canons for cross-module imported-generic body specialization via
-/// body-import linkage; both slices are empty when the host module has no
-/// imported generic instantiations to lower locally.
+/// Imported functions are declared as external symbols; the module name
+/// drives symbol mangling. `imported` carries the `ImportedMonoFn` triples
+/// plus re-interned canons for cross-module generic body specialization
+/// (both empty when the host has no imported generic instantiations).
+/// `arc_cache` / `module_hash` are reserved for ARC IR disk caching.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,

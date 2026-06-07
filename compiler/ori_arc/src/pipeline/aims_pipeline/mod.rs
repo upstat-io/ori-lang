@@ -49,21 +49,24 @@ pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
 static BURDEN_OPS_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
 
-/// `ORI_DISABLE_PREDICATE_STACK_RC=1` is the symmetric twin of
-/// `ORI_DISABLE_BURDEN_OPS`: with burden ops ON, it suppresses the
-/// predicate-stack `RcInc`/`RcDec` emission (Phase 1 walk + edge / dead /
-/// project-escape cleanup) and instead lowers surviving `BurdenInc → RcInc` /
-/// `BurdenDec → RcDec` mechanically (Phase 7), so the burden path alone is the
-/// real RC emitter. PROBE flag — verification-only; the shipped predicate-stack
-/// deletion + real-RC activation is owned elsewhere. The default (flag unset)
-/// path is byte-for-byte unchanged: burden ops stay codegen no-ops, the
-/// predicate stack emits RC as today. Seeds the per-pipeline
-/// `AimsPipelineConfig.predicate_stack_rc_disabled` at the production entry
-/// points; tests set the config field directly (no env mutation — the env read
-/// is process-global via `LazyLock`, so a per-test toggle is impossible). Read
-/// once at first access; zero overhead when unset.
+/// Predicate-stack RC emission is RETIRED by default: the burden path is the
+/// sole real-RC emitter. The lattice-realized `BurdenInc → RcInc` /
+/// `BurdenDec → RcDec` lowering (Phase 7) replaces the predicate-stack
+/// `RcInc`/`RcDec` walk (Phase 1 + edge / dead / project-escape cleanup),
+/// per the canonical burden RC-emission path (Spec: Annex E §AIMS).
+///
+/// `ORI_DISABLE_PREDICATE_STACK_RC=0` is a transitional escape hatch that
+/// restores the legacy predicate-stack emitter for migration-time validation
+/// and bisection; it is removed when the predicate-stack code is deleted. With
+/// the flag set to `0`, burden ops revert to codegen no-ops and the predicate
+/// stack emits RC as before.
+///
+/// Seeds the per-pipeline `AimsPipelineConfig.predicate_stack_rc_disabled` at
+/// the production entry points; tests set the config field directly (the env
+/// read is process-global via `LazyLock`, so a per-test toggle is impossible).
+/// Read once at first access.
 pub(crate) static PREDICATE_STACK_RC_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() == Ok("1"));
+    LazyLock::new(|| std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() != Ok("0"));
 
 /// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
 /// after Step 4b `emit_burden_ops`, before any realization. Surfaces the

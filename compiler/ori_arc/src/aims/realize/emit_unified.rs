@@ -6556,9 +6556,13 @@ fn compute_cow_mutated_lineage_reps(
     // §AIMS RL-1.
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let callee_may_cow = |callee: Name| -> bool {
-        callee != list_take_name
-            && !interner.lookup(callee).starts_with("__")
-            && !builtins.is_builtin(callee)
+        // A `Name` not resolvable in this interner has no known protocol-builtin
+        // identity (`try_lookup` -> None); treat it conservatively as a non-`__`
+        // user call so the fresh inc is KEPT (sound RL-1 over-approximation).
+        let is_protocol_builtin = interner
+            .try_lookup(callee)
+            .is_some_and(|n| n.starts_with("__"));
+        callee != list_take_name && !is_protocol_builtin && !builtins.is_builtin(callee)
     };
     // Two consume classes, distinguished by RC certainty:
     // - `consumed_owned`: a GENUINE in-loop CONSUME — an owned-position
