@@ -501,12 +501,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
-        let func_id = match callee_name {
-            "ori_format_int" => self.builder.runtime_fn("ori_format_int"),
-            "ori_format_float" => self.builder.runtime_fn("ori_format_float"),
-            "ori_format_str" => self.builder.runtime_fn("ori_format_str"),
-            "ori_format_bool" => self.builder.runtime_fn("ori_format_bool"),
-            "ori_format_char" => self.builder.runtime_fn("ori_format_char"),
+        // Single dispatch point: resolve the runtime function AND whether the
+        // formatted value itself is a string struct needing ptr coercion.
+        let (func_id, value_is_str) = match callee_name {
+            "ori_format_int" => (self.builder.runtime_fn("ori_format_int"), false),
+            "ori_format_float" => (self.builder.runtime_fn("ori_format_float"), false),
+            "ori_format_str" => (self.builder.runtime_fn("ori_format_str"), true),
+            "ori_format_bool" => (self.builder.runtime_fn("ori_format_bool"), false),
+            "ori_format_char" => (self.builder.runtime_fn("ori_format_char"), false),
             _ => return None,
         };
 
@@ -516,7 +518,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let spec_str = self.var(args[1]);
 
         // For ori_format_str, the value arg is also a string struct — coerce to ptr.
-        let value_arg = if callee_name == "ori_format_str" {
+        let value_arg = if value_is_str {
             let val_ty = func.var_type(args[0]);
             self.coerce_aggregate_to_ptr(value, val_ty)
         } else {

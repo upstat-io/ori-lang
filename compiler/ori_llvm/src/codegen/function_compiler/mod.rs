@@ -398,9 +398,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         if let Some(dc) = self.debug_context {
             if span != Span::DUMMY {
-                if let Ok(subprogram) = dc.create_function_at_offset(name_str, span.start) {
-                    let func_val = self.builder.get_function_value(func_id);
-                    dc.di().attach_function(func_val, subprogram);
+                match dc.create_function_at_offset(name_str, span.start) {
+                    Ok(subprogram) => {
+                        let func_val = self.builder.get_function_value(func_id);
+                        dc.di().attach_function(func_val, subprogram);
+                    }
+                    Err(err) => {
+                        // Debug info is best-effort; the function still
+                        // compiles, but the miss must be visible.
+                        tracing::warn!(name = name_str, ?err, "debug info attachment failed");
+                    }
                 }
             }
         }

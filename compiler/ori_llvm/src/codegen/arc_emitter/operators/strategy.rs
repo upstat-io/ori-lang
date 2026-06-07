@@ -160,7 +160,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
             BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-            _ => unreachable!("unsupported float binary op {op:?}"),
+            // Registry assigns FloatInstr only to the arms above for float;
+            // every other op is Unsupported or never reaches strategy lookup.
+            BinaryOp::FloorDiv
+            | BinaryOp::MatMul
+            | BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive
+            | BinaryOp::Coalesce => unreachable!("unsupported float binary op {op:?}"),
         }
     }
 
@@ -183,7 +196,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            _ => unreachable!("unsupported unsigned binary op {op:?}"),
+            // UnsignedCmp covers byte/char/bool comparison plus And/Or only;
+            // arithmetic/bitwise on those types uses IntInstr or Unsupported.
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::FloorDiv
+            | BinaryOp::MatMul
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive
+            | BinaryOp::Coalesce => unreachable!("unsupported unsigned binary op {op:?}"),
         }
     }
 
@@ -202,7 +231,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            _ => unreachable!("unsupported bool binary op {op:?}"),
+            // BoolLogic covers Eq/NotEq/And/Or only; bool ordering routes
+            // through UnsignedCmp and everything else is Unsupported.
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::FloorDiv
+            | BinaryOp::MatMul
+            | BinaryOp::Lt
+            | BinaryOp::Gt
+            | BinaryOp::LtEq
+            | BinaryOp::GtEq
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive
+            | BinaryOp::Coalesce => unreachable!("unsupported bool binary op {op:?}"),
         }
     }
 
@@ -233,7 +282,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
                 .expect("str GtEq comparison should always succeed"),
-            _ => unreachable!("unsupported runtime binary op {op:?}"),
+            // RuntimeCall exists only for str concat/comparison in the
+            // registry; no other op carries a RuntimeCall strategy.
+            BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::FloorDiv
+            | BinaryOp::MatMul
+            | BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive
+            | BinaryOp::Coalesce => unreachable!("unsupported runtime binary op {op:?}"),
         }
     }
 

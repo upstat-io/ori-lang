@@ -252,13 +252,15 @@ where
     }
 
     let errors = match Arc::try_unwrap(errors) {
-        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        // Poisoned = a worker panicked mid-push; recover the data rather than
+        // silently reporting zero errors.
+        Ok(mutex) => mutex.into_inner().unwrap_or_else(PoisonError::into_inner),
         Err(arc) => arc.lock().unwrap_or_else(PoisonError::into_inner).clone(),
     };
 
     if errors.is_empty() {
         let comp_stats = match Arc::try_unwrap(comp_stats) {
-            Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+            Ok(mutex) => mutex.into_inner().unwrap_or_else(PoisonError::into_inner),
             Err(arc) => arc.lock().unwrap_or_else(PoisonError::into_inner).clone(),
         };
         Ok(comp_stats)

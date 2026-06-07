@@ -13,7 +13,7 @@
 //!    `ori_list_*_cow(ptr, ...)`, the COW function receives a potentially
 //!    freed pointer.
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use inkwell::module::Module;
 use inkwell::values::InstructionOpcode;
@@ -40,10 +40,9 @@ pub fn check_module(module: &Module<'_>, options: &AuditOptions, report: &mut Au
 fn check_function(func: inkwell::values::FunctionValue<'_>, report: &mut AuditReport) {
     let fn_name = func.get_name().to_string_lossy().into_owned();
 
-    // Track pointers that have been consumed by COW (Rule 1)
-    let mut cow_consumed: FxHashSet<String> = FxHashSet::default();
-    // Track which COW function consumed each pointer (for diagnostics)
-    let mut cow_source: rustc_hash::FxHashMap<String, String> = rustc_hash::FxHashMap::default();
+    // COW-consumed pointers (Rule 1), keyed by pointer name with the consuming
+    // COW function as value — one structure for both membership and diagnostics.
+    let mut cow_consumed: FxHashMap<String, String> = FxHashMap::default();
     // Track pointers that have been decremented (Rule 3)
     let mut decremented: FxHashSet<String> = FxHashSet::default();
 
@@ -55,17 +54,10 @@ fn check_function(func: inkwell::values::FunctionValue<'_>, report: &mut AuditRe
                 i.get_opcode(),
                 InstructionOpcode::Call | InstructionOpcode::Invoke
             ) {
-                process_call(
-                    &fn_name,
-                    i,
-                    &mut cow_consumed,
-                    &mut cow_source,
-                    &mut decremented,
-                    report,
-                );
+                process_call(&fn_name, i, &mut cow_consumed, &mut decremented, report);
             } else {
                 // Rule 1: Check non-call instructions for reuse of COW-consumed pointers
-                check_reuse_in_non_call(&fn_name, i, &cow_consumed, &cow_source, report);
+                check_reuse_in_non_call(&fn_name, i, &cow_consumed, report);
             }
             inst = i.get_next_instruction();
         }
@@ -74,11 +66,13 @@ fn check_function(func: inkwell::values::FunctionValue<'_>, report: &mut AuditRe
 }
 
 /// Process a call/invoke for COW sequencing.
+///
+/// `callee` is an LLVM symbol read back from emitted IR — string-domain by
+/// nature (the str-keyed runtime table is the symbol SSOT).
 fn process_call(
     fn_name: &str,
     inst: inkwell::values::InstructionValue<'_>,
-    cow_consumed: &mut FxHashSet<String>,
-    cow_source: &mut rustc_hash::FxHashMap<String, String>,
+    cow_consumed: &mut FxHashMap<String, String>,
     decremented: &mut FxHashSet<String>,
     report: &mut AuditReport,
 ) {
@@ -111,8 +105,7 @@ fn process_call(
             }
 
             // Mark as consumed for Rule 1
-            cow_consumed.insert(ptr_name.clone());
-            cow_source.insert(ptr_name, callee);
+            cow_consumed.insert(ptr_name, callee);
         }
     } else {
         // Rule 1: Check call arguments for reuse of COW-consumed pointers
@@ -121,8 +114,7 @@ fn process_call(
         // Last operand is callee, skip it
         for idx in 0..n.saturating_sub(1) {
             if let Some(ptr_name) = operand_name(inst, idx) {
-                if cow_consumed.contains(&ptr_name) {
-                    let cow_fn = cow_source.get(&ptr_name).cloned().unwrap_or_default();
+                if let Some(cow_fn) = cow_consumed.get(&ptr_name) {
                     report.add(AuditFinding {
                         function_name: fn_name.to_owned(),
                         severity: Severity::Error,
@@ -144,21 +136,19 @@ fn process_call(
 fn check_reuse_in_non_call(
     fn_name: &str,
     inst: inkwell::values::InstructionValue<'_>,
-    cow_consumed: &FxHashSet<String>,
-    cow_source: &rustc_hash::FxHashMap<String, String>,
+    cow_consumed: &FxHashMap<String, String>,
     report: &mut AuditReport,
 ) {
     let n = inst.get_num_operands();
     for idx in 0..n {
         if let Some(ptr_name) = operand_name(inst, idx) {
-            if cow_consumed.contains(&ptr_name) {
-                let cow_fn = cow_source.get(&ptr_name).cloned().unwrap_or_default();
+            if let Some(cow_fn) = cow_consumed.get(&ptr_name) {
                 report.add(AuditFinding {
                     function_name: fn_name.to_owned(),
                     severity: Severity::Error,
                     kind: FindingKind::CowInputReusedAfterCall {
                         ptr_name: ptr_name.clone(),
-                        cow_fn,
+                        cow_fn: cow_fn.clone(),
                     },
                     description: format!(
                         "`{ptr_name}` reused in non-call instruction after COW consumption"

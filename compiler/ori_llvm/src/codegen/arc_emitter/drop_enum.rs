@@ -390,11 +390,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Vec::new()
         } else if resolved_tag == Tag::Enum {
             let all_variants = self.pool.enum_variants(resolved_ty);
-            let variant_field_types: Vec<Idx> = all_variants
-                .into_iter()
-                .nth(variant_idx)
-                .map(|(_, fields)| fields)
-                .unwrap_or_default();
+            // OOB variant = upstream typeck/canon bug; an empty fallback would
+            // silently skip dropping payload fields (leak).
+            let Some((_, variant_field_types)) = all_variants.into_iter().nth(variant_idx) else {
+                unreachable!("drop glue variant {variant_idx} out of bounds for enum type")
+            };
             compute_variant_field_offsets(&variant_field_types, resolved_ty, self)
         } else {
             // Fallback: non-Enum tag for a general enum — treat field_index as

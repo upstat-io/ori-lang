@@ -156,7 +156,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             },
             OpStrategy::FloatInstr => match op {
                 UnaryOp::Neg => self.builder.fneg(operand, "neg"),
-                _ => unreachable!("unsupported float unary op {op:?}"),
+                // Registry assigns FloatInstr only to Neg on float; Try is
+                // desugared before ARC IR.
+                UnaryOp::Not | UnaryOp::BitNot | UnaryOp::Try => {
+                    unreachable!("unsupported float unary op {op:?}")
+                }
             },
             OpStrategy::Unsupported => {
                 // Try is desugared before reaching ARC IR. If it slips
@@ -336,7 +340,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.icmp_eq(ordering, greater, "gt"),
             BinaryOp::LtEq => self.builder.icmp_ne(ordering, greater, "le"),
             BinaryOp::GtEq => self.builder.icmp_ne(ordering, less, "ge"),
-            _ => unreachable!("only Lt/Gt/LtEq/GtEq reach here"),
+            // emit_comparison_via_trait routes only Lt/Gt/LtEq/GtEq here.
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::FloorDiv
+            | BinaryOp::MatMul
+            | BinaryOp::Eq
+            | BinaryOp::NotEq
+            | BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive
+            | BinaryOp::Coalesce => unreachable!("only Lt/Gt/LtEq/GtEq reach here"),
         };
         Some(result)
     }

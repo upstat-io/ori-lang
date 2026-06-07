@@ -449,10 +449,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for &(_, block, fields, variant_idx) in &cases {
             self.builder.position_at_end(block);
 
-            let offsets = all_variant_fields
-                .get(variant_idx)
-                .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
-                .unwrap_or_default();
+            let offsets = if pool_tag == Tag::Enum {
+                // OOB variant = upstream typeck/canon bug; an empty fallback
+                // would silently skip the payload RC walk.
+                let variant_fields = all_variant_fields.get(variant_idx).unwrap_or_else(|| {
+                    unreachable!("RC walk variant {variant_idx} out of bounds for enum type")
+                });
+                compute_variant_field_offsets(variant_fields, resolved_ty, self)
+            } else {
+                // Option/Result: typed field access, no byte offsets needed.
+                Vec::new()
+            };
 
             // Teardown (dec) walks payload fields in REVERSE declaration order
             // (LIFO) per `drop-trait-proposal.md §Drop and panic`; inc keeps

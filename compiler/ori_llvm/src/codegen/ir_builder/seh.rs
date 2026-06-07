@@ -243,7 +243,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         } else {
             name
         };
-        let c_name = CString::new(effective_name).unwrap_or_default();
+        let c_name = CString::new(effective_name)
+            .expect("LLVM value names are codegen-authored and contain no interior NUL");
         let mut bundles = [bundle.as_mut_ptr()];
 
         // SAFETY: Builder is positioned at a valid insertion point. fn_ty, func, args,
@@ -326,7 +327,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         } else {
             name
         };
-        let c_name = CString::new(effective_name).unwrap_or_default();
+        let c_name = CString::new(effective_name)
+            .expect("LLVM value names are codegen-authored and contain no interior NUL");
         let mut bundles = [bundle.as_mut_ptr()];
 
         // SAFETY: Builder is positioned at a valid insertion point. func_ty and raw (fn_ptr)
@@ -404,7 +406,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         let bundle = inkwell::values::OperandBundle::create("funclet", &[pad_any]);
         let mut bundles = [bundle.as_mut_ptr()];
 
-        let c_name = CString::new("").unwrap_or_default();
+        let c_name = CString::default();
 
         // SAFETY: Builder is positioned, fn_type/fn_ptr/args/pad are valid LLVM refs.
         let call_val = unsafe {

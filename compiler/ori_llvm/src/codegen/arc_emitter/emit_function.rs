@@ -100,20 +100,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
 
-        // Pre-scan for-yield loops to find which elem_size
-        // ArcVarIds belong to int-element accumulators. Only those are safe
-        // to override with narrowed sizes.
-        if self.narrowed_int_collection_element_width().is_some() {
-            self.for_yield_int_elem_sizes =
-                scan_for_yield_int_elem_sizes(func, self.pool, self.interner);
-        }
-
         // Pre-scan ALL for-yield elem_size vars to override ARC-emitted
         // pool_type_store_size values with the LLVM struct store size.
         // This is critical for reordered structs/tuples where the ARC side
         // computes the original layout size (e.g. 48) but LLVM uses the
         // reordered layout (e.g. 40).
         self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
+
+        // Derive the int-element accumulator subset — only those elem_size
+        // vars are safe to override with narrowed sizes.
+        if self.narrowed_int_collection_element_width().is_some() {
+            self.for_yield_int_elem_sizes = self
+                .for_yield_elem_size_types
+                .iter()
+                .filter(|&(_, &elem_ty)| {
+                    self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
+                })
+                .map(|(&var, _)| var)
+                .collect();
+        }
 
         // Pre-scan: determine which struct fields are actually used per variable.
         // This enables surgical struct loading — only accessed fields are loaded.
@@ -123,6 +128,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // These params are only used as Apply/Invoke args where pointer
         // forwarding (via borrowed_param_ptrs) handles everything. Skipping
         // the load eliminates dead `%param.load` instructions in the IR.
+        // Method identifiers are Ori `Name`s — compare interned Names, not
+        // looked-up strings (per the interning discipline).
+        let length_name = self.interner.intern("length");
+        let len_name = self.interner.intern("len");
         let pointer_only = compute_pointer_only_params(func, |callee, args| {
             let callee_name = self.interner.lookup(callee);
             // Not intercepted → ABI path → pointer forwarding handles args
@@ -138,7 +147,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // Intercepted, but str.length/str.len use str_to_ptr_forwarded
             // which checks borrowed_param_ptrs — loaded value not needed.
-            if (callee_name == "length" || callee_name == "len") && !args.is_empty() {
+            if (callee == length_name || callee == len_name) && !args.is_empty() {
                 let receiver_ty = func.var_type(args[0]);
                 if self.pool.tag(receiver_ty) == ori_types::Tag::Str {
                     return true;
@@ -411,41 +420,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
-/// Pre-scan: find `elem_size` `ArcVarId`s used in `ori_list_push` calls where
-/// the pushed element type is `Tag::Int`. These are the for-yield accumulators
-/// whose `elem_size` is safe to override with narrowed widths.
-///
-/// The for-yield lowerer shares the same `elem_size_var` between `ori_list_new`
-/// and `ori_list_push`, so finding it in push identifies the corresponding new.
-fn scan_for_yield_int_elem_sizes(
-    func: &ArcFunction,
-    pool: &ori_types::Pool,
-    interner: &ori_ir::StringInterner,
-) -> FxHashSet<ArcVarId> {
-    use ori_types::Tag;
-
-    let mut result = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                let name = interner.lookup(*callee);
-                // ori_list_push(list_ptr, elem_val, elem_size_var)
-                if name == "ori_list_push" && args.len() == 3 {
-                    let elem_ty = func.var_type(args[1]);
-                    let resolved = pool.resolve_fully(elem_ty);
-                    if pool.tag(resolved) == Tag::Int {
-                        result.insert(args[2]);
-                    }
-                }
-            }
-        }
-    }
-    result
-}
-
 /// Pre-scan: map ALL for-yield `elem_size` `ArcVarId`s to their element type.
 ///
 /// For reordered structs/tuples, `pool_type_store_size` (used by ARC lowering)
@@ -453,10 +427,16 @@ fn scan_for_yield_int_elem_sizes(
 /// REORDERED size. The LLVM emitter overrides the literal with
 /// `element_store_size(elem_ty)` to ensure the runtime list stride matches
 /// LLVM's GEP stride.
+///
+/// The int-element accumulator subset (safe for narrowed-size overrides) is
+/// derived from this map at `emit_arc_function` — one scan feeds both.
 fn scan_for_yield_elem_size_types(
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,
 ) -> FxHashMap<ArcVarId, Idx> {
+    // The for-yield lowerer interns the runtime symbol as a `Name`; compare
+    // interned Names instead of per-instruction string lookups.
+    let list_push = interner.intern("ori_list_push");
     let mut result = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -464,9 +444,8 @@ fn scan_for_yield_elem_size_types(
                 func: callee, args, ..
             } = instr
             {
-                let name = interner.lookup(*callee);
                 // ori_list_push(list_ptr, elem_val, elem_size_var)
-                if name == "ori_list_push" && args.len() == 3 {
+                if *callee == list_push && args.len() == 3 {
                     let elem_ty = func.var_type(args[1]);
                     result.insert(args[2], elem_ty);
                 }

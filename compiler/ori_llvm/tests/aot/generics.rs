@@ -12,8 +12,7 @@
 
 use crate::util::assert_aot_success;
 
-// ─── Generic with string arguments (RC-managed) ───
-
+// Generic with string arguments (RC-managed)
 #[test]
 fn test_generic_identity_string() {
     assert_aot_success(
@@ -38,8 +37,7 @@ fn test_generic_swap_strings() {
     );
 }
 
-// ─── Generic with struct arguments ───
-
+// Generic with struct arguments
 #[test]
 fn test_generic_identity_struct() {
     assert_aot_success(
@@ -56,8 +54,7 @@ fn test_generic_pair_mixed_struct_int() {
     );
 }
 
-// ─── Multiple specializations in same program ───
-
+// Multiple specializations in same program
 #[test]
 fn test_generic_four_specializations() {
     assert_aot_success(
@@ -74,8 +71,7 @@ fn test_generic_same_type_multiple_calls() {
     );
 }
 
-// ─── Generic calling generic ───
-
+// Generic calling generic
 #[test]
 fn test_generic_calling_generic() {
     assert_aot_success(
@@ -92,8 +88,7 @@ fn test_generic_chain_three_levels() {
     );
 }
 
-// ─── Generic calling generic: multi-type-param ───
-
+// Generic calling generic: multi-type-param
 #[test]
 fn test_generic_chain_two_type_params() {
     // A<T> calls B<T> which has TWO type params — one from caller, one concrete.
@@ -112,8 +107,7 @@ fn test_generic_chain_swap_params() {
     );
 }
 
-// ─── Generic calling generic: multiple callees ───
-
+// Generic calling generic: multiple callees
 #[test]
 fn test_generic_calls_two_different_generics() {
     // One generic caller invokes two different generic callees.
@@ -123,8 +117,7 @@ fn test_generic_calls_two_different_generics() {
     );
 }
 
-// ─── Generic calling generic: string (RC-managed) ───
-
+// Generic calling generic: string (RC-managed)
 #[test]
 fn test_generic_chain_with_strings() {
     // Generic chain with RC-managed types to verify retain/release correctness.
@@ -143,8 +136,7 @@ fn test_generic_chain_three_levels_string() {
     );
 }
 
-// ─── Generic calling generic: mixed specializations ───
-
+// Generic calling generic: mixed specializations
 #[test]
 fn test_generic_chain_multiple_specializations() {
     // Same chain instantiated with different types in one program.
@@ -154,8 +146,7 @@ fn test_generic_chain_multiple_specializations() {
     );
 }
 
-// ─── Generic calling generic: with conditional logic ───
-
+// Generic calling generic: with conditional logic
 #[test]
 fn test_generic_chain_choose() {
     // Chain where the intermediate generic uses conditional logic.
@@ -165,8 +156,7 @@ fn test_generic_chain_choose() {
     );
 }
 
-// ─── Generic calling generic: with struct types ───
-
+// Generic calling generic: with struct types
 #[test]
 fn test_generic_chain_with_struct() {
     // Chain passing structs through multiple generic functions.
@@ -176,8 +166,7 @@ fn test_generic_chain_with_struct() {
     );
 }
 
-// ─── Generic with conditional logic ───
-
+// Generic with conditional logic
 #[test]
 fn test_generic_with_bool_condition() {
     assert_aot_success(
@@ -194,8 +183,7 @@ fn test_generic_choose_strings() {
     );
 }
 
-// ─── Generic returning tuple ───
-
+// Generic returning tuple
 #[test]
 fn test_generic_duplicate() {
     assert_aot_success(
@@ -212,8 +200,7 @@ fn test_generic_duplicate_string() {
     );
 }
 
-// ─── Generic with Option ───
-
+// Generic with Option
 #[test]
 fn test_generic_with_option_some() {
     // NOTE: Uses .is_some()/.unwrap() instead of match to avoid
@@ -241,8 +228,7 @@ fn test_generic_option_match_leak() {
     );
 }
 
-// ─── Generic with Result ───
-
+// Generic with Result
 #[test]
 fn test_generic_ok_result() {
     assert_aot_success(
@@ -251,8 +237,7 @@ fn test_generic_ok_result() {
     );
 }
 
-// ─── Generic with HOF ───
-
+// Generic with HOF
 #[test]
 fn test_generic_apply_fn() {
     assert_aot_success(
@@ -261,8 +246,7 @@ fn test_generic_apply_fn() {
     );
 }
 
-// ─── Generic with for-yield ───
-
+// Generic with for-yield
 #[test]
 fn test_generic_in_for_yield() {
     assert_aot_success(
@@ -271,8 +255,7 @@ fn test_generic_in_for_yield() {
     );
 }
 
-// ─── Generic with user-defined struct params (indirect type vars) ───
-
+// Generic with user-defined struct params (indirect type vars)
 #[test]
 fn test_generic_struct_field_access() {
     // Type param T nested in struct param — tests indirect var extraction.
@@ -310,8 +293,7 @@ fn test_generic_struct_with_string_field() {
     );
 }
 
-// ─── Monomorphized nounwind analysis ───
-
+// Monomorphized nounwind analysis
 #[test]
 fn test_mono_nounwind_callee_uses_call_not_invoke() {
     // After the two-pass nounwind fix, _ori_main should call identity$m$int
@@ -337,8 +319,7 @@ fn test_mono_nounwind_callee_uses_call_not_invoke() {
     );
 }
 
-// ─── Generic debug/str on compound types (regression) ───
-
+// Generic debug/str on compound types (regression)
 /// Regression: generic `debug()` on `[int]` through LLVM.
 #[test]
 fn test_generic_debug_list() {
@@ -359,7 +340,7 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "BUG-04-105: nounwind-analysis does not distinguish may-unwind monomorphized callees — pre-existing, unrelated to BUG-04-090's generic-forwarder surface; see bug-tracker/section-04-codegen-llvm.md."]
+#[ignore = "BUG-04-105: nounwind-analysis does not distinguish may-unwind monomorphized callees; unrelated to BUG-04-090's generic-forwarder surface"]
 fn test_mono_may_unwind_callee_uses_invoke() {
     // A generic function that calls panic should still use `invoke`.
     let ir = crate::util::compile_and_capture_ir(include_str!(
@@ -376,7 +357,7 @@ fn test_mono_may_unwind_callee_uses_invoke() {
     );
 }
 
-// ─── Generic chain root-extension regression matrix (§04.2.B) ───
+// Generic chain root-extension regression matrix (§04.2.B)
 //
 // Coverage for the union-find root-extension fix that lets deferred
 // monomorphization resolve callees whose scheme var is NOT the
@@ -439,7 +420,7 @@ fn test_generic_chain_list_element() {
     );
 }
 
-// ─── BUG-04-090: generic forwarder over [T] hop-count axis ───
+// BUG-04-090: generic forwarder over [T] hop-count axis
 // Each forwarder hop currently emits a spurious scope-exit RcDec on the param
 // because AIMS interprocedural analysis lacks `transfers_through_return`. The
 // fix completes the Lean 4 `ownParamsUsingArgs` pattern — eliminate BOTH the
@@ -483,7 +464,7 @@ fn test_generic_forwarder_hop4_returns_list_intact() {
     );
 }
 
-// ─── BUG-04-090: cross-type axis ───
+// BUG-04-090: cross-type axis
 // 1-hop generic forwarder applied to every relevant heap-typed shape.
 // Heap types fail today (use-after-free); scalar must NOT regress.
 
@@ -542,7 +523,7 @@ fn test_generic_forwarder_struct_with_list_returns_intact() {
 
 /// Generic forwarder over a closure capturing `[int]`. The closure's
 /// `env_ptr` (heap-allocated) carries the `[int]` capture; tests
-/// closure-aware RC interaction (codegen-rules.md §RE-1).
+/// closure-aware RC interaction (RE-1 closure-aware RC).
 #[test]
 fn test_generic_forwarder_closure_capturing_list_returns_intact() {
     assert_aot_success(
@@ -552,7 +533,7 @@ fn test_generic_forwarder_closure_capturing_list_returns_intact() {
 }
 
 /// Generic forwarder over `int` — scalar regression clamp. Scalars have
-/// NO RC ops per codegen-rules.md §RE-2; this test must continue to
+/// NO RC ops (RE-2 scalar exemption); this test must continue to
 /// pass both pre-fix and post-fix. The fix introduces no scalar-path
 /// changes.
 #[test]
@@ -575,9 +556,8 @@ fn test_generic_forwarder_option_list_returns_intact() {
 }
 
 /// Generic forwarder over `Result<[int], str>` — two-constructor
-/// sum-type with heap payloads on BOTH arms (Plan TPR TPR-04-002).
-/// Verifies the rule fires correctly when either arm carries a heap
-/// allocation.
+/// sum-type with heap payloads on BOTH arms. Verifies the rule fires
+/// correctly when either arm carries a heap allocation.
 #[test]
 fn test_generic_forwarder_result_list_str_returns_intact() {
     assert_aot_success(
@@ -609,7 +589,7 @@ fn test_generic_forwarder_box_list_returns_intact() {
     );
 }
 
-// ─── BUG-04-090: forwarder shape axis ───
+// BUG-04-090: forwarder shape axis
 // The param-return-alias rule must apply uniformly across forwarder
 // shapes. Generics are merely the most common pattern; non-generic
 // forwarders and inherent methods must also be covered.
@@ -636,13 +616,12 @@ fn test_inherent_method_forwarder_self_returns_self() {
     );
 }
 
-// ─── BUG-04-090: path-sensitivity (CRITICAL — Plan TPR Round-0) ───
+// BUG-04-090: path-sensitivity
 // The fix's suppression gate MUST be path-sensitive. A naive global-
 // suppression implementation (suppress all decs unconditionally for
 // params with transfers_through_return=true) would LEAK the not-returned
 // param on multi-return conditional flow. These cells pin the
-// path-sensitivity requirement that codex + gemini independently
-// flagged in Plan TPR Round-0.
+// path-sensitivity requirement.
 
 /// `select<T>(cond, x, y) -> T = if cond then x else y` over `[int]`.
 /// Both x and y are candidates for return; only ONE is returned per
@@ -693,13 +672,13 @@ fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     );
 }
 
-// ─── BUG-04-090: edge cases (Plan TPR refinements) ───
-// Surface forms surfaced by Plan TPR rounds 0-4. Each pins a specific
-// architectural decision the fix must thread between.
+// BUG-04-090: edge cases
+// Each cell pins a specific architectural decision the fix must
+// thread between.
 
-/// Param both returned AND used in a non-return statement. Plan TPR
-/// consensus: `transfers_through_return` remains `true`, but the fix
-/// gates only the SCOPE-EXIT dec, not all decs. Verifies the fix
+/// Param both returned AND used in a non-return statement.
+/// `transfers_through_return` remains `true`, but the fix gates only
+/// the SCOPE-EXIT dec, not all decs. Verifies the fix
 /// doesn't suppress decs at non-return use sites.
 #[test]
 fn test_edge_param_returned_and_used_balances_rc() {
@@ -731,9 +710,9 @@ fn test_edge_trmc_tail_recursive_unaffected_by_fix() {
     );
 }
 
-/// `for...yield` return (Plan TPR TPR-04-002 + TPR-04-007). yield-style
-/// return uses Invoke + Resume terminators; verify the gate does NOT
-/// suppress decs on Resume blocks (`is_unwind_block` should stay true).
+/// `for...yield` return. yield-style return uses Invoke + Resume
+/// terminators; verify the gate does NOT suppress decs on Resume
+/// blocks (`is_unwind_block` should stay true).
 #[test]
 fn test_edge_for_yield_return_preserves_unwind_decs() {
     assert_aot_success(
@@ -742,9 +721,9 @@ fn test_edge_for_yield_return_preserves_unwind_decs() {
     );
 }
 
-/// `try{}` return (Plan TPR TPR-04-002). try-block returns may use
-/// Invoke terminators with unwind paths; verify the gate doesn't
-/// suppress decs on the unwind side.
+/// `try{}` return. try-block returns may use Invoke terminators with
+/// unwind paths; verify the gate doesn't suppress decs on the unwind
+/// side.
 #[test]
 #[ignore = "BUG-04-092: lower_try Tag::int aggregate-shape mismatch in canon blocks reaching BUG-04-090's AIMS RC surface; un-ignore when BUG-04-092 lands"]
 fn test_edge_try_block_return_preserves_unwind_decs() {
@@ -754,9 +733,8 @@ fn test_edge_try_block_return_preserves_unwind_decs() {
     );
 }
 
-/// Branch-merge of different params (Plan TPR TPR-04-007 + Round-3
-/// codex F6). For heap T: lowering produces Branch+Jump+merge (NOT
-/// Select). Both x and y alias the merge-block's param via Jump-arg →
+/// Branch-merge of different params. For heap T: lowering produces
+/// Branch+Jump+merge (NOT Select). Both x and y alias the merge-block's param via Jump-arg →
 /// block-param edges; both must be marked `transfers_through_return=true`
 /// (verifies multi-valued `alias_to_param` + Jump-arg → block-param
 /// transitivity).
@@ -768,9 +746,9 @@ fn test_edge_branch_merge_two_params_routes_via_jump_arg() {
     );
 }
 
-/// Param consumed by callee AND returned (Plan TPR TPR-04-003 —
-/// load-bearing correctness fix). x is consumed by `iter()` (Apply to
-/// Owned parameter) AND returned. Verifies `transfers_through_return`
+/// Param consumed by callee AND returned (load-bearing correctness
+/// fix). x is consumed by `iter()` (Apply to Owned parameter) AND
+/// returned. Verifies `transfers_through_return`
 /// is gated on `return_flow_params`, NOT full `consumed_params`.
 #[test]
 fn test_edge_consumed_and_returned_uses_return_flow_only() {
@@ -781,8 +759,8 @@ fn test_edge_consumed_and_returned_uses_return_flow_only() {
 }
 
 /// Function declaring `uses Suspend` capability returning its param.
-/// Plan TPR consensus: capability handlers lower to standard Return
-/// terminators; the param-return-alias rule applies uniformly.
+/// Capability handlers lower to standard Return terminators; the
+/// param-return-alias rule applies uniformly.
 #[test]
 #[ignore = "BUG-02-026: typeck E2014 capability-propagation rejects main calling uses-Suspend callee; can't reach BUG-04-090's AIMS RC surface until BUG-02-026 lands"]
 fn test_edge_capability_handler_returns_param_uniformly() {
@@ -903,7 +881,7 @@ fn test_generic_method_on_generic_type() {
     // Two-level rigid-var scoping through deferred-mono resolution.
 }
 
-// ─── BUG-04-111: (B-1) Return-as-transfer extensions ───
+// BUG-04-111: (B-1) Return-as-transfer extensions
 // Borrowed param + use(s) + Return. Verifies the new pre-compute set
 // for borrow-flow scope-exit RcDec covers (B-1) shape across types
 // and use patterns beyond the str-flavored snapshot (use_twice).
@@ -964,7 +942,7 @@ fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
     );
 }
 
-// ─── BUG-04-111: (B-3) Borrow-only access ───
+// BUG-04-111: (B-3) Borrow-only access
 // Value used as borrow inside function-call boundaries; verifies the
 // pre-compute set distinguishes borrow Applies (no dec at site) from
 // Return-as-transfer (dec required at function exit).
@@ -999,7 +977,7 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
     );
 }
 
-// ─── BUG-04-111: Cross-pattern cells ───
+// BUG-04-111: Cross-pattern cells
 // Distinct control-flow shapes that exercise Return-as-transfer across
 // genuinely uncovered patterns: Project consumer, depth-3 alias chain,
 // loop-body Let-alias, multi-block CFG, for...yield iteration.
@@ -1054,13 +1032,13 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
     );
 }
 
-// ─── BUG-04-111: Canonical-rep semantics pins ───
+// BUG-04-111: Canonical-rep semantics pins
 // Positive pins exercising post-fix canonical-rep selection logic.
 // May not be RED at HEAD (they verify NEW semantics introduced by the
 // fix); pre-fix passing is acceptable for these.
 
-/// Positive pin per §05:184 (gemini Round 2 F1): `canonical_rep_for` picks
-/// LATEST-emitting member when multiple SSA alias class members exist.
+/// Positive pin: `canonical_rep_for` picks the LATEST-emitting member
+/// when multiple SSA alias class members exist.
 #[test]
 fn test_borrow_list_int_latest_emission_site_then_return_no_leak() {
     assert_aot_success(
@@ -1079,9 +1057,9 @@ fn test_borrow_list_int_determinism_then_return_no_leak() {
     );
 }
 
-/// Positive pin per §05:148 (opencode Round 1 F5): bypass-safe interaction —
-/// `canonical_rep` returns the actual bypass-safe Let-alias rep when a class
-/// has bypass-safe-entry members.
+/// Positive pin: bypass-safe interaction — `canonical_rep` returns the
+/// actual bypass-safe Let-alias rep when a class has bypass-safe-entry
+/// members.
 #[test]
 fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
     assert_aot_success(
@@ -1090,7 +1068,7 @@ fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
     );
 }
 
-// ─── BUG-04-111: (A)-shape new pins ───
+// BUG-04-111: (A)-shape new pins
 // Positive pins exercising post-fix PIN-6 chain semantics.
 
 /// Positive pin per gemini SP-1: 3-alias merge at CFG join — verifies
@@ -1104,7 +1082,7 @@ fn test_borrow_list_int_three_alias_merge_then_return_no_leak() {
     );
 }
 
-/// Positive pin per codex Round 4 F4 + §05:226: nested PIN-6 chain
+/// Positive pin: nested PIN-6 chain
 /// B→A→C — ancestor class B's transitive-drop covers class A's slot,
 /// in turn covered by ancestor class C. Verifies `pin6_same_emission_covers`
 /// ancestor-walk loop survives the expanded input.

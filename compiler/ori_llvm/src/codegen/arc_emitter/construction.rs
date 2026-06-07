@@ -114,10 +114,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let variant_field_types = match self.pool.tag(resolved_enum) {
                     Tag::Enum => {
                         let all_variants = self.pool.enum_variants(resolved_enum);
-                        all_variants
-                            .get(*variant as usize)
-                            .map(|(_, fields)| fields.clone())
-                            .unwrap_or_default()
+                        // OOB variant = upstream typeck/canon bug; an empty
+                        // fallback would silently skip payload RC allocation.
+                        let Some((_, fields)) = all_variants.get(*variant as usize) else {
+                            unreachable!("Construct variant {variant} out of bounds for enum type")
+                        };
+                        fields.clone()
                     }
                     // Option: Some (variant 0) carries the inner type; None (1) empty.
                     Tag::Option if *variant == 0 => vec![self.pool.option_inner(resolved_enum)],
