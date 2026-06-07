@@ -42,8 +42,9 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
     // Build the exempt var-id set once, before entering the inference
     // closure. The engine method receives `&FxHashSet<u32>` — avoids an
-    // `infer → check::validators` upward import per.
-    let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
+    // `infer → check::validators` upward import per. Capability marker var_ids
+    // are merged in after the capability loop below.
+    let mut exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
@@ -63,24 +64,31 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         param_env.bind(cp.name, cp.const_type);
     }
 
-    // Bind capability names as fresh type variables so the body can
-    // reference them (e.g., `@f () -> int uses Value = Value`).
-    // The concrete type is provided by the caller via `with...in`.
+    // Bind capability names as fresh type variables so the body can reference
+    // them (e.g., `@f () -> int uses Value = Value`). The concrete type is
+    // provided by the caller via `with...in`, so cap_ty MUST stay a unifiable
+    // `Tag::Var` (a `RigidVar` would refuse to unify with the concrete provider
+    // per UN-6, breaking capability provision).
     //
-    // §10.2: capture (cap_var_id, cap_name) for each capability so the
-    // body-check closure can register the capability trait as a bound
-    // on the cap fresh_var. With the bound registered, body-internal
-    // `Cap.method(...)` calls dispatch via the §10.1 bound-chain path:
-    // receiver is the cap fresh_var (`Tag::Var`), my §10.1 wiring sees
-    // its registered bound → cap_name, finds the capability trait in
-    // the registry, and resolves the method via its trait_methods.
+    // The capability trait is registered as a bound on cap_ty (below) so a
+    // body-internal `Cap.method(...)` dispatches via the rigid-receiver
+    // bound-chain. A no-self capability call (`Http.get(...)`) leaves the cap
+    // receiver var otherwise unconstrained; rather than force it concrete (which
+    // would break provision), its var_id is added to the `validate_body_types`
+    // exempt set below so it does not surface a spurious E2005 — a capability
+    // namespace is a parametric marker, not a genuine inference hole.
     let mut capability_var_bounds: Vec<(u32, Name)> = Vec::new();
+    let mut capability_var_ids: Vec<u32> = Vec::new();
     for &cap_name in &sig.capabilities {
         let cap_ty = checker.pool_mut().fresh_var();
         param_env.bind(cap_name, cap_ty);
         let var_id = checker.pool().data(cap_ty);
         capability_var_bounds.push((var_id, cap_name));
+        capability_var_ids.push(var_id);
     }
+    // Exempt capability marker vars from the `validate_body_types` E2005 check:
+    // a no-self capability call leaves its receiver var unconstrained by design.
+    exempt.extend(capability_var_ids.iter().copied());
 
     // Build function type for recursion support
     let fn_type = checker
@@ -252,6 +260,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
             composed_burdens,
+            capability_exempt_var_ids: capability_var_ids,
         },
     );
 
@@ -368,6 +377,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
             composed_burdens,
+            capability_exempt_var_ids: Vec::new(),
         },
     );
 

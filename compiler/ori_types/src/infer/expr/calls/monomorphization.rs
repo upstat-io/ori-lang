@@ -313,9 +313,20 @@ fn build_and_register_body_type_map(
     let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
     crate::pool::substitute::build_mono_body_type_map(pool, var_subst, &mut body_type_map);
     for &(name, concrete) in extra_named {
-        let generic_idx = pool.named(name);
-        if generic_idx != concrete {
-            body_type_map.push((generic_idx, concrete));
+        let named_idx = pool.named(name);
+        if named_idx != concrete {
+            body_type_map.push((named_idx, concrete));
+        }
+        // The impl-level generic also appears as `Tag::RigidVar(name)` in the
+        // method body — `check_impl_method` binds impl type generics as fresh
+        // rigid vars, so a projection like `self.value: T` carries a
+        // `RigidVar(T)` leaf that the `Named`-keyed entry above does NOT reach.
+        // Map it too, else the leaf survives to codegen as `Tag::rigid_var`
+        // (a PC-2 violation that turns fatal once repr-narrowing applies to the
+        // monomorphized struct field).
+        let rigid_idx = pool.rigid_var(name);
+        if rigid_idx != concrete {
+            body_type_map.push((rigid_idx, concrete));
         }
     }
     body_type_map.sort_by_key(|(k, _)| k.raw());

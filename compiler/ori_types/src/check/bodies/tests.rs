@@ -790,6 +790,28 @@ fn test_capability_namespace_receiver_no_spurious_error() {
 }
 
 #[test]
+fn test_capability_no_self_method_dispatch_resolves_clean() {
+    // §10.2: a no-self capability/associated method call (`Http.get(url:)`,
+    // `@get` has no `self`) on a capability namespace must type-check with ZERO
+    // errors. The cap marker var stays a unifiable `Tag::Var` (so caller-side
+    // `with...in` provision unifies it with the concrete provider) and its
+    // var_id is exempt from the `validate_body_types` E2005 check, so the
+    // otherwise-unconstrained no-self receiver var does not surface a spurious
+    // "cannot infer type". This pin fails if the cap exempt regresses (E2005
+    // returns) or if cap_ty is forced to a non-unifiable RigidVar.
+    let (result, _interner) = parse_and_check(
+        "trait Http { @get (url: str) -> str }\n\
+         @fetch (url: str) -> str uses Http = Http.get(url: url);",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected zero errors for no-self capability dispatch `Http.get(url:)`, \
+         got: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
 fn test_method_on_bounded_rigid_receiver_resolves_clean() {
     // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
     // §10.1 bound-chain — no spurious method-not-found from the §06.5 emit.

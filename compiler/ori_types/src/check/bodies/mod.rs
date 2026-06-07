@@ -80,6 +80,12 @@ pub(super) struct BodyOutputs {
     /// registered spec via `TypeRegistry::burden(idx)` without
     /// re-deriving.
     pub composed_burdens: Vec<(Idx, UserBurdenSpec)>,
+    /// Pool `var_id`s of capability marker vars (`uses Cap`) bound in the body.
+    /// A no-self `Cap.method(...)` call leaves its receiver var unconstrained by
+    /// design (the concrete type is provided by the caller's `with...in`); these
+    /// `var_id`s are merged into the `validate_body_types` exempt set so they do
+    /// not surface a spurious E2005. Empty for bodies without `uses` capabilities.
+    pub capability_exempt_var_ids: Vec<u32>,
 }
 
 /// Shared post-inference spine for every body-checking pass (§03.1, §03.2,
@@ -107,10 +113,17 @@ pub(super) fn finalize_body_and_export(
         mono_dispatch_pre_dedup,
         deferred_mono_calls,
         composed_burdens,
+        capability_exempt_var_ids,
     } = outputs;
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
-    run_validator(checker, &expr_types, sig, sig_span);
+    run_validator(
+        checker,
+        &expr_types,
+        sig,
+        sig_span,
+        &capability_exempt_var_ids,
+    );
 
     // Validate conditional-partial-move rejection — emits E2043 for
     // asymmetric field projections of non-Drop owned aggregates across
@@ -181,6 +194,7 @@ pub(super) fn run_validator(
     expr_types: &FxHashMap<ExprIndex, Idx>,
     sig: &FunctionSig,
     sig_span: ori_ir::Span,
+    capability_exempt_var_ids: &[u32],
 ) {
     let validation_errors: Vec<TypeCheckError> = {
         // Scope the immutable borrows (pool, arena) so the subsequent
@@ -224,12 +238,17 @@ pub(super) fn run_validator(
             kind: &expr_kind_of,
             param_span: &param_span_of,
         };
+        // Exempt the function's quantified type-var ids AND any capability
+        // marker var_ids (a no-self `Cap.method(...)` leaves its receiver var
+        // unconstrained by design) from the E2005 unbound-var check.
+        let mut exempt_var_ids = sig.scheme_var_ids.clone();
+        exempt_var_ids.extend_from_slice(capability_exempt_var_ids);
         validate_body_types(
             pool,
             expr_types,
             sig,
             sig_span,
-            &sig.scheme_var_ids,
+            &exempt_var_ids,
             &ctx,
             &mut errs,
         );

@@ -349,6 +349,7 @@ fn check_impl_method(
             mono_dispatch_pre_dedup,
             deferred_mono_calls,
             composed_burdens,
+            capability_exempt_var_ids: Vec::new(),
         },
     );
 
