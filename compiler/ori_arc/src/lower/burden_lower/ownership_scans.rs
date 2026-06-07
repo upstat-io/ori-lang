@@ -137,17 +137,49 @@ pub(super) fn group_last_uses_filtered(
 /// Seed = every var transferred out at a terminator (`terminator_transfer`)
 /// plus every var consumed at an owned instruction position. A value reaching
 /// one of those transfer points THROUGH a `Let { Var }` move-alias chain
-/// (`%dst = %src` where `%src` is used exactly once) also transfers out: its
-/// sole use forwards ownership to `%dst`. Backward-propagate: for every
-/// move-alias whose `dst` is in the set, add `src`. Iterate to a fixpoint so
-/// multi-hop chains (`%2 = %1; %3 = %2; Return %3`) propagate. The returned set
-/// suppresses the last-use `BurdenDec` of every move source in a transfer chain.
+/// (`%dst = %src` where the alias is `%src`'s LAST use) also transfers out: that
+/// terminal use forwards `%src`'s remaining ownership to `%dst`. Backward-
+/// propagate: for every move-alias whose `dst` is in the set, add `src`. Iterate
+/// to a fixpoint so multi-hop chains (`%2 = %1; %3 = %2; Return %3`) propagate.
+/// The returned set suppresses the last-use `BurdenDec` of every move source in
+/// a transfer chain.
+///
+/// LAST-USE gate (not use-count-1): a use-once source's sole use is trivially
+/// its last use (the prior `use_counts == 1` test is the special case). A
+/// DUP'd source (`%s` used >= 2 — earlier uses each consume a duplicate
+/// reference) still forwards its ORIGINAL allocation reference at its TERMINAL
+/// `Let { Var }` use; emitting that terminal `BurdenDec` releases a reference the
+/// move hands to `%dst`'s consuming lineage (RL-2 net=-1, an early over-release
+/// that collapses a COW receiver's RC below the live alias count — BUG-04-142
+/// witness: `let a; let b = a; let c = a.updated(..)` decs `a` before the
+/// consuming `updated`, so `is_unique` takes the in-place path on a still-aliased
+/// buffer). Only the terminal-move source's last-use DEC is suppressed here; its
+/// FRESH inc is KEPT for the dup case (mod.rs gates the symmetric inc-suppression
+/// on `use_counts <= 1`), since that inc supplies the duplicate references the
+/// non-terminal uses consume. Per AIMS RL-2 `TerminalUse`: a move IS an
+/// ownership-transferring terminal use (`AimsProof.Realization::RL2_dec_at_last_use`).
 pub(super) fn compute_transfer_via_move_alias(
     func: &ArcFunction,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
-    use_counts: &FxHashMap<ArcVarId, u32>,
+    last_use_points: &[(ArcVarId, usize, usize)],
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
+    // Global-last-use lookup: a var with exactly ONE `last_use_points` entry is
+    // used in exactly one block, and that entry is its global last use. A var
+    // used in >= 2 blocks has >= 2 entries (one per block) — its terminal use is
+    // not statically pin-pointed here, so it is NOT eligible for terminal-move
+    // suppression (conservative: keep its dec, never over-suppress cross-block).
+    let mut last_use_entry_count: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    let mut last_use_pos: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
+    for &(var, b, i) in last_use_points {
+        *last_use_entry_count.entry(var).or_default() += 1;
+        last_use_pos.insert(var, (b, i));
+    }
+    let is_global_last_use = |src: &ArcVarId, b: usize, i: usize| -> bool {
+        last_use_entry_count.get(src).copied().unwrap_or(0) == 1
+            && last_use_pos.get(src) == Some(&(b, i))
+    };
+
     let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
     // Seed: terminator-transferred vars.
     for set in terminator_transfer_per_block {
@@ -159,17 +191,18 @@ pub(super) fn compute_transfer_via_move_alias(
             transferred.extend(instr_transfer_vars(instr, func).iter().copied());
         }
     }
-    // Move-alias edges `dst -> src` (src used exactly once = a move).
+    // Move-alias edges `dst -> src` (the `%dst = %src` alias is `%src`'s terminal
+    // use = a move; dup'd sources qualify only at their terminal `Let { Var }`).
     let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
-    for block in &func.blocks {
-        for instr in &block.body {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::Let {
                 dst,
                 value: ArcValue::Var(src),
                 ..
             } = instr
             {
-                if use_counts.get(src).copied().unwrap_or(0) == 1 {
+                if is_global_last_use(src, block_idx, instr_idx) {
                     move_edges.push((*dst, *src));
                 }
             }

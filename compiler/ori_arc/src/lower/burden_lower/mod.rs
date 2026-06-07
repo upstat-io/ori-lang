@@ -356,7 +356,7 @@ pub(crate) fn emit_burden_ops<'a>(
     let transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
-        &use_counts,
+        ctx.last_use_points(),
         &owned_vars_needing_rc,
     );
 
@@ -371,7 +371,17 @@ pub(crate) fn emit_burden_ops<'a>(
     // shared allocation under the probe — the move-alias dec stays suppressed in
     // emit_last_use_decs on both paths).
     for &var in &transfer_via_move_alias {
-        inc_suppressed_vars.insert(var);
+        // Pure move source (used <= once): the value flows straight through to
+        // the consumer, so BOTH halves of its FRESH pair are suppressed. A DUP'd
+        // move source (used >= 2) forwards only its ORIGINAL allocation reference
+        // at its terminal move; its FRESH inc supplies the DUPLICATE references
+        // the non-terminal uses consume and MUST be kept — only the terminal
+        // last-use dec is suppressed (in `transfer_via_move_alias`). Suppressing
+        // the inc here would under-count and collapse a COW receiver's RC below
+        // the live alias count (BUG-04-142). Per AIMS RL-1/RL-2.
+        if use_counts.get(&var).copied().unwrap_or(0) <= 1 {
+            inc_suppressed_vars.insert(var);
+        }
     }
 
     // Symmetry for borrowed terminator-Invoke args: `invoke_terminator_borrowed_args`

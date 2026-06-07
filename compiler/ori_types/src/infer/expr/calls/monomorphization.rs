@@ -244,6 +244,9 @@ pub(super) fn maybe_record_method_mono_instance(
     // type AND its structurally-interned construction-site `Idx` with the
     // substituted field layout instead of the generic `Box<T>` fallback. The
     // helper recurses into nested generic fields (e.g. `Wrapper<Box<int>>`).
+    // The mono-dispatch shell key derives from the receiver's `Tag::Applied`
+    // structure directly (`Pool::generic_shell`), so this resolution does not
+    // collapse the `(method, Box<_>)` dispatch key.
     resolve_applied_type(pool, receiver, &struct_type_params);
 
     let instance = MonoInstance::new_method(

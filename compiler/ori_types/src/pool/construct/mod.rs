@@ -327,7 +327,17 @@ impl Pool {
     /// non-generic struct/enum/newtype) carry no generic head args to erase
     /// and are copied faithfully via `re_intern_type`.
     pub fn generic_shell(&mut self, source: &Pool, receiver: Idx) -> Idx {
-        let resolved = source.resolve_fully(receiver);
+        // Derive the shell from the receiver's own `Tag::Applied` structure when
+        // present. Do NOT `resolve_fully` first: a concrete generic instantiation
+        // (`Box<int>`) may carry a registered `Applied -> Struct` resolution (for
+        // codegen field layout) that would collapse it to its concrete struct and
+        // erase the generic shell. `resolve_fully` is only needed to reach an
+        // `Applied` through a `Named` indirection.
+        let resolved = if source.tag(receiver) == Tag::Applied {
+            receiver
+        } else {
+            source.resolve_fully(receiver)
+        };
         if source.tag(resolved) == Tag::Applied {
             let name = source.applied_name(resolved);
             let arity = source.applied_arg_count(resolved);
