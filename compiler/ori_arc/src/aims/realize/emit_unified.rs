@@ -2707,22 +2707,27 @@ fn relocate_borrowed_terminator_aggregate_dec(
         compute_borrowed_terminator_aggregate_relocations(func, pool, interner, contracts);
     let jt_reps = compute_jump_threaded_reps(func, None);
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
-    // Strip the coalesce-doomed inc + dec pair from each call block (one of each —
-    // the matched pair the Phase-5 walk emitted before the terminator).
+    // Strip the coalesce-doomed inc + dec pair from each call block. The
+    // Phase-5 walk emitted the targeted pair immediately before the
+    // terminator, so the LAST matching inc and LAST matching dec are the
+    // pair to remove — an earlier borrow-read call on the same rep may have
+    // left an earlier (legitimate) pair that a first-match strip would
+    // wrongly remove, double-releasing on the earlier site and leaking the
+    // pre-terminator pair into coalescing.
     for &(b, recv, _, _) in &relocations {
         let rep = rep_of(recv);
         if let Some(block) = func.blocks.get_mut(b) {
             if let Some(idx) = block
                 .body
                 .iter()
-                .position(|i| matches!(i, ArcInstr::BurdenInc { var } if rep_of(*var) == rep))
+                .rposition(|i| matches!(i, ArcInstr::BurdenInc { var } if rep_of(*var) == rep))
             {
                 block.body.remove(idx);
             }
             if let Some(idx) = block
                 .body
                 .iter()
-                .position(|i| matches!(i, ArcInstr::BurdenDec { var } if rep_of(*var) == rep))
+                .rposition(|i| matches!(i, ArcInstr::BurdenDec { var } if rep_of(*var) == rep))
             {
                 block.body.remove(idx);
             }
@@ -6423,6 +6428,12 @@ fn fresh_self_alloc_dst(instr: &ArcInstr, list_take_name: ori_ir::Name) -> Optio
 /// fresh one — eliding its inc over-frees the shared buffer), which the
 /// `owned_consumed` / forwarder machinery owns; keeping this builtin-only is the
 /// conservative scope. Spec: Annex E §AIMS RL-1 + RL-2.
+///
+/// LIMITATION: recognizes `Apply` INSTRUCTION results only. An `Invoke`
+/// TERMINATOR result (whose fresh-site `BurdenInc` is prepended to the
+/// normal-successor block) is NOT recognized, so the M1 elision does not
+/// fire for self-allocating builtins called via `Invoke`; terminator-result
+/// recognition lands with the Phase-5 broad-shape emission completion.
 fn fresh_collection_source_apply_dst(
     instr: &ArcInstr,
     func: &ArcFunction,

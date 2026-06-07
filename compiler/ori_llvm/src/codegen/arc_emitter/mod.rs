@@ -348,7 +348,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    //.A — tagged pointer encoder/decoder helpers.
+    // Tagged-pointer encoder/decoder helpers.
     //
     // A tagged-pointer enum value is a single `i64` slot containing
     // `(payload_ptr | variant_tag)`. The low 3 bits hold the variant
@@ -360,9 +360,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // Project, Switch, RcInc/Dec, Drop) decide WHEN to use them based on
     // `get_tagged_ptr_encoding`.
     //
-    // Spec: (tagged pointer encoding), (codegen consumer
-    // inventory). The wired consumers.A all flow through these
-    // three primitives — never re-derive the masks at call sites.
+    // All consumers flow through these three primitives — never re-derive
+    // the masks at call sites.
 
     /// Encode a payload pointer with a variant tag into the i64 slot.
     ///
@@ -379,7 +378,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Unit variants pass an integer zero (no payload to encode).
     #[allow(
         dead_code,
-        reason = ".A — wired by codegen consumers in subsequent commits"
+        reason = "tagged-pointer encoding primitive — not yet wired into codegen consumers"
     )]
     pub(super) fn tagged_ptr_encode(
         &mut self,
@@ -419,7 +418,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// an `RcPointer` value through ARC IR).
     #[allow(
         dead_code,
-        reason = ".A — wired by codegen consumers in subsequent commits"
+        reason = "tagged-pointer encoding primitive — not yet wired into codegen consumers"
     )]
     pub(super) fn tagged_ptr_decode_tag(
         &mut self,
@@ -452,7 +451,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `ptrtoint` first), matching `tagged_ptr_decode_tag`.
     #[allow(
         dead_code,
-        reason = ".A — wired by codegen consumers in subsequent commits"
+        reason = "tagged-pointer encoding primitive — not yet wired into codegen consumers"
     )]
     pub(super) fn tagged_ptr_decode_ptr(
         &mut self,
@@ -486,23 +485,37 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Falls back to on-the-fly canonical computation for types with variable
     /// residue (e.g., `Option<Var(T→str)>`) that weren't in the `ReprPlan`.
     pub(super) fn get_niche_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
-        self.repr_plan?;
+        let enum_repr = self.enum_repr_for(ty)?;
+        match &enum_repr.tag {
+            ori_repr::EnumTag::Niche { .. } => {
+                Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
+            }
+            // Niche-only. `None` (tagless), `TaggedPtr`, and `Explicit`
+            // are each dispatched by their own query — niche-specific
+            // consumers (which `.unwrap` the niche field) must not see
+            // a tagless or tagged-ptr encoding.
+            ori_repr::EnumTag::Explicit { .. }
+            | ori_repr::EnumTag::TaggedPtr
+            | ori_repr::EnumTag::None => None,
+        }
+    }
+
+    /// Resolve the `EnumRepr` for `ty` — `ReprPlan`-first, with on-the-fly
+    /// canonical recomputation for enum-shaped types with variable residue
+    /// (e.g., `Option<Var(T→str)>`) that weren't in the plan.
+    ///
+    /// SSOT for the plan-lookup + canonical-fallback ladder shared by
+    /// [`Self::get_niche_encoding`], [`Self::is_tagless_enum`], and
+    /// [`Self::get_tagged_ptr_encoding`] — never re-derive it at call sites.
+    /// The fallback delegates to `ori_repr::canonical_enum_for_type`, so the
+    /// layout authority stays in `ori_repr` either way.
+    fn enum_repr_for(&self, ty: Idx) -> Option<std::borrow::Cow<'_, ori_repr::EnumRepr>> {
+        let plan = self.repr_plan?;
         let resolved = self.pool.resolve_fully(ty);
 
         // Direct lookup in the plan — fast path for most types.
-        if let Some(enum_repr) = self.repr_plan.unwrap().get_enum_repr(resolved) {
-            return match &enum_repr.tag {
-                ori_repr::EnumTag::Niche { .. } => {
-                    Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
-                }
-                // Niche-only. `None` (tagless), `TaggedPtr`, and `Explicit`
-                // are each dispatched by their own query — niche-specific
-                // consumers (which `.unwrap` the niche field) must not see
-                // a tagless or tagged-ptr encoding.
-                ori_repr::EnumTag::Explicit { .. }
-                | ori_repr::EnumTag::TaggedPtr
-                | ori_repr::EnumTag::None => None,
-            };
+        if let Some(enum_repr) = plan.get_enum_repr(resolved) {
+            return Some(std::borrow::Cow::Borrowed(enum_repr));
         }
 
         // Fallback: recompute canonical for types not in the plan (variable residue).
@@ -512,14 +525,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
         ) {
             if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
-                return match &enum_repr.tag {
-                    ori_repr::EnumTag::Niche { .. } => {
-                        Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
-                    }
-                    ori_repr::EnumTag::Explicit { .. }
-                    | ori_repr::EnumTag::TaggedPtr
-                    | ori_repr::EnumTag::None => None,
-                };
+                return Some(std::borrow::Cow::Owned(enum_repr));
             }
         }
 
@@ -534,30 +540,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// the tagless case through their struct-shaped paths (direct field GEP,
     /// recursive-field boxing) rather than the niche or explicit-tag paths.
     pub(super) fn is_tagless_enum(&self, ty: Idx) -> bool {
-        let Some(plan) = self.repr_plan else {
-            return false;
-        };
-        let resolved = self.pool.resolve_fully(ty);
-        if let Some(enum_repr) = plan.get_enum_repr(resolved) {
-            return matches!(enum_repr.tag, ori_repr::EnumTag::None);
-        }
-        // Fallback: recompute canonical for types not in the plan.
-        let tag = self.pool.tag(resolved);
-        if matches!(
-            tag,
-            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
-        ) {
-            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
-                return matches!(enum_repr.tag, ori_repr::EnumTag::None);
-            }
-        }
-        false
+        self.enum_repr_for(ty)
+            .is_some_and(|enum_repr| matches!(enum_repr.tag, ori_repr::EnumTag::None))
     }
 
     /// Look up the tagged-pointer encoding for an enum type, if present.
     ///
     /// Mirrors [`get_niche_encoding`] but returns `Some` only for
-    /// `EnumTag::TaggedPtr`. Used by.A codegen consumers to dispatch
+    /// `EnumTag::TaggedPtr`. Used by codegen consumers to dispatch
     /// to tagged-pointer encode/decode paths instead of struct-based GEP.
     ///
     /// Returns `None` when:
@@ -566,42 +556,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// - The enum uses `Explicit`, `Niche`, or `None` tagging.
     #[allow(
         dead_code,
-        reason = ".A — wired by codegen consumers in subsequent commits"
+        reason = "tagged-pointer encoding primitive — not yet wired into codegen consumers"
     )]
     pub(super) fn get_tagged_ptr_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
-        self.repr_plan?;
-        let resolved = self.pool.resolve_fully(ty);
-
-        if let Some(enum_repr) = self.repr_plan.unwrap().get_enum_repr(resolved) {
-            return match &enum_repr.tag {
-                ori_repr::EnumTag::TaggedPtr => {
-                    Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
-                }
-                ori_repr::EnumTag::Explicit { .. }
-                | ori_repr::EnumTag::Niche { .. }
-                | ori_repr::EnumTag::None => None,
-            };
-        }
-
-        // Fallback: recompute canonical for types not in the plan.
-        let tag = self.pool.tag(resolved);
-        if matches!(
-            tag,
-            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
-        ) {
-            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
-                return match &enum_repr.tag {
-                    ori_repr::EnumTag::TaggedPtr => {
-                        Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
-                    }
-                    ori_repr::EnumTag::Explicit { .. }
-                    | ori_repr::EnumTag::Niche { .. }
-                    | ori_repr::EnumTag::None => None,
-                };
+        let enum_repr = self.enum_repr_for(ty)?;
+        match &enum_repr.tag {
+            ori_repr::EnumTag::TaggedPtr => {
+                Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
             }
+            ori_repr::EnumTag::Explicit { .. }
+            | ori_repr::EnumTag::Niche { .. }
+            | ori_repr::EnumTag::None => None,
         }
-
-        None
     }
 
     /// Only applies to user structs/tuples — enum payloads, closure envs,

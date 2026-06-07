@@ -56,11 +56,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let val = self.var(var);
         if val.is_none() {
-            tracing::warn!(
+            // An RcInc on an undefined variable is an upstream invariant
+            // violation (use-before-def in realized ARC IR). Skipping it
+            // silently under-counts the reference and frees live memory;
+            // record a codegen error so the compile fails loudly instead.
+            tracing::error!(
                 var = var.raw(),
                 ?strategy,
-                "skipping RcInc on undefined variable"
+                "RcInc on undefined variable — realized ARC IR use-before-def"
             );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcInc on undefined variable v{} ({strategy:?}) — realized ARC IR use-before-def",
+                var.raw()
+            ));
             return;
         }
 
@@ -89,11 +97,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn emit_rc_dec(&mut self, var: ArcVarId, strategy: RcStrategy, func: &ArcFunction) {
         let val = self.var(var);
         if val.is_none() {
-            tracing::warn!(
+            // An RcDec on an undefined variable is an upstream invariant
+            // violation (use-before-def in realized ARC IR). Skipping it
+            // silently leaks the allocation; record a codegen error so the
+            // compile fails loudly instead.
+            tracing::error!(
                 var = var.raw(),
                 ?strategy,
-                "skipping RcDec on undefined variable"
+                "RcDec on undefined variable — realized ARC IR use-before-def"
             );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcDec on undefined variable v{} ({strategy:?}) — realized ARC IR use-before-def",
+                var.raw()
+            ));
             return;
         }
 

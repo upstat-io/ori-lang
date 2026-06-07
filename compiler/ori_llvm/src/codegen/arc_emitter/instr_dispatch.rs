@@ -598,10 +598,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         );
                     }
                     other => {
+                        // Release builds must not silently skip cleanup for a
+                        // drop shape this arm does not support — record a
+                        // codegen error so the compile fails loudly.
                         debug_assert!(
                             false,
                             "BurdenDecPartial on unsupported drop shape: {other:?}"
                         );
+                        self.builder.record_codegen_error_with_msg(format!(
+                            "BurdenDecPartial on unsupported drop shape: {other:?}"
+                        ));
                     }
                 }
             }
@@ -635,11 +641,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     user_drop: _,
                 } = drop_info.kind
                 else {
+                    // Release builds must not silently skip the pre-SetTag
+                    // payload walk — record a codegen error so the compile
+                    // fails loudly.
                     debug_assert!(
                         false,
                         "BurdenDecVariant on non-enum drop shape: {:?}",
                         drop_info.kind
                     );
+                    self.builder.record_codegen_error_with_msg(format!(
+                        "BurdenDecVariant on non-enum drop shape: {:?}",
+                        drop_info.kind
+                    ));
                     return;
                 };
                 // Spill a by-value aggregate base to a stack alloca before
