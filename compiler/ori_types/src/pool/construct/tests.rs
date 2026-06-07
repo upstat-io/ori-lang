@@ -509,3 +509,94 @@ fn enum_flags_propagate() {
     assert!(flags.contains(TypeFlags::IS_COMPOSITE));
     assert!(!flags.has_errors());
 }
+
+// === generic_shell ===
+
+#[test]
+fn generic_shell_same_for_two_instantiations() {
+    let mut source = Pool::new();
+    let name = ori_ir::Name::from_raw(200);
+    let box_int = source.applied(name, &[Idx::INT]);
+    let box_str = source.applied(name, &[Idx::STR]);
+
+    let mut shell_pool = Pool::new();
+    let s_int = shell_pool.generic_shell(&source, box_int);
+    let s_str = shell_pool.generic_shell(&source, box_str);
+
+    assert_eq!(
+        s_int, s_str,
+        "Box<int> and Box<str> must shell to a byte-identical Idx"
+    );
+    assert_eq!(shell_pool.tag(s_int), Tag::Applied);
+    assert_eq!(shell_pool.applied_name(s_int), name);
+    assert_eq!(shell_pool.applied_arg_count(s_int), 1);
+    assert_eq!(
+        shell_pool.tag(shell_pool.applied_arg(s_int, 0)),
+        Tag::BoundVar
+    );
+}
+
+#[test]
+fn generic_shell_idempotent() {
+    let mut source = Pool::new();
+    let name = ori_ir::Name::from_raw(201);
+    let box_int = source.applied(name, &[Idx::INT]);
+
+    let mut shell_pool = Pool::new();
+    let first = shell_pool.generic_shell(&source, box_int);
+    let second = shell_pool.generic_shell(&source, box_int);
+
+    assert_eq!(first, second, "shelling the same receiver is deterministic");
+}
+
+#[test]
+fn generic_shell_collapses_nested_arg() {
+    // `impl<T> Box<T>` with T = Option<int> shells the whole arg, so
+    // Box<Option<int>> and Box<int> share one shell (same impl block).
+    let mut source = Pool::new();
+    let name = ori_ir::Name::from_raw(202);
+    let opt_int = source.option(Idx::INT);
+    let box_opt = source.applied(name, &[opt_int]);
+    let box_int = source.applied(name, &[Idx::INT]);
+
+    let mut shell_pool = Pool::new();
+    let s_opt = shell_pool.generic_shell(&source, box_opt);
+    let s_int = shell_pool.generic_shell(&source, box_int);
+
+    assert_eq!(
+        s_opt, s_int,
+        "Box<Option<int>> and Box<int> are the same impl block — one shell"
+    );
+}
+
+#[test]
+fn generic_shell_distinct_for_distinct_heads() {
+    let mut source = Pool::new();
+    let box_name = ori_ir::Name::from_raw(203);
+    let wrap_name = ori_ir::Name::from_raw(204);
+    let box_int = source.applied(box_name, &[Idx::INT]);
+    let wrap_int = source.applied(wrap_name, &[Idx::INT]);
+
+    let mut shell_pool = Pool::new();
+    let s_box = shell_pool.generic_shell(&source, box_int);
+    let s_wrap = shell_pool.generic_shell(&source, wrap_int);
+
+    assert_ne!(
+        s_box, s_wrap,
+        "different generic heads must shell to distinct Idx"
+    );
+}
+
+#[test]
+fn generic_shell_distinct_for_distinct_arity() {
+    let mut source = Pool::new();
+    let name = ori_ir::Name::from_raw(205);
+    let one = source.applied(name, &[Idx::INT]);
+    let two = source.applied(name, &[Idx::INT, Idx::STR]);
+
+    let mut shell_pool = Pool::new();
+    let s_one = shell_pool.generic_shell(&source, one);
+    let s_two = shell_pool.generic_shell(&source, two);
+
+    assert_ne!(s_one, s_two, "same head, different arity must differ");
+}

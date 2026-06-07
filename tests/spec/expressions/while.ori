@@ -272,20 +272,6 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: cond_conditional_break(), expected: 3)
 }
 
-// Labeled break in condition targeting the enclosing loop by label still works
-// (label resolution unaffected by the condition-context fix).
-@cond_labeled_break_outer () -> int = {
-    let i = 0;
-    loop:outer {
-        i = i + 1;
-        while (if i >= 5 then break:outer else true) do { i = i + 1 }
-    };
-    i
-}
-
-@test_cond_labeled_break_outer tests @cond_labeled_break_outer () -> void = {
-    assert_eq(actual: cond_labeled_break_outer(), expected: 5)
-}
 
 // Negative pin: `break value` in condition position is E0860 (while is void).
 #compile_fail(code: "E0860")

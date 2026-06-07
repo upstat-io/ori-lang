@@ -1,4 +1,4 @@
-use ori_ir::StringInterner;
+use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool};
 
 use super::{collect_mono_functions, mangle_mono_name};
@@ -423,4 +423,166 @@ fn mangle_method_swapped_args_distinct() {
     assert_eq!(interner.lookup(m1), "bar$m$3_int$im$3_str");
     assert_eq!(interner.lookup(m2), "bar$m$3_str$im$3_int");
     assert_ne!(m1, m2);
+}
+
+/// Build a method `FunctionSig` whose `self` param has type `self_ty`.
+/// The receiver shell of `self_ty` keys the impl-method dispatch table.
+fn make_method_sig(interner: &StringInterner, method_name: Name, self_ty: Idx) -> FunctionSig {
+    let self_param = interner.intern("self");
+    FunctionSig {
+        name: method_name,
+        type_params: vec![interner.intern("T")],
+        const_params: vec![],
+        param_names: vec![self_param],
+        param_types: vec![self_ty],
+        return_type: Idx::INT,
+        capabilities: vec![],
+        is_public: true,
+        is_test: false,
+        is_main: false,
+        is_fbip: false,
+        type_param_bounds: vec![vec![]],
+        where_clauses: vec![],
+        generic_param_mapping: vec![None],
+        scheme_var_ids: vec![0],
+        required_params: 1,
+        param_defaults: vec![],
+        param_hashes: vec![0],
+        return_hash: 0,
+    }
+}
+
+#[test]
+fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
+    // Two impl blocks register method `get` on distinct generic heads
+    // (`Box<T>` and `Wrap<T>`). The (name, shell)-keyed table resolves each
+    // receiver to its own sig — the name-only first-match would have dropped
+    // the second registration and mis-dispatched one of the instances.
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let get_name = interner.intern("get");
+    let box_name = interner.intern("Box");
+    let wrap_name = interner.intern("Wrap");
+
+    let bv = pool.bound_var(0);
+    let box_generic = pool.applied(box_name, &[bv]);
+    let wrap_generic = pool.applied(wrap_name, &[bv]);
+    let box_int = pool.applied(box_name, &[Idx::INT]);
+    let wrap_int = pool.applied(wrap_name, &[Idx::INT]);
+
+    let sig_box = make_method_sig(&interner, get_name, box_generic);
+    let sig_wrap = make_method_sig(&interner, get_name, wrap_generic);
+    let impl_sigs = vec![(get_name, sig_box), (get_name, sig_wrap)];
+
+    let inst_box = MonoInstance::new_method(
+        get_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![],
+        box_int,
+        vec![box_int],
+        Idx::INT,
+        Vec::new(),
+    );
+    let inst_wrap = MonoInstance::new_method(
+        get_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![],
+        wrap_int,
+        vec![wrap_int],
+        Idx::INT,
+        Vec::new(),
+    );
+
+    let mono_fns = collect_mono_functions(
+        &[inst_box, inst_wrap],
+        &[],
+        &impl_sigs,
+        &[],
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(
+        mono_fns.len(),
+        2,
+        "both receiver-distinct method instances must resolve, got: {mono_fns:?}"
+    );
+    // Each resolved sig's self-param type must match its own receiver shell.
+    let box_fn = mono_fns
+        .iter()
+        .find(|m| m.sig.param_types == vec![box_int])
+        .unwrap_or_else(|| panic!("no MonoFunction for Box<int>.get: {mono_fns:?}"));
+    assert_eq!(box_fn.original_name, get_name);
+    let wrap_fn = mono_fns
+        .iter()
+        .find(|m| m.sig.param_types == vec![wrap_int])
+        .unwrap_or_else(|| panic!("no MonoFunction for Wrap<int>.get: {mono_fns:?}"));
+    assert_eq!(wrap_fn.original_name, get_name);
+}
+
+#[test]
+fn collect_skips_method_when_no_shell_matches() {
+    // A method instance whose receiver shell matches no registered impl_sig
+    // misses cleanly (silent skip), never mis-dispatches to a same-named
+    // method on a different receiver.
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let get_name = interner.intern("get");
+    let box_name = interner.intern("Box");
+    let other_name = interner.intern("Other");
+
+    let bv = pool.bound_var(0);
+    let box_generic = pool.applied(box_name, &[bv]);
+    let other_int = pool.applied(other_name, &[Idx::INT]);
+
+    let sig_box = make_method_sig(&interner, get_name, box_generic);
+    let impl_sigs = vec![(get_name, sig_box)];
+
+    // Receiver is Other<int> — name matches `get` but shell does not.
+    let inst = MonoInstance::new_method(
+        get_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![],
+        other_int,
+        vec![other_int],
+        Idx::INT,
+        Vec::new(),
+    );
+
+    let mono_fns = collect_mono_functions(&[inst], &[], &impl_sigs, &[], &interner, &pool);
+
+    assert!(
+        mono_fns.is_empty(),
+        "receiver with no matching shell must miss cleanly, got: {mono_fns:?}"
+    );
+}
+
+#[test]
+fn mangle_method_distinct_per_receiver_instantiation() {
+    // Box<int>.unwrap and Box<str>.unwrap carry distinct impl_args, so their
+    // mangled names differ even though method name + receiver shell match.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let unwrap_name = interner.intern("unwrap");
+
+    let m_int = mangle_mono_name(
+        unwrap_name,
+        &[],
+        &[GenericArg::Type(Idx::INT)],
+        &[],
+        &interner,
+        &pool,
+    );
+    let m_str = mangle_mono_name(
+        unwrap_name,
+        &[],
+        &[GenericArg::Type(Idx::STR)],
+        &[],
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(interner.lookup(m_int), "unwrap$m$3_int$im$");
+    assert_eq!(interner.lookup(m_str), "unwrap$m$3_str$im$");
+    assert_ne!(m_int, m_str);
 }

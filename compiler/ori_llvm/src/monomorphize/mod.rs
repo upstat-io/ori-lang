@@ -67,10 +67,24 @@ pub fn collect_mono_functions(
     // INVARIANT: receiver-type discrimination is enforced upstream by MonoInstance dedup.
     let fn_sig_by_name: FxHashMap<Name, &FunctionSig> =
         function_sigs.iter().map(|s| (s.name, s)).collect();
-    let mut impl_sig_by_name: FxHashMap<Name, &FunctionSig> =
+    // Inherent-method sigs are keyed by (method_name, receiver generic shell).
+    // The shell (`Box<_>`) discriminates per-receiver impl blocks so
+    // `Box<int>.unwrap` and `Box<str>.unwrap` resolve to distinct mono
+    // functions instead of colliding on a name-only first-match.
+    //
+    // `shell_pool` is a dedicated interning context: shells are content-
+    // addressed there, leaving the shared read-only `pool` untouched. The
+    // generic sig's `self` param type carries the impl block's receiver
+    // pattern; its shell matches every concrete receiver's shell at lookup.
+    let mut shell_pool = Pool::new();
+    let mut impl_sig_by_name: FxHashMap<(Name, Option<Idx>), &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
     for (name, sig) in impl_sigs {
-        impl_sig_by_name.entry(*name).or_insert(sig);
+        let shell = sig
+            .param_types
+            .first()
+            .map(|&self_ty| shell_pool.generic_shell(pool, self_ty));
+        impl_sig_by_name.entry((*name, shell)).or_insert(sig);
     }
     // Consulted after `function_sigs` misses on the top-level path; first registration wins.
     let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
@@ -89,7 +103,10 @@ pub fn collect_mono_functions(
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId(idx as u32);
         let (lookup, is_imported) = if instance.receiver_type.is_some() {
-            (impl_sig_by_name.get(&instance.fn_name), false)
+            let shell = instance
+                .receiver_type
+                .map(|r| shell_pool.generic_shell(pool, r));
+            (impl_sig_by_name.get(&(instance.fn_name, shell)), false)
         } else if let Some(sig) = fn_sig_by_name.get(&instance.fn_name) {
             (Some(sig), false)
         } else {

@@ -309,6 +309,38 @@ impl Pool {
         self.intern_complex(Tag::Applied, &extra)
     }
 
+    /// Intern the generic shell of `receiver` (read from `source`) into `self`.
+    ///
+    /// Maps a concrete instantiation `Box<int>` to its generic shell `Box<_>`
+    /// so every instantiation of one impl block (`Box<int>`, `Box<str>`,
+    /// `Box<[int]>`) interns to a BYTE-IDENTICAL shell `Idx`. The shell keys
+    /// the per-receiver inherent-method monomorphization dispatch table.
+    ///
+    /// `self` is a dedicated interning pool; `source` is the read-only type
+    /// pool the receiver lives in. The split keeps `source` immutable (codegen
+    /// pools are shared `&Pool`), while structural interning in `self` still
+    /// yields stable, content-addressed shell identities.
+    ///
+    /// For `Tag::Applied` the head's direct type arguments are erased to
+    /// positional `Tag::BoundVar`s — the head name + arity discriminate the
+    /// impl block; argument contents do not. Non-applied receivers (a
+    /// non-generic struct/enum/newtype) carry no generic head args to erase
+    /// and are copied faithfully via `re_intern_type`.
+    pub fn generic_shell(&mut self, source: &Pool, receiver: Idx) -> Idx {
+        let resolved = source.resolve_fully(receiver);
+        if source.tag(resolved) == Tag::Applied {
+            let name = source.applied_name(resolved);
+            let arity = source.applied_arg_count(resolved);
+            let args: Vec<Idx> = (0..arity)
+                .map(|i| self.bound_var(u32::try_from(i).unwrap_or(u32::MAX)))
+                .collect();
+            self.applied(name, &args)
+        } else {
+            let mut cache = rustc_hash::FxHashMap::default();
+            crate::pool::re_intern::re_intern_type(source, resolved, self, &mut cache)
+        }
+    }
+
     /// Create a named type reference.
     #[allow(
         clippy::cast_possible_truncation,
