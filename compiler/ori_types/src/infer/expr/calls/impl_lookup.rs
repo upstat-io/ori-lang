@@ -389,6 +389,7 @@ pub(super) fn lookup_impl_method(
                 // receiver's type for the second-call dispatch instead of
                 // a fresh unification var.
                 let raw_sig = tm.signature;
+                let method_has_self = tm.has_self;
                 let where_clause_metadata = tm.where_clause_metadata.clone();
                 let generic_param_metadata = tm.generic_param_metadata.clone();
                 let scheme_var_ids = tm.scheme_var_ids.clone();
@@ -410,11 +411,12 @@ pub(super) fn lookup_impl_method(
                 };
                 LookupOutcome::Found {
                     sig,
-                    // Bound-chain dispatch is for `receiver.method(...)` calls,
-                    // which inherently expect instance methods (have `self`).
-                    // TODO(typeck): capability methods without self need
-                    // has_self: false dispatch path.
-                    has_self: true,
+                    // Use the trait method's actual self-ness: an instance method
+                    // (`hello(self)`) consumes the receiver as `self`; a no-`self`
+                    // capability/associated method (`get(url: str)`) does not, so
+                    // the arity check (`impl_signature.rs` `skip = has_self`) must
+                    // count every declared param as an explicit argument.
+                    has_self: method_has_self,
                     where_clause_metadata,
                     generic_param_metadata,
                     scheme_var_ids,

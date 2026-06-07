@@ -280,9 +280,14 @@ fn build_trait_method_sig(
             Idx::ERROR,
         );
 
+    let has_self = params
+        .first()
+        .is_some_and(|p| p.name == checker.well_known().self_kw);
+
     TraitMethodDef {
         name: sig.name,
         signature,
+        has_self,
         has_default: false,
         default_body: None,
         scheme_var_ids,
@@ -328,9 +333,14 @@ fn build_trait_default_method(
             Idx::ERROR,
         );
 
+    let has_self = params
+        .first()
+        .is_some_and(|p| p.name == checker.well_known().self_kw);
+
     TraitMethodDef {
         name: method.name,
         signature,
+        has_self,
         has_default: true,
         default_body: Some(method.body),
         scheme_var_ids,

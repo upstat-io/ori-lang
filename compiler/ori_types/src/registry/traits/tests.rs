@@ -30,6 +30,7 @@ fn register_and_lookup_trait() {
         TraitMethodDef {
             name: test_name("fmt"),
             signature: Idx::from_raw(300),
+            has_self: true,
             has_default: false,
             default_body: None,
             scheme_var_ids: Vec::new(),
@@ -435,6 +436,7 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: foo_name,
             signature: Idx::from_raw(300),
+            has_self: true,
             has_default: true,
             default_body: Some(test_expr()),
             scheme_var_ids: Vec::new(),
@@ -454,6 +456,7 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: foo_name,
             signature: Idx::from_raw(400),
+            has_self: true,
             has_default: true,
             default_body: Some(test_expr()),
             scheme_var_ids: Vec::new(),
@@ -467,6 +470,7 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: bar_name,
             signature: Idx::from_raw(401),
+            has_self: true,
             has_default: false,
             default_body: None,
             scheme_var_ids: Vec::new(),
@@ -508,6 +512,7 @@ fn mk_trait_method(name: Name, sig: u32) -> TraitMethodDef {
     TraitMethodDef {
         name,
         signature: Idx::from_raw(sig),
+        has_self: true,
         has_default: false,
         default_body: None,
         scheme_var_ids: Vec::new(),

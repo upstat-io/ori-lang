@@ -764,6 +764,32 @@ fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
 }
 
 #[test]
+fn test_capability_namespace_receiver_no_spurious_error() {
+    // Discriminator clamp: a named-`Tag::Var` receiver whose name is a REGISTERED
+    // TRAIT is a capability/trait-namespace call (`Http.get(url:)`), NOT a generic
+    // type parameter. Its proper resolution is the capability/trait-associated
+    // path (CP-3 target-only, incomplete in typeck), so a NotFound must DEFER, not
+    // diagnose. Without the trait-name exclusion in `is_named_generic_var`, this
+    // mis-emits a method-not-found / arity error on every capability call. This
+    // pin fails if the discriminator regresses to name-presence alone.
+    let (result, _interner) = parse_and_check(
+        "trait Http { @get (url: str) -> str }\n\
+         @fetch (url: str) -> str uses Http = Http.get(url: url);",
+    );
+    assert!(
+        !result
+            .typed
+            .errors
+            .iter()
+            .any(|e| format!("{e:?}").contains("no method")),
+        "capability-namespace call `Http.get(url:)` must NOT emit a \
+         method-not-found diagnostic (trait namespace, not a generic param); \
+         got: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
 fn test_method_on_bounded_rigid_receiver_resolves_clean() {
     // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
     // §10.1 bound-chain — no spurious method-not-found from the §06.5 emit.

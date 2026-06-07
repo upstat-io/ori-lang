@@ -237,6 +237,15 @@ pub(super) fn maybe_record_method_mono_instance(
     let body_type_map =
         build_and_register_body_type_map(pool, &var_subst, &extra_named, &struct_type_params);
 
+    // The receiver's own concrete Applied type (e.g. `Box<str>`) is the `self`
+    // type — never a value in `body_type_map`, which carries only binder
+    // substitutions (`Named("T") -> str`). Register its concrete struct
+    // resolution directly so the LLVM `TypeInfoStore` resolves the receiver
+    // type AND its structurally-interned construction-site `Idx` with the
+    // substituted field layout instead of the generic `Box<T>` fallback. The
+    // helper recurses into nested generic fields (e.g. `Wrapper<Box<int>>`).
+    resolve_applied_type(pool, receiver, &struct_type_params);
+
     let instance = MonoInstance::new_method(
         method_name,
         impl_args,

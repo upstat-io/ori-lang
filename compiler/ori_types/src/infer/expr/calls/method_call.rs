@@ -10,7 +10,9 @@ use super::constraints::{check_method_inline_bounds, check_method_where_clauses}
 use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
 use super::infinite_iterator::check_infinite_iterator_consumed;
-use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
+use super::method_diagnostics::{
+    emit_into_not_implemented, emit_unknown_method, is_named_generic_var,
+};
 use super::monomorphization::maybe_record_method_mono_instance;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
@@ -312,17 +314,13 @@ fn resolve_receiver_and_builtin(
     if tag == Tag::Var {
         let has_bounds = engine.rigid_var_bounds(resolved).is_some();
         if !has_bounds {
-            // A NAMED unbound var is a generic type parameter (`@f<T>(x: T)`,
-            // surfaced via `fresh_named_var`) with no declared bound — it has
-            // no methods statically, so `x.m()` MUST surface a diagnostic via
-            // the NotFound path (§06.5), NOT defer. An ANONYMOUS unbound var is
-            // a genuine inference var that may resolve later — defer it.
-            let var_id = engine.pool().data(resolved);
-            let is_named_generic = matches!(
-                engine.pool().var_state_checked(var_id),
-                Some(crate::pool::VarState::Unbound { name: Some(_), .. })
-            );
-            if !is_named_generic {
+            // A NAMED unbound var that is a generic type parameter (`@f<T>(x: T)`,
+            // surfaced via `fresh_named_var`, name not a registered trait) has no
+            // methods statically, so `x.m()` MUST surface a diagnostic via the
+            // NotFound path (§06.5), NOT defer. An ANONYMOUS unbound var (genuine
+            // inference var) and a capability/trait-namespace named var (`Http`,
+            // name IS a registered trait) defer — see `is_named_generic_var`.
+            if !is_named_generic_var(engine, resolved) {
                 return ReceiverDispatch::Return {
                     ret_ty: engine.pool_mut().fresh_var(),
                     receiver_ty: resolved,

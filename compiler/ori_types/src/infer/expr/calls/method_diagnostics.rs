@@ -8,6 +8,35 @@ use ori_ir::{Name, Span};
 use super::super::super::InferEngine;
 use crate::{Idx, Tag, TypeCheckError};
 
+/// True iff `receiver_ty` (already union-find-resolved) is an unbound NAMED
+/// `Tag::Var` that denotes a generic type parameter (`@f<T>(x: T)`).
+///
+/// A generic type parameter surfaces at dispatch as a named `Tag::Var`
+/// (`fresh_named_var`, `Unbound { name: Some(_) }`) rather than a `RigidVar`.
+/// A capability / trait-namespace receiver (`Http.get(...)` where `Http` is a
+/// trait used as a capability) ALSO surfaces as a named unbound `Tag::Var` —
+/// the capability/trait-associated resolution is incomplete in typeck (CP-3
+/// target-only), so the name stays an unbound var. The two are separated by
+/// the registry: a named var whose name is a REGISTERED TRAIT is the
+/// capability/trait-namespace case (its proper resolution is the trait path,
+/// so a `NotFound` must DEFER, not diagnose); only a named var whose name is
+/// NOT a trait is a genuine generic parameter.
+pub(super) fn is_named_generic_var(engine: &InferEngine<'_>, receiver_ty: Idx) -> bool {
+    if engine.pool().tag(receiver_ty) != Tag::Var {
+        return false;
+    }
+    let var_id = engine.pool().data(receiver_ty);
+    // Extract the optional name (Copy) before borrowing the trait registry
+    // (borrow-dance per `calls.rs:resolve_impl_method`).
+    let var_name = match engine.pool().var_state_checked(var_id) {
+        Some(crate::pool::VarState::Unbound { name: Some(n), .. }) => *n,
+        _ => return false,
+    };
+    !engine
+        .trait_registry()
+        .is_some_and(|tr| tr.contains_trait(var_name))
+}
+
 /// Emit E2036 when `.into()` is called on a type with no Into implementation.
 ///
 /// Only fires when the method name matches the well-known `into` name.
@@ -77,17 +106,11 @@ pub(super) fn emit_unknown_method(
         return;
     }
     let tag = engine.pool().tag(receiver_ty);
-    // A NAMED unbound `Tag::Var` is a generic type parameter (`@f<T>`) with no
-    // bound — diagnose it (no method on the generic; add a bound). An ANONYMOUS
-    // `Tag::Var` is a genuine inference var — defer.
-    let var_is_named_generic = tag == Tag::Var
-        && matches!(
-            engine
-                .pool()
-                .var_state_checked(engine.pool().data(receiver_ty)),
-            Some(crate::pool::VarState::Unbound { name: Some(_), .. })
-        );
-    let treat_as_rigid = tag == Tag::RigidVar || var_is_named_generic;
+    // A NAMED unbound `Tag::Var` that is a generic type parameter (`@f<T>`, name
+    // not a registered trait) is diagnosable (no method on the generic; add a
+    // bound). A capability/trait-namespace named var (`Http`) and an ANONYMOUS
+    // `Tag::Var` are deferred — see `is_named_generic_var`.
+    let treat_as_rigid = tag == Tag::RigidVar || is_named_generic_var(engine, receiver_ty);
     // Concrete + all placeholder receivers: skip. Only a rigid miss is a genuine
     // unknown (see scope doc above); a concrete miss may be a legitimate call
     // typeck's dispatch does not yet cover, resolved by the evaluator.

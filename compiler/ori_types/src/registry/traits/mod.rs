@@ -148,6 +148,13 @@ pub struct TraitMethodDef {
     /// Method signature as a function type index.
     pub signature: Idx,
 
+    /// Whether the method's first parameter is `self` (an instance method) vs a
+    /// no-`self` associated function (e.g. a capability method `@get (url: str)`
+    /// or `Default::default () -> Self`). Read by bound-chain dispatch to set
+    /// `LookupOutcome::has_self` so the arity check skips `self` only when the
+    /// method actually declares it.
+    pub has_self: bool,
+
     /// Whether this method has a default implementation.
     pub has_default: bool,
 
