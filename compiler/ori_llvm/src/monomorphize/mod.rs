@@ -170,11 +170,25 @@ pub fn concrete_sig_for_instance(
     pool: &Pool,
     mangled_name: Name,
 ) -> FunctionSig {
-    let param_hashes: Vec<u64> = instance
-        .concrete_param_types
-        .iter()
-        .map(|&idx| pool.hash(idx))
-        .collect();
+    // Method instances carry the non-`self` params in `concrete_param_types`
+    // (the type-checker's `ImplMethodSig.params` excludes the receiver), but
+    // the generic impl sig keeps `self` as `param_types[0]`. The mono'd method
+    // still needs `self` as param 0 for ARC lowering, so prepend the concrete
+    // receiver when the generic sig has exactly one more param than the
+    // instance's non-`self` concrete params.
+    let receiver_self = instance
+        .receiver_type
+        .filter(|_| instance.concrete_param_types.len() + 1 == generic_sig.param_types.len());
+    let param_types: Vec<Idx> = match receiver_self {
+        Some(recv) => {
+            let mut pt = Vec::with_capacity(instance.concrete_param_types.len() + 1);
+            pt.push(recv);
+            pt.extend_from_slice(&instance.concrete_param_types);
+            pt
+        }
+        None => instance.concrete_param_types.clone(),
+    };
+    let param_hashes: Vec<u64> = param_types.iter().map(|&idx| pool.hash(idx)).collect();
     let return_hash = pool.hash(instance.concrete_return_type);
 
     FunctionSig {
@@ -182,7 +196,7 @@ pub fn concrete_sig_for_instance(
         type_params: vec![],
         const_params: vec![],
         param_names: generic_sig.param_names.clone(),
-        param_types: instance.concrete_param_types.clone(),
+        param_types,
         return_type: instance.concrete_return_type,
         capabilities: generic_sig.capabilities.clone(),
         is_public: false, // mono specializations are internal
