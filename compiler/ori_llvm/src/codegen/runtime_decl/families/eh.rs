@@ -1,0 +1,56 @@
+//! Panic-handler registration, catch recovery, SEH trampoline, EH personalities.
+
+use super::super::types::{Attr, RtFn, Ty};
+
+pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
+    // Panic handler registration — extern "C" (stores function pointer, no panic)
+    RtFn {
+        name: "ori_register_panic_handler",
+        params: &[Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    // Catch recovery — extern "C" (called after unwinding completes, no panic)
+    RtFn {
+        name: "ori_catch_cleanup",
+        params: &[Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_catch_recover",
+        params: &[],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    // SEH/MSVC catch trampoline — wraps a function call in __try/__except.
+    // extern "C" (catches exceptions internally, returns status code)
+    RtFn {
+        name: "ori_try_call",
+        params: &[Ty::Ptr, Ty::Ptr],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
+    // EH personality (Itanium ABI — required by invoke/landingpad)
+    // Implemented in ori_rt/src/eh_personality.c
+    RtFn {
+        name: "ori_eh_personality",
+        params: &[Ty::I32],
+        ret: Some(Ty::I32),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    // EH personality (Windows SEH — required by invoke/catchswitch/catchpad)
+    // AOT-only: JIT uses Itanium EH with ori_eh_personality.
+    RtFn {
+        name: "__CxxFrameHandler3",
+        params: &[],
+        ret: Some(Ty::I32),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
+];

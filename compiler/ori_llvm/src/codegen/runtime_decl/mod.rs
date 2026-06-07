@@ -16,6 +16,7 @@
 //! `declare_runtime()` eagerly declares all functions. Used by unit tests
 //! that need the full set available in the LLVM module.
 
+mod families;
 pub(crate) mod runtime_functions;
 mod types;
 
@@ -157,7 +158,7 @@ pub fn try_declare_single(
 /// Used by tests that need the full set available. Production code uses
 /// `IrBuilder::runtime_fn()` for on-demand declaration.
 pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
-    for spec in RT_FUNCTIONS {
+    for spec in RT_FUNCTIONS.iter() {
         declare_single(builder, spec.name);
     }
 }

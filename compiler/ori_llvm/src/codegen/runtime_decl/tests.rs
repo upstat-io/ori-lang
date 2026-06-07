@@ -379,7 +379,7 @@ fn all_non_unwinding_functions_have_nounwind() {
     ];
 
     let mut missing_nounwind = Vec::new();
-    for spec in RT_FUNCTIONS {
+    for spec in RT_FUNCTIONS.iter() {
         if may_unwind.contains(&spec.name) {
             // Verify these do NOT have nounwind
             let has_nounwind = spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind));
