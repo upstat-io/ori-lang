@@ -95,12 +95,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 _ => None,
             },
 
-            // byte: int -> i8
+            // byte: int -> i8 (range-checked; eval errors outside 0..=255)
             "byte" => match type_info {
-                TypeInfo::Int => {
-                    let i8_ty = self.builder.i8_type();
-                    Some(self.builder.trunc(receiver, i8_ty, "byte"))
-                }
+                TypeInfo::Int => self.emit_checked_int_to_byte(receiver, "byte"),
                 _ => None,
             },
 
@@ -137,6 +134,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // abs: int/float absolute value
             "abs" => match type_info {
                 TypeInfo::Int => {
+                    // abs(i64::MIN) overflows — eval's checked_abs panics
+                    // ("integer overflow"); a bare neg+select wraps to MIN.
+                    let min = self.builder.const_i64(i64::MIN);
+                    let not_min = self.builder.icmp_ne(receiver, min, "abs.not_min");
+                    self.emit_unwrap_branch(
+                        not_min,
+                        "integer overflow computing absolute value",
+                        "abs.min",
+                    )?;
                     // abs(x) = x < 0 ? -x : x
                     let zero = self.builder.const_i64(0);
                     let is_neg = self.builder.icmp_slt(receiver, zero, "is_neg");
@@ -155,6 +161,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             _ => None,
         }
+    }
+
+    /// Emit a checked int -> byte conversion (panics outside 0..=255,
+    /// matching eval's `u8::try_from` semantics for `.byte()` / `byte()` —
+    /// silent truncation diverges on out-of-range inputs).
+    pub(crate) fn emit_checked_int_to_byte(
+        &mut self,
+        receiver: ValueId,
+        label: &str,
+    ) -> Option<ValueId> {
+        let lo = self.builder.const_i64(0);
+        let hi = self.builder.const_i64(255);
+        let ge = self.builder.icmp_sge(receiver, lo, &format!("{label}.ge"));
+        let le = self.builder.icmp_sle(receiver, hi, &format!("{label}.le"));
+        let valid = self.builder.and(ge, le, &format!("{label}.valid"));
+        self.emit_unwrap_branch(
+            valid,
+            "byte value out of range (0-255)",
+            &format!("{label}.range"),
+        )?;
+        let i8_ty = self.builder.i8_type();
+        Some(self.builder.trunc(receiver, i8_ty, label))
     }
 
     /// Emit a checked float -> int conversion (panics on NaN / infinity /

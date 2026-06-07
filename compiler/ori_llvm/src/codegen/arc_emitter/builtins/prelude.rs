@@ -140,15 +140,7 @@ fn emit_byte<'scx: 'ctx, 'ctx>(
 
     match &type_info {
         TypeInfo::Byte => Some(arg_val),
-        TypeInfo::Int => {
-            let lo = emitter.builder.const_i64(0);
-            let hi = emitter.builder.const_i64(255);
-            let ge = emitter.builder.icmp_sge(arg_val, lo, "byte.ge");
-            let le = emitter.builder.icmp_sle(arg_val, hi, "byte.le");
-            let valid = emitter.builder.and(ge, le, "byte.valid");
-            emitter.emit_unwrap_branch(valid, "byte value out of range (0-255)", "byte.int")?;
-            Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast"))
-        }
+        TypeInfo::Int => emitter.emit_checked_int_to_byte(arg_val, "byte_cast"),
         TypeInfo::Char => {
             // Codepoints above 255 do not fit a byte — the interpreter
             // errors via u8::try_from on the codepoint (Latin-1 accepted).
