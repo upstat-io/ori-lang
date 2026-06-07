@@ -25,7 +25,7 @@ pub fn check_def_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
 /// a `for Type` clause. They provide default behavior for a capability trait.
 fn check_def_impl_block(checker: &mut ModuleChecker<'_>, def_impl: &ori_ir::DefImplDef) {
     for method in &def_impl.methods {
-        check_def_impl_method(checker, method);
+        check_def_impl_method(checker, method, def_impl.trait_name);
     }
 }
 
@@ -36,7 +36,11 @@ fn check_def_impl_block(checker: &mut ModuleChecker<'_>, def_impl: &ori_ir::DefI
               matches the canonical body-checking shape shared with check_function; \
               splitting across helpers would obscure §SG-5 enter/exit pairing"
 )]
-fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
+fn check_def_impl_method(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    def_impl_trait: ori_ir::Name,
+) {
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
         return;
@@ -162,6 +166,16 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
                     engine.bind_method_rigid_bound(*rigid_idx, tname);
                 }
             }
+
+            // §09.2/§10.1: the def-impl's `Self` RigidVar is bound by the
+            // implemented trait — register it so a body-internal `self.m()`
+            // call resolves the trait's methods via the §10.1 bound-chain
+            // (`impl_lookup.rs` `find_trait_method_via_bound_chain`). Without
+            // this, `self.m()` on the Self RigidVar finds no bound, returns
+            // NotFound, and (post-§06.5) reports a spurious "no method on
+            // generic type" — the dispatch never truly resolved (it relied on
+            // the silent-accept poison §06.5 removed).
+            engine.bind_method_rigid_bound(self_rigid, def_impl_trait);
 
             engine.push_context(ContextKind::FunctionReturn {
                 func_name: Some(method.name),

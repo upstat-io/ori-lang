@@ -1,0 +1,16 @@
+// Inherent method on a generic type whose element is a collection (`Box<[int]>`);
+// the monomorphized `unwrap` returns a list fat pointer by value.
+
+type Box<T> = { value: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@unbox (b: Box<[int]>) -> [int] = b.unwrap();
+
+@main () -> int = {
+    let xs = Box { value: [1, 2, 3] };
+    let out = unbox(b: xs);
+    if out.len() == 3 && out[0] == 1 && out[2] == 3 then 0 else 1
+}

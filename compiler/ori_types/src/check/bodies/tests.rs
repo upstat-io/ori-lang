@@ -713,3 +713,66 @@ fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
         result.typed.errors
     );
 }
+
+// ===========================================================================
+// §06.5 unknown-method diagnostic — silent-poison class closure (BUG-02-044 +
+// §10.1 rigid-receiver negative). A genuine NotFound method lookup on a
+// diagnosable receiver must emit a diagnostic, NOT silently poison via
+// Idx::ERROR. (/improve-tooling-adjacent compiler fix 2026-06-07.)
+// ===========================================================================
+
+#[test]
+fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
+    // Negative clamp on the §06.5 emit's SCOPE: a `NotFound` on a CONCRETE
+    // receiver must NOT emit. Typeck's concrete-receiver dispatch is incomplete
+    // (builtin trait assoc-fns like `int.default()`, field-callables like
+    // `s.transform(...)`, builtin collection methods like `list.updated(...)`),
+    // and the evaluator resolves these via its own dispatch. Emitting on a
+    // concrete miss false-positives every such legitimate call. `int.default()`
+    // is the canonical case: it has no typeck-registry entry yet, so
+    // `lookup_impl_method` returns NotFound, but it is a valid call (Default is
+    // implemented for every primitive) — the emit must stay silent here. The
+    // genuine concrete-unknown case (BUG-02-044, `{str:int}.map(...)`) reverts to
+    // silent too; its cure is blocked on completing concrete-receiver dispatch so
+    // a miss reliably implies genuine absence. This pin fails if the emit is
+    // ever re-broadened to concrete receivers.
+    let (result, _interner) = parse_and_check("@f () -> int = int.default();");
+    assert!(
+        !result
+            .typed
+            .errors
+            .iter()
+            .any(|e| format!("{e:?}").contains("no method")),
+        "concrete-receiver builtin assoc-fn `int.default()` must NOT emit a \
+         method-not-found diagnostic (typeck dispatch gap, not genuine absence); \
+         got: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
+fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
+    // §10.1 negative case: `@f<T>(x: T)` has no bound providing `hello`, so
+    // `x.hello()` must report a method-not-found (with an add-a-bound hint),
+    // not silently accept.
+    let (result, _interner) =
+        parse_and_check("trait Greet { @hello (self) -> str }\n@f<T> (x: T) -> str = x.hello();");
+    assert!(
+        !result.typed.errors.is_empty(),
+        "expected a diagnostic for `x.hello()` on an unbounded generic, got none (silent accept)"
+    );
+}
+
+#[test]
+fn test_method_on_bounded_rigid_receiver_resolves_clean() {
+    // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
+    // §10.1 bound-chain — no spurious method-not-found from the §06.5 emit.
+    let (result, _interner) = parse_and_check(
+        "trait Greet { @hello (self) -> str }\n@f<T: Greet> (x: T) -> str = x.hello();",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for bounded `x.hello()`, got: {:?}",
+        result.typed.errors
+    );
+}

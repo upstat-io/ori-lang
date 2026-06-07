@@ -6443,3 +6443,244 @@ fn nested_projection_through_let_alias_of_iter_element_view_gets_no_burden_dec()
         func.blocks[0].body,
     );
 }
+
+// RL-1 transfer-through-return result-inc elision matrix (M-a forwarder).
+//
+// A callee that returns its owned param unchanged (`@id<T>(x: T) -> T = x`)
+// transfers the SAME allocation back to the caller — the result is NOT a fresh
+// value, so its FRESH-site result-`BurdenInc` is ELIDED per AIMS RL-1
+// (`RL1_emit_iff_not_elidable`). The caller already owns the reference it
+// transferred IN at the owned arg position; emitting a result-inc double-counts
+// the transferred-in allocation under sole-emitter Phase-7 lowering (net +1
+// LEAK). SSOT: `compute_transfer_through_return_results`.
+//
+// Over-fire boundary: the repr gate admits only `RcPointer` / `FatValue`
+// results (a single directly-RC-managed reference read via borrows). An
+// `Aggregate` result (a forwarded struct/sum whose inner heap FIELDS are
+// projected and independently dec'd) is EXCLUDED — its result-inc keeps the
+// inner buffer alive across projection paths.
+
+/// Build a single-param `MemoryContract` whose param has
+/// `transfers_through_return == true` (`return_alias == Some(Direct)`), modeling
+/// a forwarder `@id(x) = x`. The remaining dimensions are conservative.
+fn forwarder_contract() -> crate::aims::contract::MemoryContract {
+    use crate::aims::contract::{MemoryContract, ParamContract, ReturnAliasShape};
+    let mut param = ParamContract::CONSERVATIVE;
+    param.transfers_through_return = true;
+    param.return_alias = Some(ReturnAliasShape::Direct);
+    MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    }
+}
+
+/// Positive pin: an `Apply` result of an `RcPointer` type whose callee is a
+/// transfer-through-return forwarder receives ZERO result-`BurdenInc` (RL-1
+/// elision). Reverting the elision re-introduces the §09.2 forwarder LEAK
+/// (alloc(+1) + spurious result-inc − path decs = net +1).
+#[test]
+fn rcptr_forwarder_result_gets_no_result_burden_inc() {
+    let registry = TypeRegistry::new();
+    let callee = Name::from_raw(100);
+    // %0: FRESH list (Construct). %1: Apply @forwarder(%0 [own]) -> %1 aliases %0.
+    // %1 read once via a borrow (Project) then dropped.
+    let mut func = ArcFunction {
+        var_types: vec![Idx::from_raw(50), Idx::from_raw(50)],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::from_raw(50),
+                    ctor: CtorKind::ListLiteral,
+                    args: Vec::new(),
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::from_raw(50),
+                    func: callee,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let mut contracts = FxHashMap::default();
+    contracts.insert(callee, forwarder_contract());
+    emit_burden_ops(&mut func, &registry, &[], &[], &contracts, false);
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(1)),
+        0,
+        "RL-1: RcPointer forwarder result var(1) MUST receive zero result-BurdenInc \
+         (transfer-through-return alias of the transferred-in arg, not fresh); \
+         body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+/// Negative pin (over-fire boundary): an `Aggregate` result (a forwarded
+/// struct whose inner heap fields are projected) is NOT a `RcPointer`, so the
+/// repr gate does NOT suppress its result handling — eliding the inc here would
+/// double-free the inner field across projection paths. The result var is NOT
+/// in `transfer_through_return_results`, so its normal fresh-site handling
+/// applies (≥1 result-inc or owned-position handling). This pins the repr gate.
+#[test]
+fn aggregate_forwarder_result_inc_not_suppressed() {
+    let registry = TypeRegistry::new();
+    let callee = Name::from_raw(101);
+    // %0: FRESH list. %1: Box struct wrapping %0. %2: Apply @forwarder(%1) -> Box.
+    let box_ty = Idx::from_raw(60);
+    let func = ArcFunction {
+        var_types: vec![Idx::from_raw(50), box_ty, box_ty],
+        var_reprs: vec![
+            ValueRepr::RcPointer,
+            ValueRepr::Aggregate,
+            ValueRepr::Aggregate,
+        ],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::from_raw(50),
+                    ctor: CtorKind::ListLiteral,
+                    args: Vec::new(),
+                },
+                ArcInstr::Construct {
+                    dst: ArcVarId::new(1),
+                    ty: box_ty,
+                    ctor: CtorKind::Struct(Name::from_raw(5)),
+                    args: vec![ArcVarId::new(0)],
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: box_ty,
+                    func: callee,
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(2),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let mut contracts = FxHashMap::default();
+    contracts.insert(callee, forwarder_contract());
+    let mut ctx_func = func.clone();
+    emit_burden_ops(&mut ctx_func, &registry, &[], &[], &contracts, false);
+    // The Aggregate result var(2) is EXCLUDED from the RcPointer/FatValue
+    // transfer-through-return gate — verify by checking the SSOT directly: the
+    // result set does not contain it (so its normal handling is unaltered).
+    let gate = super::ownership_scans::compute_transfer_through_return_results(&func, &contracts);
+    assert!(
+        !gate.contains(&ArcVarId::new(2)),
+        "repr gate: Aggregate forwarder result var(2) MUST be EXCLUDED from \
+         transfer-through-return result-inc elision (inner-field projections \
+         need the result-inc); gate={gate:?}",
+    );
+    // And an RcPointer result of the SAME forwarder IS in the gate (positive
+    // contrast — proves the gate keys on repr, not on the contract alone).
+    assert!(
+        compute_transfer_through_return_results_gate_includes_rcptr(&contracts, callee),
+        "repr gate: an RcPointer forwarder result MUST be admitted to the gate",
+    );
+}
+
+/// Helper: build a minimal `RcPointer` forwarder func and assert its result is in
+/// the gate. Keeps `aggregate_forwarder_result_inc_not_suppressed`'s positive
+/// contrast self-contained.
+fn compute_transfer_through_return_results_gate_includes_rcptr(
+    contracts: &FxHashMap<Name, crate::aims::contract::MemoryContract>,
+    callee: Name,
+) -> bool {
+    let func = ArcFunction {
+        var_types: vec![Idx::from_raw(50), Idx::from_raw(50)],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Apply {
+                dst: ArcVarId::new(1),
+                ty: Idx::from_raw(50),
+                func: callee,
+                args: vec![ArcVarId::new(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    super::ownership_scans::compute_transfer_through_return_results(&func, contracts)
+        .contains(&ArcVarId::new(1))
+}
+
+/// Negative pin: a fresh-allocating callee (NO transfer-through-return — e.g.
+/// `@mk() -> [int]`) KEEPS its result-inc. The result is a genuinely fresh
+/// allocation; eliding its inc would leak it across downstream borrow-reads.
+/// The result `%0` is read at a BORROW position (`@rd(%0 [borrow])`) so it is
+/// NOT transferred out — its fresh-site inc is the expected balanced pair with
+/// its scope-exit dec.
+#[test]
+fn fresh_result_keeps_result_burden_inc() {
+    // `@mk()` is a fresh-allocating callee with NO `transfers_through_return`
+    // param. Its RcPointer result (%0) is EXCLUDED from the gate — so the result
+    // -inc elision never fires and a genuine fresh allocation keeps its inc. SSOT
+    // contrast against the positive pin
+    // `rcptr_forwarder_result_gets_no_result_burden_inc`: same RcPointer repr,
+    // only a forwarder-aliased result is admitted.
+    let callee = Name::from_raw(102);
+    let func = ArcFunction {
+        var_types: vec![Idx::from_raw(50)],
+        var_reprs: vec![ValueRepr::RcPointer],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Apply {
+                dst: ArcVarId::new(0),
+                ty: Idx::from_raw(50),
+                func: callee,
+                args: Vec::new(),
+                arg_ownership: Vec::new(),
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    // Conservative contract: NO param with transfers_through_return.
+    let mut contracts = FxHashMap::default();
+    contracts.insert(
+        callee,
+        crate::aims::contract::MemoryContract::conservative(0),
+    );
+    let gate = super::ownership_scans::compute_transfer_through_return_results(&func, &contracts);
+    assert!(
+        !gate.contains(&ArcVarId::new(0)),
+        "fresh-allocating callee result var(0) MUST NOT be in the \
+         transfer-through-return gate (no forwarder param); gate={gate:?}",
+    );
+}

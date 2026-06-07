@@ -7,10 +7,10 @@ use super::super::super::InferEngine;
 use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
 use super::closure_unify::unify_higher_order_constraints;
 use super::constraints::{check_method_inline_bounds, check_method_where_clauses};
-use super::impl_lookup::{
-    emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
-};
+use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
+use super::impl_signature::resolve_impl_signature;
 use super::infinite_iterator::check_infinite_iterator_consumed;
+use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
 use super::monomorphization::maybe_record_method_mono_instance;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
@@ -72,6 +72,9 @@ pub(crate) fn infer_method_call(
 
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
+    // §06.5: a genuine `NotFound` (NOT `Ambiguous`, which already pushed E2023)
+    // must surface a diagnostic, not silently poison via `Idx::ERROR`.
+    let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
         // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking
         // so the generic return slot is constrained by the LHS annotation.
@@ -108,6 +111,13 @@ pub(crate) fn infer_method_call(
 
     // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
+    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
+    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
+    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
+    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    if was_not_found {
+        emit_unknown_method(engine, resolved, method, span);
+    }
 
     Idx::ERROR
 }
@@ -165,6 +175,7 @@ pub(crate) fn infer_method_call_named(
 
     let call_args = arena.get_call_args(args);
     let outcome = lookup_impl_method(engine, resolved, method);
+    let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
         // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
         if let Some(exp) = expected {
@@ -211,6 +222,13 @@ pub(crate) fn infer_method_call_named(
 
     // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
+    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
+    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
+    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
+    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    if was_not_found {
+        emit_unknown_method(engine, resolved, method, span);
+    }
 
     Idx::ERROR
 }
@@ -294,10 +312,24 @@ fn resolve_receiver_and_builtin(
     if tag == Tag::Var {
         let has_bounds = engine.rigid_var_bounds(resolved).is_some();
         if !has_bounds {
-            return ReceiverDispatch::Return {
-                ret_ty: engine.pool_mut().fresh_var(),
-                receiver_ty: resolved,
-            };
+            // A NAMED unbound var is a generic type parameter (`@f<T>(x: T)`,
+            // surfaced via `fresh_named_var`) with no declared bound — it has
+            // no methods statically, so `x.m()` MUST surface a diagnostic via
+            // the NotFound path (§06.5), NOT defer. An ANONYMOUS unbound var is
+            // a genuine inference var that may resolve later — defer it.
+            let var_id = engine.pool().data(resolved);
+            let is_named_generic = matches!(
+                engine.pool().var_state_checked(var_id),
+                Some(crate::pool::VarState::Unbound { name: Some(_), .. })
+            );
+            if !is_named_generic {
+                return ReceiverDispatch::Return {
+                    ret_ty: engine.pool_mut().fresh_var(),
+                    receiver_ty: resolved,
+                };
+            }
+            // Named generic with no bound: fall through to `lookup_impl_method`,
+            // which returns NotFound → `emit_unknown_method` reports the error.
         }
     }
 

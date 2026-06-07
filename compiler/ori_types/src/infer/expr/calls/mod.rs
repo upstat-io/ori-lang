@@ -4,8 +4,10 @@ mod call_inference;
 mod closure_unify;
 mod constraints;
 mod impl_lookup;
+mod impl_signature;
 mod infinite_iterator;
 mod method_call;
+mod method_diagnostics;
 mod monomorphization;
 mod traits;
 

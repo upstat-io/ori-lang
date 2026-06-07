@@ -1,0 +1,15 @@
+// Inherent method on a generic type with a heap element type (`Box<str>`);
+// the monomorphized `unwrap` returns a fat-pointer `str` by value.
+
+type Box<T> = { value: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@unbox (b: Box<str>) -> str = b.unwrap();
+
+@main () -> int = {
+    let s = Box { value: "hi" };
+    if unbox(b: s) == "hi" then 0 else 1
+}

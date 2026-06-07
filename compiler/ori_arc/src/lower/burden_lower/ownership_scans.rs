@@ -4,7 +4,10 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, PrimOp, ValueRepr};
+use ori_ir::Name;
+
+use crate::aims::contract::MemoryContract;
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, ValueRepr};
 use crate::ownership::Ownership;
 use ori_types::TypeRegistry;
 
@@ -227,6 +230,81 @@ pub(super) fn compute_borrowed_terminator_invoke_args(func: &ArcFunction) -> FxH
         }
     }
     borrowed
+}
+
+/// Apply / Invoke result dsts whose callee transfers an owned argument THROUGH
+/// the return (the callee's `MemoryContract` has a param with
+/// `transfers_through_return == true`, i.e. `return_alias == Some(Direct)`).
+///
+/// The result `dst` of such a call is NOT a fresh allocation: it IS the same
+/// allocation the caller transferred IN at the owned arg position (the callee
+/// returns its owned param unchanged — `@id<T>(x: T) -> T = x`). The owned arg's
+/// own definition (`Construct` / upstream alloc) already supplied the lifecycle
+/// `+1`; the callee strips its scope-exit dec on the param
+/// (`transfers_through_return`), handing the SAME reference back to the caller.
+///
+/// Per AIMS RL-1 (`AimsProof.Realization::RL1_emit_iff_not_elidable`): the result
+/// is a move-once-linear forward of the caller's already-owned reference, NOT a
+/// duplicating use, so its inc is ELIDABLE. The `fresh_site_burden_inc_dst`
+/// Apply arm + `compute_invoke_result_incs` treat every `MaybeShared` / no-contract
+/// result as FRESH (`*dst`) and emit a spurious result-`BurdenInc`; under
+/// sole-emitter Phase-7 lowering that `RcInc` double-counts the transferred-in
+/// allocation (`rcBalance` alloc-aware: alloc(+1) + spurious RcInc(+1) − path
+/// decs = net +1 LEAK). Excluding these dsts from the result-inc restores
+/// conformance to the proven `rcBalance` (the transferred arg's alloc is the
+/// sole `+1`; the lineage's per-path decs release it).
+///
+/// Scope: ONLY the result-INC is suppressed. The dup-alias / borrow-read
+/// machinery downstream is unchanged — those aliases own their paired inc/dec.
+///
+/// Repr gate (over-fire boundary): the result is admitted ONLY when its
+/// `ValueRepr` is `RcPointer` or `FatValue` — a single directly-RC-managed
+/// reference whose forwarded lineage is read via borrows and released by its own
+/// per-path decs. An `Aggregate` result (a struct / sum the forwarder returns,
+/// e.g. `Box<[int]>`) is EXCLUDED: its inner heap FIELDS are projected
+/// (`Project dst.k`) and each projection lineage carries its own `RcDec`, so the
+/// result-inc keeps the inner buffer's RC ≥ the projection-dec count — eliding
+/// it double-frees the inner field across the projection paths. Per AIMS RL-1 +
+/// `rcBalance`: the elision is sound only when the result IS the single
+/// transferred-in allocation, not a wrapper whose fields are independently
+/// projected and dec'd.
+pub(super) fn compute_transfer_through_return_results(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashSet<ArcVarId> {
+    let mut results: FxHashSet<ArcVarId> = FxHashSet::default();
+    let callee_transfers_through_return = |callee: &Name| -> bool {
+        contracts
+            .get(callee)
+            .is_some_and(|c| c.params.iter().any(|p| p.transfers_through_return))
+    };
+    let result_repr_admits = |dst: ArcVarId| -> bool {
+        matches!(
+            func.var_repr(dst),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if callee_transfers_through_return(callee) && result_repr_admits(*dst) {
+                    results.insert(*dst);
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst, func: callee, ..
+        } = &block.terminator
+        {
+            if callee_transfers_through_return(callee) && result_repr_admits(*dst) {
+                results.insert(*dst);
+            }
+        }
+    }
+    results
 }
 
 /// Compute function-wide use counts and the duplication-alias dst set, and

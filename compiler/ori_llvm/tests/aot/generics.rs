@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // Generic with string arguments (RC-managed)
 #[test]
@@ -879,6 +879,105 @@ fn test_generic_method_on_generic_type() {
     assert_aot_success(
         include_str!("fixtures/generics/generic_method_on_generic_type.ori"),
         "generic_method_on_generic_type",
+    );
+}
+
+// Inherent method on a generic type — broadened coverage across receiver shape
+// and method-body shape (int element type, the layout that monomorphizes
+// end-to-end today).
+
+/// Inherent method on a generic type called on two distinct `Box<int>`
+/// receivers; both call sites share one monomorphized `unwrap` body.
+#[test]
+fn test_box_int_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_box_int_unwrap.ori"),
+        "generic_method_box_int_unwrap",
+    );
+}
+
+/// Inherent method on a generic type taking a closure parameter (`f: T -> T`)
+/// whose body carries an internal `let` binding; exercises body lowering of a
+/// monomorphized method with both a closure-typed parameter and locals.
+#[test]
+fn test_holder_int_map_int() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_holder_int_internal_let.ori"),
+        "generic_method_holder_int_internal_let",
+    );
+}
+
+/// Inherent method on a generic type with a heap element type (`Box<str>`); the
+/// monomorphized `unwrap` returns a fat-pointer `str` by value.
+#[test]
+fn test_box_str_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_box_str_unwrap.ori"),
+        "generic_method_box_str_unwrap",
+    );
+}
+
+/// Inherent method on a generic type whose element is a collection (`Box<[int]>`);
+/// the monomorphized `unwrap` returns a list fat pointer by value.
+#[test]
+fn test_box_list_int_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_box_list_int_unwrap.ori"),
+        "generic_method_box_list_int_unwrap",
+    );
+}
+
+/// Inherent method on a generic type whose element is a user struct (`Box<Point>`);
+/// the monomorphized `unwrap` returns an aggregate by value (sret path for >16B).
+#[test]
+fn test_box_struct_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_box_struct_unwrap.ori"),
+        "generic_method_box_struct_unwrap",
+    );
+}
+
+/// Nested generic-receiver inherent methods: `Wrapper<Box<int>>.inner()` returns
+/// the inner `Box<int>`, then `Box<int>.unwrap()` returns the int — two distinct
+/// monomorphized inherent-method bodies on two distinct generic types in one call.
+#[test]
+fn test_wrapper_box_int_inner() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_wrapper_box_int_inner.ori"),
+        "generic_method_wrapper_box_int_inner",
+    );
+}
+
+/// Negative pin: a call to a zero-argument inherent method on a generic type
+/// that passes an extra argument is rejected at type-check (clean arity error
+/// E2004), never reaching codegen as a crash or silent miscompilation. Pins
+/// that drifted method-call arguments are caught BEFORE the monomorphization /
+/// codegen path, so the failure is a diagnostic and not an E5001 / SIGSEGV.
+#[test]
+fn test_box_method_with_drifted_args_emits_typeck_error() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/generics/generic_method_drifted_args_typeck_error.ori"
+    ));
+
+    // Compilation MUST fail at type-check. A zero exit would mean the arity
+    // mismatch was accepted and a binary produced — a silent miscompilation.
+    assert_eq!(
+        exit_code, -1,
+        "drifted-arg method call compiled cleanly (silent miscompilation); \
+         stdout: {stdout}; stderr: {stderr}"
+    );
+
+    // The failure MUST be a clean type-check diagnostic, not an empty-stderr
+    // codegen crash. An E5001 codegen abort or a signal kill on this input
+    // would mean the arity check did not run before monomorphization.
+    assert!(
+        stderr.contains("E2004"),
+        "expected arity diagnostic E2004 (expected 0 arguments, found 1); got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("E5001"),
+        "drifted-arg call reached codegen (E5001) instead of being caught at type-check; \
+         got: {stderr}"
     );
 }
 

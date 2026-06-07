@@ -1,0 +1,16 @@
+// Negative pin: a call to a zero-argument inherent method on a generic type that
+// passes an extra argument must be rejected at type-check (clean arity error),
+// never reach codegen as a crash or miscompilation.
+
+type Box<T> = { value: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@unbox (b: Box<int>) -> int = b.unwrap(extra: 1);
+
+@main () -> int = {
+    let a = Box { value: 42 };
+    if unbox(b: a) == 42 then 0 else 1
+}

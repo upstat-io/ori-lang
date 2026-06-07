@@ -22,9 +22,9 @@ use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
     collect_owned_burdens, compute_borrowed_terminator_invoke_args, compute_live_out_owned,
-    compute_owned_vars_needing_rc, compute_transfer_via_move_alias,
-    compute_use_counts_and_dup_aliases, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered,
+    compute_owned_vars_needing_rc, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered,
 };
 use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
 
@@ -424,6 +424,18 @@ pub(crate) fn emit_burden_ops<'a>(
         }
     }
 
+    // RL-1 result-inc elision for transfer-through-return forwarders: a callee
+    // returning its owned param unchanged hands the SAME allocation back, so the
+    // result is not a fresh value and its result-inc is elidable. SSOT:
+    // `compute_transfer_through_return_results`.
+    let transfer_through_return_results = compute_transfer_through_return_results(func, contracts);
+
+    // RL-1 inc-elision callee identity: `__index` codegen self-increments its
+    // extracted non-scalar result, so the burden path elides the result-inc
+    // (AIMS emits only the balancing dec). Interned once; idempotent.
+    let index_builtin_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,
         last_uses_at: &last_uses_at,
@@ -438,6 +450,8 @@ pub(crate) fn emit_burden_ops<'a>(
         list_concat_transfer_vars: &list_concat_transfer_vars,
         cow_inc_borrowed_aliases: &cow_inc_borrowed_aliases,
         cow_mutator_names: &cow_mutator_names,
+        transfer_through_return_results: &transfer_through_return_results,
+        index_builtin_name,
     };
     emit_burden_ops_for_blocks(
         func,

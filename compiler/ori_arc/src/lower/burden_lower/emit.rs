@@ -76,6 +76,22 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // receiver's COW-inc is balanced by the runtime `ori_iter_drop`, never a
     // burden-dec. Empty on the default path (no COW-inc emitted).
     pub(super) cow_mutator_names: &'a FxHashSet<Name>,
+    // Apply/Invoke result dsts whose callee transfers an owned arg THROUGH the
+    // return (AIMS RL-1): the result aliases the transferred-in allocation, not
+    // a fresh one, so its FRESH-site BurdenInc is elidable — emitting it
+    // double-counts under sole-emitter Phase-7 lowering (net +1 leak). Gated to
+    // `RcPointer`/`FatValue` results (an Aggregate's projected fields carry
+    // their own decs). SSOT: `compute_transfer_through_return_results`.
+    pub(super) transfer_through_return_results: &'a FxHashSet<ArcVarId>,
+    // Interned name of the `__index` protocol builtin. Its codegen
+    // (`emit_list_index` / `emit_map_index`) self-increments the extracted
+    // non-scalar result so the caller owns its reference; AIMS emits ONLY the
+    // balancing dec at last-use (RL-2), never an inc. The burden path MUST
+    // elide the FRESH-site BurdenInc on an `__index` result (RL-1 inc-elision:
+    // the result's `+1` is supplied by codegen, not a duplication) — emitting
+    // it double-counts under sole-emitter Phase-7 lowering (net +1 leak per
+    // heap element index).
+    pub(super) index_builtin_name: Name,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -585,6 +601,17 @@ fn fresh_site_burden_inc_dst(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Optio
         | ArcInstr::Reuse { dst, .. }
         | ArcInstr::CollectionReuse { dst, .. } => *dst,
         ArcInstr::Apply { dst, func, .. } => {
+            // RL-1 inc-elision: the `__index` protocol builtin's codegen
+            // self-increments its extracted non-scalar result so the caller
+            // owns its reference; AIMS emits ONLY the balancing dec at
+            // last-use, never an inc. The result's `+1` is supplied by codegen
+            // (not a duplication), so a FRESH-site BurdenInc here double-counts
+            // under sole-emitter Phase-7 lowering (net +1 leak per heap
+            // element). `__index` has no contract, so without this it falls to
+            // the `None => *dst` conservative-inc arm below.
+            if *func == ctx.analysis.index_builtin_name {
+                return None;
+            }
             // TF-6: when the callee has a known contract, gate on its
             // ReturnContract.uniqueness. For Unique / MaybeShared returns,
             // the callee hands an owned reference to the caller — caller
@@ -607,6 +634,15 @@ fn fresh_site_burden_inc_dst(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Optio
         }
         _ => return None,
     };
+    // Suppress the FRESH-site Inc when dst is the result of a callee that
+    // transfers an owned arg THROUGH the return (RL-1): the result IS the
+    // transferred-in allocation, not a fresh one — the arg's own alloc supplied
+    // the `+1`. A spurious result-inc here double-counts under sole-emitter
+    // Phase-7 lowering (net +1 LEAK). SSOT:
+    // `compute_transfer_through_return_results`.
+    if ctx.analysis.transfer_through_return_results.contains(&dst) {
+        return None;
+    }
     // Suppress the FRESH-site Inc when dst is move-transferred into an owned
     // position: its paired BurdenDec is transfer-suppressed (RL-2), so emitting
     // the Inc would orphan it (VF-1 net=+1). The container's own drop owns the
@@ -645,6 +681,14 @@ fn compute_invoke_result_incs(
                 normal,
                 ..
             } => {
+                // RL-1 inc-elision: an `__index` result is self-incremented by
+                // codegen (`__index` lowers to may-unwind `ori_list_get`, so it
+                // can be an Invoke). AIMS emits only the balancing dec — no
+                // FRESH-site inc, else net +1 leak. Mirrors the `Apply` arm in
+                // `fresh_site_burden_inc_dst`.
+                if *callee == analysis.index_builtin_name {
+                    continue;
+                }
                 let shared_return = matches!(
                     analysis.contracts.get(callee),
                     Some(c) if matches!(c.return_info.uniqueness, Uniqueness::Shared)
@@ -657,6 +701,12 @@ fn compute_invoke_result_incs(
             ArcTerminator::InvokeIndirect { dst, normal, .. } => (*dst, *normal),
             _ => continue,
         };
+        // RL-1: an Invoke result whose callee transfers an owned arg through the
+        // return aliases the transferred-in allocation (not fresh) — its
+        // result-inc is elidable (`compute_transfer_through_return_results`).
+        if analysis.transfer_through_return_results.contains(&dst) {
+            continue;
+        }
         if analysis.owned_vars_needing_rc.contains(&dst)
             && !analysis.inc_suppressed_vars.contains(&dst)
         {
