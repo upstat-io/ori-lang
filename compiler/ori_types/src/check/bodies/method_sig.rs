@@ -89,7 +89,23 @@ pub(super) fn allocate_method_binders(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
 ) -> MethodBinderInfo {
-    let generic_params = checker.arena().get_generic_params(method.generics).to_vec();
+    allocate_generic_binders(checker, method.generics)
+}
+
+/// Shared rigid-binder allocation for a `GenericParamRange` — the SSOT core of
+/// `allocate_method_binders`, used for BOTH method-level (`@m<U>`) and
+/// impl-level (`impl<T: Bound>`) generics. Allocating impl-level generics as
+/// fresh `RigidVar`s (vs the `Tag::Named` fallback at
+/// `registration/type_resolution.rs`) is what makes a body-internal
+/// `receiver.method()` on an impl-level type parameter dispatch via the §10.1
+/// bound-chain (impl-level bound registered) or surface a method-not-found
+/// (impl-level param unbounded) — both impossible while impl-level `T` stayed
+/// an unresolved `Tag::Named`.
+pub(super) fn allocate_generic_binders(
+    checker: &mut ModuleChecker<'_>,
+    generics: ori_ir::GenericParamRange,
+) -> MethodBinderInfo {
+    let generic_params = checker.arena().get_generic_params(generics).to_vec();
     let method_generic_params: Vec<Name> = generic_params
         .iter()
         .filter(|p| !p.is_const)

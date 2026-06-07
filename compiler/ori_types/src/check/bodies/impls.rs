@@ -4,10 +4,10 @@
 //! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
 
 use ori_ir::{ImplMethod, Module, Name, TraitDef, TraitItem};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::method_sig::{allocate_method_binders, build_method_sig};
-use crate::check::registration::{resolve_parsed_type_simple, resolve_type_with_method_generics};
+use super::method_sig::{allocate_generic_binders, allocate_method_binders, build_method_sig};
+use crate::check::registration::resolve_type_with_method_generics;
 use crate::check::ModuleChecker;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx};
 
@@ -32,23 +32,41 @@ fn check_impl_block(
     impl_def: &ori_ir::ImplDef,
     traits: &[TraitDef],
 ) {
-    // Resolve the Self type for this impl block
-    let arena = checker.arena();
-    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
+    // §10.1.2: allocate impl-level generics (`impl<T: Bound>`) as fresh
+    // `RigidVar`s once per block + collect their inline bounds, mirroring the
+    // method-level binders. Without this, impl-level `T` resolves to an
+    // unresolved `Tag::Named` (`registration/type_resolution.rs`), so a
+    // body-internal `receiver.method()` whose receiver is an impl-level type
+    // parameter never reaches the §10.1 bound-chain: bounded calls silently
+    // poison (masked by the evaluator's own dispatch), unbounded calls never
+    // surface a method-not-found. Allocating the `RigidVar`s here (and resolving
+    // `Self` + params + return through the same overlay) keeps every reference
+    // to the impl-level binder at one identity.
+    let (impl_substitutions, impl_generic_params, _impl_const_params, impl_inline_bounds) =
+        allocate_generic_binders(checker, impl_def.generics);
 
-    // Collect generic params for type resolution within methods
-    let generic_params: Vec<Name> = checker
-        .arena()
-        .get_generic_params(impl_def.generics)
-        .iter()
-        .map(|p| p.name)
-        .collect();
+    // Resolve the Self type for this impl block through the impl-level overlay so
+    // `Box<T>`'s `T` is the impl `RigidVar`, not a fresh `Tag::Named`.
+    let self_type = resolve_type_with_method_generics(
+        checker,
+        &impl_def.self_ty,
+        &impl_substitutions,
+        &impl_generic_params,
+        Idx::ERROR,
+    );
 
     let is_trait_impl = impl_def.trait_path.is_some();
 
     // Check explicitly defined methods
     for method in &impl_def.methods {
-        check_impl_method(checker, method, self_type, &generic_params);
+        check_impl_method(
+            checker,
+            method,
+            self_type,
+            &impl_generic_params,
+            &impl_substitutions,
+            &impl_inline_bounds,
+        );
         if is_trait_impl {
             checker.register_trait_impl_fn_name(self_type, method.name);
         }
@@ -65,7 +83,14 @@ fn check_impl_block(
                     if let TraitItem::DefaultMethod(default) = item {
                         if !overridden.contains(&default.name) {
                             let as_impl = ImplMethod::from(default);
-                            check_impl_method(checker, &as_impl, self_type, &generic_params);
+                            check_impl_method(
+                                checker,
+                                &as_impl,
+                                self_type,
+                                &impl_generic_params,
+                                &impl_substitutions,
+                                &impl_inline_bounds,
+                            );
                             checker.register_trait_impl_fn_name(self_type, default.name);
                         }
                     }
@@ -87,6 +112,8 @@ fn check_impl_method(
     method: &ImplMethod,
     self_type: Idx,
     type_params: &[Name],
+    impl_substitutions: &FxHashMap<Name, Idx>,
+    impl_inline_bounds: &[(Idx, Vec<Name>)],
 ) {
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
@@ -100,6 +127,13 @@ fn check_impl_method(
     // for body-internal trait dispatch.
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
         allocate_method_binders(checker, method);
+
+    // §10.1.2: merge impl-level (`impl<T>`) + method-level (`@m<U>`) RigidVar
+    // overlays so an impl-level type-param annotation (`x: T`) resolves to the
+    // impl `RigidVar` allocated once in `check_impl_block`, not a fresh
+    // `Tag::Named`. Method-level binders win on a name collision (inner scope).
+    let mut combined_substitutions = impl_substitutions.clone();
+    combined_substitutions.extend(method_substitutions.iter().map(|(&n, &i)| (n, i)));
 
     // Combined scope for type resolution: impl-level (parent) + method-level
     // (child). Without method-level names in scope, `(self, f: T -> U) -> Box<U>`
@@ -121,7 +155,7 @@ fn check_impl_method(
             Some(parsed_ty) => resolve_type_with_method_generics(
                 checker,
                 parsed_ty,
-                &method_substitutions,
+                &combined_substitutions,
                 &combined_type_params,
                 self_type,
             ),
@@ -138,7 +172,7 @@ fn check_impl_method(
     let mut return_type = resolve_type_with_method_generics(
         checker,
         &method.return_ty,
-        &method_substitutions,
+        &combined_substitutions,
         &combined_type_params,
         self_type,
     );
@@ -148,7 +182,7 @@ fn check_impl_method(
     // the method body) consult `param_env`; the child-map shadowing here is
     // what makes those lookups see the method-level `RigidVar` rather than
     // any impl-level `Tag::Named("T")` that happens to share the name.
-    for (&mname, &rigid_idx) in &method_substitutions {
+    for (&mname, &rigid_idx) in &combined_substitutions {
         param_env.bind(mname, rigid_idx);
     }
 
@@ -177,6 +211,10 @@ fn check_impl_method(
     let return_type_ref = &mut return_type;
     let const_params_for_engine = method_const_params.clone();
     let inline_bounds_for_engine = method_inline_bounds.clone();
+    // §10.1.2: impl-level bounds (`impl<T: Bound>`) registered on the engine
+    // alongside method-level ones so body-internal dispatch on an impl-level
+    // `RigidVar` resolves via the §10.1 bound-chain.
+    let impl_bounds_for_engine = impl_inline_bounds.to_vec();
     let (
         expr_types,
         errors,
@@ -204,6 +242,12 @@ fn check_impl_method(
             // (e.g., `Printable.to_str(prefix)` in string interpolation when
             // `prefix : T` and `T: Printable`) succeeds for the RigidVar.
             for (rigid_idx, trait_names) in &inline_bounds_for_engine {
+                for &tname in trait_names {
+                    engine.bind_method_rigid_bound(*rigid_idx, tname);
+                }
+            }
+            // §10.1.2: register impl-level bounds on the same engine.
+            for (rigid_idx, trait_names) in &impl_bounds_for_engine {
                 for &tname in trait_names {
                     engine.bind_method_rigid_bound(*rigid_idx, tname);
                 }

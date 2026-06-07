@@ -802,3 +802,42 @@ fn test_method_on_bounded_rigid_receiver_resolves_clean() {
         result.typed.errors
     );
 }
+
+#[test]
+fn test_unbounded_impl_level_generic_receiver_reports_error() {
+    // §10.1.2 negative: an IMPL-level generic param (`impl<T>`, no bound) used as
+    // a method receiver inside a method body must surface a method-not-found —
+    // same invariant as the function-level `@f<T>` case. Before impl-level
+    // generics were allocated as RigidVars (in `check_impl_block`), `x: T`
+    // resolved to an unresolved `Tag::Named` that the rigid-emit skipped, so the
+    // unbounded call was silently accepted. This pin fails if impl-level generics
+    // regress to `Tag::Named` resolution.
+    let (result, _interner) = parse_and_check(
+        "trait Greet { @hello (self) -> str }\n\
+         type Box<T> = { inner: T }\n\
+         impl<T> Box<T> { @greet (self, x: T) -> str = x.hello(); }",
+    );
+    assert!(
+        !result.typed.errors.is_empty(),
+        "expected a method-not-found diagnostic for `x.hello()` on an unbounded \
+         impl-level generic param, got none (silent accept)"
+    );
+}
+
+#[test]
+fn test_bounded_impl_level_generic_receiver_resolves_clean() {
+    // §10.1.2 positive boundary: with the impl-level `T: Greet` bound registered
+    // on the impl RigidVar, `x.hello()` resolves via the §10.1 bound-chain in
+    // typeck itself (not merely masked by the evaluator's dispatch) — no spurious
+    // method-not-found.
+    let (result, _interner) = parse_and_check(
+        "trait Greet { @hello (self) -> str }\n\
+         type Box<T> = { inner: T }\n\
+         impl<T: Greet> Box<T> { @greet (self, x: T) -> str = x.hello(); }",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "expected no errors for bounded impl-level `x.hello()`, got: {:?}",
+        result.typed.errors
+    );
+}

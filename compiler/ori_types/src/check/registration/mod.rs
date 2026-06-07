@@ -39,7 +39,12 @@ pub use user_types::register_user_types;
 pub(super) use traits::register_imported_traits;
 
 // Re-export shared type resolution for bodies/mod.rs and signatures/tests.rs
-pub(super) use type_resolution::{resolve_parsed_type_simple, resolve_type_with_method_generics};
+pub(super) use type_resolution::resolve_type_with_method_generics;
+// Test-only re-export: production callers resolve impl/method self-types through
+// `resolve_type_with_method_generics` (overlay-aware); only registration/
+// signature unit tests exercise the bare simple resolver directly.
+#[cfg(test)]
+pub(super) use type_resolution::resolve_parsed_type_simple;
 
 // Re-exports for tests — internal functions accessed by registration/tests.rs
 #[cfg(test)]
