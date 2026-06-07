@@ -356,6 +356,7 @@ pub(crate) fn emit_burden_ops<'a>(
     let transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
+        &use_counts,
         ctx.last_use_points(),
         &owned_vars_needing_rc,
     );

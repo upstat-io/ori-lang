@@ -144,23 +144,33 @@ pub(super) fn group_last_uses_filtered(
 /// The returned set suppresses the last-use `BurdenDec` of every move source in
 /// a transfer chain.
 ///
-/// LAST-USE gate (not use-count-1): a use-once source's sole use is trivially
-/// its last use (the prior `use_counts == 1` test is the special case). A
-/// DUP'd source (`%s` used >= 2 — earlier uses each consume a duplicate
-/// reference) still forwards its ORIGINAL allocation reference at its TERMINAL
-/// `Let { Var }` use; emitting that terminal `BurdenDec` releases a reference the
-/// move hands to `%dst`'s consuming lineage (RL-2 net=-1, an early over-release
-/// that collapses a COW receiver's RC below the live alias count — BUG-04-142
-/// witness: `let a; let b = a; let c = a.updated(..)` decs `a` before the
+/// Use-once vs dup'd-terminal-move gate. A use-once source (`use_counts == 1`)
+/// is the unchanged pure-move case: its sole use forwards its only reference, so
+/// its last-use dec is suppressed (the consumer discharges the release). A DUP'd
+/// source (`%s` used >= 2 — earlier uses each consume a duplicate reference)
+/// ALSO forwards its ORIGINAL allocation reference at its TERMINAL `Let { Var }`
+/// use; emitting that terminal `BurdenDec` releases a reference the move hands to
+/// `%dst`'s consuming lineage (RL-2 net=-1, an early over-release that collapses
+/// a COW receiver's RC below the LIVE alias count — BUG-04-142 witness:
+/// `let a; let b = a; let c = a.updated(..)` with `b` LIVE decs `a` before the
 /// consuming `updated`, so `is_unique` takes the in-place path on a still-aliased
-/// buffer). Only the terminal-move source's last-use DEC is suppressed here; its
-/// FRESH inc is KEPT for the dup case (mod.rs gates the symmetric inc-suppression
-/// on `use_counts <= 1`), since that inc supplies the duplicate references the
+/// buffer). BUT the terminal dec is suppressed ONLY when every NON-terminal
+/// duplicate use is LIVE — each LIVE alias releases its own reference at its own
+/// last-use (RL-2 `LastReadBeforeScopeExit`), so the source's terminal dec is the
+/// redundant double-release. If a duplicate alias is DEAD (`let b = a` where `b`
+/// is never read), the source's terminal dec is that dead alias's
+/// `ScopeExit` release (RL-2 non-transfer -> dec) — it is KEPT, not suppressed
+/// (else BUG-04-142 `updated_list_dead_alias_no_leak` leaks the orphaned buffer).
+/// Only the terminal-move source's last-use DEC is governed here; its FRESH inc
+/// is KEPT for the dup case (mod.rs gates the symmetric inc-suppression on
+/// `use_counts <= 1`), since that inc supplies the duplicate references the
 /// non-terminal uses consume. Per AIMS RL-2 `TerminalUse`: a move IS an
-/// ownership-transferring terminal use (`AimsProof.Realization::RL2_dec_at_last_use`).
+/// ownership-transferring terminal use, a dead alias's `ScopeExit` is not
+/// (`AimsProof.Realization::RL2_dec_at_last_use`).
 pub(super) fn compute_transfer_via_move_alias(
     func: &ArcFunction,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
+    use_counts: &FxHashMap<ArcVarId, u32>,
     last_use_points: &[(ArcVarId, usize, usize)],
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
@@ -179,6 +189,24 @@ pub(super) fn compute_transfer_via_move_alias(
         last_use_entry_count.get(src).copied().unwrap_or(0) == 1
             && last_use_pos.get(src) == Some(&(b, i))
     };
+    // Sources with at least one DEAD `Let { Var }` duplicate alias (`%d = %src`,
+    // `%d` never used). The dead alias's reference is released by the source's
+    // terminal dec (RL-2 `ScopeExit`); suppressing it would leak.
+    let mut src_has_dead_alias: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if use_counts.get(dst).copied().unwrap_or(0) == 0 {
+                    src_has_dead_alias.insert(*src);
+                }
+            }
+        }
+    }
 
     let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
     // Seed: terminator-transferred vars.
@@ -191,8 +219,10 @@ pub(super) fn compute_transfer_via_move_alias(
             transferred.extend(instr_transfer_vars(instr, func).iter().copied());
         }
     }
-    // Move-alias edges `dst -> src` (the `%dst = %src` alias is `%src`'s terminal
-    // use = a move; dup'd sources qualify only at their terminal `Let { Var }`).
+    // Move-alias edges `dst -> src`. A use-once source is the unchanged pure-move
+    // case. A dup'd source qualifies ONLY at its TERMINAL `Let { Var }` use AND
+    // only when it has NO dead duplicate alias (a dead alias's reference is
+    // discharged by the kept terminal dec, not by a downstream consumer).
     let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -202,7 +232,11 @@ pub(super) fn compute_transfer_via_move_alias(
                 ..
             } = instr
             {
-                if is_global_last_use(src, block_idx, instr_idx) {
+                let use_once = use_counts.get(src).copied().unwrap_or(0) == 1;
+                let dup_terminal_move = use_counts.get(src).copied().unwrap_or(0) >= 2
+                    && is_global_last_use(src, block_idx, instr_idx)
+                    && !src_has_dead_alias.contains(src);
+                if use_once || dup_terminal_move {
                     move_edges.push((*dst, *src));
                 }
             }

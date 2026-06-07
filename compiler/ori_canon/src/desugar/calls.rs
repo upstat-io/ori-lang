@@ -55,6 +55,7 @@ impl Lowerer<'_> {
     /// from `impl_sigs`.
     pub(crate) fn desugar_method_call_named(
         &mut self,
+        call_expr_id: ExprId,
         receiver: ExprId,
         method: Name,
         args: CallArgRange,
@@ -74,7 +75,7 @@ impl Lowerer<'_> {
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
 
-        self.push(
+        let can_id = self.push(
             CanExpr::MethodCall {
                 receiver: lowered_receiver,
                 method,
@@ -82,7 +83,14 @@ impl Lowerer<'_> {
             },
             span,
             ty,
-        )
+        );
+        // Named-arg method calls desugar to the same positional `MethodCall` as
+        // `lower_method_call`; publish the typeck mono-dispatch entry here too so
+        // a monomorphized method invoked with named args (e.g. `h.map(f: ...)`)
+        // carries its `mono_instance_id` to codegen. Without it the apply falls
+        // to the arg-type fallback, which mis-handles closure-typed params.
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
     }
 
     /// Reorder named arguments to match parameter order, filling omitted

@@ -69,7 +69,7 @@ impl Lowerer<'_> {
     /// `ExprId`, append the `(CanId, MonoInstanceId)` translation to the
     /// lowerer's accumulator. The accumulator is sorted in `Lowerer::finish`
     /// for binary-search lookup downstream (sub-steps 1d/1e/1f).
-    fn record_mono_dispatch_if_present(&mut self, call_expr_id: ExprId, can_id: CanId) {
+    pub(crate) fn record_mono_dispatch_if_present(&mut self, call_expr_id: ExprId, can_id: CanId) {
         let map = &self.typed.mono_dispatch_map;
         if let Ok(idx) = map.binary_search_by_key(&call_expr_id.raw(), |(eid, _)| eid.raw()) {
             let (_, mono_id) = map[idx];

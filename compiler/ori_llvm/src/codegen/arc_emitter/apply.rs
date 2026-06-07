@@ -172,6 +172,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .zip(&arg_types)
                     .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
         });
+        if matched.is_none() {
+            for (params, _) in entries {
+                for (i, (p, a)) in params.iter().zip(&arg_types).enumerate() {
+                    let rp = self.pool.resolve_fully(*p);
+                    tracing::debug!(
+                        callee = %self.interner.lookup(callee),
+                        idx = i,
+                        param = ?rp,
+                        param_tag = ?self.pool.tag(rp),
+                        arg = ?*a,
+                        arg_tag = ?self.pool.tag(*a),
+                        eq = (rp == *a),
+                        "lookup_mono_dispatch arg-mismatch detail"
+                    );
+                }
+            }
+        }
         tracing::debug!(
             callee = %self.interner.lookup(callee),
             n_entries = entries.len(),

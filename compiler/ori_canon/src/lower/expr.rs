@@ -297,7 +297,7 @@ impl Lowerer<'_> {
                 receiver,
                 method,
                 args,
-            } => self.desugar_method_call_named(receiver, method, args, span, ty),
+            } => self.desugar_method_call_named(id, receiver, method, args, span, ty),
             ExprKind::ListWithSpread(elements) => self.desugar_list_with_spread(elements, span, ty),
             ExprKind::MapWithSpread(elements) => self.desugar_map_with_spread(elements, span, ty),
             ExprKind::StructWithSpread { name, fields } => {
