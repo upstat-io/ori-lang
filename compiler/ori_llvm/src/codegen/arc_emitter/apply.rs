@@ -141,26 +141,45 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         mono_instance_id: Option<MonoInstanceId>,
     ) -> Option<&(FunctionId, FunctionAbi)> {
         if let Some(id) = mono_instance_id {
-            if let Some(mangled) = self.ctx.mono_dispatch_by_id.get(&id) {
+            let by_id_hit = self.ctx.mono_dispatch_by_id.get(&id);
+            tracing::debug!(
+                callee = %self.interner.lookup(callee),
+                ?id,
+                by_id_hit = by_id_hit.is_some(),
+                "lookup_mono_dispatch id fast-path"
+            );
+            if let Some(mangled) = by_id_hit {
                 return self.ctx.functions.get(mangled);
             }
         }
 
-        let entries = self.ctx.mono_dispatch.get(&callee)?;
+        let Some(entries) = self.ctx.mono_dispatch.get(&callee) else {
+            tracing::debug!(
+                callee = %self.interner.lookup(callee),
+                had_instance_id = mono_instance_id.is_some(),
+                "lookup_mono_dispatch arg-type fallback: no named entries"
+            );
+            return None;
+        };
         let arg_types: Vec<Idx> = args
             .iter()
             .map(|a| self.pool.resolve_fully(func.var_type(*a)))
             .collect();
-        entries
-            .iter()
-            .find(|(params, _)| {
-                params.len() == arg_types.len()
-                    && params
-                        .iter()
-                        .zip(&arg_types)
-                        .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
-            })
-            .and_then(|(_, mangled)| self.ctx.functions.get(mangled))
+        let matched = entries.iter().find(|(params, _)| {
+            params.len() == arg_types.len()
+                && params
+                    .iter()
+                    .zip(&arg_types)
+                    .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
+        });
+        tracing::debug!(
+            callee = %self.interner.lookup(callee),
+            n_entries = entries.len(),
+            n_args = arg_types.len(),
+            matched = matched.is_some(),
+            "lookup_mono_dispatch arg-type fallback result"
+        );
+        matched.and_then(|(_, mangled)| self.ctx.functions.get(mangled))
     }
 
     /// Resolve a callee via the 5-step dispatch chain (shared by `Apply`

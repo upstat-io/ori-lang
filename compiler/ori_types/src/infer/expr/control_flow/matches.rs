@@ -10,13 +10,8 @@ use crate::{
     VariantFields,
 };
 
-/// Infer the type of a match expression.
-///
-/// Match inference follows these steps:
-/// 1. Infer the scrutinee type
-/// 2. For each arm: check pattern against scrutinee, check guard is bool, infer body
-/// 3. Unify all arm body types
-/// 4. Return the unified type (or never if no arms)
+/// Infer the type of a match expression: unify all arm body types to one result
+/// (`Never` when there are no arms).
 pub(crate) fn infer_match(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -24,7 +19,6 @@ pub(crate) fn infer_match(
     arms: ori_ir::ArmRange,
     span: Span,
 ) -> Idx {
-    // Step 1: Infer scrutinee type
     engine.push_context(ContextKind::MatchScrutinee);
     let scrutinee_ty = infer_expr(engine, arena, scrutinee);
     engine.pop_context();
@@ -36,7 +30,6 @@ pub(crate) fn infer_match(
         return Idx::NEVER;
     }
 
-    // Step 2 & 3: Process arms and unify body types
     let mut result_ty: Option<Idx> = None;
     let scrutinee_span = arena.get_expr(scrutinee).span;
 
@@ -63,7 +56,6 @@ pub(crate) fn infer_match(
             engine.pop_context();
         }
 
-        // Infer body type
         engine.push_context(ContextKind::MatchArm { arm_index: i });
         let body_ty = infer_expr(engine, arena, arm.body);
         engine.pop_context();
@@ -93,7 +85,6 @@ pub(crate) fn infer_match(
         // This is handled by enter/exit scope around pattern checking
     }
 
-    // Return the unified type, or error if something went wrong
     if let Some(ty) = result_ty {
         engine.resolve(ty)
     } else {
