@@ -21,7 +21,7 @@ static KEY_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
     ownership: Ownership::Borrow,
 }];
 
-/// `(key: K, value: V)` — for `insert`.
+/// `(key: K, value: V)` — for `insert`, `updated`.
 static INSERT_PARAMS: [ParamDef; 2] = [
     ParamDef {
         name: "key",
@@ -55,7 +55,7 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 18 methods alphabetically sorted.
+// All 19 methods alphabetically sorted.
 static MAP_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
     MethodDef::compound(

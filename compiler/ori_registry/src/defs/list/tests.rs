@@ -13,6 +13,20 @@ fn list_is_arc() {
 }
 
 #[test]
+fn list_updated_is_index_set_trait_with_index_element_params() {
+    let m = LIST
+        .methods
+        .iter()
+        .find(|m| m.name == "updated")
+        .unwrap_or_else(|| panic!("updated method should exist"));
+    assert_eq!(m.trait_name, Some("IndexSet"), "List.updated");
+    assert_eq!(m.returns, ReturnTag::SelfType);
+    assert_eq!(m.params.len(), 2);
+    assert_eq!(m.params[0].ty, ReturnTag::Concrete(TypeTag::Int));
+    assert_eq!(m.params[1].ty, ReturnTag::ElementType);
+}
+
+#[test]
 fn list_is_generic_with_one_param() {
     assert_eq!(LIST.type_params, TypeParamArity::Fixed(1));
 }
