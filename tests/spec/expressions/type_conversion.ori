@@ -29,11 +29,36 @@ use std.testing { assert, assert_eq };
     assert(cond: f > -100.1)
 }
 
-// float -> int (fptosi, truncates toward zero)
+// float -> int (saturating: truncates toward zero; NaN -> 0;
+// out-of-range clamps to int MIN/MAX)
 
 @test_float_as_int_truncates_toward_zero tests _ () -> void = {
     assert_eq(actual: 3.99 as int, expected: 3);
     assert_eq(actual: -3.99 as int, expected: -3)
+}
+
+@test_float_as_int_nan_saturates_to_zero tests _ () -> void = {
+    let nan = 0.0 / 0.0;
+
+    assert_eq(actual: nan as int, expected: 0)
+}
+
+@test_float_as_int_infinities_clamp tests _ () -> void = {
+    let pos_inf = 1.0 / 0.0;
+    let neg_inf = -1.0 / 0.0;
+    let int_max = 9223372036854775807;
+
+    assert_eq(actual: pos_inf as int, expected: int_max);
+    assert_eq(actual: neg_inf as int, expected: -int_max - 1)
+}
+
+@test_float_as_int_out_of_range_clamps tests _ () -> void = {
+    let huge = 1.0e30;
+    let neg_huge = -1.0e30;
+    let int_max = 9223372036854775807;
+
+    assert_eq(actual: huge as int, expected: int_max);
+    assert_eq(actual: neg_huge as int, expected: -int_max - 1)
 }
 
 // int -> byte (range-checked 0..=255; panics out of range)

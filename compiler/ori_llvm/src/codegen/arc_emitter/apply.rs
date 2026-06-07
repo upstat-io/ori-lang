@@ -304,8 +304,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.si_to_fp(val, f64_ty, "cast.int.float"))
             }
             (Tag::Float, Tag::Int) => {
+                // Saturating conversion — NaN -> 0, out-of-range clamps to
+                // i64 MIN/MAX (parity with eval's Rust `as` semantics; raw
+                // fptosi is poison on those inputs).
                 let i64_ty = self.builder.i64_type();
-                Some(self.builder.fp_to_si(val, i64_ty, "cast.float.int"))
+                Some(self.builder.fp_to_si_sat(val, i64_ty, "cast.float.int"))
             }
             (Tag::Byte | Tag::Char, Tag::Int) => {
                 let i64_ty = self.builder.i64_type();

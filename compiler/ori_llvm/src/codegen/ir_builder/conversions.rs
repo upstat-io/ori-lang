@@ -100,6 +100,46 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(result.into())
     }
 
+    /// Build a SATURATING floating-point to signed integer conversion via
+    /// `llvm.fptosi.sat` — NaN maps to 0, out-of-range values clamp to the
+    /// target's MIN/MAX. Matches Rust `as` semantics (and therefore the
+    /// interpreter's `f as int` cast, which uses Rust `as`); raw `fptosi`
+    /// is poison on those inputs.
+    pub fn fp_to_si_sat(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
+        use inkwell::intrinsics::Intrinsic;
+        use inkwell::values::BasicMetadataValueEnum;
+
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_int_type();
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "fp_to_si_sat on non-float operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
+        let Some(intrinsic) = Intrinsic::find("llvm.fptosi.sat") else {
+            tracing::error!("llvm.fptosi.sat intrinsic not found");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
+        let float_ty = v.get_type();
+        let Some(func_val) = intrinsic.get_declaration(&self.scx.llmod, &[target.into(), float_ty])
+        else {
+            tracing::error!("failed to declare llvm.fptosi.sat");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
+        let arg: BasicMetadataValueEnum<'_> = v.into_float_value().into();
+        let call = self
+            .builder
+            .build_call(func_val, &[arg], name)
+            .expect("fptosi.sat call");
+        let result = call
+            .try_as_basic_value()
+            .basic()
+            .expect("fptosi.sat returns a value");
+        self.arena.push_value(result)
+    }
+
     /// Build floating-point to signed integer conversion.
     pub fn fp_to_si(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
