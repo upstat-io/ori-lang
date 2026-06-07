@@ -1544,6 +1544,146 @@ fn different_type_args_produce_separate_instances() {
     assert!(types.contains(&Idx::STR), "should have str instance");
 }
 
+// Method Monomorphization — Inherent Methods on Generic Receivers
+//
+// An inherent method on a generic impl (`impl<T> Box<T> { @unwrap (self) -> T }`)
+// called on a concretely-instantiated receiver (`Box<int>`) records a
+// receiver-bearing MonoInstance so codegen can monomorphize it. The instance
+// carries `receiver_type = Some(Box<int>)` and `impl_args = [int]`.
+
+#[test]
+fn inherent_method_on_generic_receiver_records_method_instance() {
+    let source = r"
+type Box<T> = { value: T };
+@unbox (b: Box<int>) -> int = b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_unbox tests @unbox () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("unwrap");
+    assert_eq!(
+        instances.len(),
+        1,
+        "Box<int>.unwrap() should record exactly one method instance, got: {instances:?}"
+    );
+    let inst = instances[0];
+    assert!(
+        inst.receiver_type.is_some(),
+        "method instance must carry receiver_type, got None"
+    );
+    assert_eq!(
+        inst.impl_args,
+        vec![crate::GenericArg::Type(Idx::INT)],
+        "impl_args should be [int] for Box<int>.unwrap()"
+    );
+    assert!(
+        inst.method_args.is_empty(),
+        "unwrap has no method-level generics, got: {:?}",
+        inst.method_args
+    );
+    assert_eq!(
+        inst.concrete_return_type,
+        Idx::INT,
+        "unwrap on Box<int> returns int"
+    );
+}
+
+#[test]
+fn same_method_on_same_receiver_deduplicates() {
+    let source = r"
+type Box<T> = { value: T };
+@two_calls (a: Box<int>, b: Box<int>) -> int = a.unwrap() + b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_two_calls tests @two_calls () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("unwrap");
+    assert_eq!(
+        instances.len(),
+        1,
+        "two Box<int>.unwrap() calls should dedup to one instance, got: {instances:?}"
+    );
+}
+
+#[test]
+fn method_on_distinct_receivers_produces_separate_instances() {
+    let source = r"
+type Box<T> = { value: T };
+@unbox_int (b: Box<int>) -> int = b.unwrap();
+@unbox_str (b: Box<str>) -> str = b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_int tests @unbox_int () -> void = ();
+@test_str tests @unbox_str () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("unwrap");
+    assert_eq!(
+        instances.len(),
+        2,
+        "Box<int>.unwrap() and Box<str>.unwrap() should produce 2 instances, got: {instances:?}"
+    );
+    let impl_args: Vec<&Vec<crate::GenericArg>> = instances.iter().map(|m| &m.impl_args).collect();
+    assert!(
+        impl_args.contains(&&vec![crate::GenericArg::Type(Idx::INT)]),
+        "expected an [int] impl_args instance, got: {impl_args:?}"
+    );
+    assert!(
+        impl_args.contains(&&vec![crate::GenericArg::Type(Idx::STR)]),
+        "expected a [str] impl_args instance, got: {impl_args:?}"
+    );
+}
+
+#[test]
+fn inherent_method_on_non_generic_receiver_records_nothing() {
+    // The impl is NOT generic over the receiver's type params, so the method
+    // call must emit no method MonoInstance (the additive scope guard leaves
+    // non-generic inherent dispatch untouched).
+    let source = r"
+type Counter = { count: int };
+@read (c: Counter) -> int = c.get();
+impl Counter {
+    @get (self) -> int = self.count;
+}
+@test_read tests @read () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("get");
+    assert!(
+        instances.is_empty(),
+        "non-generic-receiver inherent method should record no instance, got: {instances:?}"
+    );
+}
+
 // Deferred Monomorphization — Union-Find Root Extension
 //
 // Regression pins for §04.2.B. Rank-weighted union-find can make a fresh

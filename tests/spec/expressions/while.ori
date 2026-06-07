@@ -219,3 +219,83 @@ use std.testing { assert, assert_eq }
         break
     }
 }
+
+// ----------------------------------------------------------------------------
+// BUG-02-044: break / continue in while-CONDITION position.
+// The spec desugar `loop { if !cond then break; body }` (16-control-flow.md
+// §16.2.4) places the condition inside the while's own loop, so a condition-
+// position break/continue targets THIS while. Typeck pushes the LoopForm::While
+// context before inferring the condition; the parser parses the condition with
+// IN_LOOP so the construct is valid even with no enclosing loop.
+// ----------------------------------------------------------------------------
+
+// Semantic pin: a bare `break` as the entire condition exits the while
+// immediately on first condition-eval; the enclosing loop continues. The while
+// body never runs.
+@cond_break_exits_while () -> int = {
+    let count = 0;
+    let iters = 0;
+    loop {
+        iters = iters + 1;
+        while (break) do { count = count + 1 };
+        if iters >= 3 then break
+    };
+    count * 100 + iters
+}
+
+@test_cond_break_exits_while tests @cond_break_exits_while () -> void = {
+    // body never runs (count stays 0); enclosing loop runs 3 iterations.
+    assert_eq(actual: cond_break_exits_while(), expected: 3)
+}
+
+// Top-level `while (break)` with NO enclosing loop — valid because the
+// condition is inside the while's own loop (parser IN_LOOP fix).
+@cond_break_no_enclosing_loop () -> int = {
+    let touched = 0;
+    while (break) do { touched = 1 };
+    touched
+}
+
+@test_cond_break_no_enclosing_loop tests @cond_break_no_enclosing_loop () -> void = {
+    assert_eq(actual: cond_break_no_enclosing_loop(), expected: 0)
+}
+
+// Conditional break inside the condition expression: exits the while when the
+// branch is taken; otherwise the boolean condition drives iteration.
+@cond_conditional_break () -> int = {
+    let i = 0;
+    while (if i >= 3 then break else i < 100) do { i = i + 1 };
+    i
+}
+
+@test_cond_conditional_break tests @cond_conditional_break () -> void = {
+    assert_eq(actual: cond_conditional_break(), expected: 3)
+}
+
+// Labeled break in condition targeting the enclosing loop by label still works
+// (label resolution unaffected by the condition-context fix).
+@cond_labeled_break_outer () -> int = {
+    let i = 0;
+    loop:outer {
+        i = i + 1;
+        while (if i >= 5 then break:outer else true) do { i = i + 1 }
+    };
+    i
+}
+
+@test_cond_labeled_break_outer tests @cond_labeled_break_outer () -> void = {
+    assert_eq(actual: cond_labeled_break_outer(), expected: 5)
+}
+
+// Negative pin: `break value` in condition position is E0860 (while is void).
+#compile_fail(code: "E0860")
+@test_cond_break_value_rejected tests _ () -> void = {
+    while (if true then break 5 else true) do { }
+}
+
+// Negative pin: `continue value` in condition position is E0861.
+#compile_fail(code: "E0861")
+@test_cond_continue_value_rejected tests _ () -> void = {
+    let i = 0;
+    while (if i > 0 then continue 5 else i < 3) do { i = i + 1 }
+}

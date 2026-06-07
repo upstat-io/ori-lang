@@ -145,6 +145,14 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let cond_var = self.lower_expr(cond);
 
+        // A divergent condition (`break` / `continue` in condition position)
+        // terminates the current block before the branch can be emitted; the
+        // if's then/else arms are unreachable. Return the (unit) cond var
+        // without emitting a second terminator.
+        if self.builder.is_terminated() {
+            return cond_var;
+        }
+
         let then_block = self.builder.new_block();
         let else_block = self.builder.new_block();
         let merge_block = self.builder.new_block();

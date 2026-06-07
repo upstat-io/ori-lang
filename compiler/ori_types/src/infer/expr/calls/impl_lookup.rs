@@ -36,9 +36,31 @@ pub(super) enum LookupOutcome {
         /// applies this via `substitute_named_in_pool` BEFORE method-level
         /// `Tag::Scheme` instantiation.
         impl_subst: FxHashMap<Name, Idx>,
+        /// Impl-level binder names in declaration order, populated ONLY for an
+        /// INHERENT base-name-match candidate (`impl<T> Box<T>`). Empty for
+        /// trait impls, exact-`Idx` primary lookups, and bound-chain dispatch.
+        /// Non-empty iff the resolved method is eligible for receiver-bearing
+        /// monomorphization recording (it pins both "inherent" and the order
+        /// for `impl_args`).
+        impl_type_params: Vec<Name>,
     },
     Ambiguous(Vec<ori_ir::Name>),
     NotFound,
+}
+
+/// Receiver-side monomorphization carrier for an INHERENT method resolved on
+/// a GENERIC impl (`impl<T> Box<T>`). `impl_type_args` lists the impl-level
+/// binders in declaration order paired with their concrete substitution
+/// (`[(T, int)]` for `impl<T> Box<T>` matched against `Box<int>`).
+///
+/// Populated ONLY for inherent generic-impl methods. Trait methods, builtin
+/// dispatch, bound-chain dispatch, and non-generic impls leave the enclosing
+/// `Option` `None`, so the method-mono emission hook stays inert for them.
+pub(super) struct MethodMonoData {
+    /// Impl-level binders in declaration order, each paired with its concrete
+    /// substitution (`Name → Idx`). Drives the emitted instance's `impl_args`
+    /// + the impl-binder entries of its `body_type_map`.
+    pub(super) impl_type_args: Vec<(Name, Idx)>,
 }
 
 /// Successfully resolved impl method signature.
@@ -47,6 +69,10 @@ pub(super) struct ImplMethodSig {
     pub(super) params: Vec<Idx>,
     /// Return type.
     pub(super) ret: Idx,
+    /// Receiver-side monomorphization carrier — `Some` only for an inherent
+    /// method on a generic impl instantiated at a concrete receiver. Consumed
+    /// by the method-mono emission hook to mint a `MonoInstance::new_method`.
+    pub(super) method_mono: Option<MethodMonoData>,
     /// Method-level where-clause constraints, forwarded from `LookupOutcome::Found`
     /// for call-site bound enforcement (`check_method_where_clauses`).
     pub(super) where_clause_metadata: Vec<WhereConstraint>,
@@ -160,6 +186,9 @@ enum FallbackResult {
         generic_param_metadata: Vec<GenericParamMeta>,
         scheme_var_ids: Vec<u32>,
         impl_subst: FxHashMap<Name, Idx>,
+        /// Impl-level binder names in declaration order — populated for the
+        /// inherent branch, empty for the trait branch.
+        impl_type_params: Vec<Name>,
     },
     Ambiguous(Vec<Name>),
     None,
@@ -184,7 +213,11 @@ fn lookup_method_by_base_match(
         return FallbackResult::None;
     };
 
-    let mut inherent_matches: Vec<(&crate::ImplMethodDef, FxHashMap<Name, Idx>)> = Vec::new();
+    // Inherent matches carry the impl's `type_params` (declaration order) so the
+    // method-mono emission hook can build `impl_args` in a canonical order; trait
+    // matches do not (trait methods are excluded from method-mono recording).
+    let mut inherent_matches: Vec<(&crate::ImplMethodDef, FxHashMap<Name, Idx>, Vec<Name>)> =
+        Vec::new();
     let mut trait_matches: Vec<(&crate::ImplMethodDef, FxHashMap<Name, Idx>, Name)> = Vec::new();
 
     for (_, entry) in reg.impls_iter() {
@@ -203,7 +236,7 @@ fn lookup_method_by_base_match(
             continue;
         };
         match entry.trait_idx {
-            None => inherent_matches.push((method_def, impl_subst)),
+            None => inherent_matches.push((method_def, impl_subst, entry.type_params.clone())),
             Some(trait_idx) => {
                 let trait_name = reg.get_trait_by_idx(trait_idx).map_or(method, |t| t.name);
                 trait_matches.push((method_def, impl_subst, trait_name));
@@ -213,7 +246,7 @@ fn lookup_method_by_base_match(
 
     // Inherent wins; ambiguity within inherent is a registration error caught
     // earlier (coherence check `TR-5`), so first hit suffices.
-    if let Some((method_def, impl_subst)) = inherent_matches.into_iter().next() {
+    if let Some((method_def, impl_subst, impl_type_params)) = inherent_matches.into_iter().next() {
         return FallbackResult::Single {
             sig: method_def.signature,
             has_self: method_def.has_self,
@@ -221,6 +254,7 @@ fn lookup_method_by_base_match(
             generic_param_metadata: method_def.generic_param_metadata.clone(),
             scheme_var_ids: method_def.scheme_var_ids.clone(),
             impl_subst,
+            impl_type_params,
         };
     }
 
@@ -236,6 +270,8 @@ fn lookup_method_by_base_match(
             generic_param_metadata: method_def.generic_param_metadata.clone(),
             scheme_var_ids: method_def.scheme_var_ids.clone(),
             impl_subst,
+            // Trait method — excluded from method-mono recording.
+            impl_type_params: Vec::new(),
         }
     } else {
         FallbackResult::None
@@ -278,6 +314,9 @@ pub(super) fn lookup_impl_method(
                 generic_param_metadata: m.generic_param_metadata.clone(),
                 scheme_var_ids: m.scheme_var_ids.clone(),
                 impl_subst: FxHashMap::default(),
+                // Exact-`Idx` primary lookup matches non-generic impls; no
+                // receiver-side binders to record.
+                impl_type_params: Vec::new(),
             };
         }
         MethodLookupResult::Ambiguous { candidates } => {
@@ -296,6 +335,7 @@ pub(super) fn lookup_impl_method(
             generic_param_metadata,
             scheme_var_ids,
             impl_subst,
+            impl_type_params,
         } => {
             return LookupOutcome::Found {
                 sig,
@@ -304,6 +344,7 @@ pub(super) fn lookup_impl_method(
                 generic_param_metadata,
                 scheme_var_ids,
                 impl_subst,
+                impl_type_params,
             }
         }
         FallbackResult::Ambiguous(trait_names) => return LookupOutcome::Ambiguous(trait_names),
@@ -379,6 +420,9 @@ pub(super) fn lookup_impl_method(
                     generic_param_metadata,
                     scheme_var_ids,
                     impl_subst: FxHashMap::default(),
+                    // RigidVar / Var receiver — not a concrete instantiation;
+                    // no receiver-side binders to record.
+                    impl_type_params: Vec::new(),
                 }
             }
             BoundChainLookup::Ambiguous { candidates } => {
@@ -411,6 +455,7 @@ pub(super) fn resolve_impl_signature(
         generic_param_metadata,
         scheme_var_ids,
         impl_subst,
+        impl_type_params,
     ) = match outcome {
         LookupOutcome::Found {
             sig,
@@ -419,6 +464,7 @@ pub(super) fn resolve_impl_signature(
             generic_param_metadata,
             scheme_var_ids,
             impl_subst,
+            impl_type_params,
         } => (
             sig,
             has_self,
@@ -426,12 +472,34 @@ pub(super) fn resolve_impl_signature(
             generic_param_metadata,
             scheme_var_ids,
             impl_subst,
+            impl_type_params,
         ),
         LookupOutcome::Ambiguous(trait_names) => {
             engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
             return Some(Err(()));
         }
         LookupOutcome::NotFound => return None,
+    };
+
+    // Build the receiver-side monomorphization carrier BEFORE consuming
+    // `impl_subst` for signature substitution. Non-empty `impl_type_params`
+    // marks an inherent method on a generic impl (`impl<T> Box<T>`); pair each
+    // binder (declaration order) with its concrete substitution so the emission
+    // hook can mint `impl_args = [int]` for `Box<int>`. Any binder missing from
+    // `impl_subst` (structurally impossible for a successful match) drops the
+    // carrier to `None` rather than emitting a partial instance.
+    let method_mono = if impl_type_params.is_empty() {
+        None
+    } else {
+        let impl_type_args: Vec<(Name, Idx)> = impl_type_params
+            .iter()
+            .filter_map(|&name| impl_subst.get(&name).map(|&concrete| (name, concrete)))
+            .collect();
+        if impl_type_args.len() == impl_type_params.len() {
+            Some(MethodMonoData { impl_type_args })
+        } else {
+            None
+        }
     };
 
     // Apply impl-level binder substitution BEFORE method-level Scheme
@@ -492,6 +560,7 @@ pub(super) fn resolve_impl_signature(
     Some(Ok(ImplMethodSig {
         params: method_params,
         ret,
+        method_mono,
         where_clause_metadata,
         generic_param_metadata,
         scheme_var_ids,

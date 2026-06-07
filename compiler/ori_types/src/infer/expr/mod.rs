@@ -159,12 +159,16 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             receiver,
             method,
             args,
-        } => infer_method_call(engine, arena, *receiver, *method, *args, span, None),
+        } => infer_method_call(
+            engine, arena, expr_id, *receiver, *method, *args, span, None,
+        ),
         ExprKind::MethodCallNamed {
             receiver,
             method,
             args,
-        } => infer_method_call_named(engine, arena, *receiver, *method, *args, span, None),
+        } => infer_method_call_named(
+            engine, arena, expr_id, *receiver, *method, *args, span, None,
+        ),
 
         // Field/Index Access
         ExprKind::Field { receiver, field } => infer_field(engine, arena, *receiver, *field, span),
@@ -408,6 +412,7 @@ pub fn check_expr(
             let ty = infer_method_call(
                 engine,
                 arena,
+                expr_id,
                 *receiver,
                 *method,
                 *args,
@@ -426,6 +431,7 @@ pub fn check_expr(
             let ty = infer_method_call_named(
                 engine,
                 arena,
+                expr_id,
                 *receiver,
                 *method,
                 *args,

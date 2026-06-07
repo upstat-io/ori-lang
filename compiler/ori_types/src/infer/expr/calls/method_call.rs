@@ -11,6 +11,7 @@ use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
 };
 use super::infinite_iterator::check_infinite_iterator_consumed;
+use super::monomorphization::maybe_record_method_mono_instance;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
@@ -21,9 +22,14 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 /// 3. User-defined trait methods (from `impl Type: Trait { ... }`)
 ///
 /// For unresolved type variables, returns a fresh variable to defer resolution.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors ExprKind::MethodCall fields"
+)]
 pub(crate) fn infer_method_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    call_expr_id: ExprId,
     receiver: ExprId,
     method: Name,
     args: ori_ir::ExprRange,
@@ -88,6 +94,10 @@ pub(crate) fn infer_method_call(
             &sig.instantiation_subst,
             span,
         );
+        // Record a receiver-bearing MonoInstance for an inherent generic-impl
+        // method (`Box<int>.unwrap()`). Runs AFTER arg-checking so the method's
+        // instantiation vars are unified; inert for every other dispatch kind.
+        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
         return ret_ty;
     }
 
@@ -103,9 +113,14 @@ pub(crate) fn infer_method_call(
 }
 
 /// Infer the type of a named-argument method call: `receiver.method(name: value)`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors ExprKind::MethodCallNamed fields"
+)]
 pub(crate) fn infer_method_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    call_expr_id: ExprId,
     receiver: ExprId,
     method: Name,
     args: ori_ir::CallArgRange,
@@ -183,6 +198,9 @@ pub(crate) fn infer_method_call_named(
             &sig.instantiation_subst,
             span,
         );
+        // Mirror the positional path: record a receiver-bearing MonoInstance for
+        // an inherent generic-impl method after named-arg checking.
+        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
         return sig.ret;
     }
 

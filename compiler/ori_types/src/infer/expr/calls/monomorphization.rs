@@ -100,15 +100,7 @@ pub(super) fn maybe_record_mono_instance(
     // Collect struct type params before taking pool_mut(), so
     // register_concrete_applied_resolutions can build Named->Idx
     // substitutions for struct fields (which use Named tags, not Var tags).
-    let struct_type_params: FxHashMap<Name, Vec<Name>> = engine
-        .type_registry()
-        .map(|tr| {
-            tr.iter()
-                .filter(|entry| !entry.type_params.is_empty())
-                .map(|entry| (entry.name, entry.type_params.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let struct_type_params = collect_struct_type_params(engine);
 
     // Concrete case: all type params resolved -- build full MonoInstance.
     let pool = engine.pool_mut();
@@ -118,17 +110,11 @@ pub(super) fn maybe_record_mono_instance(
         .collect();
     let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
 
-    // Build body_type_map via the canonical SSOT helper; sort+dedup for
-    // deterministic Eq/Hash (Salsa early cutoff) is call-site-local
-    // post-processing per `pool::substitute::build_mono_body_type_map`.
-    let mut body_type_map: Vec<(crate::Idx, crate::Idx)> = Vec::new();
-    crate::pool::substitute::build_mono_body_type_map(pool, &var_subst, &mut body_type_map);
-    body_type_map.sort_by_key(|(k, _)| k.raw());
-    body_type_map.dedup_by_key(|(k, _)| k.raw());
-
-    // Register pool resolutions for concrete Applied types so the LLVM
-    // TypeInfoStore can resolve them to struct layouts during codegen.
-    register_concrete_applied_resolutions(pool, &body_type_map, &struct_type_params);
+    // Top-level free functions carry no impl-binder (`Tag::Named`) entries, so
+    // `extra_named` is empty here — the shared helper reduces to the canonical
+    // build + sort + dedup + Applied-resolution registration.
+    let body_type_map =
+        build_and_register_body_type_map(pool, &var_subst, &[], &struct_type_params);
 
     let instance = MonoInstance::new_top_level(
         fn_name,
@@ -158,6 +144,172 @@ pub(super) fn maybe_record_mono_instance(
     // literals that never flow through a generic free-function call. Spec:
     // Annex E §AIMS — composition at type-instantiation time prevents Phase 5
     // from emitting indirect dispatch on each burden walk.
+}
+
+/// Record a `MonoInstance` for an INHERENT method call on a generically-
+/// instantiated receiver (`b.unwrap()` where `b: Box<int>` and the impl is
+/// `impl<T> Box<T> { @unwrap (self) -> T }`).
+///
+/// Fires ONLY when [`ImplMethodSig::method_mono`] is `Some` — i.e. the resolved
+/// method is inherent and its impl is generic over the receiver's type params.
+/// Trait-method dispatch, builtin dispatch, and non-generic impls leave that
+/// field `None` and never reach this path. Emission is additionally gated on
+/// the receiver (and every substituted param / return type) being fully
+/// concrete; a receiver that still carries type variables — a generic method
+/// resolving through another generic — is conservatively skipped this pass.
+///
+/// MUST be called AFTER argument type-checking has unified the method's
+/// instantiation vars, so `engine.resolve` yields concrete types.
+pub(super) fn maybe_record_method_mono_instance(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    method_name: Name,
+    receiver_ty: Idx,
+    sig: &super::impl_lookup::ImplMethodSig,
+) {
+    let Some(mono) = sig.method_mono.as_ref() else {
+        return;
+    };
+
+    // Receiver carrier: the FULL concrete receiver Idx (e.g. `Box<int>`, NOT
+    // the generic `Box<T>` shell). A receiver that still has type vars is not a
+    // concrete instantiation — skip per the deferred-receiver carve-out.
+    let receiver = engine.resolve(receiver_ty);
+    if !is_fully_concrete(engine, receiver) {
+        return;
+    }
+
+    // Impl-level + method-level concrete arguments. `impl_type_args` is the
+    // receiver-side substitution in declaration order (`[(T, int)]`); method-
+    // level args come from the call-site instantiation of `<U>`-style binders.
+    let mut impl_args = Vec::with_capacity(mono.impl_type_args.len());
+    for &(_, concrete) in &mono.impl_type_args {
+        let resolved = engine.resolve(concrete);
+        if !is_fully_concrete(engine, resolved) {
+            return;
+        }
+        impl_args.push(GenericArg::Type(resolved));
+    }
+
+    let mut method_args = Vec::with_capacity(sig.scheme_var_ids.len());
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    for &sv_id in &sig.scheme_var_ids {
+        let Some(&fresh) = sig.instantiation_subst.get(&sv_id) else {
+            continue;
+        };
+        let resolved = engine.resolve(fresh);
+        if !is_fully_concrete(engine, resolved) {
+            return;
+        }
+        var_subst.insert(sv_id, resolved);
+        method_args.push(GenericArg::Type(resolved));
+    }
+
+    // Concrete param / return types. The signature already had its impl-level
+    // `Tag::Named` binders substituted (in `resolve_impl_signature`) and its
+    // method-level scheme instantiated, so `engine.resolve` collapses the
+    // remaining unification vars to concrete types.
+    let concrete_param_types: Vec<Idx> = sig.params.iter().map(|&p| engine.resolve(p)).collect();
+    let concrete_return_type = engine.resolve(sig.ret);
+    if concrete_param_types
+        .iter()
+        .any(|&p| !is_fully_concrete(engine, p))
+        || !is_fully_concrete(engine, concrete_return_type)
+    {
+        return;
+    }
+
+    // `body_type_map` maps each generic body type to its concrete form: the
+    // method-level scheme vars via the canonical SSOT helper, plus the impl-
+    // level `Tag::Named(binder)` entries the var-keyed helper cannot reach.
+    crate::pool::substitute::extend_var_subst_with_roots(
+        engine.pool(),
+        &sig.scheme_var_ids,
+        &mut var_subst,
+    );
+    let struct_type_params = collect_struct_type_params(engine);
+    let extra_named: Vec<(Name, Idx)> = mono
+        .impl_type_args
+        .iter()
+        .map(|&(name, concrete)| (name, engine.resolve(concrete)))
+        .collect();
+    let pool = engine.pool_mut();
+    let body_type_map =
+        build_and_register_body_type_map(pool, &var_subst, &extra_named, &struct_type_params);
+
+    let instance = MonoInstance::new_method(
+        method_name,
+        impl_args,
+        method_args,
+        receiver,
+        concrete_param_types,
+        concrete_return_type,
+        body_type_map,
+    );
+
+    tracing::debug!(
+        fn_name = ?method_name,
+        receiver = ?receiver,
+        impl_args = ?instance.impl_args,
+        method_args = ?instance.method_args,
+        "recorded mono instance"
+    );
+
+    engine.record_mono_with_dispatch(call_expr_id, instance);
+}
+
+/// True when `ty` carries no remaining type variables / inference holes —
+/// i.e. it is a fully concrete monomorphic type safe to record in a
+/// `MonoInstance`.
+fn is_fully_concrete(engine: &InferEngine<'_>, ty: Idx) -> bool {
+    let unresolved = TypeFlags::HAS_VAR
+        | TypeFlags::HAS_INFER
+        | TypeFlags::HAS_BOUND_VAR
+        | TypeFlags::HAS_RIGID_VAR;
+    !engine.pool().flags(ty).intersects(unresolved)
+}
+
+/// Collect every user-defined generic type's `name → type_params` so
+/// [`register_concrete_applied_resolutions`] can build `Named → Idx`
+/// substitutions for struct fields (which use `Tag::Named`, not `Tag::Var`).
+/// Read-only on the registry; call BEFORE taking `pool_mut()`.
+fn collect_struct_type_params(engine: &InferEngine<'_>) -> FxHashMap<Name, Vec<Name>> {
+    engine
+        .type_registry()
+        .map(|tr| {
+            tr.iter()
+                .filter(|entry| !entry.type_params.is_empty())
+                .map(|entry| (entry.name, entry.type_params.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Build the `body_type_map` from the method/function var substitution plus any
+/// impl-level `Tag::Named(binder) → concrete` entries, then register the
+/// concrete Applied-type resolutions the LLVM `TypeInfoStore` consumes.
+///
+/// `extra_named` is empty for top-level free functions (no impl binders) and
+/// carries the impl binders for method instances. Sort + dedup by key gives the
+/// deterministic `Eq`/`Hash` shape Salsa early cutoff requires.
+fn build_and_register_body_type_map(
+    pool: &mut Pool,
+    var_subst: &FxHashMap<u32, Idx>,
+    extra_named: &[(Name, Idx)],
+    struct_type_params: &FxHashMap<Name, Vec<Name>>,
+) -> Vec<(Idx, Idx)> {
+    let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
+    crate::pool::substitute::build_mono_body_type_map(pool, var_subst, &mut body_type_map);
+    for &(name, concrete) in extra_named {
+        let generic_idx = pool.named(name);
+        if generic_idx != concrete {
+            body_type_map.push((generic_idx, concrete));
+        }
+    }
+    body_type_map.sort_by_key(|(k, _)| k.raw());
+    body_type_map.dedup_by_key(|(k, _)| k.raw());
+    register_concrete_applied_resolutions(pool, &body_type_map, struct_type_params);
+    body_type_map
 }
 
 /// Walk every fully-resolved generic-builtin `Idx` in the engine's pool and
