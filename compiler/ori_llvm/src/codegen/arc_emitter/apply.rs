@@ -270,14 +270,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit an `ApplyIndirect` instruction (indirect call through closure).
     /// Emit a primitive `as` cast (the `__cast` intercept). Returns the
     /// converted value, or `None` for source/target pairs handled elsewhere
-    /// (str parse, range-checked int→byte/char) so the caller falls through.
+    /// (str parse, value→str) so the caller falls through.
     ///
     /// Matches `ori_eval::eval_can_cast` for the conversions emitted here:
     /// identity (same primitive — no-op), int→float (sitofp), float→int
-    /// (fptosi), byte→int / char→int (zext — lossless for valid values).
+    /// (fptosi), byte→int / char→int (zext — lossless for valid values),
+    /// int→byte / int→char (range-checked; panics on out-of-range).
     pub(super) fn try_emit_cast(
         &mut self,
         dst: ArcVarId,
@@ -311,12 +311,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i64_ty = self.builder.i64_type();
                 Some(self.builder.zext(val, i64_ty, "cast.widen.int"))
             }
-            // int→byte / int→char (eval range-checks + panics on out-of-range),
-            // str→int / str→float (parse), X→str (to_str) — not emitted here.
+            (Tag::Int, Tag::Byte) => {
+                // Range check 0..=255, panic out of range (parity with
+                // eval's "value N out of range for byte (0-255)").
+                let lo = self.builder.const_i64(0);
+                let hi = self.builder.const_i64(255);
+                let ge = self.builder.icmp_sge(val, lo, "cast.byte.ge");
+                let le = self.builder.icmp_sle(val, hi, "cast.byte.le");
+                let valid = self.builder.and(ge, le, "cast.byte.valid");
+                self.emit_unwrap_branch(valid, "value out of range for byte (0-255)", "cast.byte")?;
+                let i8_ty = self.builder.i8_type();
+                Some(self.builder.trunc(val, i8_ty, "cast.int.byte"))
+            }
+            (Tag::Int, Tag::Char) => {
+                // Valid Unicode scalar: [0, 0xD7FF] or [0xE000, 0x10FFFF].
+                // Checked on the full i64 BEFORE truncation (parity with
+                // eval — high bits must not wrap into the valid range).
+                let zero = self.builder.const_i64(0);
+                let surrogate_lo = self.builder.const_i64(0xD7FF);
+                let surrogate_hi = self.builder.const_i64(0xE000);
+                let max_scalar = self.builder.const_i64(0x0010_FFFF);
+                let ge_zero = self.builder.icmp_sge(val, zero, "cast.char.ge0");
+                let below_surrogates = self.builder.icmp_sle(val, surrogate_lo, "cast.char.bmp");
+                let low_ok = self.builder.and(ge_zero, below_surrogates, "cast.char.low");
+                let above_surrogates = self.builder.icmp_sge(val, surrogate_hi, "cast.char.astral");
+                let le_max = self.builder.icmp_sle(val, max_scalar, "cast.char.max");
+                let high_ok = self.builder.and(above_surrogates, le_max, "cast.char.high");
+                let valid = self.builder.or(low_ok, high_ok, "cast.char.valid");
+                self.emit_unwrap_branch(
+                    valid,
+                    "value is not a valid Unicode codepoint",
+                    "cast.char",
+                )?;
+                let i32_ty = self.builder.i32_type();
+                Some(self.builder.trunc(val, i32_ty, "cast.int.char"))
+            }
+            // str→int / str→float (parse) and value→str (to_str) need the
+            // cast runtime surface — not emitted here; caller falls through.
             _ => None,
         }
     }
 
+    /// Emit an `ApplyIndirect` instruction (indirect call through closure).
     pub(super) fn emit_apply_indirect(
         &mut self,
         dst: ArcVarId,

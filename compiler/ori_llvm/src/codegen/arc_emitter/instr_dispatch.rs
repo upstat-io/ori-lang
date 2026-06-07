@@ -272,7 +272,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        //.A: Tagged-pointer enum projection.
+        // Tagged-pointer enum projection.
         // The entire enum is a single 64-bit slot encoded as `(ptr | tag)`.
         // Field 0 decodes the tag (low 3 bits) — this becomes the switch
         // scrutinee directly, no `tagged_ptr_scrutinees` map needed because
@@ -799,7 +799,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
-                    //.A: Tagged-pointer enums have no struct layout —
+                    // Tagged-pointer enums have no struct layout —
                     // there are no individual fields to GEP into. The entire
                     // enum is a single i64 slot. AIMS reuse should never
                     // generate a `Set` for a tagged-pointer enum because the
@@ -862,7 +862,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);
 
-                //.A: Tagged-pointer enum — re-encode the tag bits.
+                // Tagged-pointer enum — re-encode the tag bits.
                 // The encoded value lives in a single i64 slot. To set the
                 // discriminant we mask off the existing low 3 bits and OR
                 // in the new variant index. The pointer payload (high 61

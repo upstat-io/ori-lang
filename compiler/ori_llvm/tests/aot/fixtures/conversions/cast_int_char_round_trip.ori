@@ -1,0 +1,13 @@
+@main () -> int = {
+    let ascii = 65 as char;
+    let bmp_edge = 55295 as char;
+    let astral_edge = 57344 as char;
+    let max_scalar = 1114111 as char;
+
+    if ascii == 'A'
+        && bmp_edge as int == 55295
+        && astral_edge as int == 57344
+        && max_scalar as int == 1114111
+    then 0
+    else 1
+}

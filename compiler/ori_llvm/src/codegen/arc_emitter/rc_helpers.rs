@@ -369,7 +369,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        //.A: Tagged-pointer enum — decode tag, dispatch per variant.
+        // Tagged-pointer enum — decode tag, dispatch per variant.
         if self.get_tagged_ptr_encoding(resolved_ty).is_some() {
             self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, is_inc, count);
             return;
@@ -636,7 +636,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(done_block);
     }
 
-    ///.A: RC inc/dec for tagged-pointer encoded enums.
+    /// RC inc/dec for tagged-pointer encoded enums.
     ///
     /// The encoded value is a single i64. For each pointer-bearing variant,
     /// emit a switch case that decodes the pointer (high 61 bits) and

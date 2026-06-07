@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                //.A: Tagged-pointer enum — encode `(payload | tag)`
+                // Tagged-pointer enum — encode `(payload | tag)`
                 // into a single i64 slot. Unit variants use `0 | tag = tag`;
                 // pointer variants use `(arg_ptr | tag)`. The eligibility
                 // check (`can_use_tagged_pointer`) guarantees each variant

@@ -254,11 +254,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             // INVARIANT: self_path is non-empty per the parser's E1002
             // guarantee — a silent empty-name fallback would mangle every
             // method of a corrupted impl to the colliding `_ori_$method`.
-            let Some(resolved_type_name) = impl_def.type_name() else {
+            let Some(type_name_name) = impl_def.type_name() else {
                 unreachable!("ImplDef.self_path empty — parser E1002 guarantees a type path")
             };
-            let type_name_name = Some(resolved_type_name);
-            let type_name = self.interner.lookup(resolved_type_name).to_owned();
+            let type_name = self.interner.lookup(type_name_name).to_owned();
 
             for method in &impl_def.methods {
                 self.compile_impl_method_from_sig(
@@ -297,7 +296,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     fn compile_trait_default_methods_for_impl<'sig>(
         &mut self,
         impl_def: &ori_ir::ImplDef,
-        type_name_name: Option<Name>,
+        type_name_name: Name,
         type_name: &str,
         trait_map: &FxHashMap<Name, &TraitDef>,
         sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
@@ -341,7 +340,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
         method_name: Name,
         method_span: Span,
-        type_name_name: Option<Name>,
+        type_name_name: Name,
         type_name: &str,
         canon: &CanonResult,
     ) {
@@ -362,14 +361,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // Use type-qualified mangled name for LLVM symbol
+        // Use type-qualified mangled name for LLVM symbol. `type_name` is
+        // never empty: it is the interned LAST segment of a parser-validated
+        // type path (compile_impls unreachable-panics on an empty path).
         let method_str = self.interner.lookup(method_name);
-        let symbol = if type_name.is_empty() {
-            self.mangler.mangle_function(self.module_path, method_str)
-        } else {
-            self.mangler
-                .mangle_method(self.module_path, type_name, method_str)
-        };
+        let symbol = self
+            .mangler
+            .mangle_method(self.module_path, type_name, method_str);
         // Declare the LLVM function but do NOT insert into the bare `functions`
         // map. Impl methods must be resolved only through the type-qualified
         // `method_functions` map to prevent wrong-callee dispatch: registering
@@ -379,40 +377,40 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let (func_id, abi) = self.declare_impl_method(method_name, &symbol, sig, method_span);
 
         // Populate type-qualified method map for dispatch
-        if let Some(tnn) = type_name_name {
+        self.codegen_ctx
+            .method_functions
+            .insert((type_name_name, method_name), (func_id, abi.clone()));
+
+        // Map the self type Idx → type Name for receiver resolution
+        if let Some(&self_type_idx) = sig.param_types.first() {
+            self.codegen_ctx
+                .type_idx_to_name
+                .insert(self_type_idx, type_name_name);
+        }
+
+        // Verify round-trip: what we registered is immediately retrievable.
+        debug_assert!(
             self.codegen_ctx
                 .method_functions
-                .insert((tnn, method_name), (func_id, abi.clone()));
-
-            // Map the self type Idx → type Name for receiver resolution
-            if let Some(&self_type_idx) = sig.param_types.first() {
-                self.codegen_ctx.type_idx_to_name.insert(self_type_idx, tnn);
-            }
-
-            // Verify round-trip: what we registered is immediately retrievable.
+                .contains_key(&(type_name_name, method_name)),
+            "method_functions registration failed for {}.{}",
+            self.interner.lookup(type_name_name),
+            self.interner.lookup(method_name),
+        );
+        if let Some(&self_type_idx) = sig.param_types.first() {
             debug_assert!(
                 self.codegen_ctx
-                    .method_functions
-                    .contains_key(&(tnn, method_name)),
-                "method_functions registration failed for {}.{}",
-                self.interner.lookup(tnn),
-                self.interner.lookup(method_name),
+                    .type_idx_to_name
+                    .contains_key(&self_type_idx),
+                "type_idx_to_name registration failed for '{}' (Idx {:?})",
+                self.interner.lookup(type_name_name),
+                self_type_idx,
             );
-            if let Some(&self_type_idx) = sig.param_types.first() {
-                debug_assert!(
-                    self.codegen_ctx
-                        .type_idx_to_name
-                        .contains_key(&self_type_idx),
-                    "type_idx_to_name registration failed for '{}' (Idx {:?})",
-                    self.interner.lookup(tnn),
-                    self_type_idx,
-                );
-            }
         }
 
         // Look up the canonical body for this impl method
-        let body = type_name_name
-            .and_then(|tnn| canon.method_root_for(tnn, method_name))
+        let body = canon
+            .method_root_for(type_name_name, method_name)
             .or_else(|| canon.root_for(method_name))
             .unwrap_or(canon.root);
 

@@ -190,12 +190,9 @@ impl Interpreter<'_> {
             }
             Value::Int(n) if target == tn.char_ => {
                 let raw = n.raw();
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "char::from_u32 validates the value"
-                )]
-                if let Some(c) = char::from_u32(raw as u32) {
+                // Validate BEFORE narrowing — truncating i64 to u32 first
+                // would wrap values like 2^32 + 65 into the valid range.
+                if let Some(c) = u32::try_from(raw).ok().and_then(char::from_u32) {
                     Ok(Value::Char(c))
                 } else if fallible {
                     return Ok(Value::None);

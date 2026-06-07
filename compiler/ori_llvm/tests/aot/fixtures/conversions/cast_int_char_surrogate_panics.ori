@@ -1,0 +1,5 @@
+@main () -> int = {
+    let c = 55296 as char;
+
+    if c as int == 0 then 0 else 1
+}

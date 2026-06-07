@@ -277,7 +277,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         variants: &[Vec<(u32, Idx)>],
     ) {
-        //.A: Tagged-pointer enum drop — load the encoded i64, decode
+        // Tagged-pointer enum drop — load the encoded i64, decode
         // the tag, dispatch to per-variant pointer dec. Tagged-pointer enums
         // are 8 bytes, so the heap-allocated case is rare (the encoding
         // typically lives inline in a parent struct), but the drop path
@@ -479,7 +479,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(drop_done);
     }
 
-    ///.A: Emit drop body for a tagged-pointer encoded enum.
+    /// Emit drop body for a tagged-pointer encoded enum.
     ///
     /// Loads the 8-byte encoded value from `data_ptr`, decodes the tag bits,
     /// and dispatches to per-variant pointer dec via a switch. Pointer-bearing

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let lo = 0 as byte;
+    let hi = 255 as byte;
+    let mid = 200 as byte;
+
+    if lo as int == 0 && hi as int == 255 && mid as int == 200 then 0 else 1
+}

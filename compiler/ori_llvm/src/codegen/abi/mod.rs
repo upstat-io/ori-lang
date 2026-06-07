@@ -25,7 +25,7 @@ use ori_repr::ReprPlan;
 use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashSet;
 
-use super::type_info::TypeInfoStore;
+use super::type_info::{field_is_non_void, TypeInfoStore};
 
 // Passing mode enums
 
@@ -130,7 +130,7 @@ fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprP
         .is_some_and(|e| e.tag.is_niche())
 }
 
-///.A: Check if a type has tagged-pointer encoding in the `ReprPlan`.
+/// Check if a type has tagged-pointer encoding in the `ReprPlan`.
 ///
 /// Tagged-pointer enums are exactly 8 bytes (one i64 slot). The ABI passes
 /// them as a single Direct register, identical to a regular pointer or i64.
@@ -153,34 +153,32 @@ fn niche_enum_size(
     let plan = repr_plan?;
     let enum_repr = plan.enum_repr_with_fallback(store.pool(), ty)?;
 
-    if enum_repr.tag.is_tagless() {
-        let variant = variants.first()?;
-        let payload: u64 = variant
-            .fields
-            .iter()
-            .map(|&f| abi_size_inner(f, store, repr_plan, visiting))
-            .sum();
-        return Some(payload.max(1));
-    }
-
-    if let ori_repr::EnumTag::Niche {
+    // Tagless and niche enums lower to a struct of one variant's non-void
+    // fields (resolve_enum_tagless / resolve_enum_niche) — size is the
+    // alignment-padded aggregate of those fields, with an i8 placeholder
+    // (1 byte) when the variant is field-less.
+    let variant = if enum_repr.tag.is_tagless() {
+        variants.first()?
+    } else if let ori_repr::EnumTag::Niche {
         niche_variant_idx, ..
     } = &enum_repr.tag
     {
-        let data_idx = usize::from(*niche_variant_idx == 0);
-        let variant = variants.get(data_idx)?;
-        let payload: u64 = variant
+        variants.get(usize::from(*niche_variant_idx == 0))?
+    } else {
+        return None;
+    };
+
+    let payload = aggregate_size_with_padding(
+        variant
             .fields
             .iter()
-            .map(|&f| {
-                let size = abi_size_inner(f, store, repr_plan, visiting);
-                size.div_ceil(8) * 8
-            })
-            .sum();
-        return Some(payload.max(1));
-    }
-
-    None
+            .copied()
+            .filter(|&f| field_is_non_void(store.pool(), f)),
+        store,
+        repr_plan,
+        visiting,
+    );
+    Some(payload.max(1))
 }
 
 fn abi_size_inner(
@@ -211,8 +209,9 @@ fn abi_size_inner(
             if is_niche_encoded(ty, store, repr_plan) {
                 abi_size_inner(*inner, store, repr_plan, visiting)
             } else {
-                // Explicit tag: {i64 tag, payload}
-                8 + abi_size_inner(*inner, store, repr_plan, visiting)
+                // Explicit tag: {i64 tag, payload} — trailing padding to the
+                // struct's 8-byte alignment, matching LLVM's alloc size.
+                (8 + abi_size_inner(*inner, store, repr_plan, visiting)).div_ceil(8) * 8
             }
         }
         TypeInfo::Result { ok, err } => {
@@ -221,8 +220,9 @@ fn abi_size_inner(
             if is_niche_encoded(ty, store, repr_plan) {
                 ok_size.max(err_size)
             } else {
-                // Explicit tag: {i64 tag, max(ok, err) payload}
-                8 + ok_size.max(err_size)
+                // Explicit tag: {i64 tag, max(ok, err) payload} — trailing
+                // padding to the struct's 8-byte alignment (LLVM alloc size).
+                (8 + ok_size.max(err_size)).div_ceil(8) * 8
             }
         }
         TypeInfo::Tuple { elements } => {
@@ -235,7 +235,7 @@ fn abi_size_inner(
             visiting,
         ),
         TypeInfo::Enum { variants } => {
-            //.A: Tagged-pointer enums are a single 8-byte slot
+            // Tagged-pointer enums are a single 8-byte slot
             // regardless of variant count or payload size. Check before the
             // niche/explicit-tag computation since the encoding is uniform.
             if is_tagged_ptr_encoded(ty, store, repr_plan) {
@@ -292,7 +292,7 @@ fn aggregate_size_with_padding(
     let mut offset = 0u64;
     let mut max_align = 1u64;
     for field in fields {
-        let align = abi_alignment(field, store, 0);
+        let align = abi_alignment(field, store, repr_plan, 0);
         if align > 1 {
             offset = offset.div_ceil(align) * align;
         }
@@ -306,8 +306,15 @@ fn aggregate_size_with_padding(
 }
 
 /// Recursive ABI alignment for a type — max field alignment for
-/// struct/tuple aggregates, [`TypeInfo::alignment`] for everything else.
-fn abi_alignment(ty: Idx, store: &TypeInfoStore<'_>, depth: u32) -> u64 {
+/// struct/tuple aggregates, repr-aware payload alignment for niche-encoded
+/// Option/Result and tagless/niche enums (mirroring `TypeLayoutResolver`'s
+/// lowered layouts), [`TypeInfo::alignment`] for everything else.
+fn abi_alignment(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    depth: u32,
+) -> u64 {
     use super::type_info::TypeInfo;
 
     if depth > 16 {
@@ -316,16 +323,67 @@ fn abi_alignment(ty: Idx, store: &TypeInfoStore<'_>, depth: u32) -> u64 {
     match &store.get(ty) {
         TypeInfo::Tuple { elements } => elements
             .iter()
-            .map(|&e| abi_alignment(e, store, depth + 1))
+            .map(|&e| abi_alignment(e, store, repr_plan, depth + 1))
             .max()
             .unwrap_or(1),
         TypeInfo::Struct { fields } => fields
             .iter()
-            .map(|&(_, t)| abi_alignment(t, store, depth + 1))
+            .map(|&(_, t)| abi_alignment(t, store, repr_plan, depth + 1))
             .max()
             .unwrap_or(1),
+        // Niche-encoded Option lowers to its payload type directly (no i64
+        // tag slot) — alignment is the payload's, not 8.
+        TypeInfo::Option { inner } if is_niche_encoded(ty, store, repr_plan) => {
+            abi_alignment(*inner, store, repr_plan, depth + 1)
+        }
+        // Niche-encoded Result lowers to the larger payload arm; use that
+        // arm's alignment (ok wins ties, matching the layout resolver).
+        TypeInfo::Result { ok, err } if is_niche_encoded(ty, store, repr_plan) => {
+            let mut visiting = FxHashSet::default();
+            let ok_size = abi_size_inner(*ok, store, repr_plan, &mut visiting);
+            let err_size = abi_size_inner(*err, store, repr_plan, &mut visiting);
+            let arm = if ok_size >= err_size { *ok } else { *err };
+            abi_alignment(arm, store, repr_plan, depth + 1)
+        }
+        TypeInfo::Enum { variants } => {
+            enum_payload_alignment(ty, variants, store, repr_plan, depth)
+        }
         info => u64::from(info.alignment()),
     }
+}
+
+/// Alignment of an enum's lowered LLVM struct. Tagless/niche enums lower to
+/// one variant's non-void fields (i8 placeholder when field-less) — max field
+/// alignment. Tagged-pointer (i64) and explicit-tag ({i64, ...}) enums: 8.
+fn enum_payload_alignment(
+    ty: Idx,
+    variants: &[super::type_info::EnumVariantInfo],
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    depth: u32,
+) -> u64 {
+    let Some(enum_repr) = repr_plan.and_then(|p| p.enum_repr_with_fallback(store.pool(), ty))
+    else {
+        return 8;
+    };
+    let variant = if enum_repr.tag.is_tagless() {
+        variants.first()
+    } else if let ori_repr::EnumTag::Niche {
+        niche_variant_idx, ..
+    } = &enum_repr.tag
+    {
+        variants.get(usize::from(*niche_variant_idx == 0))
+    } else {
+        return 8;
+    };
+    variant.map_or(1, |v| {
+        v.fields
+            .iter()
+            .filter(|&&f| field_is_non_void(store.pool(), f))
+            .map(|&f| abi_alignment(f, store, repr_plan, depth + 1))
+            .max()
+            .unwrap_or(1)
+    })
 }
 
 /// Compute the passing mode for a function parameter.

@@ -324,12 +324,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.insert_value(with_tag, payload, 1, "opt.val"))
     }
 
-    /// Emit a conditional panic branch for `unwrap`/`unwrap_err`.
+    /// Emit a conditional panic branch for `unwrap`/`unwrap_err` and
+    /// range-checked casts.
     ///
     /// If `is_valid` is false, calls `ori_panic_cstr` with the given static
     /// message and halts. If true, falls through to the continue block
     /// (positioned on return). The caller extracts the payload after this.
-    pub(super) fn emit_unwrap_branch(
+    pub(in crate::codegen::arc_emitter) fn emit_unwrap_branch(
         &mut self,
         is_valid: ValueId,
         panic_msg: &str,

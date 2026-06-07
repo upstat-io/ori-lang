@@ -5,7 +5,7 @@
 
 use inkwell::types::BasicTypeEnum;
 
-use ori_types::{Idx, Tag};
+use ori_types::Idx;
 
 use super::info::EnumVariantInfo;
 use super::layout_resolver::TypeLayoutResolver;
@@ -56,7 +56,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         self.resolve_enum_explicit(idx, variants)
     }
 
-    ///.A: Resolve a tagged-pointer enum to a single LLVM `i64` value.
+    /// Resolve a tagged-pointer enum to a single LLVM `i64` value.
     ///
     /// The entire enum is encoded as `(payload_ptr | variant_tag)` in a
     /// 64-bit slot — there is no struct, no GEP, no per-variant LLVM type.
@@ -244,9 +244,6 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
     /// (because LLVM void can't be stored/phi'd). Used by enum layout
     /// methods to skip phantom fields that don't contribute to payload size.
     fn is_non_void_field(&self, field: Idx) -> bool {
-        let pool = self.store.pool();
-        let resolved = pool.resolve_fully(field);
-        let tag = pool.tag(resolved);
-        !matches!(tag, Tag::Unit | Tag::Never)
+        super::field_is_non_void(self.store.pool(), field)
     }
 }
