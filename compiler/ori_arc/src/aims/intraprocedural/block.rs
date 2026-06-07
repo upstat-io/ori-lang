@@ -136,10 +136,14 @@ pub(crate) fn compute_block_entry_state(
     let block = &func.blocks[block_id.index()];
 
     // Start from exit state (demand from successors).
+    // INVARIANT: AimsStateMap pre-sizes block_exit_states to the function's
+    // block count at construction, so every in-range block has an entry.
     let mut current = state_map
         .block_exit_states(block_id)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            unreachable!("block {block_id:?} out of range for pre-sized AimsStateMap")
+        });
 
     // Block-level effect accumulator (Effect computation: precise effect computation).
     // Effects are forward-aggregated during the backward walk — monotonically

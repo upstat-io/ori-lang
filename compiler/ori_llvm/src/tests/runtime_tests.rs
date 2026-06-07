@@ -15,28 +15,10 @@ fn make_ori_str(s: &[u8]) -> OriStr {
     OriStr::from_bytes(s)
 }
 
-#[test]
-fn test_ori_print() {
-    let s = make_ori_str(b"hello");
-    // Just verify it doesn't panic
-    runtime::ori_print(&raw const s);
-}
-
-#[test]
-fn test_ori_print_bool_true() {
-    runtime::ori_print_bool(true);
-}
-
-#[test]
-fn test_ori_print_bool_false() {
-    runtime::ori_print_bool(false);
-}
-
-#[test]
-fn test_ori_print_float() {
-    // Use 1.23456 to avoid clippy::approx_constant warning (for PI, E, etc.)
-    runtime::ori_print_float(1.23456);
-}
+// Print functions (`ori_print`, `ori_print_bool`, `ori_print_float`) have no
+// in-process assertable surface (they write to stdout); their behavior is
+// pinned end-to-end by the spec-suite output comparisons that every printing
+// test program exercises.
 
 #[test]
 fn test_ori_list_operations() {
@@ -140,27 +122,40 @@ fn test_ori_str_compare_prefix() {
     );
 }
 
+// Positive half of the assert-family pairing (the failure half lives in
+// `tests/aot/panic.rs` as subprocess tests — see NOTE below). The pinned
+// behavior is "a passing assertion returns normally without unwinding",
+// encoded explicitly via catch_unwind.
+
 #[test]
-fn test_ori_assert_passes() {
-    runtime::ori_assert(true);
+fn test_ori_assert_true_returns_without_unwinding() {
+    let result = std::panic::catch_unwind(|| runtime::ori_assert(true));
+    assert!(result.is_ok(), "ori_assert(true) must return normally");
 }
 
 #[test]
-fn test_ori_assert_eq_int_passes() {
-    runtime::ori_assert_eq_int(42, 42);
+fn test_ori_assert_eq_int_equal_returns_without_unwinding() {
+    let result = std::panic::catch_unwind(|| runtime::ori_assert_eq_int(42, 42));
+    assert!(result.is_ok(), "equal ints must pass without unwinding");
 }
 
 #[test]
-fn test_ori_assert_eq_bool_passes() {
-    runtime::ori_assert_eq_bool(true, true);
-    runtime::ori_assert_eq_bool(false, false);
+fn test_ori_assert_eq_bool_equal_returns_without_unwinding() {
+    let result = std::panic::catch_unwind(|| {
+        runtime::ori_assert_eq_bool(true, true);
+        runtime::ori_assert_eq_bool(false, false);
+    });
+    assert!(result.is_ok(), "equal bools must pass without unwinding");
 }
 
 #[test]
-fn test_ori_assert_eq_str_passes() {
+fn test_ori_assert_eq_str_equal_returns_without_unwinding() {
     let s1 = make_ori_str(b"test");
     let s2 = make_ori_str(b"test");
-    runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
+    let p1 = &raw const s1;
+    let p2 = &raw const s2;
+    let result = std::panic::catch_unwind(|| runtime::ori_assert_eq_str(p1, p2));
+    assert!(result.is_ok(), "equal strings must pass without unwinding");
 }
 
 // NOTE: Assertion *failure* tests live in `tests/aot/panic.rs`, not here.
@@ -434,7 +429,14 @@ fn test_ori_args_from_argv_with_args() {
 }
 
 #[test]
-fn test_ori_register_panic_handler_null() {
-    // Registering null should be a no-op (no crash)
-    runtime::ori_register_panic_handler(std::ptr::null());
+fn test_ori_register_panic_handler_null_is_noop() {
+    // Registering a null handler is a documented no-op — pin that it
+    // returns normally without unwinding.
+    let result = std::panic::catch_unwind(|| {
+        runtime::ori_register_panic_handler(std::ptr::null());
+    });
+    assert!(
+        result.is_ok(),
+        "registering a null panic handler must be a no-op"
+    );
 }

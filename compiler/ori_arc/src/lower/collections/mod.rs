@@ -359,10 +359,16 @@ impl ArcLowerer<'_> {
         }
 
         if tag == Tag::Tuple {
+            // PANIC: tuple field access is always a numeric ordinal (`.0`,
+            // `.1`) after typeck (PC-2); a non-numeric name here is a
+            // compiler bug, not a fallthrough case.
             let field_str = self.interner.lookup(field);
-            if let Ok(idx) = field_str.parse::<u32>() {
-                return idx;
-            }
+            return field_str.parse::<u32>().unwrap_or_else(|_| {
+                unreachable!(
+                    "PC-2 violation: tuple field `{field_str}` is not a numeric ordinal \
+                     on receiver type {recv_ty:?}"
+                )
+            });
         }
 
         // PANIC: typeck resolves every field access (PC-2), so a field name

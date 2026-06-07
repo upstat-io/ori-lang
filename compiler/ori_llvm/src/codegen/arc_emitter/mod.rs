@@ -73,13 +73,40 @@ pub(crate) use narrowing_codegen::narrowed_collection_element_width;
 
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
-use ori_ir::StringInterner;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, TokenId, ValueId};
+
+/// Pre-interned `Name`s for the list runtime symbols the emitter
+/// special-cases at call-emission sites (per interning discipline: identity
+/// comparison goes through `Name`, pre-interned once — never per-call
+/// string comparison).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ListRtNames {
+    /// `ori_list_push` — element arg coerced to ptr; for-yield elem-size override.
+    pub push: Name,
+    /// `ori_list_new` — for-yield elem-size override.
+    pub new: Name,
+    /// `ori_list_take` — real runtime fn with special sret handling (non-protocol).
+    pub take: Name,
+    /// `ori_list_slice_drop` — list rest-pattern expansion (non-protocol).
+    pub slice_drop: Name,
+}
+
+impl ListRtNames {
+    fn from_interner(interner: &StringInterner) -> Self {
+        Self {
+            push: interner.intern("ori_list_push"),
+            new: interner.intern("ori_list_new"),
+            take: interner.intern("ori_list_take"),
+            slice_drop: interner.intern("ori_list_slice_drop"),
+        }
+    }
+}
 
 /// Whether the current funclet is a catch handler or a cleanup block.
 ///
@@ -113,6 +140,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     /// String interner for `Name` → `&str`.
     interner: &'a StringInterner,
+    /// Pre-interned list-runtime-symbol names for emission-site identity checks.
+    list_rt_names: ListRtNames,
     /// Type pool for structural queries (used by drop function generation).
     pool: &'a Pool,
     /// ARC type classifier for drop function generation.
@@ -265,6 +294,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             builder,
             type_info,
             type_resolver,
+            list_rt_names: ListRtNames::from_interner(interner),
             interner,
             pool,
             classifier,

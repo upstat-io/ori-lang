@@ -43,13 +43,13 @@ use crate::test_helpers::{
 
 mod body_walker;
 
-// Copy / type-shape regression guard
-
-#[test]
-fn unresolved_type_var_is_copy() {
-    fn assert_copy<T: Copy>() {}
+// Copy / type-shape regression guard — compile-time pin: removing `Copy`
+// from `UnresolvedTypeVar` fails this constant's type-check, no runtime
+// test body needed.
+const _: () = {
+    const fn assert_copy<T: Copy>() {}
     assert_copy::<UnresolvedTypeVar>();
-}
+};
 
 // Cells 1–9 — `var_types[*]` coverage (core matrix)
 

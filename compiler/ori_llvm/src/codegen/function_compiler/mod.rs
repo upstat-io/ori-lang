@@ -308,8 +308,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 self.builder.add_nonnull_param_attribute(func_id, nidx);
                 // dereferenceable(N): abi_size may underestimate due to missing
-                // alignment padding, but underestimation is legal — LLVM treats
-                // dereferenceable as a minimum. See abi/mod.rs FIXME.
+                // alignment padding; underestimation is legal — LLVM treats
+                // dereferenceable as a minimum guarantee.
                 let size = abi_size(param.ty, self.type_info, self.repr_plan());
                 if size > 0 {
                     self.builder

@@ -162,21 +162,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.inc_value_rc(payload, inner_ty, 1);
                 Some(payload)
             }
-            "debug" | "to_str" => {
-                let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
-                let some = self
-                    .builder
-                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
-                let is_some = self.builder.icmp_eq(tag, some, "is_some");
-                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
-                let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
-                    return None;
-                };
-                self.emit_option_debug_branch(is_some, payload, inner, method == "debug")
-            }
+            // Render mode is decided once at the dispatch boundary — the
+            // shared body never re-compares the method name.
+            "debug" => self.emit_option_render(receiver, receiver_ty, true),
+            "to_str" => self.emit_option_render(receiver, receiver_ty, false),
             "clone" => Some(receiver),
             _ => None,
         }
+    }
+
+    /// Shared `debug` / `to_str` rendering for explicit-tag Options.
+    /// `render_debug` selects Debug formatting over Printable.
+    fn emit_option_render(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        render_debug: bool,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+        let some = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+        let is_some = self.builder.icmp_eq(tag, some, "is_some");
+        let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
+        let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
+            return None;
+        };
+        self.emit_option_debug_branch(is_some, payload, inner, render_debug)
     }
 
     /// Emit a Result method (`is_ok`, `is_err`, `unwrap`, `unwrap_err`).

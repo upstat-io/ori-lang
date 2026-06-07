@@ -108,6 +108,10 @@ fn simplify_redundant_branches(function: FunctionValue<'_>, stats: &mut Simplify
 }
 
 /// Build predecessor map: block -> list of unique predecessor blocks.
+///
+/// INVARIANT: every block of the function gets an entry (empty for blocks
+/// with zero predecessors), so a missing key for an in-function block is an
+/// invariant violation, never "no predecessors".
 fn build_pred_map(
     function: FunctionValue<'_>,
 ) -> FxHashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> {
@@ -169,7 +173,9 @@ fn eliminate_empty_blocks(function: FunctionValue<'_>) -> u32 {
     // by rebuilding the pred_map each iteration.
     for (empty_block, target_ref) in &candidates {
         let empty_ref = empty_block.as_mut_ptr();
-        let preds = pred_map.get(&empty_ref).cloned().unwrap_or_default();
+        let preds = pred_map.get(&empty_ref).cloned().unwrap_or_else(|| {
+            unreachable!("build_pred_map pre-populates every block of the function")
+        });
 
         if would_create_duplicate_phi(*target_ref, empty_ref, &preds) {
             continue;
@@ -221,7 +227,9 @@ fn merge_entry_block(function: FunctionValue<'_>) -> bool {
 
     // Check header has exactly one predecessor (the entry block).
     let pred_map = build_pred_map(function);
-    let preds = pred_map.get(&header_ref).cloned().unwrap_or_default();
+    let preds = pred_map.get(&header_ref).cloned().unwrap_or_else(|| {
+        unreachable!("build_pred_map pre-populates every block of the function")
+    });
     if preds.len() != 1 || preds[0] != entry_ref {
         return false;
     }
@@ -291,7 +299,9 @@ fn merge_single_predecessor_pass(function: FunctionValue<'_>) -> u32 {
         let succ_ref = unsafe { core::LLVMGetSuccessor(term_ref, 0) };
 
         // Successor must have exactly one predecessor (this block).
-        let preds = pred_map.get(&succ_ref).cloned().unwrap_or_default();
+        let preds = pred_map.get(&succ_ref).cloned().unwrap_or_else(|| {
+            unreachable!("build_pred_map pre-populates every block of the function")
+        });
         if preds.len() != 1 || preds[0] != block_ref {
             continue;
         }

@@ -60,12 +60,10 @@ fn test_llvm_eval_error_from_string() {
     assert_eq!(error.message, "from string");
 }
 
-#[test]
-fn test_owned_llvm_evaluator_with_pool() {
-    let pool = Pool::new();
-    let evaluator = OwnedLLVMEvaluator::with_pool(&pool);
-    drop(evaluator);
-}
+// Construction + drop of `OwnedLLVMEvaluator` is covered by
+// `test_compile_module_with_tests_empty` below, which constructs the
+// evaluator AND asserts on its output — a standalone construct-and-drop
+// smoke has no assertable surface of its own.
 
 #[test]
 fn test_compile_module_with_tests_empty() {

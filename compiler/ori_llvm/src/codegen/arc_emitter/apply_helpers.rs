@@ -11,6 +11,7 @@
 //!   aggregates (Str, List, Map, Set) by value — alloca + store + pass pointer.
 
 use ori_arc::ir::ArcVarId;
+use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
 use super::ArcIrEmitter;
@@ -41,13 +42,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// like `[str]` when a narrowed `[int]` exists in the program).
     pub(super) fn coerce_runtime_fn_args(
         &mut self,
-        func_name_str: &str,
+        callee: Name,
         arc_args: &[ArcVarId],
         arg_vals: &[ValueId],
         arc_func: &ori_arc::ir::ArcFunction,
     ) -> Vec<ValueId> {
-        let is_list_push = func_name_str == "ori_list_push";
-        let is_list_new = func_name_str == "ori_list_new";
+        let is_list_push = callee == self.list_rt_names.push;
+        let is_list_new = callee == self.list_rt_names.new;
         let mut coerced_args: Vec<ValueId> = arc_args
             .iter()
             .zip(arg_vals.iter())

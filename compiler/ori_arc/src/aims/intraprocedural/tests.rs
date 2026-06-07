@@ -353,7 +353,17 @@ fn analyze_function_terminates_on_back_edge_loop() {
 
     let classifier = TestClassifier::all_ref(1);
     // This must not loop infinitely.
-    let _state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // Converged-state pins: all three blocks analyzed, and v0 (the branch
+    // cond, demanded across the back-edge) is live at block 1's entry.
+    assert_eq!(state_map.num_blocks(), 3);
+    let v0_entry = state_map.var_state_at_block_entry(block_id(1), var(0));
+    assert_ne!(
+        v0_entry.cardinality,
+        Cardinality::Absent,
+        "branch cond must carry demand at the loop header entry"
+    );
 }
 
 // Empty function (single Unreachable block)
@@ -3519,6 +3529,7 @@ fn compute_project_alias_sources_cross_block_let() {
         var(0),
         "cross-block Let alias of Project dst",
     );
+    assert_eq!(sources.len(), 2);
 }
 
 // Semantic pin: cross-block Project + Let alias demand propagation
@@ -5331,16 +5342,17 @@ fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
     // synthetic Idx. The shape annotation lives in a `FxHashMap<ArcVarId,
     // ShapeClass>`, not in any TypeId-keyed structure.
     state_map.set_var_shape(var(0), ShapeClass::ContextHole);
-    let shape = state_map.var_shape(var(0));
+    assert_eq!(
+        state_map.var_shape(var(0)),
+        ShapeClass::ContextHole,
+        "var_shape returns the ShapeClass enum stored by set_var_shape — no Idx payload exists"
+    );
 
-    // Match on shape — the variants are the canonical ones from
-    // `lattice/dimensions.rs:205-214`, none carries a TypeId payload.
-    match shape {
-        ShapeClass::NonReusable
-        | ShapeClass::ReusableCtor(_)
-        | ShapeClass::CollectionBuffer
-        | ShapeClass::ContextHole => {}
-    }
-    // The lookup path remains TypeId-keyed via `func.var_type(var)`.
-    let _underlying_typeid: Idx = func.var_type(var(0));
+    // The lookup path remains TypeId-keyed via `func.var_type(var)`, and the
+    // shape annotation never redirects it to a synthetic TypeId.
+    assert_eq!(
+        func.var_type(var(0)),
+        Idx::INT,
+        "ContextHole shape annotation must not mint or redirect the underlying TypeId"
+    );
 }

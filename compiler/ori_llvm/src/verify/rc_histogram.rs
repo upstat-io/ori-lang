@@ -53,8 +53,9 @@ pub(super) fn classify_rc_call(name: &str) -> Option<RcOpKind> {
         | "ori_set_literal_alloc" => Some(RcOpKind::Alloc),
         // Inc: core + type-specific inc
         "ori_rc_inc" | "ori_str_rc_inc" | "ori_list_rc_inc" => Some(RcOpKind::Inc),
-        // Dec: core + type-specific dec
+        // Dec: core (both ABI variants per super::is_rc_dec_symbol) + type-specific dec
         "ori_rc_dec"
+        | "ori_rc_dec_unwind"
         | "ori_str_rc_dec"
         | "ori_buffer_rc_dec"
         | "ori_map_buffer_rc_dec"

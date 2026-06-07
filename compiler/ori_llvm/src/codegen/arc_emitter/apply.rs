@@ -202,7 +202,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let callee_name_str = self.interner.lookup(callee);
 
         // Internal protocol intercepts (__iter_next, __collect_set, etc.)
-        if self.try_emit_protocol(dst, callee_name_str, args, func) {
+        if self.try_emit_protocol(dst, callee, args, func) {
             return;
         }
 
@@ -240,7 +240,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         {
             Some(val)
         } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
-            let coerced_args = self.coerce_runtime_fn_args(callee_name_str, args, &arg_vals, func);
+            let coerced_args = self.coerce_runtime_fn_args(callee, args, &arg_vals, func);
 
             // Large struct returns (Str, List, Map) use sret convention.
             if crate::codegen::runtime_decl::rt_fn_needs_sret(callee_name_str) {

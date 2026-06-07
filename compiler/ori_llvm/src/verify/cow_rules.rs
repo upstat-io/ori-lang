@@ -80,8 +80,8 @@ fn process_call(
         return;
     };
 
-    if callee == "ori_rc_dec" {
-        // Track dec'd pointers for Rule 3
+    if super::is_rc_dec_symbol(&callee) {
+        // Track dec'd pointers for Rule 3 (both dec ABI variants)
         if let Some(ptr_name) = operand_name(inst, 0) {
             decremented.insert(ptr_name);
         }

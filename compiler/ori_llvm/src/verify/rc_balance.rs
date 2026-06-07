@@ -227,7 +227,8 @@ fn process_call(
                 }
             }
         }
-        "ori_rc_dec" => {
+        // Both whole-object dec ABI variants (per super::is_rc_dec_symbol).
+        "ori_rc_dec" | "ori_rc_dec_unwind" => {
             // First operand (index 0) is the pointer being decremented
             if let Some(ptr_name) = operand_name(inst, 0) {
                 match tracker.record_dec(&ptr_name) {
@@ -240,7 +241,7 @@ fn process_call(
                                 cow_fn: cow_fn.clone(),
                             },
                             description: format!(
-                                "ori_rc_dec on `{ptr_name}` after COW consumption by `{cow_fn}`"
+                                "`{callee}` on `{ptr_name}` after COW consumption by `{cow_fn}`"
                             ),
                         });
                     }
@@ -254,7 +255,7 @@ fn process_call(
                                 ptr_name: ptr_name.clone(),
                             },
                             description: format!(
-                                "ori_rc_dec on `{ptr_name}` which was already decremented \
+                                "`{callee}` on `{ptr_name}` which was already decremented \
                                  (double-free in strict mode)"
                             ),
                         });

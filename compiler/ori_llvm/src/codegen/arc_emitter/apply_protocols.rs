@@ -23,7 +23,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
+use ori_ir::{Name, FIELD_CAP, FIELD_DATA, FIELD_LEN};
 
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
@@ -38,13 +38,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn try_emit_protocol(
         &mut self,
         dst: ArcVarId,
-        callee_name: &str,
+        callee: Name,
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> bool {
         // Central protocol dispatch — exhaustive match enforced by compiler.
         // Adding a new ProtocolBuiltin variant will cause a compile error here.
-        if let Some(protocol) = ProtocolBuiltin::from_name(callee_name) {
+        // `from_name` is the registry's str-keyed accessor; identity checks
+        // below use pre-interned `Name`s per interning discipline.
+        if let Some(protocol) = ProtocolBuiltin::from_name(self.interner.lookup(callee)) {
             // IterNext uses decomposed emission (tag + scratch pointer separately)
             // to avoid building an intermediate {i64, T} wrapper struct.
             if matches!(protocol, ProtocolBuiltin::IterNext) {
@@ -135,7 +137,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // ori_list_take: NOT a protocol builtin — it's a real runtime function
         // with special sret handling (has `ori_` prefix, exists in RT_FUNCTIONS).
-        if callee_name == "ori_list_take" && !args.is_empty() {
+        if callee == self.list_rt_names.take && !args.is_empty() {
             if let Some(val) = self.emit_list_take(args[0], func) {
                 self.def_var_repr(dst, val, func);
             }
@@ -145,7 +147,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // ori_list_slice_drop: emitted by decision tree ListRest path resolution.
         // args[0] = list struct, args[1] = start index (int constant).
         // Expands to ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr).
-        if callee_name == "ori_list_slice_drop" && args.len() >= 2 {
+        if callee == self.list_rt_names.slice_drop && args.len() >= 2 {
             let list_ty = func.var_type(args[0]);
             if let Some(val) = self.emit_list_slice_drop(args[0], args[1], list_ty, func) {
                 self.def_var_repr(dst, val, func);

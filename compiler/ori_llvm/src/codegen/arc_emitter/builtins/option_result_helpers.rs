@@ -96,17 +96,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.inc_value_rc(payload, inner_ty, 1);
                 Some(payload)
             }
-            "debug" | "to_str" => {
-                let is_some = self.compute_option_is_some(receiver, niche_idx, niche_value)?;
-                let payload = self.builder.extract_value(receiver, 0, "opt.payload")?;
-                let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
-                    return None;
-                };
-                self.emit_option_debug_branch(is_some, payload, inner, method == "debug")
+            // Render mode is decided once at the dispatch boundary — the
+            // shared body never re-compares the method name.
+            "debug" => {
+                self.emit_option_niche_render(receiver, receiver_ty, niche_idx, niche_value, true)
+            }
+            "to_str" => {
+                self.emit_option_niche_render(receiver, receiver_ty, niche_idx, niche_value, false)
             }
             "clone" => Some(receiver),
             _ => None,
         }
+    }
+
+    /// Shared `debug` / `to_str` rendering for niche-encoded Options.
+    /// `render_debug` selects Debug formatting over Printable.
+    fn emit_option_niche_render(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        niche_idx: u32,
+        niche_value: u64,
+        render_debug: bool,
+    ) -> Option<ValueId> {
+        let is_some = self.compute_option_is_some(receiver, niche_idx, niche_value)?;
+        let payload = self.builder.extract_value(receiver, 0, "opt.payload")?;
+        let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
+            return None;
+        };
+        self.emit_option_debug_branch(is_some, payload, inner, render_debug)
     }
 
     /// Compute the `is_some` predicate for a niche-encoded Option.

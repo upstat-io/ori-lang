@@ -230,20 +230,9 @@ fn test_cross_compilation_error_darwin_suggests_osxcross() {
     );
 }
 
-// === Native compilation unchanged ===
-
-#[test]
-fn test_native_gcc_still_available() {
-    let target = TargetConfig::native().unwrap();
-    // On any system with a C compiler, the native GCC/cc should be available
-    // (this test runs in CI which always has a C compiler)
-    if LinkerDetection::is_available_for_target(LinkerFlavor::Gcc, &target) {
-        // Good — native compilation path works
-    }
-    // Note: we can't assert true because some CI environments might not have cc,
-    // but the important thing is it doesn't falsely report unavailable when it IS
-    // available. The semantic pin tests above verify the cross-compilation guard.
-}
+// Native-availability is environment-dependent (no assertable outcome in a
+// unit test); the cross-compilation guard is pinned by the semantic tests
+// above and native linking is exercised end-to-end by every AOT test run.
 
 // === Link output extensions ===
 

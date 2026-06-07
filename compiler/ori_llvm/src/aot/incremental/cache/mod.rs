@@ -300,9 +300,11 @@ impl ArtifactCache {
                 message: e.to_string(),
             })?;
 
-            if let Ok(meta) = entry.metadata() {
-                total += meta.len();
-            }
+            let meta = entry.metadata().map_err(|e| CacheError::IoError {
+                path: entry.path(),
+                message: e.to_string(),
+            })?;
+            total += meta.len();
         }
 
         Ok(total)

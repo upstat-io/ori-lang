@@ -384,15 +384,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
         } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
-            self.emit_runtime_fn_call(
-                dst,
-                func_id,
-                func_name_str,
-                arc_args,
-                &arg_vals,
-                mode,
-                arc_func,
-            );
+            self.emit_runtime_fn_call(dst, func_id, callee, arc_args, &arg_vals, mode, arc_func);
         } else {
             let msg =
                 format!("unresolved function `{func_name_str}` in invoke — missing mono instance?");
@@ -689,13 +681,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         dst: ArcVarId,
         func_id: FunctionId,
-        func_name_str: &str,
+        callee: Name,
         arc_args: &[ArcVarId],
         arg_vals: &[ValueId],
         mode: InvokeMode,
         arc_func: &ArcFunction,
     ) {
-        let coerced_args = self.coerce_runtime_fn_args(func_name_str, arc_args, arg_vals, arc_func);
+        let coerced_args = self.coerce_runtime_fn_args(callee, arc_args, arg_vals, arc_func);
 
         if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
             self.builder.position_at_end(mode.normal_block());

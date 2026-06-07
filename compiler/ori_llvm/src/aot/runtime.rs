@@ -208,38 +208,52 @@ impl RuntimeConfig {
     fn candidate_directories() -> Vec<PathBuf> {
         let mut candidates = Vec::new();
 
-        if let Ok(exe_path) = std::env::current_exe() {
-            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
-            if let Some(exe_dir) = exe_path.parent() {
-                candidates.push(exe_dir.to_path_buf());
-                if let Some(target_dir) = exe_dir.parent() {
-                    for profile in &["release", "debug"] {
-                        let sibling = target_dir.join(profile);
-                        if sibling != exe_dir {
-                            candidates.push(sibling);
+        match std::env::current_exe() {
+            Ok(exe_path) => {
+                let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
+                if let Some(exe_dir) = exe_path.parent() {
+                    candidates.push(exe_dir.to_path_buf());
+                    if let Some(target_dir) = exe_dir.parent() {
+                        for profile in &["release", "debug"] {
+                            let sibling = target_dir.join(profile);
+                            if sibling != exe_dir {
+                                candidates.push(sibling);
+                            }
                         }
                     }
+                    candidates.push(exe_dir.join("../lib"));
                 }
-                candidates.push(exe_dir.join("../lib"));
-            }
 
-            // Standalone ori_rt build directory
-            if let Some(workspace_root) = exe_path
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-            {
-                let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
-                for profile in ["release", "debug"] {
-                    candidates.push(ori_rt_target.join(profile));
+                // Standalone ori_rt build directory
+                if let Some(workspace_root) = exe_path
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
+                    for profile in ["release", "debug"] {
+                        candidates.push(ori_rt_target.join(profile));
+                    }
                 }
+            }
+            Err(e) => {
+                // Discovery degrades to the remaining strategies; record WHY
+                // the exe-relative candidates are absent so a downstream
+                // RuntimeNotFound is attributable.
+                tracing::debug!(
+                    error = %e,
+                    "current_exe unavailable — skipping exe-relative runtime candidates"
+                );
             }
         }
 
-        // Workspace directory (for cargo run during development)
-        if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
+        // Workspace directory (for cargo run during development).
+        // var_os: absence is the normal case (Option, no swallowed error)
+        // and non-UTF-8 workspace paths still resolve.
+        if let Some(workspace) = std::env::var_os("ORI_WORKSPACE_DIR") {
+            let workspace_target = PathBuf::from(workspace).join("target");
             for profile in ["release", "debug"] {
-                candidates.push(PathBuf::from(&workspace).join("target").join(profile));
+                candidates.push(workspace_target.join(profile));
             }
         }
 
