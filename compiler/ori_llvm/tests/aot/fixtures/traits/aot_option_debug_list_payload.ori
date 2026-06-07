@@ -1,4 +1,4 @@
-// TPR-03-009 regression pin: Option<[int]>.debug() must format compound
+// Regression pin: Option<[int]>.debug() must format compound
 // payloads recursively, not produce empty output.
 // Interpreter: Some([1, 2, 3]) | AOT must match.
 

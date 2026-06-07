@@ -1,5 +1,5 @@
-// BUG-04-090 §03 edge: param consumed by callee AND returned (Plan TPR
-// TPR-04-003 — load-bearing correctness fix). x is consumed by `iter()`
+// BUG-04-090 edge: param consumed by callee AND returned.
+// x is consumed by `iter()`
 // (an Apply to an Owned parameter) AND returned. Verifies that
 // `transfers_through_return` is gated on `return_flow_params` (the
 // Return-flow subset), NOT the full `consumed_params` (which would

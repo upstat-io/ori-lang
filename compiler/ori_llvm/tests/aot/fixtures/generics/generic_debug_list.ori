@@ -1,4 +1,4 @@
-// Regression: BUG-04-022 — generic debug() on compound types ([int]) through LLVM.
+// Regression: generic debug() on compound types ([int]) through LLVM.
 // str() prelude function and list debug dispatch must handle compound types.
 
 @show<T: Debug> (v: T) -> str = v.debug();

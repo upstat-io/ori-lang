@@ -1,4 +1,4 @@
-// Regression: BUG-02-002 — Option<int> ?? Option<int> when LHS is None
+// Regression: Option<int> ?? Option<int> when LHS is None
 // Falls through to RHS, preserves wrapper
 @main () -> int = {
     let a: Option<int> = None;

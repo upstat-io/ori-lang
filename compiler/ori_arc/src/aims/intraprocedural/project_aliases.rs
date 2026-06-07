@@ -104,7 +104,7 @@ pub(crate) fn compute_project_alias_sources(
                 smallvec![*arg]
             }
             ApplyAliasSource::Wrapped(_) => {
-                // BUG-04-118 Option B: Wrapped is NOT seeded into
+                // Wrapped is NOT seeded into
                 // project_alias_sources. Containment (`wrap_ok(m) = Ok(m)`)
                 // is NOT a projection-derived alias chain — `extracted = inner
                 // = Project result.payload[0]` accesses dst's payload via
@@ -155,7 +155,7 @@ pub(crate) fn compute_project_alias_sources(
                 }
             }
 
-            // BUG-04-118 Rule 6 (per nested
+            // Rule 6 (per nested
             // Project transitivity): `%dst = Project %src.field`, where %src
             // has sources S → `%dst → [%src] ∪ S`. Step 1 only seeded
             // `%dst → [%src]` (the direct value); the transitive ∪ S
@@ -179,7 +179,7 @@ pub(crate) fn compute_project_alias_sources(
                 }
             }
 
-            // BUG-04-118 Rule 5 (Select alias propagation per
+            // Rule 5 (Select alias propagation per
             // ): DEFERRED. Initial implementation
             // empirically regressed `generics::test_path_sensitive_select_*`
             // tests (12 failures vs 11 baseline). Select propagation

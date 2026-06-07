@@ -1,11 +1,11 @@
-// Regression: JIT EH Section 04B, TPR-04B-014 — curried closures
+// Regression: curried closures
 // capturing RC-typed values (lists) caused use-after-free because
 // ApplyIndirect callers RcDec args but callees capture via
 // PartialApply ownership transfer (double-drop).
 //
 // The drop_hints fix prevents the crash (rc_dec instead of
-// drop_unique). The RC leak (captured value not RcInc'd) is tracked
-// as BUG-04-035 — requires ApplyIndirect ownership model fix.
+// drop_unique). The RC leak (captured value not RcInc'd) requires the
+// ApplyIndirect ownership model fix.
 @main () -> int = {
     let $fst = a -> b -> a;
     let $xs = fst([1, 2, 3])(0);

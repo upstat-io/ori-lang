@@ -1,6 +1,5 @@
 //! Clone RC increment helpers for derived `Clone` codegen.
 //!
-//! Extracted from `bodies.rs` to keep files under the 500-line limit.
 //! These functions emit LLVM IR that RC-increments heap-allocated fields
 //! during derived clone operations, handling str, list/set, map, closures,
 //! Result, and composite types (struct/tuple/option).

@@ -1,4 +1,4 @@
-// TPR-07-011 matrix pin: the Empty branch of a match on a
+// Matrix pin: the Empty branch of a match on a
 // tagged-pointer enum iterator payload must STILL drop the iterator
 // (because the enum value carrying the iterator is constructed, the
 // match selects Empty path, but the constructed Holds value still

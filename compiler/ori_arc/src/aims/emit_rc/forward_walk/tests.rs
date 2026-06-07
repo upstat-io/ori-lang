@@ -400,13 +400,13 @@ fn invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs() {
 
 /// Pin: edit site 3a invariant — `used_vars` for `InvokeIndirect`
 /// returns `[closure,...args]` (per `ir/terminator.rs:30`). The closure
-/// receiver at position 0 is filtered from `term_counts` (BUG-04-106
+/// receiver at position 0 is filtered from `term_counts` (the closure-
 /// edit site 3a); the arg occurrence at position 1 still counts normally.
 /// When `closure == args[0] == v(0)`, the var appears twice in `used_vars`
 /// but only the arg occurrence reaches `term_counts` → k=1, live=0,
 /// `(1 + 0) - 1 = 0` incs.
 ///
-/// Pre-BUG-04-106-fix: comment claimed `[...args, closure]` (incorrect)
+/// Pre-fix: comment claimed `[...args, closure]` (incorrect)
 /// and counted closure → k=2 → 1 inc. Renamed + inverted:100-101.
 #[test]
 fn invoke_indirect_closure_receiver_filtered_args_count_normally() {
@@ -622,7 +622,7 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
     );
 }
 
-// BUG-04-106 — InvokeIndirect closure-receiver filter + project-borrowed off-by-one
+// InvokeIndirect closure-receiver filter + project-borrowed off-by-one
 
 /// Pin: edit site 3a (`forward_walk::emit_terminator_duplicate_use_incs`).
 /// `InvokeIndirect`'s `used_vars` returns `[closure,...args]`. The closure
@@ -636,7 +636,7 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
 /// counts → k=3 → dead at exit `(3 + 0) - 1 = 2` incs. Post-fix: pos 0
 /// filtered → k=2 → dead at exit `(2 + 0) - 1 = 1` inc.
 ///
-/// Ref: BUG-04-106:77 + edit site 3a.
+/// Closure-receiver filter edit site 3a.
 #[test]
 fn invoke_indirect_closure_filtered_from_term_counts() {
     let term = ArcTerminator::InvokeIndirect {
@@ -673,7 +673,7 @@ fn invoke_indirect_closure_filtered_from_term_counts() {
 /// `arg_ownership=[Owned]`, `v(1)` registered as project-borrowed.
 /// Pre-fix: `count_inc(body`, v(1)) == 0. Post-fix: `count_inc(body`, v(1)) >= 1.
 ///
-/// Ref: BUG-04-106:78 + edit site 3b.
+/// Closure-receiver filter edit site 3b.
 #[test]
 fn invoke_indirect_project_borrowed_first_arg_emits_inc() {
     let term = ArcTerminator::InvokeIndirect {

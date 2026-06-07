@@ -226,7 +226,7 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
                 // ApplyIndirect/InvokeIndirect closure receiver: borrowed
                 // at the call site, so the use does not need a pre-instr
                 // RcInc. The closure's LastUse Dec frees the env at scope
-                // exit. Ref: BUG-04-106.
+                // exit.
                 UseSemantics::BorrowingProject
                 | UseSemantics::TransferProject
                 | UseSemantics::BorrowingApplyClosure => RcDecision::None,

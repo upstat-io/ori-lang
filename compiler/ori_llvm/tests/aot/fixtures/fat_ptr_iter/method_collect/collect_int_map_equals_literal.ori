@@ -1,4 +1,4 @@
-// BUG-04-077 semantic pin: collected List<int> with mapped values
+// Semantic pin: collected List<int> with mapped values
 // must equal the equivalent literal list. Verifies that collect
 // writes at the correct (narrowed) stride so list equality reads
 // matching data.

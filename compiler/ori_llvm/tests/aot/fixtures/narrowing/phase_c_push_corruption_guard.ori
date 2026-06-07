@@ -1,4 +1,4 @@
-// Regression: BUG-05-001 — integer narrowing Phase C must not narrow
+// Regression: integer narrowing Phase C must not narrow
 // collection element types when the program uses push/mutation methods
 // that can insert values outside the literal-only observed range.
 //

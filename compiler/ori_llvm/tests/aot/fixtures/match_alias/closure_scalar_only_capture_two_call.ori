@@ -1,4 +1,4 @@
-// BUG-04-106 §03:39 — closure captures only scalar (int).
+// Closure captures only scalar (int).
 // Scalars are excluded from the AIMS lattice (AIMS:L-9 sentinel); the
 // closure environment carries no RC-tracked value. Pre-fix and post-fix
 // both pass — the spurious-RcInc bug only affects RC-tracked captures.

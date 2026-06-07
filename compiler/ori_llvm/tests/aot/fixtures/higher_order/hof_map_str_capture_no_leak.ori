@@ -1,4 +1,4 @@
-// BUG-04-106 §03:68 — higher-order map with str capture no-leak.
+// Higher-order map with str capture no-leak.
 // `xs.map(transform: lambda)` invokes lambda N times via ApplyIndirect,
 // exercising the multi-call closure path that triggers the spurious
 // RcInc on the closure receiver pre-fix. Under ORI_CHECK_LEAKS=1 the

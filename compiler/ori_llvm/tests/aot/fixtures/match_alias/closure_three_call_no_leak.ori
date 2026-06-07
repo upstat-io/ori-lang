@@ -1,4 +1,4 @@
-// BUG-04-106 §03:37 — three-call generalization edge case.
+// Three-call generalization edge case.
 // Closure captures Result<int, str>::Err(string) and is invoked THREE
 // times via ApplyIndirect in the same block. Generalizes the closure_env_alias
 // two-call shape — the spurious RcInc bug compounds with each additional

@@ -146,12 +146,8 @@ fn runtime_arg_count_mismatch_detected() {
     // Simpler approach: just create the module where ori_rc_alloc has wrong param count.
     let _ = bad_alloc;
 
-    // Actually, we need to build a call instruction to ori_rc_alloc with wrong arg count.
-    // The simplest way: redeclare with wrong signature, build the call.
-    // inkwell won't let us add a second function with the same name. Instead,
-    // let's use a module where the function itself has the wrong signature.
-
-    // Start fresh with a mismatched declaration
+    // inkwell rejects a second same-name function in one module, so a
+    // fresh module carries the mismatched `ori_rc_alloc` declaration.
     let module2 = ctx.create_module("test_arg_count2");
     let wrong_type = ptr_type.fn_type(&[i64_type.into(), i64_type.into(), i64_type.into()], false);
     let wrong_alloc = module2.add_function("ori_rc_alloc", wrong_type, None);

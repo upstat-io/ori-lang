@@ -28,8 +28,8 @@
 //!
 //! Three returned fields:
 //! - `class_table: ArcVarId → u32` — the union-find result, keyed only by vars
-//!   that participate in a multi-member class (singletons excluded — see
-//!   Codex F4 + Gemini F2 PIN material).
+//!   that participate in a multi-member class (singletons excluded — they
+//!   flow through the per-var dec emission path unchanged).
 //! - `class_members: u32 → FxHashSet<ArcVarId>` — reverse index. Enables the
 //!   PIN-4 class-liveness check `class_members(class_id).any(is_live_after)`
 //!   in `walk_dec.rs::emit_last_use_decs`: skip `RcDec` emission unless no class
@@ -123,14 +123,14 @@ pub(crate) fn compute_ssa_alias_classes(
     // Edge type 3: Select operands — DROPPED per PIN-2 (different RC slot).
 
     // Edge type 4: Apply-result aliases. Direct + Conditional union; Project
-    // excluded per PIN-2 / Codex F3 (different RC slot — the apply
-    // returns `arg.field`, not `arg` root).
+    // excluded per PIN-2 (different RC slot — the apply returns
+    // `arg.field`, not `arg` root).
     for (&dst, source) in apply_result_aliases {
         match source {
             ApplyAliasSource::Direct(arg) => uf.union(dst, *arg),
             ApplyAliasSource::Project { .. } => { /* no union — PIN-2 */ }
             ApplyAliasSource::Wrapped(_) => {
-                // BUG-04-118 Option B: PIN-2 ANALOGOUS — no union.
+                // PIN-2 ANALOGOUS — no union.
                 // Wrapped means dst CONTAINS arg as a transitive-drop variant
                 // payload (e.g., `wrap_ok(m: T) -> Result<T, E> = Ok(m)`).
                 // Result and the wrapped allocation are SEPARATE RC slots
@@ -147,10 +147,10 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // Materialize the three returned fields. Singletons (vars not involved in
-    // any union edge) are excluded from class_table per Codex F4 +
-    // Gemini F2 — they continue to flow through the existing per-var dec
-    // emission path unchanged (no class lookup).
+    // Materialize the three returned fields. Singletons (vars not involved
+    // in any union edge) are excluded from class_table — they continue to
+    // flow through the existing per-var dec emission path unchanged (no
+    // class lookup).
     let mut class_table = FxHashMap::default();
     let mut class_members: FxHashMap<u32, FxHashSet<ArcVarId>> = FxHashMap::default();
     let mut class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>> =
@@ -175,7 +175,7 @@ pub(crate) fn compute_ssa_alias_classes(
         let source_args: Vec<ArcVarId> = match source {
             ApplyAliasSource::Direct(arg) => vec![*arg],
             ApplyAliasSource::Project { arg, .. } => vec![*arg],
-            // BUG-04-118 Option B: Wrapped contributes its arg
+            // Wrapped contributes its arg
             // as a source candidate so class-keyed lookups (mirror of the
             // per-var `should_suppress_apply_aliased_dec` path) can find
             // arg too. Mirrors Direct/Project's single-arg pattern.
@@ -191,7 +191,7 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // BUG-04-118 — `class_payload_of` is now populated post-convergence
+    // `class_payload_of` is populated post-convergence
     // by `populate_class_payload_of_with_liveness` using path-sensitive
     // liveness from the converged AimsStateMap. The initial empty map here
     // is overwritten via `set_class_payload_of` at step 4.5 in

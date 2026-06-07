@@ -1,4 +1,4 @@
-// BUG-04-106 §03:46 — closure captures `Option<str>` (cross-type matrix).
+// Closure captures `Option<str>` (cross-type matrix).
 // Pins zero leaks for Option<str> capture invoked twice via ApplyIndirect.
 // Stress-tests the inline-enum + heap-payload combination through the
 // closure environment.

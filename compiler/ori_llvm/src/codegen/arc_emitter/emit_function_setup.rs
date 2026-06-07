@@ -1,7 +1,6 @@
 //! Function parameter binding and borrowed-rooted variable computation.
 //!
-//! Extracted from [`super::emit_function`] to keep file sizes under the
-//! 500-line limit. Called during the function emission prologue.
+//! Called during the function emission prologue.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use ori_arc::Ownership;

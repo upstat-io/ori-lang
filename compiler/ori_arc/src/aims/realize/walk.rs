@@ -4,8 +4,7 @@
 //! [`decide()`] and collects death/alloc events inline, eliminating the
 //! separate scans in `collect_death_events()` and `collect_alloc_events()`.
 //!
-//! Replaces `emit_rc/forward_walk::emit_body_forward_walk()` with a walk
-//! that calls `decide()` per (var, instruction) site and produces both
+//! Calls `decide()` per (var, instruction) site and produces both
 //! RC operations and reuse event data in a single pass.
 //!
 //! Post-instruction dec emission and death event collection live in
@@ -39,7 +38,6 @@ pub(super) struct BodyWalkResult {
 
 /// Phase B: unified forward walk through body instructions.
 ///
-/// Replaces `emit_body_forward_walk()` in `emit_rc/forward_walk.rs`.
 /// Routes all RC/reuse decisions through `decide()` and collects
 /// death/alloc events for the reuse planner inline.
 ///

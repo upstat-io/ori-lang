@@ -1,6 +1,6 @@
-//! AOT codegen tests for recursive struct/enum value types (BUG-04-043).
+//! AOT codegen tests for recursive struct/enum value types.
 //!
-//! Root defect (BUG-04-043): a recursive struct/enum value type whose
+//! Root defect: a recursive struct/enum value type whose
 //! back-edge is laid out BY VALUE produces an infinitely-sized /
 //! zero-field LLVM struct. The surface symptom on
 //! `type Node = { value: int, next: Option<Node> }` is:
@@ -11,7 +11,7 @@
 //!
 //! These are TDD pins authored BEFORE the fix. The recursive-STRUCT cells
 //! currently abort at LLVM codegen with the signature above; they pass
-//! only once BUG-04-043 closes, at which point `assert_aot_success`'s
+//! only once the root defect is fixed, at which point `assert_aot_success`'s
 //! built-in `ORI_CHECK_LEAKS=1` oracle also verifies the recursive drop
 //! balances allocation/deallocation.
 //!
@@ -32,7 +32,7 @@
 
 use crate::util::assert_aot_success;
 
-/// shape-struct: canonical BUG-04-043 repro. A recursive `Node` struct
+/// shape-struct: canonical repro of the root defect. A recursive `Node` struct
 /// whose `next: Option<Node>` field is the by-value back-edge. Building a
 /// two-node chain in `@main` aborts at codegen pre-fix
 /// (`build_struct ... num_fields=0` + `E5001`); post-fix it compiles,
@@ -55,7 +55,7 @@ type Node = { value: int, next: Option<Node> }
 /// `IntList = Nil | Cons(head: int, tail: IntList)` whose recursive
 /// back-edge is a variant payload field. Enum variant payloads are
 /// already boxed, so this compiles, runs, and leak-checks clean TODAY —
-/// it pins the boundary of BUG-04-043 (the defect is struct-field
+/// it pins the boundary of the defect (the defect is struct-field
 /// specific) and MUST remain green after the fix. The `match` read +
 /// `assert_eq` keeps it a real positive test, not an orphan.
 #[test]
@@ -81,7 +81,7 @@ type IntList = Nil | Cons(head: int, tail: IntList);
 /// `Branch(forest: Forest)` variant and `Forest` carries a recursive
 /// struct field `rest: Option<Forest>` — the cycle Tree -> Forest -> Tree
 /// plus the self-edge Forest -> Forest passes through a by-value
-/// recursive struct field, which reproduces the BUG-04-043 codegen abort
+/// recursive struct field, which reproduces the codegen abort
 /// pre-fix.
 #[test]
 fn recursive_codegen_mutual_tree_forest_builds() {
@@ -179,7 +179,7 @@ type Node = { value: int, next: Option<Node> }
 
 /// semantic-pin: build a chain, then READ a field through the boxed
 /// back-edge (`n1.next.unwrap().value`) and `assert_eq` the value. This
-/// ONLY passes once BUG-04-043 closes: pre-fix it aborts at codegen
+/// ONLY passes once the root defect is fixed: pre-fix it aborts at codegen
 /// (red), and the value-bearing assertion makes it the permanent
 /// regression guard that the box-and-load fix preserves the projected
 /// value through the recursive back-edge.

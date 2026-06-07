@@ -35,7 +35,6 @@ impl ArcLowerer<'_> {
         let param_slice: Vec<_> = self.arena.get_params(params).to_vec();
         let param_names: Vec<Name> = param_slice.iter().map(|p| p.name).collect();
 
-        // Step 1: Capture analysis — find free variables in the lambda body
         let mut captures = Vec::new();
         let mut seen = FxHashSet::default();
         self.collect_captures(body, &param_names, &mut captures, &mut seen);
@@ -45,14 +44,10 @@ impl ArcLowerer<'_> {
             "lambda: lower"
         );
 
-        // Step 2: Get actual param types from the function type in the pool.
-        //
-        // Lambda parameter types may contain unresolved type variables
-        // (Tag::Var) or generalized forall types. Resolve each through the
-        // pool's VarState chain AND any active type_subst from monomorphization.
-        // Without this, closures with polymorphic parameters (e.g., capturing
-        // str and calling .length() on the parameter) leave unresolved Idx
-        // values in the ARC IR, causing LLVM codegen failures.
+        // Why: lambda parameter types may carry unresolved type variables
+        // (Tag::Var) or generalized forall types — resolve through the pool's
+        // VarState chain AND any active monomorphization type_subst, or
+        // unresolved Idx values reach the ARC IR and break LLVM codegen.
         let resolved_ty = self.pool.resolve_fully(ty);
         // Unwrap Scheme to reach the inner Function type.
         // Polymorphic lambdas (e.g., `a -> b -> a + b`) have type
@@ -83,7 +78,6 @@ impl ArcLowerer<'_> {
             vec![Idx::UNIT; param_slice.len()]
         };
 
-        // Step 3: Build the lambda function body
         let mut lambda_builder = ArcIrBuilder::new();
         let mut lambda_scope = ArcScope::new();
         let mut lambda_params = Vec::with_capacity(captures.len() + param_slice.len());
@@ -150,10 +144,9 @@ impl ArcLowerer<'_> {
 
         self.problems.append(&mut lambda_problems);
 
-        // Step 4: Assign globally unique name by including the parent function name.
-        // This prevents AIMS contract map collisions when multiple parent functions
-        // each define lambdas — e.g., test_str_sso's lambda won't collide with
-        // test_str_heap's lambda.
+        // Why: the parent function name in the lambda name keeps AIMS
+        // contract-map entries for same-index lambdas in different parents
+        // from colliding.
         let lambda_idx = self.lambdas.len();
         let parent = self.interner.lookup(self.func_name);
         let lambda_name = self
@@ -164,7 +157,6 @@ impl ArcLowerer<'_> {
         lambda_func.num_captures = captures.len();
         self.lambdas.push(lambda_func);
 
-        // Step 5: Emit PartialApply with the outer capture variable IDs
         let capture_outer_vars: Vec<ArcVarId> =
             captures.iter().map(|&(_, outer_var)| outer_var).collect();
         self.builder

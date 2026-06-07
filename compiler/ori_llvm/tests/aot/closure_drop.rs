@@ -1,20 +1,19 @@
-//! AOT tests for closure-capture drop emission (§04.2 of
-//! `plans/aims-burden-tracking/section-04-recursive-closures-drop-value.md`).
+//! AOT tests for closure-capture drop emission.
 //!
 //! These tests exercise the END-TO-END closure-drop story: closure capture
 //! composition (registry-side) + env-header `drop_fn` transport (codegen side
 //! via existing `emit_rc_dec_closure` at `rc_ops.rs:256-287`) + `ori_rc_dec`
 //! invocation at refcount-zero (runtime side).
 //!
-//! Per the §04.2 design, the codegen path is shipped (the existing
+//! The codegen path is shipped (the existing
 //! `DropKind::ClosureEnv(fields) | DropKind::Fields(fields)` shared arm at
 //! `compiler_repo/compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs:91`
-//! materializes the closure drop body once §04.2 populates
+//! materializes the closure drop body once burden composition populates
 //! `UserBurdenSpec.compiled_drop` for closure types). The burden walker at
 //! `ori_arc/src/lower/burden_lower.rs` consumes the registered closure
-//! burden — pinned by the 5 `burden_lower` tests added in §04.2.
+//! burden — pinned by the 5 `burden_lower` closure-burden tests.
 //!
-//! The §04.2 algorithmic deliverables are pinned by:
+//! The closure-burden algorithmic deliverables are pinned by:
 //! - `ori_types::registry::burden_compose::closure::tests` — 11-cell matrix
 //!   over capture-by-value, capture-by-reference, captures-of-captures,
 //!   capture-of-projection, `compiled_drop` `FnSym` uniqueness, and default-shape
@@ -40,7 +39,7 @@
 
 use crate::util::assert_aot_success;
 
-/// Regression: §04.2 deliverable for closure capture-by-value of an owned
+/// Regression: closure capture-by-value of an owned
 /// str. Verifies a closure capturing a heap-allocated `str` releases the
 /// captured env at closure scope exit without leak. `ORI_CHECK_LEAKS=1`
 /// reports zero leaks; `ORI_TRACE_RC=1` shows matching alloc/dec pairs for
@@ -58,7 +57,7 @@ fn test_closure_capture_by_value_str_drops_at_scope_exit() {
     assert_aot_success(source, "closure_capture_by_value_str_drops_at_scope_exit");
 }
 
-/// Regression: §04.2 shared-reference pin — closure with captured str gets
+/// Regression: shared-reference pin — closure with captured str gets
 /// its env refcount-decremented at scope exit; refcount-zero branch of
 /// `ori_rc_dec` (via `emit_rc_dec_closure` at `rc_ops.rs:256-287`) loads the
 /// closure's `drop_fn` from `env_ptr` field 0 and invokes it to walk owned

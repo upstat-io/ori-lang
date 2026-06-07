@@ -145,7 +145,7 @@ pub enum ApplyAliasSource {
     /// does NOT seed `project_alias_sources` Step 1b in
     /// `compute_project_alias_sources` (containment is NOT a projection-
     /// derived alias chain). The sole consumer is `should_suppress_apply
-    /// _aliased_dec` (BUG-04-118): suppresses the redundant
+    /// _aliased_dec`: suppresses the redundant
     /// caller-side canonical dec on `arg` because `arg`'s ownership was
     /// transferred into dst's payload via the wrapping construct. Without
     /// this suppression, both arg's caller-side dec AND dst's structural
@@ -161,7 +161,7 @@ pub enum ApplyAliasSource {
     Conditional { candidates: Vec<ArcVarId> },
 }
 
-/// Same-class dec obligation entry (BUG-04-118).
+/// Same-class dec obligation entry.
 ///
 /// Per `(block, class_id)`, records ordered intra-block dec obligation
 /// points for class members + the set of class members live at block exit.
@@ -249,7 +249,7 @@ pub struct AimsStateMap {
     /// Project chains without re-coding the worklist.
     apply_result_aliases: FxHashMap<ArcVarId, ApplyAliasSource>,
 
-    /// Project-derived alias graph (BUG-04-118; Spec: Annex E §AIMS Side-Table
+    /// Project-derived alias graph (Spec: Annex E §AIMS Side-Table
     /// Domains). Sparse: only entries for Project destinations and
     /// their transitive Let / Jump-arg / CFG-merge / Apply-aliased sources per
     /// `compute_project_alias_sources`. Empty for functions with no Project
@@ -332,7 +332,7 @@ pub struct AimsStateMap {
     /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
     class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 
-    /// Same-class dec obligation table (BUG-04-118).
+    /// Same-class dec obligation table.
     ///
     /// Per `(block, class_id)`, the ordered intra-block dec obligation
     /// points + block-exit members. Consumed by
@@ -873,7 +873,7 @@ impl AimsStateMap {
         self.apply_result_aliases = aliases;
     }
 
-    // Project-derived alias graph (BUG-04-118)
+    // Project-derived alias graph
 
     /// Read-only borrow of the entire Project-derived alias source map.
     ///
@@ -1014,12 +1014,12 @@ impl AimsStateMap {
     /// Bypasses the bulk `set_ssa_alias_output` which runs at step 4
     /// pre-worklist. The post-convergence pass computes a path-sensitive
     /// edge set using converged `AimsStateMap` liveness, then installs it
-    /// here (BUG-04-118).
+    /// here.
     pub(crate) fn set_class_payload_of(&mut self, payload_map: FxHashMap<u32, FxHashSet<u32>>) {
         self.class_payload_of = payload_map;
     }
 
-    /// Return the `class_dec_obligations` table (BUG-04-118).
+    /// Return the `class_dec_obligations` table.
     ///
     /// Empty by default; populated by the post-convergence pass
     /// `populate_class_dec_obligations` when multi-member SSA alias classes
@@ -1032,7 +1032,7 @@ impl AimsStateMap {
     }
 
     /// Install the `class_dec_obligations` table after post-convergence
-    /// computation (BUG-04-118) — typed pre-pass input on `AimsStateMap` per
+    /// computation — typed pre-pass input on `AimsStateMap` per
     /// AIMS Invariant #5(c). Read-only thereafter.
     pub(crate) fn set_class_dec_obligations(
         &mut self,
@@ -1048,7 +1048,7 @@ impl AimsStateMap {
     /// class-members and ssa-alias-classes entries idempotently.
     /// Required by the post-convergence pass after recording new edges so
     /// PIN-6's `class_members(parent)` lookup succeeds for singleton
-    /// parents/children (BUG-04-118).
+    /// parents/children.
     pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
         if self.class_members.contains_key(&class_id) {
             return;
@@ -1068,7 +1068,7 @@ impl AimsStateMap {
     /// helper consolidates the lookup so callers don't repeat the fallback.
     /// Used by the post-convergence edge recorder to resolve arg/dst class ids
     /// without re-running the local `UnionFind` from `compute_ssa_alias_classes`
-    /// (BUG-04-118).
+    ///
     pub(crate) fn class_id_of(&self, var: ArcVarId) -> u32 {
         self.ssa_alias_class_of(var).unwrap_or_else(|| var.raw())
     }

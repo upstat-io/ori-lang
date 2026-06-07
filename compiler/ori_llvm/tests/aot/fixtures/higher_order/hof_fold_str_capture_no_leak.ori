@@ -1,4 +1,4 @@
-// BUG-04-106 §03:70 — higher-order fold with str capture no-leak.
+// Higher-order fold with str capture no-leak.
 // `xs.fold(initial:, op: lambda)` invokes op N times via ApplyIndirect.
 // Strongest stress test on the multi-call closure path because fold
 // threads through every list element. Captured str + closure environment

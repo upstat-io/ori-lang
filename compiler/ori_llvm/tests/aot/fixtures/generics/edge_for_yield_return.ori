@@ -1,5 +1,5 @@
-// BUG-04-090 §03 edge: `for...yield` return (Plan TPR TPR-04-002 +
-// TPR-04-007). yield-style return uses Invoke + Resume terminators on
+// BUG-04-090 edge: `for...yield` return.
+// yield-style return uses Invoke + Resume terminators on
 // the iterator path; verify the gate does NOT suppress decs on Resume
 // blocks (`is_unwind_block` should stay true on the Resume side).
 @gen (xs: [int]) -> [int] = for x in xs yield x;

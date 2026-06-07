@@ -3,8 +3,6 @@
 //! Identifies variables whose RC is managed by a parent aggregate or iterator,
 //! suppressing independent `RcDec` for borrowed views. Also collects
 //! COW-borrowed receiver variables that need pre-call `RcInc` guards.
-//!
-//! Extracted from `helpers.rs` to respect the 500-line file size limit.
 
 use rustc_hash::FxHashSet;
 

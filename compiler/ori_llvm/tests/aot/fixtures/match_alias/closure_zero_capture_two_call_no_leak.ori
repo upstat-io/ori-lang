@@ -1,4 +1,4 @@
-// BUG-04-106 §03:38 — zero-capture closure called twice.
+// Zero-capture closure called twice.
 // Closure with empty capture set called twice via ApplyIndirect. No
 // captured RC value to corrupt; the closure environment itself may still
 // leak under the spurious-RcInc bug. Pre-fix: closure env may leak.

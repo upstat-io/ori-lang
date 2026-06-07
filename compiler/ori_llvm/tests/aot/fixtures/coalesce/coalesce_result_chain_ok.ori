@@ -1,4 +1,4 @@
-// Regression: BUG-02-002 — Result<int, str> ?? Result<int, str> preserves wrapper
+// Regression: Result<int, str> ?? Result<int, str> preserves wrapper
 // Ok short-circuits
 @main () -> int = {
     let a: Result<int, str> = Ok(1);

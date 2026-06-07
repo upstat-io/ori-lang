@@ -1,5 +1,4 @@
-//! AOT tests for the Value-trait empty-burden path (§04.4 of
-//! `plans/aims-burden-tracking/section-04-recursive-closures-drop-value.md`).
+//! AOT tests for the Value-trait empty-burden path.
 //!
 //! These tests pin the END-TO-END Value empty-burden story: a `Value`-marked
 //! (or all-scalar) program emits ZERO RC operations because the empty
@@ -7,9 +6,9 @@
 //! carries no heap to release; and mixed-Value/Heap composition
 //! (`Result<int, str>`) emits RC ops ONLY on the heap-bearing variant.
 //!
-//! Two oracle layers per `tests.md §Discipline`:
+//! Two oracle layers:
 //! - IR-level: `compile_and_capture_ir` counts `ori_rc_inc`/`ori_rc_dec`
-//!   call sites (the positive/negative RC pins per `codegen-rules.md §5`).
+//!   call sites (the positive/negative RC pins).
 //! - Implicit: `assert_aot_success` runs the AOT binary with
 //!   `ORI_CHECK_LEAKS=1` (zero-leak verification) and eval/LLVM parity is
 //!   confirmed by comparing the interpreter exit code to the AOT exit code.

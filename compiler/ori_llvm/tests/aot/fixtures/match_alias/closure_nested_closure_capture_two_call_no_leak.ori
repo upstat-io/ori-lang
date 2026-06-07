@@ -1,4 +1,4 @@
-// BUG-04-106 §03:49 — closure captures another closure (nested capture).
+// Closure captures another closure (nested capture).
 // Pins zero leaks for nested closure capture invoked twice via ApplyIndirect.
 // Stress-tests closure-of-closure RC handling — the inner closure environment
 // must be preserved across the outer closure's repeated invocation.

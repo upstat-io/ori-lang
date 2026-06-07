@@ -1,4 +1,4 @@
-// TPR-07-020 topology pin: take-project inside a loop where the loop
+// Topology pin: take-project inside a loop where the loop
 // header is reachable through a back-edge from a bypass-safe latch.
 //
 // `compute_bypass_safe_entries` previously selected a bypass-safe
@@ -12,7 +12,7 @@
 // bypass-safe region while edge cleanup also skips in-class vars,
 // producing a real leak.
 //
-// The TPR-07-020 fix in `compute_bypass_safe_entries` treats the
+// The fix in `compute_bypass_safe_entries` treats the
 // function entry block as an implicit "outside caller" predecessor
 // that is non-bypass-safe by definition. With this, a loop-headed
 // function whose loop body is bypass-safe still gets its function

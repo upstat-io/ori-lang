@@ -1,4 +1,4 @@
-// BUG-04-090 §03 edge: try{} return (Plan TPR TPR-04-002). try-block
+// BUG-04-090 edge: try{} return. try-block
 // returns may use Invoke terminators with unwind paths; verify the gate
 // doesn't suppress decs on the unwind side.
 @safe_first (xs: [int]) -> Option<int> = if xs.len() > 0 then Some(xs[0]) else None;

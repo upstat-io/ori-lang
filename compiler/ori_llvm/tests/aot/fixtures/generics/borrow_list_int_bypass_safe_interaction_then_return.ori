@@ -1,6 +1,6 @@
-// (Canonical-rep semantics) Bypass-safe interaction pin per §05:148 +
-// opencode Round 1 F5: when a class has bypass-safe-entry members
-// (take-project pattern at dead_cleanup/mod.rs:99-164) AND non-bypass-
+// (Canonical-rep semantics) Bypass-safe interaction pin:
+// when a class has bypass-safe-entry members (take-project pattern in
+// dead_cleanup's emit_dead_at_entry_decs) AND non-bypass-
 // safe members, canonical_rep selection MUST return the actual
 // bypass-safe Let-alias rep — preventing double-free where bypass-safe
 // inline emits one member's dec while canonical-rep emits a different

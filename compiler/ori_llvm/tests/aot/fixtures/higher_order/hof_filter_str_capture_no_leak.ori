@@ -1,4 +1,4 @@
-// BUG-04-106 §03:69 — higher-order filter with str capture no-leak.
+// Higher-order filter with str capture no-leak.
 // `xs.filter(predicate: lambda)` invokes the predicate N times via
 // ApplyIndirect, exercising the multi-call closure path. Captured str +
 // closure environment must show zero leaks under ORI_CHECK_LEAKS=1

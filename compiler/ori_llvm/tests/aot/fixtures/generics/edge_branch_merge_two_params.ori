@@ -1,5 +1,5 @@
-// BUG-04-090 §03 edge: branch-merge of different params (Plan TPR
-// TPR-04-007 + Round-3 codex F6). For heap T: lowering produces
+// BUG-04-090 edge: branch-merge of different params.
+// For heap T: lowering produces
 // Branch+Jump+merge (NOT Select); block_merge::select.rs:187 Criterion
 // 7 rejects heap-operand Select. Both x and y alias the merge-block's
 // param via Jump-arg → block-param edges (project_alias_sources Rules

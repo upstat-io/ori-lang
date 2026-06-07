@@ -1,5 +1,5 @@
-// (Canonical-rep semantics) Latest-emission-site pin per §05:184 +
-// gemini Round 2 F1: when multiple SSA alias class members exist with
+// (Canonical-rep semantics) Latest-emission-site pin:
+// when multiple SSA alias class members exist with
 // different emission sites, canonical_rep_for picks the LATEST-emitting
 // member. Positive pin — exercises post-fix selection semantics; both
 // pre- and post-fix should produce correct RC behavior here, but the

@@ -1,4 +1,4 @@
-// BUG-04-106 §03:44 — closure captures `str` (cross-type matrix).
+// Closure captures `str` (cross-type matrix).
 // The closure_env_alias bug surfaces with Result<int, str>::Err(string);
 // this fixture pins zero leaks for direct str capture invoked twice.
 @main () -> int = {

@@ -1,6 +1,5 @@
 //! JIT compilation pipeline for `OwnedLLVMEvaluator`.
 //!
-//! Extracted from `evaluator/mod.rs` to keep the module under 500 lines.
 //! Contains the `compile_module_with_tests` method which orchestrates the
 //! full V2 codegen pipeline: type infrastructure → function compilation →
 //! test wrapper generation → IR verification → JIT engine creation.

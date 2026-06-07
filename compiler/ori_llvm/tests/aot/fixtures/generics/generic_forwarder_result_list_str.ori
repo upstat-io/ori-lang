@@ -1,5 +1,5 @@
-// BUG-04-090 §03 cross-type: Result<[int], str> — two-constructor
-// sum-type with heap payloads on BOTH arms (TPR-04-002). Both Ok and
+// BUG-04-090 cross-type: Result<[int], str> — two-constructor
+// sum-type with heap payloads on BOTH arms. Both Ok and
 // Err carry heap allocations; the param-return-alias rule fires on the
 // Result, propagating to whichever arm's payload is live.
 @id <T> (x: T) -> T = x;

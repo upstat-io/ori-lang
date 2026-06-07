@@ -64,7 +64,7 @@ pub(crate) fn is_borrow_disjoint_from_siblings(
     // receiver to StaticUnique (pre-existing bug
     // exposed by removal of the `is_cow_aware_unique` fallback).
     //
-    // BUG-04-065: query `effective_uniqueness_at_block_entry` (NOT raw
+    // Query `effective_uniqueness_at_block_entry` (NOT raw
     // lattice uniqueness) so a contract-derived MaybeShared from a callee's
     // ReturnContract reaches this gate. The JOIN semantics preserve any
     // backward-demand widening the lattice already captured.

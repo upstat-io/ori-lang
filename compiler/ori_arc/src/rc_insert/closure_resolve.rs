@@ -239,7 +239,7 @@ fn captures_same_override_semantics(
 /// variant accepts via tag equivalence.
 ///
 /// Used by `aims/intraprocedural/apply_aliases.rs::populate_apply_result_aliases`
-/// (BUG-04-118 closure `ApplyIndirect` bridge) where pool is not available
+/// (the closure `ApplyIndirect` bridge) where pool is not available
 /// at AIMS analysis time per the `var_rc_strategies` cache architecture.
 pub(crate) fn resolve_to_partial_apply_idx_eq(
     var: ArcVarId,

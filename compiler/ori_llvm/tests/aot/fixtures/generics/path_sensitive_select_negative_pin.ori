@@ -1,8 +1,8 @@
-// BUG-04-090 §03 path-sensitivity: NEGATIVE PIN.
+// BUG-04-090 path-sensitivity: NEGATIVE PIN.
 // Stress-test that exercises `select<T>` over [int] across many call
 // sites with mixed path selection — under a naive global-suppression
-// implementation (the rejected approach per Plan TPR Round-0 codex +
-// gemini), every call leaks the not-returned param's heap allocation.
+// implementation (the rejected approach), every call leaks the
+// not-returned param's heap allocation.
 // Under the correct path-sensitive fix, RC is balanced and the
 // program runs cleanly with ORI_CHECK_LEAKS=1.
 //

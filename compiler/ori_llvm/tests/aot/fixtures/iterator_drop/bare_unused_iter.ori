@@ -1,4 +1,4 @@
-// TPR-07-008 matrix pin: a bare iterator variable that is never
+// Matrix pin: a bare iterator variable that is never
 // consumed by a for-loop or iter_next must still drop at scope exit.
 
 @main () -> int = {

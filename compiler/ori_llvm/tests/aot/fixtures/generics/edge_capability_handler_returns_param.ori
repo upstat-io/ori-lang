@@ -1,5 +1,5 @@
-// BUG-04-090 §03 edge: function declaring `uses Suspend` capability
-// returning its param. Per gemini's Plan TPR consensus: capability
+// BUG-04-090 edge: function declaring `uses Suspend` capability
+// returning its param. Capability
 // handlers lower to standard Return terminators; the param-return-
 // alias rule applies uniformly. Suspend is the simplest capability to
 // declare without requiring full handler scaffolding.

@@ -314,7 +314,7 @@ pub struct ParamContract {
     /// Default: `None` (conservative — no aliasing claim).
     pub return_alias: Option<ReturnAliasShape>,
     /// Whether the parameter is structurally contained in the function's
-    /// returned value as a transitive-drop variant payload (BUG-04-118 fix).
+    /// returned value as a transitive-drop variant payload.
     ///
     /// Distinct from `return_alias`: `return_alias` covers cases where the
     /// callee returns the param directly (`Direct`) or a field projection
@@ -418,7 +418,7 @@ impl ParamContract {
         return_alias: None,
         // Conservative default: no containment claim. Promoted by
         // extract_contract when the param flows into a transitive-drop
-        // variant payload that is returned (BUG-04-118 fix).
+        // variant payload that is returned.
         return_payload_contains_param: false,
         // Conservative default: caller keeps its dec. Promoted by
         // extract_contract when the borrowed param iter-consumes-and-frees.

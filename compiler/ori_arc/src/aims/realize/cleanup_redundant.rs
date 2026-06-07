@@ -1,4 +1,4 @@
-//! BUG-04-118 — Post-realize cleanup of redundant project-alias decs.
+//! Post-realize cleanup of redundant project-alias decs.
 //!
 //! The over-emission
 //! shape for nested-Project chains over transitive-drop variant containers
@@ -79,7 +79,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     if *REDUNDANT_CLEANUP_DISABLED {
         return;
     }
-    // BUG-04-118 — Skip cure when function contains Apply
+    // Skip cure when function contains Apply
     // @ori_catch_recover. Catch lowering at lower/constructs.rs:237-289
     // returns a fresh str (the panic msg) via this builtin; the str's RC
     // trajectory interacts with class_outer's transitive drops AND the
@@ -153,7 +153,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     let dom = DominatorTree::build(func);
     let mut removals: FxHashSet<(usize, usize)> = FxHashSet::default();
 
-    // BUG-04-118 — Pre-compute decs-per-class function-wide so we can
+    // Pre-compute decs-per-class function-wide so we can
     // count source-class decs (each walks payload via type-driven drop,
     // contributing one cover per dec).
     let mut all_class_dec_counts: FxHashMap<u32, usize> = FxHashMap::default();
@@ -169,7 +169,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
 
     for (class_id, decs) in &class_decs {
         let n = decs.len();
-        // BUG-04-118 — Chain-aware K/N counting. Walk transitively
+        // Chain-aware K/N counting. Walk transitively
         // through project_alias_sources to find ALL classes that share the
         // underlying physical storage. Aggregate K (RcInc) and N (RcDec)
         // across the chain. The class being decided (class_id) contributes

@@ -137,10 +137,8 @@ impl WasmLinker {
         self.cmd.arg(arg);
     }
 
-    /// Apply comprehensive WASM configuration.
-    ///
-    /// This applies memory settings, stack size, and feature flags
-    /// from a `WasmConfig` struct.
+    /// Apply memory settings, stack size, and feature flags from a
+    /// `WasmConfig`.
     pub fn apply_config(&mut self, config: &WasmConfig) {
         for arg in config.linker_args() {
             self.cmd.arg(arg);

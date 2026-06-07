@@ -1,4 +1,4 @@
-// ((A)-shape new pin SP-1 per gemini) 3-alias merge: borrowed [int]
+// 3-alias merge: borrowed [int]
 // param flowing into a 3-way alias merge at a basic-block join point.
 // Verifies the post-fix expanded input set doesn't break PIN-6 chain
 // resolution when the SSA alias class has 3 distinct members merging

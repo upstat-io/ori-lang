@@ -278,7 +278,7 @@ impl RcStrategy {
 /// Pure function on the enum — no Pool query, no `AimsStateMap` query. The
 /// `RcStrategy` value already carries the answer.
 ///
-/// Used by AIMS PIN-6 (BUG-04-104) for inter-class payload-of suppression: when
+/// Used by AIMS PIN-6 for inter-class payload-of suppression: when
 /// class A's allocation is `[own]`-consumed by an instruction constructing a
 /// parent aggregate of class B, and class B's strategy is transitive-drop,
 /// class B's drop covers class A's RC slot — class A's canonical dec is

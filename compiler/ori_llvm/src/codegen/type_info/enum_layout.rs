@@ -1,6 +1,5 @@
 //! Enum-specific LLVM type resolution.
 //!
-//! Extracted from `layout_resolver.rs` for file size hygiene.
 //! Contains `resolve_enum` and its three encoding-specific helpers:
 //! explicit tag, tagless (single-variant), and niche-encoded.
 

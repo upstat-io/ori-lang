@@ -1,4 +1,4 @@
-// TPR-07-013 matrix pin: Option<Iterator<int>> case. Same as
+// Matrix pin: Option<Iterator<int>> case. Same as
 // enum_match_unused_binding but through the built-in Option sum type.
 
 @main () -> int = {

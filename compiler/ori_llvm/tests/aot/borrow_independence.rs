@@ -1,6 +1,6 @@
-//! Borrow-class independence matrix tests (BUG-04-104).
+//! Borrow-class independence matrix tests.
 //!
-//! Tests for §3.2 borrow-class cells from the BUG-04-104 fix plan TDD
+//! Borrow-class cells from the SSA-alias dec-dedup TDD
 //! matrix. Project field borrows refer to different RC slots than their
 //! source root; independent `RcDecs` MUST continue to fire under the SSA
 //! alias-class union-find fix. These cells PASS clean both pre-fix and

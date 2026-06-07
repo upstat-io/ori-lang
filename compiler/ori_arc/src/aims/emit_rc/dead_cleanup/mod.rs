@@ -241,7 +241,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             if super::should_suppress_apply_aliased_dec(ctx.state_map, var, is_unwind_block) {
                 continue;
             }
-            // BUG-04-111 (replaces BUG-04-104 PIN-4): canonical-rep
+            // BUG-04-111 PIN-4: canonical-rep
             // selection per the latest-emission-site rule.
             // Suppress this var's dec if a different class member is the
             // canonical-rep emitter (per `pin4_class_emits_dec_set` SSOT).
@@ -297,7 +297,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
     // always emit cleanup decs.
     let is_unwind_block = matches!(block.terminator, crate::ir::ArcTerminator::Resume,);
 
-    // BUG-04-104 PIN-6 cross-param same-emission: when MULTIPLE block
+    // PIN-6 cross-param same-emission: when MULTIPLE block
     // params land here as candidates for canonical dec, they all fire at the
     // same conceptual boundary (block entry). PIN-6's same_emission check
     // needs to see all classes whose params will fire here so a child class's
@@ -408,7 +408,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         if super::should_suppress_apply_aliased_dec(ctx.state_map, param_var, is_unwind_block) {
             continue;
         }
-        // BUG-04-111 (replaces BUG-04-104 PIN-4): canonical-rep
+        // BUG-04-111 PIN-4: canonical-rep
         // selection consuming the SSOT `pin4_class_emits_dec_set`. Same
         // rationale as Source 1's refactor — comment in
         // `emit_dead_at_entry_decs`.
@@ -417,7 +417,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
                 continue;
             }
         }
-        // BUG-04-104 PIN-6: inter-class payload-of suppression at
+        // PIN-6: inter-class payload-of suppression at
         // the dead-block-param emission site, restricted to SAME-EMISSION
         // only (NOT alive-after). The dead-block-param case fires at block
         // entry; any "alive_after" parent class member is just "used in the
@@ -461,7 +461,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
 /// `alive_after` check is too loose for dead-block-param emission — a parent
 /// class member being "alive somewhere in the block" doesn't guarantee its
 /// transitive drop covers the child's RC slot at this specific block-entry
-/// boundary, leading to over-suppression and leaks (BUG-04-104 regression
+/// boundary, leading to over-suppression and leaks (regression
 /// fix on `fat_ptr_iter` / generics tests).
 ///
 /// Restricting to same-emission preserves the canonical apply-alias case
@@ -480,7 +480,7 @@ fn pin6_same_emission_covers(
     if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
     }
-    // BUG-04-118 — Project-alias seed (companion to walk_dec.rs).
+    // Project-alias seed (companion to walk_dec.rs).
     // Narrowed trigger matches body walker: class_payload_of empty AND
     // var is the dead-block-param being decremented. Strategy gate
     // (InlineEnum-only) preserved. PIN-2 preserved (no class merge). See

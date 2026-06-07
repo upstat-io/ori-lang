@@ -46,7 +46,7 @@ fn emit_invoke_project_borrowed_owned_incs(
     // position (which is always borrowed). Pre-fix used pos directly for
     // both, causing the FIRST arg of every InvokeIndirect to silently fail
     // the is_owned check, missing its compensating Inc — soundness bug
-    // (potential double-free). Ref: BUG-04-106.
+    // (potential double-free).
     let (args, used_vars_offset) = match terminator {
         ArcTerminator::Invoke { args, .. } => (args, 0),
         ArcTerminator::InvokeIndirect { args, .. } => (args, 1),
@@ -107,7 +107,7 @@ fn emit_terminator_duplicate_use_incs(
     // arg (positions >= 1), the arg occurrences still count normally.
     // Pre-fix counted the closure occurrence, producing a spurious Inc
     // between repeated calls of the same closure (the closure_env_alias
-    // leak surface). Ref: BUG-04-106.
+    // leak surface).
     let closure_receiver_var = match terminator {
         ArcTerminator::InvokeIndirect { closure, .. } => Some(*closure),
         _ => None,

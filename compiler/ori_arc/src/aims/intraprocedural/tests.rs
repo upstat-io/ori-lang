@@ -4386,7 +4386,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
         state_map.var_shape(var(1)),
         ShapeClass::NonReusable,
         "CN-3 must demote Shared+ReusableCtor → NonReusable BEFORE side-table write — \
-         pre-Round-5 raw write would have stored ReusableCtor here"
+         a raw write would have stored ReusableCtor here"
     );
 }
 
@@ -4418,7 +4418,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
         state_map.contract_uniqueness(var(1)),
         Some(Uniqueness::MaybeShared),
         "CN-6 must demote Unique→MaybeShared when locality is HeapEscaping — \
-         pre-Round-5 raw write would have stored Unique here, falsely claiming a \
+         a raw write would have stored Unique here, falsely claiming a \
          heap-escaping value is RC==1"
     );
     assert_eq!(

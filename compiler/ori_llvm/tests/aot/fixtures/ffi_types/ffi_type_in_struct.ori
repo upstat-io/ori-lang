@@ -1,4 +1,4 @@
-// Regression: BUG-04-021 — FFI types used as struct fields must compile.
+// Regression: FFI types used as struct fields must compile.
 // Tests that CPtr and c_int resolve correctly inside user-defined structs.
 type Handle = { ptr: CPtr, id: c_int }
 

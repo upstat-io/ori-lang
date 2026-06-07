@@ -1,4 +1,4 @@
-// BUG-04-106 §03:45 — closure captures `[int]` (cross-type matrix).
+// Closure captures `[int]` (cross-type matrix).
 // Pins zero leaks for list capture invoked twice via ApplyIndirect in
 // the same block.
 @main () -> int = {

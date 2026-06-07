@@ -1,4 +1,4 @@
-// TPR-07-008 matrix pin: tuple containing an iterator element must
+// Matrix pin: tuple containing an iterator element must
 // drop the iterator at scope exit.
 
 @main () -> int = {

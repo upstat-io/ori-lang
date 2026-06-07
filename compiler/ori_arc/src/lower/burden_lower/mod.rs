@@ -1063,8 +1063,8 @@ fn compute_owned_gen_kill(
 /// `BurdenDec` at transfer points per AIMS RL-2. `Set.value` is added
 /// explicitly per AIMS TF-15 (`is_owned_position`'s `_ => false` catch-all
 /// excludes it). A list-concat `PrimOp Binary(Add)` `RcPointer` operand is added
-/// per the dual-consuming `ori_list_concat_cow` runtime contract (`codegen-rules.md`
-/// operators §List + list → COW concat: the helper dec/frees BOTH input buffers;
+/// per the dual-consuming `ori_list_concat_cow` runtime contract (the helper
+/// dec/frees BOTH input buffers;
 /// `is_owned_position`'s `_ => false` excludes `Let { PrimOp }`). Shared by the
 /// driver, `moved_fields`, and `emit` submodules.
 pub(super) fn instr_transfer_vars(instr: &ArcInstr, func: &ArcFunction) -> FxHashSet<ArcVarId> {
@@ -1101,7 +1101,7 @@ pub(super) fn instr_owned_position_transfer_vars(instr: &ArcInstr) -> FxHashSet<
 /// and BORROWED by `ori_str_concat`'s `*const OriStr` contract (not consumed);
 /// scalar `Add` operands carry no RC (filtered by `owned_vars_needing_rc`).
 /// User `Add` impls dispatch via trait `Apply`/`Invoke`, never `PrimOp Binary`.
-/// Per `codegen-rules.md` operators §"List + list → COW concat".
+/// List + list → COW concat: both operands are consumed by the runtime.
 pub(crate) fn list_concat_consumed_operands(
     instr: &ArcInstr,
     func: &ArcFunction,

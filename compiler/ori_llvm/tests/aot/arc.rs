@@ -293,11 +293,11 @@ fn test_arc_lambda_capture_bool() {
     );
 }
 
-// ─── Curried closure RC captures (TPR-04B-014 regression) ───
+// ─── Curried closure RC captures ───
 
 #[test]
 fn test_arc_curried_closure_capture_list() {
-    // Regression: TPR-04B-014 — curried closure capturing list.
+    // Regression: curried closure capturing list.
     // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_list.ori"),

@@ -1,4 +1,4 @@
-// Regression: BUG-02-002 — Option<int> ?? Option<int> must preserve wrapper
+// Regression: Option<int> ?? Option<int> must preserve wrapper
 // Some short-circuits, result is still Option<int>
 @main () -> int = {
     let a: Option<int> = Some(1);

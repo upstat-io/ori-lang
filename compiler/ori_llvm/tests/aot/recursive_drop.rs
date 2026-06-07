@@ -16,7 +16,7 @@
 
 use crate::util::{assert_aot_success, compile_and_run_with_env};
 
-/// Canonical BUG-04-043 repro: a 3-node `Node` linked list built in `@main`
+/// Canonical recursive value-type repro: a 3-node `Node` linked list built in `@main`
 /// must compile, run, and drop the recursive chain without leaking at scope
 /// exit. `assert_aot_success` enables `ORI_CHECK_LEAKS=1`, so a leaked node
 /// surfaces as exit code 2 and fails the test.
@@ -35,7 +35,7 @@ type Node = { value: int, next: Option<Node> }
     assert_aot_success(source, "recursive_drop_node_chain_builds_runs_no_leak");
 }
 
-/// Cross-case composition pin (TPR-04.R-009): a recursive `Node` type that
+/// Cross-case composition pin: a recursive `Node` type that
 /// ALSO carries a user `@drop` impl. This composes §04.1 (SCC-based recursive
 /// drop-glue: the `_ori_drop$Node` body traverses the self-referencing `next`
 /// chain) with §04.3 (Drop AUGMENT: the user `@drop (self)` body runs FIRST,
@@ -104,7 +104,7 @@ type Node = { value: int, next: Option<Node> }
 /// allocation leaks and surfaces as exit code 2. (An explicit
 /// `ORI_TRACE_RC` capture is not possible while the program is RED, because
 /// codegen aborts before a binary is linked; the leak oracle covers the
-/// balance invariant once BUG-04-043 closes.)
+/// balance invariant once the recursive value-type defect is fixed.)
 #[test]
 fn recursive_drop_chain_rc_balanced() {
     let source = r#"
@@ -139,7 +139,7 @@ type Node = { value: int, next: Option<Node> }
 ///
 /// Regression: shared-reference correctness — `rc > 1` release must decrement
 /// without compiled-drop-body invocation.
-/// See: bug-tracker/plans/BUG-02-032/ (`drop_early` prelude builtin) — this pin
+/// See BUG-02-032 (`drop_early` prelude builtin) — this pin
 /// is RED until that builtin is implemented (typeck signature + eval semantics
 /// + AOT early `rc_dec` codegen); it goes green with no edit once it lands.
 #[test]

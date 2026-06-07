@@ -1,4 +1,4 @@
-// Regression: BUG-04-003 — trait impl methods accessing self struct fields
+// Regression: trait impl methods accessing self struct fields
 // produced LLVM verification errors because impl methods were incorrectly
 // registered in the bare `functions` map, causing `to_str` on an int field
 // inside Box$to_str to resolve to Box$to_str (wrong function, wrong ABI).

@@ -1,7 +1,7 @@
-//! SSA-alias dec-dedup matrix tests (BUG-04-104).
+//! SSA-alias dec-dedup matrix tests.
 //!
-//! Tests for §3.1 in-class alias cells and §3.3 semantic-pin cells from
-//! the BUG-04-104 fix plan TDD matrix. Pre-fix: AIMS realize emits `RcDec`
+//! In-class alias cells and semantic-pin cells from the SSA-alias
+//! dec-dedup TDD matrix. Pre-fix: AIMS realize emits `RcDec`
 //! per SSA name, causing double-free on aliased aggregates with heap
 //! children. Post-fix: SSA-alias equivalence-class union-find collapses
 //! dec emission to one canonical dec per class.
@@ -137,7 +137,7 @@ fn test_option_intlist_select_branch_return() {
     );
 }
 
-// BUG-04-106 — closure_env_alias spurious-RcInc fix
+// closure_env_alias spurious-RcInc fix
 //
 // Regression: closure capturing `Result<int, str>::Err(string)` invoked
 // twice via `lookup()` previously leaked 28 + 40 bytes under
@@ -146,7 +146,7 @@ fn test_option_intlist_select_branch_return() {
 // closure RC at 1 + 1 - 1 = 1 (instead of 0) when the function exited —
 // the LastUse `RcDec` freed only one reference, leaking the underlying
 // allocation. Post-fix: realize-layer borrow-recognition for ApplyIndirect
-// closure receivers (§05 edit sites 1-4) suppresses the spurious Inc;
+// closure receivers suppresses the spurious Inc;
 // LastUse Dec frees the allocation; zero leaks. `assert_aot_success`
 // already enables `ORI_CHECK_LEAKS=1`, so a regression in any of the
 // realize-layer fixes resurfaces as exit code 2 (leak detected).
@@ -159,10 +159,10 @@ fn test_closure_env_alias_no_leak() {
     );
 }
 
-// BUG-04-106 §03:37 + §03:44-45 — direct-call closure matrix.
+// Direct-call closure matrix.
 // Each fixture invokes a closure capturing an RC-tracked value 2-3 times
 // via direct `lookup()` calls (NOT via iterator pipeline). The same-block
-// multi-call ApplyIndirect pattern is exactly what triggers BUG-04-106's
+// multi-call ApplyIndirect pattern is exactly what triggers the
 // spurious RcInc on the closure receiver. `assert_aot_success` enables
 // `ORI_CHECK_LEAKS=1` — pre-fix all three leak (closure env + captured value);
 // post-fix zero leaks.

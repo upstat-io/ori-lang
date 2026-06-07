@@ -294,7 +294,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// No-op when `impl_def` is an inherent (non-trait) impl, when the
     /// trait path does not resolve, or when every method is overridden.
-    /// Extracted from `compile_impls` to keep nesting depth ≤ 4.
     fn compile_trait_default_methods_for_impl<'sig>(
         &mut self,
         impl_def: &ori_ir::ImplDef,

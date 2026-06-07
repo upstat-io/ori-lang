@@ -1,6 +1,6 @@
-//! AOT tests for recursive-type feature interactions (BUG-04-043).
+//! AOT tests for recursive-type feature interactions.
 //!
-//! Root defect (BUG-04-043): recursive struct/enum value types fail AOT
+//! Root defect: recursive struct/enum value types fail AOT
 //! LLVM codegen because the recursive back-edge is laid out by-value,
 //! producing an infinitely-sized / zero-field LLVM struct. Surface symptom
 //! on `type Node = { value: int, next: Option<Node> }`:
@@ -15,7 +15,7 @@
 //! language features — closures, `Result`, generics, mutual recursion,
 //! collections, Option-returning accessors, and tuples. Each pin is
 //! authored BEFORE the fix and currently aborts with the recursive-codegen
-//! signature above; they pass only once BUG-04-043 closes, at which point
+//! signature above; they pass only once the root defect is fixed, at which point
 //! `assert_aot_success`'s built-in `ORI_CHECK_LEAKS=1` oracle also verifies
 //! the recursive drop balances allocation/deallocation.
 
@@ -130,7 +130,7 @@ type Box<T> = { val: T, next: Option<Box<T>> }
 /// `B = ToA(a: A)`. Constructing a small `A -> B -> A` cycle routes the
 /// mutually-recursive enum payloads through codegen. Unlike a
 /// direct-self-recursive enum payload (already heap-boxed today), the
-/// mutual cycle reproduces BUG-04-043: pre-fix `extract_value on non-struct
+/// mutual cycle reproduces the root defect: pre-fix `extract_value on non-struct
 /// value ... type resolution produced wrong layout` + `struct_gep on
 /// non-pointer value` + `error[E5001]`.
 #[test]

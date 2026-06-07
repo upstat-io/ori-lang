@@ -1,4 +1,4 @@
-// ((A)-shape new pin per codex Round 4 F4 + §05:226) Nested PIN-6
+// Nested PIN-6
 // chain B->A->C: ancestor class B's transitive-drop covers class A's
 // slot, in turn covered by ancestor class C. Verifies the post-fix
 // expanded input set doesn't break PIN-6 BFS at

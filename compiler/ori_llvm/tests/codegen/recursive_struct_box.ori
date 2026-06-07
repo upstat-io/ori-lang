@@ -1,4 +1,4 @@
-// FileCheck test: BUG-04-043 — recursive STRUCT value types must box the
+// FileCheck test: recursive STRUCT value types must box the
 // back-edge field as an LLVM `ptr`, NOT embed an inline by-value struct.
 //
 // PRE-FIX STATE (red_no_ir): building a recursive struct aborts codegen with
@@ -9,7 +9,7 @@
 //   the fix emits the boxed layout. POST-FIX these CHECKs match the `{ i64, ptr }`
 //   back-edge shape with an EXPLICIT-TAG (non-niche) `Option<Node>`.
 //
-// Subject per BUG-04-043 scope: recursive STRUCT field (NOT a direct-recursive
+// Subject: recursive STRUCT field (NOT a direct-recursive
 // enum, which already lowers today). The recursive back-edge is `next: Option<Node>`.
 //
 // Function-scoped slicing note: the harness slices captured IR to one `define`

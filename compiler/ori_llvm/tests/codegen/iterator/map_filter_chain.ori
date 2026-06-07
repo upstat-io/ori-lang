@@ -2,7 +2,7 @@
 // map() creates a mapped iterator (ori_iter_map), filter() creates a filtered
 // iterator (ori_iter_filter), and collect() materializes it (ori_iter_collect).
 //
-// Uses large values to avoid repr-opt integer narrowing (BUG-04-071: narrowed
+// Uses large values to avoid repr-opt integer narrowing (narrowed
 // elem_size mismatches map lambda output size, causing memory corruption).
 //
 // CHECK-LABEL: define void @_ori_main

@@ -1,6 +1,4 @@
 //! Iterator helpers and `TypeTag` exhaustiveness guards.
-//!
-//! Extracted from `builtins/mod.rs` to keep it under the 500-line limit.
 
 use super::TypeInfo;
 

@@ -1,4 +1,4 @@
-// BUG-04-106 §03:36 — single-call no-regression edge case.
+// Single-call no-regression edge case.
 // Closure called exactly ONCE. Pre-fix already passes (single use is the
 // non-bug shape — TF-11 emits one Once demand, no over-promotion). Post-fix
 // MUST continue to pass — the realize-layer fix MUST NOT break the simple

@@ -1,4 +1,4 @@
-// BUG-04-106 §03:48 — closure captures struct with multiple RC fields.
+// Closure captures struct with multiple RC fields.
 // Pins zero leaks for struct capture invoked twice via ApplyIndirect.
 // Stress-tests the AggregateFields RC strategy through the closure
 // environment.

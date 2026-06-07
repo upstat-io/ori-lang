@@ -1,5 +1,5 @@
-// BUG-04-090 §03 edge: TRMC tail-recursive forwarder. Per gemini's Plan
-// TPR consensus: TRMC uses internal jumps, not Return terminators, so
+// BUG-04-090 edge: TRMC tail-recursive forwarder.
+// TRMC uses internal jumps, not Return terminators, so
 // the param-return-alias rule is bypassed. TRMC functions must be
 // unaffected by the fix.
 //

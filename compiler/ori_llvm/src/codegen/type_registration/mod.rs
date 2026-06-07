@@ -4,10 +4,6 @@
 //! each user-defined type through the `TypeLayoutResolver`. This ensures
 //! LLVM named struct types exist in the module before any function body
 //! compilation begins.
-//!
-//! Replaces `ModuleCompiler::register_struct_with_types()` and
-//! `register_sum_type_from_decl()` with a single function that operates
-//! on V2 infrastructure.
 
 use ori_types::TypeEntry;
 

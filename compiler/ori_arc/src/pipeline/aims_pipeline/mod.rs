@@ -1,8 +1,6 @@
-//! AIMS pipeline implementation.
-//!
-//! Replaces the sequential analysis passes (borrow inference, liveness,
-//! uniqueness, RC insertion, reset/reuse, RC elimination) with the unified
-//! AIMS analysis + emission pipeline.
+//! AIMS pipeline implementation — the unified AIMS analysis + emission
+//! pipeline (borrow inference, liveness, uniqueness, RC insertion,
+//! reset/reuse, RC elimination as one lattice-driven flow).
 //!
 //! # Pipeline (unified realization)
 //!

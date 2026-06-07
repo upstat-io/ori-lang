@@ -1,7 +1,6 @@
 //! Debug formatting helpers for Option/Result/List LLVM codegen.
 //!
-//! Extracted from `option_result_helpers.rs` to keep files under the 500-line
-//! limit. Contains all `debug`/`to_str` emission: element formatting, wrapper
+//! Contains all `debug`/`to_str` emission: element formatting, wrapper
 //! branching, list loops, and string literal/concat utilities.
 
 use ori_ir::{FIELD_DATA, FIELD_LEN};

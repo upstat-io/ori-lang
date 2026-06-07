@@ -1,4 +1,4 @@
-// TPR-07-008 regression guard: for-loop iterator cleanup must still
+// Regression guard: for-loop iterator cleanup must still
 // work after the iterator-drop architectural fix. No double-free
 // (would corrupt heap), no leak (would exit 2 under ORI_CHECK_LEAKS).
 

@@ -3,7 +3,7 @@
 //! Split from `walk.rs` — handles `RcDec` for defined-dead variables,
 //! last-use variables, and collects death events for the reuse planner.
 //!
-//! BUG-04-104: dec emission consults SSA-alias equivalence classes
+//! Dec emission consults SSA-alias equivalence classes
 //! ([`AimsStateMap::ssa_alias_class_of`]) as a SUPPRESSION FILTER on the
 //! existing per-var emission flow:
 //!
@@ -68,8 +68,9 @@ struct DecWalkEnv<'a> {
 /// Per-instruction mutable emission state for the dec-emission walk.
 ///
 /// Bundles the three emission sinks (`new_body`, `deferred`, `death_events`)
-/// with the PIN-5 same-instruction suppression sets (`emitted_classes`,
-/// `emitted_vars`). All five travel together through the emission pass.
+/// with the per-instruction emission sets. `emitted_vars` drives PIN-5
+/// same-instruction suppression (lineage-based, in `class_dec_should_emit`);
+/// `emitted_classes` is written at each emission but never read.
 struct InstrEmitState<'a> {
     new_body: &'a mut Vec<ArcInstr>,
     deferred: &'a mut Vec<(ArcVarId, RcStrategy, LastUse)>,
@@ -84,11 +85,10 @@ struct InstrEmitState<'a> {
 /// or `DecisionSite::LastUse`. Collects death events inline when reuse
 /// candidacy is detected.
 ///
-/// BUG-04-104: per-instruction `emitted_classes_this_instr` set tracks
-/// which SSA-alias classes have already received a `RcDec` at this
-/// instruction; subsequent same-class dec attempts are suppressed (PIN-5
-/// batching). PIN-4 class-liveness skip is consulted before each potential
-/// emission.
+/// PIN-5 batching: the per-instruction `emitted_vars_this_instr` set tracks
+/// which vars already received a `RcDec` at this instruction; a subsequent
+/// same-class same-LINEAGE dec attempt is suppressed (`class_dec_should_emit`).
+/// PIN-4 class-liveness skip is consulted before each potential emission.
 pub(super) fn emit_post_instr_decs_unified(
     ctx: &BlockCtx<'_>,
     instr: &ArcInstr,
@@ -98,24 +98,21 @@ pub(super) fn emit_post_instr_decs_unified(
     death_events: &mut Vec<DeathEvent>,
     metrics: &mut super::metrics::SynergyMetrics,
 ) {
-    // PIN-5: per-instruction class-id set. After a class emits its first
-    // RcDec at this instruction, subsequent same-class same-instr emissions
-    // are suppressed.
+    // Per-instruction class-id set: written at each emission, never read
+    // (PIN-5 suppression is lineage-based via the per-var set below).
     let emitted_classes_this_instr: FxHashSet<u32> = FxHashSet::default();
-    // Parallel per-var set: PIN-5 for retained-copy classes (inc_count >= 1)
-    // suppresses only a true same-var double-use, not distinct same-instr
-    // operands. Kept alongside the class set so PIN-6 + non-inc PIN-5 are
-    // unchanged.
+    // PIN-5: per-var set. Suppresses a same-class same-LINEAGE re-emission
+    // at this instruction (see `class_dec_should_emit`), not distinct
+    // same-instr operands from different lineages.
     let emitted_vars_this_instr: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    // PIN-6 (BUG-04-104): pre-collect the set of classes whose canonical
-    // dec will fire at this instruction. The same-emission branch of
+    // PIN-6: pre-collect the set of classes whose canonical dec will fire
+    // at this instruction. The same-emission branch of
     // `pin6_any_ancestor_will_cover` queries this map to detect parents whose
     // PIN-5-batched dec covers a child class's RC slot at the SAME instruction.
-    // Per the STRENGTHENED GATE annotation: skipping this pre-collection
-    // silently breaks the same_emission branch — the streaming
-    // `emitted_classes` set cannot serve PIN-6 because it tracks
-    // AFTER-emit, while PIN-6 needs BEFORE-emit signal.
+    // INVARIANT: PIN-6 needs the BEFORE-emit signal; skipping this
+    // pre-collection silently breaks the same_emission branch (a streaming
+    // emitted-set tracks AFTER-emit and cannot serve PIN-6).
     let classes_dying_here = collect_classes_dying_here(ctx, instr, instr_idx);
 
     let env = DecWalkEnv {
@@ -234,7 +231,7 @@ fn emit_defined_dead(
         // take-project (the payload was moved out). Skip PIN-6 for take-
         // projects so the moved-out binding drops at scope exit (RL-2).
         let is_take = is_take_project(instr, ctx.func, ctx.pool);
-        // PIN-6 (BUG-04-104): inter-class payload-of suppression. Runs
+        // PIN-6: inter-class payload-of suppression. Runs
         // BEFORE PIN-4 + PIN-5 — a positive PIN-6 hit makes
         // the per-class checks below redundant (parent's drop covers
         // regardless of whether the dst is also an apply-alias source).
@@ -250,7 +247,7 @@ fn emit_defined_dead(
             .get(&dst)
             .is_some_and(|s| !s.is_empty())
         {
-            // BUG-04-118 — Project-alias-singleton fallback. Pure
+            // Project-alias-singleton fallback. Pure
             // Project destinations are PIN-2 singletons: ssa_alias_class_of
             // returns None for them. The existing pin6 entry skips. But
             // their project_alias_sources may surface a transitive-drop
@@ -348,12 +345,12 @@ fn emit_last_use_decs(
 
 /// Apply the decision from `decide()` for a last-use variable.
 ///
-/// BUG-04-104: PIN-4 + PIN-5 class-aware suppression is applied at the
+/// PIN-4 + PIN-5 class-aware suppression is applied at the
 /// emission point — AFTER `should_suppress_return_transfer_dec` clears
 /// (return-transfer suppression has its own path-sensitivity that class-
 /// aware logic must not undermine), and BEFORE the actual `new_body.push`.
-/// Class membership tracked in `emitted_classes_this_instr` for PIN-5
-/// dedup; class-liveness consulted via `class_dec_should_emit` for PIN-4.
+/// PIN-5 lineage dedup reads `emitted_vars_this_instr`; class-liveness is
+/// consulted via `class_dec_should_emit` for PIN-4.
 fn apply_last_use_decision(
     env: DecWalkEnv<'_>,
     var: ArcVarId,
@@ -383,7 +380,7 @@ fn apply_last_use_decision(
                     return;
                 }
 
-                // PIN-6 (BUG-04-104): inter-class payload-of suppression.
+                // PIN-6: inter-class payload-of suppression.
                 // Runs BEFORE PIN-4 + PIN-5 — when class B's
                 // transitive drop covers class A's RC slot at-or-after this
                 // instr (alive-after parent OR same-emission parent), class A's
@@ -406,8 +403,8 @@ fn apply_last_use_decision(
                     .get(&var)
                     .is_some_and(|s| !s.is_empty())
                 {
-                    // BUG-04-118 — Project-alias-singleton fallback (see
-                    // walk_dec.rs:155+ for full rationale).
+                    // Project-alias-singleton fallback — same rationale as
+                    // the defined-dead path in `emit_defined_dead`.
                     if pin6_any_ancestor_will_cover(
                         ctx,
                         var.raw(),
@@ -490,7 +487,7 @@ fn class_dec_should_emit(
     // emission leak; 04B.2-under-elim.lean rc_per_path_invariant). When there are
     // no within-class retained copies (`lineage_roots` empty) every same-class
     // var shares the alloc-ref lineage → identical to per-class dedup (no-op
-    // baseline). `emitted_classes_this_instr` is retained for PIN-6.
+    // baseline). The class-id set parameter is unread here.
     let _ = emitted_classes_this_instr;
     let var_lineage = ctx.lineage_roots.get(&var);
     let pin5_suppress = emitted_vars_this_instr.iter().any(|&v| {
@@ -567,7 +564,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
         return suppressed;
     }
 
-    // BUG-04-118: when pin4 returns no canonical, consult the typed
+    // When pin4 returns no canonical, consult the typed
     // class_dec_obligations side-table for same-class dedup. This is the
     // case BUG-04-111's fix returns false on (preserving its narrow
     // correctness) but where multi-member SSA alias classes from
@@ -595,7 +592,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // consultation over-suppresses by treating syntactic last-uses
     // (borrow positions) as if they were real RC-dec obligations.
     //
-    // Param-member case (BUG-04-118):
+    // Param-member case:
     // `borrow_list_int_project_consumer_then_return_no_leak` callee
     // forms class {%0(param), %1, %6, %8, %14} via pure Let{Var}
     // chains of param %0. None of these vars are Apply destinations,
@@ -605,7 +602,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     // suppress the legitimate canonical dec emission, leaking 2 RCs
     // back to the caller via Return %14.
     //
-    // Direct-apply-alias case (BUG-04-118):
+    // Direct-apply-alias case:
     // `apply_result_aliases[%6] = Direct(%5)` triggers `uf.union(%5, %6)`
     // forming class {%3, %5, %6, ...}. Same RC-inert semantics —
     // existing return-transfer + pin4 handle dec scheduling.
@@ -652,7 +649,7 @@ fn class_alive_after(ctx: &BlockCtx<'_>, class_id: u32, instr_idx: usize, var: A
     false
 }
 
-/// BUG-04-118 obligation-table filter: detect classes formed
+/// Obligation-table filter: detect classes formed
 /// via `Direct` apply-result-alias union (caller-arg unioned with call
 /// result). Returns true when ANY class member has an
 /// `apply_result_aliases` entry with `ApplyAliasSource::Direct(_)` shape.
@@ -672,7 +669,7 @@ fn class_uses_direct_apply_alias_union(ctx: &BlockCtx<'_>, class_id: u32) -> boo
         .any(|m| matches!(aliases.get(m), Some(ApplyAliasSource::Direct(_))))
 }
 
-/// BUG-04-118 obligation-table filter: detect classes
+/// Obligation-table filter: detect classes
 /// containing a function parameter member. Such classes are formed by
 /// Let{Var} aliases of the param, transitive-alias chains, or both —
 /// per AIMS §3 TF-11 these are transparent-alias semantics, RC-inert.
@@ -772,15 +769,14 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
 }
 
 /// Pre-collect the set of classes whose canonical dec will fire at this
-/// instruction (BUG-04-104 STRENGTHENED GATE).
+/// instruction.
 ///
 /// The same-emission branch of `pin6_any_ancestor_will_cover`
 /// queries this map to detect parent classes whose PIN-5-batched dec covers
-/// a child class's RC slot at the SAME instruction. The streaming
-/// `emitted_classes_this_instr` cannot serve PIN-6's needs because it tracks
-/// AFTER-emit; PIN-6 needs BEFORE-emit signal — the SET of classes about to
-/// die at `instr_idx`, populated BEFORE the per-var emission loop's first
-/// iteration.
+/// a child class's RC slot at the SAME instruction. INVARIANT: PIN-6 needs
+/// a BEFORE-emit signal — the SET of classes about to die at `instr_idx`,
+/// populated BEFORE the per-var emission loop's first iteration (a streaming
+/// emitted-set tracks AFTER-emit and cannot serve PIN-6).
 ///
 /// Walks `instr.used_vars()` ∪ {`instr.defined_var()`}, filters to
 /// classes whose absolute last-use is THIS instruction (no class member alive
@@ -816,7 +812,7 @@ pub(super) fn collect_classes_dying_here(
     result
 }
 
-/// PIN-6 (BUG-04-104) inter-class payload-of suppression predicate.
+/// PIN-6 inter-class payload-of suppression predicate.
 ///
 /// Walks the transitive `class_payload_of` ancestor chain via BFS from
 /// `class_id` (handles singleton parents,
@@ -848,8 +844,8 @@ pub(super) fn pin6_any_ancestor_will_cover(
     if let Some(parents) = existing_parents {
         queue.extend(parents.iter().copied());
     }
-    // BUG-04-118 — Project-alias seed (architectural cure for nested
-    // Project chain RED shapes). Narrowed trigger: only fire when
+    // Project-alias seed (architectural cure for nested
+    // Project-chain double-free shapes). Narrowed trigger: only fire when
     // class_payload_of(class_id) is empty — Direct apply-alias union shapes
     // populate class_payload_of and are handled by the existing pin4 +
     // obligation-table machinery; additional seeds there over-suppress.

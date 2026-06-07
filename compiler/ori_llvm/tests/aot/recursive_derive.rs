@@ -1,6 +1,6 @@
-//! AOT tests for derived traits on recursive struct/enum value types (BUG-04-043).
+//! AOT tests for derived traits on recursive struct/enum value types.
 //!
-//! Root defect (BUG-04-043): recursive struct/enum value types fail AOT LLVM
+//! Root defect: recursive struct/enum value types fail AOT LLVM
 //! codegen because the recursive back-edge is laid out by-value, producing an
 //! infinitely-sized / zero-field LLVM struct. Surface symptom on
 //! `type Node = { value: int, next: Option<Node> }`:
@@ -14,7 +14,7 @@
 //! `equals`/`==`, `debug`) construct and project the recursive type, so they
 //! hit the same `build_struct` abort as the drop story in `recursive_drop.rs`.
 //! They are TDD pins authored BEFORE the fix — every one currently aborts with
-//! the recursive-codegen signature above and passes only once BUG-04-043 closes
+//! the recursive-codegen signature above and passes only once the root defect is fixed
 //! (box-and-load for the recursive back-edge), at which point
 //! `assert_aot_success`'s built-in `ORI_CHECK_LEAKS=1` oracle also verifies the
 //! derived methods balance allocation/deallocation.
@@ -29,7 +29,7 @@ use crate::util::assert_aot_success;
 /// `#derive(Clone)` on a recursive `Node`: clone a 2-node chain and assert the
 /// clone is an independent deep copy by reading a field off the clone. The
 /// derived `clone` constructs the recursive back-edge, hitting the `build_struct`
-/// abort. Once BUG-04-043 closes, the `ORI_CHECK_LEAKS=1` oracle confirms the
+/// abort. Once the root defect is fixed, the `ORI_CHECK_LEAKS=1` oracle confirms the
 /// clone allocates and the chain (original + clone) drops without leaking.
 #[test]
 fn recursive_derive_clone_chain_deep_copies_no_leak() {

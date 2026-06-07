@@ -260,7 +260,7 @@ pub fn compile_and_run_with_args(source: &str, args: &[&str]) -> (i32, String, S
 /// invocation, in addition to the always-on `ORI_STDLIB`. The run step still
 /// sets `ORI_CHECK_LEAKS=1`. Use this for compile-time flags that gate the
 /// AIMS pipeline (e.g. `ORI_DISABLE_BURDEN_OPS=1` skips Step 4b burden-op
-/// emission per `arc.md §Debugging`); the run-step `compile_and_run_with_env`
+/// emission); the run-step `compile_and_run_with_env`
 /// cannot reach a compile-time flag because it sets env on the child binary.
 ///
 /// Returns `(exit_code, stdout, stderr)`.

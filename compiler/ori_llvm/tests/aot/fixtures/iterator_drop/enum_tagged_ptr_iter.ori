@@ -1,4 +1,4 @@
-// TPR-07-008 semantic pin: iterator in tagged-pointer enum must be
+// Semantic pin: iterator in tagged-pointer enum must be
 // dropped via `ori_iter_drop` at scope exit. Before the fix, this
 // program leaks (exit code 2 under ORI_CHECK_LEAKS=1) because
 // iterators were classified as trivial.

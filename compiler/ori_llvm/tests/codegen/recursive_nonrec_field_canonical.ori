@@ -1,4 +1,4 @@
-// FileCheck test: BUG-04-043 negative regression (cell-4) — a NON-recursive type
+// FileCheck test: negative regression (cell-4) — a NON-recursive type
 // whose field flows through the cycle-break fallback / boxing-oracle path must
 // lower to its CANONICAL inline layout, NOT a spurious boxed `ptr`.
 //

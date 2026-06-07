@@ -257,7 +257,6 @@ fn run_second_pass(
 /// Apply AIMS ownership annotations to function parameters.
 ///
 /// Sets `ArcParam.ownership` on each function from its `MemoryContract`.
-/// Replaces `borrow::apply_borrows()` in the old pipeline.
 pub(crate) fn apply_aims_ownership(
     functions: &mut [ArcFunction],
     contracts: &FxHashMap<Name, MemoryContract>,

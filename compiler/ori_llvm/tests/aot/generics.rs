@@ -1071,7 +1071,7 @@ fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
 // BUG-04-111: (A)-shape new pins
 // Positive pins exercising post-fix PIN-6 chain semantics.
 
-/// Positive pin per gemini SP-1: 3-alias merge at CFG join — verifies
+/// Positive pin: 3-alias merge at CFG join — verifies
 /// post-fix expanded input set doesn't break PIN-6 chain resolution
 /// when the SSA alias class has 3 distinct members merging.
 #[test]

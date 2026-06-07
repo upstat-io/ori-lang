@@ -1,5 +1,5 @@
 // BUG-04-090 §03 cross-type: int (scalar — must NOT regress).
-// Scalar types have no RC ops per codegen-rules.md §RE-2. The fix must
+// Scalar types have no RC ops (RE-2 scalar exemption). The fix must
 // not introduce RC operations on scalars or any other regression on the
 // non-heap path. Positive control: this fixture exists pre-fix as
 // `generic_chain_three_levels.ori` for scalar; here the 1-hop variant

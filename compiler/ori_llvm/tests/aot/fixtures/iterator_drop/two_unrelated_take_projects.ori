@@ -1,4 +1,4 @@
-// TPR-07-017 semantic pin: per-class take-project partitioning.
+// Semantic pin: per-class take-project partitioning.
 //
 // Two unrelated take-projects coexist in the same function on
 // different alias chains. Source enum `a` is on a bypass path

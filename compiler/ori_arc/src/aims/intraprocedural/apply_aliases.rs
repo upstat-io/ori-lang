@@ -95,7 +95,7 @@ pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, Arc
 /// and that combined list is matched against the resolved target's contract
 /// in `sigs`. Unresolvable closures (opaque parameter, conflicting merges,
 /// cycles) yield no entry — fresh-allocation semantics per TF-5a / TF-6c.
-/// (BUG-04-118 closure bridge.)
+/// (Closure bridge.)
 ///
 /// Empty when no in-scope callee transfers ownership through return — the
 /// returned map allocates nothing in the common case.
@@ -210,7 +210,7 @@ fn install_alias_entry(
     // the callee's own RC accounting (its scope-exit AggFields walk fires
     // only when access is Owned), not the caller's.
     //
-    // BUG-04-118 Option B (Wrapped variant): handles two
+    // Wrapped variant: handles two
     // distinct alias shapes via the same install path:
     // - Identity (return_alias = Some): callee returns the param itself
     //   (Direct) or a single-field projection (Project). `uf.union` fires
@@ -242,7 +242,7 @@ fn install_alias_entry(
     install_alias_entry_inner(result, dst, args, contract, &aliasing_params, false);
 }
 
-/// BUG-04-118 closure-bridge install path for `ApplyIndirect` /
+/// Closure-bridge install path for `ApplyIndirect` /
 /// `InvokeIndirect`. Maps every aliasing param shape to `Wrapped(arg)`
 /// regardless of `return_alias` discriminant.
 ///
@@ -257,7 +257,7 @@ fn install_alias_entry(
 /// preserves the per-call result class while suppressing only the
 /// caller's redundant canonical dec on the captured arg via
 /// `should_suppress_apply_aliased_dec` — same shape used by the
-/// `wrap_ok(m: m) = Ok(m)` containment case (BUG-04-118).
+/// `wrap_ok(m: m) = Ok(m)` containment case.
 fn install_indirect_alias_entry(
     result: &mut FxHashMap<ArcVarId, ApplyAliasSource>,
     dst: ArcVarId,
@@ -309,7 +309,7 @@ fn install_alias_entry_inner(
             let alias_shape_opt = contract.params[param_idx].return_alias;
             let contains = contract.params[param_idx].return_payload_contains_param;
             let entry = if force_wrapped {
-                // BUG-04-118 closure-bridge: collapse every single-param
+                // Closure-bridge: collapse every single-param
                 // shape to `Wrapped(consumed_arg)`. See
                 // `install_indirect_alias_entry` for the rationale (closure
                 // can be called N times; union'ing every result with the

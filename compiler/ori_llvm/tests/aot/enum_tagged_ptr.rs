@@ -25,14 +25,14 @@
 //! As a result, the **negative pin** below is the most important AOT
 //! test — it locks in that recursive enums (the most natural failure
 //! mode) fall back to explicit-tag encoding and continue to execute
-//! correctly. Without this, BUG-04-043 (AOT codegen hang) would
+//! correctly. Without this, the recursive value-type AOT codegen hang would
 //! reappear.
 //!
 //! ## JIT note
 //!
 //! These tests use AOT compilation instead of Ori spec tests because the
 //! JIT test runner currently hangs on tagged-pointer enum spec tests
-//! under directory sweep (BUG-04-043). AOT compilation works correctly
+//! under directory sweep. AOT compilation works correctly
 //! for the same source.
 //!
 //! §07.3 / §07.3.A.
@@ -47,7 +47,7 @@ use crate::util::{assert_aot_success, compile_to_llvm_ir};
 /// execute correctly under the explicit-tag path.
 ///
 /// Without this exclusion, AOT codegen for
-/// `IntCell = Empty | Holds(IntCell)` hangs (BUG-04-043) because the
+/// `IntCell = Empty | Holds(IntCell)` hangs because the
 /// boxing semantics for recursive tagged-pointer fields are not
 /// implemented in §07.3.A.
 #[test]

@@ -322,7 +322,7 @@ pub(crate) fn compute_branch_edge_dead_set(
     // propagation at merge points).
     let defined_at_or_before = compute_defined_at_or_before(func, block_idx);
 
-    // BUG-04-104 PIN-5: per-edge class-id tracking for same-edge batching.
+    // PIN-5: per-edge class-id tracking for same-edge batching.
     let mut classes_inserted_per_edge: FxHashMap<(usize, usize), FxHashSet<u32>> =
         FxHashMap::default();
 
@@ -393,7 +393,7 @@ pub(crate) fn compute_branch_edge_dead_set(
                     );
                     continue;
                 }
-                // BUG-04-104 PIN-4 + PIN-5: class-aware skip + per-edge
+                // PIN-4 + PIN-5: class-aware skip + per-edge
                 // batching. Skip when any class member is live at the
                 // successor's entry (PIN-4), or when the same class
                 // already emitted a dec for this (pred, succ) edge in
@@ -595,7 +595,7 @@ pub(crate) fn compute_invoke_edge_dead_set(
     // Cat 3 vars — so Cat 1 can skip to avoid double-dec.
     let mut cat3_unwind_vars: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    // BUG-04-104 PIN-5: per-edge class-id tracking for same-edge batching
+    // PIN-5: per-edge class-id tracking for same-edge batching
     // across Categories 1 + 2.
     let mut classes_inserted_per_edge: FxHashMap<(usize, usize), FxHashSet<u32>> =
         FxHashMap::default();
@@ -613,7 +613,7 @@ pub(crate) fn compute_invoke_edge_dead_set(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            // BUG-04-104 PIN-5: per-edge class batching across Cat 3 and
+            // PIN-5: per-edge class batching across Cat 3 and
             // Cat 1/2. If `arg` is in a class, mark the class as inserted on
             // the unwind edge so subsequent Cat 1 / Cat 2 emissions skip.
             if let Some(class_id) = state_map.ssa_alias_class_of(arg) {
@@ -675,7 +675,7 @@ pub(crate) fn compute_invoke_edge_dead_set(
                     .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
                 if unwind_state.cardinality == Cardinality::Absent {
                     if let Some(strategy) = rc_strategy(func, var, pool) {
-                        // BUG-04-104 PIN-5: per-edge class batching for the
+                        // PIN-5: per-edge class batching for the
                         // unwind edge. If the class already emitted on the
                         // unwind edge (e.g., via Cat 3), skip.
                         let mut emit = true;
@@ -708,7 +708,7 @@ pub(crate) fn compute_invoke_edge_dead_set(
             if normal_state.cardinality == Cardinality::Absent {
                 if let Some(strategy) = rc_strategy(func, var, pool) {
                     if !should_suppress_apply_aliased_dec(state_map, var, false) {
-                        // BUG-04-104 PIN-4 + PIN-5: class-aware skip + batch.
+                        // PIN-4 + PIN-5: class-aware skip + batch.
                         let mut emit = true;
                         if let Some(class_id) = state_map.ssa_alias_class_of(var) {
                             if let Some(members) = state_map.class_members(class_id) {

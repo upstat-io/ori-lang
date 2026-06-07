@@ -1,4 +1,4 @@
-// Regression: BUG-02-002 — Option<str> ?? Option<str> cross-type coverage
+// Regression: Option<str> ?? Option<str> cross-type coverage
 @main () -> int = {
     let a: Option<str> = None;
     let b: Option<str> = Some("hello");

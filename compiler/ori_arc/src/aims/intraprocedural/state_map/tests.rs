@@ -782,7 +782,7 @@ fn effective_uniqueness_join_contract_maybe_shared_lattice_shared_lattice_wins()
     map.set_var_uniqueness(var(0), Uniqueness::MaybeShared);
     // JOIN must preserve lattice widening: max(MaybeShared, Shared) = Shared.
     // An override implementation (return contract when Some) would return
-    // MaybeShared here — that's the rejected pre-Plan-TPR-Round-0-F1 design.
+    // MaybeShared here — that's the rejected earlier design.
     assert_eq!(
         map.effective_uniqueness_at_block_entry(block(0), var(0)),
         Uniqueness::Shared,

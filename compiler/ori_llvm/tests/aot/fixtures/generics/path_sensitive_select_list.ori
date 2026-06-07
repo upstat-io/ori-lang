@@ -1,6 +1,5 @@
-// BUG-04-090 §03 path-sensitivity: select<T>(cond, x, y) over [int].
-// CRITICAL Plan TPR Round-0 refinement (codex + gemini): a naive
-// global-suppression implementation (suppress all decs for params with
+// BUG-04-090 path-sensitivity: select<T>(cond, x, y) over [int].
+// A naive global-suppression implementation (suppress all decs for params with
 // transfers_through_return=true) would LEAK y on `return x` paths
 // because the not-taken-branch param still needs scope-exit cleanup.
 //

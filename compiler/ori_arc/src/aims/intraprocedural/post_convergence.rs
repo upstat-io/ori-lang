@@ -615,13 +615,11 @@ pub(crate) fn populate_context_events(
     }
 }
 
-// BUG-04-118 Option D — post-convergence class_payload_of population.
+// Post-convergence class_payload_of population.
 //
-// Replaces the unsound population at step 4 (compute_ssa_alias_classes)
-// which used syntactic ordering proxies that could not model
-// path-sensitive lifetimes. Path-sensitive liveness from the converged
-// AimsStateMap is the architecturally correct primitive per AIMS
-// Invariant #5 (unified model).
+// INVARIANT: payload edges are populated from path-sensitive liveness in
+// the converged AimsStateMap — syntactic ordering proxies cannot model
+// path-sensitive lifetimes (AIMS Invariant #5, unified model).
 
 /// Whether class A's lifetime extends past class B's destruction along some
 /// CFG path, using the converged `AimsStateMap`'s path-sensitive liveness.
@@ -633,7 +631,7 @@ pub(crate) fn populate_context_events(
 ///    fires when ALL B-members are dead-at-exit; defined-dead B detected
 ///    via `def_site_block`.
 ///
-/// Witness-set widening (BUG-04-118): A's witness set is extended with
+/// Witness-set widening: A's witness set is extended with
 /// Project-derived aliases of B-members. Project apply-aliases live in a
 /// DIFFERENT class than their
 /// source (PIN-2 at `ssa_alias_classes.rs:131` — "different RC slot"), so
@@ -665,7 +663,7 @@ fn class_lifetime_extends_past_path_sensitive(
         return false;
     };
 
-    // BUG-04-118: build A's extended witness set by
+    // Build A's extended witness set by
     // walking project_alias_sources for any alias whose root sources include
     // a B-member. Witnesses are USED for "is A still alive?" checks (any_a
     // _live_exit, max_a_in_body, a_at_term) but NOT for B-related checks
@@ -747,7 +745,7 @@ fn class_lifetime_extends_past_path_sensitive(
 }
 
 /// Centralized `class_payload_of` edge recording with path-sensitive
-/// lifetime check (BUG-04-118).
+/// lifetime check.
 fn record_payload_edge_lifetime(
     arg: ArcVarId,
     dst: ArcVarId,
@@ -761,7 +759,7 @@ fn record_payload_edge_lifetime(
             func = ?func.name,
             arg_var = arg.raw(),
             dst_var = dst.raw(),
-            "BUG-04-118 record_payload_edge: skip — arg is scalar"
+            "record_payload_edge: skip — arg is scalar"
         );
         return;
     }
@@ -773,7 +771,7 @@ fn record_payload_edge_lifetime(
             arg_var = arg.raw(),
             dst_var = dst.raw(),
             class = arg_class,
-            "BUG-04-118 record_payload_edge: skip — self-loop"
+            "record_payload_edge: skip — self-loop"
         );
         return;
     }
@@ -814,7 +812,7 @@ fn record_payload_edge_lifetime(
         dst_class,
         a_outlives_b = outlives,
         action = if outlives { "SKIP" } else { "RECORD" },
-        "BUG-04-118 record_payload_edge: predicate decision"
+        "record_payload_edge: predicate decision"
     );
     if outlives {
         return;
@@ -855,7 +853,7 @@ fn container_payload_moved_out(
     })
 }
 
-/// Post-convergence `class_payload_of` population (BUG-04-118).
+/// Post-convergence `class_payload_of` population.
 ///
 /// Walks the 5 edge-recording sites (Construct/PartialApply/Apply/Set/Invoke)
 /// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`.
@@ -911,7 +909,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         continue;
                     }
                     for (i, arg) in args.iter().enumerate() {
-                        // BUG-04-118 path-c: edge eligibility = Owned-access
+                        // Path-c: edge eligibility = Owned-access
                         // OR contract claims param flows into the returned
                         // transitive-drop variant payload (e.g.,
                         // `wrap_ok(m) = Ok(m)` — Borrowed access but
@@ -975,7 +973,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
             if let Some(strat) = dst_strategy_of(func, *dst) {
                 if is_transitive_drop_strategy(strat) {
                     for (i, arg) in args.iter().enumerate() {
-                        // BUG-04-118 path-c: see Apply branch above.
+                        // Path-c: see Apply branch above.
                         let edge_eligible = match sigs.get(callee) {
                             Some(contract) => contract.params.get(i).map_or_else(
                                 || {
@@ -1022,13 +1020,13 @@ pub(crate) fn populate_class_payload_of_with_liveness(
     tracing::debug!(
         func = ?func.name,
         edges = class_payload_of.len(),
-        "BUG-04-118 populate_class_payload_of_with_liveness installed path-sensitive edge map"
+        "populate_class_payload_of_with_liveness installed path-sensitive edge map"
     );
 
     state_map.set_class_payload_of(class_payload_of);
 }
 
-/// BUG-04-118 — populate the same-class dec obligation table.
+/// Populate the same-class dec obligation table.
 ///
 /// Per multi-member SSA alias class C, per block B: identifies which class
 /// members have last-use within B (intra-block obligations) and which class
@@ -1122,7 +1120,7 @@ pub(crate) fn populate_class_dec_obligations(state_map: &mut AimsStateMap, func:
 
     tracing::debug!(
         target: "ori_arc::aims::intraprocedural::post_convergence",
-        "BUG-04-118 populate_class_dec_obligations installed table with {} entries",
+        "populate_class_dec_obligations installed table with {} entries",
         obligations.len()
     );
 

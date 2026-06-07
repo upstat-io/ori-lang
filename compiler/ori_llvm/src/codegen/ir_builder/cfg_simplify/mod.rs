@@ -175,15 +175,12 @@ fn eliminate_empty_blocks(function: FunctionValue<'_>) -> u32 {
             continue;
         }
 
-        // Step 1: Rewrite phi incoming entries in the target block.
         rewrite_phis(*target_ref, empty_ref, &preds);
 
-        // Step 2: Redirect predecessors' terminators to jump to target.
         for &pred_ref in &preds {
             redirect_terminator(pred_ref, empty_ref, *target_ref);
         }
 
-        // Step 3: Remove the empty block.
         unsafe {
             let term = core::LLVMGetBasicBlockTerminator(empty_ref);
             if !term.is_null() {

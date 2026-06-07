@@ -628,7 +628,7 @@ fn test_closure_borrowed_capture_env_owns_copy_no_drift() {
     );
 }
 
-// ─── Multi-instantiation lambda (TPR-04B-007 regression) ───
+// ─── Multi-instantiation lambda ───
 
 /// Semantic pin: zero-arg polymorphic lambda returning None, instantiated at
 /// Option<int> and Option<str>. The original generic lambda must be removed
@@ -673,7 +673,7 @@ fn test_multi_inst_map_lambda() {
     );
 }
 
-/// Negative pin for TPR-04B-007: verify that multi-inst originals are NOT
+/// Negative pin: verify that multi-inst originals are NOT
 /// present in the emitted LLVM IR. Only specialized clones (with `$` suffix)
 /// should survive. The stale original would contain unresolved type variables
 /// and produce `unresolved type variable at codegen` errors.
@@ -716,7 +716,7 @@ fn test_multi_inst_no_stale_original_in_ir() {
          stale original lambda was compiled"
     );
 
-    // Negative pin for TPR-04B-009: verify no "callee not found" warnings.
+    // Negative pin: verify no "callee not found" warnings.
     // The original PartialApply instruction must be removed alongside the
     // original lambda function, otherwise the emitter falls back to a null
     // closure for the stale callee reference.
@@ -727,15 +727,15 @@ fn test_multi_inst_no_stale_original_in_ir() {
     );
 }
 
-// BUG-04-106 §03:68-70 — higher-order multi-call closure no-leak matrix.
+// Higher-order multi-call closure no-leak matrix.
 //
 // Each test invokes a stdlib higher-order method (`map`/`filter`/`fold`)
 // with a closure capturing an RC-tracked str. The stdlib method dispatches
 // the closure via `ApplyIndirect` once per element — multi-call closure
-// shape that triggers BUG-04-106's spurious-RcInc on the closure receiver
+// shape that triggers the spurious-RcInc on the closure receiver
 // pre-fix. `assert_aot_success` enables `ORI_CHECK_LEAKS=1`; pre-fix the
 // captured str + closure environment leak (similar to closure_env_alias);
-// post-fix zero leaks. Plan TPR Round 1 dropped the `parallel` cell because
+// post-fix zero leaks. The `parallel` cell is absent because
 // `FunctionExpKind::Parallel` is rejected at typecheck (E2040); map/filter/
 // fold cover the multi-call ApplyIndirect surface for this matrix.
 

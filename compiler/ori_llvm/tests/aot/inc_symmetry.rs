@@ -1,7 +1,7 @@
-//! Inc-symmetry regression guards (BUG-04-104 §3.4).
+//! Inc-symmetry regression guards.
 //!
-//! Tests for §3.4 inc-symmetry cells from the BUG-04-104 fix plan TDD
-//! matrix. Per Round 1 reclassification, Sub-phase A class-aware Inc
+//! Inc-symmetry cells from the SSA-alias dec-dedup TDD
+//! matrix. Sub-phase A class-aware Inc
 //! skip was DROPPED at PIN-1 — per-name compensating Inc is correct
 //! per RL-1; class-aware Inc skip would cause use-after-free. These
 //! cells are regression guards: they assert that future changes do
@@ -11,7 +11,7 @@
 //! that would produce over-Inc / under-Dec imbalance surfaces here as
 //! exit code 2 (leak detected).
 //!
-//! Fixtures are reused from §3.1 + §3.2 per §03 §3.4 cell-ID overlap.
+//! Fixtures are reused from the in-class + borrow-class matrices.
 //! The harness re-runs them as standalone tests to provide
 //! independent failure attribution if the regression-guard signal
 //! diverges from the in-class / borrow-class signal.
