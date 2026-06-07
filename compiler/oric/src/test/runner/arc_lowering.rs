@@ -134,7 +134,7 @@ pub(crate) fn lower_and_infer_borrows(
         let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
             rustc_hash::FxHashMap::default();
         for impl_def in &module.impls {
-            let type_name_name = impl_def.self_path.last().copied();
+            let type_name_name = impl_def.type_name();
             let self_type_idx = type_name_name.and_then(|name| {
                 user_types
                     .iter()

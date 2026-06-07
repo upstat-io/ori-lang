@@ -186,7 +186,7 @@ pub fn lower_module(
     }
 
     for impl_def in &module.impls {
-        let Some(&type_name) = impl_def.self_path.last() else {
+        let Some(type_name) = impl_def.type_name() else {
             continue;
         };
 

@@ -248,11 +248,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let trait_map: FxHashMap<Name, &TraitDef> = traits.iter().map(|t| (t.name, t)).collect();
 
         for impl_def in impls {
-            // Resolve the type name from self_path for mangling
-            let type_name_name = impl_def.self_path.first().copied();
-            let type_name = type_name_name
-                .map(|n| self.interner.lookup(n).to_owned())
-                .unwrap_or_default();
+            // Resolve the type name for mangling via the canonical accessor
+            // (LAST path segment — `.first()` here mis-resolved a qualified
+            // path to its qualifier, diverging from the eval backend).
+            // INVARIANT: self_path is non-empty per the parser's E1002
+            // guarantee — a silent empty-name fallback would mangle every
+            // method of a corrupted impl to the colliding `_ori_$method`.
+            let Some(resolved_type_name) = impl_def.type_name() else {
+                unreachable!("ImplDef.self_path empty — parser E1002 guarantees a type path")
+            };
+            let type_name_name = Some(resolved_type_name);
+            let type_name = self.interner.lookup(resolved_type_name).to_owned();
 
             for method in &impl_def.methods {
                 self.compile_impl_method_from_sig(

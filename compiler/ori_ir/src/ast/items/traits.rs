@@ -304,6 +304,17 @@ impl ImplDef {
     pub fn is_trait_impl(&self) -> bool {
         self.trait_path.is_some()
     }
+
+    /// The implemented type's name — the LAST segment of `self_path`.
+    ///
+    /// INVARIANT: the parser builds the impl subject's `ParsedType::Named`
+    /// from `path.last()`, so the type name is always the final segment;
+    /// any leading segments are qualifiers. Every consumer (registration,
+    /// dispatch, mangling) resolves the name through this accessor — reading
+    /// `self_path.first()` mis-resolves a qualified path to its qualifier.
+    pub fn type_name(&self) -> Option<Name> {
+        self.self_path.last().copied()
+    }
 }
 
 impl Spanned for ImplDef {

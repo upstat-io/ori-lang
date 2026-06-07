@@ -54,7 +54,7 @@ pub(super) fn lower_impl_methods_for_analysis(
 
     for impl_def in &parse_result.module.impls {
         // Resolve the self-type Name and Idx for this impl block.
-        let type_name_name = impl_def.self_path.last().copied();
+        let type_name_name = impl_def.type_name();
         let self_type_idx = type_name_name.and_then(|name| {
             type_result
                 .typed

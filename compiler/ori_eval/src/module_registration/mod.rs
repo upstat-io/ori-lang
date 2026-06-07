@@ -209,9 +209,11 @@ fn collect_impl_methods(
     let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 
     for impl_def in &module.impls {
-        // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
-        let Some(&type_name) = impl_def.self_path.last() else {
-            continue;
+        // Get the type name via the canonical accessor (e.g., "Point" for `impl Point { ... }`).
+        // INVARIANT: self_path is non-empty per the parser's E1002 guarantee —
+        // silently skipping registration would strand every method of the impl.
+        let Some(type_name) = impl_def.type_name() else {
+            unreachable!("ImplDef.self_path empty — parser E1002 guarantees a type path")
         };
 
         // Extract key_type_hint from trait type args (first arg of Index<K, V> etc.)
