@@ -203,7 +203,21 @@ pub(crate) fn infer_while(
     body: ExprId,
     _span: Span,
 ) -> Idx {
-    // Condition must be bool.
+    // Push the loop context BEFORE inferring the condition: the spec desugar
+    // `loop { if !cond then break; body }` (16-control-flow.md §16.2.4) places the
+    // condition INSIDE the while's own loop, so condition-position `break` /
+    // `continue` target this while, not the enclosing loop. `while...do` is
+    // void-typed: `break value` is E0860 and `continue value` is E0861.
+    let break_ty = engine.fresh_var();
+    engine.push_loop_context(LoopContext {
+        label,
+        break_ty,
+        break_value_allowed: false,
+        continue_value_allowed: false,
+        form: LoopForm::While,
+    });
+
+    // Condition must be bool (inferred under the while's own loop context).
     let cond_ty = infer_expr(engine, arena, cond);
     let expected = Expected {
         ty: Idx::BOOL,
@@ -213,18 +227,6 @@ pub(crate) fn infer_while(
         },
     };
     let _ = engine.check_type(cond_ty, &expected, arena.get_expr(cond).span);
-
-    // Push a loop context so bare `break` / `continue` inside the body
-    // type-check. `while...do` is void-typed: `break value` is E0860 and
-    // `continue value` is E0861 (spec: 16-control-flow.md § Loop Control).
-    let break_ty = engine.fresh_var();
-    engine.push_loop_context(LoopContext {
-        label,
-        break_ty,
-        break_value_allowed: false,
-        continue_value_allowed: false,
-        form: LoopForm::While,
-    });
 
     engine.enter_scope();
     engine.push_context(ContextKind::LoopBody);

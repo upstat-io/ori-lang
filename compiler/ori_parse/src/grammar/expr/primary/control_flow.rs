@@ -306,11 +306,17 @@ impl Parser<'_> {
 
         let label = self.parse_optional_label();
 
-        // Parse condition without struct literals (PARSE:CF-3) — `do` delimits
-        // the condition, mirroring how `then` delimits an `if` condition.
+        // Parse condition with IN_LOOP (the condition is inside the while's own
+        // loop per the spec desugar `loop { if !cond then break; body }`, so
+        // condition-position break/continue is valid even with no enclosing loop)
+        // and NO_STRUCT_LIT — `do` delimits the condition, mirroring how `then`
+        // delimits an `if` condition.
         let cond = require!(
             self,
-            self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr),
+            self.with_context(
+                ParseContext::NO_STRUCT_LIT.with(ParseContext::IN_LOOP),
+                Self::parse_expr
+            ),
             "condition in while expression"
         );
 
