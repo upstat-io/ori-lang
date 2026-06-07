@@ -1,7 +1,7 @@
 //! `List` type definition.
 //!
 //! List is an Arc-managed dynamic array (`[T]`). The largest builtin type
-//! by method count (57 methods), spanning inherent operations, trait
+//! by method count (58 methods), spanning inherent operations, trait
 //! implementations, and higher-order functional methods.
 //!
 //! Lists support COW (Copy-on-Write) mutations — `push`, `sort`, etc.
@@ -56,7 +56,7 @@ const SELF: ReturnTag = ReturnTag::SelfType;
 const FRESH: ReturnTag = ReturnTag::Fresh;
 const OPT_ELEM: ReturnTag = ReturnTag::OptionOf(TypeProjection::Element);
 
-// All 57 methods alphabetically sorted.
+// All 58 methods alphabetically sorted.
 #[rustfmt::skip]
 static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("all",        &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),

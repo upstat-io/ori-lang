@@ -1,8 +1,8 @@
 // Host module — struct matrix cell.
 // Calls `identity<Point>` and `pair<Point>` from `./generics`. The mono
 // dispatch threads a user-defined struct type through the imported generic
-// body. Struct payload (`{ x: int, y: int }`) is 16 bytes, sitting at the
-// direct/indirect ABI boundary per `CG:AB-1`.
+// body. Struct payload (`{ x: int, y: int }`) is 16 bytes, sitting exactly
+// at the 16-byte direct/indirect ABI passing boundary.
 
 use "./generics" { identity, pair }
 use std.testing { assert_eq }

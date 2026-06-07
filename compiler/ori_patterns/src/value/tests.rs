@@ -183,3 +183,63 @@ fn test_value_different_types_different_hash() {
         "Different types should generally have different hashes"
     );
 }
+
+// COW substrate for `IndexSet.updated` on maps — Heap<MapData> mirror of the
+// ListData `set` COW pins in list_data/tests.rs.
+
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc identity is the COW test subject"
+)]
+fn map_insert_unique_ref_mutates_in_place() {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    // rc==1: insert through make_mut keeps the same backing allocation.
+    let Value::Map(mut map) = Value::map(BTreeMap::new()) else {
+        panic!("expected map value");
+    };
+    let before = Arc::as_ptr(map.inner());
+
+    map.make_mut()
+        .insert_primitive("s:a".to_string(), Value::int(1));
+
+    assert_eq!(
+        Arc::as_ptr(map.inner()),
+        before,
+        "unique-ref insert must mutate in place (no reallocation)"
+    );
+    assert_eq!(map.get_primitive("s:a"), Some(&Value::int(1)));
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc identity is the COW test subject"
+)]
+fn map_insert_shared_ref_clones_alias_unchanged() {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    // rc>1: insert forces a copy; the alias keeps the original entry.
+    let mut entries = BTreeMap::new();
+    entries.insert("s:k".to_string(), Value::int(1));
+    let Value::Map(map) = Value::map(entries) else {
+        panic!("expected map value");
+    };
+    let mut clone = map.clone();
+    assert!(Arc::ptr_eq(map.inner(), clone.inner()));
+
+    clone
+        .make_mut()
+        .insert_primitive("s:k".to_string(), Value::int(99));
+
+    assert_eq!(clone.get_primitive("s:k"), Some(&Value::int(99)));
+    assert_eq!(
+        map.get_primitive("s:k"),
+        Some(&Value::int(1)),
+        "alias must be unaffected"
+    );
+    assert!(!Arc::ptr_eq(map.inner(), clone.inner()));
+}

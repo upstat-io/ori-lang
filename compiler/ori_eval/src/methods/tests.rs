@@ -153,6 +153,7 @@ const FIELD_NAMES: &[&str] = &[
     "unwrap",
     "unwrap_err",
     "unwrap_or",
+    "updated",
     "values",
     "with_trace",
 ];
@@ -210,6 +211,7 @@ fn assert_exhaustive(names: &BuiltinMethodNames) {
         push,
         set,
         slice,
+        updated,
         sort,
         sort_stable,
         take,
@@ -362,6 +364,7 @@ fn assert_exhaustive(names: &BuiltinMethodNames) {
         push,
         set,
         slice,
+        updated,
         sort,
         sort_stable,
         take,

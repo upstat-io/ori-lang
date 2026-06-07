@@ -1,6 +1,6 @@
 // Helper module: exports generic top-level functions consumed by host modules
-// in the imported_generics matrix tests. Pinned at top-level scope per
-// Decision 02 — imported generic METHODS are owned by §03 (not this file).
+// in the imported_generics matrix tests. Top-level functions only — imported
+// generic METHOD dispatch is exercised by a separate test surface.
 
 pub @identity<T> (x: T) -> T = x;
 

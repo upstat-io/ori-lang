@@ -78,7 +78,8 @@ fn test_poly_lambda_with_imported_assert_eq_int() {
 }
 
 /// Same shape as the int variant but pinned at `str` — fat-pointer ABI
-/// (`{i64, i64, ptr}`, 24 bytes, indirect passing per `CG:AB-1`). Any
+/// (`{i64, i64, ptr}`, 24 bytes, passed indirectly as it exceeds the
+/// 16-byte direct-passing threshold). Any
 /// fix that regresses RC management on the assertion-failure message
 /// concat/`debug()` path surfaces here rather than in the int cell.
 #[test]
@@ -105,9 +106,9 @@ const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/
 ///   for `identity` AND `first` — `assert_multifile_aot_success` panics
 ///   with the captured stderr.
 ///
-/// The `[int]` element type pins fat-pointer ABI (`CG:TR-4`) through the
-/// imported generic body, exercising the indirect-passing path per
-/// `CG:AB-1`.
+/// The `[int]` element type pins the 24-byte `{ len, cap, data }`
+/// fat-pointer layout through the imported generic body, exercising the
+/// indirect-passing path (size exceeds the 16-byte direct threshold).
 #[test]
 fn test_imported_generic_fn_list_int() {
     assert_multifile_aot_success(
@@ -134,8 +135,8 @@ fn test_imported_generic_fn_list_int() {
 ///   `Tag::Var` codegen errors because `Point`'s `Idx` is not re-interned
 ///   into the merged pool.
 ///
-/// `Point` (`{ x: int, y: int }`) is 16 bytes — sits at the
-/// direct/indirect ABI boundary per `CG:AB-1`, threading user-type Idx
+/// `Point` (`{ x: int, y: int }`) is 16 bytes — sits exactly at the
+/// 16-byte direct/indirect ABI passing boundary, threading user-type Idx
 /// through the imported generic body. The struct dimension distinguishes
 /// scalar / fat-pointer / struct ABI cases without requiring stdlib
 /// involvement.

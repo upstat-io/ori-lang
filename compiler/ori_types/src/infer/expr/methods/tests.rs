@@ -123,6 +123,99 @@ fn range_iteration_methods_derived_from_registry() {
     );
 }
 
+// IndexSet `updated` resolution
+
+/// Registry resolution of `updated` (`IndexSet` trait) succeeds for `[int]` and
+/// `{str: int}` with `Self`-typed returns. `[T, max N]` erases to `Tag::List`
+/// at type resolution, so the List-tag row below IS the fixed-list path —
+/// there is no separate fixed-list registration to resolve.
+#[test]
+fn updated_resolves_on_list_and_map_with_self_return() {
+    use super::resolve_builtin_method;
+    use crate::{Idx, Pool, Tag};
+
+    let mut pool = Pool::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+
+    // [int].updated -> [int] (SelfType return = receiver)
+    let list_int = engine.pool_mut().list(Idx::INT);
+    let list_ret = resolve_builtin_method(&mut engine, list_int, Tag::List, "updated");
+    assert_eq!(
+        list_ret,
+        Some(list_int),
+        "[int].updated must resolve to the receiver type (Self)"
+    );
+
+    // [str].updated -> [str] (element type flows through unchanged)
+    let list_str = engine.pool_mut().list(Idx::STR);
+    let list_str_ret = resolve_builtin_method(&mut engine, list_str, Tag::List, "updated");
+    assert_eq!(
+        list_str_ret,
+        Some(list_str),
+        "[str].updated must resolve to the receiver type (Self)"
+    );
+
+    // {str: int}.updated -> {str: int} (SelfType return = receiver)
+    let map_str_int = engine.pool_mut().map(Idx::STR, Idx::INT);
+    let map_ret = resolve_builtin_method(&mut engine, map_str_int, Tag::Map, "updated");
+    assert_eq!(
+        map_ret,
+        Some(map_str_int),
+        "{{str: int}}.updated must resolve to the receiver type (Self)"
+    );
+}
+
+/// `updated` carries the correct key/value parameter types in the registry:
+/// `(index: int, value: T)` for lists, `(key: K, value: V)` for maps.
+#[test]
+fn updated_registry_params_carry_key_and_value_types() {
+    use ori_registry::find_method;
+
+    let list_def = find_method(TypeTag::List, "updated")
+        .unwrap_or_else(|| panic!("List.updated must be registered"));
+    assert_eq!(list_def.trait_name, Some("IndexSet"));
+    assert_eq!(list_def.params[0].ty, ReturnTag::Concrete(TypeTag::Int));
+    assert_eq!(list_def.params[1].ty, ReturnTag::ElementType);
+    assert_eq!(list_def.returns, ReturnTag::SelfType);
+
+    let map_def = find_method(TypeTag::Map, "updated")
+        .unwrap_or_else(|| panic!("Map.updated must be registered"));
+    assert_eq!(map_def.trait_name, Some("IndexSet"));
+    assert_eq!(map_def.params[0].ty, ReturnTag::KeyType);
+    assert_eq!(map_def.params[1].ty, ReturnTag::ValueType);
+    assert_eq!(map_def.returns, ReturnTag::SelfType);
+}
+
+/// Negative pin: `updated` does NOT resolve on types that implement `Index`
+/// but not `IndexSet` (str), nor on non-indexable primitives (int).
+#[test]
+fn updated_does_not_resolve_on_str_or_int() {
+    use super::resolve_builtin_method;
+    use crate::{Idx, Pool, Tag};
+
+    assert!(
+        ori_registry::find_method(TypeTag::Str, "updated").is_none(),
+        "str implements Index, NOT IndexSet — no registry entry"
+    );
+    assert!(
+        ori_registry::find_method(TypeTag::Int, "updated").is_none(),
+        "int is not indexable — no registry entry"
+    );
+
+    let mut pool = Pool::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    assert_eq!(
+        resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "updated"),
+        None,
+        "str.updated must not resolve"
+    );
+    assert_eq!(
+        resolve_builtin_method(&mut engine, Idx::INT, Tag::Int, "updated"),
+        None,
+        "int.updated must not resolve"
+    );
+}
+
 // Computed returns verification
 
 /// Verify `resolve_computed_return` produces structured types (not bare `fresh_var`)

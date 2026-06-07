@@ -1,0 +1,11 @@
+// Spec: 13-variables.md §13.6.2 — `{K: V}.updated` rides on the map type's own
+// `K: Hashable` constraint: a map whose key type lacks `Hashable` is rejected
+// (E2031) before `updated` could ever resolve. Negative pin for the IndexSet
+// key bound; the positive (hashable-K) counterpart lives in updated_method.ori.
+
+#[compile_fail(code: "E2031", message: "cannot be used as map key")]
+@test_non_hashable_key_map_rejected tests _ () -> void = {
+    let m: {(int) -> int: int} = {};
+    let n = m.updated(key: (x: int) -> x, value: 1);
+    ()
+}

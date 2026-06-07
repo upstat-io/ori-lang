@@ -159,6 +159,14 @@ static MAP_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound(
+        "updated",
+        &INSERT_PARAMS,
+        SELF,
+        Some("IndexSet"),
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
         "values",
         &[],
         ReturnTag::ListOf(TypeProjection::Value),

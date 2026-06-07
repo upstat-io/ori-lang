@@ -40,6 +40,8 @@ pub fn dispatch_list_method(
         Ok(Value::List(list))
     } else if method == n.set {
         list_set(list, args)
+    } else if method == n.updated {
+        list_updated(list, args)
     } else if method == n.insert {
         list_insert(list, args)
     } else if method == n.remove {
@@ -245,6 +247,21 @@ fn list_set(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
         return Err(ori_patterns::wrong_arg_type("set", "index within bounds").into());
     }
     list.set(uindex, args.swap_remove(1));
+    Ok(Value::List(list))
+}
+
+/// `IndexSet.updated` — replace element at key (materializes slice if needed, then COW).
+///
+/// Out-of-bounds keys panic with the same `IndexOutOfBounds` error as `list[i]`
+/// indexing — `updated` is the desugar target for `list[i] = v`.
+fn list_updated(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
+    require_args("updated", 2, args.len())?;
+    let key = require_int_arg("updated", &args, 0)?;
+    let ukey = usize::try_from(key)
+        .ok()
+        .filter(|&i| i < list.len())
+        .ok_or_else(|| ori_patterns::index_out_of_bounds(key))?;
+    list.set(ukey, args.swap_remove(1));
     Ok(Value::List(list))
 }
 

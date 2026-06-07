@@ -1,8 +1,9 @@
 // Host module — list of int matrix cell.
 // Calls `identity<[int]>` and `first<int>` from `./generics`. The mono
-// dispatch through `import_sig_by_name` (§02.1) is exercised both for
-// indirect-passing types (`[int]` is a 24-byte fat pointer per `CG:TR-4`,
-// indirect per `CG:AB-1`) AND for scalar (`int` is direct).
+// dispatch through `import_sig_by_name` is exercised both for
+// indirect-passing types (`[int]` is a 24-byte `{ len, cap, data }` fat
+// pointer, passed indirectly as it exceeds the 16-byte direct-passing
+// threshold) AND for scalar (`int` is direct).
 
 use "./generics" { identity, first }
 use std.testing { assert_eq }

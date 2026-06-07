@@ -334,7 +334,7 @@ fn mangle_method_impl_and_method_args() {
 
 #[test]
 fn mangle_method_no_impl_args() {
-    // §C.4 supplementary cell: method-level only (no impl-level generics)
+    // Method-level only (no impl-level generics)
     // — `impl Box<int> { @m<U> ... }` shape. Empty impl_args section
     // between `$m$` and `$im$` is load-bearing — it preserves bijectivity
     // when the method-arg payload happens to look like an impl-arg payload.
@@ -357,7 +357,7 @@ fn mangle_method_no_impl_args() {
 
 #[test]
 fn mangle_method_swapped_args_distinct() {
-    // §C.4.1 injection-bijectivity pin: swapping impl_args and method_args
+    // INVARIANT (injection bijectivity): swapping impl_args and method_args
     // produces structurally distinct mangled symbols even when the type
     // sets are identical. With length-prefix encoding plus the $im$
     // separator there is no possible collision between the two shapes.

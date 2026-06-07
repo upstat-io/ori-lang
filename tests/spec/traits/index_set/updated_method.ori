@@ -36,6 +36,14 @@ use std.testing { assert, assert_eq, assert_panics }
 @test_list_updated_oob_panics tests _ () -> void =
     assert_panics(f: () -> [1, 2, 3].updated(key: 5, value: 0));
 
+// Negative key is out of bounds too (matches list[i] semantics).
+@test_list_updated_negative_key_panics tests _ () -> void =
+    assert_panics(f: () -> [1, 2, 3].updated(key: -1, value: 0));
+
+// String-element lists panic identically (OOB is element-type-independent).
+@test_list_str_updated_oob_panics tests _ () -> void =
+    assert_panics(f: () -> ["a", "b"].updated(key: 9, value: "X"));
+
 // =============================================================================
 // {K:V}.updated — insert-or-replace, never panics
 // =============================================================================

@@ -91,6 +91,7 @@ pub(crate) fn is_map_set_dispatched_for_tag(tag: TypeTag, method: &str) -> bool 
                 | "debug"
                 | "merge"
                 | "update"
+                | "updated"
         ),
         TypeTag::Set => matches!(
             method,
