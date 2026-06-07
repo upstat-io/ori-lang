@@ -261,6 +261,13 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// pointer, we forward the original pointer directly instead of creating
     /// an alloca+store round-trip.
     borrowed_param_ptrs: FxHashMap<ArcVarId, ValueId>,
+    /// Borrowed `Reference`/`Indirect` parameters whose entry-block aggregate
+    /// load was elided (bound to a zero placeholder) because every use forwards
+    /// the source pointer. A `Direct` (by-value) call argument cannot forward a
+    /// pointer — it must materialize the aggregate by loading from
+    /// `borrowed_param_ptrs`, so the Direct passing path consults this set to
+    /// reload only the elided params.
+    pointer_only_params: FxHashSet<ArcVarId>,
     /// Decomposed iterator-next results: maps the `Apply(__iter_next)` dst
     /// `ArcVarId` → `(tag: ValueId, scratch_ptr: ValueId, elem_ty: LLVMTypeId)`.
     ///
@@ -372,6 +379,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             intercepted_unwind: None,
             borrowed_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
+            pointer_only_params: FxHashSet::default(),
             iter_next_decomposed: FxHashMap::default(),
             current_sret_ptr: None,
             sret_forwarded_result: None,

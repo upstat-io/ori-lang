@@ -177,6 +177,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Bind function parameters and compute borrowed-rooted variables.
         self.bind_function_params(func, abi, &pointer_only, &used_fields);
+        // Record the pointer-only params whose entry load was elided so a
+        // Direct (by-value) call argument can reload the aggregate from the
+        // source pointer instead of passing the zero placeholder.
+        self.pointer_only_params = pointer_only;
         self.compute_borrowed_rooted_vars(func);
 
         // Set personality function on the LLVM function if any real invokes exist.

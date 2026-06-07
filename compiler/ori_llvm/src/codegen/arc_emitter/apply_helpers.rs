@@ -137,7 +137,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     arg_idx += 1;
                 }
                 crate::codegen::abi::ParamPassing::Direct => {
-                    result.push(args[arg_idx]);
+                    // A Direct (by-value) parameter needs the materialized
+                    // aggregate. When the argument is a borrowed `Reference`/
+                    // `Indirect` parameter whose entry load was elided
+                    // (pointer-only), its value slot is a zero placeholder —
+                    // load the aggregate from the source pointer (Direct
+                    // passing is <=16 bytes, so a single load is FastISel-safe).
+                    let elided_ptr = arc_vars
+                        .and_then(|vars| vars.get(arg_idx))
+                        .filter(|var| self.pointer_only_params.contains(var))
+                        .and_then(|var| self.borrowed_param_ptrs.get(var))
+                        .copied();
+                    if let Some(src_ptr) = elided_ptr {
+                        let param_ty = self.resolve_type(param_abi.ty);
+                        let loaded = self.builder.load(param_ty, src_ptr, "borrow.byval.load");
+                        result.push(loaded);
+                    } else {
+                        result.push(args[arg_idx]);
+                    }
                     arg_idx += 1;
                 }
                 crate::codegen::abi::ParamPassing::Void => {

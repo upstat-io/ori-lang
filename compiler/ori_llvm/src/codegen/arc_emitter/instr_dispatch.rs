@@ -437,6 +437,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if let ori_arc::ir::ArcValue::Var(src) = value {
                     if let Some(&ptr) = self.borrowed_param_ptrs.get(src) {
                         self.borrowed_param_ptrs.insert(*dst, ptr);
+                        // Carry pointer-only-ness so a Direct (by-value) call
+                        // on the alias reloads the aggregate from the source
+                        // pointer rather than passing the zero placeholder.
+                        if self.pointer_only_params.contains(src) {
+                            self.pointer_only_params.insert(*dst);
+                        }
                     }
                 }
             }

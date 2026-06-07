@@ -869,20 +869,12 @@ fn test_generic_closure_capture_forwarded() {
 }
 
 /// Inherent method on a generic type (`impl<T> Box<T> { @unwrap (self) -> T }`)
-/// monomorphizes per concrete receiver via the receiver-shell-keyed mono
-/// dispatch table (no name-only first-match collision). The dispatch + body
-/// lookup + self-param + receiver-type substitution now resolve correctly; the
-/// remaining blocker is codegen-side: the mono method's `self` is borrow-passed
-/// in ARC IR but declared by-value, so the call site materializes the receiver
-/// as `zeroinitializer` instead of loading the aggregate. That borrow-inference
-/// / ABI gap lives in `ori_llvm` codegen and is the matrix-test surface of §03.3.
+/// monomorphizes per concrete receiver and runs end-to-end through AOT. Pins the
+/// borrow-passed-receiver-to-by-value-self path: when the caller holds the
+/// receiver as a borrowed pointer (`Reference` ABI) but the mono'd method takes
+/// `self` by value (`Direct` ABI), the call site loads the aggregate from the
+/// source pointer rather than passing a zero placeholder.
 #[test]
-#[ignore = "BUG-04-091: inherent-method-on-generic-type mono dispatch resolves \
-            (receiver-shell-keyed lookup, body-namespace lookup, self-param, \
-            receiver-type substitution all wired); remaining blocker is a codegen \
-            ABI gap — the mono method's borrow-passed `self` is materialized as \
-            `zeroinitializer` at the call site instead of loading the aggregate. \
-            Owned by §03.3 (matrix) + the codegen borrow-inference fix."]
 fn test_generic_method_on_generic_type() {
     assert_aot_success(
         include_str!("fixtures/generics/generic_method_on_generic_type.ori"),
