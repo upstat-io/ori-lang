@@ -341,8 +341,8 @@ fn test_mixed_field_struct_ir_pin_no_narrowing() {
 #[test]
 fn test_narrowed_local_manual_loop_break_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_loop_behavioral.ori"),
-        "phase_b_loop_behavioral",
+        include_str!("fixtures/narrowing/local_narrowing_loop_behavioral.ori"),
+        "local_narrowing_loop_behavioral",
     );
 }
 
@@ -350,8 +350,8 @@ fn test_narrowed_local_manual_loop_break_correct_output() {
 #[test]
 fn test_narrowed_local_for_range_counter_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_for_range_behavioral.ori"),
-        "phase_b_for_range_behavioral",
+        include_str!("fixtures/narrowing/local_narrowing_for_range_behavioral.ori"),
+        "local_narrowing_for_range_behavioral",
     );
 }
 
@@ -359,8 +359,8 @@ fn test_narrowed_local_for_range_counter_correct_output() {
 #[test]
 fn test_narrowed_local_loop_negative_i8_range_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_negative_loop_behavioral.ori"),
-        "phase_b_negative_loop_behavioral",
+        include_str!("fixtures/narrowing/local_narrowing_negative_loop_behavioral.ori"),
+        "local_narrowing_negative_loop_behavioral",
     );
 }
 
@@ -370,7 +370,7 @@ fn test_narrowed_local_loop_negative_i8_range_correct_output() {
 #[test]
 fn test_narrowed_local_ir_pin_loop_counter_phi_i8() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_loop_counter_phi.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_loop_counter_phi.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
@@ -392,7 +392,7 @@ fn test_narrowed_local_ir_pin_loop_counter_phi_i8() {
 #[test]
 fn test_narrowed_local_ir_pin_loop_sext_to_canonical() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_loop_sext.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_loop_sext.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
@@ -414,7 +414,7 @@ fn test_narrowed_local_ir_pin_loop_sext_to_canonical() {
 #[test]
 fn test_wide_range_local_ir_pin_no_i8_narrowing() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_wide_range_no_i8.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_wide_range_no_i8.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
@@ -473,11 +473,8 @@ fn test_narrowed_comparison_ordering_chain() {
 // ---- Phase B: Straight-Line Local Variable Narrowing Tests ----
 //
 // These IR-inspection tests verify that non-phi local variables are narrowed
-// to smaller LLVM types when their value range fits. They are the TDD "write
-// failing tests first" step — they MUST FAIL before Phase B straight-line
-// local narrowing is implemented in def_var_repr()/var().
-//
-// Phase B checklist: write failing test matrix BEFORE implementing local narrowing
+// to smaller LLVM types when their value range fits (the repr pipeline's
+// Phase B pass, emitted via def_var_repr()/var()).
 
 /// IR semantic pin: arithmetic result `x + 25` where x is a literal produces
 /// trunc+sext in the IR. Literal constants (i64 50, i64 25) are inlined by
@@ -486,7 +483,7 @@ fn test_narrowed_comparison_ordering_chain() {
 #[test]
 fn test_narrowed_local_ir_pin_straight_line_add() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_straight_line_add_narrowed.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_straight_line_add_narrowed.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_use_literal");
@@ -508,7 +505,7 @@ fn test_narrowed_local_ir_pin_straight_line_add() {
 #[test]
 fn test_multiple_narrowed_locals_ir_pin_each_truncated() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_multiple_narrowed_locals.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_multiple_narrowed_locals.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
@@ -531,7 +528,7 @@ fn test_multiple_narrowed_locals_ir_pin_each_truncated() {
 #[test]
 fn test_public_param_local_not_narrowed() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_negative_public_param_not_narrowed.ori"
+        "fixtures/narrowing/local_narrowing_negative_public_param_not_narrowed.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_one");
@@ -551,7 +548,7 @@ fn test_public_param_local_not_narrowed() {
 #[test]
 fn test_wide_constant_local_stays_i64() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_negative_wide_constant_stays_i64.ori"
+        "fixtures/narrowing/local_narrowing_negative_wide_constant_stays_i64.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_use_wide");
@@ -574,7 +571,7 @@ fn test_wide_constant_local_stays_i64() {
 #[test]
 fn test_narrowed_local_select_ir_pin_trunc_sext() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_ir_pin_select_narrowed.ori"
+        "fixtures/narrowing/local_narrowing_ir_pin_select_narrowed.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_pick");
@@ -600,7 +597,7 @@ fn test_narrowed_local_select_ir_pin_trunc_sext() {
 #[test]
 fn test_narrowed_local_select_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_select_narrowed_behavior.ori"),
+        include_str!("fixtures/narrowing/local_narrowing_select_narrowed_behavior.ori"),
         "select_narrowed_behavior",
     );
 }
@@ -610,7 +607,7 @@ fn test_narrowed_local_select_correct_output() {
 #[test]
 fn test_narrowed_local_select_negative_values_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_select_narrowed_negative_values.ori"),
+        include_str!("fixtures/narrowing/local_narrowing_select_narrowed_negative_values.ori"),
         "select_narrowed_negative_values",
     );
 }
@@ -623,7 +620,7 @@ fn test_narrowed_local_select_negative_values_correct_output() {
 #[test]
 fn test_local_overflow_guard_widens_to_i16() {
     let ir = compile_and_capture_ir(include_str!(
-        "fixtures/narrowing/phase_b_overflow_guard_widens_to_i16.ori"
+        "fixtures/narrowing/local_narrowing_overflow_guard_widens_to_i16.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
@@ -648,7 +645,7 @@ fn test_local_overflow_guard_widens_to_i16() {
 #[test]
 fn test_local_overflow_guard_correct_output() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_b_overflow_guard_behavior.ori"),
+        include_str!("fixtures/narrowing/local_narrowing_overflow_guard_behavior.ori"),
         "overflow_guard_behavior",
     );
 }
@@ -1314,8 +1311,8 @@ fn test_for_yield_range_to_enum() {
 #[test]
 fn test_narrowed_list_push_above_i8_no_corruption() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_c_push_corruption_guard.ori"),
-        "phase_c_push_corruption_guard",
+        include_str!("fixtures/narrowing/collection_elem_push_corruption_guard.ori"),
+        "collection_elem_push_corruption_guard",
     );
 }
 
@@ -1323,8 +1320,8 @@ fn test_narrowed_list_push_above_i8_no_corruption() {
 #[test]
 fn test_literal_only_int_list_still_narrows() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_c_only_literals_still_narrows.ori"),
-        "phase_c_only_literals_still_narrows",
+        include_str!("fixtures/narrowing/collection_elem_only_literals_still_narrows.ori"),
+        "collection_elem_only_literals_still_narrows",
     );
 }
 
@@ -1332,8 +1329,8 @@ fn test_literal_only_int_list_still_narrows() {
 #[test]
 fn test_narrowed_list_push_i8_i16_boundary_values() {
     assert_aot_success(
-        include_str!("fixtures/narrowing/phase_c_push_large_values.ori"),
-        "phase_c_push_large_values",
+        include_str!("fixtures/narrowing/collection_elem_push_large_values.ori"),
+        "collection_elem_push_large_values",
     );
 }
 
