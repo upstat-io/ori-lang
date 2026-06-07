@@ -3,7 +3,7 @@
 //! End-to-end tests verifying that trait methods, impl methods, and built-in
 //! method dispatch produce correct native code through the LLVM backend.
 //!
-//! Covers roadmap Section 3 items:
+//! Covers trait-system behaviors:
 //! - 3.0: Core library traits (Len, `IsEmpty`, Option, Result, Comparable, Eq)
 //! - 3.1: Trait declarations (default methods)
 //! - 3.2: Trait implementations (inherent impl, trait impl, method resolution)
@@ -804,7 +804,7 @@ fn test_aot_int_into_float_zero() {
 // Regression: Analysis-only ARC lowering path coverage
 //
 // These tests exercise the impl-method analysis-only ARC lowering path
-// that feeds §03.5 range analysis. The codegen pipeline lowers impl method
+// that feeds interprocedural range analysis. The codegen pipeline lowers impl method
 // bodies into analysis-only ARC functions with type-qualified names. These
 // tests verify that the analysis-only lowering doesn't interfere with
 // normal codegen, including default trait methods and multi-impl types.

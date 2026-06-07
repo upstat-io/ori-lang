@@ -4,7 +4,7 @@
 //! through the LLVM backend. Each test compiles Ori source to a native binary,
 //! runs it, and checks the exit code (0 = success).
 //!
-//! Covers roadmap Section 3.5: Derive Traits (Eq, Clone, Hashable, Printable).
+//! Covers derive traits (Eq, Clone, Hashable, Printable).
 
 #![allow(
     clippy::needless_raw_string_hashes,

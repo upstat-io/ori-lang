@@ -45,7 +45,7 @@ fn test_match_arm_alias_option_str() {
     );
 }
 
-// Section §3.1 in-class cells — additional aggregate × heap-child × alias × CFG combinations
+// In-class cells — additional aggregate × heap-child × alias × CFG combinations
 
 #[test]
 fn test_let_alias_struct_intlist() {
@@ -127,7 +127,7 @@ fn test_result_str_jumparg_apply_owned_param() {
     );
 }
 
-// Section §3.3 semantic-pin cells — preservation guard for Select-independence per PIN-2
+// Semantic-pin cells — preservation guard for Select-independence per PIN-2
 
 #[test]
 fn test_option_intlist_select_branch_return() {

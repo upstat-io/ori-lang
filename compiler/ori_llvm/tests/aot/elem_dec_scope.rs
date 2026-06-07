@@ -3,7 +3,7 @@
 //! Verifies that `elem_dec_fn` stored in the RC header correctly cleans up
 //! fat pointer elements (str, [T], closures) when collections go out of
 //! scope — without iteration. These tests validate the codegen wiring from
-//! Section 02.1 of the rc-header-elem-dec plan.
+//! Covers `elem_dec_fn` RC-header scoping across collection teardown paths.
 //!
 //! All tests run with `ORI_CHECK_LEAKS=1` (via `assert_aot_success`).
 

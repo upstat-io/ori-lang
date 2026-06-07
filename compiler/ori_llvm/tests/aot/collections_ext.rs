@@ -343,7 +343,7 @@ fn test_coll_list_reverse_single() {
     );
 }
 
-// COW-specific list tests (Section 02.7)
+// COW-specific list tests
 
 #[test]
 fn test_coll_list_push_multi() {

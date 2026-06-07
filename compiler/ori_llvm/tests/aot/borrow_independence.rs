@@ -30,7 +30,7 @@ fn test_borrow_nested_project() {
     );
 }
 
-// Section §3.2 borrow-class cells — additional borrow shapes that must NOT dedup decs
+// Borrow-class cells — additional borrow shapes that must NOT dedup decs
 
 #[test]
 fn test_borrow_then_let_alias() {

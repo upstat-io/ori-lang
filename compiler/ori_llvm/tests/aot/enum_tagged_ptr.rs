@@ -1,6 +1,6 @@
-//! AOT tests for §07.3 Tagged Pointer Optimization.
+//! AOT tests for the tagged-pointer enum optimization.
 //!
-//! Verifies the §07.3.A behavioral contract end-to-end through the AOT
+//! Verifies the tagged-pointer behavioral contract end-to-end through the AOT
 //! pipeline. The Rust unit tests in
 //! `ori_repr/src/layout/tests.rs` cover the optimizer's analysis logic
 //! against synthetic `MachineRepr` values; this file covers what user
@@ -16,7 +16,7 @@
 //! - FFI types like `CPtr` resolve to `Idx::INT` (64-bit integer), not
 //!   pointers (see `well_known/mod.rs::resolve_ffi_concrete`).
 //! - Recursive enums produce the cycle marker
-//!   `RcPointer { inner: OpaquePtr }`, which §07.3.A intentionally
+//!   `RcPointer { inner: OpaquePtr }`, which the optimization intentionally
 //!   excludes from eligibility (recursive boxing-aware codegen for
 //!   Construct/Project is future work).
 //! - Channels (`OpaquePtr`) and iterators (`UnmanagedPtr`) are not
@@ -35,7 +35,7 @@
 //! under directory sweep. AOT compilation works correctly
 //! for the same source.
 //!
-//! §07.3 / §07.3.A.
+//! tagged-pointer encoding.
 
 use crate::util::{assert_aot_success, compile_to_llvm_ir};
 
@@ -49,7 +49,7 @@ use crate::util::{assert_aot_success, compile_to_llvm_ir};
 /// Without this exclusion, AOT codegen for
 /// `IntCell = Empty | Holds(IntCell)` hangs because the
 /// boxing semantics for recursive tagged-pointer fields are not
-/// implemented in §07.3.A.
+/// implemented by the tagged-pointer encoding.
 #[test]
 fn test_recursive_enum_falls_back_to_explicit_tag() {
     assert_aot_success(
@@ -87,7 +87,7 @@ fn test_explicit_tag_enum_with_iterator_payload_compiles_and_runs() {
 /// That helper fires only when a heap-allocated tagged-pointer enum gets a
 /// generated `_ori_drop$<idx>` function — rare in practice because
 /// tagged-ptr enums are 8 bytes and typically live inline in a parent
-/// rather than as a standalone heap allocation (`drop_enum.rs` §07.3.A
+/// rather than as a standalone heap allocation (`drop_enum.rs` tagged-pointer
 /// comment). The user-source path that does fire on a list-element decl
 /// goes through `rc_helpers.rs::emit_tagged_ptr_enum_rc`, which emits
 /// the same tagged-pointer dispatch shape (load encoded i64, decode tag,

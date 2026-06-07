@@ -105,7 +105,7 @@ fn test_narrowed_struct_i8_boundaries() {
 }
 
 // Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
-// AOT compilation being incomplete (roadmap Section 4: Modules). The ARC IR
+// AOT compilation being incomplete (modules support). The ARC IR
 // emitter currently cannot resolve cross-module function calls. The plumbing
 // for ExportedTypeMetadata is verified by:
 // 1. Unit tests in compiler/oric/src/commands/build/tests.rs
@@ -1268,9 +1268,9 @@ fn test_float_narrowed_comparison_after_load() {
     );
 }
 
-// §07.1 Regression: for...yield over narrowed all-unit enums.
+// Regression: for...yield over narrowed all-unit enums.
 //
-// After §07.1 discriminant narrowing, all-unit enums lower to `{ i8 }` (1 byte)
+// After discriminant narrowing, all-unit enums lower to `{ i8 }` (1 byte)
 // in LLVM. But `pool_type_store_size()` in `ori_arc` still sized them as 8 bytes
 // (i64 tag), causing `ori_list_new`/`ori_list_push` to allocate/copy 8 bytes per
 // element from 1-byte values — resulting in out-of-bounds memory access and

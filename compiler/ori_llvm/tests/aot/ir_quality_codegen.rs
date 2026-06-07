@@ -242,7 +242,7 @@ fn test_noreturn_panic_else_arm_continues() {
 /// Checked arithmetic overflow panic (`emit_checked_binop`) should still
 /// have `unreachable` after the panic call — regression guard.
 ///
-/// This path was already correct before §06.2. The test guards against
+/// This path predates the block-merge rework. The test guards against
 /// accidentally breaking it while implementing noreturn pruning.
 #[test]
 fn test_checked_binop_overflow_still_has_unreachable() {
@@ -283,7 +283,7 @@ fn test_checked_binop_overflow_still_has_unreachable() {
 
 /// Tail-recursive `gcd` should compile to a loop, not a recursive `call`.
 ///
-/// The ARC loop-lowering pass (§09.2) replaces `Apply @gcd(b, rem)` with
+/// The ARC loop-lowering pass replaces `Apply @gcd(b, rem)` with
 /// a `Jump(header, [b, rem])` back-edge. The LLVM IR should contain a
 /// `br label` loop back-edge instead of `call @_ori_gcd`.
 #[test]

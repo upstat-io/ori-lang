@@ -1,4 +1,4 @@
-//! AOT tests for §07.1 discriminant narrowing.
+//! AOT tests for discriminant narrowing.
 //!
 //! Verifies that enum tags are emitted as narrowed integer types in LLVM IR
 //! (i8 instead of i64 for ≤256 variants) and that behavioral correctness

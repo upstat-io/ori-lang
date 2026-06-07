@@ -1,4 +1,4 @@
-//! AOT Formattable Trait Codegen Tests (§3.16)
+//! AOT Formattable Trait Codegen Tests (Spec: Clause 9.7)
 //!
 //! End-to-end tests verifying that format spec expressions (`{value:spec}`)
 //! generate correct native code through the LLVM backend. Each test compiles

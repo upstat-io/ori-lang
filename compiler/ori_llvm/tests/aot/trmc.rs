@@ -1,11 +1,11 @@
 //! TRMC (Tail Recursion Modulo Context) AOT behavioral tests.
 //!
-//! Section 13.8 Matrix G — end-to-end Ori source → ARC lowering → TRMC
+//! Matrix G — end-to-end Ori source → ARC lowering → TRMC
 //! rewrite → AIMS analysis → LLVM emission → execution → correct output.
 //!
 //! These tests verify the TRMC rewrite produces semantically correct code,
 //! not just structurally valid IR. They cover the concrete fixtures from
-//! Section 13.8 and cross-system interaction axes from Matrix E/F.
+//! the TRMC matrix and cross-system interaction axes from Matrix E/F.
 
 #![allow(
     clippy::needless_raw_string_hashes,

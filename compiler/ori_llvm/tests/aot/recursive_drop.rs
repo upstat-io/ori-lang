@@ -36,10 +36,10 @@ type Node = { value: int, next: Option<Node> }
 }
 
 /// Cross-case composition pin: a recursive `Node` type that
-/// ALSO carries a user `@drop` impl. This composes §04.1 (SCC-based recursive
+/// ALSO carries a user `@drop` impl. This composes SCC-based recursive
 /// drop-glue: the `_ori_drop$Node` body traverses the self-referencing `next`
-/// chain) with §04.3 (Drop AUGMENT: the user `@drop (self)` body runs FIRST,
-/// then the compiler walks the owned fields). §04.1 and §04.3 each verify in
+/// drop chains with Drop AUGMENT (the user `@drop (self)` body runs FIRST,
+/// then the compiler walks the owned fields). Each axis verifies in
 /// isolation; this pin verifies their composition on the SAME type.
 ///
 /// The `ORI_CHECK_LEAKS=1` oracle (built into `assert_aot_success`) is the
@@ -131,7 +131,7 @@ type Node = { value: int, next: Option<Node> }
 /// scope-exit dec then reaches rc 0 and the recursive body traverses
 /// `n1_alias` -> n2 -> n3.
 ///
-/// Verifies both axes from the §04.1 success criterion:
+/// Verifies both recursive-drop axes:
 ///   1. Positive — the chain is fully reclaimed at final rc=0 (`ORI_CHECK_LEAKS`
 ///      zero-leak oracle + an observed `rc=0 FREE` event in the trace).
 ///   2. Negative — the `drop_early` dec lands at `rc=1` (non-zero) BEFORE any

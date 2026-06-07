@@ -357,7 +357,7 @@ fn test_mono_may_unwind_callee_uses_invoke() {
     );
 }
 
-// Generic chain root-extension regression matrix (§04.2.B)
+// Generic chain root-extension regression matrix
 //
 // Coverage for the union-find root-extension fix that lets deferred
 // monomorphization resolve callees whose scheme var is NOT the
@@ -366,7 +366,7 @@ fn test_mono_may_unwind_callee_uses_invoke() {
 // at the three mono call sites: eager typeck, deferred typeck exports,
 // and JIT imported-mono. Each fixture exercises a different shape through
 // the 3+ hop chain; pre-fix all of these either silently miscompiled or
-// fired the §04.2 PC-2 assertion at codegen.
+// fired the PC-2 assertion at codegen.
 
 #[test]
 fn test_generic_chain_four_levels() {
@@ -638,7 +638,7 @@ fn test_path_sensitive_select_list_balances_rc_on_both_paths() {
 /// `dispatch<T>(tag, x, y) -> T = match tag { 0 -> x, _ -> y }` —
 /// match-desugar code path. Verifies the fix's terminator-based path
 /// check correctly handles match arms (Branch + Jump-arg + merge-block
-/// edges per §02 alias-tracking Rules 3+4).
+/// edges per alias-tracking Rules 3+4).
 #[test]
 fn test_path_sensitive_match_dispatch_list_balances_rc() {
     assert_aot_success(
@@ -993,7 +993,7 @@ fn test_borrow_list_int_project_consumer_then_return_no_leak() {
 }
 
 /// Regression: borrowed `[int]` param + depth-3 SSA-alias chain + Return.
-/// Per §03 line 300 — alias-chain depth ≥ 3 generalizes the bug shape.
+/// Alias-chain depth >= 3 generalizes the bug shape.
 #[test]
 fn test_borrow_list_int_multi_let_alias_chain_then_return_no_leak() {
     assert_aot_success(

@@ -1,12 +1,12 @@
-//! AOT tests for empty-container matrix coverage (Section 05.3).
+//! AOT tests for empty-container matrix coverage.
 //!
 //! Pairs with the spec tests in
 //! `compiler_repo/tests/spec/types/collections/empty_list/` — this module
 //! exercises the same matrix cells via the full AOT pipeline. Distinct
-//! from `empty_container.rs` which owns the §03.5 original-repro fix.
+//! from `empty_container.rs` which owns the original-repro fix.
 //!
 //! Dual-execution parity is verified separately by
-//! `diagnostics/dual-exec-verify.sh` (plan §05.3.4).
+//! `diagnostics/dual-exec-verify.sh`.
 
 #![allow(
     clippy::needless_raw_string_hashes,
