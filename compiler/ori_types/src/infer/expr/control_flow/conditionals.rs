@@ -4,7 +4,7 @@ use ori_ir::{ExprArena, ExprId, Span};
 
 use super::super::super::InferEngine;
 use super::super::infer_expr;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag};
 
 /// Infer the type of an if expression.
 pub(crate) fn infer_if(
@@ -31,6 +31,20 @@ pub(crate) fn infer_if(
     engine.pop_context();
 
     if else_branch.is_present() {
+        // If the then-branch diverges (`Never` — e.g. `break` / `continue` /
+        // `panic()` / `return`), the if's value is always the else-branch value.
+        // `Never` coerces TO any type, not FROM one (UN-3), so constraining the
+        // else branch against `Never` would force it to `Never` and yield a
+        // `Never`-typed if even when the else branch is concrete (e.g.
+        // `if c then break else cond` should be `bool`, not `Never`).
+        let then_resolved = engine.resolve(then_ty);
+        if engine.pool().tag(then_resolved) == Tag::Never {
+            engine.push_context(ContextKind::IfElseBranch { branch_index: 0 });
+            let else_ty = infer_expr(engine, arena, else_branch);
+            engine.pop_context();
+            return engine.resolve(else_ty);
+        }
+
         // Else branch must match then branch
         engine.push_context(ContextKind::IfElseBranch { branch_index: 0 });
         let then_span = arena.get_expr(then_branch).span;

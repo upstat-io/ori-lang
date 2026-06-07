@@ -868,17 +868,16 @@ fn test_generic_closure_capture_forwarded() {
     );
 }
 
+/// Inherent method on a generic type (`impl<T> Box<T> { @unwrap (self) -> T }`)
+/// monomorphizes per concrete receiver. `Box<int>.unwrap` and `Box<str>.unwrap`
+/// resolve to distinct specializations through the receiver-shell-keyed mono
+/// dispatch table instead of colliding on a name-only first-match.
 #[test]
-#[ignore = "blocked-by: BUG-04-091 (inherent method on generic type codegen mono \
-            resolution gap). Inherent method on generic type (impl<T> Box<T> { @m (self) \
-            -> T }) triggers 'unresolved function in apply — missing mono instance' at \
-            codegen. Reduced shape (3-hop chain on a user-defined generic struct via \
-            field access) is covered by test_generic_chain_user_struct; the \
-            method-dispatch shape cannot be reduced without losing the test's purpose \
-            (two-level rigid-var scoping)."]
 fn test_generic_method_on_generic_type() {
-    // impl<T> Box<T> { @map<U> ... } — generic method on a generic type.
-    // Two-level rigid-var scoping through deferred-mono resolution.
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_method_on_generic_type.ori"),
+        "generic_method_on_generic_type",
+    );
 }
 
 // BUG-04-111: (B-1) Return-as-transfer extensions

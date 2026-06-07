@@ -74,6 +74,7 @@ pub(crate) fn build_imported_mono_functions(
             &instance.generic_args,
             &instance.impl_args,
             &instance.method_args,
+            instance.receiver_type,
             interner,
             merged_pool,
         );

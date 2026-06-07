@@ -1,0 +1,18 @@
+// Inherent method on a generic type (`impl<T> Box<T> { @unwrap (self) -> T }`),
+// called on two distinct concrete receivers (`Box<int>`, `Box<str>`). Each call
+// monomorphizes to its own specialization — the per-receiver mono dispatch must
+// resolve both instead of colliding `Box<int>.unwrap` and `Box<str>.unwrap`.
+
+type Box<T> = { value: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@main () -> int = {
+    let bi = Box { value: 42 };
+    let bs = Box { value: "hi" };
+    let a = bi.unwrap();
+    let b = bs.unwrap();
+    if a == 42 && b == "hi" then 0 else 1
+}

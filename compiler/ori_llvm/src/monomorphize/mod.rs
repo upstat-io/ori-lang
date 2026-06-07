@@ -128,6 +128,7 @@ pub fn collect_mono_functions(
             &instance.generic_args,
             &instance.impl_args,
             &instance.method_args,
+            instance.receiver_type,
             interner,
             pool,
         );
@@ -232,6 +233,14 @@ pub fn concrete_sig_for_instance(
 ///    e.g., `impl Box<int> { @m<U> ... }`):
 ///    `<fn_name>$m$$im$<L0_PREFIXED_method_args>` (empty impl-args section).
 ///
+/// For a method instance carrying a `receiver_type`, the encoded receiver type
+/// is emitted as the first length-prefixed payload after `$m$`, ahead of the
+/// impl args. The receiver head qualifies the symbol so a method name shared by
+/// two distinct generic types (`impl<T> Box<T> { @get }` and
+/// `impl<T> Wrap<T> { @get }`) instantiated at the same arg does not collide on
+/// one mangled name (which would mis-dedup the two specializations). Top-level
+/// instances (`receiver_type = None`) are unchanged.
+///
 /// # Panics
 ///
 /// Panics if `fn_name` contains either reserved separator (`$m$` or `$im$`).
@@ -242,6 +251,7 @@ pub fn mangle_mono_name(
     generic_args: &[GenericArg],
     impl_args: &[GenericArg],
     method_args: &[GenericArg],
+    receiver_type: Option<Idx>,
     interner: &StringInterner,
     pool: &Pool,
 ) -> Name {
@@ -255,7 +265,9 @@ pub fn mangle_mono_name(
         "mangle_mono_name: fn_name {base:?} contains reserved separator {IMPL_METHOD_SEPARATOR:?}",
     );
 
-    let is_method = !impl_args.is_empty() || !method_args.is_empty();
+    // receiver_type.is_some() is the authoritative method discriminator;
+    // non-generic-impl methods carry empty impl/method args but still a receiver.
+    let is_method = receiver_type.is_some() || !impl_args.is_empty() || !method_args.is_empty();
 
     let mut mangled = String::with_capacity(
         base.len()
@@ -267,6 +279,13 @@ pub fn mangle_mono_name(
     mangled.push_str(MONO_SEPARATOR);
 
     if is_method {
+        if let Some(recv) = receiver_type {
+            let mut payload = String::new();
+            encode_type(recv, pool, interner, &mut payload);
+            mangled.push_str(&payload.len().to_string());
+            mangled.push('_');
+            mangled.push_str(&payload);
+        }
         encode_args_length_prefixed(impl_args, pool, interner, &mut mangled);
         mangled.push_str(IMPL_METHOD_SEPARATOR);
         encode_args_length_prefixed(method_args, pool, interner, &mut mangled);

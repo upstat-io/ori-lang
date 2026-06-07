@@ -46,6 +46,7 @@ fn mangle_single_type_param_int() {
         &[GenericArg::Type(Idx::INT)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -65,6 +66,7 @@ fn mangle_two_type_params() {
         &[GenericArg::Type(Idx::INT), GenericArg::Type(Idx::BOOL)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -87,6 +89,7 @@ fn mangle_list_type() {
         &[GenericArg::Type(list_int)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -107,6 +110,7 @@ fn mangle_option_type() {
         &[GenericArg::Type(opt_str)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -127,6 +131,7 @@ fn mangle_tuple_type() {
         &[GenericArg::Type(tup)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -333,6 +338,7 @@ fn mangle_method_distinct_from_top_level() {
         &[GenericArg::Type(Idx::INT)],
         &[],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -341,6 +347,7 @@ fn mangle_method_distinct_from_top_level() {
         &[],
         &[GenericArg::Type(Idx::INT)],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -364,6 +371,7 @@ fn mangle_method_impl_and_method_args() {
         &[],
         &[GenericArg::Type(Idx::INT)],
         &[GenericArg::Type(Idx::STR)],
+        None,
         &interner,
         &pool,
     );
@@ -385,6 +393,7 @@ fn mangle_method_no_impl_args() {
         &[],
         &[],
         &[GenericArg::Type(Idx::STR)],
+        None,
         &interner,
         &pool,
     );
@@ -408,6 +417,7 @@ fn mangle_method_swapped_args_distinct() {
         &[],
         &[GenericArg::Type(Idx::INT)],
         &[GenericArg::Type(Idx::STR)],
+        None,
         &interner,
         &pool,
     );
@@ -416,6 +426,7 @@ fn mangle_method_swapped_args_distinct() {
         &[],
         &[GenericArg::Type(Idx::STR)],
         &[GenericArg::Type(Idx::INT)],
+        None,
         &interner,
         &pool,
     );
@@ -570,6 +581,7 @@ fn mangle_method_distinct_per_receiver_instantiation() {
         &[],
         &[GenericArg::Type(Idx::INT)],
         &[],
+        None,
         &interner,
         &pool,
     );
@@ -578,6 +590,7 @@ fn mangle_method_distinct_per_receiver_instantiation() {
         &[],
         &[GenericArg::Type(Idx::STR)],
         &[],
+        None,
         &interner,
         &pool,
     );
