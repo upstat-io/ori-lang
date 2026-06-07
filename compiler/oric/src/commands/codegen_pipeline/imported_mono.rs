@@ -102,6 +102,10 @@ pub(crate) fn build_imported_mono_functions(
                 body_type_map,
                 instance_ids: vec![instance_id],
                 is_imported: true,
+                // Cross-module imported methods are §03.4/§03.5 scope; imported
+                // monos today are top-level free functions (free-function body
+                // namespace).
+                receiver_type_name: None,
             },
             *module_idx,
             // Source body name for canon.root_for() lookup in imported canon.

@@ -192,7 +192,7 @@ pub(crate) fn pre_lower_monos_to_arc_cache(
         if arc_cache.contains_key(&mono_fn.mangled_name) {
             continue;
         }
-        let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+        let body = mono_fn.body_root(canon);
         let params: Vec<(Name, Idx)> = mono_fn
             .sig
             .param_names
@@ -337,7 +337,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 cached
             } else {
                 // Fallback: lower inline with type substitution
-                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+                let body = mono_fn.body_root(canon);
                 let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
                 let mut problems = Vec::new();
                 let result = lower_function_can(

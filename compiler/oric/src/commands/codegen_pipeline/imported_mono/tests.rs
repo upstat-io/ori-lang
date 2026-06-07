@@ -55,6 +55,7 @@ fn carrier_is_reachable_via_crate_commands_export() {
         body_type_map: FxHashMap::default(),
         instance_ids: vec![],
         is_imported: true,
+        receiver_type_name: None,
     };
     // The carrier shape is a 3-tuple (MonoFunction, module_idx, source_name).
     let entry: crate::commands::ImportedMonoFn = (mono_fn, 0usize, src_name);

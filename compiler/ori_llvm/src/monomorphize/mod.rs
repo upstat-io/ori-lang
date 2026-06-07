@@ -7,7 +7,7 @@
 
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
-use ori_ir::canon::MonoInstanceId;
+use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
 use ori_ir::{Name, StringInterner, IMPL_METHOD_SEPARATOR, MONO_SEPARATOR};
 use ori_types::{ConstValue, FunctionSig, GenericArg, Idx, MonoInstance, Pool, Tag};
 
@@ -44,6 +44,42 @@ pub struct MonoFunction {
     /// imported mono functions flow through identical `declare_mono_functions`
     /// + `prepare_mono_cached` plumbing.
     pub is_imported: bool,
+    /// Nominal type name of the receiver for an inherent-method specialization
+    /// (`Some("Box")` for `impl<T> Box<T> { @unwrap }`), else `None` for a
+    /// free-function specialization. Selects the canon-body namespace: method
+    /// bodies are keyed by `(type_name, method_name)` via `method_root_for`,
+    /// free-function bodies by `root_for`.
+    pub receiver_type_name: Option<Name>,
+}
+
+impl MonoFunction {
+    /// Resolve the canonical body root for this specialization.
+    ///
+    /// Method specializations look up `method_root_for(type_name, name)` (the
+    /// impl-method body namespace); free functions use `root_for(name)`.
+    #[must_use]
+    pub fn body_root(&self, canon: &CanonResult) -> CanId {
+        match self.receiver_type_name {
+            Some(type_name) => canon
+                .method_root_for(type_name, self.original_name)
+                .or_else(|| canon.root_for(self.original_name))
+                .unwrap_or(canon.root),
+            None => canon.root_for(self.original_name).unwrap_or(canon.root),
+        }
+    }
+}
+
+/// Nominal type name of a (possibly generic-instantiated) user type, for the
+/// impl-method body-namespace lookup. Returns `None` for non-nominal types.
+fn nominal_type_name(pool: &Pool, idx: Idx) -> Option<Name> {
+    let resolved = pool.resolve_fully(idx);
+    match pool.tag(resolved) {
+        Tag::Applied => Some(pool.applied_name(resolved)),
+        Tag::Struct => Some(pool.struct_name(resolved)),
+        Tag::Enum => Some(pool.enum_name(resolved)),
+        Tag::Named => Some(pool.named_name(resolved)),
+        _ => None,
+    }
 }
 
 // Collection
@@ -142,14 +178,29 @@ pub fn collect_mono_functions(
 
         let concrete_sig = concrete_sig_for_instance(instance, generic_sig, pool, mangled_name);
 
+        let receiver_type_name = instance
+            .receiver_type
+            .and_then(|r| nominal_type_name(pool, r));
+        let mut body_type_map: FxHashMap<Idx, Idx> =
+            instance.body_type_map.iter().copied().collect();
+        // The method body references the generic receiver type (`Box<T>`); map
+        // it to the concrete receiver (`Box<int>`) so field projections on
+        // `self` resolve to the monomorphized layout. The generic sig's `self`
+        // param type is that generic receiver.
+        if let (Some(recv), Some(&self_generic)) =
+            (instance.receiver_type, generic_sig.param_types.first())
+        {
+            body_type_map.entry(self_generic).or_insert(recv);
+        }
         name_to_index.insert(mangled_name, result.len());
         result.push(MonoFunction {
             mangled_name,
             original_name: instance.fn_name,
             sig: concrete_sig,
-            body_type_map: instance.body_type_map.iter().copied().collect(),
+            body_type_map,
             instance_ids: vec![instance_id],
             is_imported,
+            receiver_type_name,
         });
     }
 

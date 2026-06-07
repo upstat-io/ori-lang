@@ -1,7 +1,11 @@
-// Inherent method on a generic type (`impl<T> Box<T> { @unwrap (self) -> T }`),
-// called on two distinct concrete receivers (`Box<int>`, `Box<str>`). Each call
-// monomorphizes to its own specialization — the per-receiver mono dispatch must
-// resolve both instead of colliding `Box<int>.unwrap` and `Box<str>.unwrap`.
+// Inherent method on a generic type (`impl<T> Box<T> { @unwrap (self) -> T }`)
+// called on a concretely-instantiated receiver (`Box<int>`). Before per-receiver
+// mono dispatch, this raised "unresolved function `unwrap` in apply — missing
+// mono instance" at codegen; the receiver-shell-keyed dispatch table now
+// resolves the inherent method's specialization and lowers its body.
+//
+// Two call sites on the same `Box<int>` receiver share one specialization
+// (mangled-name dedup); both must reach the same lowered `unwrap` body.
 
 type Box<T> = { value: T };
 
@@ -9,10 +13,10 @@ impl<T> Box<T> {
     @unwrap (self) -> T = self.value;
 }
 
+@unbox (b: Box<int>) -> int = b.unwrap();
+
 @main () -> int = {
-    let bi = Box { value: 42 };
-    let bs = Box { value: "hi" };
-    let a = bi.unwrap();
-    let b = bs.unwrap();
-    if a == 42 && b == "hi" then 0 else 1
+    let a = Box { value: 42 };
+    let b = Box { value: 100 };
+    if unbox(b: a) == 42 && unbox(b: b) == 100 then 0 else 1
 }

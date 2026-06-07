@@ -140,16 +140,31 @@ pub(super) fn run_borrow_inference(
         pool,
     );
     for mono_fn in &mono_functions {
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            mono_fn.mangled_name,
-            &mono_fn.sig,
-            mono_fn.original_name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            Some(&mono_fn.body_type_map),
-        );
+        // Method specializations lower against the impl-method body namespace
+        // (`method_root_for`); free functions against `root_for`.
+        let (arc_fn, lambdas) = match mono_fn.receiver_type_name {
+            Some(type_name) => crate::arc_lowering::lower_impl_method_to_arc(
+                mono_fn.mangled_name,
+                &mono_fn.sig,
+                mono_fn.original_name,
+                type_name,
+                canon,
+                interner,
+                pool,
+                &mut arc_problems,
+                Some(&mono_fn.body_type_map),
+            ),
+            None => crate::arc_lowering::lower_to_arc(
+                mono_fn.mangled_name,
+                &mono_fn.sig,
+                mono_fn.original_name,
+                canon,
+                interner,
+                pool,
+                &mut arc_problems,
+                Some(&mono_fn.body_type_map),
+            ),
+        };
         pc2_hooks::run_pc2_hook_aot(
             pool,
             &arc_fn,
