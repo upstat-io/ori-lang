@@ -71,6 +71,7 @@ NC='\033[0m' # No Color
 RUST_OUTPUT=$(mktemp)
 RUST_RT_OUTPUT=$(mktemp)
 RUST_LLVM_OUTPUT=$(mktemp)
+DOCTEST_OUTPUT=$(mktemp)
 AOT_OUTPUT=$(mktemp)
 WASM_OUTPUT=$(mktemp)
 ORI_INTERP_OUTPUT=$(mktemp)
@@ -78,7 +79,7 @@ ORI_LLVM_OUTPUT=$(mktemp)
 
 # Cleanup temp files on exit
 cleanup() {
-    rm -f "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
+    rm -f "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$DOCTEST_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
 }
 trap cleanup EXIT
 
@@ -131,11 +132,29 @@ cargo_race_retry() {
 
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo_race_retry "$RUST_OUTPUT" test --workspace --exclude ori_llvm; then
+    # --lib --bins --tests excludes doctests: doctests compile under rustdoc at
+    # RUN time (not prebuildable by `--no-run`), so they live in
+    # run_rust_doctests as the lone compiling invocation of the parallel phase.
+    if cargo_race_retry "$RUST_OUTPUT" test --workspace --exclude ori_llvm --lib --bins --tests; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
         echo "  ✗ Rust workspace tests FAILED"
+        return 1
+    fi
+}
+
+run_rust_doctests() {
+    echo "=== Running Rust doctests (workspace + ori_llvm) ==="
+    # ONE rustdoc-compiling invocation for the whole workspace — the lone
+    # compiler in the parallel phase (nothing concurrent compiles into
+    # target/, so no build-artifact race). Own output file: run_rust_workspace
+    # truncates RUST_OUTPUT concurrently, so appending there would clobber.
+    if cargo test --workspace --doc > "$DOCTEST_OUTPUT" 2>&1; then
+        echo "  ✓ Rust doctests passed"
+        return 0
+    else
+        echo "  ✗ Rust doctests FAILED"
         return 1
     fi
 }
@@ -153,11 +172,9 @@ run_rust_rt() {
 
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
-    # Lib binary is pre-built in Phase 2c (run-only here). Doctests compile +
-    # run together (no --no-run), so they are the lone compiling invocation in
-    # the parallel phase — nothing concurrent to race against internally.
-    if cargo_race_retry "$RUST_LLVM_OUTPUT" test -p ori_llvm --lib && \
-       cargo test -p ori_llvm --doc >> "$RUST_LLVM_OUTPUT" 2>&1; then
+    # Lib binary is pre-built in Phase 1 (run-only here). ori_llvm doctests
+    # run inside run_rust_doctests' single workspace --doc invocation.
+    if cargo_race_retry "$RUST_LLVM_OUTPUT" test -p ori_llvm --lib; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
     else
@@ -264,7 +281,7 @@ parse_rust_results() {
     local output_file=$1
     local prefix=$2
 
-    local passed=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*ok\. \([0-9]*\) passed.*/\1/' | awk '{sum += $1} END {print sum+0}')
+    local passed=$(grep -E "^test result:" "$output_file" 2>/dev/null | grep -oE '[0-9]+ passed' | awk '{sum += $1} END {print sum+0}')
     local failed=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) failed.*/\1/' | awk '{sum += $1} END {print sum+0}')
     local ignored=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) ignored.*/\1/' | awk '{sum += $1} END {print sum+0}')
 
@@ -319,27 +336,32 @@ if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""
 
-    # Phase 1: Workspace tests + WASM build (different target dirs, no lock contention)
-    # WASM uses website/playground-wasm/target/ (its own [workspace])
-    run_rust_workspace &
-    RUST_PID=$!
+    # Phase 1: ONE serial pre-build covering every debug artifact the run
+    # phase needs — workspace test binaries (incl. ori_llvm lib/aot/codegen),
+    # the ori bin, and libori_rt.a. A single cargo invocation parallelizes its
+    # own job graph internally (optimal), and serializing it ahead of the run
+    # phase prevents the shared-target/ build-artifact race (`failed to write
+    # ...rmeta: No such file (os error 2)`) that concurrent compiling cargo
+    # invocations trigger. After this phase, every run invocation is pure
+    # test execution (the lone exception is run_rust_doctests — rustdoc
+    # compiles at run time and runs as the single compiler in Phase 2).
+    echo "=== Pre-building all debug test artifacts (serial, race-free) ==="
+    PRECOMPILE_OUTPUT=$(mktemp)
+    if cargo_race_retry "$PRECOMPILE_OUTPUT" test --no-run -q --workspace --lib --bins --tests; then
+        echo "  ✓ Debug test binaries pre-built"
+    else
+        echo -e "  ${RED}✗ Debug test-binary pre-build FAILED${NC}"
+        cat "$PRECOMPILE_OUTPUT"
+    fi
+    rm -f "$PRECOMPILE_OUTPUT"
 
-    run_wasm_build &
-    WASM_PID=$!
-
-    wait $RUST_PID || RUST_EXIT=1
-    wait $WASM_PID || WASM_EXIT=1
-
-    echo ""
-
-    # Phase 2a: Debug build of ori_rt (ensures libori_rt.a staticlib is fresh for AOT tests)
-    # cargo test (Phase 1) builds rlib but not staticlib — AOT links against the .a file
-    echo "=== Building runtime library (debug) ==="
-    if ! cargo build -p ori_rt -q 2>&1; then
-        echo -e "  ${RED}✗ Runtime library debug build FAILED${NC}"
+    # ori bin + libori_rt.a staticlib (cargo test --no-run builds the rlib,
+    # not the staticlib; the interpreter suite + AOT links need these).
+    if ! cargo build -p oric -p ori_rt -q 2>&1; then
+        echo -e "  ${RED}✗ Debug ori/ori_rt build FAILED${NC}"
     fi
 
-    # Phase 2b: LLVM release build (sequential — shares target/ with workspace)
+    # LLVM release build (sequential — shares target/ with the debug build).
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
     if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
@@ -350,38 +372,26 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     echo ""
 
-    # Phase 2c: Pre-compile ALL Phase-3 cargo-test binaries SERIALLY (--no-run).
-    # Phase 3 runs `cargo test -p ori_llvm --lib` and `cargo test -p ori_llvm
-    # --test aot` in parallel — SAME package, SAME target/debug/deps. Letting
-    # both (or a concurrent external cargo) compile ori_llvm + its ori_arc dep
-    # at once corrupts shared build artifacts (`failed to write ...rmeta: No
-    # such file (os error 2)`), which test-all would otherwise report as a
-    # spurious suite FAILED. Building once here, serially, leaves Phase 3 as
-    # pure test execution: cargo finds the pre-built binaries and compiles
-    # nothing (the lone exception is ori_llvm doctests, which run alone).
-    echo "=== Pre-compiling Phase-3 test binaries (serial, race-free) ==="
-    PRECOMPILE_OUTPUT=$(mktemp)
-    if cargo_race_retry "$PRECOMPILE_OUTPUT" test --no-run -q -p ori_rt -p ori_llvm --lib --tests; then
-        echo "  ✓ Phase-3 test binaries pre-built"
-    else
-        echo -e "  ${RED}✗ Phase-3 test-binary pre-compile FAILED${NC}"
-        cat "$PRECOMPILE_OUTPUT"
-    fi
-    rm -f "$PRECOMPILE_OUTPUT"
-
-    echo ""
-
-    # Phase 3: All remaining tests in parallel. Pre-compiled by Phase 2c, so
-    # these invocations only RUN their binaries — no concurrent `cargo` compile
-    # into the shared target/, hence no build-artifact race. (Earlier this
-    # comment claimed "no cargo lock contention", but run_rust_llvm `--lib` and
-    # run_aot `--test aot` are the SAME ori_llvm package and DID race on a
-    # concurrent compile; Phase 2c removes that by pre-building both.)
+    # Phase 2: ALL suites in parallel. Everything was pre-built in Phase 1,
+    # so these invocations only RUN their binaries — no concurrent compile
+    # into the shared target/, hence no build-artifact race.
+    # - run_rust_workspace: --workspace --exclude ori_llvm --lib --bins --tests (run pre-built)
+    # - run_rust_doctests: --workspace --doc (the LONE compiling invocation)
     # - run_rust_rt: -p ori_rt (run pre-built)
-    # - run_rust_llvm: -p ori_llvm --lib (run pre-built) + --doc (lone compiler)
+    # - run_rust_llvm: -p ori_llvm --lib (run pre-built)
     # - run_aot: -p ori_llvm --test aot (run pre-built)
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
+    # - run_wasm_build: separate target dir (website playground workspace)
+    run_rust_workspace &
+    RUST_PID=$!
+
+    run_rust_doctests &
+    DOCTEST_PID=$!
+
+    run_wasm_build &
+    WASM_PID=$!
+
     run_rust_rt &
     RUST_RT_PID=$!
 
@@ -399,6 +409,9 @@ if [[ $PARALLEL -eq 1 ]]; then
         ORI_LLVM_PID=$!
     fi
 
+    wait $RUST_PID || RUST_EXIT=1
+    wait $DOCTEST_PID || RUST_EXIT=1
+    wait $WASM_PID || WASM_EXIT=1
     wait $RUST_RT_PID || RUST_RT_EXIT=1
     wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     wait $AOT_PID || AOT_EXIT=1
@@ -431,6 +444,8 @@ else
     run_rust_rt || RUST_RT_EXIT=1
     echo ""
     run_rust_llvm || RUST_LLVM_EXIT=1
+    echo ""
+    run_rust_doctests || RUST_EXIT=1
     echo ""
     run_aot || AOT_EXIT=1
     echo ""
@@ -514,6 +529,7 @@ parse_rust_results "$RUST_OUTPUT" "RUST"
 parse_rust_results "$RUST_RT_OUTPUT" "RUST_RT"
 parse_rust_results "$RUST_LLVM_OUTPUT" "RUST_LLVM"
 parse_rust_results "$AOT_OUTPUT" "AOT"
+parse_rust_results "$DOCTEST_OUTPUT" "DOCTEST"
 parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP"
 parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 
@@ -547,6 +563,7 @@ if [ "$AOT_LEAKS" -gt 0 ]; then
 else
     printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 fi
+printf "%-30s %8d %8d %8d %8s\n" "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" "-"
 printf "%-30s %8s\n" "External playground WASM" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
 if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
@@ -561,9 +578,9 @@ fi
 printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
 
 # Calculate totals
-TOTAL_PASSED=$((RUST_PASSED + RUST_RT_PASSED + RUST_LLVM_PASSED + AOT_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
-TOTAL_FAILED=$((RUST_FAILED + RUST_RT_FAILED + RUST_LLVM_FAILED + AOT_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
-TOTAL_SKIPPED=$((RUST_IGNORED + RUST_RT_IGNORED + RUST_LLVM_IGNORED + AOT_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
+TOTAL_PASSED=$((DOCTEST_PASSED + RUST_PASSED + RUST_RT_PASSED + RUST_LLVM_PASSED + AOT_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
+TOTAL_FAILED=$((DOCTEST_FAILED + RUST_FAILED + RUST_RT_FAILED + RUST_LLVM_FAILED + AOT_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
+TOTAL_SKIPPED=$((DOCTEST_IGNORED + RUST_IGNORED + RUST_RT_IGNORED + RUST_LLVM_IGNORED + AOT_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
 TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
@@ -655,6 +672,8 @@ emit_json() {
     rust_failures=$(parse_rust_failures "$RUST_OUTPUT" "rust_workspace" "panic")
     rt_failures=$(parse_rust_failures "$RUST_RT_OUTPUT" "rust_rt" "panic")
     rust_llvm_failures=$(parse_rust_failures "$RUST_LLVM_OUTPUT" "rust_llvm" "panic")
+    local doctest_failures
+    doctest_failures=$(parse_rust_failures "$DOCTEST_OUTPUT" "rust_doctest" "panic")
     aot_failures=$(parse_rust_failures "$AOT_OUTPUT" "aot" "panic")
     ori_interp_failures=$(parse_ori_failures "$ORI_INTERP_OUTPUT" "ori_interp")
     ori_llvm_failures=$(parse_ori_failures "$ORI_LLVM_OUTPUT" "ori_llvm")
@@ -713,6 +732,8 @@ emit_json() {
         json_suite_full "rust_llvm" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" 0 "passed"
         echo ","
         json_suite_full "aot" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" 0 "passed"
+        echo ","
+        json_suite_full "rust_doctest" "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" 0 "passed"
         echo ","
         printf '    "wasm_playground": { "display_name": "External playground WASM", "passed": %d, "failed": %d, "skipped": 0, "lcfail": 0, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$wasm_passed" "$wasm_failed" "$WASM_STATUS" "$wasm_failed"
         echo ","
