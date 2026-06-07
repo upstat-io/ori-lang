@@ -76,7 +76,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Removed once all Pool queries are eliminated from the emitter.
         #[cfg(debug_assertions)]
         if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_var(repr, self.pool, func.var_type(var));
+            let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
             debug_assert_eq!(
                 strategy, expected,
                 "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
@@ -116,7 +116,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Temporary validation: verify strategy matches Pool-derived expectation.
         #[cfg(debug_assertions)]
         if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_var(repr, self.pool, func.var_type(var));
+            let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
             debug_assert_eq!(
                 strategy, expected,
                 "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",

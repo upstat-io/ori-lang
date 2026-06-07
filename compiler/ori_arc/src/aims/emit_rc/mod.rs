@@ -85,7 +85,7 @@ pub(crate) fn rc_strategy(
     if repr == ValueRepr::Scalar {
         return None;
     }
-    Some(RcStrategy::from_var(
+    Some(RcStrategy::from_repr(
         repr,
         pool,
         func.var_types[var.index()],

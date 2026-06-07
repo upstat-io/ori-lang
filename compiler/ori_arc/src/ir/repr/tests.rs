@@ -292,13 +292,13 @@ fn compute_var_reprs_empty_function() {
     assert!(reprs.is_empty());
 }
 
-// RcStrategy::from_var
+// RcStrategy::from_repr
 
 #[test]
 fn rc_strategy_str_is_fat_pointer() {
     let pool = Pool::new();
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::FatValue, &pool, Idx::STR),
+        RcStrategy::from_repr(ValueRepr::FatValue, &pool, Idx::STR),
         RcStrategy::FatPointer,
     );
 }
@@ -308,7 +308,7 @@ fn rc_strategy_list_is_heap_pointer() {
     let mut pool = Pool::new();
     let list_str = pool.list(Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, list_str),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, list_str),
         RcStrategy::HeapPointer,
     );
 }
@@ -318,7 +318,7 @@ fn rc_strategy_tuple_is_aggregate_fields() {
     let mut pool = Pool::new();
     let tup = pool.tuple(&[Idx::INT, Idx::STR]);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, tup),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, tup),
         RcStrategy::AggregateFields,
     );
 }
@@ -328,7 +328,7 @@ fn rc_strategy_result_is_inline_enum() {
     let mut pool = Pool::new();
     let res = pool.result(Idx::INT, Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, res),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, res),
         RcStrategy::InlineEnum,
     );
 }
@@ -338,7 +338,7 @@ fn rc_strategy_option_is_inline_enum() {
     let mut pool = Pool::new();
     let opt = pool.option(Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, opt),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, opt),
         RcStrategy::InlineEnum,
     );
 }
@@ -348,7 +348,7 @@ fn rc_strategy_closure_is_closure() {
     let mut pool = Pool::new();
     let func_ty = pool.function(&[Idx::INT], Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::FatValue, &pool, func_ty),
+        RcStrategy::from_repr(ValueRepr::FatValue, &pool, func_ty),
         RcStrategy::Closure,
     );
 }
@@ -358,7 +358,7 @@ fn rc_strategy_map_is_heap_pointer() {
     let mut pool = Pool::new();
     let map_ty = pool.map(Idx::STR, Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, map_ty),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, map_ty),
         RcStrategy::HeapPointer,
     );
 }
@@ -380,7 +380,7 @@ fn rc_strategy_enum_is_inline_enum() {
         ],
     );
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, enum_ty),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, enum_ty),
         RcStrategy::InlineEnum,
     );
 }
@@ -396,7 +396,7 @@ fn rc_strategy_struct_is_aggregate_fields() {
         ],
     );
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, st),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, st),
         RcStrategy::AggregateFields,
     );
 }
@@ -406,7 +406,7 @@ fn rc_strategy_set_is_heap_pointer() {
     let mut pool = Pool::new();
     let set_ty = pool.set(Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, set_ty),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, set_ty),
         RcStrategy::HeapPointer,
     );
 }

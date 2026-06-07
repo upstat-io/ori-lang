@@ -228,10 +228,10 @@ impl RcStrategy {
     /// # Panics
     ///
     /// Debug-panics if called on a `Scalar` repr (scalars never get RC ops).
-    pub fn from_var(repr: ValueRepr, pool: &Pool, ty: Idx) -> Self {
+    pub fn from_repr(repr: ValueRepr, pool: &Pool, ty: Idx) -> Self {
         match repr {
             ValueRepr::Scalar => {
-                debug_assert!(false, "RcStrategy::from_var called on Scalar repr");
+                debug_assert!(false, "RcStrategy::from_repr called on Scalar repr");
                 // Fallback for release builds: treat as heap pointer (conservative).
                 Self::HeapPointer
             }
@@ -326,7 +326,7 @@ pub fn compute_var_reprs(
 ///
 /// Called once at the start of the ARC pipeline, immediately after
 /// [`compute_var_reprs`] populates `func.var_reprs`. Caches the
-/// [`RcStrategy::from_var`] result so downstream pre-walk passes (the AIMS
+/// [`RcStrategy::from_repr`] result so downstream pre-walk passes (the AIMS
 /// PIN-6 `class_payload_of` population in
 /// `intraprocedural::ssa_alias_classes`) can classify a variable's strategy
 /// without holding a `&Pool` reference at analyze-time.
@@ -352,7 +352,7 @@ pub fn compute_var_rc_strategies(func: &ArcFunction, pool: &Pool) -> Vec<Option<
             if repr == ValueRepr::Scalar {
                 None
             } else {
-                Some(RcStrategy::from_var(repr, pool, ty))
+                Some(RcStrategy::from_repr(repr, pool, ty))
             }
         })
         .collect()

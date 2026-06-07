@@ -400,11 +400,15 @@ pub fn compute_param_passing(
     if size <= 16 {
         ParamPassing::Direct
     } else {
-        let info = store.get(ty);
         ParamPassing::Indirect {
-            alignment: info.alignment(),
+            alignment: indirect_alignment(ty, store, repr_plan),
         }
     }
+}
+
+/// Repr-aware pointer-passing alignment for Indirect/Sret, clamped to u32.
+fn indirect_alignment(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> u32 {
+    u32::try_from(abi_alignment(ty, store, repr_plan, 0)).unwrap_or(8)
 }
 
 /// Compute the passing mode for a function return value.
@@ -421,9 +425,8 @@ pub fn compute_return_passing(
     if size <= 16 {
         ReturnPassing::Direct
     } else {
-        let info = store.get(ty);
         ReturnPassing::Sret {
-            alignment: info.alignment(),
+            alignment: indirect_alignment(ty, store, repr_plan),
         }
     }
 }

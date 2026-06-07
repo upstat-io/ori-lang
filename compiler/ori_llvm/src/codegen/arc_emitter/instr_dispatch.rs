@@ -780,7 +780,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Reset'd buffer leaks (Reset claimed ownership but Reuse didn't
                 // reclaim it).
                 if let Some(repr) = func.var_repr(*token) {
-                    let strategy = RcStrategy::from_var(repr, self.pool, func.var_type(*token));
+                    let strategy = RcStrategy::from_repr(repr, self.pool, func.var_type(*token));
                     self.emit_rc_dec(*token, strategy, func);
                 }
 

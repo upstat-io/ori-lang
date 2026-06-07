@@ -2318,7 +2318,7 @@ fn emit_burden_dead_owned_collection_decs(
 /// field, dead with ZERO uses. The Phase-5 walk emits ZERO burden ops on the
 /// no-use aggregate, so the heap field leaks (the user `@drop` never runs). This
 /// pass emits ONE whole-var `BurdenDec` at the END of the lineage's defining
-/// block; Phase-7 lowers it through `RcStrategy::from_var(Aggregate, ..)` to
+/// block; Phase-7 lowers it through `RcStrategy::from_repr(Aggregate, ..)` to
 /// `RcDec [AggFields]`/`[InlineEnum]`, whose drop-glue walks the heap field(s) —
 /// byte-identical to the oracle's scope-exit dec. Distinct from the dead-owned-
 /// COLLECTION pass (`RcPointer` list/map/set buffers, Phase 6.8): these are bare
@@ -3265,7 +3265,7 @@ fn strip_comparison_operand_keepalive(
 /// the handle is MOVED into an aggregate field (`(int, Iterator<int>)` tuple /
 /// a struct field), the freeing burden transfers to the AGGREGATE — its
 /// scope-exit `RcDec [AggFields]` walks to the iterator field and `ori_iter_drop`s
-/// it. Either freeing value lowers through `RcStrategy::from_var` (Iterator for the
+/// it. Either freeing value lowers through `RcStrategy::from_repr` (Iterator for the
 /// bare handle, `AggregateFields` for the aggregate) to the same op the default path
 /// emits.
 ///
@@ -4066,7 +4066,7 @@ fn compute_dead_owned_collection_releases(
 /// Whether `var`'s representation is an inline aggregate (`ValueRepr::Aggregate`)
 /// whose type carries an RC burden (`classify_triviality == NonTrivial` — a
 /// heap-bearing struct / tuple / Option / Result / enum field). The whole-var
-/// `BurdenDec` lowers (Phase 7) through `RcStrategy::from_var(Aggregate, ..)` to
+/// `BurdenDec` lowers (Phase 7) through `RcStrategy::from_repr(Aggregate, ..)` to
 /// `RcDec [AggFields]` (struct / tuple) or `RcDec [InlineEnum]` (sum type), whose
 /// drop-glue walks the heap field(s). Scalars + non-burden-carrying aggregates
 /// (`{ x: int, y: int }`) are excluded — they have no field drop-glue. The
@@ -6693,7 +6693,7 @@ fn compute_cow_mutated_lineage_reps(
 ///
 /// `BurdenInc { var }` → `RcInc { var, count: 1, strategy, atomicity }` and
 /// whole-var `BurdenDec { var }` → `RcDec { var, strategy, atomicity }`, with
-/// the canonical `RcStrategy::from_var` (same strategy the predicate-stack
+/// the canonical `RcStrategy::from_repr` (same strategy the predicate-stack
 /// emitter embeds) and `atomicity = Atomic` (RL-19/20/21 thread-local dispatch
 /// pending).
 ///
@@ -6754,7 +6754,7 @@ fn lower_burden_ops_to_rc(
                 continue;
             }
             let ty = func.var_type(var);
-            let strategy = RcStrategy::from_var(repr, pool, ty);
+            let strategy = RcStrategy::from_repr(repr, pool, ty);
             let atomicity = RcAtomicity::default_atomic();
             let lowered = match func.blocks[block_idx].body[instr_idx] {
                 ArcInstr::BurdenInc { var } => ArcInstr::RcInc {

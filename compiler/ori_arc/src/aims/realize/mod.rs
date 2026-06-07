@@ -451,7 +451,7 @@ fn inject_cow_borrowed_receiver_incs(
         .iter()
         .map(|&var| {
             let strategy = func.var_repr(var).map_or(RcStrategy::HeapPointer, |r| {
-                RcStrategy::from_var(r, pool, func.var_type(var))
+                RcStrategy::from_repr(r, pool, func.var_type(var))
             });
             (var, strategy)
         })

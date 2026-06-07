@@ -979,7 +979,7 @@ fn probe_bare_unused_iterator_handle_freed_at_scope_exit() {
     // is never consumed by a for-loop / `iter_next` / `ori_iter_drop`, so it must
     // be freed by a scope-exit `RcDec [Iterator]` (= `ori_iter_drop`). The default
     // path emits it; the burden path must emit a standalone `BurdenDec` on the
-    // handle lineage that lowers (via `RcStrategy::from_var` Iterator) to the same.
+    // handle lineage that lowers (via `RcStrategy::from_repr` Iterator) to the same.
     let src = r#"
 @main () -> int = {
     let _it = [1, 2, 3, 4].iter();

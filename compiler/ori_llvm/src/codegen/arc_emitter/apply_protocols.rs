@@ -71,10 +71,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 ProtocolBuiltin::Cast => {
                     // __cast(value) — `as` conversions (ARC IR has no cast
-                    // instruction). Supported primitive pairs emit inline,
-                    // matching `ori_eval::eval_can_cast` for dual-execution
-                    // parity. Unsupported pairs (str parse, range-checked
-                    // int->byte/char) fall through to normal dispatch
+                    // instruction). Supported primitive pairs emit inline
+                    // (incl. range-checked int->byte / int->char), matching
+                    // `ori_eval::eval_can_cast` for dual-execution parity.
+                    // Unsupported pairs (str->int / str->float parse,
+                    // value->str) fall through to normal dispatch
                     // (unresolved-function error).
                     return match self.try_emit_cast(dst, args, func) {
                         Some(val) => {
