@@ -29,6 +29,24 @@ use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool, TypeCheckResul
 #[cfg(feature = "llvm")]
 pub(crate) type ImportedMonoFn = (ori_llvm::monomorphize::MonoFunction, usize, ori_ir::Name);
 
+/// Borrowed view over the imported-generic codegen surfaces produced by the
+/// host's merged-pool re-interning (`ImportedMonoState`).
+///
+/// Threads as ONE parameter through `compile_to_llvm_with_imported_monos` /
+/// `compile_to_llvm_with_imports` → `run_codegen_pipeline` →
+/// `run_borrow_inference`. The merged pool stays a separate parameter — its
+/// `'ctx` lifetime ties to the LLVM context.
+#[cfg(feature = "llvm")]
+#[derive(Clone, Copy)]
+pub(crate) struct ImportedSurfaces<'a> {
+    /// `(MonoFunction, source_module_idx, source_body_name)` triples — one
+    /// entry per unique imported mono instance.
+    pub(crate) imported_mono_fns: &'a [ImportedMonoFn],
+    /// Per-imported-module canons re-interned into merged-pool coordinates;
+    /// indexed by `imported_mono_fns[i].1`.
+    pub(crate) re_interned_canons: &'a [ori_ir::canon::CanonResult],
+}
+
 /// Build imported monomorphization functions for the AOT path.
 ///
 /// Returns one entry per unique imported mono instance. Dedups by mangled
@@ -70,7 +88,12 @@ pub(crate) fn build_imported_mono_functions(
             continue;
         }
 
-        let concrete_sig = build_concrete_sig(instance, generic_sig, merged_pool, mangled);
+        let concrete_sig = ori_llvm::monomorphize::concrete_sig_for_instance(
+            instance,
+            generic_sig,
+            merged_pool,
+            mangled,
+        );
         let body_type_map = build_body_type_map(merged_pool, instance, generic_sig);
 
         name_to_index.insert(mangled, imported_mono_fns.len());
@@ -92,49 +115,6 @@ pub(crate) fn build_imported_mono_functions(
     }
 
     imported_mono_fns
-}
-
-/// Build a concrete `FunctionSig` for one mono instance.
-///
-/// Copies every non-generic field from `generic_sig` unchanged and
-/// substitutes the concrete param / return types and their merged-pool
-/// hashes from `instance`. `scheme_var_ids` and `type_param_bounds` are
-/// emptied — the mono function has no remaining generics.
-#[cfg(feature = "llvm")]
-fn build_concrete_sig(
-    instance: &MonoInstance,
-    generic_sig: &FunctionSig,
-    merged_pool: &Pool,
-    mangled: ori_ir::Name,
-) -> FunctionSig {
-    let param_hashes: Vec<u64> = instance
-        .concrete_param_types
-        .iter()
-        .map(|&idx| merged_pool.hash(idx))
-        .collect();
-    let return_hash = merged_pool.hash(instance.concrete_return_type);
-
-    FunctionSig {
-        name: mangled,
-        type_params: vec![],
-        const_params: vec![],
-        param_names: generic_sig.param_names.clone(),
-        param_types: instance.concrete_param_types.clone(),
-        return_type: instance.concrete_return_type,
-        capabilities: generic_sig.capabilities.clone(),
-        is_public: false,
-        is_test: false,
-        is_main: false,
-        is_fbip: generic_sig.is_fbip,
-        type_param_bounds: vec![],
-        where_clauses: vec![],
-        generic_param_mapping: vec![],
-        scheme_var_ids: vec![],
-        required_params: generic_sig.required_params,
-        param_defaults: generic_sig.param_defaults.clone(),
-        param_hashes,
-        return_hash,
-    }
 }
 
 /// Build the `body_type_map` (`generic_idx` → `concrete_idx`) for one mono

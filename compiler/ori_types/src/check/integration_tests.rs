@@ -2317,3 +2317,35 @@ fn drop_impl_without_value_marker_no_e2049() {
         result.error_kinds()
     );
 }
+
+// Map-iterator lambda-parameter inference pins. `kvs.iter()` yields
+// Iterator<(K, V)>, so `.map(...)` routes the `is_iterator()` branch of
+// `unify_closure_param_with_iterator_elem`; the Tag::Map arm itself is
+// unit-tested at infer/expr/calls/tests.rs (no registry higher-order
+// method dispatches with a bare Map receiver today).
+
+#[test]
+fn test_lambda_param_from_map_iter_iterator_elem_unchanged() {
+    let result = check_source(
+        "@first_keys (kvs: {str: int}) -> [str] = kvs.iter().map(kv -> kv.0).collect();",
+    );
+    assert!(
+        !result.has_errors(),
+        "map-iterator receiver must infer kv: (str, int); kinds: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
+    // Negative pin (per tests.md §Matrix Clamping): a list-iterator receiver
+    // still routes through the `is_iterator()` branch — widening the Map
+    // arm to match `Tag::Iterator` would project map_key/map_value on a
+    // non-Map idx and break this inference.
+    let result = check_source("@bump (xs: [int]) -> [int] = xs.iter().map(x -> x + 1).collect();");
+    assert!(
+        !result.has_errors(),
+        "iterator receiver inference must be unchanged by the Map arm; kinds: {:?}",
+        result.error_kinds()
+    );
+}

@@ -96,10 +96,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         name: &str,
     ) -> Option<ValueId> {
         if let Some((pad, _kind)) = self.current_funclet_pad {
-            self.builder.call_with_funclet(callee, args, pad, name)
-        } else {
-            self.builder.call(callee, args, name)
+            return self.builder.call_with_funclet(callee, args, pad, name);
         }
+        // Intercepted may-unwind builtin emission: route calls to
+        // non-nounwind runtime functions (e.g. `ori_list_updated_cow`, which
+        // panics on OOB) through `invoke` with the ARC unwind block as the
+        // unwind edge, so the cleanup decs run on the panic path. Armed by
+        // `emit_invoke` around `try_emit_builtin_method` (per
+        // `context::intercepted_emission_invokes_unwind`).
+        if let Some(unwind_bb) = self.intercepted_unwind {
+            if !self.builder.function_has_nounwind_attr(callee) {
+                let cont = self.builder.append_block(self.current_function, "rt.cont");
+                let result = self.builder.invoke(callee, args, cont, unwind_bb, name);
+                self.builder.position_at_end(cont);
+                return result;
+            }
+        }
+        self.builder.call(callee, args, name)
     }
 
     /// Branch to `target`, exiting the current catchpad via `catchret` trampoline.

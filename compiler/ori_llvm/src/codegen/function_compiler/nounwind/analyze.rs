@@ -193,25 +193,30 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 ori_arc::ir::ArcTerminator::Invoke {
                     func: callee, args, ..
                 } => {
-                    // Same checks as Apply: nounwind set, runtime fns, then
-                    // intercepted builtins (protocols, prelude, methods).
-                    if self.codegen_ctx.nounwind_functions.contains(callee) {
-                        true
-                    } else {
-                        let s = self.interner.lookup(*callee);
-                        match is_rt_fn_nounwind(s) {
-                            Some(true) => true,
-                            Some(false) => false,
-                            None => {
+                    // Same checks as Apply: runtime fns, then intercepted
+                    // builtins (protocols, prelude, methods), then the
+                    // user-function nounwind set.
+                    let s = self.interner.lookup(*callee);
+                    match is_rt_fn_nounwind(s) {
+                        Some(true) => true,
+                        Some(false) => false,
+                        None => {
+                            // Interception verdict FIRST: an intercepted call
+                            // never dispatches to a user function, so the
+                            // bare-Name `nounwind_functions` entry (e.g. a
+                            // nounwind impl method sharing the unqualified
+                            // method name) must not classify it.
+                            if is_callee_intercepted(
+                                s,
+                                *callee,
+                                args,
+                                func,
+                                &self.codegen_ctx,
+                                self.type_info,
+                            ) {
+                                intercepted_is_nounwind(s)
+                            } else {
                                 self.codegen_ctx.nounwind_functions.contains(callee)
-                                    || (is_callee_intercepted(
-                                        s,
-                                        *callee,
-                                        args,
-                                        func,
-                                        &self.codegen_ctx,
-                                        self.type_info,
-                                    ) && intercepted_is_nounwind(s))
                             }
                         }
                     }
@@ -239,15 +244,22 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                         // emit inline panics (Option.expect etc.) — those
                         // are filtered out here via intercepted_is_nounwind.
                         None => {
-                            self.codegen_ctx.nounwind_functions.contains(callee)
-                                || (is_callee_intercepted(
-                                    s,
-                                    *callee,
-                                    args,
-                                    func,
-                                    &self.codegen_ctx,
-                                    self.type_info,
-                                ) && intercepted_is_nounwind(s))
+                            // Interception verdict FIRST (see Invoke arm): an
+                            // intercepted call never dispatches to a user
+                            // function, so the bare-Name set must not
+                            // classify it.
+                            if is_callee_intercepted(
+                                s,
+                                *callee,
+                                args,
+                                func,
+                                &self.codegen_ctx,
+                                self.type_info,
+                            ) {
+                                intercepted_is_nounwind(s)
+                            } else {
+                                self.codegen_ctx.nounwind_functions.contains(callee)
+                            }
                         }
                     }
                 }

@@ -272,6 +272,53 @@ fn collect_does_not_consult_import_sigs_for_methods() {
     );
 }
 
+#[test]
+fn collect_prefers_function_sigs_over_import_sigs_on_name_collision() {
+    // INVARIANT: when the same fn name is present in BOTH function_sigs and
+    // import_sigs, the top-level lookup chain resolves via function_sigs —
+    // the local definition wins and is_imported stays false.
+    let interner = make_interner();
+    let pool = Pool::new();
+    let local_sig = make_generic_sig(&interner);
+    let name = local_sig.name;
+    let local_param = interner.intern("x");
+
+    // Imported twin under the SAME name with a distinguishable param name so
+    // the assertion proves which sig supplied the metadata.
+    let mut imported_sig = make_generic_sig(&interner);
+    imported_sig.param_names = vec![interner.intern("y")];
+
+    let instance = MonoInstance::new_top_level(
+        name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![Idx::INT],
+        Idx::INT,
+        Vec::new(),
+    );
+
+    let mono_fns = collect_mono_functions(
+        &[instance],
+        std::slice::from_ref(&local_sig),
+        &[],
+        &[(name, imported_sig)],
+        &interner,
+        &pool,
+    );
+
+    assert_eq!(mono_fns.len(), 1);
+    let mf = &mono_fns[0];
+    assert!(
+        !mf.is_imported,
+        "function_sigs must win the lookup on a name collision with import_sigs"
+    );
+    assert_eq!(
+        mf.sig.param_names,
+        vec![local_param],
+        "concrete sig metadata must come from the function_sigs entry, not the import_sigs twin"
+    );
+    assert_eq!(interner.lookup(mf.mangled_name), "identity$m$3_int");
+}
+
 // Supplementary mangling edge cases: these unit-tests verify the four
 // mangling shapes — top-level, method-impl-only, method-with-method-args,
 // and method-no-impl-args — at the API surface, independent of upstream

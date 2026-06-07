@@ -242,6 +242,14 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
     /// cleanup (exits via `cleanupret`).
     pub(super) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
+    /// Live ARC unwind block for the in-flight INTERCEPTED may-unwind builtin
+    /// emission (e.g. list `updated` — `ori_list_updated_cow` panics on OOB).
+    /// When `Some`, `emit_rt_call` routes calls to non-nounwind runtime
+    /// functions through `invoke` with this block as the unwind edge so the
+    /// ARC cleanup decs run on the panic path. Set/cleared by `emit_invoke`
+    /// around `try_emit_builtin_method`; Itanium-only (`None` inside SEH
+    /// funclet pads).
+    pub(super) intercepted_unwind: Option<crate::codegen::value_id::BlockId>,
     /// Variables rooted at borrowed parameters (or Let-aliases thereof).
     /// When storing an inline enum value to a boxed field, sub-pointers
     /// must be incremented if the source is borrowed-rooted (the caller
@@ -361,6 +369,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_block_idx: 0,
             current_instr_idx: 0,
             current_funclet_pad: None,
+            intercepted_unwind: None,
             borrowed_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
             iter_next_decomposed: FxHashMap::default(),

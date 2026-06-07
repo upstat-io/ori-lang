@@ -116,13 +116,12 @@ pub(super) fn unify_higher_order_constraints(
 /// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
 /// the receiver's element type rather than remaining as an unresolved type variable.
 ///
-/// Applies to `Tag::List`, `Tag::Set`, `Tag::Str` receivers in addition to
-/// the original `Tag::Iterator` / `Tag::DoubleEndedIterator` gate. Closes the
-/// lambda-parameter inference gap that previously left
-/// `list.map(x -> x + 1)` with an unresolved `Tag::Var` for `x`. `Tag::Map`
-/// is intentionally excluded for now — its iteration shape is `(K, V)` tuples
-/// and the unification needs tuple-element resolution; left as a follow-up
-/// when tuple-shaped receiver projection lands.
+/// Applies to `Tag::List`, `Tag::Set`, `Tag::Map`, `Tag::Str` receivers in
+/// addition to the original `Tag::Iterator` / `Tag::DoubleEndedIterator`
+/// gate. Closes the lambda-parameter inference gap that previously left
+/// `list.map(x -> x + 1)` with an unresolved `Tag::Var` for `x`. Map
+/// receivers project the `(K, V)` iteration shape as a synthetic tuple so
+/// `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`.
 pub(super) fn unify_closure_param_with_iterator_elem(
     engine: &mut InferEngine<'_>,
     resolved_closure: Idx,
@@ -136,6 +135,12 @@ pub(super) fn unify_closure_param_with_iterator_elem(
         engine.pool().list_elem(resolved_recv)
     } else if recv_tag == Tag::Set {
         engine.pool().set_elem(resolved_recv)
+    } else if recv_tag == Tag::Map {
+        // INVARIANT: Map iteration shape is `(K, V)` tuples — bind the
+        // closure param to a synthetic tuple of the key/value types.
+        let k = engine.pool().map_key(resolved_recv);
+        let v = engine.pool().map_value(resolved_recv);
+        engine.pool_mut().tuple(&[k, v])
     } else if recv_tag == Tag::Str {
         Idx::CHAR
     } else {

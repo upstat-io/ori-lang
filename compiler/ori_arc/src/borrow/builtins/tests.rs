@@ -115,6 +115,33 @@ fn cow_methods_in_consuming() {
 }
 
 #[test]
+fn updated_in_consuming_and_third_arg() {
+    // "updated" (IndexSet) consumes the receiver (COW, via the type-qualified
+    // override) AND moves the inserted value (arg[2]); the key (arg[1])
+    // stays borrowed.
+    assert!(
+        CONSUMING_RECEIVER_METHOD_NAMES.contains(&"updated"),
+        "\"updated\" must be in CONSUMING_RECEIVER — list/map.updated() is COW consuming"
+    );
+    assert!(
+        CONSUMING_THIRD_ARG_METHOD_NAMES.contains(&"updated"),
+        "\"updated\" must be in CONSUMING_THIRD_ARG — the value is moved into the collection"
+    );
+}
+
+#[test]
+fn consuming_third_arg_method_names_sorted() {
+    for window in CONSUMING_THIRD_ARG_METHOD_NAMES.windows(2) {
+        assert!(
+            window[0] < window[1],
+            "CONSUMING_THIRD_ARG_METHOD_NAMES must stay sorted: {} >= {}",
+            window[0],
+            window[1]
+        );
+    }
+}
+
+#[test]
 fn consuming_second_arg_method_names_sorted() {
     for window in CONSUMING_SECOND_ARG_METHOD_NAMES.windows(2) {
         assert!(

@@ -28,6 +28,7 @@ mod compile_common;
 #[cfg(feature = "llvm")]
 pub(crate) use codegen_pipeline::imported_mono::{
     build_imported_mono_functions as build_imported_mono_functions_for_test_runner, ImportedMonoFn,
+    ImportedSurfaces,
 };
 mod debug;
 mod demangle;

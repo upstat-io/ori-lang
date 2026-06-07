@@ -1,0 +1,28 @@
+// Map-iterator lambda-parameter inference: an untyped lambda over a map
+// iterator binds its parameter to the (K, V) tuple element type, so tuple
+// component access resolves without type annotations.
+
+use std.testing { assert_eq }
+
+@test_map_iter_map_key_component tests _ () -> void = {
+    let m = {"a": 1, "b": 2};
+    let keys = m.iter().map(kv -> kv.0).collect();
+    let $sorted: [str] = keys.sort();
+
+    assert_eq(actual: sorted, expected: ["a", "b"])
+}
+
+@test_map_iter_map_value_component tests _ () -> void = {
+    let m = {"a": 1, "b": 2};
+    let vals = m.iter().map(kv -> kv.1).collect();
+    let $sorted: [int] = vals.sort();
+
+    assert_eq(actual: sorted, expected: [1, 2])
+}
+
+@test_map_iter_flat_map_kv_tuple tests _ () -> void = {
+    let m = {"a": 1};
+    let $keys: [str] = m.iter().flat_map(kv -> [kv.0].iter()).collect();
+
+    assert_eq(actual: keys, expected: ["a"])
+}

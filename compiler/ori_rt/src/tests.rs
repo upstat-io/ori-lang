@@ -7202,3 +7202,230 @@ fn tag_constants_match_canonical_values() {
     assert_eq!(OPTION_TAG_SOME, ori_ir::OPTION_TAG_SOME, "OPTION_TAG_SOME");
     assert_eq!(OPTION_TAG_NONE, ori_ir::OPTION_TAG_NONE, "OPTION_TAG_NONE");
 }
+
+// ── COW list updated (ori_list_updated_cow — IndexSet) ───────────────
+
+#[test]
+fn cow_updated_unique_releases_replaced_element_and_moves_value_in() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    static DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_dec(_ptr: *mut u8) {
+        DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    static INC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    INC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_inc(_ptr: *mut u8) {
+        INC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Create unique list [10, 20, 30] with capacity 4
+    let data = rc_alloc_i64_list(&[10, 20, 30], 4);
+    let original_ptr = data;
+
+    let elem: i64 = 99;
+    let mut out = [0u8; 24];
+    ori_list_updated_cow(
+        data,
+        3,
+        4,
+        1, // key
+        std::ptr::from_ref(&elem).cast(),
+        es as i64,
+        8,
+        Some(track_inc),
+        Some(track_dec),
+        0,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+
+    assert_eq!(len, 3);
+    assert_eq!(cap, 4);
+    assert_eq!(
+        result_data, original_ptr,
+        "FAST PATH: same pointer (unique, in-place overwrite)"
+    );
+    assert_eq!(
+        DEC_CALLS.load(Ordering::SeqCst),
+        1,
+        "replaced element released exactly once on the unique path"
+    );
+    assert_eq!(
+        INC_CALLS.load(Ordering::SeqCst),
+        0,
+        "moved-in value must NOT be incremented (ownership transfer)"
+    );
+
+    unsafe {
+        assert_eq!(*result_data.cast::<i64>(), 10);
+        assert_eq!(*result_data.cast::<i64>().add(1), 99, "key 1 replaced");
+        assert_eq!(*result_data.cast::<i64>().add(2), 30);
+    }
+
+    ori_rc_free(result_data, 4 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_updated_shared_copies_and_keeps_old_element_in_old_buffer() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    static DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_dec(_ptr: *mut u8) {
+        DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Create shared list [10, 20, 30] (RC=2)
+    let data = rc_alloc_i64_list(&[10, 20, 30], 4);
+    ori_rc_inc(data);
+
+    let elem: i64 = 77;
+    let mut out = [0u8; 24];
+    ori_list_updated_cow(
+        data,
+        3,
+        4,
+        2, // key
+        std::ptr::from_ref(&elem).cast(),
+        es as i64,
+        8,
+        None,
+        Some(track_dec),
+        0,
+        out.as_mut_ptr(),
+    );
+
+    let (len, _cap, result_data) = unsafe { read_list_result(&out) };
+
+    assert_eq!(len, 3);
+    assert_ne!(result_data, data, "SLOW PATH: different pointer (shared)");
+    assert_eq!(
+        DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "shared path must NOT release the replaced element — the old buffer retains it"
+    );
+
+    // Old buffer untouched, RC dec'd to 1
+    assert_eq!(ori_rc_count(data), 1, "old buffer RC dec'd to 1");
+    unsafe {
+        assert_eq!(*data.cast::<i64>().add(2), 30, "old buffer unchanged");
+        assert_eq!(*result_data.cast::<i64>().add(2), 77, "new buffer replaced");
+    }
+
+    ori_rc_free(data, 4 * es, 8);
+    ori_rc_free(result_data, 3 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+// ── COW map updated (ori_map_updated_cow — IndexSet) ─────────────────
+
+#[test]
+fn cow_map_updated_releases_caller_value_reference() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let ks = std::mem::size_of::<i64>() as i64;
+    let vs = std::mem::size_of::<i64>() as i64;
+
+    static VAL_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    VAL_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_val_dec(_ptr: *mut u8) {
+        VAL_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    static VAL_INC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    VAL_INC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_val_inc(_ptr: *mut u8) {
+        VAL_INC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Insert a NEW key into a unique map with capacity.
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10], &[100], 8);
+
+    let key: i64 = 20;
+    let val: i64 = 200;
+    let mut out = [0u8; 24];
+    map::cow_updated::ori_map_updated_cow(
+        data,
+        1,
+        alloc_cap as i64,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&val).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        None,
+        Some(track_val_inc),
+        Some(track_val_dec),
+        0,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 2);
+    // Move semantics: the buffer copy was incremented once (insert), then the
+    // caller's reference released once — net transfer.
+    assert_eq!(
+        VAL_INC_CALLS.load(Ordering::SeqCst),
+        1,
+        "buffer copy incremented by the insert path"
+    );
+    assert_eq!(
+        VAL_DEC_CALLS.load(Ordering::SeqCst),
+        1,
+        "caller's value reference released exactly once (move)"
+    );
+    unsafe {
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+    }
+
+    free_i64_map(result_data, cap as usize);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_map_updated_replaces_existing_key_value() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let ks = std::mem::size_of::<i64>() as i64;
+    let vs = std::mem::size_of::<i64>() as i64;
+
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20], &[100, 200], 8);
+
+    let key: i64 = 20;
+    let val: i64 = 999;
+    let mut out = [0u8; 24];
+    map::cow_updated::ori_map_updated_cow(
+        data,
+        2,
+        alloc_cap as i64,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&val).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        None,
+        None,
+        None,
+        0,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 2, "insert-or-replace: existing key keeps len");
+    unsafe {
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(999));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+    }
+
+    free_i64_map(result_data, cap as usize);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}

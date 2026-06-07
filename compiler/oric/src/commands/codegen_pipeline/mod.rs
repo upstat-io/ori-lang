@@ -9,7 +9,7 @@
 //! - `pc2_hooks`: PC-2 invariant check helper for AOT pre-mono / mono sites
 //! - `finalize`: ARC phase dumps + post-codegen diagnostics-and-verify
 //!
-//! Called from `compile_common::compile_to_llvm` and
+//! Called from `compile_common::compile_to_llvm_with_imported_monos` and
 //! `compile_common::compile_to_llvm_with_imports`.
 
 #[cfg(feature = "llvm")]
@@ -19,6 +19,8 @@ pub(crate) mod imported_mono;
 #[cfg(feature = "llvm")]
 mod pc2_hooks;
 
+#[cfg(feature = "llvm")]
+use imported_mono::ImportedSurfaces;
 #[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
 #[cfg(feature = "llvm")]
@@ -55,6 +57,10 @@ pub(super) struct BorrowInferenceResult {
 /// inference queries. Returns both the annotated signatures and a cache of
 /// pre-lowered ARC functions for zero-copy consumption by codegen.
 ///
+/// Returns `None` when ARC lowering reported errors (diagnostics already
+/// emitted) — mirrors the JIT runner's `lower_and_infer_borrows`; the caller
+/// aborts codegen instead of continuing with an empty arc cache.
+///
 /// # Flow
 ///
 /// 1. Lower each function to ARC IR
@@ -82,15 +88,19 @@ pub(super) fn run_borrow_inference(
     function_sigs: &[FunctionSig],
     impl_sigs: &[(Name, FunctionSig)],
     import_sigs: &[(Name, FunctionSig)],
-    imported_mono_fns: &[crate::commands::ImportedMonoFn],
-    re_interned_canons: &[CanonResult],
+    imported: ImportedSurfaces<'_>,
     canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
     source_path: &str,
     mono_instances: &[ori_types::MonoInstance],
-) -> BorrowInferenceResult {
+) -> Option<BorrowInferenceResult> {
     use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
+
+    let ImportedSurfaces {
+        imported_mono_fns,
+        re_interned_canons,
+    } = imported;
 
     // 1. Lower functions to ARC IR.
     // We build both a grouped cache (parent → lambdas) for codegen and a flat
@@ -172,8 +182,8 @@ pub(super) fn run_borrow_inference(
     }
 
     // Lower imported monomorphized generic functions via body-import
-    // linkage. Mirrors the test-runner specialization loop at
-    // `oric/src/test/runner/arc_lowering.rs:108-117`. Each `ImportedMonoFn`
+    // linkage. Mirrors the test-runner specialization loop in
+    // `oric/src/test/runner/arc_lowering.rs`. Each `ImportedMonoFn`
     // carries the source body name + module index; the source body lives in
     // the SOURCE module's `CanonResult` after re-interning into merged_pool.
     // `re_interned_canons[source_module_idx]` provides the source canon in
@@ -214,11 +224,7 @@ pub(super) fn run_borrow_inference(
         let mut acc = CodegenDiagnostics::new();
         acc.add_arc_problems(&arc_problems);
         if emit_codegen_diagnostics(acc) {
-            return BorrowInferenceResult {
-                sigs: FxHashMap::default(),
-                arc_cache: FxHashMap::default(),
-                mono_functions: Vec::new(),
-            };
+            return None;
         }
     }
 
@@ -278,11 +284,11 @@ pub(super) fn run_borrow_inference(
     let mut all_mono_functions = mono_functions;
     all_mono_functions.extend(imported_mono_fns.iter().map(|(mf, _, _)| mf.clone()));
 
-    BorrowInferenceResult {
+    Some(BorrowInferenceResult {
         sigs: annotated_sigs,
         arc_cache,
         mono_functions: all_mono_functions,
-    }
+    })
 }
 
 /// Run the codegen pipeline on a pre-checked module.
@@ -322,8 +328,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     module_name: &str,
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
-    imported_mono_fns: &[crate::commands::ImportedMonoFn],
-    re_interned_canons: &[CanonResult],
+    imported: ImportedSurfaces<'_>,
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
@@ -365,24 +370,29 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // eliminate the redundant second lowering pass during codegen.
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let BorrowInferenceResult {
+        let Some(BorrowInferenceResult {
             sigs: annotated_sigs,
             mut arc_cache,
             mono_functions,
-        } = run_borrow_inference(
+        }) = run_borrow_inference(
             db,
             parse_result,
             &function_sigs,
             &type_result.typed.impl_sigs,
             import_sigs,
-            imported_mono_fns,
-            re_interned_canons,
+            imported,
             canon,
             interner,
             pool,
             source_path,
             &type_result.typed.mono_instances,
-        );
+        )
+        else {
+            // ARC lowering errored; diagnostics already emitted. Continuing
+            // with an empty arc cache would recurse in codegen resolving
+            // missing callees — abort instead.
+            return Err("ARC lowering reported errors; codegen aborted".to_string());
+        };
 
         // INVARIANT: Apply / Invoke targets in cached ArcFunctions resolve
         // to mangled mono names before AIMS contract lookup (PL-5: no-stale-

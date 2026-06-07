@@ -339,8 +339,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // dual-execution parity for typechecked-but-undispatchable calls
             // (e.g. `str.updated(...)` — str implements Index, not IndexSet).
             // Gates:
-            // - Runtime-function names (`ori_*`, `__*`) are excluded — they
-            //   resolve via the runtime-fn fallback after this returns None.
+            // - `is_callee_intercepted` (SSOT) — the call must be one no
+            //   other resolution surface owns (not a declared function, not
+            //   a runtime fn, not a monomorphized generic like a stdlib
+            //   `assert_eq` whose first ARG happens to be a builtin type,
+            //   not prelude/protocol). Mis-firing on those turns a
+            //   missing-mono codegen error into a wrong runtime panic.
             // - Methods the registry DOES define on this receiver type are
             //   excluded — a missing dispatch arm for a real method is a
             //   codegen gap (keep the unresolved-function error), not an
@@ -349,8 +353,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             //   type are excluded — associated calls (`Size.from_bytes`)
             //   carry no receiver, so `args[0]` is an ordinary argument and
             //   the receiver-type heuristic misattributes it.
+            // Runtime/protocol names (`ori_*`, `__*`) are additionally
+            // excluded: `is_callee_intercepted` classifies protocol builtins
+            // (`ori_iter_drop`, `__iter_next`) as intercepted, but they
+            // resolve via the protocol/runtime-fn fallbacks after this
+            // returns None.
             if !method_name.starts_with("ori_")
                 && !method_name.starts_with("__")
+                && super::context::is_callee_intercepted(
+                    method_name,
+                    callee,
+                    args,
+                    arc_func,
+                    self.ctx,
+                    self.type_info,
+                )
                 && !registry_defines_method(type_name, method_name)
                 && !registry_has_associated_fn(method_name)
             {

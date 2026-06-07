@@ -13,6 +13,72 @@ pub(crate) type ArcLoweringResult = (
     FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
 );
 
+/// Lower one impl method (explicit or default-trait) to ARC IR under its
+/// type-qualified name.
+///
+/// Computes the per-(type, method) ordinal, builds the `__impl_<idx>_<name>`
+/// qualified name, and dispatches to ordinal-aware impl-method lowering (or
+/// plain lowering when the impl has no resolvable self type).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors lower_impl_method_to_arc_nth — params match the underlying API"
+)]
+fn lower_one_impl_method(
+    method_name: Name,
+    sig: &ori_types::FunctionSig,
+    type_name_name: Option<Name>,
+    self_type_idx: Option<ori_types::Idx>,
+    method_ordinals: &mut FxHashMap<(ori_types::Idx, Name), usize>,
+    canon: &ori_ir::canon::CanonResult,
+    interner: &ori_ir::StringInterner,
+    pool: &ori_types::Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+) -> (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>) {
+    let ordinal = if let Some(idx) = self_type_idx {
+        let entry = method_ordinals.entry((idx, method_name)).or_insert(0);
+        let ord = *entry;
+        *entry += 1;
+        ord
+    } else {
+        0
+    };
+    let qualified_name = if let Some(idx) = self_type_idx {
+        let method_str = interner.lookup(method_name);
+        if ordinal == 0 {
+            interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+        } else {
+            interner.intern(&format!("__impl_{}_{}_{ordinal}", idx.raw(), method_str))
+        }
+    } else {
+        method_name
+    };
+    if let Some(tn) = type_name_name {
+        crate::arc_lowering::lower_impl_method_to_arc_nth(
+            qualified_name,
+            sig,
+            method_name,
+            tn,
+            ordinal,
+            canon,
+            interner,
+            pool,
+            arc_problems,
+            None,
+        )
+    } else {
+        crate::arc_lowering::lower_to_arc(
+            qualified_name,
+            sig,
+            method_name,
+            canon,
+            interner,
+            pool,
+            arc_problems,
+            None,
+        )
+    }
+}
+
 /// Lower all functions to ARC IR and run borrow inference.
 ///
 /// This is the analysis phase that was previously embedded in the evaluator.
@@ -31,10 +97,6 @@ pub(crate) type ArcLoweringResult = (
 #[expect(
     clippy::too_many_lines,
     reason = "ARC lowering pipeline — local, imported, impl, and mono functions in sequence"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "impl-method ordinal tracking adds nesting — extracting would split the iterator alignment"
 )]
 pub(crate) fn lower_and_infer_borrows(
     module: &ori_ir::ast::Module,
@@ -131,8 +193,7 @@ pub(crate) fn lower_and_infer_borrows(
     // sig.param_types[0]) to prevent collisions.
     {
         let mut sig_iter = impl_sigs.iter();
-        let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
-            rustc_hash::FxHashMap::default();
+        let mut method_ordinals: FxHashMap<(ori_types::Idx, Name), usize> = FxHashMap::default();
         for impl_def in &module.impls {
             let type_name_name = impl_def.type_name();
             let self_type_idx = type_name_name.and_then(|name| {
@@ -148,120 +209,49 @@ pub(crate) fn lower_and_infer_borrows(
                 if sig.is_generic() {
                     continue;
                 }
-                let ordinal = if let Some(idx) = self_type_idx {
-                    let entry = method_ordinals.entry((idx, method.name)).or_insert(0);
-                    let ord = *entry;
-                    *entry += 1;
-                    ord
-                } else {
-                    0
-                };
-                let qualified_name = if let Some(idx) = self_type_idx {
-                    let method_str = interner.lookup(method.name);
-                    if ordinal == 0 {
-                        interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
-                    } else {
-                        interner.intern(&format!("__impl_{}_{}_{ordinal}", idx.raw(), method_str))
-                    }
-                } else {
-                    method.name
-                };
-                let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                    crate::arc_lowering::lower_impl_method_to_arc_nth(
-                        qualified_name,
-                        sig,
-                        method.name,
-                        tn,
-                        ordinal,
-                        canon,
-                        interner,
-                        pool,
-                        &mut arc_problems,
-                        None,
-                    )
-                } else {
-                    crate::arc_lowering::lower_to_arc(
-                        qualified_name,
-                        sig,
-                        method.name,
-                        canon,
-                        interner,
-                        pool,
-                        &mut arc_problems,
-                        None,
-                    )
-                };
-                local_lowered.push((arc_fn, lambdas));
+                local_lowered.push(lower_one_impl_method(
+                    method.name,
+                    sig,
+                    type_name_name,
+                    self_type_idx,
+                    &mut method_ordinals,
+                    canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                ));
             }
-            // Skip default trait methods in sig_iter
+            // Default trait methods not overridden by this impl consume the
+            // remaining sig_iter entries in trait-definition order.
             if let Some(trait_path) = &impl_def.trait_path {
                 if let Some(&trait_name) = trait_path.last() {
                     let overridden: rustc_hash::FxHashSet<Name> =
                         impl_def.methods.iter().map(|m| m.name).collect();
                     if let Some(trait_def) = module.traits.iter().find(|t| t.name == trait_name) {
                         for item in &trait_def.items {
-                            if let ori_ir::TraitItem::DefaultMethod(default) = item {
-                                if !overridden.contains(&default.name) {
-                                    let Some((_, sig)) = sig_iter.next() else {
-                                        break;
-                                    };
-                                    if sig.is_generic() {
-                                        continue;
-                                    }
-                                    let def_ordinal = if let Some(idx) = self_type_idx {
-                                        let entry =
-                                            method_ordinals.entry((idx, default.name)).or_insert(0);
-                                        let ord = *entry;
-                                        *entry += 1;
-                                        ord
-                                    } else {
-                                        0
-                                    };
-                                    let qualified_name = if let Some(idx) = self_type_idx {
-                                        let method_str = interner.lookup(default.name);
-                                        if def_ordinal == 0 {
-                                            interner.intern(&format!(
-                                                "__impl_{}_{method_str}",
-                                                idx.raw()
-                                            ))
-                                        } else {
-                                            interner.intern(&format!(
-                                                "__impl_{}_{}_{def_ordinal}",
-                                                idx.raw(),
-                                                method_str
-                                            ))
-                                        }
-                                    } else {
-                                        default.name
-                                    };
-                                    let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                                        crate::arc_lowering::lower_impl_method_to_arc_nth(
-                                            qualified_name,
-                                            sig,
-                                            default.name,
-                                            tn,
-                                            def_ordinal,
-                                            canon,
-                                            interner,
-                                            pool,
-                                            &mut arc_problems,
-                                            None,
-                                        )
-                                    } else {
-                                        crate::arc_lowering::lower_to_arc(
-                                            qualified_name,
-                                            sig,
-                                            default.name,
-                                            canon,
-                                            interner,
-                                            pool,
-                                            &mut arc_problems,
-                                            None,
-                                        )
-                                    };
-                                    local_lowered.push((arc_fn, lambdas));
-                                }
+                            let ori_ir::TraitItem::DefaultMethod(default) = item else {
+                                continue;
+                            };
+                            if overridden.contains(&default.name) {
+                                continue;
                             }
+                            let Some((_, sig)) = sig_iter.next() else {
+                                break;
+                            };
+                            if sig.is_generic() {
+                                continue;
+                            }
+                            local_lowered.push(lower_one_impl_method(
+                                default.name,
+                                sig,
+                                type_name_name,
+                                self_type_idx,
+                                &mut method_ordinals,
+                                canon,
+                                interner,
+                                pool,
+                                &mut arc_problems,
+                            ));
                         }
                     }
                 }

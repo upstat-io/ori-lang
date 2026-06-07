@@ -50,6 +50,18 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Whether a function carries the `nounwind` attribute.
+    ///
+    /// Runtime declarations carry `Nounwind` per their `RtFn` attrs; the
+    /// may-unwind set (`ori_panic_cstr`, `ori_list_get`,
+    /// `ori_list_updated_cow`, ...) does not.
+    #[must_use]
+    pub fn function_has_nounwind_attr(&self, func: FunctionId) -> bool {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("nounwind");
+        f.get_enum_attribute(AttributeLoc::Function, kind).is_some()
+    }
+
     /// Add the `noinline` attribute to a function.
     ///
     /// Prevents LLVM from inlining this function. Used for cold paths like

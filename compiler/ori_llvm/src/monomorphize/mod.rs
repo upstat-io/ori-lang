@@ -39,10 +39,10 @@ pub struct MonoFunction {
     /// True when this instance was resolved via the `import_sigs` lookup chain
     /// (i.e., the generic function is defined in another module).
     ///
-    /// Codegen consumers MAY observe this flag for diagnostics; the body-import
-    /// path does NOT branch on it — both local and imported mono functions flow
-    /// through identical `declare_mono_functions` + `prepare_mono_cached`
-    /// plumbing.
+    /// Test-observable provenance marker: no production consumer branches on
+    /// this field, and the body-import path does not branch on it — local and
+    /// imported mono functions flow through identical `declare_mono_functions`
+    /// + `prepare_mono_cached` plumbing.
     pub is_imported: bool,
 }
 
@@ -145,37 +145,7 @@ pub fn collect_mono_functions(
             continue;
         }
 
-        // Build concrete signature: same structure, but with substituted types
-        // and empty type_params (making is_generic() return false).
-        // Compute Merkle hashes for concrete types
-        let param_hashes: Vec<u64> = instance
-            .concrete_param_types
-            .iter()
-            .map(|&idx| pool.hash(idx))
-            .collect();
-        let return_hash = pool.hash(instance.concrete_return_type);
-
-        let concrete_sig = FunctionSig {
-            name: mangled_name,
-            type_params: vec![],
-            const_params: vec![],
-            param_names: generic_sig.param_names.clone(),
-            param_types: instance.concrete_param_types.clone(),
-            return_type: instance.concrete_return_type,
-            capabilities: generic_sig.capabilities.clone(),
-            is_public: false, // mono specializations are internal
-            is_test: false,
-            is_main: false,
-            is_fbip: generic_sig.is_fbip,
-            type_param_bounds: vec![],
-            where_clauses: vec![],
-            generic_param_mapping: vec![],
-            scheme_var_ids: vec![],
-            required_params: generic_sig.required_params,
-            param_defaults: generic_sig.param_defaults.clone(),
-            param_hashes,
-            return_hash,
-        };
+        let concrete_sig = concrete_sig_for_instance(instance, generic_sig, pool, mangled_name);
 
         name_to_index.insert(mangled_name, result.len());
         result.push(MonoFunction {
@@ -189,6 +159,50 @@ pub fn collect_mono_functions(
     }
 
     result
+}
+
+/// Build the concrete (non-generic) [`FunctionSig`] for one mono instance.
+///
+/// Copies non-generic metadata (param names, capabilities, defaults,
+/// `is_fbip`, `required_params`) from `generic_sig`, substitutes the
+/// instance's concrete param / return types plus their pool Merkle hashes,
+/// and empties every generic-only field so `is_generic()` returns false.
+/// Shared by [`collect_mono_functions`] (local monos) and the driver's
+/// imported-mono builder (cross-module monos on the merged pool).
+pub fn concrete_sig_for_instance(
+    instance: &MonoInstance,
+    generic_sig: &FunctionSig,
+    pool: &Pool,
+    mangled_name: Name,
+) -> FunctionSig {
+    let param_hashes: Vec<u64> = instance
+        .concrete_param_types
+        .iter()
+        .map(|&idx| pool.hash(idx))
+        .collect();
+    let return_hash = pool.hash(instance.concrete_return_type);
+
+    FunctionSig {
+        name: mangled_name,
+        type_params: vec![],
+        const_params: vec![],
+        param_names: generic_sig.param_names.clone(),
+        param_types: instance.concrete_param_types.clone(),
+        return_type: instance.concrete_return_type,
+        capabilities: generic_sig.capabilities.clone(),
+        is_public: false, // mono specializations are internal
+        is_test: false,
+        is_main: false,
+        is_fbip: generic_sig.is_fbip,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
+        required_params: generic_sig.required_params,
+        param_defaults: generic_sig.param_defaults.clone(),
+        param_hashes,
+        return_hash,
+    }
 }
 
 // Name mangling

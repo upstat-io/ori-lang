@@ -137,8 +137,7 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
     merged_pool: &'ctx Pool,
-    imported_mono_fns: &[super::ImportedMonoFn],
-    re_interned_canons: &[CanonResult],
+    imported: super::ImportedSurfaces<'_>,
     canon: &CanonResult,
     source_path: &str,
     target_triple: Option<&str>,
@@ -160,8 +159,7 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         module_name,
         "", // No symbol prefix for single-file compilation
         &[],
-        imported_mono_fns,
-        re_interned_canons,
+        imported,
         target_triple,
         narrowing_policy,
         &[], // Single-file: no imported type metadata
@@ -182,12 +180,12 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// The Pool is required for proper compound type resolution during codegen.
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 ///
-/// `imported_mono_fns` carries promoted `ImportedMonoFn` triples for
-/// cross-module imported-generic body specialization via body-import
-/// linkage. Pass `&[]` when the host module has no imported generic
-/// instantiations to lower locally.
+/// `imported` carries the promoted `ImportedMonoFn` triples plus re-interned
+/// canons for cross-module imported-generic body specialization via
+/// body-import linkage; both slices are empty when the host module has no
+/// imported generic instantiations to lower locally.
 #[cfg(feature = "llvm")]
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "multi-module compilation needs all parameters"
 )]
@@ -203,8 +201,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported_functions: &[ImportedFunctionInfo],
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
-    imported_mono_fns: &[super::ImportedMonoFn],
-    re_interned_canons: &[CanonResult],
+    imported: super::ImportedSurfaces<'_>,
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
     target_triple: Option<&str>,
@@ -244,8 +241,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name,
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
-        imported_mono_fns,
-        re_interned_canons,
+        imported,
         target_triple,
         narrowing_policy,
         imported_type_metadata,

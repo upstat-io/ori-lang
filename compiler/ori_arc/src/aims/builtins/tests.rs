@@ -149,6 +149,58 @@ fn seed_covers_all_builtin_sets() {
     }
 }
 
+#[test]
+fn seed_updated_contract_borrows_key_and_moves_value() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    // IndexSet `updated(key, value)` — 3-param contract:
+    // receiver Borrowed base (apply_consuming_overrides marks it Owned at
+    // collection call sites), key Borrowed, value Owned (moved into the
+    // collection — no caller-side RcDec after insert).
+    let updated_name = interner.intern("updated");
+    assert!(builtins.consuming_third_arg.contains(&updated_name));
+    let contract = &sigs[&updated_name];
+    assert_eq!(
+        contract.params.len(),
+        3,
+        "updated is 3-param (self, key, value)"
+    );
+    assert_eq!(
+        contract.params[0].access,
+        AccessClass::Borrowed,
+        "receiver base"
+    );
+    assert_eq!(
+        contract.params[1].access,
+        AccessClass::Borrowed,
+        "key borrowed"
+    );
+    assert_eq!(contract.params[2].access, AccessClass::Owned, "value moved");
+    assert_eq!(contract.params[2].consumption, Consumption::Linear);
+    assert_eq!(contract.params[2].cardinality, Cardinality::Once);
+    assert_eq!(
+        contract.return_info.uniqueness,
+        Uniqueness::Unique,
+        "COW result"
+    );
+}
+
+#[test]
+fn seed_updated_not_overwritten_by_consuming_receiver_base() {
+    // "updated" is ALSO in consuming_receiver; the 3-param indexed-update
+    // contract must be seeded FIRST so the 1-param borrowing base does not
+    // erase the value-param ownership transfer.
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let updated_name = interner.intern("updated");
+    assert!(builtins.consuming_receiver.contains(&updated_name));
+    assert_eq!(sigs[&updated_name].params.len(), 3);
+}
+
 // Protocol builtin consumer-level tests — verify that seed_builtin_contracts
 // produces MemoryContract with correct field values, not just "entry exists."
 

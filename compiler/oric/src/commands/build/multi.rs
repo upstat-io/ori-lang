@@ -243,7 +243,7 @@ pub(super) struct CompiledModuleInfo {
 /// hash lookup + the `VerificationFailed` diagnostic path so the caller can
 /// stay focused on orchestration. Returns `None` on codegen error after
 /// emitting diagnostics.
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "thin wrapper around compile_to_llvm_with_imports; structural cure would push 11+ args one level deeper"
 )]
@@ -260,8 +260,7 @@ fn lower_module_to_llvm<'ctx>(
     imported_functions: &[crate::commands::compile_common::ImportedFunctionInfo],
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
-    imported_mono_fns: &[crate::commands::ImportedMonoFn],
-    re_interned_canons: &[ori_ir::canon::CanonResult],
+    imported: crate::commands::ImportedSurfaces<'_>,
 ) -> Option<ori_llvm::inkwell::module::Module<'ctx>> {
     use crate::commands::compile_common::compile_to_llvm_with_imports;
     use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
@@ -278,8 +277,7 @@ fn lower_module_to_llvm<'ctx>(
         imported_functions,
         imported_type_metadata,
         imported_collection_surfaces,
-        imported_mono_fns,
-        re_interned_canons,
+        imported,
         ctx.arc_cache.as_ref(),
         ctx.module_hash
             .as_ref()
@@ -379,11 +377,8 @@ fn compile_single_module(
     // entry, or every imported function is non-generic), the helper short-
     // circuits — `merged_pool` ends up Idx-equivalent to the host pool, and
     // both `re_interned_canons` and `imported_mono_fns` are empty.
-    let ImportedMonoState {
-        merged_pool,
-        re_interned_canons,
-        imported_mono_fns,
-    } = build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
+    let imported_state =
+        build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
 
     // Compile to LLVM IR (with ARC cache if available).
     // Salsa/ArtifactCache boundary: typed() results flow into codegen via
@@ -397,13 +392,12 @@ fn compile_single_module(
         &module_name,
         &parse_result,
         &type_result,
-        &merged_pool,
+        &imported_state.merged_pool,
         &canon_result,
         &imported_functions,
         &imported_type_metadata,
         &imported_collection_surfaces,
-        &imported_mono_fns,
-        &re_interned_canons,
+        imported_state.surfaces(),
     )?;
 
     // Configure target, optimize, and emit object/bitcode
@@ -495,6 +489,37 @@ fn extract_public_function_types(
     public_functions
 }
 
+/// Resolve each direct import of `source_path` to its already-compiled
+/// `CompiledModuleInfo`, in import order.
+///
+/// Shared iteration skeleton for `build_import_infos`,
+/// `collect_imported_type_metadata`, and `collect_imported_collection_surfaces`.
+/// `None` info marks an import missing from `compiled_modules` (topological
+/// ordering normally guarantees presence); consumers decide whether to warn.
+fn imported_module_infos<'a>(
+    source_path: &Path,
+    graph: &'a ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &'a [CompiledModuleInfo],
+) -> Vec<(&'a Path, Option<&'a CompiledModuleInfo>)> {
+    let Some(imports) = graph.get_imports(source_path) else {
+        return Vec::new();
+    };
+
+    // Build index once for O(1) lookups instead of O(n) linear scan per import
+    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
+        .iter()
+        .map(|m| (m.path.as_path(), m))
+        .collect();
+
+    imports
+        .iter()
+        .map(|import_path| {
+            let info = module_index.get(import_path.as_path()).copied();
+            (import_path.as_path(), info)
+        })
+        .collect()
+}
+
 /// Build import information for a module based on its dependencies.
 ///
 /// Uses actual type information from already-compiled modules rather than
@@ -508,20 +533,8 @@ fn build_import_infos(
 ) -> Vec<crate::commands::compile_common::ImportedFunctionInfo> {
     let mut imported_functions = Vec::new();
 
-    // Get the direct imports of this module
-    let Some(imports) = graph.get_imports(source_path) else {
-        return imported_functions;
-    };
-
-    // Build index once for O(1) lookups instead of O(n) linear scan per import
-    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
-        .iter()
-        .map(|m| (m.path.as_path(), m))
-        .collect();
-
-    for import_path in imports {
-        // O(1) lookup using the index
-        let Some(module_info) = module_index.get(import_path.as_path()) else {
+    for (import_path, info) in imported_module_infos(source_path, graph, compiled_modules) {
+        let Some(module_info) = info else {
             // Module not yet compiled - shouldn't happen in topological order
             eprintln!(
                 "warning: import '{}' not found in compiled modules",
@@ -529,7 +542,6 @@ fn build_import_infos(
             );
             continue;
         };
-        let module_info = *module_info;
 
         // Add each public function using the actual types from type checking
         // The mangled names are pre-computed when the module was compiled
@@ -562,18 +574,9 @@ pub(super) fn collect_imported_type_metadata(
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
     compiled_modules: &[CompiledModuleInfo],
 ) -> Vec<ori_types::ExportedTypeMetadata> {
-    let Some(imports) = graph.get_imports(source_path) else {
-        return Vec::new();
-    };
-
-    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
-        .iter()
-        .map(|m| (m.path.as_path(), m))
-        .collect();
-
     let mut metadata = Vec::new();
-    for import_path in imports {
-        if let Some(module_info) = module_index.get(import_path.as_path()) {
+    for (_, info) in imported_module_infos(source_path, graph, compiled_modules) {
+        if let Some(module_info) = info {
             metadata.extend(module_info.exported_type_metadata.iter().cloned());
         }
     }
@@ -592,18 +595,9 @@ pub(super) fn collect_imported_collection_surfaces(
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
     compiled_modules: &[CompiledModuleInfo],
 ) -> Vec<u64> {
-    let Some(imports) = graph.get_imports(source_path) else {
-        return Vec::new();
-    };
-
-    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
-        .iter()
-        .map(|m| (m.path.as_path(), m))
-        .collect();
-
     let mut surfaces = Vec::new();
-    for import_path in imports {
-        if let Some(module_info) = module_index.get(import_path.as_path()) {
+    for (_, info) in imported_module_infos(source_path, graph, compiled_modules) {
+        if let Some(module_info) = info {
             surfaces.extend(module_info.exported_collection_surfaces.iter().copied());
         }
     }
@@ -634,6 +628,17 @@ pub(crate) struct ImportedMonoState {
     /// `MonoInstance` list. Empty when the host has no imported generic
     /// instantiations.
     pub(crate) imported_mono_fns: Vec<crate::commands::ImportedMonoFn>,
+}
+
+impl ImportedMonoState {
+    /// Borrowed view threaded through the codegen pipeline as one parameter.
+    /// `merged_pool` stays a separate borrow (`'ctx` lifetime).
+    pub(crate) fn surfaces(&self) -> crate::commands::ImportedSurfaces<'_> {
+        crate::commands::ImportedSurfaces {
+            imported_mono_fns: &self.imported_mono_fns,
+            re_interned_canons: &self.re_interned_canons,
+        }
+    }
 }
 
 /// Build the merged-pool re-interning state for cross-module imported

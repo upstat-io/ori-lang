@@ -154,6 +154,27 @@ pub(crate) fn is_callee_intercepted(
     false
 }
 
+/// Whether an intercepted may-unwind builtin emission routes its panicking
+/// runtime call through the ARC unwind block (`invoke`), so the unwind
+/// block's cleanup decs run on the panic path.
+///
+/// Keep in sync with the emission sites: list/fixed-list `updated`
+/// (`emit_list_updated_cow`) calls `ori_list_updated_cow`, which panics on
+/// out-of-bounds keys. Map `updated` never panics (`ori_map_updated_cow`
+/// carries `Nounwind`), so its unwind block stays dead — listing it here
+/// would create an orphan landingpad (no `invoke` ever targets it).
+///
+/// Consumed by `detect_dead_unwind_blocks` (keep the unwind block live) and
+/// `emit_invoke` (arm `intercepted_unwind` around the builtin dispatch) —
+/// both sites MUST agree or the landingpad is orphaned / the invoke targets
+/// a dead block.
+pub(crate) fn intercepted_emission_invokes_unwind(
+    method_name: &str,
+    receiver_is_list: bool,
+) -> bool {
+    method_name == "updated" && receiver_is_list
+}
+
 /// Check whether an intercepted callee is guaranteed to be nounwind.
 ///
 /// Called by the nounwind analyzer when [`is_callee_intercepted`] returned

@@ -375,9 +375,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 mode,
                 arc_func,
             );
-        } else if let Some(val) =
-            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
-        {
+            return;
+        }
+
+        // Arm the intercepted-unwind route: when the intercepted emission
+        // calls a panicking runtime function (list `updated` OOB), its
+        // `emit_rt_call` targets the live ARC unwind block via `invoke`
+        // so cleanup decs run on the panic path. Same predicate as
+        // `detect_dead_unwind_blocks` (the block is live iff this fires).
+        self.intercepted_unwind = (callee_intercepted
+            && !unwind_is_empty_cleanup
+            && self.current_funclet_pad.is_none()
+            && self.intercept_routes_unwind(callee, arc_args, arc_func))
+        .then(|| self.block(unwind));
+        let builtin_val =
+            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst));
+        self.intercepted_unwind = None;
+
+        if let Some(val) = builtin_val {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
             self.br_exiting_catchpad(normal_block);

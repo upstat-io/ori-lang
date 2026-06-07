@@ -30,6 +30,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// - The unwind block has actual cleanup instructions (`RcDec` etc.)
     ///
     /// All other invoke unwind targets are dead — no LLVM block is created.
+    /// Whether the intercepted emission for `callee` routes a panicking
+    /// runtime call through the ARC unwind block (per
+    /// `context::intercepted_emission_invokes_unwind`).
+    pub(super) fn intercept_routes_unwind(
+        &self,
+        callee: ori_ir::Name,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> bool {
+        let Some(&first_arg) = args.first() else {
+            return false;
+        };
+        let receiver_ty = self.pool.resolve_fully(func.var_type(first_arg));
+        let receiver_is_list = matches!(self.pool.tag(receiver_ty), ori_types::Tag::List);
+        let method = self.interner.lookup(callee);
+        super::context::intercepted_emission_invokes_unwind(method, receiver_is_list)
+    }
+
     pub(super) fn detect_dead_unwind_blocks(&self, func: &ArcFunction) -> DeadUnwindResult {
         let mut all_invoke_unwind = FxHashSet::default();
         let mut live = FxHashSet::default();
@@ -46,9 +64,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                     let ub = &func.blocks[unwind.index()];
                     let has_cleanup = has_effective_cleanup(ub, func);
-                    let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
-                        || self.callee_will_be_intercepted(*callee, args, func);
-                    if !callee_uses_call && has_cleanup {
+                    let intercepted = self.callee_will_be_intercepted(*callee, args, func);
+                    let callee_uses_call =
+                        self.ctx.nounwind_functions.contains(callee) || intercepted;
+                    // Intercepted may-unwind emissions that route their
+                    // panicking runtime call through the unwind block keep it
+                    // LIVE — `emit_rt_call` emits an `invoke` targeting it
+                    // (per `intercepted_emission_invokes_unwind`).
+                    let intercept_routes_unwind = intercepted
+                        && has_cleanup
+                        && self.intercept_routes_unwind(*callee, args, func);
+                    if has_cleanup && (!callee_uses_call || intercept_routes_unwind) {
                         live.insert(unwind.index());
                     }
                 }
