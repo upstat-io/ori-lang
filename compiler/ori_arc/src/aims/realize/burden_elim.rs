@@ -68,6 +68,10 @@ use std::sync::LazyLock;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ori_ir::Name;
+
+use crate::aims::contract::MemoryContract;
+use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::dimensions::{Consumption, Locality};
 use crate::aims::lattice::AimsState;
@@ -119,6 +123,7 @@ pub(crate) fn eliminate_burden_ops(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
     predicate_stack_rc_disabled: bool,
 ) {
@@ -137,6 +142,7 @@ pub(crate) fn eliminate_burden_ops(
         func,
         state_map,
         same_alloc_reps,
+        contracts,
         interner,
         predicate_stack_rc_disabled,
     );
@@ -263,6 +269,7 @@ fn eliminate_whole_function(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
     predicate_stack_rc_disabled: bool,
 ) {
@@ -282,6 +289,7 @@ fn eliminate_whole_function(
         func,
         state_map,
         same_alloc_reps,
+        contracts,
         interner,
         predicate_stack_rc_disabled,
         &mut remove,
@@ -475,6 +483,7 @@ fn mark_lineage_rebalance_removals(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
     predicate_stack_rc_disabled: bool,
     remove: &mut [Vec<bool>],
@@ -497,20 +506,37 @@ fn mark_lineage_rebalance_removals(
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
 
-    // Forwarder-tainted reps — EXCLUDED. `compute_same_alloc_reps` unions an
-    // `Apply`-result alias (`ApplyAliasSource::Direct`/`Conditional`: a forwarder
-    // `f(x) = x` returning its arg) into the arg's rep, but the forwarder
-    // OWN-CONSUMED the arg, so the caller's pre-call inc is a GENUINE
-    // transfer-duplication (the value is now reachable through BOTH the local
-    // binding and the returned result), NOT an alias-spurious inc. Eliding it
-    // under-counts the shared allocation → use-after-free / wrong result. The
-    // per-path burden net at Phase 6 cannot see the forwarder's internal release
-    // (it lives in the callee), so the net verifies 0 while the runtime
-    // double-frees. The pure-SSA-alias-chain reps this pass targets (`let b = a;
-    // a == b`, unioned via Let-Var edges ONLY) carry no apply-result member.
-    // (generics-forwarder transfer-through-return is the M-a hard-core cluster —
-    // deferred to a later pass that models the callee's return ownership.) Spec:
-    // Annex E §AIMS RL-1 (genuine vs spurious inc) + RL-34 (tail-call transfer).
+    // Forwarder-tainted reps partition into TWO classes via the callee
+    // `ParamContract`/`ReturnContract` provenance:
+    //
+    // (1) TRANSFER-through-return forwarders (`ApplyAliasSource::Direct(arg)` whose
+    //     callee param `transfers_through_return == true`, `@id<T>(x: T) -> T = x`):
+    //     the callee OWN-CONSUMES the arg and transfers it back out (RL-34
+    //     `transferOwnership`; RL-2 `Return` transfer terminal use), so the caller
+    //     acquires the SAME allocation at the result `dst`. That acquisition IS the
+    //     lineage `+1` (`transfer_forwarder_anchors` records the transfer block);
+    //     the per-alias incs AND the Aggregate-result apply-result inc are spurious
+    //     duplicates on top (RL-1: a single moved transfer, not a duplication). The
+    //     rep IS re-balanceable: elide ALL incs + keep EXACTLY ONE POST-transfer
+    //     release. The anchor at the transfer block makes the pre-transfer arg-side
+    //     dec NON-forward-reachable, so `select_single_release_dec` never keeps it
+    //     (keeping it frees the value before the `[own]` move — UAF).
+    //
+    // (2) Every OTHER apply-result alias — a `Project` borrow-view return (the
+    //     callee returns `arg.field` it BORROWED), a `Conditional`/`Wrapped` shape,
+    //     or a `Direct` whose contract does NOT prove `transfers_through_return` —
+    //     stays EXCLUDED. Its result is not a uniform moved transfer of a single
+    //     owned arg, so its result-inc is not a uniform spurious duplicate; eliding
+    //     it under-counts the shared allocation → UAF. The per-var pass owns it.
+    //
+    // Spec: Annex E §AIMS RL-1 (genuine vs spurious inc) + RL-2 (release exactly
+    // once) + RL-34 (tail-call ownership transfer).
+    let transfer_forwarder_anchors = compute_transfer_forwarder_anchors(
+        func,
+        same_alloc_reps,
+        state_map.apply_result_aliases(),
+        contracts,
+    );
     let forwarder_tainted_reps: FxHashSet<ArcVarId> = state_map
         .apply_result_aliases()
         .keys()
@@ -526,35 +552,69 @@ fn mark_lineage_rebalance_removals(
     );
 
     for (rep, ops) in &reps {
-        // Candidate gate: a real, loop-free, NON-forwarder allocation lineage
-        // whose burden ops span ≥2 distinct SSA vars (the pure-Let-alias-chain
-        // signature). A single-var lineage is already handled correctly by the
-        // per-var pass; a loop-carried lineage's release attributes to a different
-        // rep (`same_alloc_reps` excludes the back-edge) so its per-path net
-        // mis-computes; a forwarder-tainted rep's apply-result inc is a genuine
-        // transfer-duplication the per-path burden net cannot see — all three
-        // stay with the per-var pass.
-        if ops.alloc_counts.is_empty()
+        let transfer_anchor_blocks = transfer_forwarder_anchors.get(rep);
+        let is_transfer_forwarder = transfer_anchor_blocks.is_some();
+        // A forwarder-tainted rep is excluded UNLESS it is a proven
+        // transfer-through-return forwarder (class 1 above): only then is its
+        // apply-result inc a uniform spurious duplicate the re-balance may elide.
+        let excluded_forwarder = forwarder_tainted_reps.contains(rep) && !is_transfer_forwarder;
+        // The lineage `+1` anchor: where the allocation is BORN owned in this rep.
+        // A transfer forwarder THREADS an existing allocation through — it adds no
+        // new `+1`. So the anchor is:
+        //   - the `fresh_rc_alloc_dst` self-alloc block(s), when the rep has any
+        //     (RcPtr/FatVal `Construct`/literal/collection-source — the canonical
+        //     birth site). The forwarder transfer of such a value adds nothing.
+        //   - ELSE, for an Aggregate transfer forwarder whose `Construct` is NOT
+        //     `fresh_rc_alloc_dst`-recognized (repr-gated to RcPtr/FatVal), the
+        //     transfer block(s) where the transferred-in value arrives owned at the
+        //     result `dst` — the earliest point in the rep where the allocation is
+        //     known to exist owned by the caller.
+        // Using the self-alloc when present prevents a DOUBLE `+1` (born once +
+        // transferred once) that would over-count an RcPtr forwarder's lineage.
+        let mut alloc_delta: Vec<i64> = vec![0; func.blocks.len()];
+        let alloc_blocks: Vec<usize> = if ops.alloc_counts.is_empty() {
+            // Aggregate transfer forwarder: anchor `+1` at each transfer block
+            // (one acquisition per block on every path through it).
+            match transfer_anchor_blocks {
+                Some(blocks) => {
+                    for &b in blocks {
+                        alloc_delta[b] = 1;
+                    }
+                    let mut v: Vec<usize> = blocks.iter().copied().collect();
+                    v.sort_unstable();
+                    v.dedup();
+                    v
+                }
+                None => Vec::new(),
+            }
+        } else {
+            for (&b, &c) in &ops.alloc_counts {
+                alloc_delta[b] = c;
+            }
+            ops.alloc_counts.keys().copied().collect()
+        };
+        // Candidate gate: a loop-free lineage with a `+1` anchor whose burden ops
+        // span ≥2 distinct SSA vars (the alias-chain / forwarder signature). A
+        // single-var lineage is already handled by the per-var pass; a loop-carried
+        // lineage's release attributes to a different rep (`same_alloc_reps`
+        // excludes the back-edge) so its per-path net mis-computes; an excluded
+        // forwarder's apply-result inc is not a uniform spurious duplicate.
+        if alloc_blocks.is_empty()
             || ops.touches_loop
             || ops.op_vars.len() < 2
-            || forwarder_tainted_reps.contains(rep)
+            || excluded_forwarder
         {
             continue;
         }
         // The SOLE discriminator: eliding ALL incs (alias-spurious by the rep's
         // same-allocation construction — every member shares the one rc, needs
-        // no inc) + keeping EXACTLY ONE dec must drive the lineage's per-path
-        // terminal net to 0 on every alloc-reachable terminal. Verified per-path
-        // via `compute_burden_entry_nets` — never a flat op count (it
+        // no inc) + keeping EXACTLY ONE POST-anchor dec must drive the lineage's
+        // per-path terminal net to 0 on every anchor-reachable terminal. Verified
+        // per-path via `compute_burden_entry_nets` — never a flat op count (it
         // double-counts mutually-exclusive paths). A transferred lineage (alloc
         // returned / moved out → consumer decs, needs no local release) has NO
         // balancing single-dec and is rejected (the per-var pass keeps it). Spec:
         // Annex E §AIMS RL-1 (alias inc spurious) + RL-2 (release exactly once).
-        let mut alloc_delta: Vec<i64> = vec![0; func.blocks.len()];
-        for (&b, &c) in &ops.alloc_counts {
-            alloc_delta[b] = c;
-        }
-        let alloc_blocks: Vec<usize> = ops.alloc_counts.keys().copied().collect();
         let Some(kept_dec) =
             select_single_release_dec(func, &preds, &alloc_blocks, &alloc_delta, &ops.dec_sites)
         else {
@@ -586,12 +646,99 @@ fn mark_lineage_rebalance_removals(
     owned_vars
 }
 
+/// Per-rep transfer-through-return forwarder anchors: the rep of a generics
+/// forwarder (`@id<T>(x: T) -> T = x`) → the block indices where the forwarder
+/// RESULT is defined (the `Apply`/`Invoke` `dst`).
+///
+/// A forwarder unions its consumed arg and its result into ONE
+/// `same_alloc_reps` rep via `ApplyAliasSource::Direct` (the callee returns the
+/// param unchanged). The callee OWN-CONSUMES the arg and transfers it back out
+/// (RL-34 `transferOwnership`: callee Owned param → no post-call dec; RL-2
+/// `Return` is a transfer terminal use), so the caller acquires the SAME
+/// allocation at the result `dst`. That acquisition IS the lineage's `+1` — the
+/// transferred-in value arrives owned at `dst`, not at a fresh `Construct` (an
+/// Aggregate forwarder result whose `Construct` `fresh_rc_alloc_dst` does not
+/// count). The result-INC the Phase-5 walk emits for an Aggregate forwarder
+/// result is a spurious duplicate ON TOP of that `+1` (RL-1: the value is moved
+/// once through the forwarder, not duplicated), elidable by the re-balance.
+///
+/// Discriminator (the precise transfer-vs-alias-spurious distinction): the entry
+/// is admitted ONLY for an `ApplyAliasSource::Direct(arg)` whose callee's
+/// `ParamContract` for `arg`'s position has `transfers_through_return == true`
+/// (the proven Return-flow transfer fact, `IcReturnContract` provenance). A
+/// `Project` borrow-view return (the callee returns `arg.field` it borrowed) or
+/// a `Conditional`/`Wrapped` shape is NOT admitted — its result is not a moved
+/// transfer of a single owned arg, so its result-inc is not a uniform spurious
+/// duplicate. Those reps stay excluded (the per-var pass owns them).
+///
+/// Spec: Annex E §AIMS RL-1 (genuine vs spurious inc) + RL-2 (release exactly
+/// once) + RL-34 (tail-call ownership transfer).
+fn compute_transfer_forwarder_anchors(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashMap<ArcVarId, Vec<usize>> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    // arg-position → `transfers_through_return` lookup for a callee's contract.
+    let arg_transfers_through_return = |callee: &Name, arg: ArcVarId, args: &[ArcVarId]| -> bool {
+        let Some(contract) = contracts.get(callee) else {
+            return false;
+        };
+        args.iter()
+            .zip(contract.params.iter())
+            .any(|(&a, p)| a == arg && p.transfers_through_return)
+    };
+    let mut anchors: FxHashMap<ArcVarId, Vec<usize>> = FxHashMap::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        let mut record = |dst: ArcVarId, callee: &Name, args: &[ArcVarId]| {
+            // Only a Direct forwarder result whose transferred arg's param
+            // `transfers_through_return` anchors the lineage `+1` at `dst`.
+            if let Some(ApplyAliasSource::Direct(arg)) = apply_result_aliases.get(&dst) {
+                if arg_transfers_through_return(callee, *arg, args) {
+                    anchors.entry(rep_of(dst)).or_default().push(b);
+                }
+            }
+        };
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            {
+                record(*dst, callee, args);
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            ..
+        } = &block.terminator
+        {
+            record(*dst, callee, args);
+        }
+    }
+    anchors
+}
+
 /// Select the ONE dec op site to keep as the lineage's RL-2 release: the dec
 /// whose retention (with all incs + all OTHER decs elided) drives the lineage's
 /// per-path terminal net to 0 on EVERY alloc-reachable terminal block, with no
 /// merge disagreement. Returns `None` when no single dec satisfies this (the
 /// lineage transfers out / needs a multi-branch release that removal alone
 /// cannot supply — both defer to the per-var pass).
+///
+/// The kept release MUST be in a block forward-reachable from an alloc/transfer
+/// anchor block. For a pure-alias-chain lineage every dec is post-alloc, so this
+/// is a no-op. For a forwarder lineage anchored at the TRANSFER block (where the
+/// caller acquires the transferred-in value at the result `dst`), it excludes
+/// the pre-transfer arg-side decs: a dec there releases the value BEFORE it is
+/// moved into the forwarder `[own]` arg, freeing a reference about to be
+/// transferred — a use-after-free even when the per-path net verifies 0. Those
+/// decs are elided with the rest; only a post-transfer dec is the RL-2 release.
 ///
 /// The delta passed to the per-path net dataflow models the post-re-balance
 /// lineage exactly: ALL incs elided (the only `+1`s are the per-block allocation
@@ -608,8 +755,16 @@ fn select_single_release_dec(
     dec_sites: &[LineageOp],
 ) -> Option<LineageOp> {
     let alloc_reachable = forward_reachable(func, alloc_blocks);
+    // The kept release must be forward-reachable from an anchor block — a
+    // pre-anchor dec (the pre-transfer arg-side dec of a forwarder) frees the
+    // value before it is moved into the forwarder `[own]` arg (UAF). Filter
+    // those out before selection; they are elided with the other decs.
+    let mut candidates: Vec<LineageOp> = dec_sites
+        .iter()
+        .copied()
+        .filter(|&(b, _)| alloc_reachable.contains(&b))
+        .collect();
     // Ordering: alloc-block decs first, then the rest (stable within each group).
-    let mut candidates: Vec<LineageOp> = dec_sites.to_vec();
     candidates.sort_by_key(|&(b, _)| usize::from(!alloc_blocks.contains(&b)));
 
     for &keep in &candidates {

@@ -250,6 +250,7 @@ pub(super) fn emit_rc_unified(
     eliminate_burden_ops_phase(
         func,
         state_map,
+        contracts,
         interner,
         &same_alloc_reps,
         predicate_stack_rc_disabled,
@@ -295,6 +296,7 @@ pub(super) fn emit_rc_unified(
 fn eliminate_burden_ops_phase(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     predicate_stack_rc_disabled: bool,
@@ -313,6 +315,7 @@ fn eliminate_burden_ops_phase(
             func,
             state_map,
             same_alloc_reps,
+            contracts,
             interner,
             predicate_stack_rc_disabled,
         );

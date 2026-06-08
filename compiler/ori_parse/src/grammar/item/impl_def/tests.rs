@@ -331,10 +331,8 @@ impl Point {
 
 #[test]
 fn test_parse_colon_trait_impl_without_trait_path_errors_e1002() {
-    // Negative pin: `impl Point: { }` (colon, no trait path) must error cleanly
-    // with E1002 via require! on the post-colon parse_impl_type — NOT fall into
-    // the inherent branch, NOT ICE. (Pre-fix this errors with E1001 from the
-    // inherent-fallthrough expect(LBrace); the fix routes it to E1002.)
+    // Negative pin: `impl Point: { }` (colon, no trait path) errors E1002 via
+    // require! on the post-colon parse_impl_type — not the inherent branch, no ICE.
     let source = r"
 impl Point: {
 }
@@ -351,11 +349,9 @@ impl Point: {
     );
 }
 
-// BUG-02-030 matrix: `impl <primitive>: Trait` / `impl <primitive> { }` subject-position
-// primitive-type-name acceptance. grammar.ebnf:312 `trait_impl` subject is a `type`, so a
-// primitive type name is a valid subject. Subject-position primitive acceptance is scoped to
-// the 6-primitive `primitive_type_keyword` helper domain (str/int/bool/float/char/byte); the
-// trait-path position stays Ident-only, and never/void stay E1002.
+// Primitive type-name subjects in impl blocks (`impl str: Trait` / `impl str { }`).
+// grammar.ebnf:312 makes a primitive a valid `trait_impl` subject; acceptance is scoped to
+// the 6-primitive helper (trait-path stays Ident-only; Never/void reject).
 use ori_ir::{ParsedType, TypeId};
 
 fn sole_impl(output: &ParseOutput) -> &ori_ir::ImplDef {
@@ -512,6 +508,14 @@ fn test_parse_impl_container_subject_rejects() {
     );
 }
 
+// Cell #13 — boundary: tuple subject stays unparseable (no tuple-subject path; the `(`
+// hits parse_impl_type's expect_ident, like the list-subject cell #12).
+#[test]
+fn test_parse_impl_tuple_subject_rejects() {
+    let output = parse_source("impl (str, int): Marker { }");
+    assert_e1002(&output, "impl (str, int): Marker (tuple subject)");
+}
+
 // Cell #14 — negative pin: primitive subject with spurious type args (primitives take none).
 #[test]
 fn test_parse_impl_primitive_subject_with_type_args_rejects() {
@@ -530,9 +534,6 @@ fn test_parse_impl_primitive_subject_with_type_args_rejects() {
 fn test_parse_impl_never_void_subjects_reject() {
     for name in ["Never", "void"] {
         let output = parse_source(&format!("impl {name}: Marker {{ }}"));
-        assert!(
-            !output.errors.is_empty(),
-            "impl {name}: — outside helper domain, must reject"
-        );
+        assert_e1002(&output, &format!("impl {name}: (outside helper domain)"));
     }
 }

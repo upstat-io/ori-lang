@@ -88,17 +88,20 @@ fn seed_exit_state(
     state_map.update_block_exit(block, map);
 }
 
-/// Run the elimination pass with an empty same-alloc rep map + a fresh interner
-/// — the per-var DP-2/DP-3 path these unit tests pin. Every test uses
-/// `predicate_stack_rc_disabled = false`, so the lineage re-balance (gated on the
-/// burden-only path) is inert; the empty rep map + fresh interner are correct.
+/// Run the elimination pass with an empty same-alloc rep map + empty contracts
+/// + a fresh interner — the per-var DP-2/DP-3 path these unit tests pin. Every
+/// test uses `predicate_stack_rc_disabled = false`, so the lineage re-balance
+/// (gated on the burden-only path) is inert; the empty maps + fresh interner are
+/// correct.
 fn run_elim(func: &mut ArcFunction, state_map: &AimsStateMap, predicate_stack_rc_disabled: bool) {
     let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
     eliminate_burden_ops(
         func,
         state_map,
         &same_alloc_reps,
+        &contracts,
         &interner,
         predicate_stack_rc_disabled,
     );
@@ -1445,14 +1448,29 @@ fn lineage_rebalance_excludes_forwarder_tainted_rep() {
             ),
         ],
     );
-    eliminate_burden_ops(&mut func, &state_map, &same_alloc_reps, &interner, true);
+    // NO contract for the forwarder → `compute_transfer_forwarder_anchors`
+    // produces no anchor (the `transfers_through_return` provenance is absent), so
+    // the `Direct` apply-result alias stays in the EXCLUDED class: the per-var
+    // pass owns it. An EMPTY contracts map is the right fixture — the exclusion
+    // must hold whenever the transfer fact is unproven.
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
+    eliminate_burden_ops(
+        &mut func,
+        &state_map,
+        &same_alloc_reps,
+        &contracts,
+        &interner,
+        true,
+    );
     let c = census(&func);
     assert_eq!(
         c[0], 2,
-        "forwarder-tainted rep must NOT be re-balanced — both incs survive; census = {c:?}"
+        "forwarder-tainted rep with NO transfers_through_return contract must NOT be \
+         re-balanced — both incs survive; census = {c:?}"
     );
     assert_eq!(
         c[1], 2,
-        "forwarder-tainted rep must NOT be re-balanced — both decs survive; census = {c:?}"
+        "forwarder-tainted rep with NO transfers_through_return contract must NOT be \
+         re-balanced — both decs survive; census = {c:?}"
     );
 }

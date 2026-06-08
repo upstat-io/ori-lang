@@ -221,7 +221,7 @@ use std.testing { assert, assert_eq }
 }
 
 // ----------------------------------------------------------------------------
-// BUG-02-044: break / continue in while-CONDITION position.
+// break / continue in while-CONDITION position.
 // The spec desugar `loop { if !cond then break; body }` (16-control-flow.md
 // §16.2.4) places the condition inside the while's own loop, so a condition-
 // position break/continue targets THIS while. Typeck pushes the LoopForm::While

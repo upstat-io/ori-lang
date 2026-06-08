@@ -409,6 +409,7 @@ fn dump_after_burden_elim(
         &mut clone,
         state_map,
         &same_alloc_reps,
+        config.contracts,
         config.interner,
         *PREDICATE_STACK_RC_DISABLED,
     );

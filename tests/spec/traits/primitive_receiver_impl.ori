@@ -18,7 +18,7 @@ impl bool: Doubler {
   @doubled (self) -> int = if self then 2 else 0;
 }
 
-// trait impl on str with a generic trait argument (the BUG-02-030 repro shape).
+// trait impl on str with a generic trait argument.
 trait Convert<T> {
   @to_t (self) -> T
 }

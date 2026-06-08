@@ -36,15 +36,9 @@ impl Parser<'_> {
             GenericParamRange::EMPTY
         };
 
-        // Parse the first type (could be trait or self_ty)
-        // Supports both simple `Box` and generic `Box<T>`, plus primitive subjects
-        // (`impl str: Trait`). Subject-position primitive acceptance is gated on the
-        // 6-primitive `primitive_type_keyword` helper, NOT the broader 8-token
-        // check_type_keyword() — so `Never`/`void` fall through to expect_ident()->E1002.
-        // The post-colon trait path (below) stays Ident-only via parse_impl_type, so a
-        // primitive in trait position (`impl Foo: str`) still rejects.
-        // Primitives take no type args; a following `<` is left for the colon/inherent
-        // dispatch, which then errors.
+        // Subject may be a primitive type-name keyword (`impl str: Trait`); gate on the
+        // 6-primitive helper, not the broader check_type_keyword, so Never/void reject.
+        // The post-colon trait path stays Ident-only, so `impl Foo: str` also rejects.
         let (first_path, first_ty) = if let Some((type_id, name_str)) =
             crate::grammar::item::generics::primitive_type_keyword(self.cursor.current_kind())
         {
