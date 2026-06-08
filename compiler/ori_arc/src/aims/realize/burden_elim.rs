@@ -73,7 +73,7 @@ use ori_ir::Name;
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::aims::intraprocedural::AimsStateMap;
-use crate::aims::lattice::dimensions::{Consumption, Locality};
+use crate::aims::lattice::dimensions::{AccessClass, Consumption, Locality};
 use crate::aims::lattice::AimsState;
 use crate::aims::transfer::{is_rc_dec_unnecessary, is_rc_inc_elidable};
 use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
@@ -552,12 +552,27 @@ fn mark_lineage_rebalance_removals(
     );
 
     for (rep, ops) in &reps {
+        // A forwarder-tainted rep is un-excluded ONLY when it BOTH is a proven
+        // owned-transfer-through-return forwarder AND has NO `fresh_rc_alloc_dst`
+        // self-alloc — the AGGREGATE case where the transferred-in `Construct` is
+        // not RcPtr/FatVal so Phase 5 KEEPS the spurious apply-result inc and the
+        // lineage has no recognized `+1` (`box_list` / `option_list`). The
+        // transfer anchor supplies that `+1` and the re-balance elides the spurious
+        // inc + keeps one post-transfer release.
+        //
+        // An RcPtr/FatVal forwarder (`id<T>([int]) -> [int]`, or `borrow_if_use`
+        // returning RcPtr lists) HAS a `fresh_rc_alloc_dst` self-alloc: Phase 5
+        // already SUPPRESSED its apply-result inc (`compute_transfer_through_return
+        // _results`, repr-gated to RcPtr/FatVal), so it was sound under the per-var
+        // pass while EXCLUDED. Un-excluding it would let the self-alloc re-balance
+        // fire on a multi-block forwarder lineage and mis-select the kept release
+        // (a used-then-returned forwarder body corrupts the value) — keep it
+        // excluded. Spec: Annex E §AIMS RL-1 + RL-2.
         let transfer_anchor_blocks = transfer_forwarder_anchors.get(rep);
-        let is_transfer_forwarder = transfer_anchor_blocks.is_some();
-        // A forwarder-tainted rep is excluded UNLESS it is a proven
-        // transfer-through-return forwarder (class 1 above): only then is its
-        // apply-result inc a uniform spurious duplicate the re-balance may elide.
-        let excluded_forwarder = forwarder_tainted_reps.contains(rep) && !is_transfer_forwarder;
+        let is_aggregate_transfer_forwarder =
+            transfer_anchor_blocks.is_some() && ops.alloc_counts.is_empty();
+        let excluded_forwarder =
+            forwarder_tainted_reps.contains(rep) && !is_aggregate_transfer_forwarder;
         // The lineage `+1` anchor: where the allocation is BORN owned in this rep.
         // A transfer forwarder THREADS an existing allocation through — it adds no
         // new `+1`. So the anchor is:
@@ -680,26 +695,41 @@ fn compute_transfer_forwarder_anchors(
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<ArcVarId, Vec<usize>> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
-    // arg-position → `transfers_through_return` lookup for a callee's contract.
+    // arg-position → OWNED-transfer-through-return lookup for a callee's contract.
+    //
+    // BOTH conditions are required (the over-fire boundary):
+    //   - `access == Owned`: the callee OWN-CONSUMES the param (RL-34
+    //     `rl34_action .Owned = transferOwnership` — ownership moves through; no
+    //     post-call dec). A `Borrowed` param is `decBeforeCall` (RL-34): the callee
+    //     borrows a VIEW and returns it; the caller STILL OWNS the original, so the
+    //     apply-result is a borrow alias (NOT a moved transfer-dup). A borrowed
+    //     forwarder (`@borrow_if_use(xs: [int]) -> [int] = xs`, `xs` borrow-read
+    //     then returned) sets `transfers_through_return` (the param flows to Return)
+    //     yet keeps `access: Borrowed` — its rep must stay EXCLUDED; the per-var
+    //     pass owns it. Without the `Owned` gate the re-balance over-fires on the
+    //     borrowed-forwarder lineage.
+    //   - `transfers_through_return`: the param flows to a `Return { value }`
+    //     terminator (the proven `facts.return_flow` fact), so the caller acquires
+    //     the same allocation at the result `dst`.
     let arg_transfers_through_return = |callee: &Name, arg: ArcVarId, args: &[ArcVarId]| -> bool {
         let Some(contract) = contracts.get(callee) else {
             return false;
         };
         args.iter()
             .zip(contract.params.iter())
-            .any(|(&a, p)| a == arg && p.transfers_through_return)
+            .any(|(&a, p)| a == arg && p.transfers_through_return && p.access == AccessClass::Owned)
     };
+    // The anchor block is where the forwarder RESULT `dst` is first LIVE OWNED:
+    //   - `Apply` instruction: `dst` is bound in the SAME block (anchor = that
+    //     block).
+    //   - `Invoke` TERMINATOR: `dst` is bound on the NORMAL-successor edge — it is
+    //     NOT live in the Invoke's own block (the unwind edge does not bind it).
+    //     Anchor = the normal successor. Anchoring at the Invoke's own block would
+    //     make the pre-call arg-side dec forward-reachable (the Invoke block
+    //     dominates everything), so the `select_single_release_dec` filter could
+    //     keep that pre-transfer dec (UAF — it frees before the `[own]` move).
     let mut anchors: FxHashMap<ArcVarId, Vec<usize>> = FxHashMap::default();
-    for (b, block) in func.blocks.iter().enumerate() {
-        let mut record = |dst: ArcVarId, callee: &Name, args: &[ArcVarId]| {
-            // Only a Direct forwarder result whose transferred arg's param
-            // `transfers_through_return` anchors the lineage `+1` at `dst`.
-            if let Some(ApplyAliasSource::Direct(arg)) = apply_result_aliases.get(&dst) {
-                if arg_transfers_through_return(callee, *arg, args) {
-                    anchors.entry(rep_of(dst)).or_default().push(b);
-                }
-            }
-        };
+    for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Apply {
                 dst,
@@ -708,17 +738,34 @@ fn compute_transfer_forwarder_anchors(
                 ..
             } = instr
             {
-                record(*dst, callee, args);
+                if let Some(ApplyAliasSource::Direct(arg)) = apply_result_aliases.get(dst) {
+                    if arg_transfers_through_return(callee, *arg, args) {
+                        // Apply result is live in its own block.
+                        anchors
+                            .entry(rep_of(*dst))
+                            .or_default()
+                            .push(block.id.index());
+                    }
+                }
             }
         }
         if let ArcTerminator::Invoke {
             dst,
             func: callee,
             args,
+            normal,
             ..
         } = &block.terminator
         {
-            record(*dst, callee, args);
+            if let Some(ApplyAliasSource::Direct(arg)) = apply_result_aliases.get(dst) {
+                if arg_transfers_through_return(callee, *arg, args) {
+                    // Invoke result is bound on the normal-successor edge.
+                    anchors
+                        .entry(rep_of(*dst))
+                        .or_default()
+                        .push(normal.index());
+                }
+            }
         }
     }
     anchors

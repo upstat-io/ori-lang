@@ -105,9 +105,8 @@ def impl FileSystem {
     assert_eq!(output.module.def_impls.len(), 2);
 }
 
-// Colon trait_impl (`impl Type: Trait`) — the sole trait-impl form mandated by
-// grammar.ebnf:312 trait_impl. The `impl Trait for Type` form has no grammar
-// production and is rejected (E1019). `[T]`/list/tuple impl subjects are out of
+// Colon trait_impl (`impl Type: Trait`) — the sole trait-impl form per grammar.ebnf:312;
+// the `impl Trait for Type` form is rejected (E1019). List/tuple impl subjects are out of
 // scope (parse_impl_type is path-only).
 
 #[test]
@@ -526,10 +525,9 @@ fn test_parse_impl_primitive_subject_with_type_args_rejects() {
     );
 }
 
-// Cell #15 — negative pin: Never/void outside the 6-primitive helper domain stay rejected.
-// `Never` (capital) lexes to TokenKind::NeverType and `void` to TokenKind::Void — both pass
-// the 8-token check_type_keyword() gate but are NOT in the 6-primitive helper, so they fall
-// through to expect_ident()->E1002. (Lowercase `never` is an ordinary identifier, not this case.)
+// Cell #15 — negative pin: Never (capital -> NeverType) and void (-> Void) pass the 8-token
+// check_type_keyword gate but are NOT in the 6-primitive helper, so they fall through to
+// expect_ident()->E1002. (Lowercase `never` is an ordinary identifier.)
 #[test]
 fn test_parse_impl_never_void_subjects_reject() {
     for name in ["Never", "void"] {

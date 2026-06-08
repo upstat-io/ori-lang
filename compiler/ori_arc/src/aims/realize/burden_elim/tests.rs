@@ -1374,11 +1374,22 @@ fn alias_chain_reps() -> FxHashMap<ArcVarId, ArcVarId> {
 
 /// Run elimination on the burden-only path (`predicate_stack_rc_disabled = true`)
 /// with the alias-chain rep map — the path that exercises the lineage re-balance.
+/// The alias-chain rep carries no apply-result alias, so an EMPTY contracts map
+/// is correct: `compute_transfer_forwarder_anchors` finds no forwarder, and the
+/// pure-Let-Var-alias re-balance path is exercised unchanged.
 fn run_elim_rebalance(func: &mut ArcFunction) {
     let same_alloc_reps = alias_chain_reps();
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
     let state_map = AimsStateMap::new(func);
-    eliminate_burden_ops(func, &state_map, &same_alloc_reps, &interner, true);
+    eliminate_burden_ops(
+        func,
+        &state_map,
+        &same_alloc_reps,
+        &contracts,
+        &interner,
+        true,
+    );
 }
 
 /// SEMANTIC PIN: a balanced per-alias burden shape on one allocation

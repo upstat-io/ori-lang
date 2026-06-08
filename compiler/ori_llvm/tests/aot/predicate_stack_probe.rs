@@ -4618,3 +4618,113 @@ fn probe_transfer_through_return_param_borrowed_does_not_leak_negative() {
         "transfer_through_return_param_borrowed_does_not_leak_negative",
     );
 }
+
+/// Compile `source` on the burden-only path WITH the Phase-6 lineage re-balance
+/// DISABLED (`ORI_DISABLE_LINEAGE_REBALANCE=1`) and assert it DOUBLE-FREES /
+/// crashes (exit != 0). The negative half of a re-balance semantic pin: it
+/// proves the cure is LOAD-BEARING — without the re-balance the same program is
+/// broken, so the positive (re-balance ON) pin is not passing by accident.
+fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
+    let (exit, _stdout, _stderr) = compile_and_run_with_build_env(
+        source,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_LINEAGE_REBALANCE", "1"),
+        ],
+    );
+    assert!(
+        exit != 0,
+        "[{label}] expected a double-free / crash with the lineage re-balance DISABLED \
+         (the re-balance is the cure) but the program exited 0 — the positive pin may be \
+         passing for an unrelated reason"
+    );
+}
+
+#[test]
+fn probe_aggregate_transfer_forwarder_box_no_double_free() {
+    // POSITIVE PIN (the §09.2 generics-forwarder transfer-through-return cure):
+    // an owned-transfer-through-return forwarder (`@id<T>(x: T) -> T = x`) over an
+    // AGGREGATE result (`Box<[int]>`, a heap struct wrapping a heap [int]) — the
+    // Phase-5 walk KEEPS the spurious apply-result inc for an Aggregate result
+    // (`compute_transfer_through_return_results` repr-gates suppression to
+    // RcPtr/FatVal), and the Aggregate `Construct` is NOT `fresh_rc_alloc_dst`-
+    // recognized, so the lineage carries an unbalanced spurious inc + orphan
+    // alias decs. The Phase-6 lineage re-balance anchors the `+1` at the forwarder
+    // transfer point (where the caller acquires the transferred-in allocation at
+    // the Invoke result), elides ALL incs + keeps exactly one POST-transfer
+    // release (RL-1 spurious-inc + RL-2 release-exactly-once + RL-34 transfer).
+    // Spec: Annex E §AIMS RL-1 + RL-2 + RL-34.
+    let src = r#"
+type Box<T> = { value: T };
+
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let b: Box<[int]> = Box { value: [7, 8, 9] };
+    let b2 = id(x: b);
+    if b2.value.len() == 3 && b2.value[2] == 9 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_box");
+    // NEGATIVE half: the same program double-frees with the re-balance OFF — the
+    // re-balance is the cure, not an incidental pass.
+    assert_double_free_without_lineage_rebalance(src, "aggregate_transfer_forwarder_box");
+}
+
+#[test]
+fn probe_aggregate_transfer_forwarder_option_no_double_free() {
+    // POSITIVE PIN (cross-Aggregate-shape matrix cell): the same owned-transfer
+    // forwarder over a SUM-type Aggregate (`Option<[int]>`) whose payload carries
+    // the heap [int]. The Invoke result is bound on the NORMAL-successor edge, so
+    // the transfer anchor is the successor block (NOT the Invoke's own block) —
+    // anchoring at the Invoke block would leave the pre-transfer arg-side dec
+    // forward-reachable and the kept-release selection could free the value before
+    // the `[own]` move (UAF). Spec: Annex E §AIMS RL-2 + RL-34.
+    let src = r#"
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt: Option<[int]> = Some([1, 2, 3]);
+    let o2 = id(x: opt);
+    match o2 {
+        Some(xs) -> if xs.len() == 3 then 0 else 1,
+        None -> 2,
+    }
+}
+"#;
+    assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_option");
+    assert_double_free_without_lineage_rebalance(src, "aggregate_transfer_forwarder_option");
+}
+
+#[test]
+fn probe_borrowed_forwarder_rcptr_not_rebalanced_no_corruption() {
+    // NEGATIVE PIN (the over-fire boundary the `Owned` + no-self-alloc gate
+    // protects): a forwarder whose param is OWNED-transferred-through-return but
+    // whose result is an RcPtr collection (`[int]`) — Phase 5 already SUPPRESSED
+    // its apply-result inc (`compute_transfer_through_return_results`, RcPtr-
+    // gated), so it was sound while EXCLUDED from the re-balance. The
+    // aggregate-only un-exclusion MUST NOT fire here: un-excluding an RcPtr
+    // forwarder lineage lets the self-alloc re-balance mis-select the kept release
+    // on the multi-block used-then-returned body and corrupt the list contents
+    // (the value read back is wrong → exit 1). Verifies the RcPtr forwarder still
+    // runs correctly (exit 0, no corruption) under the burden-only path. Spec:
+    // Annex E §AIMS RL-1 + RL-2.
+    let src = r#"
+@borrow_if_use (xs: [int], flag: bool) -> [int] = {
+    if flag then {
+        print(msg: `then: {xs.len()}`);
+        xs
+    } else {
+        print(msg: `else: {xs[0]}`);
+        xs
+    }
+};
+
+@main () -> int = {
+    let original_a = [11, 22, 33];
+    let returned_a = borrow_if_use(xs: original_a, flag: true);
+    if returned_a.len() == 3 && returned_a[0] == 11 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "borrowed_forwarder_rcptr_not_rebalanced");
+}

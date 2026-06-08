@@ -7,6 +7,45 @@ use super::super::{bind_pattern, infer_expr, pattern_is_irrefutable};
 use crate::type_error::{NonCollectingLoopKind, VoidLoopKind};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
+/// Extract the element type bound by a `for` loop from the iterator type.
+///
+/// Known iterables (list, range, iterator, map, set, option, str) yield their
+/// element type: a map yields `(key, value)` tuples, a str yields `char`. An
+/// unknown iterator tag falls back to a fresh type variable so downstream
+/// unification can still catch concrete mismatches. `Range<float>` is rejected
+/// as non-iterable (spec 8.13).
+fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> Idx {
+    let resolved_iter = engine.resolve(iter_ty);
+    match engine.pool().tag(resolved_iter) {
+        Tag::List => engine.pool().list_elem(resolved_iter),
+        Tag::Range => {
+            let elem = engine.pool().range_elem(resolved_iter);
+            if elem == Idx::FLOAT {
+                engine.push_error(TypeCheckError::range_float_not_iterable(
+                    span,
+                    "for i in 0..10 do i.to_float() / 10.0",
+                ));
+            }
+            elem
+        }
+        Tag::Iterator | Tag::DoubleEndedIterator => engine.pool().iterator_elem(resolved_iter),
+        Tag::Map => {
+            // Iterating over a map yields (key, value) tuples
+            let key_ty = engine.pool().map_key(resolved_iter);
+            let value_ty = engine.pool().map_value(resolved_iter);
+            engine.pool_mut().tuple(&[key_ty, value_ty])
+        }
+        // Sets store elements similarly to lists (single type parameter)
+        Tag::Set => engine.pool().set_elem(resolved_iter),
+        // Option<T> iterates as 0-or-1 element of type T
+        Tag::Option => engine.pool().option_inner(resolved_iter),
+        Tag::Str => Idx::CHAR,
+        // Not a known iterable - still allow iteration with a fresh element type;
+        // the type checker catches concrete type mismatches later.
+        _ => engine.fresh_var(),
+    }
+}
+
 /// Infer the type of a for loop.
 ///
 /// For loops in Ori can be used in two forms:
@@ -15,7 +54,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 ///
 /// The iterator must be iterable (list, range, etc.), and the binding
 /// receives each element type.
-// TODO(inference): Refactor with a ForLoopParams struct when implementing
+// TODO(typeck): Refactor with a ForLoopParams struct when implementing
 #[expect(clippy::too_many_arguments, reason = "matches ExprKind::For structure")]
 pub(crate) fn infer_for(
     engine: &mut InferEngine<'_>,
@@ -37,43 +76,7 @@ pub(crate) fn infer_for(
     engine.pop_context();
 
     // Extract element type from iterator
-    let resolved_iter = engine.resolve(iter_ty);
-    let tag = engine.pool().tag(resolved_iter);
-
-    let elem_ty = match tag {
-        Tag::List => engine.pool().list_elem(resolved_iter),
-        Tag::Range => {
-            let elem = engine.pool().range_elem(resolved_iter);
-            if elem == Idx::FLOAT {
-                engine.push_error(TypeCheckError::range_float_not_iterable(
-                    span,
-                    "for i in 0..10 do i.to_float() / 10.0",
-                ));
-            }
-            elem
-        }
-        Tag::Iterator | Tag::DoubleEndedIterator => engine.pool().iterator_elem(resolved_iter),
-        Tag::Map => {
-            // Iterating over a map yields (key, value) tuples
-            let key_ty = engine.pool().map_key(resolved_iter);
-            let value_ty = engine.pool().map_value(resolved_iter);
-            engine.pool_mut().tuple(&[key_ty, value_ty])
-        }
-        Tag::Set => {
-            // Sets store elements similarly to lists (single type parameter)
-            engine.pool().set_elem(resolved_iter)
-        }
-        Tag::Option => {
-            // Option<T> iterates as 0-or-1 element of type T
-            engine.pool().option_inner(resolved_iter)
-        }
-        Tag::Str => Idx::CHAR,
-        _ => {
-            // Not a known iterable - still allow iteration with fresh element type
-            // The type checker will catch concrete type mismatches later
-            engine.fresh_var()
-        }
-    };
+    let elem_ty = for_loop_elem_ty(engine, iter_ty, span);
 
     // Bind the loop pattern (supports name, tuple, wildcard, struct, list)
     engine.push_context(ContextKind::ForBinding);
