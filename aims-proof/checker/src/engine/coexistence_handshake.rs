@@ -193,9 +193,11 @@ fn dp2_is_rc_dec_unnecessary(s: ModeledState) -> bool {
 }
 
 /// DP-3 truth table per Annex E §AIMS: is_rc_inc_elidable(s) iff
-/// cardinality = Once AND consumption = Linear.
+/// cardinality = Once AND consumption ∈ {Linear, Affine} (single-use values are
+/// not duplicated, so the duplicate-inc is unnecessary for move or borrow).
 fn dp3_is_rc_inc_elidable(s: ModeledState) -> bool {
-    matches!(s.cardinality, Cardinality::Once) && matches!(s.consumption, Consumption::Linear)
+    matches!(s.cardinality, Cardinality::Once)
+        && matches!(s.consumption, Consumption::Linear | Consumption::Affine)
 }
 
 /// Handshake.proof Predicate 1: burden-owned conjunction. The plan body's

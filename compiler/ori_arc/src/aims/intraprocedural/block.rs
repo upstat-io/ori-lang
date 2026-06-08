@@ -44,6 +44,14 @@ pub(crate) struct BlockAnalysisResult {
     /// this block has no Invoke-defined dsts. The owner Invoke block is
     /// determined by the caller via the `invoke_dst_to_owner` inverse map.
     pub invoke_def_demand: FxHashMap<ArcVarId, AimsState>,
+    /// Pre-strip demand for intra-block instruction-defined dsts (e.g. a fresh
+    /// `Construct` consumed within this block). Captured BEFORE
+    /// `apply_instr_forward_transfer` strips the dst, so a downstream
+    /// `var_state_at_definition` query recovers the converged backward-demand
+    /// (`seqAdd`-accumulated cardinality) the strip erases from `entry_state`.
+    /// Maps `dst → AimsState`. Keyed into `AimsStateMap.def_demand` by the
+    /// caller as `(this_block, dst)`.
+    pub def_demand: FxHashMap<ArcVarId, AimsState>,
 }
 
 /// Compute the EXIT state of a block from its successors' ENTRY states.
@@ -172,6 +180,11 @@ pub(crate) fn compute_block_entry_state(
         }
     }
 
+    // Converged BACKWARD-demand at each intra-block instruction definition,
+    // captured at the strip site so `var_state_at_definition` recovers it for
+    // a var defined+consumed within this block (where block-exit is BOTTOM).
+    let mut def_demand: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
+
     // Walk instructions in reverse order.
     for instr in block.body.iter().rev() {
         // Forward transfer: compute the state for the defined variable.
@@ -188,6 +201,18 @@ pub(crate) fn compute_block_entry_state(
         };
 
         if def_transfer.is_some() {
+            // Capture the converged demand on the defined var BEFORE
+            // `apply_instr_forward_transfer` strips it. This is the
+            // `seqAdd`-accumulated cardinality (TF-11) from all uses below the
+            // def — `Once`/`Linear` for a single-use fresh value, `Many` for a
+            // multi-use one — exactly DP-3's proven input.
+            if let Some(dst) = instr.defined_var() {
+                if !state_map.is_excluded(dst) {
+                    if let Some(state) = current.get(&dst).copied() {
+                        def_demand.insert(dst, state);
+                    }
+                }
+            }
             apply_instr_forward_transfer(instr, &mut current, state_map, sigs, &mut block_effects);
         }
 
@@ -237,6 +262,7 @@ pub(crate) fn compute_block_entry_state(
         entry_state: current,
         effects: block_effects,
         invoke_def_demand,
+        def_demand,
     }
 }
 

@@ -183,6 +183,68 @@ pub(super) fn resolve_deferred_mono_calls(
     }
 }
 
+/// Complete each method instance's `body_type_map` against the now-fully-interned
+/// pool, after every body pass has run.
+///
+/// The eager method-mono path (`maybe_record_method_mono_instance`) builds the
+/// `body_type_map` at the CALL site (Pass 3), but a generic-impl method body
+/// interns its own composite types during method-body inference (Pass 4) — e.g.
+/// a `Pair<B, A>` constructor inside `swap (self) -> Pair<B, A>`. Those body
+/// composites cannot exist when the call-site map is built, so the flat map
+/// misses them and the composite reaches codegen with its impl `RigidVar`s
+/// unsubstituted (LLVM "Invalid `InsertValueInst`" on the un-substituted struct).
+///
+/// This pass reconstructs each instance's `var_id → concrete` substitution from
+/// its eager `body_type_map` leaf entries and re-walks the complete pool via the
+/// canonical `build_mono_body_type_map`. `substitute_in_pool` follows the body
+/// inference vars' links to the impl `RigidVar`s, which the leaf substitution
+/// maps to concrete — so a Pass-4 `Pair<Var, Var>` ctor composite resolves to
+/// the concrete `Pair<str, int>` and its `Applied → Struct` resolution registers.
+pub(super) fn refresh_method_mono_body_type_maps(
+    pool: &mut Pool,
+    mono_instances: &mut [crate::MonoInstance],
+    struct_type_params: &rustc_hash::FxHashMap<Name, Vec<Name>>,
+) {
+    use crate::{Idx, Tag};
+
+    for inst in mono_instances.iter_mut() {
+        // Only impl-method instances can construct impl-generic composites in
+        // their body; top-level free functions carry no impl-level rigid leaves.
+        if inst.impl_args.is_empty() {
+            continue;
+        }
+
+        // Reconstruct the `var_id → concrete` substitution from the eager map's
+        // leaf (Var / RigidVar / BoundVar) entries. `Pool::data` on a variable
+        // item IS its `var_id` (per types.md TK-1).
+        let mut var_subst: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
+        for &(key, val) in &inst.body_type_map {
+            if matches!(pool.tag(key), Tag::Var | Tag::RigidVar | Tag::BoundVar) {
+                var_subst.insert(pool.data(key), val);
+            }
+        }
+        if var_subst.is_empty() {
+            continue;
+        }
+
+        // Re-walk the now-complete pool so body composites interned AFTER eager
+        // recording are captured. Preserve the eager `Tag::Named` binder entries
+        // (`build_mono_body_type_map` does not produce them).
+        let mut refreshed: Vec<(Idx, Idx)> = Vec::new();
+        crate::pool::substitute::build_mono_body_type_map(pool, &var_subst, &mut refreshed);
+        for &(key, val) in &inst.body_type_map {
+            if pool.tag(key) == Tag::Named {
+                refreshed.push((key, val));
+            }
+        }
+        refreshed.sort_by_key(|(k, _)| k.raw());
+        refreshed.dedup_by_key(|(k, _)| k.raw());
+
+        crate::infer::register_concrete_applied_resolutions(pool, &refreshed, struct_type_params);
+        inst.body_type_map = refreshed;
+    }
+}
+
 /// Attempt to resolve a single deferred call against the caller's
 /// already-realized `generic_args`. Pushes a fresh `MonoInstance` onto
 /// `mono_instances` iff the call's `var_subst` is fully concrete, the

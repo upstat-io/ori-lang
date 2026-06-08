@@ -8,7 +8,7 @@
 //!   s.consumption = Dead`.
 //! - DP-3 (`is_rc_inc_elidable` at `aims/transfer/mod.rs:411`):
 //!   `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧
-//!   s.consumption = Linear`.
+//!   (s.consumption = Linear ∨ Affine)`.
 
 use super::{burden_op_census, eliminate_burden_ops, is_burden_removal_only};
 use crate::aims::intraprocedural::AimsStateMap;
@@ -88,6 +88,29 @@ fn seed_exit_state(
     state_map.update_block_exit(block, map);
 }
 
+/// Run the elimination pass with an empty same-alloc rep map + a fresh interner
+/// — the per-var DP-2/DP-3 path these unit tests pin. Every test uses
+/// `predicate_stack_rc_disabled = false`, so the lineage re-balance (gated on the
+/// burden-only path) is inert; the empty rep map + fresh interner are correct.
+fn run_elim(func: &mut ArcFunction, state_map: &AimsStateMap, predicate_stack_rc_disabled: bool) {
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let interner = ori_ir::StringInterner::new();
+    eliminate_burden_ops(
+        func,
+        state_map,
+        &same_alloc_reps,
+        &interner,
+        predicate_stack_rc_disabled,
+    );
+}
+
+/// Per-burden-op-kind census `[BurdenInc, BurdenDec, BurdenDecPartial,
+/// BurdenDecField, BurdenDecVariant]` over a function — for asserting the
+/// post-elimination op shape.
+fn census(func: &ArcFunction) -> [usize; 5] {
+    burden_op_census(func)
+}
+
 // ITEM-3 — Negative pins (matrix-clamping regression-resistance).
 
 /// State (Linear, Once) — DP-2 returns FALSE per `DP-2`
@@ -104,7 +127,7 @@ fn dp2_false_preserves_burden_dec_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -133,7 +156,7 @@ fn dp3_false_preserves_burden_inc_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -157,7 +180,7 @@ fn dp3_false_preserves_burden_inc_linear_many() {
 /// `burden_elim` removes the `BurdenInc` instruction.
 ///
 /// Per `DP-3`: `is_rc_inc_elidable(s) ⟺ s.cardinality =
-/// Once ∧ s.consumption = Linear`.
+/// Once ∧ (s.consumption = Linear ∨ Affine)`. This test pins the Linear arm.
 #[test]
 fn elide_inc_on_linear_once() {
     let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
@@ -169,7 +192,7 @@ fn elide_inc_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert!(
@@ -197,7 +220,7 @@ fn elide_dec_on_dead_absent() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert!(
@@ -222,7 +245,7 @@ fn elide_dec_partial_on_dead_absent() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -243,7 +266,7 @@ fn elide_dec_variant_on_dead_absent() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -267,7 +290,7 @@ fn elide_dec_field_on_dead_absent_base() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -296,7 +319,7 @@ fn preserve_dec_partial_on_many_unrestricted() {
         )],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -325,9 +348,9 @@ fn preserve_dec_partial_on_many_unrestricted() {
 //   (Dead ↔ Absent bidirectional), only (Absent, Dead) satisfies DP-2 in
 //   a canonicalized state — the other four feasible states all preserve
 //   BurdenDec*.
-// - DP-3 true ⟺ `cardinality = Once ∧ consumption = Linear`. Only
-//   (Once, Linear) satisfies DP-3 — the other four feasible states all
-//   preserve BurdenInc.
+// - DP-3 true ⟺ `cardinality = Once ∧ (consumption = Linear ∨ Affine)`. Both
+//   (Once, Linear) and (Once, Affine) satisfy DP-3 — the remaining feasible
+//   states all preserve BurdenInc.
 //
 // Each cell pins the variant-specific code path even when the predicted
 // outcome duplicates another cell; intentional matrix coverage
@@ -352,7 +375,7 @@ fn preserve_dec_partial_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -379,7 +402,7 @@ fn preserve_dec_variant_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -410,7 +433,7 @@ fn preserve_dec_field_on_linear_once_base() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -439,7 +462,7 @@ fn preserve_dec_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -469,7 +492,7 @@ fn preserve_dec_partial_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -496,7 +519,7 @@ fn preserve_dec_variant_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -527,7 +550,7 @@ fn preserve_dec_field_on_linear_many_base() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -543,10 +566,11 @@ fn preserve_dec_field_on_linear_many_base() {
 
 // (Once, Affine) × { BurdenInc, BurdenDec, BurdenDecPartial, BurdenDecVariant, BurdenDecField }
 
-/// State (Once, Affine) × `BurdenInc` — DP-3 false (consumption ≠ Linear);
-/// inc must NOT be removed.
+/// State (Once, Affine) × `BurdenInc` — DP-3 TRUE per `Once ∧ (Linear ∨ Affine)`
+/// (`AimsProof.Decision.is_rc_inc_elidable` + `DP3_is_rc_inc_elidable_table`); a
+/// single-use value borrowed (Affine) is not duplicated, so the inc is elided.
 #[test]
-fn preserve_inc_on_affine_once() {
+fn elide_inc_on_affine_once() {
     let func_body = vec![ArcInstr::BurdenInc { var: v(0) }];
     let mut func = one_block_func(1, func_body);
     let mut state_map = AimsStateMap::new(&func);
@@ -556,18 +580,13 @@ fn preserve_inc_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
-    assert_eq!(
-        body.len(),
-        1,
-        "DP-3 false on (Once, Affine) must preserve BurdenInc; body = {body:?}"
+    assert!(
+        body.is_empty(),
+        "DP-3 true on (Once, Affine) must elide BurdenInc; body = {body:?}"
     );
-    assert!(matches!(
-        body[0],
-        ArcInstr::BurdenInc { var } if var == v(0)
-    ));
 }
 
 /// State (Once, Affine) × `BurdenDec` — DP-2 false (neither cardinality =
@@ -583,7 +602,7 @@ fn preserve_dec_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -613,7 +632,7 @@ fn preserve_dec_partial_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -640,7 +659,7 @@ fn preserve_dec_variant_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -671,7 +690,7 @@ fn preserve_dec_field_on_affine_once_base() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -704,7 +723,7 @@ fn preserve_inc_on_unrestricted_many() {
         )],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -734,7 +753,7 @@ fn preserve_dec_on_unrestricted_many() {
         )],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -764,7 +783,7 @@ fn preserve_dec_variant_on_unrestricted_many() {
         )],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -798,7 +817,7 @@ fn preserve_dec_field_on_unrestricted_many_base() {
         )],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -830,7 +849,7 @@ fn preserve_inc_on_dead_absent() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -1027,10 +1046,12 @@ fn burden_emitted_records_emitted_vars() {
 /// ONLY when DP-3 fires on every Inc AND DP-2 fires on every Dec — otherwise every op
 /// for that var is retained so the intraprocedural net stays zero.
 ///
-/// v0 state (Once, Linear): DP-3 fires on its Inc but DP-2 does NOT fire
-/// on its Dec → both retained to keep the Inc/Dec pair balanced.
+/// v0 state (Once, Linear): DP-3 fires on its Inc → inc ELIDED; DP-2 does
+/// NOT fire on its Dec → the RL-2 scope-exit Dec is KEPT (decoupled inc-only
+/// elision — the alloc/callee-return supplies the +1, the surviving Dec brings
+/// it to 0, RC-balanced per `RL1_duplication_balanced`).
 /// v1 state (Many, Unrestricted): neither DP-2 nor DP-3 fire → its Dec
-/// retained. Non-burden `RcInc` preserved verbatim. No ops elided.
+/// retained. Non-burden `RcInc` preserved verbatim + relative order kept.
 #[test]
 fn mixed_body_preserves_non_burden_and_relative_order() {
     let func_body = vec![
@@ -1058,18 +1079,17 @@ fn mixed_body_preserves_non_burden_and_relative_order() {
         ],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     assert_eq!(
         body.len(),
-        4,
-        "paired-elim preserves Inc/Dec pair when DP-2 fails on Dec; body = {body:?}"
+        3,
+        "decoupled inc-only elim: v0 BurdenInc elided (DP-3), its Dec + v1 ops kept; body = {body:?}"
     );
-    assert!(matches!(body[0], ArcInstr::BurdenInc { var } if var == v(0)));
-    assert!(matches!(body[1], ArcInstr::RcInc { var, .. } if var == v(1)));
-    assert!(matches!(body[2], ArcInstr::BurdenDec { var } if var == v(1)));
-    assert!(matches!(body[3], ArcInstr::BurdenDec { var } if var == v(0)));
+    assert!(matches!(body[0], ArcInstr::RcInc { var, .. } if var == v(1)));
+    assert!(matches!(body[1], ArcInstr::BurdenDec { var } if var == v(1)));
+    assert!(matches!(body[2], ArcInstr::BurdenDec { var } if var == v(0)));
 }
 
 /// Paired-elim positive case: same var has `BurdenInc` + `BurdenDec`, both
@@ -1101,7 +1121,7 @@ fn paired_elim_unmatched_inc_retains_both() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     let body = &func.blocks[0].body;
     // (Absent, Dead): DP-2 fires on Dec but DP-3 FAILS on Inc (needs
@@ -1132,7 +1152,7 @@ fn paired_elim_solo_inc_elidable_state_elides() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -1155,7 +1175,7 @@ fn paired_elim_solo_dec_unnecessary_state_elides() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -1199,7 +1219,7 @@ fn phase6_is_elimination_census_strictly_shrinks() {
     );
 
     let before = burden_op_census(&func);
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
     let after = burden_op_census(&func);
 
     // BurdenInc census (index 0) strictly shrinks: the elidable op is removed.
@@ -1241,7 +1261,7 @@ fn phase6_preserves_census_when_nothing_elidable() {
     );
 
     let before = burden_op_census(&func);
-    eliminate_burden_ops(&mut func, &state_map);
+    run_elim(&mut func, &state_map, false);
     let after = burden_op_census(&func);
 
     assert_eq!(
@@ -1298,4 +1318,141 @@ fn debug_guard_panics_on_phase6_construction() {
     // after grows BurdenDec from 0 → 1: a construction in Phase 6.
     let after = [1usize, 1, 0, 0, 0];
     debug_assert_burden_removal_only(&before, &after);
+}
+
+// Lineage re-balance pins (the `same_alloc_reps`-grouped alias-chain
+// release-exactly-once pass, burden-only path).
+
+/// Build a single-block alias-chain function: `%0 = "lit"` (fresh `FatValue`
+/// alloc) + `%1 = Let Var(%0)` (alias) with the supplied burden `body`, returning
+/// a scalar so the block is terminal. `var_reprs` marks `%0`/`%1` as `FatValue`
+/// (the `fresh_rc_alloc_dst` repr gate) and the return var as `Scalar`.
+fn alias_chain_func(body: Vec<ArcInstr>) -> ArcFunction {
+    use crate::ir::{ArcValue, LitValue};
+    use crate::ValueRepr;
+    let mut full_body = vec![
+        ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(LitValue::String(name(99))),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+    ];
+    full_body.extend(body);
+    let mut func = ArcFunction {
+        name: name(1),
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: Vec::new(),
+            body: full_body,
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        ..Default::default()
+    };
+    // %0, %1 are FatValue (RC-tracked str); %2 (return scalar) is Scalar.
+    func.var_reprs = vec![ValueRepr::FatValue, ValueRepr::FatValue, ValueRepr::Scalar];
+    func
+}
+
+/// `same_alloc_reps` unioning `%1 → %0` (the Let-Var alias edge), the rep map
+/// `compute_same_alloc_reps` would produce for `let b = a`.
+fn alias_chain_reps() -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut reps = FxHashMap::default();
+    reps.insert(v(0), v(0));
+    reps.insert(v(1), v(0));
+    reps
+}
+
+/// Run elimination on the burden-only path (`predicate_stack_rc_disabled = true`)
+/// with the alias-chain rep map — the path that exercises the lineage re-balance.
+fn run_elim_rebalance(func: &mut ArcFunction) {
+    let same_alloc_reps = alias_chain_reps();
+    let interner = ori_ir::StringInterner::new();
+    let state_map = AimsStateMap::new(func);
+    eliminate_burden_ops(func, &state_map, &same_alloc_reps, &interner, true);
+}
+
+/// SEMANTIC PIN: a balanced per-alias burden shape on one allocation
+/// (`burden_inc %0`, `burden_inc %1`, `burden_dec %0`, `burden_dec %1`) is
+/// re-balanced to EXACTLY ONE release — alloc(+1) − 1 dec = 0 (RL-2
+/// `RL2_release_exactly_once`). Pre-fix the per-var pass kept both decs +
+/// stripped only the alias inc → net −1 (double-free). This pins the
+/// alias-chain re-balance: zero incs + exactly one dec survive.
+#[test]
+fn lineage_rebalance_alias_chain_keeps_one_release() {
+    let mut func = alias_chain_func(vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ]);
+    run_elim_rebalance(&mut func);
+    let c = census(&func);
+    assert_eq!(
+        c[0], 0,
+        "lineage re-balance must elide ALL alias-chain incs; census = {c:?}"
+    );
+    assert_eq!(
+        c[1], 1,
+        "lineage re-balance must keep EXACTLY ONE BurdenDec as the RL-2 release; \
+         census = {c:?}"
+    );
+}
+
+/// NEGATIVE PIN: a FORWARDER-tainted rep (an `ApplyAliasSource::Direct` result
+/// unioned into the lineage) is EXCLUDED from the re-balance — its apply-result
+/// inc is a genuine transfer-duplication, not an alias-spurious inc; eliding it
+/// would under-count the shared allocation. The per-var pass owns it, so the
+/// balanced inc/dec PAIR survives unchanged (DP-2 false on `Once` → dec kept;
+/// DP-3 no-fire on `Many` → inc kept). Pins the forwarder exclusion that cured
+/// the generics-forwarder over-fire.
+#[test]
+fn lineage_rebalance_excludes_forwarder_tainted_rep() {
+    use crate::aims::intraprocedural::state_map::ApplyAliasSource;
+    let mut func = alias_chain_func(vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ]);
+    let same_alloc_reps = alias_chain_reps();
+    let interner = ori_ir::StringInterner::new();
+    let mut state_map = AimsStateMap::new(&func);
+    // %1 is an apply-result Direct alias of %0 (a forwarder f(%0) = %0): taints
+    // rep %0, so the re-balance must NOT fire on this lineage.
+    let mut aliases = FxHashMap::default();
+    aliases.insert(v(1), ApplyAliasSource::Direct(v(0)));
+    state_map.set_apply_result_aliases(aliases);
+    // (Many, Unrestricted) on both → per-var keeps incs (DP-3 no-fire) + decs
+    // (DP-2 false) → all 4 ops survive when the re-balance is correctly skipped.
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[
+            (
+                v(0),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+            (
+                v(1),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+        ],
+    );
+    eliminate_burden_ops(&mut func, &state_map, &same_alloc_reps, &interner, true);
+    let c = census(&func);
+    assert_eq!(
+        c[0], 2,
+        "forwarder-tainted rep must NOT be re-balanced — both incs survive; census = {c:?}"
+    );
+    assert_eq!(
+        c[1], 2,
+        "forwarder-tainted rep must NOT be re-balanced — both decs survive; census = {c:?}"
+    );
 }

@@ -56,9 +56,10 @@ mod type_resolution;
 // submodule so drift is easy to spot at review time.
 
 pub(super) use blocks::{infer_block, infer_let, pattern_first_name};
+pub(crate) use calls::register_concrete_applied_resolutions;
 pub(super) use calls::{
-    compose_builtin_burdens_for_resolved_types, infer_call, infer_call_named, infer_method_call,
-    infer_method_call_named,
+    compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
+    infer_method_call, infer_method_call_named,
 };
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,

@@ -5344,6 +5344,95 @@ fn project_of_owned_source_dst_is_not_borrow_excluded() {
     );
 }
 
+/// `compute_borrowed_arg_let_aliases`: a `Let { Var(src) }` whose sole use is a
+/// BORROWED Invoke arg AND whose `src` is used >= 2 (genuine dup, source stays
+/// live to carry the release) is a borrow-view → excluded. `f(x, x)` over two
+/// Borrowed params. The `src >= 2` gate is LOAD-BEARING: a
+/// move source (src used once) makes the alias the sole RC carrier, so it MUST
+/// NOT be excluded (else the release is dropped — leak). Per RL-1.
+#[test]
+fn borrowed_arg_let_aliases_excludes_dup_source_keeps_move_source() {
+    fn alias_func(dup: bool) -> ArcFunction {
+        // %0 owned param; %1=Var(%0); (dup) %2=Var(%0); Invoke f(borrowed args).
+        let mut body = vec![ArcInstr::Let {
+            dst: ArcVarId::new(1),
+            ty: Idx::STR,
+            value: ArcValue::Var(ArcVarId::new(0)),
+        }];
+        let (args, arg_own, var_types) = if dup {
+            body.push(ArcInstr::Let {
+                dst: ArcVarId::new(2),
+                ty: Idx::STR,
+                value: ArcValue::Var(ArcVarId::new(0)),
+            });
+            (
+                vec![ArcVarId::new(1), ArcVarId::new(2)],
+                vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+                vec![Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+            )
+        } else {
+            (
+                vec![ArcVarId::new(1)],
+                vec![ArgOwnership::Borrowed],
+                vec![Idx::STR, Idx::STR, Idx::INT],
+            )
+        };
+        let dst = ArcVarId::new(u32::try_from(var_types.len() - 1).unwrap());
+        ArcFunction {
+            params: vec![ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            }],
+            var_types,
+            blocks: vec![
+                ArcBlock {
+                    id: ArcBlockId::new(0),
+                    params: Vec::new(),
+                    body,
+                    terminator: ArcTerminator::Invoke {
+                        dst,
+                        ty: Idx::INT,
+                        func: Name::from_raw(99),
+                        args,
+                        arg_ownership: arg_own,
+                        normal: ArcBlockId::new(1),
+                        unwind: ArcBlockId::new(2),
+                        mono_instance_id: None,
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(1),
+                    params: Vec::new(),
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Return { value: dst },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(2),
+                    params: Vec::new(),
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        }
+    }
+    // Dup source (src %0 used 2x): both borrow-view aliases excluded.
+    let dup = super::compute_borrowed_arg_let_aliases(&alias_func(true));
+    assert!(
+        dup.contains(&ArcVarId::new(1)) && dup.contains(&ArcVarId::new(2)),
+        "dup-source borrowed-arg aliases MUST be excluded (f(x,x)); got {dup:?}",
+    );
+    // Move source (src %0 used 1x): the alias is the sole carrier — NOT excluded.
+    let mv = super::compute_borrowed_arg_let_aliases(&alias_func(false));
+    assert!(
+        mv.is_empty(),
+        "move-source borrowed-arg alias MUST NOT be excluded (sole RC carrier); got {mv:?}",
+    );
+}
+
 // Collection-buffer last-use freeing dec.
 //
 // A monomorphized collection instance (`[str]`, `{int:str}`, `Set<str>`) has

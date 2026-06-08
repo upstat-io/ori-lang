@@ -1506,6 +1506,91 @@ fn test_labeled_while_loop_carries_label() {
 }
 
 #[test]
+fn test_while_loop_with_do_block_body_parses() {
+    let result = parse_source("@f () -> void = while true do { break; }");
+    assert!(
+        !result.has_errors(),
+        "while with do-block body should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::While { cond, body, .. } = &body.kind {
+        let cond_expr = result.arena.get_expr(*cond);
+        assert!(
+            matches!(cond_expr.kind, ExprKind::Bool(true)),
+            "while cond should be `true`, got {cond_expr:?}"
+        );
+        let body_expr = result.arena.get_expr(*body);
+        assert!(
+            matches!(body_expr.kind, ExprKind::Block { .. }),
+            "while body should be a Block, got {body_expr:?}"
+        );
+    } else {
+        panic!("expected While, got {body:?}");
+    }
+}
+
+#[test]
+fn test_while_loop_with_compound_and_condition_parses() {
+    let result = parse_source("@f (a: bool, b: bool) -> void = while a && b do break;");
+    assert!(
+        !result.has_errors(),
+        "while with `&&` compound condition should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::While { cond, .. } = &body.kind {
+        let cond_expr = result.arena.get_expr(*cond);
+        assert!(
+            matches!(
+                cond_expr.kind,
+                ExprKind::Binary {
+                    op: BinaryOp::And,
+                    ..
+                }
+            ),
+            "while cond should be `&&` Binary, got {cond_expr:?}"
+        );
+    } else {
+        panic!("expected While, got {body:?}");
+    }
+}
+
+#[test]
+fn test_nested_while_loops_parse() {
+    let result = parse_source("@f (a: bool, b: bool) -> void = while a do while b do break;");
+    assert!(
+        !result.has_errors(),
+        "nested while should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::While { body, .. } = &body.kind {
+        let inner = result.arena.get_expr(*body);
+        assert!(
+            matches!(inner.kind, ExprKind::While { .. }),
+            "outer while body should be an inner While, got {inner:?}"
+        );
+    } else {
+        panic!("expected outer While, got {body:?}");
+    }
+}
+
+#[test]
+fn test_while_loop_rejects_yield_form() {
+    // No `while...yield` form exists per the while-loop proposal; the parser
+    // requires `do` after the condition, so `while c yield e` must NOT parse.
+    let result = parse_source("@f () -> [int] = while true yield 1");
+    assert!(
+        result.has_errors(),
+        "`while...yield` must NOT parse (no yield form per proposal): {result:?}"
+    );
+}
+
+#[test]
 fn test_labeled_continue_with_value() {
     let result = parse_source(
         "@f () -> [int] = for:lp x in [1, 2, 3] yield {\

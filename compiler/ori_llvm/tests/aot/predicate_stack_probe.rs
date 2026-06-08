@@ -4497,3 +4497,124 @@ fn probe_collect_result_straightline_dead_already_balanced_sibling() {
         "collect_result_straightline_dead_already_balanced_sibling",
     );
 }
+
+// M-a callee transfer-source-dec strip — a param that flows to a `Return`
+// terminator while ALSO used multiple times across blocks. Per AIMS RL-2 the
+// `Return` terminal use transfers ownership back to the caller, so the callee
+// MUST NOT emit a scope-exit `BurdenDec` on the param (it would double-release
+// the allocation handed back through the return). The structural move-alias
+// scan conservatively keeps the dec for a multi-block-used param; the function's
+// own `MemoryContract.transfers_through_return` carries the proven Return-flow
+// fact precisely. Matrix: element-type axis x multi-block-use scenario. Spec:
+// Annex E §AIMS RL-2 (`RL2_transfer_kinds_no_dec` for `Return`).
+
+#[test]
+fn probe_transfer_through_return_param_list_int_multi_use() {
+    // [int] param: two borrow uses across CFG (a print + an index) then return.
+    // The interpolation splits the body across unwind-edge blocks, so the param's
+    // terminal move to the Return is multi-block — the contract strip is the cure.
+    let src = r#"
+@use_twice (xs: [int]) -> [int] = {
+    print(msg: `len: {xs.len()}`);
+    print(msg: `first: {xs[0]}`);
+    xs
+};
+
+@main () -> int = {
+    let original = [10, 20, 30];
+    let returned = use_twice(xs: original);
+    if returned.len() == 3 && returned[0] == 10 && returned[2] == 30 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "transfer_through_return_param_list_int_multi_use");
+}
+
+#[test]
+fn probe_transfer_through_return_param_str_multi_use() {
+    // str param: borrow uses across CFG then return — the str fat-value variant
+    // of the same multi-block transfer-through-return shape.
+    let src = r#"
+@use_twice (s: str) -> str = {
+    print(msg: `a: {s.len()}`);
+    print(msg: `b: {s.len()}`);
+    s
+};
+
+@main () -> int = {
+    let original = "hello";
+    let returned = use_twice(s: original);
+    if returned.len() == 5 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "transfer_through_return_param_str_multi_use");
+}
+
+#[test]
+fn probe_transfer_through_return_param_list_str_multi_use() {
+    // [str] param (heap elements): exercises elem_dec_fn on the returned buffer —
+    // a spurious callee dec would double-free the element buffer, not just the
+    // outer fat pointer.
+    let src = r#"
+@use_twice (xs: [str]) -> [str] = {
+    print(msg: `len: {xs.len()}`);
+    print(msg: `first: {xs[0]}`);
+    xs
+};
+
+@main () -> int = {
+    let original = ["a", "bb", "ccc"];
+    let returned = use_twice(xs: original);
+    if returned.len() == 3 && returned[0].len() == 1 && returned[2].len() == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "transfer_through_return_param_list_str_multi_use");
+}
+
+#[test]
+fn probe_transfer_through_return_param_match_arm_multi_use() {
+    // Pattern-dispatch path: the param is used in a `match` arm then returned —
+    // the terminal move crosses Maranget decision-tree blocks, so the param is
+    // multi-block-used and the contract strip is required.
+    let src = r#"
+@first_or_zero (xs: [int]) -> [int] = {
+    let _peek = match xs.len() {
+        0 -> 0,
+        _ -> xs[0],
+    };
+    xs
+};
+
+@main () -> int = {
+    let original = [7, 8, 9];
+    let returned = first_or_zero(xs: original);
+    if returned.len() == 3 && returned[0] == 7 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "transfer_through_return_param_match_arm_multi_use");
+}
+
+#[test]
+fn probe_transfer_through_return_param_borrowed_does_not_leak_negative() {
+    // NEGATIVE PIN (the over-strip boundary): a param that is borrow-READ but NOT
+    // returned must KEEP its callee scope-exit release — `transfers_through_return`
+    // is FALSE, so the contract strip MUST NOT fire. Stripping the dec here would
+    // LEAK the param's allocation (the callee owns the only reference at scope
+    // exit). The function returns a scalar derived from the param, never the param
+    // itself. Spec: Annex E §AIMS RL-2 (non-transfer terminal use -> dec).
+    let src = r#"
+@sum_len (xs: [int]) -> int = {
+    print(msg: `len: {xs.len()}`);
+    xs.len() as int
+};
+
+@main () -> int = {
+    let original = [1, 2, 3];
+    let n = sum_len(xs: original);
+    if n == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "transfer_through_return_param_borrowed_does_not_leak_negative",
+    );
+}

@@ -814,7 +814,15 @@ cmd_refresh() {
                 else
                     failures_status="partial"
                 fi
-                if [[ "$failed" -gt 0 ]]; then
+                # totals.failed only counts PARSED test failures; a suite that
+                # build-failed or crashed before printing results contributes 0
+                # there but carries status "errored"/"failed" in per_suite. Key
+                # the verdict off both so an errored suite is never recorded
+                # "clean". The known LLVM-backend crash ("crashed"/"build_failed")
+                # stays exempt.
+                local broken_suites
+                broken_suites=$(jq -r '[.per_suite[]? | select(.status == "errored" or .status == "failed")] | length' "$summary_json" 2>/dev/null || echo 0)
+                if [[ "$failed" -gt 0 || "${broken_suites:-0}" -gt 0 ]]; then
                     test_status="known-failing"
                 else
                     test_status="clean"

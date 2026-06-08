@@ -302,6 +302,16 @@ pub fn analyze_function(
                     state_map.set_invoke_def_demand(owner_block, var, state);
                 }
             }
+
+            // Propagate pre-strip intra-block instruction-def demand keyed by
+            // THIS block (the defining block). Captured before the strip in
+            // `compute_block_entry_state`, it carries the converged
+            // `seqAdd`-accumulated cardinality so `var_state_at_definition`
+            // gives DP-3 / DP-2 their proven input for a var consumed entirely
+            // within its defining block.
+            for (var, state) in result.def_demand {
+                state_map.set_def_demand(block_id, var, state);
+            }
         }
 
         if state_map.is_converged() {

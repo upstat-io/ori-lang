@@ -17,8 +17,8 @@ use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx};
 /// definition, registering their signatures for LLVM codegen.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.impls.len()))]
 pub fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
-    for impl_def in &module.impls {
-        check_impl_block(checker, impl_def, &module.traits);
+    for (impl_index, impl_def) in module.impls.iter().enumerate() {
+        check_impl_block(checker, impl_def, &module.traits, impl_index);
     }
 }
 
@@ -31,19 +31,24 @@ fn check_impl_block(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
     traits: &[TraitDef],
+    impl_index: usize,
 ) {
-    // §10.1.2: allocate impl-level generics (`impl<T: Bound>`) as fresh
-    // `RigidVar`s once per block + collect their inline bounds, mirroring the
-    // method-level binders. Without this, impl-level `T` resolves to an
-    // unresolved `Tag::Named` (`registration/type_resolution.rs`), so a
+    // §10.1.2: impl-level generics (`impl<T: Bound>`) bind as `RigidVar`s so a
     // body-internal `receiver.method()` whose receiver is an impl-level type
-    // parameter never reaches the §10.1 bound-chain: bounded calls silently
-    // poison (masked by the evaluator's own dispatch), unbounded calls never
-    // surface a method-not-found. Allocating the `RigidVar`s here (and resolving
-    // `Self` + params + return through the same overlay) keeps every reference
+    // parameter reaches the §10.1 bound-chain (bounded calls dispatch, unbounded
+    // calls surface method-not-found) instead of resolving to an unresolved
+    // `Tag::Named` (`registration/type_resolution.rs`). The `RigidVar`s are
+    // allocated at `register_impls` (Pass 0c) and stored on the checker keyed by
+    // `module.impls` position; REUSE them here (Pass 4) via `prealloc` so a
+    // method mono recorded at a Pass-3 call site already sees the impl binder in
+    // `var_states` (the constructor composite `Pair<RigidVar(B), RigidVar(A)>`
+    // registers because the binder exists by Pass 0c, not Pass 4). `Self` +
+    // params + return resolve through the same overlay, keeping every reference
     // to the impl-level binder at one identity.
+    let impl_prealloc: Option<FxHashMap<Name, Idx>> =
+        checker.impl_rigid_var_map(impl_index).cloned();
     let (impl_substitutions, impl_generic_params, _impl_const_params, impl_inline_bounds) =
-        allocate_generic_binders(checker, impl_def.generics);
+        allocate_generic_binders(checker, impl_def.generics, impl_prealloc.as_ref());
 
     // Resolve the Self type for this impl block through the impl-level overlay so
     // `Box<T>`'s `T` is the impl `RigidVar`, not a fresh `Tag::Named`.
@@ -306,6 +311,11 @@ fn check_impl_method(
 
             // Pop rank scope (matching push above per §SG-5 one-to-one rule).
             engine.exit_rank_scope();
+
+            // Deep-resolve var-links so late-resolved generic-builtin
+            // instantiations are var-free in the exported IR + composed by the
+            // burden sweep (see `intern_link_resolved_body_types`).
+            engine.compose_body_type_burdens(&expr_types);
 
             (
                 expr_types,

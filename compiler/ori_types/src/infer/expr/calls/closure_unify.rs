@@ -88,18 +88,11 @@ pub(super) fn unify_higher_order_constraints(
                     if let Some(&first_param) = params.first() {
                         let _ = engine.unify().unify(first_param, ret_ty);
                     }
-                    let resolved_recv = engine.resolve(receiver_ty);
-                    let recv_tag = engine.pool().tag(resolved_recv);
-                    let source_elem = if recv_tag.is_iterator() {
-                        Some(engine.pool().iterator_elem(resolved_recv))
-                    } else if recv_tag == Tag::Set {
-                        Some(engine.pool().set_elem(resolved_recv))
-                    } else if recv_tag == Tag::List {
-                        Some(engine.pool().list_elem(resolved_recv))
-                    } else {
-                        None
-                    };
-                    if let Some(elem) = source_elem {
+                    // Bind the closure's second param (the element) to the
+                    // receiver's element type via the shared SSOT — covers
+                    // `Tag::Map` ((K, V) tuple) and `Tag::Str` (char) at parity
+                    // with `unify_closure_param_with_iterator_elem`.
+                    if let Some(elem) = receiver_element_type(engine, receiver_ty) {
                         if let Some(&second_param) = params.get(1) {
                             let _ = engine.unify().unify(second_param, elem);
                         }
@@ -111,6 +104,37 @@ pub(super) fn unify_higher_order_constraints(
     }
 }
 
+/// Compute the per-element type a higher-order closure parameter binds to
+/// for a given receiver.
+///
+/// SSOT for both the first-param bind in
+/// `unify_closure_param_with_iterator_elem` and the second-param (element)
+/// bind in the `fold`/`rfold` arm of `unify_higher_order_constraints`.
+/// Covers the full adapter-receiver surface: iterator / `Tag::List` /
+/// `Tag::Set` / `Tag::Map` (synthetic `(K, V)` tuple — Map iteration shape) /
+/// `Tag::Str` (`Idx::CHAR`). Returns `None` for receivers with no element
+/// shape (the closure param stays an unconstrained `Tag::Var`).
+fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Option<Idx> {
+    let resolved_recv = engine.resolve(receiver_ty);
+    let recv_tag = engine.pool().tag(resolved_recv);
+    if recv_tag.is_iterator() {
+        Some(engine.pool().iterator_elem(resolved_recv))
+    } else if recv_tag == Tag::List {
+        Some(engine.pool().list_elem(resolved_recv))
+    } else if recv_tag == Tag::Set {
+        Some(engine.pool().set_elem(resolved_recv))
+    } else if recv_tag == Tag::Map {
+        // INVARIANT: Map iteration shape is `(K, V)` tuples.
+        let k = engine.pool().map_key(resolved_recv);
+        let v = engine.pool().map_value(resolved_recv);
+        Some(engine.pool_mut().tuple(&[k, v]))
+    } else if recv_tag == Tag::Str {
+        Some(Idx::CHAR)
+    } else {
+        None
+    }
+}
+
 /// Unify a closure's first parameter with the source receiver's element type.
 ///
 /// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
@@ -118,32 +142,16 @@ pub(super) fn unify_higher_order_constraints(
 ///
 /// Applies to `Tag::List`, `Tag::Set`, `Tag::Map`, `Tag::Str` receivers in
 /// addition to the original `Tag::Iterator` / `Tag::DoubleEndedIterator`
-/// gate. Closes the lambda-parameter inference gap that previously left
-/// `list.map(x -> x + 1)` with an unresolved `Tag::Var` for `x`. Map
-/// receivers project the `(K, V)` iteration shape as a synthetic tuple so
-/// `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`.
+/// gate (via `receiver_element_type`). Closes the lambda-parameter inference
+/// gap that previously left `list.map(x -> x + 1)` with an unresolved
+/// `Tag::Var` for `x`. Map receivers project the `(K, V)` iteration shape as a
+/// synthetic tuple so `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`.
 pub(super) fn unify_closure_param_with_iterator_elem(
     engine: &mut InferEngine<'_>,
     resolved_closure: Idx,
     receiver_ty: Idx,
 ) {
-    let resolved_recv = engine.resolve(receiver_ty);
-    let recv_tag = engine.pool().tag(resolved_recv);
-    let source_elem = if recv_tag.is_iterator() {
-        engine.pool().iterator_elem(resolved_recv)
-    } else if recv_tag == Tag::List {
-        engine.pool().list_elem(resolved_recv)
-    } else if recv_tag == Tag::Set {
-        engine.pool().set_elem(resolved_recv)
-    } else if recv_tag == Tag::Map {
-        // INVARIANT: Map iteration shape is `(K, V)` tuples — bind the
-        // closure param to a synthetic tuple of the key/value types.
-        let k = engine.pool().map_key(resolved_recv);
-        let v = engine.pool().map_value(resolved_recv);
-        engine.pool_mut().tuple(&[k, v])
-    } else if recv_tag == Tag::Str {
-        Idx::CHAR
-    } else {
+    let Some(source_elem) = receiver_element_type(engine, receiver_ty) else {
         return;
     };
     let params = engine.pool().function_params(resolved_closure);

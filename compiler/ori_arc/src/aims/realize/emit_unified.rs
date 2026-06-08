@@ -247,7 +247,13 @@ pub(super) fn emit_rc_unified(
     }
 
     // Phase 2.5: DP-2/DP-3 burden-op elimination.
-    eliminate_burden_ops_phase(func, state_map, interner, predicate_stack_rc_disabled);
+    eliminate_burden_ops_phase(
+        func,
+        state_map,
+        interner,
+        &same_alloc_reps,
+        predicate_stack_rc_disabled,
+    );
 
     if predicate_stack_rc_disabled {
         emit_burden_path_probe_tail(
@@ -290,10 +296,26 @@ fn eliminate_burden_ops_phase(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     predicate_stack_rc_disabled: bool,
 ) {
-    if !*BURDEN_ELIM_DISABLED && !predicate_stack_rc_disabled {
-        super::eliminate_burden_ops(func, state_map);
+    // DP-3 inc-elision is co-emitter-INDEPENDENT (RL1_duplication_balanced: a
+    // moved-once value's alloc supplies the +1, the surviving terminal dec
+    // brings it to 0), so it runs on BOTH the default (now burden-only) path
+    // and any co-emitter path. DP-2 dec-elision is co-emitter-DEPENDENT
+    // (eliding a sole-emitter release leaks) — `eliminate_whole_function` gates
+    // it on `!predicate_stack_rc_disabled` internally. Skipping the whole pass
+    // on the burden-only path (the prior behavior) over-retained the UNPAIRED
+    // spurious fresh-site `BurdenInc` (the dec is the RL-2 release, not a
+    // pair-partner), which lowers to a leaking `RcInc`.
+    if !*BURDEN_ELIM_DISABLED {
+        super::eliminate_burden_ops(
+            func,
+            state_map,
+            same_alloc_reps,
+            interner,
+            predicate_stack_rc_disabled,
+        );
     }
     trace_phase_snapshot("after_phase_2_5_burden_elim", func, interner);
 }
@@ -692,10 +714,75 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
-    let elidable_fresh_incs =
-        compute_elidable_fresh_self_alloc_incs(func, same_alloc_reps, interner);
+    lower_and_diagnose_burden_path(func, pool, interner, same_alloc_reps);
+}
+
+/// Probe-tail Phase 7: mechanically lower the surviving burden ops to real RC
+/// (`BurdenInc → RcInc` / `BurdenDec → RcDec`, eliding the M1 fresh-surplus incs)
+/// then emit the per-same-alloc-rep alias-lineage RC-net diagnostic. Split from
+/// the [`emit_burden_path_probe_tail`] orchestrator as the "lower then verify"
+/// concept seam following the burden-emit/relocate phases. Spec: Annex E §AIMS
+/// RL-comp (lowered net-balance), RL-2 (per-lineage release-once diagnostic).
+fn lower_and_diagnose_burden_path(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    // Cure B (Decision 10): the conversion-source lineages (`m.keys()` /
+    // `s.split()` / `@to_list` SOURCES borrowed by the conversion, dying at a
+    // post-loop dead-block-param sink) — computed here where `pool` is available,
+    // passed into the fresh-inc-elision so they take the phi-threaded per-path
+    // alloc-aware net (their surplus fresh-site inc is mis-attributed across the
+    // Jump-arg→block-param SSA rename when unthreaded → left unbalanced → leak).
+    let conversion_source_reps =
+        compute_conversion_source_reps(func, pool, same_alloc_reps, interner);
+    let elidable_fresh_incs = compute_elidable_fresh_self_alloc_incs(
+        func,
+        same_alloc_reps,
+        interner,
+        &conversion_source_reps,
+    );
     lower_burden_ops_to_rc(func, pool, &elidable_fresh_incs);
     trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+
+    // Phase-7 alias-lineage RC-net diagnostic (ORI_LOG=ori_arc::aims::realize):
+    // per same-alloc rep, `fresh-alloc(+1) + RcInc − RcDec`. A non-zero net is a
+    // leak (+N) / double-free (−N) the per-VAR elim cannot see across distinct
+    // SSA vars of one allocation. Spec: Annex E §AIMS RL-2 (release once/lineage).
+    if tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
+        let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+        let list_take_name = for_yield_result_finalizer_name(interner);
+        let mut rep_net: FxHashMap<ArcVarId, i64> = FxHashMap::default();
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
+                    *rep_net.entry(rep_of(dst)).or_default() += 1;
+                }
+                match instr {
+                    ArcInstr::RcInc { var, .. } => {
+                        *rep_net.entry(rep_of(*var)).or_default() += 1;
+                    }
+                    ArcInstr::RcDec { var, .. } => {
+                        *rep_net.entry(rep_of(*var)).or_default() -= 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let fn_name = interner.lookup(func.name);
+        for (rep, net) in &rep_net {
+            if *net != 0 {
+                tracing::trace!(
+                    target: "ori_arc::aims::realize",
+                    fn_name = fn_name,
+                    rep = rep.raw(),
+                    net = *net,
+                    "alias-lineage RC-net imbalance post-burden-lowering (+N leak / -N double-free)"
+                );
+            }
+        }
+    }
 }
 
 /// Step-2 RL-4 edge release for step-1 COW-inc'd borrowed-alias receivers
@@ -5784,6 +5871,13 @@ fn compute_elidable_fresh_self_alloc_incs(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
+    // Conversion-source lineage reps (`m.keys()`/`s.split()`/`@to_list` SOURCES,
+    // computed by the caller where `pool` is available) — the Cure B (Decision 10)
+    // phi-threading eligibility extension: these loop-carried conversion sources
+    // get the phi-threaded per-path alloc-aware net so their surplus fresh-site
+    // inc is elided (was mis-attributed across the Jump-arg→block-param rename and
+    // left unbalanced → leak). Empty = pre-change behaviour.
+    conversion_source_reps: &FxHashSet<ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
     // Lineage reps whose value flows into a COW-mutation operand — the fresh inc
     // for any FRESH self-alloc in such a lineage is LOAD-BEARING (keep it): the
@@ -5799,7 +5893,8 @@ fn compute_elidable_fresh_self_alloc_incs(
     // lineage back to 0. A net != 1 means the fresh inc is balancing a
     // COW-consume / move-alias dec (e.g. `length_one`: net 0 with all incs →
     // eliding drops to −1, a double-free) → keep.
-    let lineage_net = compute_lineage_alloc_aware_net(func, same_alloc_reps, interner);
+    let lineage_net =
+        compute_lineage_alloc_aware_net(func, same_alloc_reps, interner, conversion_source_reps);
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
 
@@ -5863,10 +5958,13 @@ fn compute_elidable_fresh_self_alloc_incs(
 /// A correctly-balanced released lineage nets 0 per path; a lineage carrying a
 /// redundant fresh-site inc nets 1 per path (the surplus inc). `BurdenDecField`
 /// is excluded (field-grain, per `burden_delta::whole_var_dec_target`).
-fn compute_lineage_alloc_aware_net(
+pub(super) fn compute_lineage_alloc_aware_net(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
+    // Cure B (Decision 10): conversion-source lineage reps eligible for
+    // phi-threaded attribution (alongside `ori_list_take` for_yield results).
+    conversion_source_reps: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, i64> {
     use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
@@ -5898,11 +5996,36 @@ fn compute_lineage_alloc_aware_net(
     // pre-change).
     let phi = compute_list_take_phi_attribution(func, same_alloc_reps, list_take_name);
     let phi_rep_of = |v: ArcVarId| phi.threaded.get(&v).copied().unwrap_or(v);
+    // Cure B (Decision 10): a CONVERSION SOURCE (`m.keys()` / `s.split()` /
+    // `@to_list` source borrowed by the conversion, dying at a post-loop
+    // dead-block-param sink) ALSO takes the phi-threaded attribution. Its
+    // fresh-site inc's per-path net is mis-attributed across the Jump-arg→
+    // block-param SSA rename when unthreaded (`same_alloc_reps` excludes the phi
+    // edge) → the surplus inc is left unbalanced → leak. Same single-source guard
+    // as the `ori_list_take` path: keep only a conversion-source rep whose
+    // phi-threaded class merges exactly ONE conversion source (a multi-source
+    // phi-merge falls back to the unthreaded, double-free-safe net). DISJOINT from
+    // the SCOPE-GUARD closure-env surface above: a conversion source is borrowed +
+    // dies at a conversion sink, NOT a loop-invariant threaded-unchanged
+    // `PartialApply`, so this does NOT re-enable the
+    // hof_closure_capture_in_loop / coll_map_index_in_loop over-fire.
+    let conv_eligible: FxHashSet<ArcVarId> = {
+        let mut per_phi: FxHashMap<ArcVarId, FxHashSet<ArcVarId>> = FxHashMap::default();
+        for &csr in conversion_source_reps {
+            per_phi.entry(phi_rep_of(csr)).or_default().insert(csr);
+        }
+        per_phi
+            .values()
+            .filter(|members| members.len() == 1)
+            .flatten()
+            .copied()
+            .collect()
+    };
     // A `same_alloc_reps` rep takes the phi-threaded attribution iff it is an
-    // `ori_list_take` result whose phi-threaded class merges exactly one such
-    // result (a 2-result phi-merge falls back to the unthreaded, double-free-safe
-    // net).
-    let use_phi_for = |sar: ArcVarId| -> bool { phi.eligible.contains(&sar) };
+    // `ori_list_take` result OR a conversion source whose phi-threaded class
+    // merges exactly one such root (the single-alloc / single-source guard).
+    let use_phi_for =
+        |sar: ArcVarId| -> bool { phi.eligible.contains(&sar) || conv_eligible.contains(&sar) };
 
     // Collect every lineage rep that has at least one fresh self-alloc member —
     // the only reps an elision decision queries.
@@ -6054,6 +6177,45 @@ fn for_yield_result_transferred_out(
     false
 }
 
+/// A `for_yield` `ori_list_take` result passed OWNED to `@iter` (locally
+/// iter-consumed) AND NOT returned. The in-function `IterState::Drop` releases the
+/// result's element refs, so a borrowed iter-element view duplicated into the
+/// result needs its `+1` here. The RETURNED case is EXCLUDED — its element release
+/// is the caller's, so an inc inside the callee leaks. Spec: Annex E §AIMS RL-1.
+fn for_yield_result_iter_consumed_not_returned(
+    func: &ArcFunction,
+    result_rep: ArcVarId,
+    phi_rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    iter_name: ori_ir::Name,
+) -> bool {
+    let mut iter_consumed = false;
+    for block in &func.blocks {
+        if let ArcTerminator::Return { value } = &block.terminator {
+            if phi_rep_of(*value) == result_rep {
+                return false;
+            }
+        }
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                if *callee == iter_name
+                    && args.iter().zip(arg_ownership).any(|(&a, own)| {
+                        matches!(own, ArgOwnership::Owned) && phi_rep_of(a) == result_rep
+                    })
+                {
+                    iter_consumed = true;
+                }
+            }
+        }
+    }
+    iter_consumed
+}
+
 /// A pending burden-op insertion for [`emit_for_yield_index_consumed_element_rc`]:
 /// insert `BurdenInc`/`BurdenDec` (`is_inc`) on `var` AFTER `block`'s instruction
 /// index `after`.
@@ -6098,42 +6260,17 @@ fn emit_for_yield_index_consumed_element_rc(
     let threaded = compute_phi_threaded_alloc_reps(func, same_alloc_reps);
     let phi_rep_of = |v: ArcVarId| threaded.get(&v).copied().unwrap_or(v);
 
-    // NON-iter-consumed `ori_list_take` result lineage reps (phi-threaded) — the
-    // results whose yielded elements need the duplicating RC.
-    let mut eligible_result_reps: FxHashSet<ArcVarId> = FxHashSet::default();
-    // Map each result's SCRATCH buffer arg (the `ori_list_take(scratch)` arg) to
-    // the result's phi rep, so the matching `ori_list_push(scratch, w)` can be
-    // attributed to an eligible result.
-    let mut scratch_to_result_rep: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                dst,
-                func: callee,
-                args,
-                ..
-            } = instr
-            {
-                if *callee == take_name
-                    && matches!(
-                        func.var_repr(*dst),
-                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
-                    )
-                {
-                    let result_rep = phi_rep_of(*dst);
-                    if !for_yield_result_transferred_out(func, result_rep, &phi_rep_of, iter_name) {
-                        eligible_result_reps.insert(result_rep);
-                        if let Some(&scratch) = args.first() {
-                            scratch_to_result_rep.insert(scratch, result_rep);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if eligible_result_reps.is_empty() {
+    let ForYieldEligibleResults {
+        eligible_result_reps,
+        scratch_to_result_rep,
+        iter_consumed_scratch_to_result,
+    } = collect_for_yield_eligible_results(func, take_name, iter_name, &threaded);
+    if eligible_result_reps.is_empty() && iter_consumed_scratch_to_result.is_empty() {
         return;
     }
+    // Borrowed iter-element views (`Project(__iter_next.1)`, TF-4) — the
+    // discriminator for the transferred-out yield-element-inc.
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
 
     // Collect insertion points so we mutate after the read scan.
     let mut inserts: Vec<ForYieldElemInsert> = Vec::new();
@@ -6154,20 +6291,27 @@ fn emit_for_yield_index_consumed_element_rc(
             // owned consume + the result's copy are both balanced).
             if *callee == push_name && args.len() >= 2 {
                 if let Some(&scratch) = args.first() {
-                    if scratch_to_result_rep.contains_key(&scratch) {
-                        let w = args[1];
-                        // Only heap (non-scalar) element values carry RC.
-                        if matches!(
-                            func.var_repr(w),
-                            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
-                        ) {
-                            inserts.push(ForYieldElemInsert {
-                                block: b,
-                                after: i.saturating_sub(1),
-                                var: w,
-                                is_inc: true,
-                            });
-                        }
+                    let w = args[1];
+                    // Only heap (non-scalar) element values carry RC.
+                    let w_is_heap = matches!(
+                        func.var_repr(w),
+                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                    );
+                    // Non-transferred-out (index/length-consumed) result: the
+                    // existing eligibility gate.
+                    let via_eligible = scratch_to_result_rep.contains_key(&scratch);
+                    // Iter-consumed-not-returned result: fire ONLY when `w` is a
+                    // borrowed iter-element view (the duplicating push shape;
+                    // never an owned-fresh `Construct` push).
+                    let via_iter_consumed = iter_consumed_scratch_to_result.contains_key(&scratch)
+                        && iter_element_defs.contains(&w);
+                    if w_is_heap && (via_eligible || via_iter_consumed) {
+                        inserts.push(ForYieldElemInsert {
+                            block: b,
+                            after: i.saturating_sub(1),
+                            var: w,
+                            is_inc: true,
+                        });
                     }
                 }
             }
@@ -6205,6 +6349,79 @@ fn emit_for_yield_index_consumed_element_rc(
         let body = &mut func.blocks[ins.block].body;
         let pos = (ins.after + 1).min(body.len());
         body.insert(pos, op);
+    }
+}
+
+/// The three eligible-result maps consumed by
+/// [`emit_for_yield_index_consumed_element_rc`].
+struct ForYieldEligibleResults {
+    eligible_result_reps: FxHashSet<ArcVarId>,
+    scratch_to_result_rep: FxHashMap<ArcVarId, ArcVarId>,
+    iter_consumed_scratch_to_result: FxHashMap<ArcVarId, ArcVarId>,
+}
+
+/// Scan `ori_list_take` results into the three eligibility maps.
+///
+/// - `eligible_result_reps`: NON-iter-consumed result lineage reps (phi-threaded)
+///   whose yielded elements need the duplicating RC.
+/// - `scratch_to_result_rep`: each result's SCRATCH buffer arg (the
+///   `ori_list_take(scratch)` arg) -> result phi rep, so the matching
+///   `ori_list_push(scratch, w)` is attributed to an eligible result.
+/// - `iter_consumed_scratch_to_result`: ITER-CONSUMED-not-returned result scratch
+///   args. The buffer is consumed IN-FUNCTION by `@iter`, but a yielded BORROWED
+///   iter-element view is still shared with the surviving iter source
+///   (`IterState::Drop` decs the source ref AND the result `elem_dec_fn` decs the
+///   copy), so the push needs its own duplicating `+1` (RL-1). The RETURNED case
+///   is EXCLUDED — its element release is the caller's.
+fn collect_for_yield_eligible_results(
+    func: &ArcFunction,
+    take_name: ori_ir::Name,
+    iter_name: ori_ir::Name,
+    threaded: &FxHashMap<ArcVarId, ArcVarId>,
+) -> ForYieldEligibleResults {
+    let phi_rep_of = |v: ArcVarId| threaded.get(&v).copied().unwrap_or(v);
+    let mut eligible_result_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut scratch_to_result_rep: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let mut iter_consumed_scratch_to_result: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            {
+                if *callee == take_name
+                    && matches!(
+                        func.var_repr(*dst),
+                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                    )
+                {
+                    let result_rep = phi_rep_of(*dst);
+                    if !for_yield_result_transferred_out(func, result_rep, &phi_rep_of, iter_name) {
+                        eligible_result_reps.insert(result_rep);
+                        if let Some(&scratch) = args.first() {
+                            scratch_to_result_rep.insert(scratch, result_rep);
+                        }
+                    } else if for_yield_result_iter_consumed_not_returned(
+                        func,
+                        result_rep,
+                        &phi_rep_of,
+                        iter_name,
+                    ) {
+                        if let Some(&scratch) = args.first() {
+                            iter_consumed_scratch_to_result.insert(scratch, result_rep);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ForYieldEligibleResults {
+        eligible_result_reps,
+        scratch_to_result_rep,
+        iter_consumed_scratch_to_result,
     }
 }
 
@@ -6369,7 +6586,7 @@ fn forward_reachable_from(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usi
 /// owned `[T]` at RC = 1. For alloc-aware-net accounting this result IS a fresh
 /// self-allocation (the buffer's own `+1`), so [`fresh_self_alloc_dst`] treats it
 /// like a `Construct`.
-fn for_yield_result_finalizer_name(interner: &ori_ir::StringInterner) -> ori_ir::Name {
+pub(super) fn for_yield_result_finalizer_name(interner: &ori_ir::StringInterner) -> ori_ir::Name {
     interner.intern("ori_list_take")
 }
 
@@ -6473,7 +6690,7 @@ fn fresh_collection_source_apply_dst(
 /// builtin collection-source `Apply` result). The single recognizer the M1
 /// alloc-aware-net + fresh-inc elision both query for "is this a fresh rc=1
 /// buffer whose Phase-5 fresh-site inc the alloc supplies." Spec: Annex E §AIMS RL-1.
-fn fresh_rc_alloc_dst(
+pub(super) fn fresh_rc_alloc_dst(
     instr: &ArcInstr,
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,

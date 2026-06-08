@@ -38,6 +38,7 @@ pub mod generics;
 pub mod higher_order;
 pub mod inc_symmetry;
 pub mod index_set_updated;
+pub mod inline_aggregate_borrow_leak;
 pub mod ir_checks;
 pub mod ir_quality_attributes;
 pub mod ir_quality_block_merge;

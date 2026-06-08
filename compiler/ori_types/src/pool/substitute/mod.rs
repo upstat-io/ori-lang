@@ -32,13 +32,16 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
     reason = "always called with FxHashMap internally"
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    // Fast path: no variables OR bound vars to substitute. §08.3b widened the
-    // gate to include HAS_BOUND_VAR — scheme bodies post-
-    // migration contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and
-    // HAS_VAR=false; the old `!HAS_VAR` gate would skip them entirely.
+    // Fast path: no variables OR bound vars OR rigid vars to substitute. §08.3b
+    // widened the gate to include HAS_BOUND_VAR — scheme bodies post-migration
+    // contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and HAS_VAR=false.
+    // HAS_RIGID_VAR is included so a `var_subst` carrying impl-level rigid
+    // var_ids (built by `build_impl_rigid_var_subst`) substitutes `Tag::RigidVar`
+    // leaves; var_ids are globally unique across `Tag::Var`/`Tag::RigidVar`, so a
+    // Var-only map never targets a rigid leaf (it falls through unchanged).
     if !pool
         .flags(ty)
-        .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR)
+        .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR)
     {
         return ty;
     }
@@ -46,6 +49,7 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
     match pool.tag(ty) {
         Tag::Var => substitute_var(pool, ty, var_subst),
         Tag::BoundVar => substitute_bound_var(pool, ty, var_subst),
+        Tag::RigidVar => substitute_rigid_var(pool, ty, var_subst),
 
         // Single-child containers
         Tag::List => substitute_single_child(pool, ty, var_subst, Pool::list),
@@ -120,6 +124,43 @@ fn substitute_bound_var(pool: &Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -
         return replacement;
     }
     ty
+}
+
+/// Substitute an impl-level rigid type variable (`@m (self) -> T` where `T` is
+/// an `impl<T> Box<T>` binder). `Tag::RigidVar.data` is the `var_id` allocated
+/// by `Pool::rigid_var`. Rigids carry no unification links, so a missing entry
+/// leaves the leaf unchanged. `Var_ids` are globally unique across
+/// `Tag::Var`/`Tag::RigidVar`, so a substitution map built for `Tag::Var`s never
+/// targets a rigid leaf.
+fn substitute_rigid_var(pool: &Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let var_id = pool.data(ty);
+    if let Some(&replacement) = var_subst.get(&var_id) {
+        return replacement;
+    }
+    ty
+}
+
+/// Build a `var_id -> concrete` substitution for impl-level rigid generics.
+/// Scans every `VarState::Rigid { name }` in the pool; when `name` matches an
+/// impl binder in `name_to_concrete`, maps that rigid's `var_id` to the concrete
+/// type. SSOT for the impl-rigid scan consumed by `resolve_impl_signature`
+/// (signature substitution feeding mono recording) and the mono body type map.
+pub fn build_impl_rigid_var_subst(
+    pool: &Pool,
+    name_to_concrete: &FxHashMap<ori_ir::Name, Idx>,
+) -> FxHashMap<u32, Idx> {
+    let mut out: FxHashMap<u32, Idx> = FxHashMap::default();
+    if name_to_concrete.is_empty() {
+        return out;
+    }
+    for var_id in 0..pool.next_var_id() {
+        if let Some(VarState::Rigid { name }) = pool.var_state_checked(var_id) {
+            if let Some(&concrete) = name_to_concrete.get(name) {
+                out.insert(var_id, concrete);
+            }
+        }
+    }
+    out
 }
 
 /// Substitute in a single-child container (List, Option, Set, etc.).
@@ -682,7 +723,12 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
     sink: &mut Sink,
 ) {
     let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-    let mask = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR;
+    // HAS_RIGID_VAR included so a `var_subst` carrying impl-level rigid var_ids
+    // (generic-impl methods, `impl<T> Box<T>`) records COMPOSITE entries for
+    // rigid-containing body types (e.g. a `Pair<B, A>` ctor inside `swap`), not
+    // just leaf rigids. The function path passes no rigid var_ids, so
+    // rigid-containing types substitute to themselves and are not recorded.
+    let mask = TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR;
     for raw in Idx::FIRST_DYNAMIC..pool_len {
         let idx = Idx::from_raw(raw);
         if pool.flags(idx).intersects(mask) {

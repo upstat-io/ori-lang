@@ -298,10 +298,12 @@ fn discharge_ledger_cases(rule: &str, cases: &[LedgerCase]) -> Result<u64, Engin
 // against these predicate models so a divergence between the RL rule and its
 // §05-proven gate is REJECTED.
 
-/// DP-3: `is_rc_inc_elidable(s) ⟺ Cardinality = Once ∧ Consumption = Linear`
-/// (Appendix C DP-3 truth table). A moved-once value needs no inc.
+/// DP-3: `is_rc_inc_elidable(s) ⟺ Cardinality = Once ∧ Consumption ∈ {Linear,
+/// Affine}` (Appendix C DP-3 truth table). A single-use value is not duplicated,
+/// so the duplicate-inc is unnecessary whether the use moves (Linear) or borrows
+/// (Affine) it.
 fn dp3_inc_elidable(cardinality: Card, consumption: Cons) -> bool {
-    cardinality == Card::Once && consumption == Cons::Linear
+    cardinality == Card::Once && (consumption == Cons::Linear || consumption == Cons::Affine)
 }
 
 /// DP-2: `is_rc_dec_unnecessary(s) ⟺ Cardinality = Absent ∨ Consumption = Dead`

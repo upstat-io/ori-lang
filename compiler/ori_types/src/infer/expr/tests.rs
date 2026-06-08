@@ -858,6 +858,78 @@ fn test_infer_match_arm_type_mismatch() {
     );
 }
 
+#[test]
+fn test_infer_match_cross_arm_binding_leak_errors() {
+    // A name bound in arm 1's pattern must NOT be visible in a later arm's body.
+    // Without per-arm scope isolation the binding leaked; with it, arm 2 sees `n`
+    // as an unbound identifier.
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let scrutinee = alloc(&mut arena, ExprKind::Int(42));
+    let body1 = alloc(&mut arena, ExprKind::Int(0));
+    let leaked_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+
+    let pat1 = arena.alloc_match_pattern(MatchPattern::Binding(name(1)));
+    let pat2 = arena.alloc_match_pattern(MatchPattern::Wildcard);
+
+    let arms = arena.alloc_arms([
+        MatchArm {
+            pattern: arena.get_match_pattern(pat1).clone(),
+            guard: None,
+            body: body1,
+            span: span(),
+        },
+        MatchArm {
+            pattern: arena.get_match_pattern(pat2).clone(),
+            guard: None,
+            body: leaked_ref,
+            span: span(),
+        },
+    ]);
+
+    let match_expr = alloc(&mut arena, ExprKind::Match { scrutinee, arms });
+    let _ = infer_expr(&mut engine, &arena, match_expr);
+
+    // Assert the SPECIFIC unbound-identifier error, so an unrelated error cannot
+    // false-pass this regression guard.
+    assert!(
+        engine
+            .errors()
+            .iter()
+            .any(|e| e.message().contains("unknown identifier")),
+        "arm-1 binding `n` must not leak into arm-2 body (expected unknown-identifier error)"
+    );
+}
+
+#[test]
+fn test_infer_match_same_arm_binding_no_leak_error() {
+    // Positive pin: a binding referenced in ITS OWN arm body still resolves
+    // cleanly after per-arm scope isolation.
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let scrutinee = alloc(&mut arena, ExprKind::Int(42));
+    let same_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let pat = arena.alloc_match_pattern(MatchPattern::Binding(name(1)));
+
+    let arms = arena.alloc_arms([MatchArm {
+        pattern: arena.get_match_pattern(pat).clone(),
+        guard: None,
+        body: same_ref,
+        span: span(),
+    }]);
+
+    let match_expr = alloc(&mut arena, ExprKind::Match { scrutinee, arms });
+    let ty = infer_expr(&mut engine, &arena, match_expr);
+
+    assert_eq!(ty, Idx::INT, "same-arm binding reference resolves to int");
+    assert!(
+        !engine.has_errors(),
+        "same-arm binding reference must still typecheck"
+    );
+}
+
 // For Loop Tests
 
 #[test]

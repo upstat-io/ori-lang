@@ -12,17 +12,21 @@
 //! partition; `emit` owns the per-instruction + per-terminator emission.
 
 mod cow_aliases;
+mod ctx;
 mod emit;
 mod moved_fields;
 mod ownership_scans;
 mod terminator;
 
+pub(crate) use ctx::BurdenLowerCtx;
+
 pub(crate) use cow_aliases::{compute_borrowed_alias_vars, compute_cow_inc_borrowed_aliases};
 use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
-    collect_owned_burdens, compute_borrowed_terminator_invoke_args, compute_live_out_owned,
-    compute_owned_vars_needing_rc, compute_transfer_through_return_results,
+    collect_owned_burdens, compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
+    compute_borrowed_terminator_invoke_args, compute_live_out_owned, compute_owned_vars_needing_rc,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
     detect_transfer_points, group_last_uses_filtered,
 };
@@ -49,111 +53,6 @@ pub(super) fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
         || burden.element_burden().is_some()
         || burden.variant_burdens().next().is_some()
         || burden.owned_fields().next().is_some()
-}
-
-/// Per-instruction context accumulated by the emission walker.
-///
-/// Two storage axes (per-var and per-instruction transfer-point lookups
-/// have distinct semantics):
-/// - `collected` — per-`ArcVarId` `(var, BurdenSpec lookup)` from `var_types`
-///   walk. Filtered by `ArcParam.ownership` for params.
-/// - `transfer_points` — per-instruction `(consumed var, BurdenSpec lookup)`
-///   for transfer points where ownership transfers (`Construct` with owned
-///   arg; `Apply` / `Set` / etc.).
-#[derive(Debug, Default)]
-pub(crate) struct BurdenLowerCtx<'a> {
-    collected: Vec<(ArcVarId, Option<BurdenRef<'a>>)>,
-    transfer_points: Vec<(ArcVarId, Option<BurdenRef<'a>>)>,
-    last_use_points: Vec<(ArcVarId, usize, usize)>,
-    /// Per-block block-LOCAL moved-field bitsets indexed by `block_idx`.
-    /// Each entry maps `ArcVarId → set of moved field indices` for
-    /// projections that occur within THIS block's body or terminator (the
-    /// per-block transfer function output). Filled by Pass 2 of
-    /// `populate_moved_out_fields`. `FieldId` is `u32` per
-    /// `ArcInstr::Project.field`.
-    moved_out_fields_block_local: Vec<FxHashMap<ArcVarId, FxHashSet<u32>>>,
-    /// Per-block ENTRY moved-field bitsets indexed by `block_idx`. Computed
-    /// at fixpoint as `INTERSECT over P in predecessors(B): exit(P)` (or
-    /// empty for entry block). Per `Spec: Annex E §AIMS RL-2`
-    /// partial-transfer semantics, only fields moved on ALL incoming paths
-    /// are "definitely moved" at block entry. When E2043 typeck rejection
-    /// guarantees equal predecessor sets the INTERSECT degenerates to
-    /// pick-any; INTERSECT remains the correct merge in both states.
-    moved_out_fields_block_entry: Vec<FxHashMap<ArcVarId, FxHashSet<u32>>>,
-    /// Per-block EXIT moved-field bitsets indexed by `block_idx`. Computed
-    /// at fixpoint as `entry(B) ∪ block_local(B)` (pointwise union: for each
-    /// var, union field sets). The flow function for "field moves accumulate
-    /// forward along reachable paths".
-    moved_out_fields_block_exit: Vec<FxHashMap<ArcVarId, FxHashSet<u32>>>,
-    /// Cached union of `moved_out_fields_block_exit` populated at the end of
-    /// `populate_moved_out_fields`. The accessor lends a reference into this
-    /// field, preserving the `&FxHashMap<...>` accessor contract. Consumed
-    /// by `compute_full_move_vars` / `compute_partial_move_vars`; both retain
-    /// union-view semantics per `Spec: Annex E §AIMS RL-2` (a var's
-    /// `BurdenDec` suppression / `BurdenDecPartial.skip_fields` is the union
-    /// across all reachable CFG paths from definition to last use — exactly
-    /// the exit-state union).
-    moved_out_fields_union: FxHashMap<ArcVarId, FxHashSet<u32>>,
-}
-
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "accessors consumed by tests only; the returned ctx's accessors \
-                  are not yet read by the production pipeline (the class_covered \
-                  consumer is pending) — the walk reads the fields directly"
-    )
-)]
-impl<'a> BurdenLowerCtx<'a> {
-    /// Construct a fresh `BurdenLowerCtx` sized for `func`'s block count.
-    /// All three per-block maps (`moved_out_fields_block_local`,
-    /// `moved_out_fields_block_entry`, `moved_out_fields_block_exit`) are
-    /// pre-allocated with `func.blocks.len()` empty maps so
-    /// `populate_moved_out_fields` can index by `block_idx` without bounds
-    /// checking. Other Vec fields (`collected`, `transfer_points`,
-    /// `last_use_points`) stay empty; downstream walks populate them via
-    /// `push`.
-    fn new(func: &ArcFunction) -> Self {
-        let n = func.blocks.len();
-        Self {
-            collected: Vec::new(),
-            transfer_points: Vec::new(),
-            last_use_points: Vec::new(),
-            moved_out_fields_block_local: vec![FxHashMap::default(); n],
-            moved_out_fields_block_entry: vec![FxHashMap::default(); n],
-            moved_out_fields_block_exit: vec![FxHashMap::default(); n],
-            moved_out_fields_union: FxHashMap::default(),
-        }
-    }
-
-    /// Read-only access to the accumulated `(var, burden lookup)` pairs.
-    pub(crate) fn collected_burdens(&self) -> &[(ArcVarId, Option<BurdenRef<'a>>)] {
-        &self.collected
-    }
-
-    /// Read-only access to the accumulated per-instruction transfer-point
-    /// burden lookups for `Construct`, `Apply`, `ApplyIndirect`, `Invoke`,
-    /// `InvokeIndirect`, `CollectionReuse`, `Set`, and `PartialApply` owned
-    /// positions.
-    pub(crate) fn transfer_points(&self) -> &[(ArcVarId, Option<BurdenRef<'a>>)] {
-        &self.transfer_points
-    }
-
-    /// Read-only access to per-block last-use positions: `(var, block_idx,
-    /// instr_idx)`. `BurdenDec(v)` emits immediately following EVERY last-use
-    /// of `v` along every reachable CFG path; cross-block liveness flows via
-    /// block-param handoffs.
-    pub(crate) fn last_use_points(&self) -> &[(ArcVarId, usize, usize)] {
-        &self.last_use_points
-    }
-
-    /// Read-only access to the moved-field bitset map (union-of-exit-states
-    /// view). Populated at the end of `populate_moved_out_fields` from
-    /// `moved_out_fields_block_exit`.
-    pub(crate) fn moved_out_fields(&self) -> &FxHashMap<ArcVarId, FxHashSet<u32>> {
-        &self.moved_out_fields_union
-    }
 }
 
 /// Walk `func` and emit `BurdenInc` / `BurdenDec` ops per SSA variable from
@@ -214,6 +113,41 @@ pub(crate) fn emit_burden_ops<'a>(
     // `Some(BurdenRef)` wrapping the empty builtin burden — required by AIMS
     // DP-1 (`is_rc_needed: Owned ∧ ¬Dead ∧ ¬is_scalar`) + VF-1 `RcOnScalar`.
     let mut owned_vars_needing_rc = compute_owned_vars_needing_rc(&ctx);
+    {
+        let collected: Vec<(u32, String, bool)> = ctx
+            .collected
+            .iter()
+            .map(|(v, b)| {
+                let ty = func
+                    .var_types
+                    .get(v.index())
+                    .map(|i| format!("{i:?}"))
+                    .unwrap_or_default();
+                (
+                    u32::try_from(v.index()).unwrap_or(u32::MAX),
+                    ty,
+                    b.is_some(),
+                )
+            })
+            .collect();
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            ?collected,
+            "burden ctx.collected (var, has_burden, carries_rc)"
+        );
+        let mut initial: Vec<u32> = owned_vars_needing_rc
+            .iter()
+            .map(|v| u32::try_from(v.index()).unwrap_or(u32::MAX))
+            .collect();
+        initial.sort_unstable();
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            ?initial,
+            "burden owned-vars INITIAL (collected, pre-retain)"
+        );
+    }
     // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
     owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
     // Exclude borrowed-derived locals: a `Let { Var(src) }` alias of a borrowed
@@ -226,6 +160,21 @@ pub(crate) fn emit_burden_ops<'a>(
     // borrow forward through every Let-Var hop to a fixpoint and exclude the set.
     let borrowed_aliases = compute_borrowed_alias_vars(func);
     owned_vars_needing_rc.retain(|v| !borrowed_aliases.contains(v));
+    // A `Let { Var(src) }` alias whose sole use is a BORROWED terminator-Invoke
+    // arg is a borrow-view of an owned source: per RL-1 the dup-inc is
+    // Owned-param-only, so `f(x, x)` over Borrowed params creates no reference at
+    // either arg — the owned source carries the inc+release, the alias gets
+    // neither (else the source's FRESH inc orphans, VF-1 net=+1 leak).
+    let borrowed_arg_aliases = compute_borrowed_arg_let_aliases(func);
+    owned_vars_needing_rc.retain(|v| !borrowed_arg_aliases.contains(v));
+    // RL-2 / TF-4: a `Project` dst used only at borrow positions is a borrow-view
+    // of the parent aggregate's field — the parent owns + drops the field via
+    // whole-var drop-glue, so the borrowed projection gets NO dec. Pairs with the
+    // generic-user-struct burden composition (`compose_for_idx`) that makes the
+    // owning aggregate carry RC: without the parent drop, excluding the projection
+    // would leak; without this exclusion, both would dec and double-free.
+    let borrowed_projection_dsts = compute_borrowed_projection_dsts(func);
+    owned_vars_needing_rc.retain(|v| !borrowed_projection_dsts.contains(v));
     // Exclude scalar-`Literal`-defined vars: a var whose definition is a
     // `Let { value: Literal(lit) }` with `lit != String` is a scalar sentinel
     // (`Int`/`Float`/`Bool`/`Char`/`Duration`/`Size`/`Unit`/`Null`) carrying NO
@@ -255,6 +204,25 @@ pub(crate) fn emit_burden_ops<'a>(
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
     owned_vars_needing_rc.retain(|v| !iter_element_defs.contains(v));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
+    {
+        let mut owned: Vec<u32> = owned_vars_needing_rc
+            .iter()
+            .map(|v| u32::try_from(v.index()).unwrap_or(u32::MAX))
+            .collect();
+        owned.sort_unstable();
+        let dec_sites: Vec<u32> = last_uses_at
+            .values()
+            .flatten()
+            .map(|v| u32::try_from(v.index()).unwrap_or(u32::MAX))
+            .collect();
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            ?owned,
+            ?dec_sites,
+            "burden owned-vars-needing-rc + last-use dec sites"
+        );
+    }
     let terminator_transfer_per_block =
         compute_terminator_transfer_per_block(func, derived_ownership);
     let terminator_inc_per_block =
@@ -353,12 +321,53 @@ pub(crate) fn emit_burden_ops<'a>(
     // `%1 = %0; Return %1` would dec `%0` though its ownership returns to the
     // caller). Backward-propagate transfer-suppression through every move-alias
     // hop to a fixpoint; the source set suppresses the source's last-use dec.
+    // Invoke / Apply transfer-through-return result→arg move-edges: when a callee
+    // transfers an owned param THROUGH its return, the call result IS the
+    // forwarded arg (a move across the call), so the move-chain must span it.
+    let invoke_ttr_edges: Vec<(ArcVarId, ArcVarId)> = {
+        let mut edges = Vec::new();
+        let mut collect = |dst: ArcVarId, callee: &Name, args: &[ArcVarId]| {
+            if let Some(contract) = contracts.get(callee) {
+                for (i, param) in contract.params.iter().enumerate() {
+                    if param.transfers_through_return {
+                        if let Some(&arg) = args.get(i) {
+                            edges.push((dst, arg));
+                        }
+                    }
+                }
+            }
+        };
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } = instr
+                {
+                    collect(*dst, callee, args);
+                }
+            }
+            if let crate::ir::ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = &block.terminator
+            {
+                collect(*dst, callee, args);
+            }
+        }
+        edges
+    };
     let transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
         &use_counts,
         ctx.last_use_points(),
         &owned_vars_needing_rc,
+        &invoke_ttr_edges,
     );
 
     // Symmetry: a FRESH move source whose last-use dec is suppressed (it
@@ -379,7 +388,7 @@ pub(crate) fn emit_burden_ops<'a>(
         // the non-terminal uses consume and MUST be kept — only the terminal
         // last-use dec is suppressed (in `transfer_via_move_alias`). Suppressing
         // the inc here would under-count and collapse a COW receiver's RC below
-        // the live alias count (BUG-04-142). Per AIMS RL-1/RL-2.
+        // the live alias count. Per AIMS RL-1/RL-2.
         if use_counts.get(&var).copied().unwrap_or(0) <= 1 {
             inc_suppressed_vars.insert(var);
         }
@@ -441,6 +450,17 @@ pub(crate) fn emit_burden_ops<'a>(
     // `compute_transfer_through_return_results`.
     let transfer_through_return_results = compute_transfer_through_return_results(func, contracts);
 
+    // RL-2 callee transfer-source-dec strip: a param of THIS function that flows
+    // to a `Return` terminator (per its own `MemoryContract.transfers_through_return`)
+    // transfers ownership back to the caller — its scope-exit `BurdenDec` is
+    // suppressed (the caller decs the bound result). The interprocedural contract
+    // is the SSOT for the proven Return-flow fact; the structural move-alias scan
+    // conservatively keeps the dec when the param is multi-block-used, so consult
+    // the contract directly for the param case. SSOT:
+    // `compute_transfer_through_return_param_vars`.
+    let transfer_through_return_param_vars =
+        compute_transfer_through_return_param_vars(func, contracts);
+
     // RL-1 inc-elision callee identity: `__index` codegen self-increments its
     // extracted non-scalar result, so the burden path elides the result-inc
     // (AIMS emits only the balancing dec). Interned once; idempotent.
@@ -462,6 +482,7 @@ pub(crate) fn emit_burden_ops<'a>(
         cow_inc_borrowed_aliases: &cow_inc_borrowed_aliases,
         cow_mutator_names: &cow_mutator_names,
         transfer_through_return_results: &transfer_through_return_results,
+        transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
     };
     emit_burden_ops_for_blocks(

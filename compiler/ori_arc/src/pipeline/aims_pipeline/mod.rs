@@ -403,7 +403,15 @@ fn dump_after_burden_elim(
         return;
     }
     let mut clone = func.clone();
-    crate::aims::realize::eliminate_burden_ops(&mut clone, state_map);
+    let same_alloc_reps =
+        crate::aims::emit_rc::compute_same_alloc_reps(&clone, state_map.apply_result_aliases());
+    crate::aims::realize::eliminate_burden_ops(
+        &mut clone,
+        state_map,
+        &same_alloc_reps,
+        config.interner,
+        *PREDICATE_STACK_RC_DISABLED,
+    );
     eprintln!(
         "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
         crate::ir::format::format_function(&clone, config.pool, config.interner)

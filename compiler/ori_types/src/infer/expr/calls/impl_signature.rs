@@ -80,19 +80,18 @@ pub(super) fn resolve_impl_signature(
         }
     };
 
-    // Apply impl-level binder substitution BEFORE method-level Scheme
-    // instantiation. The composition order is
-    // load-bearing — receiver-bind → impl-Name-substitute → method-level
-    // Scheme instantiate — so a registered signature on `impl<U> Box<U>
-    // { @m<T> ... }` with `Tag::Named(U)` impl-level refs and a
-    // `Tag::Scheme([T_var_id], ...)` method-level wrap fully resolves to
-    // a concrete function type after both layers run.
-    let resolved_sig = engine.resolve(sig_ty);
-    let impl_substituted_sig = if impl_subst.is_empty() {
-        resolved_sig
-    } else {
-        substitute_named_in_pool(engine.pool_mut(), resolved_sig, &impl_subst)
-    };
+    tracing::debug!(
+        target: "ori_types::mono",
+        method = ?method,
+        impl_type_params_len = impl_type_params.len(),
+        method_mono_recorded = method_mono.is_some(),
+        "resolve_impl_signature method-mono carrier decision"
+    );
+
+    // Apply impl-level binder substitution (Named + RigidVar) BEFORE
+    // method-level Scheme instantiation; composition order is load-bearing.
+    let impl_substituted_sig =
+        apply_impl_binder_substitution(engine, sig_ty, &impl_subst, &impl_type_params);
 
     // If the registered signature is a `Tag::Scheme` (set by
     // `build_impl_method` when the method has method-level type generics),
@@ -144,4 +143,47 @@ pub(super) fn resolve_impl_signature(
         scheme_var_ids,
         instantiation_subst,
     }))
+}
+
+/// Apply impl-level binder substitution to a registered method signature
+/// before method-level Scheme instantiation.
+///
+/// Composition order is load-bearing: resolve → substitute `Tag::Named`
+/// impl refs → substitute `Tag::RigidVar` impl binders to concrete receiver
+/// types. `substitute_named_in_pool` rewrites only `Tag::Named`; §10.1.2 made
+/// impl binders `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
+/// -> T` return needs the second pass to resolve `T` to the concrete receiver
+/// type — without it the `RigidVar(T)` survives to mono recording and fails
+/// its `is_fully_concrete` gate. SSOT scan: `build_impl_rigid_var_subst`.
+fn apply_impl_binder_substitution(
+    engine: &mut InferEngine<'_>,
+    sig_ty: Idx,
+    impl_subst: &FxHashMap<Name, Idx>,
+    impl_type_params: &[Name],
+) -> Idx {
+    let resolved_sig = engine.resolve(sig_ty);
+    let impl_substituted_sig = if impl_subst.is_empty() {
+        resolved_sig
+    } else {
+        substitute_named_in_pool(engine.pool_mut(), resolved_sig, impl_subst)
+    };
+
+    if impl_type_params.is_empty() {
+        return impl_substituted_sig;
+    }
+    let name_to_concrete: FxHashMap<Name, Idx> = impl_type_params
+        .iter()
+        .filter_map(|&n| impl_subst.get(&n).map(|&c| (n, c)))
+        .collect();
+    let rigid_subst =
+        crate::pool::substitute::build_impl_rigid_var_subst(engine.pool(), &name_to_concrete);
+    if rigid_subst.is_empty() {
+        impl_substituted_sig
+    } else {
+        crate::pool::substitute::substitute_in_pool(
+            engine.pool_mut(),
+            impl_substituted_sig,
+            &rigid_subst,
+        )
+    }
 }

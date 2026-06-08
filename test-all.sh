@@ -85,6 +85,7 @@ trap cleanup EXIT
 
 # Track failures
 RUST_EXIT=0
+DOCTEST_EXIT=0
 RUST_RT_EXIT=0
 RUST_LLVM_EXIT=0
 AOT_EXIT=0
@@ -319,6 +320,24 @@ parse_ori_results() {
     eval "${prefix}_LCFAIL=${lcfail:-0}"
 }
 
+# SSOT for a suite's status. Derives from exit code AND parsed counts so a
+# suite that could not build/run (nonzero exit, no "test result:" line to
+# parse) reports "errored" — NEVER a false "passed". The table, the JSON
+# summary, and state.json all consume this one function.
+#   failed > 0          -> failed
+#   exit != 0, no fails  -> errored (build/run failure or pre-output crash)
+#   otherwise            -> passed
+suite_status() {
+    local exit_code="${1:-0}" failed="${2:-0}"
+    if [ "$failed" -gt 0 ]; then
+        echo "failed"
+    elif [ "$exit_code" -ne 0 ]; then
+        echo "errored"
+    else
+        echo "passed"
+    fi
+}
+
 # --- Main execution ---
 
 # Flag consistency check (blocking — abort on failure)
@@ -410,7 +429,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     fi
 
     wait $RUST_PID || RUST_EXIT=1
-    wait $DOCTEST_PID || RUST_EXIT=1
+    wait $DOCTEST_PID || DOCTEST_EXIT=1
     wait $WASM_PID || WASM_EXIT=1
     wait $RUST_RT_PID || RUST_RT_EXIT=1
     wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
@@ -445,7 +464,7 @@ else
     echo ""
     run_rust_llvm || RUST_LLVM_EXIT=1
     echo ""
-    run_rust_doctests || RUST_EXIT=1
+    run_rust_doctests || DOCTEST_EXIT=1
     echo ""
     run_aot || AOT_EXIT=1
     echo ""
@@ -530,7 +549,7 @@ parse_rust_results "$RUST_RT_OUTPUT" "RUST_RT"
 parse_rust_results "$RUST_LLVM_OUTPUT" "RUST_LLVM"
 parse_rust_results "$AOT_OUTPUT" "AOT"
 parse_rust_results "$DOCTEST_OUTPUT" "DOCTEST"
-parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP"
+parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP" "$ORI_INTERP_EXIT"
 parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 
 # Count AOT tests that failed specifically due to memory leaks.
@@ -547,23 +566,56 @@ else
     WASM_STATUS="FAILED"
 fi
 
+# Per-suite status (SSOT via suite_status) for the Rust suites. An "errored"
+# suite built/ran with a nonzero exit but produced no parseable results — it is
+# surfaced loudly below and counted as a failure, never a silent green.
+RUST_STATUS=$(suite_status "$RUST_EXIT" "$RUST_FAILED")
+DOCTEST_STATUS=$(suite_status "$DOCTEST_EXIT" "$DOCTEST_FAILED")
+RUST_RT_STATUS=$(suite_status "$RUST_RT_EXIT" "$RUST_RT_FAILED")
+RUST_LLVM_STATUS=$(suite_status "$RUST_LLVM_EXIT" "$RUST_LLVM_FAILED")
+AOT_STATUS=$(suite_status "$AOT_EXIT" "$AOT_FAILED")
+
+ERRORED_SUITES=""
+for pair in \
+    "Rust unit tests (workspace)=$RUST_STATUS" \
+    "Rust doctests (workspace)=$DOCTEST_STATUS" \
+    "Runtime library (ori_rt)=$RUST_RT_STATUS" \
+    "Rust unit tests (ori_llvm)=$RUST_LLVM_STATUS" \
+    "AOT integration tests=$AOT_STATUS"; do
+    if [ "${pair##*=}" = "errored" ]; then
+        ERRORED_SUITES="${ERRORED_SUITES}  - ${pair%=*}\n"
+    fi
+done
+
 # --- Print Summary ---
 echo ""
 echo "=============================================="
 echo -e "${BOLD}                TEST SUMMARY${NC}"
 echo "=============================================="
 echo ""
+# Render one Rust suite row. An "errored" suite (built/ran with no parseable
+# results) prints ERR markers in red instead of a misleading 0/0/0.
+print_rust_row() {
+    local name="$1" passed="$2" failed="$3" skipped="$4" status="$5" extra="${6:-}"
+    if [ "$status" = "errored" ]; then
+        printf "%-30s %8s %8s %8s %8s  ${RED}<- build/run failed (no results)${NC}\n" \
+            "$name" "ERR" "ERR" "ERR" "-"
+    else
+        printf "%-30s %8d %8d %8d %8s%s\n" "$name" "$passed" "$failed" "$skipped" "-" "$extra"
+    fi
+}
+
 printf "%-30s %8s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped" "LCFail"
 printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
-printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" "-"
-printf "%-30s %8d %8d %8d %8s\n" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" "-"
-printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "-"
-if [ "$AOT_LEAKS" -gt 0 ]; then
-    printf "%-30s %8d %8d %8d %8s  ${YELLOW}(%d leaked)${NC}\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-" "$AOT_LEAKS"
+print_rust_row "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" "$RUST_STATUS"
+print_rust_row "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" "$RUST_RT_STATUS"
+print_rust_row "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "$RUST_LLVM_STATUS"
+if [ "$AOT_LEAKS" -gt 0 ] && [ "$AOT_STATUS" != "errored" ]; then
+    print_rust_row "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "$AOT_STATUS" "$(printf '  %b(%d leaked)%b' "$YELLOW" "$AOT_LEAKS" "$NC")"
 else
-    printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
+    print_rust_row "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "$AOT_STATUS"
 fi
-printf "%-30s %8d %8d %8d %8s\n" "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" "-"
+print_rust_row "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" "$DOCTEST_STATUS"
 printf "%-30s %8s\n" "External playground WASM" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
 if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
@@ -694,11 +746,17 @@ emit_json() {
     done
     all_failures=${all_failures%,$'\n'}
 
-    # Helper: emit a suite entry for per_suite (includes stable id + display_name)
+    # Helper: emit a suite entry for per_suite (includes stable id + display_name).
+    # $8 is the suite exit code: a nonzero exit with no parsed failures means the
+    # suite could not build/run and is reported "errored", never a false "passed".
     json_suite_full() {
         local id="$1" display="$2" passed="$3" failed="$4" skipped="$5"
-        local lcfail="${6:-0}" status="${7:-passed}"
-        if [ "$failed" -gt 0 ]; then status="failed"; fi
+        local lcfail="${6:-0}" status="${7:-passed}" exit_code="${8:-0}"
+        if [ "$failed" -gt 0 ]; then
+            status="failed"
+        elif [ "$exit_code" -ne 0 ] && [ "$status" = "passed" ]; then
+            status="errored"
+        fi
         printf '    "%s": { "display_name": "%s", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %d, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' \
             "$id" "$display" "${passed:-0}" "${failed:-0}" "${skipped:-0}" "${lcfail:-0}" "$status" "${failed:-0}"
     }
@@ -725,19 +783,19 @@ emit_json() {
         fi
         echo "  ],"
         echo "  \"per_suite\": {"
-        json_suite_full "rust_workspace" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" 0 "passed"
+        json_suite_full "rust_workspace" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" 0 "passed" "$RUST_EXIT"
         echo ","
-        json_suite_full "rust_rt" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" 0 "passed"
+        json_suite_full "rust_rt" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" 0 "passed" "$RUST_RT_EXIT"
         echo ","
-        json_suite_full "rust_llvm" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" 0 "passed"
+        json_suite_full "rust_llvm" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" 0 "passed" "$RUST_LLVM_EXIT"
         echo ","
-        json_suite_full "aot" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" 0 "passed"
+        json_suite_full "aot" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" 0 "passed" "$AOT_EXIT"
         echo ","
-        json_suite_full "rust_doctest" "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" 0 "passed"
+        json_suite_full "rust_doctest" "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" 0 "passed" "$DOCTEST_EXIT"
         echo ","
         printf '    "wasm_playground": { "display_name": "External playground WASM", "passed": %d, "failed": %d, "skipped": 0, "lcfail": 0, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$wasm_passed" "$wasm_failed" "$WASM_STATUS" "$wasm_failed"
         echo ","
-        json_suite_full "ori_interp" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" 0 "passed"
+        json_suite_full "ori_interp" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" 0 "passed" "$ORI_INTERP_EXIT"
         echo ","
         printf '    "ori_llvm": { "display_name": "Ori spec (LLVM backend)", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %d, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$llvm_passed" "$llvm_failed" "$llvm_skipped" "$llvm_lcfail" "$llvm_status" "$llvm_failed"
         echo ""
@@ -751,13 +809,22 @@ emit_json() {
 
 
 # Final status
-# ORI_LLVM_EXIT is excluded from the primary failure check when it crashed
-# (signal) but all other suites passed. The LLVM backend spec tests crash
-# on pre-existing codegen Root Causes A-C (unresolved type variables →
-# malformed IR → LLVM C++ SIGSEGV). This is tracked in BUG-04-030.
-# The crash is still prominently displayed in the summary output.
-ANY_CORE_FAILED=$((RUST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT))
+# ONLY the ORI_LLVM_EXIT spec-backend SIGSEGV (ORI_LLVM_CRASHED, tracked in
+# BUG-04-030) is exempted from the red verdict — and only when every other
+# suite is clean. Every other suite, INCLUDING one that errored (built/ran with
+# no parseable results), counts toward ANY_CORE_FAILED and fails the run. A
+# build failure or crash is never a silent green; the divergence where local
+# read green while CI read red came from suites reporting 0/0 "passed".
+ANY_CORE_FAILED=$((RUST_EXIT + DOCTEST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT))
 ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
+
+if [ -n "$ERRORED_SUITES" ]; then
+    echo -e "${RED}${BOLD}Errored suites — built/ran with no parseable results (counted as FAILED):${NC}"
+    echo -e "$ERRORED_SUITES"
+    echo "  A suite errors when it cannot build or crashes before printing results."
+    echo "  This is the case CI surfaces as failures; it is no longer hidden as 0/0 passed."
+    echo ""
+fi
 
 if [[ $EMIT_JSON -eq 1 ]]; then
     emit_json "$JSON_PATH"
@@ -804,7 +871,8 @@ if [ "$ANY_FAILED" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}=== All tests passed ===${NC}"
     exit 0
 elif [ "$ANY_CORE_FAILED" -eq 0 ] && [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
-    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All tests passed (LLVM backend crashed — known issue, see BUG-04-030) ===${NC}"
+    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All other suites passed — LLVM backend spec tests CRASHED (known: BUG-04-030, not fixed) ===${NC}"
+    echo -e "${YELLOW:-\033[0;33m}    This is the ONE tracked exemption. Every other suite, including errored ones, fails the run.${NC}"
     exit 0
 else
     echo -e "${RED}${BOLD}=== Some tests failed ===${NC}"

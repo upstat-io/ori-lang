@@ -138,3 +138,5 @@ package-lock.json
 /.gemini/
 **/*scratch/**
 **/scratchpad/**
+
+**/target-bug*/**

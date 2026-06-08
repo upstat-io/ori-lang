@@ -151,9 +151,13 @@ pub fn collect_mono_functions(
         let Some(generic_sig) = lookup else {
             let name_str = interner.lookup(instance.fn_name);
             tracing::debug!(
+                target: "ori_llvm::mono",
                 fn_name = ?instance.fn_name,
                 name = name_str,
                 is_method = instance.receiver_type.is_some(),
+                lookup_shell = ?instance.receiver_type.map(|r| shell_pool.generic_shell(pool, r)),
+                impl_sig_keys = impl_sig_by_name.len(),
+                impl_shells = ?impl_sig_by_name.keys().collect::<Vec<_>>(),
                 "mono instance for unknown function — skipping"
             );
             continue;

@@ -116,6 +116,17 @@ pub(super) fn maybe_record_mono_instance(
     let body_type_map =
         build_and_register_body_type_map(pool, &var_subst, &[], &struct_type_params);
 
+    // Register the concrete struct resolution for each concrete param / return
+    // type (e.g. `Box<[int]>`) — the free-function analogue of the method path's
+    // receiver `resolve_applied_type`. This sets the `Applied -> Struct{concrete
+    // fields}` resolution so `compose_for_idx`'s user-struct branch composes the
+    // per-instantiation burden from the substituted field types instead of the
+    // generic `Box<T>` (empty `owned_fields`) fallback.
+    for &pt in &concrete_param_types {
+        resolve_applied_type(pool, pt, &struct_type_params);
+    }
+    resolve_applied_type(pool, concrete_return_type, &struct_type_params);
+
     let instance = MonoInstance::new_top_level(
         fn_name,
         generic_args,
@@ -174,7 +185,28 @@ pub(super) fn maybe_record_method_mono_instance(
     // Receiver carrier: the FULL concrete receiver Idx (e.g. `Box<int>`, NOT
     // the generic `Box<T>` shell). A receiver that still has type vars is not a
     // concrete instantiation — skip per the deferred-receiver carve-out.
-    let receiver = engine.resolve(receiver_ty);
+    // Deep link-following resolution that PRESERVES the `Applied` shape: the
+    // receiver is `Applied(Box, [Var])` whose element Var is linked to the
+    // concrete type at the call site, but the cached `HAS_VAR` flag on the
+    // Applied survives shallow `engine.resolve`. `substitute_in_pool` with an
+    // empty map follows each child Var's `VarState::Link` to `int`, re-interning
+    // `Applied(Box, [int])`. `resolve_fully` is WRONG here — its matching-args
+    // fallback collapses `Box<int>` to the concrete struct, whose `generic_shell`
+    // no longer matches the impl method's `Applied(Box, [RigidVar])` self-param
+    // shell at LLVM mono lookup (`collect_mono_functions`).
+    let receiver = substitute_in_pool(engine.pool_mut(), receiver_ty, &FxHashMap::default());
+    let ret_resolved = engine.resolve(sig.ret);
+    tracing::debug!(
+        target: "ori_types::mono",
+        method = ?method_name,
+        receiver_concrete = is_fully_concrete(engine, receiver),
+        receiver_tag = ?engine.pool().tag(receiver),
+        receiver_flags = ?engine.pool().flags(receiver),
+        impl_args = ?mono.impl_type_args,
+        ret_tag = ?engine.pool().tag(ret_resolved),
+        ret_concrete = is_fully_concrete(engine, ret_resolved),
+        "maybe_record_method entry gate"
+    );
     if !is_fully_concrete(engine, receiver) {
         return;
     }
@@ -184,7 +216,7 @@ pub(super) fn maybe_record_method_mono_instance(
     // level args come from the call-site instantiation of `<U>`-style binders.
     let mut impl_args = Vec::with_capacity(mono.impl_type_args.len());
     for &(_, concrete) in &mono.impl_type_args {
-        let resolved = engine.resolve(concrete);
+        let resolved = engine.pool().resolve_fully(concrete);
         if !is_fully_concrete(engine, resolved) {
             return;
         }
@@ -197,7 +229,7 @@ pub(super) fn maybe_record_method_mono_instance(
         let Some(&fresh) = sig.instantiation_subst.get(&sv_id) else {
             continue;
         };
-        let resolved = engine.resolve(fresh);
+        let resolved = engine.pool().resolve_fully(fresh);
         if !is_fully_concrete(engine, resolved) {
             return;
         }
@@ -205,12 +237,20 @@ pub(super) fn maybe_record_method_mono_instance(
         method_args.push(GenericArg::Type(resolved));
     }
 
-    // Concrete param / return types. The signature already had its impl-level
-    // `Tag::Named` binders substituted (in `resolve_impl_signature`) and its
-    // method-level scheme instantiated, so `engine.resolve` collapses the
-    // remaining unification vars to concrete types.
-    let concrete_param_types: Vec<Idx> = sig.params.iter().map(|&p| engine.resolve(p)).collect();
-    let concrete_return_type = engine.resolve(sig.ret);
+    // Concrete param / return types via `substitute_in_pool` (empty map), which
+    // follows each child Var's `VarState::Link` while PRESERVING the `Applied`
+    // shape — `Applied(Pair, [Var->str, Var->int])` deep-resolves to the
+    // concrete `Applied(Pair, [str, int])`. `resolve_fully` is WRONG here: its
+    // matching-args fallback collapses `Pair<str, int>` to the generic `Pair`
+    // struct, so codegen would emit the wrong layout (`{i64, i64}`) and fail IR
+    // verification on a permuted-generic return like `swap (self) -> Pair<B, A>`.
+    let empty: FxHashMap<u32, Idx> = FxHashMap::default();
+    let concrete_param_types: Vec<Idx> = sig
+        .params
+        .iter()
+        .map(|&p| substitute_in_pool(engine.pool_mut(), p, &empty))
+        .collect();
+    let concrete_return_type = substitute_in_pool(engine.pool_mut(), sig.ret, &empty);
     if concrete_param_types
         .iter()
         .any(|&p| !is_fully_concrete(engine, p))
@@ -311,7 +351,26 @@ fn build_and_register_body_type_map(
     struct_type_params: &FxHashMap<Name, Vec<Name>>,
 ) -> Vec<(Idx, Idx)> {
     let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
-    crate::pool::substitute::build_mono_body_type_map(pool, var_subst, &mut body_type_map);
+    // Merge impl-level `Tag::RigidVar(var_id) → concrete` entries into the
+    // var-subst so `build_mono_body_type_map` records BOTH leaf rigids
+    // (`self.value: T`) AND rigid-containing COMPOSITES (a `Pair<B, A>` ctor
+    // inside `swap`). The rigid var_ids are recovered by name-matching the impl
+    // binders in `extra_named` via the `build_impl_rigid_var_subst` SSOT scan;
+    // the widened `build_mono_body_type_map` mask (HAS_RIGID_VAR) then walks
+    // every rigid-containing pool type. Without the composite entries, a
+    // generic-struct ctor in the body resolves to the generic layout (`{i64,
+    // i64}`) and fails LLVM IR verification (`Invalid InsertValueInst`).
+    let combined_subst: FxHashMap<u32, Idx> = if extra_named.is_empty() {
+        var_subst.clone()
+    } else {
+        let name_to_concrete: FxHashMap<Name, Idx> = extra_named.iter().copied().collect();
+        let rigid_subst =
+            crate::pool::substitute::build_impl_rigid_var_subst(pool, &name_to_concrete);
+        let mut combined = var_subst.clone();
+        combined.extend(rigid_subst);
+        combined
+    };
+    crate::pool::substitute::build_mono_body_type_map(pool, &combined_subst, &mut body_type_map);
     for &(name, concrete) in extra_named {
         let generic_idx = pool.named(name);
         if generic_idx != concrete {
@@ -389,7 +448,35 @@ fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
 /// pushing the result into the engine's accumulator. No-op when the Idx's
 /// tag does not match a builtin template OR when its args cannot be
 /// extracted from the pool.
-fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
+pub(crate) fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
+    // Generic-user-struct instantiation (e.g. `Box<[int]>`): the builtin
+    // templates below cover Option/Result/[T]/{K:V}/Set/Range only. A user
+    // struct's per-instantiation burden is composed from its concrete
+    // (substituted) field types — read from the concrete struct resolution set
+    // by `resolve_applied_type` at monomorphization. Without this the generic
+    // `Box<T>` declaration burden (empty `owned_fields`) is used, so the
+    // instantiated aggregate never carries RC and its heap field's drop is
+    // mis-attributed to borrowed field projections (`Spec: Annex E §AIMS`).
+    {
+        let resolved = engine.pool().resolve_fully(idx);
+        if engine.pool().tag(resolved) == Tag::Struct {
+            let field_types: Vec<Idx> = engine
+                .pool()
+                .struct_fields(resolved)
+                .iter()
+                .map(|&(_, ty)| ty)
+                .collect();
+            if let Some(composed) =
+                crate::check::registration::burden_compute::compute_struct_burden_from_field_types(
+                    &field_types,
+                    engine.pool(),
+                )
+            {
+                engine.record_composed_burden(idx, composed);
+            }
+            return;
+        }
+    }
     let (template_id, type_args) = {
         let pool = engine.pool();
         let template_id = match pool.tag(idx) {
@@ -628,7 +715,7 @@ fn record_deferred_mono_call(
 ///
 /// Handles nested generics: if `Wrapper<T>` is instantiated with `T = Pair<int, bool>`,
 /// the concrete struct field `inner: Applied(Pair, [int, bool])` is also registered.
-fn register_concrete_applied_resolutions(
+pub(crate) fn register_concrete_applied_resolutions(
     pool: &mut Pool,
     body_type_map: &[(Idx, Idx)],
     struct_type_params: &FxHashMap<Name, Vec<Name>>,

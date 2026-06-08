@@ -25,7 +25,8 @@
 //!   s.consumption = Dead` — both imply no future use, so a dec is
 //!   redundant.
 //! - DP-3 `is_rc_inc_elidable(s)` ⟺ `s.cardinality = Once ∧
-//!   s.consumption = Linear` — single linear consumer, no inc needed.
+//!   (s.consumption = Linear ∨ Affine)` — single non-duplicating consumer
+//!   (moved or borrow-read-then-released), no dup inc needed.
 //!
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` follow the
 //! `BurdenDec` elimination rule on the WHOLE-VAR state. `BurdenDecField`
@@ -41,7 +42,8 @@
 //! Resume / Unreachable) block whose exit map is empty because there is
 //! no successor demand to capture. Per DP-2 truth table, BOTTOM satisfies
 //! `is_rc_dec_unnecessary` (Absent ∨ Dead), but BOTTOM fails DP-3
-//! (`Once ∧ Linear`). A naïve per-op pass would elide the `BurdenDec`
+//! (`Once ∧ (Linear ∨ Affine)`; BOTTOM is Dead/Absent, not Once).
+//! A naïve per-op pass would elide the `BurdenDec`
 //! but retain the `BurdenInc`, producing `Σ Inc - Σ Dec = +1` and
 //! violating VF-1 per `aims/verify/burden_balance.rs`.
 //!
@@ -62,11 +64,44 @@
 #[cfg(test)]
 mod tests;
 
-use rustc_hash::FxHashMap;
+use std::sync::LazyLock;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::intraprocedural::AimsStateMap;
+use crate::aims::lattice::dimensions::{Consumption, Locality};
+use crate::aims::lattice::AimsState;
 use crate::aims::transfer::{is_rc_dec_unnecessary, is_rc_inc_elidable};
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
+use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
+use crate::graph::{compute_predecessors, DominatorTree};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+
+/// `ORI_DISABLE_LINEAGE_REBALANCE=1` skips the per-same-alloc-rep lineage
+/// re-balance ([`mark_lineage_rebalance_removals`]), leaving the per-var
+/// DP-2/DP-3 elision as the sole Phase-6 consumer. Bisection surface: isolates a
+/// double-free / leak to the lineage re-balance vs the per-var path without
+/// toggling the whole burden-vs-predicate-stack pipeline. Default (unset): the
+/// re-balance runs on the burden-only path. Spec: Annex E §AIMS RL-2.
+static LINEAGE_REBALANCE_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_LINEAGE_REBALANCE").as_deref() == Ok("1"));
+
+/// Realization-level escape-safety gate over DP-3's `is_rc_inc_elidable` verdict.
+///
+/// An `Affine` (borrow) inc is a NET-0 retain on a value the borrow SHARES;
+/// eliding it is sound ONLY when the value is genuinely `BlockLocal` (used +
+/// released within one block — the spurious-inc case `is_rc_inc_elidable` was
+/// extended to cure). A `FunctionLocal`/escaping `Affine` value (returned up a
+/// TRMC chain, threaded, or aliased to a still-live owner) NEEDS its retain;
+/// eliding it under-counts the shared allocation → UAF/double-free. `Linear`
+/// (move) incs are unconstrained — a move transfers ownership, no shared-
+/// allocation hazard. The proven DP-3 calculus (`is_rc_inc_elidable`) stays
+/// intact; this is the realization consumer's guard (Spec: Annex E §AIMS
+/// Locality dimension).
+#[inline]
+fn inc_elidable_at_realization(state: &AimsState) -> bool {
+    is_rc_inc_elidable(state)
+        && (state.consumption == Consumption::Linear || state.locality == Locality::BlockLocal)
+}
 
 /// Eliminate burden ops whose DP-2/DP-3 predicates fire.
 ///
@@ -80,7 +115,13 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 /// are preserved verbatim. Run BEFORE `coalesce_block_rc` (Phase 3) so
 /// coalesce operates on the post-elimination IR with redundant ops
 /// already removed.
-pub(crate) fn eliminate_burden_ops(func: &mut ArcFunction, state_map: &AimsStateMap) {
+pub(crate) fn eliminate_burden_ops(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
+) {
     // INVARIANT: Phase 6 is an OPTIMIZER over the burden-emitted
     // baseline: it ELIMINATES burden ops, NEVER CONSTRUCTS them. Capture the
     // per-kind burden-op census before the pass; assert the post-pass census is
@@ -92,7 +133,13 @@ pub(crate) fn eliminate_burden_ops(func: &mut ArcFunction, state_map: &AimsState
     #[cfg(debug_assertions)]
     let before = burden_op_census(func);
 
-    eliminate_whole_function(func, state_map);
+    eliminate_whole_function(
+        func,
+        state_map,
+        same_alloc_reps,
+        interner,
+        predicate_stack_rc_disabled,
+    );
 
     #[cfg(debug_assertions)]
     debug_assert_burden_removal_only(&before, &burden_op_census(func));
@@ -212,8 +259,13 @@ impl WholeVarBalance {
 /// DP-3 fires on every Inc AND DP-2 fires on every Dec function-wide (else
 /// retains all of the var's ops). Field-grain `BurdenDecField` is settled
 /// per-op (it does not participate in whole-var pairing).
-fn eliminate_whole_function(func: &mut ArcFunction, state_map: &AimsStateMap) {
-    let mut balances: FxHashMap<ArcVarId, WholeVarBalance> = FxHashMap::default();
+fn eliminate_whole_function(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
+) {
     // Per-block removal bitsets, indexed [block_idx][instr_idx].
     let mut remove: Vec<Vec<bool>> = func
         .blocks
@@ -221,8 +273,50 @@ fn eliminate_whole_function(func: &mut ArcFunction, state_map: &AimsStateMap) {
         .map(|b| vec![false; b.body.len()])
         .collect();
 
-    // Pass 1: classify every whole-var op into the per-var balance buckets
-    // across ALL blocks; settle field-grain Decs (BurdenDecField) inline.
+    // Lineage-aware re-balance (per `same_alloc_reps` rep) marks removals for the
+    // reps it covers; per-var DP-2/DP-3 elision handles every other var. A rep is
+    // covered ONLY when its per-path alloc-aware net is computable + balanceable
+    // by removal alone + the lineage is loop-free — the per-var path is otherwise
+    // correct and unchanged (Spec: Annex E §AIMS RL-2 release-exactly-once).
+    let rebalanced_vars = mark_lineage_rebalance_removals(
+        func,
+        state_map,
+        same_alloc_reps,
+        interner,
+        predicate_stack_rc_disabled,
+        &mut remove,
+    );
+
+    let balances = classify_burden_ops(func, state_map, predicate_stack_rc_disabled, &mut remove);
+    mark_whole_var_removals(
+        &balances,
+        &rebalanced_vars,
+        &mut remove,
+        predicate_stack_rc_disabled,
+    );
+    compact_removed(func, &remove);
+}
+
+/// Pass 1: classify every whole-var burden op into per-var balance buckets
+/// across ALL blocks; settle field-grain Decs (`BurdenDecField`) inline into
+/// `remove`.
+///
+/// Returns the per-var `WholeVarBalance` map. DP-3 (`is_rc_inc_elidable`) and
+/// DP-2 (`is_rc_dec_unnecessary`) are queried against the CONVERGED
+/// backward-demand at each op's target var's DEFINITION (TF-11 `seqAdd`
+/// accumulation), NOT block-exit: block-exit returns BOTTOM (Dead/Absent) for a
+/// fresh value defined+consumed within one block, so DP-3 could never fire and
+/// the spurious fresh-site inc survived. The def-state carries `Once` for a
+/// single-use value (DP-3 fires → inc elided) and `Many` for a multi-use one
+/// (DP-3 does not fire → inc kept), per the proven `Cardinality.seqAdd` + DP-3
+/// truth table.
+fn classify_burden_ops(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    predicate_stack_rc_disabled: bool,
+    remove: &mut [Vec<bool>],
+) -> FxHashMap<ArcVarId, WholeVarBalance> {
+    let mut balances: FxHashMap<ArcVarId, WholeVarBalance> = FxHashMap::default();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         #[expect(
             clippy::cast_possible_truncation,
@@ -232,21 +326,40 @@ fn eliminate_whole_function(func: &mut ArcFunction, state_map: &AimsStateMap) {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             match instr {
                 ArcInstr::BurdenInc { var } => {
-                    let state = state_map.var_state_at_block_exit(block_id, *var);
+                    let state = state_map.var_state_at_definition(block_id, *var);
+                    tracing::trace!(
+                        target: "ori_arc::aims::realize",
+                        ?var,
+                        cardinality = ?state.cardinality,
+                        consumption = ?state.consumption,
+                        locality = ?state.locality,
+                        uniqueness = ?state.uniqueness,
+                        elidable = inc_elidable_at_realization(&state),
+                        "burden-inc elision decision (converged-at-def)"
+                    );
                     let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
                     entry.inc_sites.push((block_idx, instr_idx));
-                    entry.all_inc_elidable &= is_rc_inc_elidable(&state);
+                    entry.all_inc_elidable &= inc_elidable_at_realization(&state);
                 }
                 ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
                 | ArcInstr::BurdenDecVariant { var } => {
-                    let state = state_map.var_state_at_block_exit(block_id, *var);
+                    // DP-2 (`is_rc_dec_unnecessary`) consumes the same
+                    // converged-at-definition state. For a single-use fresh
+                    // value the def-state is `Once`/`Linear`, so DP-2 is FALSE
+                    // (the dec is the necessary RL-2 scope-exit release) and
+                    // the dec is KEPT — the decoupled elision below preserves
+                    // it while still eliding the spurious inc.
+                    let state = state_map.var_state_at_definition(block_id, *var);
                     let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
                     entry.dec_sites.push((block_idx, instr_idx));
                     entry.all_dec_unnecessary &= is_rc_dec_unnecessary(&state);
                 }
                 ArcInstr::BurdenDecField { base, .. } => {
-                    if should_elide_dec(state_map, block_id, *base) {
+                    // Field-grain dec-elision is dec-side (DP-2), hence
+                    // co-emitter-dependent — gated off on the sole-emitter path.
+                    if !predicate_stack_rc_disabled && should_elide_dec(state_map, block_id, *base)
+                    {
                         remove[block_idx][instr_idx] = true;
                     }
                 }
@@ -254,19 +367,385 @@ fn eliminate_whole_function(func: &mut ArcFunction, state_map: &AimsStateMap) {
             }
         }
     }
+    balances
+}
 
-    // Pass 2: per-var paired elimination across the whole function. Elide all of
-    // a var's Inc + whole-var Dec ops iff DP-3 fires on every Inc AND DP-2 fires
-    // on every Dec; else retain every op for that var to preserve VF-1 balance.
-    for balance in balances.values() {
-        if balance.all_inc_elidable && balance.all_dec_unnecessary {
-            for &(b, i) in balance.inc_sites.iter().chain(&balance.dec_sites) {
-                remove[b][i] = true;
+/// A whole-var burden op site located across the function: `(block_idx,
+/// instr_idx)` of the instruction. Same as [`OpSite`] but named for the
+/// lineage-rebalance pass which keys ops by their lineage rep, not their var.
+type LineageOp = (usize, usize);
+
+/// Whole-var burden inc/dec op sites of ONE same-alloc lineage rep, plus the
+/// rep's fresh-self-alloc block footprint + loop membership — the grouping the
+/// lineage re-balance decides removals over.
+#[derive(Default)]
+struct RepOps {
+    inc_sites: Vec<LineageOp>,
+    dec_sites: Vec<LineageOp>,
+    /// Distinct vars that carry a whole-var burden op (inc OR dec) on this
+    /// lineage — the alias-chain signature is ≥2.
+    op_vars: FxHashSet<ArcVarId>,
+    all_vars: FxHashSet<ArcVarId>,
+    /// Per-block fresh-self-alloc count (block index → number of lineage
+    /// allocations in that block). The `+1`s of the post-re-balance net.
+    alloc_counts: FxHashMap<usize, i64>,
+    touches_loop: bool,
+}
+
+/// Group every whole-var burden op (inc / dec) + fresh self-allocation by its
+/// `same_alloc_reps` rep into [`RepOps`]. The single grouping pass the lineage
+/// re-balance decides over; `loop_blocks` taints a rep touching any loop block.
+fn group_lineage_ops(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    list_take_name: ori_ir::Name,
+    loop_blocks: &FxHashSet<usize>,
+) -> FxHashMap<ArcVarId, RepOps> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let mut reps: FxHashMap<ArcVarId, RepOps> = FxHashMap::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        let in_loop = loop_blocks.contains(&b);
+        for (i, instr) in block.body.iter().enumerate() {
+            if let Some(dst) =
+                super::emit_unified::fresh_rc_alloc_dst(instr, func, interner, list_take_name)
+            {
+                let entry = reps.entry(rep_of(dst)).or_default();
+                *entry.alloc_counts.entry(b).or_insert(0) += 1;
+                entry.all_vars.insert(dst);
+                entry.touches_loop |= in_loop;
+            }
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    let entry = reps.entry(rep_of(*var)).or_default();
+                    entry.inc_sites.push((b, i));
+                    entry.op_vars.insert(*var);
+                    entry.all_vars.insert(*var);
+                    entry.touches_loop |= in_loop;
+                }
+                _ => {
+                    if let Some(var) = whole_var_dec_target(instr) {
+                        let entry = reps.entry(rep_of(var)).or_default();
+                        entry.dec_sites.push((b, i));
+                        entry.op_vars.insert(var);
+                        entry.all_vars.insert(var);
+                        entry.touches_loop |= in_loop;
+                    }
+                }
             }
         }
     }
+    reps
+}
 
-    // Compact each block: retain only non-removed instructions.
+/// Per-same-alloc-rep lineage re-balance — the cross-var release-exactly-once
+/// pass that the per-var DP-2/DP-3 elimination cannot express.
+///
+/// For an alias chain (`let b = a; a == b`), Phase 5 emits BALANCED per-alias
+/// inc/dec pairs on each Let-Var / borrow-operand alias of ONE allocation; the
+/// per-var pass elides the borrow aliases' incs (DP-3: `Once+Linear`) but keeps
+/// every dec (DP-2 fails: `Once`, not `Absent/Dead`), so the lineage's kept
+/// incs/decs net to a non-zero per-path balance — a double-free on the alias
+/// branch + leak on the dead branch. The per-var pass cannot see the cross-var
+/// balance because it never receives `same_alloc_reps`.
+///
+/// This pass groups burden ops by `same_alloc_reps` rep and, for each rep it
+/// can re-balance by removal ALONE, marks: elide ALL incs (the allocation
+/// supplies the lineage's +1 — every alias inc is spurious) + keep EXACTLY ONE
+/// dec that releases the allocation on EVERY alloc-reachable terminal path
+/// (RL-2 `RL2_release_exactly_once`: a value allocated at RC = 1 nets 0 by one
+/// release), eliding every other dec. The kept dec is verification-selected:
+/// only a dec whose retention drives the lineage's per-path terminal net to 0
+/// (via `compute_burden_entry_nets`) is accepted.
+///
+/// SCOPE (conservative, non-loop only): a rep is re-balanced ONLY when ALL hold,
+/// else the per-var pass owns its vars unchanged:
+/// - the rep has ≥1 fresh self-alloc member (it is a real allocation lineage);
+/// - NO member's burden ops sit in a loop block — `same_alloc_reps` EXCLUDES the
+///   Jump-phi back-edge by design, so a loop-carried value's release attributes
+///   to a different rep and the per-path net mis-computes (the known blind spot
+///   per the M-series dead-ends); loop-carried lineages defer to a later pass;
+/// - eliding all incs + keeping exactly one dec yields a per-path terminal net
+///   of 0 on every alloc-reachable terminal (else removal alone cannot balance
+///   it — the missing release must be edge-emitted, out of scope here).
+///
+/// Returns the set of vars whose removals this pass owns; `mark_whole_var_removals`
+/// skips them. Spec: Annex E §AIMS RL-1 (alias inc spurious) + RL-2 (one release).
+fn mark_lineage_rebalance_removals(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
+    remove: &mut [Vec<bool>],
+) -> FxHashSet<ArcVarId> {
+    let mut owned_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    // The lineage re-balance keeps exactly one dec as the RL-2 release. On the
+    // default (now burden-only) path that is the sole real-RC emitter, this is
+    // the correct sole release. Under a co-emitter path (`predicate_stack_rc_disabled
+    // == false`) the predicate stack already emits the lineage's release, so a
+    // kept burden dec would lower to a DUPLICATE `RcDec` → double-free. Mirror
+    // `mark_whole_var_removals`'s dec-elision co-emitter gate: only re-balance
+    // when the burden path is the sole emitter.
+    if !predicate_stack_rc_disabled || *LINEAGE_REBALANCE_DISABLED {
+        return owned_vars;
+    }
+    let list_take_name = super::emit_unified::for_yield_result_finalizer_name(interner);
+    let preds = compute_predecessors(func);
+    let dom = DominatorTree::build(func);
+    let loop_blocks = compute_loop_blocks(func, &preds, &dom);
+
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+
+    // Forwarder-tainted reps — EXCLUDED. `compute_same_alloc_reps` unions an
+    // `Apply`-result alias (`ApplyAliasSource::Direct`/`Conditional`: a forwarder
+    // `f(x) = x` returning its arg) into the arg's rep, but the forwarder
+    // OWN-CONSUMED the arg, so the caller's pre-call inc is a GENUINE
+    // transfer-duplication (the value is now reachable through BOTH the local
+    // binding and the returned result), NOT an alias-spurious inc. Eliding it
+    // under-counts the shared allocation → use-after-free / wrong result. The
+    // per-path burden net at Phase 6 cannot see the forwarder's internal release
+    // (it lives in the callee), so the net verifies 0 while the runtime
+    // double-frees. The pure-SSA-alias-chain reps this pass targets (`let b = a;
+    // a == b`, unioned via Let-Var edges ONLY) carry no apply-result member.
+    // (generics-forwarder transfer-through-return is the M-a hard-core cluster —
+    // deferred to a later pass that models the callee's return ownership.) Spec:
+    // Annex E §AIMS RL-1 (genuine vs spurious inc) + RL-34 (tail-call transfer).
+    let forwarder_tainted_reps: FxHashSet<ArcVarId> = state_map
+        .apply_result_aliases()
+        .keys()
+        .map(|&v| rep_of(v))
+        .collect();
+
+    let reps = group_lineage_ops(
+        func,
+        same_alloc_reps,
+        interner,
+        list_take_name,
+        &loop_blocks,
+    );
+
+    for (rep, ops) in &reps {
+        // Candidate gate: a real, loop-free, NON-forwarder allocation lineage
+        // whose burden ops span ≥2 distinct SSA vars (the pure-Let-alias-chain
+        // signature). A single-var lineage is already handled correctly by the
+        // per-var pass; a loop-carried lineage's release attributes to a different
+        // rep (`same_alloc_reps` excludes the back-edge) so its per-path net
+        // mis-computes; a forwarder-tainted rep's apply-result inc is a genuine
+        // transfer-duplication the per-path burden net cannot see — all three
+        // stay with the per-var pass.
+        if ops.alloc_counts.is_empty()
+            || ops.touches_loop
+            || ops.op_vars.len() < 2
+            || forwarder_tainted_reps.contains(rep)
+        {
+            continue;
+        }
+        // The SOLE discriminator: eliding ALL incs (alias-spurious by the rep's
+        // same-allocation construction — every member shares the one rc, needs
+        // no inc) + keeping EXACTLY ONE dec must drive the lineage's per-path
+        // terminal net to 0 on every alloc-reachable terminal. Verified per-path
+        // via `compute_burden_entry_nets` — never a flat op count (it
+        // double-counts mutually-exclusive paths). A transferred lineage (alloc
+        // returned / moved out → consumer decs, needs no local release) has NO
+        // balancing single-dec and is rejected (the per-var pass keeps it). Spec:
+        // Annex E §AIMS RL-1 (alias inc spurious) + RL-2 (release exactly once).
+        let mut alloc_delta: Vec<i64> = vec![0; func.blocks.len()];
+        for (&b, &c) in &ops.alloc_counts {
+            alloc_delta[b] = c;
+        }
+        let alloc_blocks: Vec<usize> = ops.alloc_counts.keys().copied().collect();
+        let Some(kept_dec) =
+            select_single_release_dec(func, &preds, &alloc_blocks, &alloc_delta, &ops.dec_sites)
+        else {
+            continue;
+        };
+        // Commit: elide all incs + every dec except the kept release.
+        for &(b, i) in &ops.inc_sites {
+            remove[b][i] = true;
+        }
+        for &(b, i) in &ops.dec_sites {
+            if (b, i) != kept_dec {
+                remove[b][i] = true;
+            }
+        }
+        owned_vars.extend(ops.all_vars.iter().copied());
+
+        if tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = interner.lookup(func.name),
+                rep = rep.raw(),
+                incs_elided = ops.inc_sites.len(),
+                decs = ops.dec_sites.len(),
+                kept_dec_block = kept_dec.0,
+                "lineage re-balance: alias-chain release-exactly-once"
+            );
+        }
+    }
+    owned_vars
+}
+
+/// Select the ONE dec op site to keep as the lineage's RL-2 release: the dec
+/// whose retention (with all incs + all OTHER decs elided) drives the lineage's
+/// per-path terminal net to 0 on EVERY alloc-reachable terminal block, with no
+/// merge disagreement. Returns `None` when no single dec satisfies this (the
+/// lineage transfers out / needs a multi-branch release that removal alone
+/// cannot supply — both defer to the per-var pass).
+///
+/// The delta passed to the per-path net dataflow models the post-re-balance
+/// lineage exactly: ALL incs elided (the only `+1`s are the per-block allocation
+/// counts in `alloc_delta`) + the single kept dec's `−1`.
+///
+/// Candidates are ordered alloc-block-first: a dec in the allocation's own block
+/// fires on every path through it (every path from the allocation passes through
+/// it), so it is the most likely single dominating release.
+fn select_single_release_dec(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    alloc_blocks: &[usize],
+    alloc_delta: &[i64],
+    dec_sites: &[LineageOp],
+) -> Option<LineageOp> {
+    let alloc_reachable = forward_reachable(func, alloc_blocks);
+    // Ordering: alloc-block decs first, then the rest (stable within each group).
+    let mut candidates: Vec<LineageOp> = dec_sites.to_vec();
+    candidates.sort_by_key(|&(b, _)| usize::from(!alloc_blocks.contains(&b)));
+
+    for &keep in &candidates {
+        let mut delta = alloc_delta.to_vec();
+        delta[keep.0] -= 1;
+        let nets = compute_burden_entry_nets(func, preds, &delta);
+        if !nets.disagree_blocks.is_empty() {
+            continue;
+        }
+        let mut all_zero = true;
+        for (b, block) in func.blocks.iter().enumerate() {
+            let Some(eb) = nets.entry_net[b] else {
+                continue;
+            };
+            if !alloc_reachable.contains(&b) {
+                continue;
+            }
+            if !matches!(
+                block.terminator,
+                ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
+            ) {
+                continue;
+            }
+            if eb + delta[b] != 0 {
+                all_zero = false;
+                break;
+            }
+        }
+        if all_zero {
+            return Some(keep);
+        }
+    }
+    None
+}
+
+/// Forward-reachable block set from `starts` (inclusive), via CFG successors.
+fn forward_reachable(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = starts.to_vec();
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        for s in crate::graph::successor_block_ids(&block.terminator) {
+            stack.push(s.index());
+        }
+    }
+    visited
+}
+
+/// Blocks that lie inside a natural loop: a block is in a loop iff it is the
+/// target of a back-edge `b → h` (an edge whose head `h` dominates its tail `b`)
+/// OR it can reach the back-edge tail while dominated by the head. Computed as
+/// the union of every back-edge's natural-loop body.
+fn compute_loop_blocks(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    dom: &DominatorTree,
+) -> FxHashSet<usize> {
+    let mut loop_blocks: FxHashSet<usize> = FxHashSet::default();
+    let n = func.blocks.len();
+    for (b, block) in func.blocks.iter().enumerate() {
+        let tail = ArcBlockId::new(u32::try_from(b).unwrap_or(u32::MAX));
+        for h in crate::graph::successor_block_ids(&block.terminator) {
+            // Back-edge: successor `h` dominates the current block `b`.
+            if dom.dominates(h, tail) {
+                // Natural-loop body of back-edge `b → h`: `h` plus every block
+                // that reaches `b` without passing through `h` (the standard
+                // backward-reachability from the tail, bounded by the header).
+                loop_blocks.insert(h.index());
+                loop_blocks.insert(b);
+                let mut stack = vec![b];
+                while let Some(x) = stack.pop() {
+                    if x == h.index() {
+                        continue;
+                    }
+                    for &p in &preds[x] {
+                        if p < n && loop_blocks.insert(p) {
+                            stack.push(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    loop_blocks
+}
+
+/// Pass 2: per-var elimination across the whole function, DECOUPLED.
+///
+/// When DP-3 fires on every Inc (`all_inc_elidable`, i.e. the converged
+/// def-state cardinality is `Once` for a moved-once value), elide all of the
+/// var's whole-var Incs — a moved-once value needs no inc; the alloc /
+/// callee-return supplies the +1 and the surviving terminal Dec brings it to
+/// 0 (RC-balanced per the proven `RL1_duplication_balanced`). The matching
+/// Decs are ALSO elided ONLY when DP-2 additionally fires (`Absent`/`Dead`,
+/// the genuinely-dead-value case where no release is needed). When DP-3 fires
+/// but DP-2 does not (the single-use borrow-operand case), the inc is elided
+/// and the RL-2 scope-exit Dec is KEPT — this cures the spurious-inc leak
+/// without dropping the necessary release. A multi-use var has
+/// `all_inc_elidable = false` (def-state `Many`), so its inc is retained.
+fn mark_whole_var_removals(
+    balances: &FxHashMap<ArcVarId, WholeVarBalance>,
+    rebalanced_vars: &FxHashSet<ArcVarId>,
+    remove: &mut [Vec<bool>],
+    predicate_stack_rc_disabled: bool,
+) {
+    for (var, balance) in balances {
+        // Vars whose same-alloc lineage was re-balanced as a unit own their
+        // removals — skip the per-var DP-2/DP-3 pass for them (it would
+        // re-strip incs whose paired decs the lineage pass kept as the one
+        // RL-2 release → re-introduce the cross-var imbalance).
+        if rebalanced_vars.contains(var) {
+            continue;
+        }
+        if balance.all_inc_elidable {
+            for &(b, i) in &balance.inc_sites {
+                remove[b][i] = true;
+            }
+            // DP-2 dec-elision is co-emitter-DEPENDENT: on the sole-emitter
+            // (burden-only) path it would elide a genuine release and leak, so
+            // it runs ONLY when a predicate-stack co-emitter is present.
+            if balance.all_dec_unnecessary && !predicate_stack_rc_disabled {
+                for &(b, i) in &balance.dec_sites {
+                    remove[b][i] = true;
+                }
+            }
+        }
+    }
+}
+
+/// Compact each block: retain only non-removed instructions.
+fn compact_removed(func: &mut ArcFunction, remove: &[Vec<bool>]) {
     for (block_idx, block) in func.blocks.iter_mut().enumerate() {
         if !remove[block_idx].iter().any(|r| *r) {
             continue;

@@ -176,6 +176,16 @@ flags! {
     /// Usage: `ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
     ORI_DISABLE_PREDICATE_STACK_RC
 
+    /// Disable the lineage-aware Phase-6 burden-op re-balance (group-by-rep
+    /// net-targeted one-release elision) in `ori_arc::aims::realize::burden_elim`,
+    /// falling back to the decoupled per-var elision.
+    ///
+    /// Diagnostic bisection only: toggles the lineage re-balance off so an
+    /// alias-chain double-free can be attributed to the rep-grouping vs the
+    /// per-var pass; default (unset) keeps the re-balance active.
+    /// Usage: `ORI_DISABLE_LINEAGE_REBALANCE=1 ori build file.ori`
+    ORI_DISABLE_LINEAGE_REBALANCE
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

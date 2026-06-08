@@ -9,8 +9,26 @@
 use crate::{chain, committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, ParsedTypeId,
-    ParsedTypeRange, TokenKind, TraitBound, WhereClause,
+    ParsedTypeRange, TokenKind, TraitBound, TypeId, WhereClause,
 };
+
+/// Maps a primitive type-name keyword token to its `(TypeId, canonical-name)` pair.
+///
+/// Returns `None` for every non-primitive token — INCLUDING `NeverType` and `Void`, which
+/// pass `Cursor::check_type_keyword()` (the broader 8-token gate) but are not value-bearing
+/// receiver types. SSOT for the 6-primitive subject/receiver mapping shared by `extend` blocks
+/// and `impl` subject parsing; callers gate on this `Some` rather than re-inlining the match.
+pub(crate) fn primitive_type_keyword(kind: &TokenKind) -> Option<(TypeId, &'static str)> {
+    Some(match kind {
+        TokenKind::StrType => (TypeId::STR, "str"),
+        TokenKind::IntType => (TypeId::INT, "int"),
+        TokenKind::FloatType => (TypeId::FLOAT, "float"),
+        TokenKind::BoolType => (TypeId::BOOL, "bool"),
+        TokenKind::CharType => (TypeId::CHAR, "char"),
+        TokenKind::ByteType => (TypeId::BYTE, "byte"),
+        _ => return None,
+    })
+}
 
 impl Parser<'_> {
     /// Parse a required type annotation.

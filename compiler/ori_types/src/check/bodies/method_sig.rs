@@ -89,7 +89,7 @@ pub(super) fn allocate_method_binders(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
 ) -> MethodBinderInfo {
-    allocate_generic_binders(checker, method.generics)
+    allocate_generic_binders(checker, method.generics, None)
 }
 
 /// Shared rigid-binder allocation for a `GenericParamRange` — the SSOT core of
@@ -104,6 +104,7 @@ pub(super) fn allocate_method_binders(
 pub(super) fn allocate_generic_binders(
     checker: &mut ModuleChecker<'_>,
     generics: ori_ir::GenericParamRange,
+    prealloc: Option<&FxHashMap<Name, Idx>>,
 ) -> MethodBinderInfo {
     let generic_params = checker.arena().get_generic_params(generics).to_vec();
     let method_generic_params: Vec<Name> = generic_params
@@ -111,11 +112,15 @@ pub(super) fn allocate_generic_binders(
         .filter(|p| !p.is_const)
         .map(|p| p.name)
         .collect();
-    let mut method_substitutions: FxHashMap<Name, Idx> = FxHashMap::default();
-    for &mname in &method_generic_params {
-        let rigid_idx = checker.pool_mut().rigid_var(mname);
-        method_substitutions.insert(mname, rigid_idx);
-    }
+    // `prealloc = Some(map)` REUSES `RigidVar`s allocated earlier (impl-level
+    // binders allocated at `register_impls`, Pass 0c); `None` allocates fresh
+    // (method-level binders, allocated here at Pass 4). Reuse is what lets a
+    // method mono recorded at a Pass-3 call site see the impl `RigidVar` in
+    // `var_states` — the impl binder already exists by Pass 0c.
+    let method_substitutions: FxHashMap<Name, Idx> = match prealloc {
+        Some(map) => map.clone(),
+        None => allocate_rigid_vars_for_names(checker, &method_generic_params),
+    };
     // Phase B-Residual-2 (a) — collect method-level const generics. Their names are
     // bound into `param_env` at body-check entry as their declared type (`int` /
     // `bool`) so the body can reference them as values, mirroring the top-level
@@ -151,4 +156,38 @@ pub(super) fn allocate_generic_binders(
         const_params,
         inline_bounds,
     )
+}
+
+/// Allocate one fresh `RigidVar` per name and return the `name → Idx` map. SSOT
+/// for the "binder name → `RigidVar`" allocation loop shared by
+/// `allocate_generic_binders` (Pass-4 method binders) and
+/// `allocate_impl_rigid_var_map` (Pass-0c impl binders).
+fn allocate_rigid_vars_for_names(
+    checker: &mut ModuleChecker<'_>,
+    names: &[Name],
+) -> FxHashMap<Name, Idx> {
+    let mut map = FxHashMap::default();
+    for &name in names {
+        let rigid_idx = checker.pool_mut().rigid_var(name);
+        map.insert(name, rigid_idx);
+    }
+    map
+}
+
+/// Allocate the impl-level `RigidVar` substitution map (non-const binders only)
+/// for one impl block's `generics`. Called by `register_impls` (Pass 0c) so the
+/// `RigidVar`s exist before any body pass records a method mono; `check_impl_block`
+/// (Pass 4) reuses the stored map via `allocate_generic_binders`'s `prealloc`.
+pub(crate) fn allocate_impl_rigid_var_map(
+    checker: &mut ModuleChecker<'_>,
+    generics: ori_ir::GenericParamRange,
+) -> FxHashMap<Name, Idx> {
+    let names: Vec<Name> = checker
+        .arena()
+        .get_generic_params(generics)
+        .iter()
+        .filter(|p| !p.is_const)
+        .map(|p| p.name)
+        .collect();
+    allocate_rigid_vars_for_names(checker, &names)
 }

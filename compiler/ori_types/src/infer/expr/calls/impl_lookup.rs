@@ -10,6 +10,19 @@ use crate::{
     BoundChainLookup, GenericParamMeta, Idx, MethodLookupResult, Pool, Tag, WhereConstraint,
 };
 
+/// A trait-impl method match: method def, impl-binder substitution, trait
+/// name (ambiguity reporting), impl type-params in declaration order.
+type TraitMatch<'a> = (
+    &'a crate::ImplMethodDef,
+    FxHashMap<Name, Idx>,
+    Name,
+    Vec<Name>,
+);
+
+/// An inherent-impl method match: method def, impl-binder substitution, impl
+/// type-params in declaration order.
+type InherentMatch<'a> = (&'a crate::ImplMethodDef, FxHashMap<Name, Idx>, Vec<Name>);
+
 /// Result of looking up a method in the `TraitRegistry`.
 pub(super) enum LookupOutcome {
     Found {
@@ -212,12 +225,14 @@ fn lookup_method_by_base_match(
         return FallbackResult::None;
     };
 
-    // Inherent matches carry the impl's `type_params` (declaration order) so the
-    // method-mono emission hook can build `impl_args` in a canonical order; trait
-    // matches do not (trait methods are excluded from method-mono recording).
-    let mut inherent_matches: Vec<(&crate::ImplMethodDef, FxHashMap<Name, Idx>, Vec<Name>)> =
-        Vec::new();
-    let mut trait_matches: Vec<(&crate::ImplMethodDef, FxHashMap<Name, Idx>, Name)> = Vec::new();
+    // Both inherent and trait matches carry the impl's `type_params` (declaration
+    // order) so the method-mono emission hook can build `impl_args` in a canonical
+    // order — a trait method on a generic impl (`impl<T> Box<T>: Container`) needs
+    // its receiver-instantiated mono recorded for LLVM codegen exactly like an
+    // inherent one. Trait matches additionally carry the trait `Name` for
+    // ambiguity reporting.
+    let mut inherent_matches: Vec<InherentMatch<'_>> = Vec::new();
+    let mut trait_matches: Vec<TraitMatch<'_>> = Vec::new();
 
     for (_, entry) in reg.impls_iter() {
         let Some(entry_base) = pool_base_name(pool, entry.self_type) else {
@@ -238,7 +253,12 @@ fn lookup_method_by_base_match(
             None => inherent_matches.push((method_def, impl_subst, entry.type_params.clone())),
             Some(trait_idx) => {
                 let trait_name = reg.get_trait_by_idx(trait_idx).map_or(method, |t| t.name);
-                trait_matches.push((method_def, impl_subst, trait_name));
+                trait_matches.push((
+                    method_def,
+                    impl_subst,
+                    trait_name,
+                    entry.type_params.clone(),
+                ));
             }
         }
     }
@@ -258,10 +278,10 @@ fn lookup_method_by_base_match(
     }
 
     if trait_matches.len() > 1 {
-        let trait_names: Vec<Name> = trait_matches.iter().map(|(_, _, n)| *n).collect();
+        let trait_names: Vec<Name> = trait_matches.iter().map(|(_, _, n, _)| *n).collect();
         return FallbackResult::Ambiguous(trait_names);
     }
-    if let Some((method_def, impl_subst, _)) = trait_matches.into_iter().next() {
+    if let Some((method_def, impl_subst, _, impl_type_params)) = trait_matches.into_iter().next() {
         FallbackResult::Single {
             sig: method_def.signature,
             has_self: method_def.has_self,
@@ -269,8 +289,7 @@ fn lookup_method_by_base_match(
             generic_param_metadata: method_def.generic_param_metadata.clone(),
             scheme_var_ids: method_def.scheme_var_ids.clone(),
             impl_subst,
-            // Trait method — excluded from method-mono recording.
-            impl_type_params: Vec::new(),
+            impl_type_params,
         }
     } else {
         FallbackResult::None

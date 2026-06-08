@@ -4,8 +4,8 @@ use crate::context::ParseContext;
 use crate::grammar::attr::ParsedAttrs;
 use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind,
-    Visibility,
+    DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedType, ParsedTypeRange,
+    TokenKind, Visibility,
 };
 
 impl Parser<'_> {
@@ -37,8 +37,23 @@ impl Parser<'_> {
         };
 
         // Parse the first type (could be trait or self_ty)
-        // Supports both simple `Box` and generic `Box<T>`
-        let (first_path, first_ty) = require!(self, self.parse_impl_type(), "type after `impl`");
+        // Supports both simple `Box` and generic `Box<T>`, plus primitive subjects
+        // (`impl str: Trait`). Subject-position primitive acceptance is gated on the
+        // 6-primitive `primitive_type_keyword` helper, NOT the broader 8-token
+        // check_type_keyword() — so `Never`/`void` fall through to expect_ident()->E1002.
+        // The post-colon trait path (below) stays Ident-only via parse_impl_type, so a
+        // primitive in trait position (`impl Foo: str`) still rejects.
+        // Primitives take no type args; a following `<` is left for the colon/inherent
+        // dispatch, which then errors.
+        let (first_path, first_ty) = if let Some((type_id, name_str)) =
+            crate::grammar::item::generics::primitive_type_keyword(self.cursor.current_kind())
+        {
+            let name = self.cursor.interner().intern(name_str);
+            self.cursor.advance();
+            (vec![name], ParsedType::Primitive(type_id))
+        } else {
+            require!(self, self.parse_impl_type(), "type after `impl`")
+        };
 
         // Determine trait vs inherent impl.
         let (trait_path, trait_type_args, self_path, self_ty) =

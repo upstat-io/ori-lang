@@ -34,6 +34,11 @@ pub(crate) fn infer_match(
     let scrutinee_span = arena.get_expr(scrutinee).span;
 
     for (i, arm) in arms_slice.iter().enumerate() {
+        // Each arm gets its own type-environment scope so pattern bindings are
+        // isolated to this arm's guard + body and never leak into sibling arms
+        // or the enclosing scope (mirrors loops.rs / lambdas.rs / blocks.rs).
+        engine.enter_scope();
+
         // Check pattern against scrutinee type (and bind variables)
         engine.push_context(ContextKind::MatchArmPattern { arm_index: i });
         #[expect(clippy::cast_possible_truncation, reason = "arm index fits in u32")]
@@ -60,6 +65,11 @@ pub(crate) fn infer_match(
         let body_ty = infer_expr(engine, arena, arm.body);
         engine.pop_context();
 
+        // Exit this arm's scope: pattern bindings go out of scope here. The
+        // arm-result unify below reads only the pooled `body_ty` Idx, which is
+        // independent of env bindings, so exiting before the unify is sound.
+        engine.exit_scope();
+
         // Unify with previous arms
         match result_ty {
             None => {
@@ -79,10 +89,6 @@ pub(crate) fn infer_match(
                 let _ = engine.check_type(body_ty, &expected, arena.get_expr(arm.body).span);
             }
         }
-
-        // Exit pattern bindings scope (patterns introduce local bindings)
-        // Note: Variables bound in patterns are only visible in that arm's body
-        // This is handled by enter/exit scope around pattern checking
     }
 
     if let Some(ty) = result_ty {

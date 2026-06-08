@@ -455,6 +455,30 @@ pub struct AimsStateMap {
     /// default — non-Invoke vars never have entries here.
     invoke_def_demand: FxHashMap<(ArcBlockId, ArcVarId), AimsState>,
 
+    /// Converged BACKWARD-demand state at an intra-block instruction's
+    /// definition point, keyed by `(defining_block, dst)`.
+    ///
+    /// A var defined AND consumed entirely within one block (e.g. a fresh
+    /// `Construct` used once as a borrow operand) is stripped from the demand
+    /// map by `apply_instr_forward_transfer` before block exit, so
+    /// `block_exit_states` returns BOTTOM for it. This table captures the
+    /// pre-strip demand (the `seqAdd`-accumulated cardinality + consumption —
+    /// `Once`/`Linear` for a single-use value, `Many` for a multi-use one) at
+    /// the strip site, mirroring `invoke_def_demand` for the intra-block
+    /// instruction-definition case rather than the Invoke-terminator case.
+    ///
+    /// Populated by `analyze_function` from `BlockAnalysisResult.def_demand`
+    /// AFTER each `compute_block_entry_state` call; cleared each iteration.
+    ///
+    /// # Consumer
+    ///
+    /// `var_state_at_definition` consults this table FIRST, so DP-3
+    /// (`is_rc_inc_elidable`) / DP-2 receive the proven converged-at-definition
+    /// demand (TF-11 `seqAdd` accumulation) rather than the BOTTOM block-exit
+    /// state. `var_state_at_block_exit` does NOT consult it (no blast radius to
+    /// FIP / `LocalAlloc` consumers).
+    def_demand: FxHashMap<(ArcBlockId, ArcVarId), AimsState>,
+
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
     /// by `update_block_entry` when a state changes.
@@ -523,6 +547,7 @@ impl AimsStateMap {
             var_uniqueness: FxHashMap::default(),
             var_locality: FxHashMap::default(),
             invoke_def_demand: FxHashMap::default(),
+            def_demand: FxHashMap::default(),
             changed: false,
             cross_dimension_detected: false,
             class_covered: FxHashSet::default(),
@@ -608,6 +633,42 @@ impl AimsStateMap {
             .unwrap_or(AimsState::BOTTOM)
     }
 
+    /// Get the converged BACKWARD-demand state at a variable's DEFINITION.
+    ///
+    /// Consults `def_demand` (intra-block instruction definitions) FIRST, then
+    /// `invoke_def_demand` (Invoke-terminator definitions), then falls back to
+    /// `block_exit_states`. Unlike `var_state_at_block_exit`, this recovers the
+    /// pre-strip demand for a var defined+consumed within one block (where
+    /// block-exit returns BOTTOM), giving DP-3 / DP-2 the proven TF-11
+    /// `seqAdd`-accumulated cardinality (`Once` single-use, `Many` multi-use).
+    #[must_use]
+    pub fn var_state_at_definition(&self, block: ArcBlockId, var: ArcVarId) -> AimsState {
+        if self.is_scalar(var) || self.is_immortal(var) {
+            return AimsState::SCALAR;
+        }
+        if let Some(&state) = self.def_demand.get(&(block, var)) {
+            return state;
+        }
+        if let Some(&state) = self.invoke_def_demand.get(&(block, var)) {
+            return state;
+        }
+        self.block_exit_states
+            .get(block.index())
+            .and_then(|states| states.get(&var))
+            .copied()
+            .unwrap_or(AimsState::BOTTOM)
+    }
+
+    /// Record the converged pre-strip demand for an intra-block
+    /// instruction-defined dst.
+    ///
+    /// Called by `analyze_function` after `compute_block_entry_state` returns
+    /// the captured demand for the block's stripped instruction-defined vars.
+    /// Keyed by `(defining_block, dst)`. See `def_demand` field doc.
+    pub(crate) fn set_def_demand(&mut self, block: ArcBlockId, var: ArcVarId, state: AimsState) {
+        self.def_demand.insert((block, var), state);
+    }
+
     /// Record the pre-strip demand for an Invoke-terminator-defined dst.
     ///
     /// Called by `analyze_function` after `compute_block_entry_state` returns
@@ -632,6 +693,7 @@ impl AimsStateMap {
     /// states (which converge across iterations).
     pub(crate) fn clear_invoke_def_demand(&mut self) {
         self.invoke_def_demand.clear();
+        self.def_demand.clear();
     }
 
     /// Get the state of a variable at a block's entry (before first instruction).

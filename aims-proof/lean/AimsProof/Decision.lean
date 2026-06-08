@@ -97,18 +97,28 @@ theorem DP2_is_rc_dec_unnecessary_table (car : Cardinality) (con : Consumption)
 
 /-! ## §DP-3 — `is_rc_inc_elidable` (annex-e §AIMS §3 + §8.1)
 
-    `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption = Linear`.
-    Move-once: a value used exactly once and consumed linearly needs no inc. -/
+    `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption ∈ {Linear, Affine}`.
+    A value used EXACTLY ONCE (`cardinality = Once`) is not duplicated, so the
+    duplicate-inc at its single use is unnecessary — independent of whether that
+    use is a MOVE (`Linear`: the consumer takes ownership and decs) or a BORROW
+    (`Affine`: the value is read non-consumingly then released by its own RL-2
+    scope-exit dec). Neither use creates a new owned reference, so neither needs
+    the inc. Existing upstream aliases are DECOUPLED (each carries its own
+    refcount entry; DP-3 only affects the duplicate-inc at this use site), so the
+    extension to `Affine` does not re-introduce the removed-DP-10 unsoundness.
+    `Unrestricted` is excluded (it co-occurs only with `Many` cardinality — a
+    genuine multi-use that DOES need the inc); `Dead` is excluded by the `Once`
+    gate (CN-1: Dead ↔ Absent). -/
 
 def is_rc_inc_elidable (s : AimsState) : Bool :=
-  (s.cardinality = .One) && (s.consumption = .Linear)
+  (s.cardinality = .One) && (s.consumption = .Linear || s.consumption = .Affine)
 
-/-- DP-3 truth table (Cardinality × Consumption): Once ∧ Linear → true;
-      Once ∧ ≠Linear → false; ≠Once → false. -/
+/-- DP-3 truth table (Cardinality × Consumption): Once ∧ (Linear ∨ Affine) →
+      true; Once ∧ (Dead ∨ Unrestricted) → false; ≠Once → false. -/
 theorem DP3_is_rc_inc_elidable_table (car : Cardinality) (con : Consumption)
     (rest : AimsState) :
     is_rc_inc_elidable { rest with cardinality := car, consumption := con }
-      = (decide (car = .One) && decide (con = .Linear)) := by
+      = (decide (car = .One) && (decide (con = .Linear) || decide (con = .Affine))) := by
   cases car <;> cases con <;> rfl
 
 /-! ## §DP-4 — `needs_cow_check` (annex-e §AIMS §3.4 + §8.2 RL-6 / RL-7 / RL-8)

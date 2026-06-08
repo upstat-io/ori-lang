@@ -230,14 +230,23 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
         ],
     );
     let reps = identity_reps(1);
-    let net = compute_lineage_alloc_aware_net(&func, &reps, &ori_ir::StringInterner::new());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(1),
         "read-only single-ref self-alloc lineage nets +1 (redundant fresh inc surplus)"
     );
-    let elidable =
-        compute_elidable_fresh_self_alloc_incs(&func, &reps, &ori_ir::StringInterner::new());
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         elidable.contains(&v(0)),
         "redundant fresh inc of a read-only single-ref self-alloc is elidable"
@@ -278,8 +287,12 @@ fn keep_fresh_inc_for_cow_mutated_self_alloc() {
         ],
     );
     let reps = identity_reps(3);
-    let elidable =
-        compute_elidable_fresh_self_alloc_incs(&func, &reps, &ori_ir::StringInterner::new());
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         !elidable.contains(&v(0)),
         "COW-mutated self-alloc (list + operand) keeps its load-bearing fresh inc"
@@ -312,14 +325,23 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
         ],
     );
     let reps = identity_reps(1);
-    let net = compute_lineage_alloc_aware_net(&func, &reps, &ori_ir::StringInterner::new());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(0),
         "move-alias-dec lineage nets 0 (fresh inc balances the unpaired move dec)"
     );
-    let elidable =
-        compute_elidable_fresh_self_alloc_incs(&func, &reps, &ori_ir::StringInterner::new());
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         !elidable.contains(&v(0)),
         "net != 1 → fresh inc kept (eliding would double-free, net −1)"
@@ -368,13 +390,19 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
     let reps: FxHashMap<ArcVarId, ArcVarId> = [(v(0), v(0)), (v(1), v(0)), (v(2), v(0))]
         .into_iter()
         .collect();
-    let net = compute_lineage_alloc_aware_net(&func, &reps, &interner);
+    let net =
+        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(1),
         "dup-indexed list_take result nets +1 (the surplus fresh inc over alloc)"
     );
-    let elidable = compute_elidable_fresh_self_alloc_incs(&func, &reps, &interner);
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         elidable.contains(&v(0)),
         "the for_yield list_take result's surplus fresh inc is elidable (net == 1)"
@@ -414,13 +442,19 @@ fn keep_fresh_inc_for_single_use_list_take_result() {
         ],
     );
     let reps = identity_reps(2);
-    let net = compute_lineage_alloc_aware_net(&func, &reps, &interner);
+    let net =
+        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(0),
         "list_take result with a move-alias dec nets 0 → fresh inc is load-bearing"
     );
-    let elidable = compute_elidable_fresh_self_alloc_incs(&func, &reps, &interner);
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         !elidable.contains(&v(0)),
         "net 0 list_take result keeps its fresh inc (eliding would double-free)"
@@ -503,14 +537,20 @@ fn keep_fresh_inc_for_jump_threaded_list_take_result() {
     let reps: FxHashMap<ArcVarId, ArcVarId> = [(v(0), v(0)), (v(2), v(2)), (v(3), v(2))]
         .into_iter()
         .collect();
-    let net = compute_lineage_alloc_aware_net(&func, &reps, &interner);
+    let net =
+        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(0),
         "jump-threaded list_take result nets 0 once the phi-threaded downstream \
          release is attributed to the alloc rep (the fresh inc balances the 2nd dec)"
     );
-    let elidable = compute_elidable_fresh_self_alloc_incs(&func, &reps, &interner);
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+    );
     assert!(
         !elidable.contains(&v(0)),
         "the jump-threaded result keeps its fresh inc (eliding would net −1 = \

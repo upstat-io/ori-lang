@@ -271,6 +271,16 @@ impl Pool {
         self.intern(Tag::RigidVar, id)
     }
 
+    /// Return the interned `Tag::RigidVar` Idx for an EXISTING `var_id`.
+    ///
+    /// Unlike [`rigid_var`], this does NOT allocate a new `var_states` slot — it
+    /// re-interns the leaf for a `var_id` that already names a rigid binding (the
+    /// hash-dedup returns the existing Idx). Used by monomorphization to map an
+    /// impl-level rigid generic's body leaf to its concrete type.
+    pub fn rigid_var_idx(&mut self, var_id: u32) -> Idx {
+        self.intern(Tag::RigidVar, var_id)
+    }
+
     /// Create a `Tag::BoundVar` leaf referencing a scheme-declared `var_id`.
     ///
     /// Per, scheme bodies SHALL store bound variables as

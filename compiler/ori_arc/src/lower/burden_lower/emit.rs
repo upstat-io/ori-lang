@@ -83,6 +83,14 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // `RcPointer`/`FatValue` results (an Aggregate's projected fields carry
     // their own decs). SSOT: `compute_transfer_through_return_results`.
     pub(super) transfer_through_return_results: &'a FxHashSet<ArcVarId>,
+    // The function's OWN params whose `MemoryContract.transfers_through_return`
+    // is set (the param flows to a `Return` terminator). Per AIMS RL-2 the
+    // `Return` terminal use transfers ownership back to the caller, so the
+    // callee MUST NOT emit a scope-exit `BurdenDec` on the param — the caller
+    // decs the bound result variable. Suppressed in `emit_last_use_decs` +
+    // `emit_terminator_burden_decs`. Params have no FRESH inc, so no symmetric
+    // inc-suppression. SSOT: `compute_transfer_through_return_param_vars`.
+    pub(super) transfer_through_return_param_vars: &'a FxHashSet<ArcVarId>,
     // Interned name of the `__index` protocol builtin. Its codegen
     // (`emit_list_index` / `emit_map_index`) self-increments the extracted
     // non-scalar result so the caller owns its reference; AIMS emits ONLY the
@@ -518,8 +526,27 @@ fn emit_last_use_decs(
         // List-concat consume (`ori_list_concat_cow` dual-consuming): the helper
         // dec/frees the operand buffer. Suppress on BOTH paths — the consume IS
         // the release; a scope-exit `BurdenDec` would double-free the buffer.
+        // RL-2 callee transfer-source-dec strip: a param that transfers through
+        // the return (per the function's own `MemoryContract`) hands its
+        // allocation back to the caller — a callee scope-exit dec double-releases
+        // it (`AimsProof.Realization::RL2_transfer_kinds_no_dec` for the `Return`
+        // `TerminalUse`). PROBE-ONLY: on the default path the `burden_dec` marker
+        // drives `populate_class_covered` to suppress the predicate stack's OWN
+        // real dec on this param (the coexistence handshake's two halves), so
+        // removing it there un-covers the class and the predicate stack emits a
+        // real dec → double-free. Under the probe the burden path is the SOLE
+        // emitter, so the marker IS the real dec and stripping it is the correct
+        // RL-2 transfer. `compute_transfer_via_move_alias` conservatively keeps
+        // the dec for a multi-block-used param; the contract set is the precise
+        // sole-emitter cure.
+        let transfer_through_return_param_suppressed = ctx.analysis.predicate_stack_rc_disabled
+            && ctx
+                .analysis
+                .transfer_through_return_param_vars
+                .contains(&var);
         if instr_transfer_suppressed
             || ctx.analysis.transfer_via_move_alias.contains(&var)
+            || transfer_through_return_param_suppressed
             || ctx.analysis.full_move_vars.contains(&var)
             || ctx.analysis.list_concat_transfer_vars.contains(&var)
         {
@@ -785,6 +812,15 @@ fn emit_terminator_burden_decs(
                 continue;
             }
             if analysis.transfer_via_move_alias.contains(&var) {
+                continue;
+            }
+            // RL-2 callee transfer-source-dec strip: a param flowing to Return
+            // transfers ownership to the caller — no callee scope-exit dec.
+            // PROBE-ONLY (the default-path coexistence handshake relies on the
+            // marker; see `emit_last_use_decs`).
+            if analysis.predicate_stack_rc_disabled
+                && analysis.transfer_through_return_param_vars.contains(&var)
+            {
                 continue;
             }
             // RL-4: a terminator-position last-use whose var is live-out of the

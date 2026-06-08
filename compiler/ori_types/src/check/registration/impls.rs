@@ -12,6 +12,7 @@ use super::type_resolution::{
     build_method_generic_metadata, build_where_constraint, collect_generic_params,
     resolve_parsed_type_simple, resolve_type_with_method_generics, resolve_type_with_self,
 };
+use crate::check::bodies::allocate_impl_rigid_var_map;
 use crate::registry::burden::UserBurdenSpec;
 use crate::registry::burden_compose::scc::mint_compiled_drop_fn_sym;
 use crate::{
@@ -24,6 +25,14 @@ use crate::{
 /// visible during method resolution in function body checking (Pass 2).
 pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
     for impl_def in &module.impls {
+        // Allocate this impl block's `RigidVar` substitution map NOW (Pass 0c),
+        // before any body pass, and store it keyed by `module.impls` position.
+        // `check_impl_block` (Pass 4) reuses it via `prealloc`. Allocating here —
+        // rather than at Pass 4 — is what lets a method mono recorded at a Pass-3
+        // call site see the impl binder in `var_states`; the constructor
+        // composite (`Pair<RigidVar(B), RigidVar(A)>`) then registers correctly.
+        let impl_rigid_var_map = allocate_impl_rigid_var_map(checker, impl_def.generics);
+        checker.push_impl_rigid_var_map(impl_rigid_var_map);
         register_impl(checker, impl_def, &module.traits);
     }
 }

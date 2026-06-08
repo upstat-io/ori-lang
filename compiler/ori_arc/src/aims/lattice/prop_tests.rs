@@ -594,13 +594,14 @@ proptest! {
         );
     }
 
-    /// is_rc_inc_elidable must match: exactly Once use with Linear consumption.
+    /// is_rc_inc_elidable must match DP-3: `Once ∧ (Linear ∨ Affine)` per
+    /// `AimsProof.Decision.is_rc_inc_elidable` + `DP3_is_rc_inc_elidable_table`.
     #[test]
     fn rc_inc_elidable_semantic_contract(a in canonical_aims_state_strategy()) {
         use crate::aims::transfer::is_rc_inc_elidable;
         let result = is_rc_inc_elidable(&a);
         let expected = a.cardinality == Cardinality::Once
-            && a.consumption == Consumption::Linear;
+            && (a.consumption == Consumption::Linear || a.consumption == Consumption::Affine);
         assert_eq!(
             result, expected,
             "is_rc_inc_elidable must match semantic definition: a={a:?}"

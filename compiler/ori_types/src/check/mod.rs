@@ -195,6 +195,16 @@ pub struct ModuleChecker<'a> {
     /// Constant types.
     const_types: FxHashMap<Name, Idx>,
 
+    /// Impl-level `RigidVar` substitution maps, one per `module.impls` entry in
+    /// registration order. Allocated at `register_impls` (before any body pass)
+    /// so a method-mono recording at a pass-3 test/function call site finds the
+    /// impl's `RigidVar`s in `var_states`; `check_impl_block` (pass 4) REUSES the
+    /// same map so the method body's generic types reference the identical
+    /// `RigidVar` Idxs the recording scan substitutes. Without early allocation,
+    /// the body's `RigidVar`s are created after the recording and the generic-
+    /// struct ctor composite never resolves (BUG-04-146 `swap` facet).
+    impl_rigid_var_maps: Vec<FxHashMap<Name, Idx>>,
+
     // === Diagnostics ===
     /// Accumulated type check errors.
     errors: Vec<crate::TypeCheckError>,
@@ -274,6 +284,7 @@ impl<'a> ModuleChecker<'a> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
+            impl_rigid_var_maps: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
@@ -316,6 +327,7 @@ impl<'a> ModuleChecker<'a> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
+            impl_rigid_var_maps: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
@@ -327,6 +339,20 @@ impl<'a> ModuleChecker<'a> {
             imported_type_metadata: Vec::new(),
             imported_collection_surfaces: Vec::new(),
         }
+    }
+
+    /// Store the impl-level `RigidVar` substitution map for the next
+    /// `module.impls` entry (push order == `module.impls` iteration order).
+    /// Called once per impl by `register_impls`, before any body pass.
+    pub(crate) fn push_impl_rigid_var_map(&mut self, map: FxHashMap<Name, Idx>) {
+        self.impl_rigid_var_maps.push(map);
+    }
+
+    /// The impl-level `RigidVar` substitution map for the impl at `module.impls`
+    /// position `idx`, or `None` when out of range. Consumed by
+    /// `check_impl_block` to REUSE the registration-time `RigidVar`s.
+    pub(crate) fn impl_rigid_var_map(&self, idx: usize) -> Option<&FxHashMap<Name, Idx>> {
+        self.impl_rigid_var_maps.get(idx)
     }
 
     // Import/Setup Setters
@@ -382,6 +408,16 @@ impl<'a> ModuleChecker<'a> {
         // side-table for Phase 5 burden emission (Spec: Annex E §AIMS).
         let collection_burdens = self.types.drain_collection_burdens();
 
+        // Struct type-param map (`Name → [param names]`) for refreshing method
+        // mono `body_type_map`s below — built BEFORE `into_entries` consumes the
+        // registry. SSOT mirror of `monomorphization::collect_struct_type_params`.
+        let struct_type_params: rustc_hash::FxHashMap<Name, Vec<Name>> = self
+            .types
+            .iter()
+            .filter(|entry| !entry.type_params.is_empty())
+            .map(|entry| (entry.name, entry.type_params.clone()))
+            .collect();
+
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 
@@ -405,6 +441,20 @@ impl<'a> ModuleChecker<'a> {
                 &deferred_mono_calls,
             );
         }
+
+        // Complete each method instance's `body_type_map` against the now-fully-
+        // interned pool. The eager method-mono path builds the map at the call
+        // site (Pass 3), before a generic-impl method body interns its own
+        // composite ctor types (Pass 4) — e.g. a `Pair<B, A>` constructor inside
+        // `swap`. This pass captures those post-recording body composites so they
+        // reach codegen substituted to concrete instead of carrying impl
+        // `RigidVar`s. Runs before dedup so refreshed maps participate in the
+        // identity tuple unchanged (`body_type_map` is not a dedup key).
+        exports::refresh_method_mono_body_type_maps(
+            &mut pool,
+            &mut mono_instances,
+            &struct_type_params,
+        );
 
         // Dedup mono instances by the full identity tuple — `fn_name` alone
         // is insufficient once method instances flow through this list:

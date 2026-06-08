@@ -272,17 +272,17 @@ fn dp2_appendix_c_row(cardinality: &str, consumption: &str) -> bool {
 }
 
 // ============================================================================
-// DP-3: is_rc_inc_elidable(s) iff s.cardinality = Once ∧ s.consumption = Linear
+// DP-3: is_rc_inc_elidable(s) iff s.cardinality = Once ∧ s.consumption ∈ {Linear, Affine}
 // ============================================================================
 //
 // Per Annex E §AIMS DP-3 + Appendix C truth table:
-// Once / Linear → true
-// Once / ≠ Linear → false
+// Once / (Linear ∨ Affine) → true
+// Once / (Dead ∨ Unrestricted) → false
 // ≠ Once / any → false
 //
 // Engines: case_analysis (PRIMARY — 4 × 3 = 12-state enumeration over
 // Consumption × Cardinality; canonical subset post-CN-1 reduces to 7
-// reachable; DP-3 = true only on the single Once+Linear canonical row).
+// reachable; DP-3 = true on the (Once, Linear) + (Once, Affine) canonical rows).
 
 fn verify_dp3_rc_inc_elidable() -> EngineResult {
     let mut checked: u64 = 0;
@@ -317,12 +317,13 @@ expected {} per Appendix C truth table",
             checked
         ));
     }
-    // DP-3 = true on EXACTLY the canonical (Once, Linear) row; observable
-    // negative-direction witness.
-    if true_count != 1 {
+    // DP-3 = true on EXACTLY the 2 canonical (Once, Linear) + (Once, Affine)
+    // rows; observable negative-direction witness (the other 5 canonical rows
+    // return false).
+    if true_count != 2 {
         return fail(format!(
-            "DP-3 truth-table violation: expected exactly 1 canonical row to satisfy DP-3 \
-(Once+Linear); got {}",
+            "DP-3 truth-table violation: expected exactly 2 canonical rows to satisfy DP-3 \
+(Once+Linear, Once+Affine); got {}",
             true_count
         ));
     }
@@ -335,18 +336,19 @@ expected {} per Appendix C truth table",
 }
 
 /// DP-3 predicate per `Annex E §AIMS`:
-/// `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption = Linear`.
+/// `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption ∈ {Linear, Affine}`.
 fn dp3_predicate(cardinality: &str, consumption: &str) -> bool {
-    cardinality == "Once" && consumption == "Linear"
+    cardinality == "Once" && (consumption == "Linear" || consumption == "Affine")
 }
 
 /// Appendix C DP-3 truth-table row partition.
 fn dp3_appendix_c_row(cardinality: &str, consumption: &str) -> bool {
-    // Row 1: Once / Linear → true.
-    if cardinality == "Once" && consumption == "Linear" {
+    // Row 1: Once / (Linear ∨ Affine) → true (single-use: no duplication,
+    // whether moved (Linear) or borrowed (Affine)).
+    if cardinality == "Once" && (consumption == "Linear" || consumption == "Affine") {
         return true;
     }
-    // Row 2: Once / ≠ Linear → false.
+    // Row 2: Once / (Dead ∨ Unrestricted) → false.
     // Row 3: ≠ Once / any → false.
     false
 }

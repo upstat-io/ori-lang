@@ -350,3 +350,189 @@ impl Point: {
             .collect::<Vec<_>>()
     );
 }
+
+// BUG-02-030 matrix: `impl <primitive>: Trait` / `impl <primitive> { }` subject-position
+// primitive-type-name acceptance. grammar.ebnf:312 `trait_impl` subject is a `type`, so a
+// primitive type name is a valid subject. Subject-position primitive acceptance is scoped to
+// the 6-primitive `primitive_type_keyword` helper domain (str/int/bool/float/char/byte); the
+// trait-path position stays Ident-only, and never/void stay E1002.
+use ori_ir::{ParsedType, TypeId};
+
+fn sole_impl(output: &ParseOutput) -> &ori_ir::ImplDef {
+    match output.module.impls.as_slice() {
+        [imp] => imp,
+        other => panic!("expected exactly one impl, got {}", other.len()),
+    }
+}
+
+fn assert_e1002(output: &ParseOutput, ctx: &str) {
+    assert!(
+        output.errors.iter().any(|e| e.code() == ErrorCode::E1002),
+        "{ctx}: expected E1002, got {:?}",
+        output
+            .errors
+            .iter()
+            .map(crate::ParseError::code)
+            .collect::<Vec<_>>()
+    );
+}
+
+// Cell #1 — the repro: str trait-impl with generic trait args. Semantic pin.
+#[test]
+fn test_parse_impl_str_trait_with_generic_arg_yields_primitive_subject() {
+    let output =
+        parse_source("impl str: Convert<MyErr> { @to_t (self) -> MyErr = MyErr { msg: self }; }");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let imp = sole_impl(&output);
+    assert!(imp.is_trait_impl(), "colon form must record a trait_path");
+    assert_eq!(
+        imp.self_ty,
+        ParsedType::Primitive(TypeId::STR),
+        "subject self_ty"
+    );
+    assert_eq!(imp.self_path.len(), 1, "self_path is the primitive name");
+    assert_eq!(
+        imp.trait_path.as_ref().map(Vec::len),
+        Some(1),
+        "trait_path is the post-colon `Convert`"
+    );
+    assert!(!imp.trait_type_args.is_empty(), "trait carries <MyErr>");
+}
+
+// Cells #2-#6 — per-primitive coverage (int/bool/float/char/byte) + str.
+#[test]
+fn test_parse_impl_primitive_subjects_cover_all_six_type_keywords() {
+    let cases = [
+        ("int", TypeId::INT),
+        ("bool", TypeId::BOOL),
+        ("float", TypeId::FLOAT),
+        ("char", TypeId::CHAR),
+        ("byte", TypeId::BYTE),
+        ("str", TypeId::STR),
+    ];
+    let mut count = 0;
+    for (name, type_id) in cases {
+        let output = parse_source(&format!("impl {name}: Marker {{ }}"));
+        assert!(
+            output.errors.is_empty(),
+            "impl {name}: Marker — parse errors: {:?}",
+            output.errors
+        );
+        let imp = sole_impl(&output);
+        assert_eq!(
+            imp.self_ty,
+            ParsedType::Primitive(type_id),
+            "{name} self_ty"
+        );
+        count += 1;
+    }
+    assert_eq!(count, 6, "all six primitive subjects visited");
+}
+
+// Cell #7 — inherent primitive impl (no colon, no trait).
+#[test]
+fn test_parse_inherent_impl_on_primitive_subject_has_no_trait_path() {
+    let output = parse_source("impl str { @shout (self) -> str = self; }");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let imp = sole_impl(&output);
+    assert!(
+        imp.is_inherent(),
+        "inherent primitive impl has no trait_path"
+    );
+    assert_eq!(
+        imp.self_ty,
+        ParsedType::Primitive(TypeId::STR),
+        "subject self_ty"
+    );
+}
+
+// Cell #8 — impl-level generics on a primitive subject.
+#[test]
+fn test_parse_impl_with_generics_on_primitive_subject_parses() {
+    let output = parse_source("impl<T> str: Convert<T> { @to_t (self) -> T = todo(); }");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let imp = sole_impl(&output);
+    assert!(
+        !imp.generics.is_empty(),
+        "impl-level generics consumed before subject"
+    );
+    assert_eq!(
+        imp.self_ty,
+        ParsedType::Primitive(TypeId::STR),
+        "subject self_ty"
+    );
+}
+
+// Cell #9 — regression guard: user-type subject still parses unchanged.
+#[test]
+fn test_parse_impl_user_type_subject_still_parses() {
+    let output = parse_source("impl Point: Eq { @equals (self, other: Point) -> bool = true; }");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let imp = sole_impl(&output);
+    assert!(imp.is_trait_impl(), "user-type colon impl unchanged");
+}
+
+// Cell #10 — negative pin: primitive in TRAIT position stays parse-rejected (codex guard).
+#[test]
+fn test_parse_impl_primitive_in_trait_position_rejects() {
+    let output = parse_source("impl Foo: str { }");
+    assert_e1002(&output, "impl Foo: str (primitive trait-position)");
+}
+
+// Cell #11 — negative pin: primitive subject, missing trait after colon.
+#[test]
+fn test_parse_impl_primitive_subject_missing_trait_rejects() {
+    let output = parse_source("impl str: { }");
+    assert_e1002(&output, "impl str: (missing trait)");
+}
+
+// Cell #12 — boundary: container subject stays unparseable (no list-subject path).
+#[test]
+fn test_parse_impl_container_subject_rejects() {
+    let output = parse_source("impl [str]: Marker { }");
+    assert!(
+        !output.errors.is_empty(),
+        "impl [str]: Marker — container subject must reject, got no errors"
+    );
+}
+
+// Cell #14 — negative pin: primitive subject with spurious type args (primitives take none).
+#[test]
+fn test_parse_impl_primitive_subject_with_type_args_rejects() {
+    let output = parse_source("impl str<T>: Marker { }");
+    assert!(
+        !output.errors.is_empty(),
+        "impl str<T>: — primitive subject takes no type args, must reject"
+    );
+}
+
+// Cell #15 — negative pin: Never/void outside the 6-primitive helper domain stay rejected.
+// `Never` (capital) lexes to TokenKind::NeverType and `void` to TokenKind::Void — both pass
+// the 8-token check_type_keyword() gate but are NOT in the 6-primitive helper, so they fall
+// through to expect_ident()->E1002. (Lowercase `never` is an ordinary identifier, not this case.)
+#[test]
+fn test_parse_impl_never_void_subjects_reject() {
+    for name in ["Never", "void"] {
+        let output = parse_source(&format!("impl {name}: Marker {{ }}"));
+        assert!(
+            !output.errors.is_empty(),
+            "impl {name}: — outside helper domain, must reject"
+        );
+    }
+}

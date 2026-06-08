@@ -37,6 +37,7 @@ mod body_finalize;
 mod context;
 mod env;
 mod expr;
+pub(crate) use expr::register_concrete_applied_resolutions;
 pub(crate) use expr::{NestedPathStep, RefutableReason};
 mod scope;
 pub(crate) use scope::{LoopContext, LoopForm};
@@ -545,6 +546,27 @@ impl<'pool> InferEngine<'pool> {
     #[inline]
     pub fn pool_mut(&mut self) -> &mut Pool {
         self.unify.pool_mut()
+    }
+
+    /// Compose + register the `UserBurdenSpec` for every generic-builtin type
+    /// that appears in the body's `expr_types`, keyed by the EXACT `Idx` the
+    /// typed IR (and thus ARC) carries.
+    ///
+    /// Runs at end-of-body, before the burden sweep in `take_composed_burdens`.
+    /// A late-resolved generic-builtin instantiation (inline `Ok([..])` typed
+    /// `Result<[int], Var(k)→int>`) is stored as a `HAS_VAR` Idx; the pool-scan
+    /// sweep `collect_candidate_indices` excludes `HAS_VAR` Idx, so its burden
+    /// is never composed and the RL-2 scope-exit dec is dropped (Spec: Annex E
+    /// §AIMS). `compose_for_idx` composes from the Idx's structure (the heap-
+    /// carrying `Ok` variant yields a non-empty burden regardless of the still-
+    /// linked `Err` slot) and records it under the exact Idx ARC will query —
+    /// without mutating the IR types. The composed-burden accumulator dedups
+    /// against the pool-scan sweep, so running both is idempotent.
+    pub fn compose_body_type_burdens<K>(&mut self, expr_types: &rustc_hash::FxHashMap<K, Idx>) {
+        let idxs: Vec<Idx> = expr_types.values().copied().collect();
+        for idx in idxs {
+            crate::infer::expr::compose_for_idx(self, idx);
+        }
     }
 
     /// Get access to the unification engine.

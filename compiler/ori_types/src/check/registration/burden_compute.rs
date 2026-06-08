@@ -118,6 +118,35 @@ pub(crate) fn compute_struct_burden(
     })
 }
 
+/// Compute burden from a struct's (already-substituted) field TYPES — the
+/// per-instantiation analogue of [`compute_struct_burden`], consumed by
+/// `compose_for_idx` for generic-user-struct instantiations (e.g. `Box<[int]>`)
+/// whose concrete fields are read via `Pool::struct_fields` (no `FieldDef`
+/// available). Mirrors [`compute_struct_burden`]'s classification exactly.
+pub(crate) fn compute_struct_burden_from_field_types(
+    field_types: &[Idx],
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    let mut owned = Vec::new();
+    for (i, &ty) in field_types.iter().enumerate() {
+        if let FieldClass::Owned = classify_field_for_burden(ty, pool) {
+            owned.push(UserOwnedField {
+                field_path: vec![idx_u32(i)],
+                field_type: ty,
+            });
+        }
+    }
+    if owned.is_empty() {
+        return None;
+    }
+    Some(UserBurdenSpec {
+        self_heap_alloc: true,
+        owned_fields: owned,
+        borrowed_fields: Vec::new(),
+        ..UserBurdenSpec::default()
+    })
+}
+
 fn push_variant_field(
     fi: usize,
     field_ty: Idx,

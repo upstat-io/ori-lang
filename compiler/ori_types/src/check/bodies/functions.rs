@@ -233,6 +233,18 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         // rewrite is now the only path keeping scheme vars legitimate).
         engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
 
+        // Deep-resolve var-links in every body type into the pool BEFORE the
+        // burden sweep in `take_composed_burdens`. A late-resolved
+        // generic-builtin instantiation (e.g. inline `Ok([..])` typed
+        // `Result<[int], Var(k)→int>`) is stored as a `HAS_VAR` Idx that the
+        // sweep's `collect_candidate_indices` excludes; its deep-resolved
+        // var-free form is otherwise minted only at ARC lowering, after the
+        // sweep, so its `UserBurdenSpec` is never composed and the scope-exit
+        // dec is dropped (Spec: Annex E §AIMS RL-2 — dec at last use).
+        // `substitute_in_pool` follows `VarState::Link` and reinterns, minting
+        // the resolved form the sweep then composes.
+        engine.compose_body_type_burdens(&expr_types);
+
         (
             expr_types,
             engine.take_errors(),
@@ -352,6 +364,11 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // §08.3b.1 — normalize scheme vars to `Tag::BoundVar` per.
     // See `check_function` for the full rationale.
     engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
+
+    // Deep-resolve var-links so late-resolved generic-builtin instantiations are
+    // var-free in the exported IR + composed by the burden sweep (see the
+    // main-body path above + `intern_link_resolved_body_types`).
+    engine.compose_body_type_burdens(&expr_types);
 
     // Extract results
     let errors = engine.take_errors();

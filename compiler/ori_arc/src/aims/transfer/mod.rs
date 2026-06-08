@@ -408,10 +408,16 @@ pub fn is_rc_dec_unnecessary(state: &AimsState) -> bool {
 
 /// Whether an RC increment can be elided at a use site.
 ///
-/// If cardinality is `Once` and consumption is `Linear`, the value has
-/// a single consumer that moves it — no inc needed.
+/// DP-3: `cardinality = Once ∧ consumption ∈ {Linear, Affine}`. A value used
+/// EXACTLY ONCE is not duplicated, so the duplicate-inc at its single use is
+/// unnecessary — whether that use MOVES it (`Linear`: the consumer takes
+/// ownership and decs) or BORROWS it (`Affine`: read non-consumingly, then
+/// released by its own RL-2 scope-exit dec). Neither creates a new owned
+/// reference. `Unrestricted` is excluded (co-occurs only with `Many`); `Dead`
+/// is excluded by the `Once` gate. Kernel-proven `DP3_is_rc_inc_elidable_table`.
 pub fn is_rc_inc_elidable(state: &AimsState) -> bool {
-    state.cardinality == Cardinality::Once && state.consumption == Consumption::Linear
+    state.cardinality == Cardinality::Once
+        && (state.consumption == Consumption::Linear || state.consumption == Consumption::Affine)
 }
 
 /// Determine COW mode from the uniqueness dimension.

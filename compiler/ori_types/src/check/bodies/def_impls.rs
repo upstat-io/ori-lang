@@ -219,6 +219,11 @@ fn check_def_impl_method(
                 &[],
             );
 
+            // Deep-resolve var-links so late-resolved generic-builtin
+            // instantiations are var-free in the exported IR + composed by the
+            // burden sweep (see `intern_link_resolved_body_types`).
+            engine.compose_body_type_burdens(&expr_types);
+
             (
                 expr_types,
                 engine.take_errors(),

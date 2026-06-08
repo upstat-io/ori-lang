@@ -2,6 +2,12 @@
 //! collection, transfer-point and last-use detection, move-alias chains,
 //! use counts, and the live-out / gen-kill dataflow inputs.
 
+mod live_out;
+mod move_alias;
+
+pub(super) use live_out::compute_live_out_owned;
+pub(super) use move_alias::compute_transfer_via_move_alias;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
@@ -132,146 +138,6 @@ pub(super) fn group_last_uses_filtered(
     last_uses_at
 }
 
-/// Compute the move-alias transfer-suppression set per AIMS RL-2.
-///
-/// Seed = every var transferred out at a terminator (`terminator_transfer`)
-/// plus every var consumed at an owned instruction position. A value reaching
-/// one of those transfer points THROUGH a `Let { Var }` move-alias chain
-/// (`%dst = %src` where the alias is `%src`'s LAST use) also transfers out: that
-/// terminal use forwards `%src`'s remaining ownership to `%dst`. Backward-
-/// propagate: for every move-alias whose `dst` is in the set, add `src`. Iterate
-/// to a fixpoint so multi-hop chains (`%2 = %1; %3 = %2; Return %3`) propagate.
-/// The returned set suppresses the last-use `BurdenDec` of every move source in
-/// a transfer chain.
-///
-/// Use-once vs dup'd-terminal-move gate. A use-once source (`use_counts == 1`)
-/// is the unchanged pure-move case: its sole use forwards its only reference, so
-/// its last-use dec is suppressed (the consumer discharges the release). A DUP'd
-/// source (`%s` used >= 2 — earlier uses each consume a duplicate reference)
-/// ALSO forwards its ORIGINAL allocation reference at its TERMINAL `Let { Var }`
-/// use; emitting that terminal `BurdenDec` releases a reference the move hands to
-/// `%dst`'s consuming lineage (RL-2 net=-1, an early over-release that collapses
-/// a COW receiver's RC below the LIVE alias count — BUG-04-142 witness:
-/// `let a; let b = a; let c = a.updated(..)` with `b` LIVE decs `a` before the
-/// consuming `updated`, so `is_unique` takes the in-place path on a still-aliased
-/// buffer). BUT the terminal dec is suppressed ONLY when every NON-terminal
-/// duplicate use is LIVE — each LIVE alias releases its own reference at its own
-/// last-use (RL-2 `LastReadBeforeScopeExit`), so the source's terminal dec is the
-/// redundant double-release. If a duplicate alias is DEAD (`let b = a` where `b`
-/// is never read), the source's terminal dec is that dead alias's
-/// `ScopeExit` release (RL-2 non-transfer -> dec) — it is KEPT, not suppressed
-/// (else BUG-04-142 `updated_list_dead_alias_no_leak` leaks the orphaned buffer).
-/// Only the terminal-move source's last-use DEC is governed here; its FRESH inc
-/// is KEPT for the dup case (mod.rs gates the symmetric inc-suppression on
-/// `use_counts <= 1`), since that inc supplies the duplicate references the
-/// non-terminal uses consume. Per AIMS RL-2 `TerminalUse`: a move IS an
-/// ownership-transferring terminal use, a dead alias's `ScopeExit` is not
-/// (`AimsProof.Realization::RL2_dec_at_last_use`).
-pub(super) fn compute_transfer_via_move_alias(
-    func: &ArcFunction,
-    terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
-    use_counts: &FxHashMap<ArcVarId, u32>,
-    last_use_points: &[(ArcVarId, usize, usize)],
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-) -> FxHashSet<ArcVarId> {
-    // Global-last-use lookup: a var with exactly ONE `last_use_points` entry is
-    // used in exactly one block, and that entry is its global last use. A var
-    // used in >= 2 blocks has >= 2 entries (one per block) — its terminal use is
-    // not statically pin-pointed here, so it is NOT eligible for terminal-move
-    // suppression (conservative: keep its dec, never over-suppress cross-block).
-    let mut last_use_entry_count: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-    let mut last_use_pos: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
-    for &(var, b, i) in last_use_points {
-        *last_use_entry_count.entry(var).or_default() += 1;
-        last_use_pos.insert(var, (b, i));
-    }
-    let is_global_last_use = |src: &ArcVarId, b: usize, i: usize| -> bool {
-        last_use_entry_count.get(src).copied().unwrap_or(0) == 1
-            && last_use_pos.get(src) == Some(&(b, i))
-    };
-    // Sources with at least one DEAD `Let { Var }` duplicate alias (`%d = %src`,
-    // `%d` never used). The dead alias's reference is released by the source's
-    // terminal dec (RL-2 `ScopeExit`); suppressing it would leak.
-    let mut src_has_dead_alias: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if use_counts.get(dst).copied().unwrap_or(0) == 0 {
-                    src_has_dead_alias.insert(*src);
-                }
-            }
-        }
-    }
-
-    let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
-    // Seed: terminator-transferred vars.
-    for set in terminator_transfer_per_block {
-        transferred.extend(set.iter().copied());
-    }
-    // Seed: instruction owned-position transfers (Construct/Apply/Set/etc.).
-    for block in &func.blocks {
-        for instr in &block.body {
-            transferred.extend(instr_transfer_vars(instr, func).iter().copied());
-        }
-    }
-    // Move-alias edges `dst -> src`. A use-once source is the unchanged pure-move
-    // case. A dup'd source qualifies ONLY at its TERMINAL `Let { Var }` use AND
-    // only when it has NO dead duplicate alias (a dead alias's reference is
-    // discharged by the kept terminal dec, not by a downstream consumer).
-    let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                let use_once = use_counts.get(src).copied().unwrap_or(0) == 1;
-                let dup_terminal_move = use_counts.get(src).copied().unwrap_or(0) >= 2
-                    && is_global_last_use(src, block_idx, instr_idx)
-                    && !src_has_dead_alias.contains(src);
-                if use_once || dup_terminal_move {
-                    move_edges.push((*dst, *src));
-                }
-            }
-        }
-    }
-    // Seed: a move-alias source `%s` (`%d = %s`, `%s` used once) whose dst `%d`
-    // is owned-RC has its SINGLE release discharged BY `%d` — either `%d`
-    // transfers out (seeded above) OR `%d` gets its own last-use dec. The move
-    // hands `%s`'s one allocation to `%d`; emitting `%s`'s own last-use dec
-    // would double-release the shared buffer, and emitting `%s`'s FRESH-site inc
-    // would orphan (the move is not a duplication — `%d` does NOT get a paired
-    // inc, so the lineage carries exactly one inc+dec at the `%d` end). Both
-    // halves suppressed via this set (dec here, inc via `inc_suppressed_vars`),
-    // matching the transfer-out case. Witness: `coll_list_cow_concat_shared`
-    // `%14 = %8` (fresh concat result moved to a borrow-used alias) — `%8`'s
-    // scope-exit dec double-frees the buffer `%14` decs. Per AIMS RL-2
-    // (move = ownership transfer, single release at the lineage's terminal owner).
-    for &(dst, src) in &move_edges {
-        if owned_vars_needing_rc.contains(&dst) {
-            transferred.insert(src);
-        }
-    }
-    // Fixpoint: a move source transfers out when its dst transfers out.
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for &(dst, src) in &move_edges {
-            if transferred.contains(&dst) && transferred.insert(src) {
-                changed = true;
-            }
-        }
-    }
-    transferred
-}
-
 /// Vars consumed at a BORROWED arg position of any `Invoke` / `InvokeIndirect`
 /// terminator. Mirrors the per-block `invoke_terminator_borrowed_args` in
 /// `emit.rs` (which gates the terminator-last-use `BurdenDec` suppression) but
@@ -297,6 +163,105 @@ pub(super) fn compute_borrowed_terminator_invoke_args(func: &ArcFunction) -> FxH
         }
     }
     borrowed
+}
+
+/// `Let { Var(src) }` aliases whose SOLE use is a BORROWED terminator-Invoke arg
+/// position. Such an alias is a borrow-view of `src`, NOT a new owned reference:
+/// per RL-1 (`08-realization/RL-1.proof` + `AimsProof.Realization`
+/// `RL1_emit_iff_not_elidable`) a duplication inc is emitted ONLY when a value is
+/// passed to an OWNED param while still live, so `f(x, x)` over two Borrowed
+/// params creates no reference at either arg — the owned SOURCE `x` carries the
+/// sole inc + release. Without excluding these aliases the dup-alias FRESH-site
+/// `BurdenInc` + borrowed-arg scope-exit `BurdenDec` pair on each alias leaves the
+/// source's FRESH inc orphaned (VF-1 net=+1 leak). Excluded from
+/// `owned_vars_needing_rc` (neither inc nor dec) per the LEDGER §06.1
+/// "borrowed aliases get neither" principle. Use-count gated to 1 so a value also
+/// used at an OWNED position keeps its burden ops.
+pub(super) fn compute_borrowed_arg_let_aliases(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let borrowed_args = compute_borrowed_terminator_invoke_args(func);
+    if borrowed_args.is_empty() {
+        return FxHashSet::default();
+    }
+    let mut use_counts: FxHashMap<ArcVarId, u32> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for &v in &instr.used_vars() {
+                *use_counts.entry(v).or_default() += 1;
+            }
+        }
+        for v in block.terminator.used_vars() {
+            *use_counts.entry(v).or_default() += 1;
+        }
+    }
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                // dst is the sole-use borrow-view; src must STAY LIVE (used >= 2,
+                // a genuine duplication) so the OWNED source carries the
+                // release. A move source (src used once) makes the alias the
+                // sole carrier — excluding it would drop the release (leak).
+                if borrowed_args.contains(dst)
+                    && use_counts.get(dst).copied().unwrap_or(0) == 1
+                    && use_counts.get(src).copied().unwrap_or(0) >= 2
+                {
+                    out.insert(*dst);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `Project` dsts whose EVERY use is at a BORROWED (non-owned) position — a pure
+/// borrow-view of an owned aggregate's field per `Spec: Annex E §AIMS TF-4`
+/// (Project produces `Borrowed`). The PARENT aggregate owns the projected field
+/// and releases it via its whole-var scope-exit drop-glue, so the borrowed
+/// projection gets NO dec. An RcPtr-typed Project dst (e.g. `Project box.0 :
+/// [int]`) enters `owned_vars_needing_rc` by TYPE alone; without this exclusion
+/// a borrowed field-read (`@len [borrow]` / `@__index [borrow]`) gets a spurious
+/// last-use `BurdenDec`, over-releasing the field the parent drop already frees.
+///
+/// Over-fire gate (RL-15a project-escape boundary): excluded ONLY when never used
+/// at an owned arg position (`instr_transfer_vars` honors `is_owned_position`)
+/// AND never returned — an escaping / owned-position-transferred Project IS an
+/// owned reference and KEEPS its burden RC.
+pub(super) fn compute_borrowed_projection_dsts(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut project_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let crate::ir::ArcInstr::Project { dst, .. } = instr {
+                project_dsts.insert(*dst);
+            }
+        }
+    }
+    if project_dsts.is_empty() {
+        return FxHashSet::default();
+    }
+    let mut transferred_or_escaped: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for v in super::instr_transfer_vars(instr, func) {
+                transferred_or_escaped.insert(v);
+            }
+        }
+        let term = &block.terminator;
+        for (pos, &v) in term.used_vars().iter().enumerate() {
+            if term.is_owned_position(pos) {
+                transferred_or_escaped.insert(v);
+            }
+        }
+        if let crate::ir::ArcTerminator::Return { value } = term {
+            transferred_or_escaped.insert(*value);
+        }
+    }
+    project_dsts.retain(|d| !transferred_or_escaped.contains(d));
+    project_dsts
 }
 
 /// Apply / Invoke result dsts whose callee transfers an owned argument THROUGH
@@ -374,6 +339,44 @@ pub(super) fn compute_transfer_through_return_results(
     results
 }
 
+/// The function's OWN parameters whose `MemoryContract` records
+/// `transfers_through_return == true` — the param flows to a `Return { value }`
+/// terminator (directly or through a `Let { Var }` move-alias chain), so its
+/// ownership transfers back out to the caller.
+///
+/// Per AIMS RL-2 (`AimsProof.Realization::RL2_dec_at_last_use` +
+/// `RL2_transfer_kinds_no_dec` for the `Return` `TerminalUse`): a `Return` is an
+/// ownership-transferring terminal use, so the callee MUST NOT emit a scope-exit
+/// `BurdenDec` on the transferred param — the caller decs the bound result
+/// variable when ITS scope exits (`ParamContract.transfers_through_return` doc).
+/// Emitting the callee dec double-releases the allocation handed back through
+/// the return (SIGSEGV / double-free under sole-emitter Phase-7 lowering).
+///
+/// The structural move-alias scan (`compute_transfer_via_move_alias`) covers the
+/// pure single-block move case but conservatively keeps the dec when the param is
+/// used across MULTIPLE blocks (its terminal move is not statically pin-pointable
+/// by the global-last-use heuristic). The interprocedural contract carries the
+/// proven Return-flow fact precisely (`facts.return_flow` in
+/// `interprocedural/extract`), so consult it directly for the param case — the
+/// contract IS the SSOT for "this param transfers through return", not a fragile
+/// per-block structural re-derivation.
+///
+/// Params have no FRESH-site `BurdenInc` (only definitions allocate), so only
+/// the last-use dec is suppressed; no symmetric inc-suppression is needed.
+pub(super) fn compute_transfer_through_return_param_vars(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashSet<ArcVarId> {
+    let Some(contract) = contracts.get(&func.name) else {
+        return FxHashSet::default();
+    };
+    func.params
+        .iter()
+        .zip(contract.params.iter())
+        .filter_map(|(param, pc)| pc.transfers_through_return.then_some(param.var))
+        .collect()
+}
+
 /// Compute function-wide use counts and the duplication-alias dst set, and
 /// extend `inc_suppressed_vars` with dead FRESH values per AIMS RL-2.
 ///
@@ -425,107 +428,6 @@ pub(super) fn compute_use_counts_and_dup_aliases(
         }
     }
     (use_counts, dup_alias_dsts)
-}
-
-/// Compute per-block live-out sets restricted to `owned_vars_needing_rc`.
-///
-/// Standard backward liveness (`live_out(B) = ∪ live_in(S)` over successors `S`;
-/// `live_in(B) = gen(B) ∪ (live_out(B) − kill(B))`), filtered to vars that carry
-/// an owned-heap burden. Mirrors `crate::liveness::compute_liveness`'s gen/kill
-/// shape (an `Invoke` `dst` is a definition at its `normal` successor's entry,
-/// like a block param) but is keyed on the burden walk's own
-/// `owned_vars_needing_rc` set rather than the `ArcClassification` `needs_rc`
-/// predicate — no parallel ownership tracker (AIMS Invariant 5): the set is the
-/// burden walk's existing owned-RC classification.
-///
-/// Consumed by `emit_last_use_decs` + `emit_terminator_burden_decs` to suppress
-/// the in-block last-use `BurdenDec` for a var live-out of the block per
-/// `Spec: Annex E §AIMS RL-4` (the dec belongs on the dying CFG edge / at the
-/// dead-out block, not unconditionally in a block the value outlives).
-pub(super) fn compute_live_out_owned(
-    func: &ArcFunction,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-) -> Vec<FxHashSet<ArcVarId>> {
-    let n = func.blocks.len();
-    let (gen, kill) = compute_owned_gen_kill(func, owned_vars_needing_rc);
-
-    // Fixed-point backward dataflow: `live_out(B) = ∪ live_in(S)`,
-    // `live_in(B) = gen(B) ∪ (live_out(B) − kill(B))`.
-    let mut live_in: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
-    let mut live_out: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for b in (0..n).rev() {
-            let mut new_out: FxHashSet<ArcVarId> = FxHashSet::default();
-            for succ in crate::graph::successor_block_ids(&func.blocks[b].terminator) {
-                let si = succ.index();
-                if si < n {
-                    new_out.extend(live_in[si].iter().copied());
-                }
-            }
-            let mut new_in = gen[b].clone();
-            for &var in &new_out {
-                if !kill[b].contains(&var) {
-                    new_in.insert(var);
-                }
-            }
-            if new_in != live_in[b] || new_out != live_out[b] {
-                changed = true;
-                live_in[b] = new_in;
-                live_out[b] = new_out;
-            }
-        }
-    }
-    live_out
-}
-
-/// Per-block `(gen, kill)` sets for `compute_live_out_owned`, restricted to
-/// `owned_vars_needing_rc`. `gen` = vars used before any definition in the
-/// block; `kill` = vars defined in the block (incl. block params + the
-/// `Invoke` `dst` bound at the normal-successor entry).
-pub(super) fn compute_owned_gen_kill(
-    func: &ArcFunction,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-) -> (Vec<FxHashSet<ArcVarId>>, Vec<FxHashSet<ArcVarId>>) {
-    let n = func.blocks.len();
-    let invoke_defs = crate::graph::collect_invoke_defs(func);
-    let mut gen: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
-    let mut kill: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); n];
-    for (b, block) in func.blocks.iter().enumerate() {
-        let g = &mut gen[b];
-        let k = &mut kill[b];
-        for &(param_var, _) in &block.params {
-            if owned_vars_needing_rc.contains(&param_var) {
-                k.insert(param_var);
-            }
-        }
-        if let Some(dsts) = invoke_defs.get(&block.id) {
-            for &dst in dsts {
-                if owned_vars_needing_rc.contains(&dst) {
-                    k.insert(dst);
-                }
-            }
-        }
-        for instr in &block.body {
-            for var in instr.used_vars() {
-                if owned_vars_needing_rc.contains(&var) && !k.contains(&var) {
-                    g.insert(var);
-                }
-            }
-            if let Some(dst) = instr.defined_var() {
-                if owned_vars_needing_rc.contains(&dst) {
-                    k.insert(dst);
-                }
-            }
-        }
-        for var in block.terminator.used_vars() {
-            if owned_vars_needing_rc.contains(&var) && !k.contains(&var) {
-                g.insert(var);
-            }
-        }
-    }
-    (gen, kill)
 }
 
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress
