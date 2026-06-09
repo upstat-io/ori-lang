@@ -2633,45 +2633,8 @@ pub(super) fn compute_returned_collection_surplus_inc_strips(
     let unwind_blocks = compute_unwind_reachable_blocks(func);
     let iter_name = interner.intern("iter");
 
-    // Each acquire of a freshness-preserving user-callee RcPtr-collection return:
-    // the `(acquired_rep, acquire_block)`. An `Apply` body call defines its result
-    // in `b`; an `Invoke`-terminator call's result FIRST lives at the `normal`
-    // successor (where Phase-5 prepends its acquire inc). The acquire block is the
-    // block the result EXISTS in (its rep's first-live block).
-    // `acquires`: `(rep, first_live_block)` — the block the result first EXISTS in
-    // (a body `Apply` defines it in `b`; an `Invoke`-terminator's result lives at
-    // `normal`). `acquire_call_blocks`: `(rep, call_block)` — the block CARRYING
-    // the acquire's call (the terminator's own block for an `Invoke`; `b` for a
-    // body `Apply`). The spurious live-across inc lands in ANOTHER acquire's
-    // call_block (the block carrying that call), so `call_block` is what the
-    // surplus-inc strip keys on.
-    let mut acquires: Vec<(ArcVarId, usize)> = Vec::new();
-    let mut acquire_call_blocks: Vec<(ArcVarId, usize)> = Vec::new();
-    for (b, block) in func.blocks.iter().enumerate() {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                dst, func: callee, ..
-            } = instr
-            {
-                if returned_fresh_collection_acquire(*dst, *callee, func, pool, interner) {
-                    acquires.push((rep_of(*dst), b));
-                    acquire_call_blocks.push((rep_of(*dst), b));
-                }
-            }
-        }
-        if let ArcTerminator::Invoke {
-            dst,
-            func: callee,
-            normal,
-            ..
-        } = &block.terminator
-        {
-            if returned_fresh_collection_acquire(*dst, *callee, func, pool, interner) {
-                acquires.push((rep_of(*dst), normal.index()));
-                acquire_call_blocks.push((rep_of(*dst), b));
-            }
-        }
-    }
+    let (acquires, acquire_call_blocks) =
+        collect_returned_collection_acquires(func, pool, interner, same_alloc_reps);
     // The multi-call shape needs >=2 returned-fresh-collection acquires in the
     // function (the N>=2 source-borrow shape: two calls returning fresh results).
     if acquires.len() < 2 {
@@ -2773,6 +2736,60 @@ pub(super) fn compute_returned_collection_surplus_inc_strips(
         }
     }
     strips
+}
+
+/// A list of `(same-alloc rep, block-index)` acquire sites — either the
+/// first-live-block list or the call-block list of
+/// [`collect_returned_collection_acquires`].
+type ReturnedCollectionAcquires = Vec<(ArcVarId, usize)>;
+
+/// Collect every freshness-preserving user-callee RcPtr-collection return acquire
+/// in `func`, as two parallel lists keyed by the same-alloc rep:
+/// - `acquires`: `(rep, first_live_block)` — the block the result first EXISTS in
+///   (a body `Apply` defines it in `b`; an `Invoke`-terminator's result first lives
+///   at the `normal` successor, where Phase-5 prepends its acquire inc).
+/// - `acquire_call_blocks`: `(rep, call_block)` — the block CARRYING the acquire's
+///   call (the terminator's own block for an `Invoke`; `b` for a body `Apply`). The
+///   spurious live-across inc lands in ANOTHER acquire's `call_block`, so
+///   `call_block` is what the surplus-inc strip keys on.
+///
+/// Split out of [`compute_returned_collection_surplus_inc_strips`] at the
+/// acquire-collection / surplus-selection concept seam. Spec: Annex E §AIMS RL-1.
+fn collect_returned_collection_acquires(
+    func: &ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> (ReturnedCollectionAcquires, ReturnedCollectionAcquires) {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let mut acquires: Vec<(ArcVarId, usize)> = Vec::new();
+    let mut acquire_call_blocks: Vec<(ArcVarId, usize)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if returned_fresh_collection_acquire(*dst, *callee, func, pool, interner) {
+                    acquires.push((rep_of(*dst), b));
+                    acquire_call_blocks.push((rep_of(*dst), b));
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            normal,
+            ..
+        } = &block.terminator
+        {
+            if returned_fresh_collection_acquire(*dst, *callee, func, pool, interner) {
+                acquires.push((rep_of(*dst), normal.index()));
+                acquire_call_blocks.push((rep_of(*dst), b));
+            }
+        }
+    }
+    (acquires, acquire_call_blocks)
 }
 
 /// Whether block `b` CONSUMES lineage `rep` — any body instruction or the

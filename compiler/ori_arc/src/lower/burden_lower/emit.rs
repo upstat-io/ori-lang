@@ -115,6 +115,14 @@ pub(super) fn emit_burden_ops_for_blocks(
     analysis: &BurdenAnalysisCtx<'_>,
     terminator_transfer_per_block: &[FxHashSet<ArcVarId>],
     terminator_inc_per_block: &[Vec<ArcVarId>],
+    // Per-block representative dead-forwarder block-param vars needing exactly ONE
+    // RL-5 dead-at-entry release (deduped by forwarder-identity allocation). SSOT:
+    // `compute_dead_forwarder_block_param_releases`. Emitted as a single
+    // `BurdenDec(param)` at the START of the block's body (RL-5 immediate cleanup);
+    // the param is dead (`Cardinality = Absent`) so the dec is its sole lifecycle
+    // event in the block — `RL5_cleanup_balanced` (`[inc, dec]` nets 0) holds with
+    // the predecessor Jump-arg handoff inc.
+    dead_forwarder_param_releases: &FxHashMap<usize, Vec<ArcVarId>>,
 ) {
     // Per-block Inc count map for symmetric Dec emission at terminator-transfer
     // points. Populated DURING the emit walk so the Dec emission sees every Inc
@@ -136,6 +144,20 @@ pub(super) fn emit_burden_ops_for_blocks(
         for &dst in &invoke_result_incs[block_idx] {
             new_body.push(ArcInstr::BurdenInc { var: dst });
             *inc_counts.entry(dst).or_insert(0) += 1;
+        }
+        // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching this
+        // block's DEAD block-params: exactly ONE `BurdenDec(param)` per distinct source
+        // allocation (deduped by `compute_dead_forwarder_block_param_releases`). The
+        // param entered with a live RC=1 reference (the predecessor Jump-arg handoff,
+        // RL-4 exemption) that is used nowhere → its sole release is this immediate dec
+        // (`AimsProof.Realization::RL5_dead_at_entry_cleanup` + `RL5_cleanup_balanced`).
+        // Placed at block entry (before any body instruction) — the param is dead, so no
+        // later use can precede the release. NOT tallied into `inc_counts`: this dec
+        // balances the predecessor terminator's Jump-arg inc, not a same-block inc.
+        if let Some(params) = dead_forwarder_param_releases.get(&block_idx) {
+            for &param in params {
+                new_body.push(ArcInstr::BurdenDec { var: param });
+            }
         }
         for (instr_idx, instr) in original.into_iter().enumerate() {
             let ctx = BurdenEmitCtx {

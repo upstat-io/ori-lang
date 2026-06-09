@@ -4640,6 +4640,26 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
     );
 }
 
+// Mutation-verify for the Phase-5 RL-5 dead-forwarder-param release: with the
+// release DISABLED the forwarder-identity allocation reaching the dead merge-block
+// params is never released, so the burden-only run leaks / crashes. Proves the
+// dead-param release is the cure, not an incidental pass.
+fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
+        source,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
+        ],
+    );
+    assert!(
+        exit != 0 || stderr.to_lowercase().contains("leak"),
+        "[{label}] expected a leak / crash with the dead-forwarder-param release DISABLED \
+         (the Phase-5 RL-5 dec is the cure) but the program exited 0 with no leak — the \
+         positive pin may be passing for an unrelated reason"
+    );
+}
+
 #[test]
 fn probe_aggregate_transfer_forwarder_box_no_double_free() {
     // POSITIVE PIN (the §09.2 generics-forwarder transfer-through-return cure):
@@ -4673,13 +4693,17 @@ type Box<T> = { value: T };
 
 #[test]
 fn probe_aggregate_transfer_forwarder_option_no_double_free() {
-    // POSITIVE PIN (cross-Aggregate-shape matrix cell): the same owned-transfer
-    // forwarder over a SUM-type Aggregate (`Option<[int]>`) whose payload carries
-    // the heap [int]. The Invoke result is bound on the NORMAL-successor edge, so
-    // the transfer anchor is the successor block (NOT the Invoke's own block) —
-    // anchoring at the Invoke block would leave the pre-transfer arg-side dec
-    // forward-reachable and the kept-release selection could free the value before
-    // the `[own]` move (UAF). Spec: Annex E §AIMS RL-2 + RL-34.
+    // POSITIVE PIN (the forwarder dead-block-param under-emission cure): an
+    // owned-transfer forwarder (`@id<T>(x: T) -> T = x`) over a SUM-type Aggregate
+    // (`Option<[int]>`) whose payload carries the heap [int]. The forwarder identity
+    // (`%4` source = `%7` result) reaches the post-match merge/return block as TWO
+    // DEAD block-params (`Cardinality = Absent`) via `Jump bb(.., %4, %7)` on every
+    // arm. The Jump-arg -> Owned-param handoff (RL-4 exemption) defers the source's
+    // release to the dead successor params, which the Phase-5 walk never released ->
+    // the [int] buffer leaks. The cure emits EXACTLY ONE RL-5 dead-at-entry release
+    // (`RL5_dead_at_entry_cleanup`), deduped by forwarder identity so the two params
+    // sharing ONE RC=1 allocation get one dec, not two (two would double-free).
+    // Spec: Annex E §AIMS RL-5 + RL-4 + RL-34.
     let src = r#"
 @id <T> (x: T) -> T = x;
 
@@ -4693,7 +4717,9 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_option");
-    assert_double_free_without_lineage_rebalance(src, "aggregate_transfer_forwarder_option");
+    // NEGATIVE half: the same program leaks with the Phase-5 dead-forwarder-param
+    // release DISABLED — the release is the cure, not an incidental pass.
+    assert_leak_without_dead_forwarder_param_release(src, "aggregate_transfer_forwarder_option");
 }
 
 #[test]

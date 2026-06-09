@@ -184,6 +184,7 @@ impl Interpreter<'_> {
             }
             // SAFETY: DerivedTrait::strategy() only produces valid (FieldOp, CombineOp) pairings:
             // (Equals, AllTrue), (Compare, Lexicographic), (Hash, HashCombine).
+            // INVARIANT: enforced by the all_foreach_field_strategies_have_eval_dispatch test.
             _ => unreachable!(
                 "unsupported FieldOp+CombineOp: {:?}+{:?}",
                 field_op, combine

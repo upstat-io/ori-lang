@@ -13,6 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
+use crate::aims::lattice::dimensions::AccessClass;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, ValueRepr};
 use crate::ownership::Ownership;
 use ori_types::TypeRegistry;
@@ -264,72 +265,6 @@ pub(super) fn compute_borrowed_projection_dsts(func: &ArcFunction) -> FxHashSet<
     project_dsts
 }
 
-/// `Apply @__index(coll [borrow], idx [borrow]) -> view` result dsts whose EVERY
-/// use is at a BORROWED (non-owned) position — a pure borrow-view of the indexed
-/// collection's element per `Spec: Annex E §AIMS Protocol Builtins` (`Index`
-/// produces a borrowed element view; both args Borrowed). The collection OWNS the
-/// element backing and releases it via its whole-collection `elem_dec_fn` drop, so
-/// the borrowed `@__index` view gets NO dec (`Spec: Annex E §AIMS RL-2`
-/// `RL2_release_exactly_once`: an owned element is released EXACTLY once — by the
-/// collection's drop, never additionally by a borrow-view of it). A `FatValue` /
-/// `RcPtr`-typed `@__index` result (e.g. `coll[i] : str`) enters
-/// `owned_vars_needing_rc` by TYPE alone; without this exclusion a borrowed
-/// index-read (`coll[i].len()`, two indices of one list) gets a spurious last-use
-/// `BurdenDec`, over-releasing the element the collection drop already frees
-/// (double-free, exit 134). Parallel to [`compute_borrowed_projection_dsts`] (the
-/// `Project` field-read shape) — `@__index` is the Apply-result analogue that a
-/// `Project`-only scan does not reach.
-///
-/// Over-fire gate (RL-15a escape boundary, identical to the projection scan):
-/// excluded ONLY when never used at an owned arg position (`instr_transfer_vars`
-/// honors `is_owned_position`) AND never returned — an `@__index` result moved at
-/// an owned position (`f(coll[i] [own])`) or returned IS an owned reference whose
-/// consumer / caller inherits the release, so it KEEPS its burden RC. An
-/// index-read whose result is consumed by an owned-position transfer is the move
-/// shape the gate must NOT strip.
-pub(super) fn compute_borrowed_index_result_dsts(
-    func: &ArcFunction,
-    interner: &ori_ir::StringInterner,
-) -> FxHashSet<ArcVarId> {
-    let index_name =
-        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
-    let mut index_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                dst, func: callee, ..
-            } = instr
-            {
-                if *callee == index_name {
-                    index_dsts.insert(*dst);
-                }
-            }
-        }
-    }
-    if index_dsts.is_empty() {
-        return FxHashSet::default();
-    }
-    let mut transferred_or_escaped: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            for v in instr_transfer_vars(instr, func) {
-                transferred_or_escaped.insert(v);
-            }
-        }
-        let term = &block.terminator;
-        for (pos, &v) in term.used_vars().iter().enumerate() {
-            if term.is_owned_position(pos) {
-                transferred_or_escaped.insert(v);
-            }
-        }
-        if let ArcTerminator::Return { value } = term {
-            transferred_or_escaped.insert(*value);
-        }
-    }
-    index_dsts.retain(|d| !transferred_or_escaped.contains(d));
-    index_dsts
-}
-
 /// Apply / Invoke result dsts whose callee transfers an owned argument THROUGH
 /// the return (the callee's `MemoryContract` has a param with
 /// `transfers_through_return == true`, i.e. `return_alias == Some(Direct)`).
@@ -526,6 +461,283 @@ pub(super) fn instr_owned_position_transfer_vars(instr: &ArcInstr) -> FxHashSet<
         transfer_vars.insert(*value);
     }
     transfer_vars
+}
+
+/// Per-block representative block-param vars needing exactly ONE RL-5 dead-at-entry
+/// release for a forwarder-identity allocation.
+///
+/// Shape: an Owned non-scalar allocation `A` forwarded through a transfer-through-return
+/// callee (`@id<T>(x: T) -> T = x`, `ParamContract.transfers_through_return ∧
+/// access == Owned`) reaches a merge/return block's DEAD block-params (`Cardinality =
+/// Absent` — the param is bound by the block but used nowhere on any forward path) via
+/// `Jump` args on every predecessor edge. The Jump-arg → Owned-param handoff suppresses
+/// the source's last-use dec (RL-4 Jump-arg exemption: ownership transfers to the
+/// successor block-param), and that successor param is dead, so RL-5
+/// (`AimsProof.Realization::RL5_dead_at_entry_cleanup`: an Owned non-scalar `Absent`
+/// param gets ONE immediate dec) is the lineage's sole release point. The Phase-5 walk
+/// emits no RL-5 dec → the allocation leaks (`RL5_cleanup_balanced` is violated: the
+/// param entered with a live RC=1 reference that is never released).
+///
+/// One allocation reaching N dead params is the dedup case: the forwarder identity (the
+/// Invoke/Apply result aliases its `[own]` arg, `id(x)=x`) makes `%4` (the source) and
+/// `%7` (the forwarder result) the SAME RC=1 allocation, passed as TWO Jump args (`Jump
+/// bb(.., %4, %7)`) to two dead params. RL-5's balance proof is PER-ALLOCATION (one
+/// `[inc, dec]` per allocation, not per param): emitting a dec on BOTH params is
+/// `[inc, dec, dec]` = net −1 = double-free. The cure emits EXACTLY ONE dec per distinct
+/// source allocation reaching the block (dedup by the forwarder-identity rep), returning
+/// one representative dead-param var per `(block, rep)`.
+///
+/// Forwarder-identity gate (the over-fire boundary): the dead-param's source allocation
+/// MUST be reached through a forwarder edge (an Invoke/Apply transfer-through-return
+/// result aliasing its owned arg). A plain `let d = Numbers(..); match d` dead param
+/// (`compute_*` no Invoke-forwarder) is NOT admitted — its lineage is a distinct
+/// (non-forwarder) dead-block-param sub-root; admitting it here would emit a release the
+/// per-var path does not expect on the borrow-view sum-payload shapes (double-free).
+///
+/// Edge-release gate (the unwind subtlety): the rep is admitted ONLY when NO predecessor
+/// edge into the block already releases the allocation — when an arm consumed the lineage
+/// (e.g. an unwind `Resume` edge whose Phase-8a `unwind_cleanup` decs the value, or a
+/// match arm that decs the inner payload) the block-entry dec would double the release.
+/// The Phase-5 walk's union-find identity is conservative: a rep is admitted only when
+/// the lineage's sole transfer is the forwarder + the dead-param handoff, with no
+/// alternate release on any incoming edge.
+pub(super) fn compute_dead_forwarder_block_param_releases(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashMap<usize, Vec<ArcVarId>> {
+    let mut uf = ForwarderUnionFind::build(func, contracts);
+    let used = function_used_vars(func);
+    let alt_consumer_reps = compute_alt_consumer_reps(func, contracts, &mut uf);
+
+    let mut out: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let mut seen_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+        for &(param_var, _) in &block.params {
+            if used.contains(&param_var) {
+                continue; // not dead
+            }
+            let Some(rep) = dead_param_forwarder_rep(func, &mut uf, block_idx, param_var) else {
+                continue;
+            };
+            if alt_consumer_reps.contains(&rep) {
+                continue;
+            }
+            if seen_reps.insert(rep) {
+                out.entry(block_idx).or_default().push(param_var);
+            }
+        }
+    }
+    out
+}
+
+/// Resolve a DEAD block-param's source allocation to a forwarder-identity rep, or
+/// `None` when it is not a single forwarder lineage. The param carries no union edge
+/// (it is a phi sink), so its allocation is the rep of the args feeding its position
+/// across every `Jump` predecessor; admitted only when every feeding edge resolves to
+/// ONE rep AND that rep is a forwarder identity.
+fn dead_param_forwarder_rep(
+    func: &ArcFunction,
+    uf: &mut ForwarderUnionFind,
+    block_idx: usize,
+    param_var: ArcVarId,
+) -> Option<ArcVarId> {
+    let pos = func.blocks[block_idx]
+        .params
+        .iter()
+        .position(|&(p, _)| p == param_var)?;
+    let mut feeding_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut any_feed = false;
+    for pred in &func.blocks {
+        if let ArcTerminator::Jump { target, args } = &pred.terminator {
+            if target.index() == block_idx {
+                if let Some(&arg) = args.get(pos) {
+                    any_feed = true;
+                    feeding_reps.insert(uf.find(arg));
+                }
+            }
+        }
+    }
+    if !any_feed || feeding_reps.len() != 1 {
+        return None;
+    }
+    let rep = *feeding_reps.iter().next()?;
+    uf.is_forwarder_rep.contains(&rep).then_some(rep)
+}
+
+/// Forwarder reps with an ALTERNATE consumer — a rep member used at a NON-forwarder
+/// owned transfer position (a second owned call/Construct/Set arg, or a non-forwarder
+/// Invoke owned-arg). When an alternate consumer owns the release, the per-var path
+/// supplies it and the dead-param block-entry dec must NOT double it (the edge-release
+/// gate; bounds the over-fire surface).
+fn compute_alt_consumer_reps(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    uf: &mut ForwarderUnionFind,
+) -> FxHashSet<ArcVarId> {
+    let mut alt: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if instr_is_forwarder_call(instr, contracts) {
+                continue;
+            }
+            for v in instr_owned_position_transfer_vars(instr) {
+                let r = uf.find(v);
+                alt.insert(r);
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            if !args
+                .iter()
+                .any(|&a| arg_owned_transfers_through_return(contracts, *callee, a, args))
+            {
+                for (pos, &v) in block.terminator.used_vars().iter().enumerate() {
+                    if block.terminator.is_owned_position(pos) {
+                        let r = uf.find(v);
+                        alt.insert(r);
+                    }
+                }
+            }
+        }
+    }
+    alt
+}
+
+/// True iff `instr` is an `Apply` to a callee that owns-transfers an arg through its
+/// return (the forwarder edge itself — excluded from the alternate-consumer scan).
+fn instr_is_forwarder_call(instr: &ArcInstr, contracts: &FxHashMap<Name, MemoryContract>) -> bool {
+    matches!(
+        instr,
+        ArcInstr::Apply { func: callee, args, .. }
+            if args
+                .iter()
+                .any(|&a| arg_owned_transfers_through_return(contracts, *callee, a, args))
+    )
+}
+
+/// True iff `callee`'s contract owns-transfers `arg` (at its position in `args`) through
+/// the return (`transfers_through_return ∧ access == Owned`). The forwarder-identity
+/// edge predicate; mirrors `compute_transfer_forwarder_anchors`'s over-fire boundary.
+fn arg_owned_transfers_through_return(
+    contracts: &FxHashMap<Name, MemoryContract>,
+    callee: Name,
+    arg: ArcVarId,
+    args: &[ArcVarId],
+) -> bool {
+    contracts.get(&callee).is_some_and(|c| {
+        args.iter()
+            .zip(c.params.iter())
+            .any(|(&a, p)| a == arg && p.transfers_through_return && p.access == AccessClass::Owned)
+    })
+}
+
+/// Function-wide used-var set: a var appearing in ANY instr / terminator operand
+/// position. A block-param NOT in this set is dead (`Cardinality = Absent`); its only
+/// appearance is its own param-binding slot.
+fn function_used_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut used: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            used.extend(instr.used_vars());
+        }
+        used.extend(block.terminator.used_vars());
+    }
+    used
+}
+
+/// Structural forwarder-identity union-find over Let{Var} aliases (`%6 = %4`) +
+/// forwarder result→arg edges (Invoke/Apply `transfers_through_return ∧ Owned`,
+/// `%7 = id(%6 [own])`). Mirrors `compute_same_alloc_reps` (`edge_cleanup.rs`) EXCEPT it
+/// is structural (no `state_map.apply_result_aliases()` — unavailable at Phase 5) and
+/// intentionally EXCLUDES the Jump-arg → block-param edge (a phi merge over DISTINCT
+/// allocations is NOT a same-allocation relation). `is_forwarder_rep` records reps that
+/// participate in a forwarder edge (the over-fire gate).
+struct ForwarderUnionFind {
+    parent: FxHashMap<ArcVarId, ArcVarId>,
+    is_forwarder_rep: FxHashSet<ArcVarId>,
+}
+
+impl ForwarderUnionFind {
+    fn build(func: &ArcFunction, contracts: &FxHashMap<Name, MemoryContract>) -> Self {
+        let mut uf = ForwarderUnionFind {
+            parent: FxHashMap::default(),
+            is_forwarder_rep: FxHashSet::default(),
+        };
+        // Edge type 1: Let{Var} aliases.
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    uf.union(*dst, *src);
+                }
+            }
+        }
+        // Edge type 4 (forwarder only): Invoke/Apply result `dst` ← every owned
+        // transfer-through-return arg. The result IS the forwarded arg's allocation.
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } = instr
+                {
+                    uf.record_forwarder(contracts, *dst, *callee, args);
+                }
+            }
+            if let ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = &block.terminator
+            {
+                uf.record_forwarder(contracts, *dst, *callee, args);
+            }
+        }
+        uf
+    }
+
+    fn record_forwarder(
+        &mut self,
+        contracts: &FxHashMap<Name, MemoryContract>,
+        dst: ArcVarId,
+        callee: Name,
+        args: &[ArcVarId],
+    ) {
+        for &arg in args {
+            if arg_owned_transfers_through_return(contracts, callee, arg, args) {
+                self.union(dst, arg);
+                let rep = self.find(dst);
+                self.is_forwarder_rep.insert(rep);
+            }
+        }
+    }
+
+    fn find(&mut self, v: ArcVarId) -> ArcVarId {
+        let p = *self.parent.get(&v).unwrap_or(&v);
+        if p == v {
+            return v;
+        }
+        let r = self.find(p);
+        self.parent.insert(v, r);
+        r
+    }
+
+    fn union(&mut self, a: ArcVarId, b: ArcVarId) {
+        let ra = self.find(a);
+        let rb = self.find(b);
+        if ra != rb {
+            self.parent.insert(ra, rb);
+        }
+    }
 }
 
 /// Operands consumed by the dual-consuming `ori_list_concat_cow` runtime helper:

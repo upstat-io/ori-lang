@@ -25,12 +25,15 @@ use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
     collect_owned_burdens, compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
-    compute_borrowed_terminator_invoke_args, compute_live_out_owned, compute_owned_vars_needing_rc,
+    compute_borrowed_terminator_invoke_args, compute_dead_forwarder_block_param_releases,
+    compute_live_out_owned, compute_owned_vars_needing_rc,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
     detect_transfer_points, group_last_uses_filtered,
 };
 use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
+
+use std::sync::LazyLock;
 
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
@@ -38,6 +41,16 @@ use crate::ownership::DerivedOwnership;
 use ori_ir::Name;
 use ori_types::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
+
+/// `ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE=1` skips the Phase-5 RL-5
+/// dead-at-entry release for forwarder-identity allocations reaching a merge/return
+/// block's dead block-params ([`compute_dead_forwarder_block_param_releases`]).
+/// Bisection surface: isolates a leak / double-free to the dead-forwarder-param
+/// emission vs the rest of the Phase-5 walk without toggling the whole burden
+/// pipeline. Default (unset): the release is emitted. Spec: Annex E §AIMS RL-5.
+static DEAD_FORWARDER_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE").as_deref() == Ok("1")
+});
 
 use super::burden::{Burden, BurdenRef};
 
@@ -467,6 +480,19 @@ pub(crate) fn emit_burden_ops<'a>(
     let index_builtin_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
 
+    // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching a
+    // merge/return block's dead block-params: the Jump-arg → Owned-param handoff
+    // (RL-4 exemption) suppresses the source's last-use dec expecting RL-5 to release
+    // the dead successor param; the Phase-5 walk otherwise emits no RL-5 dec, leaking
+    // the forwarded allocation. SSOT: `compute_dead_forwarder_block_param_releases`
+    // (one dec per distinct source allocation; forwarder-identity + edge-release gates
+    // bound the over-fire surface).
+    let dead_forwarder_param_releases = if *DEAD_FORWARDER_PARAM_RELEASE_DISABLED {
+        FxHashMap::default()
+    } else {
+        compute_dead_forwarder_block_param_releases(func, contracts)
+    };
+
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,
         last_uses_at: &last_uses_at,
@@ -490,6 +516,7 @@ pub(crate) fn emit_burden_ops<'a>(
         &analysis,
         &terminator_transfer_per_block,
         &terminator_inc_per_block,
+        &dead_forwarder_param_releases,
     );
     populate_burden_emitted(func);
     ctx
