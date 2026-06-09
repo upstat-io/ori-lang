@@ -109,12 +109,8 @@ fn test_undocumented_count_does_not_grow() {
 /// Run manually to see the full list:
 /// `cargo test -p ori_diagnostic -- --ignored test_undocumented_codes_inventory`
 ///
-/// Missing documentation (as of this writing):
-/// - E0006–E0015, E0911 (11 lexer codes: cross-language habits, confusables)
-/// - E4001–E4003 (3 ARC codes: ARC IR lowering errors)
-/// - E5001–E5009 (9 codegen codes: LLVM codegen errors)
-/// - E6001–E6099 (27 runtime codes: eval/runtime errors)
-/// - W1001–W1002 (2 parser warnings)
+/// The test body computes the live undocumented set and panics with the exact
+/// list — there is no hand-maintained inventory to drift out of sync.
 #[test]
 #[ignore = "BUG-07-038: on-demand manual inventory — run with --ignored to see all undocumented codes"]
 fn test_undocumented_codes_inventory() {

@@ -4660,6 +4660,26 @@ fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
     );
 }
 
+// Mutation-verify for the Phase-5 construct-fed dead-param lineage cure: with the
+// pass DISABLED the sum-aggregate-`Construct`-fed allocation reaching the dead
+// merge-block param over-emits (2 spurious keep-alive incs + 1 misplaced release)
+// → +1 leak on the burden-only path. Proves the suppression + dead-param release
+// is the cure, not an incidental pass. Run on the DEFAULT backend (not the probe):
+// these are both-paths-fail lineages whose default-path leak the cure also clears,
+// so toggling the cure off on the default path restores the leak.
+fn assert_leak_without_construct_fed_dead_param_release(source: &str, label: &str) {
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
+        source,
+        &[("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1")],
+    );
+    assert!(
+        exit != 0 || stderr.to_lowercase().contains("leak"),
+        "[{label}] expected a leak / crash with the construct-fed dead-param release \
+         DISABLED (the Phase-5 suppression + RL-5 dec is the cure) but the program exited \
+         0 with no leak — the positive pin may be passing for an unrelated reason"
+    );
+}
+
 #[test]
 fn probe_aggregate_transfer_forwarder_box_no_double_free() {
     // POSITIVE PIN (the §09.2 generics-forwarder transfer-through-return cure):
@@ -4753,4 +4773,201 @@ fn probe_borrowed_forwarder_rcptr_not_rebalanced_no_corruption() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "borrowed_forwarder_rcptr_not_rebalanced");
+}
+
+#[test]
+fn probe_construct_fed_dead_param_for_yield_option_str_no_leak() {
+    // POSITIVE PIN (the construct-fed dead-param lineage cure): a `for x in
+    // Some(str) yield { break }` — the `Option<str>` aggregate (`%1 = Construct
+    // Variant(Option.0)(%0)`, threaded via the Let-Var alias `%3 = %1`) reaches the
+    // `ori_list_take` exit block as a DEAD block-param (`%7: str?`) via `Jump`. The
+    // base walk OVER-emits: a FRESH-site `BurdenInc` on the Construct + a dup-alias
+    // `BurdenInc` on `%3` (the `use_counts >= 2` cardinality proxy mis-classes the
+    // same-alloc alias as a duplication — `%1` is "live" only because it ALSO feeds
+    // `Jump bb3(%1)`) + a misplaced alias release, netting +1 (the str backing
+    // leaks). The cure suppresses the whole lineage (both incs + the misplaced dec)
+    // + its heap-element borrow-views, and emits EXACTLY ONE RL-5 dead-at-entry
+    // release at `%7` (no-op on None, frees the heap str on Some). RL-2
+    // release-exactly-once + RL-5 dead-at-entry + RL-4 Jump-arg exemption. Spec:
+    // Annex E §AIMS RL-5 + RL-4 + RL-2.
+    let src = r#"
+@main () -> int = {
+    let opt = Some("this string exceeds SSO threshold by being very long indeed");
+    let result = for x in opt yield {
+        break
+    };
+    if result.length() == 0 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "construct_fed_dead_param_for_yield_option_str");
+    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
+    // dead-param release DISABLED — the cure is the suppression + release, not an
+    // incidental pass. Run on the DEFAULT backend (both-paths-fail lineage).
+    assert_leak_without_construct_fed_dead_param_release(
+        src,
+        "construct_fed_dead_param_for_yield_option_str",
+    );
+}
+
+#[test]
+fn probe_construct_fed_dead_param_conditional_body_no_uaf() {
+    // POSITIVE PIN (the UAF-avoidance clamp): a `for x in Some(str) yield { if
+    // x.len() > 10 then break; x.len() }` — the body BORROWS the str element view
+    // (`%11 = Project %3.1`, `x.len()`) on a path that MAY break early. The cure's
+    // single release at the dead exit-block param `%7` runs AFTER every borrow-view
+    // use (the param is dead at the merge, all body uses precede it), so the str
+    // backing is released exactly once with no use-after-free. Stripping the
+    // lineage incs WITHOUT relocating the release to the post-body dead param would
+    // convert the previously-masked UAF into a live UAF (exit 139) — this pin proves
+    // the relocation avoids it (exit 0, no double-free). Spec: Annex E §AIMS RL-2 +
+    // RL-5.
+    let src = r#"
+@main () -> int = {
+    let opt = Some("this string exceeds SSO threshold by being very long indeed");
+    let result = for x in opt yield {
+        if x.len() > 10 then break;
+        x.len()
+    };
+    if result.length() == 0 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "construct_fed_dead_param_conditional_body");
+}
+
+#[test]
+fn probe_construct_fed_forwarder_option_disjoint_no_double_free() {
+    // NEGATIVE / over-fire boundary PIN (the disjointness gate): a SUM-aggregate
+    // `Construct` (`Some([int])`) that is ALSO forwarded through `@id<T>(x) -> T = x`
+    // is owned by the FORWARDER dead-param pass (`compute_dead_forwarder_block_param_releases`,
+    // which KEEPS the keep-alive inc + adds the dead-param dec — net 0 for a
+    // transferred-in allocation whose `+1` came from the forwarded arg). The
+    // construct-fed pass MUST NOT also fire here: its Part-B suppression would strip
+    // that keep-alive inc and double-free. Verifies the `is_forwarder_rep` exclusion
+    // keeps the forwarder lineage correct (exit 0, no double-free) on BOTH paths —
+    // the construct-fed pass and the forwarder pass target DISJOINT reps. Spec:
+    // Annex E §AIMS RL-5 + RL-34.
+    let src = r#"
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt: Option<[int]> = Some([1, 2, 3]);
+    let o2 = id(x: opt);
+    match o2 {
+        Some(xs) -> if xs.len() == 3 then 0 else 1,
+        None -> 2,
+    }
+}
+"#;
+    assert_burden_path_self_sufficient(src, "construct_fed_forwarder_option_disjoint");
+}
+
+#[test]
+fn probe_nested_construct_fed_dead_param_option_recursive_node_no_leak() {
+    // POSITIVE PIN (the nested construct-fed dead-param lineage cure): a recursive
+    // `Node { value: int, next: Option<Node> }` matched out of an `Option<Node>`
+    // reading only the scalar `.value`. The matched sum-aggregate (`%10 = Construct
+    // Variant(Option.0)(%9)`) is fed to a DEAD merge-block param (`%16`) and released
+    // by the construct-fed pass; its payload is a NESTED heap `Construct Struct(Node)`
+    // (`%2`/`%7`) moved in via owning `Construct`-args, EACH also fed to its own dead
+    // param (`%14`/`%15`). The base walk gives each nested Construct a spurious
+    // FRESH-site keep-alive `BurdenInc` (its rep ALSO feeds a Jump-arg to its dead
+    // param → `use_counts >= 2` dup-proxy) → +1 leak per nested level. The parent
+    // aggregate's single dead-param release transitively frees the whole tree, so the
+    // cure suppresses the nested lineages' incs (Part B cont. 2, NO separate release —
+    // a second dec would double-free). RL-2 release-exactly-once + RL-5 dead-at-entry.
+    // Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
+    let src = r#"
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let o: Option<Node> = Some(n1);
+    let v = match o {
+        Some(node) -> node.value,
+        None -> 0,
+    };
+    assert_eq(actual: v, expected: 1);
+    ()
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "nested_construct_fed_dead_param_option_recursive_node",
+    );
+    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
+    // dead-param pass DISABLED — the nested-lineage suppression is the cure. Run on
+    // the DEFAULT backend (both-paths-fail lineage).
+    assert_leak_without_construct_fed_dead_param_release(
+        src,
+        "nested_construct_fed_dead_param_option_recursive_node",
+    );
+}
+
+#[test]
+fn probe_nested_construct_fed_dead_param_result_recursive_node_no_leak() {
+    // POSITIVE PIN (sum-type matrix sibling): the same nested recursive-`Node`
+    // shape matched out of a `Result<Node, str>` instead of an `Option<Node>`. The
+    // `Ok(node) -> node.value` arm exercises the identical nested-Construct-fed
+    // dead-param lineage through the Result aggregate. Spec: Annex E §AIMS RL-5 +
+    // RL-4 + RL-2.
+    let src = r#"
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let r: Result<Node, str> = Ok(n1);
+    let v = match r {
+        Ok(node) -> node.value,
+        Err(_) -> 0,
+    };
+    assert_eq(actual: v, expected: 1);
+    ()
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "nested_construct_fed_dead_param_result_recursive_node",
+    );
+    assert_leak_without_construct_fed_dead_param_release(
+        src,
+        "nested_construct_fed_dead_param_result_recursive_node",
+    );
+}
+
+#[test]
+fn probe_nested_construct_payload_extracted_live_no_double_free_negative() {
+    // NEGATIVE / over-fire boundary PIN (the `released_payload_escapes_live`
+    // precondition): the recursive `Node` is EXTRACTED and RETURNED (`Some(node) ->
+    // node`) rather than scalar-read (`node.value`). The extracted heap Node holds a
+    // LIVE reference to the same allocation as the nested Construct, with its OWN
+    // release. The nested-lineage suppression MUST NOT fire here: stripping the
+    // nested Construct's keep-alive inc while BOTH the parent's dead-param dec AND
+    // the live extract's release run would double-free (exit 134). The precondition
+    // detects the heap payload reaching a live owned block-param via its `Project`
+    // view closure and aborts the whole nested suppression. Verifies exit 0, no
+    // double-free, on the burden-only path. Spec: Annex E §AIMS RL-2.
+    let src = r#"
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let o: Option<Node> = Some(n1);
+    let extracted = match o {
+        Some(node) -> node,
+        None -> Node { value: 0, next: None },
+    };
+    assert_eq(actual: extracted.value, expected: 1);
+    ()
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "nested_construct_payload_extracted_live_no_double_free",
+    );
 }
