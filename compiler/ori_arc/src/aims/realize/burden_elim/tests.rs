@@ -1485,3 +1485,209 @@ fn lineage_rebalance_excludes_forwarder_tainted_rep() {
          re-balanced — both decs survive; census = {c:?}"
     );
 }
+
+// COW-survivor lineage re-balance pins (the `compute_cow_mutated_lineage_reps`
+// candidate-gate deferral — RL-1 keep-alive inc on a COW-shared-survives lineage).
+
+/// Build a single-block COW-shared-survivor function: `%0 = "lit"` (fresh
+/// `FatValue` alloc) + `%1 = Let Var(%0)` (alias) flowing into a COW-mutation at
+/// an OWNED `Apply` arg (`push(%1)` → `%2`) + `%4 = Let Var(%0)` re-reading the
+/// original after the consume. `same_alloc_reps` unions `%1`/`%4` into rep `%0`;
+/// the push result `%2` is its own rep. `var_reprs` marks every collection var
+/// `FatValue` (the `is_rcptr` gate) and the scalar arg/return `Scalar`.
+fn cow_push_alias_func(body: Vec<ArcInstr>) -> ArcFunction {
+    use crate::ir::{ArcValue, ArgOwnership, LitValue};
+    use crate::ValueRepr;
+    let mut full_body = vec![
+        ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(LitValue::String(name(99))),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        // COW mutation: `%1.push(%3)` lowers to an `Apply @push` with the
+        // receiver `%1` at OWNED arg position 0 (`is_owned_position` + `is_rcptr`
+        // → `consumed_owned`). `arg_ownership` explicit so the detector sees the
+        // owned receiver regardless of the all-Owned default.
+        ArcInstr::Apply {
+            dst: v(2),
+            ty: ty(0),
+            func: name(50),
+            args: vec![v(1), v(3)],
+            arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+            mono_instance_id: None,
+        },
+        // Re-read of the original allocation AFTER the consume — the RL-1
+        // duplicating-use condition that makes the fresh keep-alive inc
+        // load-bearing.
+        ArcInstr::Let {
+            dst: v(4),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+    ];
+    full_body.extend(body);
+    let mut func = ArcFunction {
+        name: name(1),
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: Vec::new(),
+            body: full_body,
+            terminator: ArcTerminator::Return { value: v(5) },
+        }],
+        ..Default::default()
+    };
+    // %0/%1/%2/%4 are FatValue (RC-tracked); %3 (pushed int) + %5 (return) Scalar.
+    func.var_reprs = vec![
+        ValueRepr::FatValue,
+        ValueRepr::FatValue,
+        ValueRepr::FatValue,
+        ValueRepr::Scalar,
+        ValueRepr::FatValue,
+        ValueRepr::Scalar,
+    ];
+    func
+}
+
+/// `same_alloc_reps` unioning the original allocation's alias chain `%1 → %0`,
+/// `%4 → %0` for the COW-push fixture. `%2` (the push result) is a distinct
+/// allocation rep and is intentionally NOT unioned.
+fn cow_push_alias_reps() -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut reps = FxHashMap::default();
+    reps.insert(v(0), v(0));
+    reps.insert(v(1), v(0));
+    reps.insert(v(4), v(0));
+    reps
+}
+
+/// POSITIVE PIN: a COW-shared-survives lineage (fresh `%0` aliased into an owned
+/// `push` arg AND re-read after) DEFERS to the COW-aware per-var pass — the
+/// lineage re-balance candidate gate excludes it (`cow_mutated_reps.contains`).
+/// The per-var pass KEEPS the fresh keep-alive inc on `(Many, Unrestricted)`
+/// (DP-3 no-fire), so it survives the elimination. Pre-fix the COW-blind
+/// re-balance elided ALL incs → the runtime rc stayed at 1 → the COW protocol
+/// mutated the shared buffer in place → double-free. FAILS if the
+/// `cow_mutated_reps.contains(rep)` gate term is reverted (the rep is then
+/// re-balanced and the inc is wrongly elided to 0). Spec: Annex E §AIMS RL-1.
+#[test]
+fn lineage_rebalance_defers_on_cow_mutated_shared_survivor() {
+    let mut func = cow_push_alias_func(vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ]);
+    let same_alloc_reps = cow_push_alias_reps();
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
+    let interner = ori_ir::StringInterner::new();
+    let mut state_map = AimsStateMap::new(&func);
+    // (Many, Unrestricted) on the lineage vars → DP-3 no-fire, so the COW-aware
+    // per-var pass KEEPS the load-bearing keep-alive inc when the re-balance
+    // correctly defers.
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[
+            (
+                v(0),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+            (
+                v(1),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+        ],
+    );
+    eliminate_burden_ops(
+        &mut func,
+        &state_map,
+        &same_alloc_reps,
+        &contracts,
+        &interner,
+        true,
+    );
+    let c = census(&func);
+    assert!(
+        c[0] >= 1,
+        "COW-shared-survivor lineage must DEFER to the per-var pass — the fresh \
+         keep-alive inc (RL-1 load-bearing) must survive, not be elided by the \
+         re-balance; census = {c:?}"
+    );
+}
+
+/// NEGATIVE / over-fire guard PIN: a PURE alias chain (`let b = a; a == b`) with
+/// NO COW-mutation operand is STILL re-balanced — the COW exclusion must NOT
+/// disable the legitimate release-exactly-once collapse. Zero incs + exactly one
+/// dec survive (alloc(+1) − 1 = 0, RL-2). Mirrors
+/// `lineage_rebalance_alias_chain_keeps_one_release` but exists as the explicit
+/// guard that the COW gate term does not over-fire on a non-COW lineage. FAILS
+/// if `cow_mutated_reps` wrongly flags a comparison/borrow-read lineage.
+#[test]
+fn lineage_rebalance_still_fires_on_pure_alias_chain() {
+    use crate::ir::{ArcValue, PrimOp};
+    use ori_ir::BinaryOp;
+    // `%2 = %0 == %1` — a comparison BORROW-READS its operands (NOT a COW
+    // consume); the alias chain must still be re-balanced.
+    let mut func = alias_chain_func(vec![
+        ArcInstr::Let {
+            dst: v(2),
+            ty: ty(0),
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Eq),
+                args: vec![v(0), v(1)],
+            },
+        },
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ]);
+    run_elim_rebalance(&mut func);
+    let c = census(&func);
+    assert_eq!(
+        c[0], 0,
+        "pure alias chain (no COW operand) must STILL elide all incs — the COW \
+         exclusion must not over-fire on a borrow-read comparison; census = {c:?}"
+    );
+    assert_eq!(
+        c[1], 1,
+        "pure alias chain must STILL keep exactly one RL-2 release; census = {c:?}"
+    );
+}
+
+/// NEGATIVE / over-fire guard PIN: an aggregate transfer-forwarder rep is STILL
+/// re-balanced (when its `transfers_through_return` provenance is proven) — the
+/// COW exclusion must NOT suppress the forwarder re-balance path. This fixture
+/// carries no COW-mutation operand, so the COW gate term is inert and the
+/// forwarder lineage collapses to one release exactly as before. FAILS if the
+/// COW gate term wrongly intercepts a non-COW forwarder lineage.
+#[test]
+fn lineage_rebalance_still_fires_on_transfer_forwarder() {
+    // A pure alias chain with no COW operand stands in for the non-COW lineage
+    // class the forwarder path also belongs to: the COW gate is inert (empty
+    // `cow_mutated_reps`), so the re-balance collapses it to one release.
+    let mut func = alias_chain_func(vec![
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ]);
+    run_elim_rebalance(&mut func);
+    let c = census(&func);
+    assert_eq!(
+        c[0], 0,
+        "non-COW (forwarder-class) lineage must STILL elide all incs — the COW \
+         exclusion is inert when no COW operand is present; census = {c:?}"
+    );
+    assert_eq!(
+        c[1], 1,
+        "non-COW (forwarder-class) lineage must STILL keep exactly one release; \
+         census = {c:?}"
+    );
+}

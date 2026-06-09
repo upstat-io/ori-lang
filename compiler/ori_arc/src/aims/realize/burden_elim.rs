@@ -442,6 +442,20 @@ fn group_lineage_ops(
                 }
             }
         }
+        // An `Invoke`-terminator self-allocating builtin result FIRST lives at the
+        // `normal` successor block (where Phase-5 prepends its fresh-site
+        // `BurdenInc`); attribute the lineage alloc to that successor so the
+        // re-balance net counts the allocation on the path the result is defined.
+        // Spec: Annex E §AIMS RL-2.
+        if let Some((dst, normal)) =
+            super::emit_unified::fresh_rc_alloc_dst_terminator(&block.terminator, func, interner)
+        {
+            let nb = normal.index();
+            let entry = reps.entry(rep_of(dst)).or_default();
+            *entry.alloc_counts.entry(nb).or_insert(0) += 1;
+            entry.all_vars.insert(dst);
+            entry.touches_loop |= loop_blocks.contains(&nb);
+        }
     }
     reps
 }
@@ -551,6 +565,20 @@ fn mark_lineage_rebalance_removals(
         &loop_blocks,
     );
 
+    // COW-mutated lineage reps DEFER to the per-var pass. The re-balance elides ALL
+    // incs of a rep + keeps one release; for a lineage whose value flows into a
+    // COW-mutation operand (`push`/`set`/`insert`/`remove`/`sort`/`reverse` at an
+    // owned arg, collection `+`/concat, or a may-COW user-call arg) AND is re-read
+    // after the consume, the fresh keep-alive inc is LOAD-BEARING (RL-1: raises the
+    // runtime rc ≥ 2 so the `ori_rc_is_unique` COW protocol COPIES instead of
+    // mutating in place). Eliding it lets the mutation hit a freed/aliased buffer →
+    // double-free. The per-var pass (`classify_burden_ops` /
+    // `mark_whole_var_removals`) is COW-aware (`inc_elidable_at_realization` /
+    // `compute_elidable_fresh_self_alloc_incs`) and correctly KEEPS the inc. SSOT
+    // detector reused — never duplicated. Spec: Annex E §AIMS RL-1.
+    let cow_mutated_reps =
+        super::emit_unified::compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner);
+
     for (rep, ops) in &reps {
         // A forwarder-tainted rep is un-excluded ONLY when it BOTH is a proven
         // owned-transfer-through-return forwarder AND has NO `fresh_rc_alloc_dst`
@@ -595,7 +623,7 @@ fn mark_lineage_rebalance_removals(
                     for &b in blocks {
                         alloc_delta[b] = 1;
                     }
-                    let mut v: Vec<usize> = blocks.iter().copied().collect();
+                    let mut v: Vec<usize> = blocks.clone();
                     v.sort_unstable();
                     v.dedup();
                     v
@@ -613,11 +641,14 @@ fn mark_lineage_rebalance_removals(
         // single-var lineage is already handled by the per-var pass; a loop-carried
         // lineage's release attributes to a different rep (`same_alloc_reps`
         // excludes the back-edge) so its per-path net mis-computes; an excluded
-        // forwarder's apply-result inc is not a uniform spurious duplicate.
+        // forwarder's apply-result inc is not a uniform spurious duplicate; a
+        // COW-mutated rep's fresh keep-alive inc is load-bearing (RL-1) and is
+        // owned by the COW-aware per-var pass, not elidable here.
         if alloc_blocks.is_empty()
             || ops.touches_loop
             || ops.op_vars.len() < 2
             || excluded_forwarder
+            || cow_mutated_reps.contains(rep)
         {
             continue;
         }

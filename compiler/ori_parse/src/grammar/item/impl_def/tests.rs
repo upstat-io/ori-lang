@@ -483,7 +483,7 @@ fn test_parse_impl_user_type_subject_still_parses() {
     assert!(imp.is_trait_impl(), "user-type colon impl unchanged");
 }
 
-// Cell #10 — negative pin: primitive in TRAIT position stays parse-rejected (codex guard).
+// Cell #10 — negative pin: primitive in TRAIT position stays parse-rejected.
 #[test]
 fn test_parse_impl_primitive_in_trait_position_rejects() {
     let output = parse_source("impl Foo: str { }");

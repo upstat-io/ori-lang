@@ -2,61 +2,73 @@
     "compare": {
         "binary_kb": 4737,
         "compile_ms": 273,
+        "rc_ops": 2,
         "run_ms": 3
     },
     "list_push": {
         "binary_kb": 4737,
         "compile_ms": 253,
+        "rc_ops": 0,
         "run_ms": 4
     },
     "list_push_shared": {
         "binary_kb": 4737,
         "compile_ms": 255,
+        "rc_ops": 2,
         "run_ms": 3
     },
     "list_slice": {
         "binary_kb": 4737,
         "compile_ms": 266,
+        "rc_ops": 1,
         "run_ms": 4
     },
     "macro/file_pipeline": {
         "binary_kb": 4756,
         "compile_ms": 270,
+        "rc_ops": 45,
         "run_ms": 4
     },
     "macro/graph_bfs": {
         "binary_kb": 4754,
         "compile_ms": 269,
+        "rc_ops": 13,
         "run_ms": 20
     },
     "macro/json_builder": {
         "binary_kb": 4752,
         "compile_ms": 273,
+        "rc_ops": 17,
         "run_ms": 3
     },
     "macro/sort_dedup": {
         "binary_kb": 4750,
         "compile_ms": 314,
+        "rc_ops": 7,
         "run_ms": 3
     },
     "map_insert": {
         "binary_kb": 4750,
         "compile_ms": 284,
+        "rc_ops": 1,
         "run_ms": 3
     },
     "nested_list_crash": {
         "binary_kb": 4737,
         "compile_ms": 259,
+        "rc_ops": 5,
         "run_ms": 2
     },
     "set_union": {
         "binary_kb": 4746,
         "compile_ms": 267,
+        "rc_ops": 1,
         "run_ms": 2
     },
     "str_concat": {
         "binary_kb": 4748,
         "compile_ms": 265,
+        "rc_ops": 3,
         "run_ms": 5
     }
 }

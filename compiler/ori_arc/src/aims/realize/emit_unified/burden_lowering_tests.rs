@@ -17,18 +17,23 @@ use super::{
     compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
     compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
     compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
-    emit_for_yield_index_consumed_element_rc, emit_iter_element_view_iter_consume_keepalive_inc,
-    is_burden_carrying_aggregate, iterator_consumer_collection_names, lower_burden_ops_to_rc,
+    compute_returned_collection_surplus_inc_strips, emit_for_yield_index_consumed_element_rc,
+    emit_iter_element_pushed_into_returned_collection_keepalive_inc,
+    emit_iter_element_view_iter_consume_keepalive_inc, emit_single_iter_consume_reuse_keepalive,
+    is_burden_carrying_aggregate, iterator_consumer_collection_names,
+    lineage_genuinely_read_outside_call, lower_burden_ops_to_rc,
     relocate_borrowed_terminator_arg_dec_to_edges, sharing_view_relocation_names,
-    suppress_multi_borrow_iter_consume_source_decs, EdgeRelease, EscapeSafeBorrowedNames,
-    IterHandleRelease,
+    suppress_multi_borrow_iter_consume_source_decs,
+    suppress_single_borrowed_invoke_iter_consume_source, user_callee_iter_consume_uses_of_rep,
+    EdgeRelease, EscapeSafeBorrowedNames, IterHandleRelease,
 };
 use crate::aims::contract::{MemoryContract, ReturnAliasShape};
 use crate::aims::lattice::AccessClass;
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
-    CtorKind, PrimOp, ValueRepr,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, CtorKind, PrimOp, ValueRepr,
 };
+use crate::ownership::Ownership;
 use crate::pipeline::rc_count::count_rc_ops;
 use ori_ir::BinaryOp;
 use ori_types::{EnumVariant, Idx, Pool};
@@ -345,6 +350,227 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
     assert!(
         !elidable.contains(&v(0)),
         "net != 1 → fresh inc kept (eliding would double-free, net −1)"
+    );
+}
+
+/// Build a fresh self-alloc result on an `Invoke` TERMINATOR (the `s.insert(..)`
+/// COW-insert shape): `%0` is owned-consumed by `Invoke @insert`, producing a
+/// FRESH owned set result `%1` on the terminator (`normal` bb1, where Phase-5
+/// prepends `%1`'s fresh-site inc); `%1` is borrow-read by `@len` and dead after.
+/// The result `%1` is the borrow-read-only fresh COW-result whose surplus
+/// fresh-site inc must be elided.
+///
+/// Linear normal path (bb0 → bb1 → bb2 Return) with ONE alloc-reachable terminal,
+/// so the alloc-aware per-path net is unambiguously `+1` (alloc + fresh-inc −
+/// one-dec). The `@insert` / `@len` unwind edges go to bb3, an alloc-UNREACHABLE
+/// `Resume` pad (reached only on the pre-alloc bb0 unwind), so it carries no `%1`
+/// net and is excluded by the alloc-reachable filter. Spec: Annex E §AIMS RL-1.
+fn invoke_insert_result_func(interner: &ori_ir::StringInterner) -> ArcFunction {
+    let insert_name = interner.intern("insert");
+    let len_name = interner.intern("len");
+    // %0 source set, %1 insert result (fresh self-alloc), %2 len-alias,
+    // %3 scalar len, %4 inserted key (borrow arg).
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0 source set
+        ValueRepr::RcPointer, // %1 insert result (fresh self-alloc)
+        ValueRepr::RcPointer, // %2 %1 alias for @len
+        ValueRepr::Scalar,    // %3 len result
+        ValueRepr::Scalar,    // %4 inserted key (borrow arg)
+    ];
+    let var_types: Vec<Idx> = (0..var_reprs.len()).map(|_| Idx::from_raw(0)).collect();
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            // bb0: `Invoke @insert(%0 [own], %4 [borrow])` -> fresh result %1.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::BurdenInc { var: v(0) }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::from_raw(0),
+                    func: insert_name,
+                    args: vec![v(0), v(4)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    // Pre-alloc unwind pad (bb3): %1 not yet allocated here.
+                    unwind: ArcBlockId::new(3),
+                },
+            },
+            // bb1: fresh-site inc on the result, borrow-read (@len), result dies.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::BurdenInc { var: v(1) },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::from_raw(0),
+                        value: ArcValue::Var(v(1)),
+                    },
+                    ArcInstr::BurdenDec { var: v(1) },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: Idx::from_raw(0),
+                    func: len_name,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(2),
+                    // The `@len` unwind takes the freeing `BurdenDec %1` already
+                    // emitted in bb1's body (it precedes the terminator), so the
+                    // unwind pad bb4 sees `%1` released too — a balanced unwind
+                    // edge, not a leaked one.
+                    unwind: ArcBlockId::new(4),
+                },
+            },
+            // bb2: exit.
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            // bb3: bb0's pre-alloc unwind pad (alloc-UNREACHABLE; carries no %1).
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+            // bb4: bb1's post-dec unwind pad (alloc-reachable; %1 already released).
+            ArcBlock {
+                id: ArcBlockId::new(4),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+/// Semantic pin (a fresh-COW-result borrow-read-then-dead leak): a FRESH self-alloc
+/// produced on an `Invoke` TERMINATOR (`s.insert(..)` COW-result), borrow-read
+/// and dead, has alloc-aware net == 1 — its fresh-site inc is the surplus over
+/// balance. `fresh_collection_source_apply_dst` MUST recognize the `Invoke`-form
+/// fresh self-alloc (not only the `Apply`-instruction form) so the net-keyed
+/// elision removes that surplus inc; without it the result leaks (alloc(+1) +
+/// fresh-inc(+1) − one-dec(−1) = +1). Mirrors
+/// `narrowing::set_insert_with_narrowed_list_context`. Spec: Annex E §AIMS RL-1.
+#[test]
+fn elide_fresh_inc_for_invoke_terminator_self_alloc_result() {
+    let interner = ori_ir::StringInterner::new();
+    let func = invoke_insert_result_func(&interner);
+    let reps = identity_reps(5);
+    let net =
+        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
+    assert_eq!(
+        net.get(&v(1)).copied(),
+        Some(1),
+        "Invoke-terminator fresh result lineage nets +1 (surplus fresh-site inc) \
+         once the result is recognized as a fresh self-alloc"
+    );
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+    );
+    assert!(
+        elidable.contains(&v(1)),
+        "the surplus fresh inc of a borrow-read-only Invoke-terminator self-alloc \
+         result is elidable (eliding restores the alloc-aware balance to 0)"
+    );
+}
+
+/// Negative pin (Invoke-path over-fire clamp): an `Invoke`-terminator fresh
+/// self-alloc result whose value is then OWNED-CONSUMED by a downstream COW
+/// mutator (a value-mutation builtin at an owned position) KEEPS its fresh inc —
+/// the cow-mutated classifier flags it and the elision defers it (RL-1: the inc
+/// is load-bearing for the COW copy-vs-mutate read). Eliding would corrupt the
+/// shared buffer. Clamps the `Invoke`-recognition extension to the
+/// borrow-read-only shape. Spec: Annex E §AIMS RL-1.
+#[test]
+fn keep_fresh_inc_for_invoke_terminator_result_owned_consumed() {
+    let interner = ori_ir::StringInterner::new();
+    let insert_name = interner.intern("insert");
+    // bb0: `Invoke @insert(%0 [own])` -> fresh result %1.
+    // bb1: burden_inc %1 ; `Invoke @insert(%1 [own])` -> %2 (owned-consume of %1).
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0 source
+        ValueRepr::RcPointer, // %1 first insert result (fresh self-alloc)
+        ValueRepr::RcPointer, // %2 second insert result
+        ValueRepr::Scalar,    // %3 key
+    ];
+    let var_types: Vec<Idx> = (0..var_reprs.len()).map(|_| Idx::from_raw(0)).collect();
+    let func = ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::BurdenInc { var: v(0) }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::from_raw(0),
+                    func: insert_name,
+                    args: vec![v(0), v(3)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::BurdenInc { var: v(1) }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: Idx::from_raw(0),
+                    func: insert_name,
+                    args: vec![v(1), v(3)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    };
+    let reps = identity_reps(4);
+    let elidable = compute_elidable_fresh_self_alloc_incs(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+    );
+    assert!(
+        !elidable.contains(&v(1)),
+        "Invoke-terminator fresh result that is owned-consumed downstream (COW) \
+         keeps its load-bearing fresh inc"
     );
 }
 
@@ -3048,6 +3274,136 @@ fn source_inc_count(func: &ArcFunction, src: ArcVarId) -> usize {
         .count()
 }
 
+/// Build a TWO-BLOCK inline-`@iter` multi-borrow func where the FIRST
+/// `@iter(%2 [own])` in bb0 is FOLLOWED by burden ops on the source `%0`
+/// (`BurdenInc; BurdenDec; BurdenDec` — the Phase-5 fresh-inc + multi-use move
+/// decs), and the source threads to bb1 (`Jump bb1(%0)` → param `%4`) where the
+/// SECOND `@iter(%5 [own])` lives. The source lineage rep unifies `%0/%2/%4/%5`
+/// via Let + Jump-arg threading. Mirrors the real `for s in items do ..; for s in
+/// items do ..` shape: the first-use index points PAST the bb0 body once the
+/// burden-op `retain` strips the trailing source ops, so a stale-index
+/// keep-alive resolution silently emits nothing (the index-invalidation bug).
+fn inline_iter_two_block_trailing_burden_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::INT);
+    let iter_name = interner.intern("iter");
+    // %0 source [int]-list, %1/%3 iter handles (scalar), %2 bb0 Let alias,
+    // %4 bb1 threaded param, %5 bb1 Let alias.
+    let var_types = vec![list_ty, Idx::INT, list_ty, Idx::INT, list_ty, list_ty];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+    ];
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Construct {
+                dst: v(0),
+                ty: list_ty,
+                ctor: CtorKind::ListLiteral,
+                args: Vec::new(),
+            },
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: list_ty,
+                value: ArcValue::Var(v(0)),
+            },
+            // First iter-consume (recorded at this index against the un-mutated body).
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::INT,
+                func: iter_name,
+                args: vec![v(2)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+            // Trailing source burden ops the `retain` strips → shift the recorded
+            // first-use index PAST the (post-retain) bb0 body.
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::BurdenDec { var: v(0) },
+            ArcInstr::BurdenDec { var: v(0) },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v(0)],
+        },
+    };
+    let bb1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(v(4), list_ty)],
+        body: vec![
+            ArcInstr::Let {
+                dst: v(5),
+                ty: list_ty,
+                value: ArcValue::Var(v(4)),
+            },
+            // Second iter-consume on the threaded source.
+            ArcInstr::Apply {
+                dst: v(3),
+                ty: Idx::INT,
+                func: iter_name,
+                args: vec![v(5)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v(3) },
+    };
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![bb0, bb1],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn multi_borrow_iter_consume_keep_alive_survives_index_shift_from_burden_strip() {
+    // Regression pin (index-invalidation): the first iter-consume use is recorded
+    // at a bb0 index that points PAST the body once the burden-op `retain` strips
+    // the trailing source `BurdenInc`/`BurdenDec` ops. A stale-index keep-alive
+    // resolution returns None at that out-of-bounds index → emits ZERO keep-alive
+    // → the source buffer (rc=1) is freed by BOTH iter-drops = double-free. The
+    // keep-alive arg MUST be resolved pre-retain and re-located post-retain so
+    // exactly (N-1)=1 keep-alive inc survives on the source lineage.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let mut func = inline_iter_two_block_trailing_burden_func(&mut pool, &interner);
+    let contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
+
+    assert_eq!(
+        source_dec_count(&func, v(0)),
+        2,
+        "precondition: two spurious source decs present in bb0"
+    );
+    suppress_multi_borrow_iter_consume_source_decs(&mut func, &pool, &interner, &contracts);
+    assert_eq!(
+        source_dec_count(&func, v(0)),
+        0,
+        "all normal-path source decs removed (the for-loop iter-drops free the buffer)"
+    );
+    // (N-1)=1 keep-alive inc must SURVIVE — the index-shift must not drop it.
+    // The lineage's incs live on its SSA-alias members (%0/%2/%4/%5).
+    let total_inc: usize = [v(0), v(2), v(4), v(5)]
+        .iter()
+        .map(|&m| source_inc_count(&func, m))
+        .sum();
+    assert_eq!(
+        total_inc, 1,
+        "exactly one keep-alive inc (N-1) survives the burden-strip index shift; got {total_inc}",
+    );
+}
+
 #[test]
 fn multi_borrow_iter_consume_suppresses_source_dec_keeps_keep_alive_inc() {
     // Two iter-consuming `[own]` calls on the same source: the spurious
@@ -3182,6 +3538,200 @@ fn multi_borrow_inline_iter_own_skips_single_loop() {
     );
 }
 
+#[test]
+fn single_borrowed_invoke_iter_consume_dead_source_strips_all_burden_ops() {
+    // Positive pin (Phase 6.66c): an owned FRESH collection (`%0 = Construct`)
+    // passed at a BORROWED arg to a USER callee whose `iter_consumes` is true, then
+    // DEAD (Returns the scalar result `%1`), gets a spurious FRESH `BurdenInc` +
+    // misplaced scope-exit `BurdenDec` from the Phase-5 walk. The callee's
+    // `ori_iter_drop` is the single release (RL2_iter_consuming_no_caller_dec), so
+    // ALL caller burden ops on the source lineage must be stripped.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (mut func, cons) = multi_borrow_iter_consume_func(&mut pool, &interner, 1);
+    let mut contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
+    contracts.insert(cons, iter_consume_contract(true));
+
+    assert_eq!(
+        source_inc_count(&func, v(0)),
+        1,
+        "precondition: one spurious FRESH inc on the source"
+    );
+    assert_eq!(
+        source_dec_count(&func, v(0)),
+        1,
+        "precondition: one spurious source dec"
+    );
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    suppress_single_borrowed_invoke_iter_consume_source(
+        &mut func,
+        &pool,
+        &interner,
+        &contracts,
+        &same_alloc_reps,
+    );
+    assert_eq!(
+        source_inc_count(&func, v(0)),
+        0,
+        "the spurious FRESH inc must be stripped (callee iter-drop is the single release)"
+    );
+    assert_eq!(
+        source_dec_count(&func, v(0)),
+        0,
+        "the spurious source dec must be stripped"
+    );
+}
+
+#[test]
+fn single_borrowed_invoke_iter_consume_declines_two_consume_source() {
+    // Negative pin (the N >= 2 upper boundary): a source with TWO user-callee
+    // iter-consume uses is the multi-borrow case (Phase 6.66's domain). Phase 6.66c
+    // must DECLINE — stripping the FRESH inc here would leave the source freed by
+    // both callee iter-drops with no keep-alive = double-free. The `uses.len() != 1`
+    // gate is the boundary.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (mut func, cons) = multi_borrow_iter_consume_func(&mut pool, &interner, 2);
+    let mut contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
+    contracts.insert(cons, iter_consume_contract(true));
+
+    // Confirm the discriminator sees TWO user-callee iter-consume uses.
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
+    assert_eq!(
+        user_callee_iter_consume_uses_of_rep(&func, &contracts, v(0), &rep_of).len(),
+        2,
+        "precondition: two user-callee iter-consume uses (multi-borrow)"
+    );
+    let inc_before = source_inc_count(&func, v(0));
+    let dec_before = source_dec_count(&func, v(0));
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    suppress_single_borrowed_invoke_iter_consume_source(
+        &mut func,
+        &pool,
+        &interner,
+        &contracts,
+        &same_alloc_reps,
+    );
+    assert_eq!(
+        source_inc_count(&func, v(0)),
+        inc_before,
+        "two-consume source must be untouched (N >= 2 is Phase 6.66's multi-borrow domain)"
+    );
+    assert_eq!(
+        source_dec_count(&func, v(0)),
+        dec_before,
+        "two-consume source decs untouched"
+    );
+}
+
+#[test]
+fn single_borrowed_invoke_iter_consume_declines_genuinely_read_source() {
+    // Negative pin (the over-fire boundary `lineage_genuinely_read_outside_call`):
+    // a source iter-consumed once by a user callee BUT genuinely re-consumed by a
+    // downstream inline `@iter(%alias [own])` (`for w in words` after the call) is
+    // a 2-consume shape whose second consume is reached through a `Let { Var }`
+    // alias the jump-rep map does not connect. Stripping the keep-alive here =
+    // double-free. The Let-Var lineage closure MUST detect the second consume so
+    // the pass DECLINES.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let iter_name = interner.intern("iter");
+    let cons = interner.intern("user_iter_cons_zzz");
+    let list_ty = pool.list(Idx::INT);
+    // %5 is the (scalar) element of the NON-empty source Construct — an empty-literal
+    // Construct is excluded from `compute_fresh_owned_collection_reps` (no backing
+    // buffer), which would make the pass skip the source for the wrong reason and
+    // render this negative pin vacuous.
+    let var_types = vec![list_ty, Idx::INT, list_ty, list_ty, Idx::INT, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0 source Construct (non-empty)
+        ValueRepr::Scalar,    // %1 user-callee result
+        ValueRepr::RcPointer, // %2 Let-Var alias for the user-callee borrowed arg
+        ValueRepr::RcPointer, // %3 Let-Var alias for the second inline @iter
+        ValueRepr::Scalar,    // %4 second @iter handle
+        ValueRepr::Scalar,    // %5 source element
+    ];
+    let func = ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(0),
+                    ty: list_ty,
+                    ctor: CtorKind::ListLiteral,
+                    args: vec![v(5)],
+                },
+                ArcInstr::BurdenInc { var: v(0) },
+                // user-callee iter-consume at a borrowed arg (the recorded use).
+                ArcInstr::Let {
+                    dst: v(2),
+                    ty: list_ty,
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: cons,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::BurdenDec { var: v(0) },
+                // SECOND consume: inline `@iter(%3 [own])` reached via a Let-Var
+                // alias `%3 = %0` — a genuine downstream read of the source.
+                ArcInstr::Let {
+                    dst: v(3),
+                    ty: list_ty,
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Apply {
+                    dst: v(4),
+                    ty: Idx::INT,
+                    func: iter_name,
+                    args: vec![v(3)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    };
+    let mut contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
+    contracts.insert(cons, iter_consume_contract(true));
+
+    // The genuine-read check MUST see the second inline `@iter` consume (reached via
+    // the `%3 = Var(%0)` Let-Var alias) so the pass declines.
+    let jt_reps = compute_jump_threaded_reps(&func, None);
+    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
+    assert!(
+        lineage_genuinely_read_outside_call(&func, v(0), &rep_of, 0, Some(3)),
+        "the second inline @iter consume (via Let-Var alias) is a genuine read"
+    );
+
+    let mut func = func;
+    let inc_before = source_inc_count(&func, v(0));
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    suppress_single_borrowed_invoke_iter_consume_source(
+        &mut func,
+        &pool,
+        &interner,
+        &contracts,
+        &same_alloc_reps,
+    );
+    assert_eq!(
+        source_inc_count(&func, v(0)),
+        inc_before,
+        "genuinely-read source must be untouched (the second @iter consume keeps the keep-alive)"
+    );
+}
+
 /// Build a nested-loop func: `%0 [[int]]` source, outer `@iter(%0 [own])`,
 /// `%2 = @__iter_next(%1, %m)`, `%3 = Project %2.1` (inner `[int]` view),
 /// `%4 = %3` (Let alias), inner `@iter(%4 [own])`. The inner element view %3/%4
@@ -3306,6 +3856,231 @@ fn nested_iter_element_view_consumed_by_inner_iter_gets_keepalive_inc() {
         "the top-level owned source (not an element view) MUST NOT get a \
          keep-alive inc; body={:?}",
         func.blocks[0].body,
+    );
+}
+
+/// Build the element-escape shape `@collect(words: [str] [borrow]) -> [str]`:
+/// `for w in words do { result = result.push(value: w) }; result`. Var layout —
+/// %0 borrowed `[str]` param, %1 result `[str]` (`Construct List()`), %2 iterator
+/// handle, %3 elem-marker phantom, %4 `__iter_next` result, %5 element view
+/// (`Project %4.1`, the iter-element borrow-view of `words`), %6 push result.
+/// bb0 builds the result + iterates; bb1 is the loop header projecting the element
+/// and PUSHING it `[own]` into the result at the terminator (`Invoke @push(result
+/// [own], view [own])`); bb2 is the loop body re-binding the push result;
+/// `returned` controls whether bb3 RETURNS the result (the element-escape case) or
+/// iterates it IN-SCOPE then returns a scalar (the benign over-fire-boundary case).
+fn iter_element_pushed_collection_func(
+    pool: &mut ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+    returned: bool,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::STR);
+    let iter_name = interner.intern("iter");
+    let iter_next = interner.intern("__iter_next");
+    let push_name = interner.intern("push");
+    let iter_drop = interner.intern("ori_iter_drop");
+
+    // %0 borrowed param, %1 result list, %2 iter handle, %3 phantom, %4 next
+    // result, %5 element view, %6 push result.
+    let var_types = vec![
+        list_ty,
+        list_ty,
+        Idx::INT,
+        Idx::STR,
+        Idx::INT,
+        Idx::STR,
+        list_ty,
+    ];
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0 words
+        ValueRepr::RcPointer, // %1 result
+        ValueRepr::Scalar,    // %2 iter handle
+        ValueRepr::FatValue,  // %3 phantom marker
+        ValueRepr::Scalar,    // %4 next result
+        ValueRepr::FatValue,  // %5 element view (str)
+        ValueRepr::RcPointer, // %6 push result
+    ];
+
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: list_ty,
+                ctor: CtorKind::ListLiteral,
+                args: Vec::new(),
+            },
+            // @iter(%0 [own]) — iterate the BORROWED source param.
+            ArcInstr::Apply {
+                dst: v(2),
+                ty: Idx::INT,
+                func: iter_name,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v(1)],
+        },
+    };
+    // bb1 loop header: project the element view; push it [own] into the result at
+    // the terminator Invoke (re-binds the result lineage to %6, normal -> bb2).
+    let bb1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(v(1), list_ty)],
+        body: vec![
+            ArcInstr::Apply {
+                dst: v(4),
+                ty: Idx::INT,
+                func: iter_next,
+                args: vec![v(2), v(3)],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+            // %5 = Project %4.1 — the iter-element borrow-view of `words`.
+            ArcInstr::Project {
+                dst: v(5),
+                ty: Idx::STR,
+                value: v(4),
+                field: 1,
+            },
+        ],
+        terminator: ArcTerminator::Invoke {
+            dst: v(6),
+            ty: list_ty,
+            func: push_name,
+            args: vec![v(1), v(5)],
+            arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+            mono_instance_id: None,
+            normal: ArcBlockId::new(2),
+            unwind: ArcBlockId::new(4),
+        },
+    };
+    // bb2 loop body: re-bind and jump back to the loop header.
+    let bb2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v(6)],
+        },
+    };
+    // bb3 loop exit: RETURN the result (element-escape) OR iterate it in-scope
+    // (`@iter(result [own])`) then return a scalar (benign over-fire boundary).
+    let bb3 = if returned {
+        ArcBlock {
+            id: ArcBlockId::new(3),
+            params: Vec::new(),
+            body: vec![ArcInstr::Apply {
+                dst: v(4),
+                ty: Idx::INT,
+                func: iter_drop,
+                args: vec![v(2)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }
+    } else {
+        ArcBlock {
+            id: ArcBlockId::new(3),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Apply {
+                    dst: v(4),
+                    ty: Idx::INT,
+                    func: iter_drop,
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                // @iter(result [own]) — in-scope iterate; the result NEVER escapes.
+                ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    func: iter_name,
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(4) },
+        }
+    };
+    let bb4 = ArcBlock {
+        id: ArcBlockId::new(4),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Resume,
+    };
+
+    ArcFunction {
+        var_types,
+        var_reprs,
+        params: vec![ArcParam {
+            var: v(0),
+            ty: list_ty,
+            ownership: Ownership::Borrowed,
+        }],
+        blocks: vec![bb0, bb1, bb2, bb3, bb4],
+        entry: ArcBlockId::new(0),
+        name: ori_ir::Name::from_raw(0),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn iter_element_pushed_into_returned_collection_gets_keepalive_inc() {
+    // POSITIVE: a borrowed iter-element view (`Project %4.1` of `words`) pushed
+    // `[own]` into a `result` collection that is RETURNED. Phase 6.68b emits exactly
+    // ONE keep-alive `BurdenInc` on the element view (RL-1 duplication) so the
+    // source's in-callee `ori_iter_drop` and the caller's `elem_dec_fn` over the
+    // returned `result` each release once instead of double-freeing the rc-1 backing.
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let mut func =
+        iter_element_pushed_collection_func(&mut pool, &interner, /*returned=*/ true);
+    emit_iter_element_pushed_into_returned_collection_keepalive_inc(&mut func, &interner, &pool);
+    let elem_inc = source_inc_count(&func, v(5));
+    assert_eq!(
+        elem_inc, 1,
+        "a borrowed iter-element view pushed into a RETURNED collection MUST get \
+         exactly one keep-alive inc; got {elem_inc}; blocks={:?}",
+        func.blocks,
+    );
+    // The receiver result-list lineage MUST NOT itself get the element keep-alive.
+    assert_eq!(
+        source_inc_count(&func, v(1)),
+        0,
+        "the receiver collection lineage MUST NOT get the element keep-alive inc; \
+         blocks={:?}",
+        func.blocks,
+    );
+}
+
+#[test]
+fn iter_element_pushed_into_in_scope_collection_gets_no_keepalive() {
+    // NEGATIVE over-fire boundary: the SAME borrowed iter-element push, but the
+    // `result` collection is iterated IN-SCOPE (`@iter(result [own])`) and NEVER
+    // returned. The source iter-drop and the in-scope `result` drop are sequenced
+    // within one function, so the base accounting already balances them — a
+    // keep-alive here orphans a +1 -> leak. Phase 6.68b MUST decline (the
+    // `collection_receiver_returned` gate is false).
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let mut func =
+        iter_element_pushed_collection_func(&mut pool, &interner, /*returned=*/ false);
+    emit_iter_element_pushed_into_returned_collection_keepalive_inc(&mut func, &interner, &pool);
+    assert_eq!(
+        source_inc_count(&func, v(5)),
+        0,
+        "a borrowed iter-element view pushed into an IN-SCOPE (non-returned) \
+         collection MUST NOT get a keep-alive inc; blocks={:?}",
+        func.blocks,
     );
 }
 
@@ -4133,5 +4908,367 @@ fn borrowed_terminator_aggregate_skips_owned_transfer() {
     assert!(
         relocations.is_empty(),
         "an owned-position aggregate transfer gets NO relocation; got {relocations:?}",
+    );
+}
+
+/// Build a borrowed-`[str]`-param function whose single block iter-consumes the
+/// param (`@iter(%0 [own])` -> `@ori_iter_drop`) and OPTIONALLY reuses it at a
+/// non-iter `@__index(%0 [borrow])` position afterward (`with_reuse`). Mirrors the
+/// `borrowed_param_iterate_then_index` AOT fixture's `@process` shape.
+fn borrowed_iter_then_index_func(
+    pool: &mut Pool,
+    interner: &ori_ir::StringInterner,
+    with_reuse: bool,
+) -> ArcFunction {
+    let list_ty = pool.list(Idx::STR);
+    let iter_name = interner.intern("iter");
+    let iter_drop_name = interner.intern("ori_iter_drop");
+    let index_name = interner.intern("__index");
+    // %0 borrowed [str] param, %1 iter-handle (scalar), %2 iter-drop result
+    // (scalar), %3 index-key (scalar), %4 index result (str fat-val).
+    let var_types = vec![list_ty, Idx::INT, Idx::INT, Idx::INT, Idx::STR];
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0
+        ValueRepr::Scalar,    // %1
+        ValueRepr::Scalar,    // %2
+        ValueRepr::Scalar,    // %3
+        ValueRepr::FatValue,  // %4
+    ];
+    let mut body = vec![
+        ArcInstr::Apply {
+            dst: v(1),
+            ty: Idx::INT,
+            func: iter_name,
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
+        },
+        ArcInstr::Apply {
+            dst: v(2),
+            ty: Idx::INT,
+            func: iter_drop_name,
+            args: vec![v(1)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
+        },
+    ];
+    if with_reuse {
+        // Reuse %0 at a NON-iter borrowed position after the iter-drop.
+        body.push(ArcInstr::Apply {
+            dst: v(4),
+            ty: Idx::STR,
+            func: index_name,
+            args: vec![v(0), v(3)],
+            arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+            mono_instance_id: None,
+        });
+    }
+    ArcFunction {
+        var_types,
+        var_reprs,
+        params: vec![ArcParam {
+            var: v(0),
+            ty: list_ty,
+            ownership: Ownership::Borrowed,
+        }],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// Count `(BurdenInc, BurdenDec)` ops targeting `var` in `func`.
+fn burden_inc_dec_for(func: &ArcFunction, var: ArcVarId) -> (usize, usize) {
+    let mut inc = 0;
+    let mut dec = 0;
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var: w } if *w == var => inc += 1,
+                ArcInstr::BurdenDec { var: w } if *w == var => dec += 1,
+                _ => {}
+            }
+        }
+    }
+    (inc, dec)
+}
+
+#[test]
+fn single_iter_consume_then_reuse_gets_keepalive_inc_and_paired_dec() {
+    // Semantic pin: a borrowed [str] param iter-consumed ONCE then reused at a
+    // non-iter `@__index` gets a keep-alive `BurdenInc(%0)` before the `@iter`
+    // (so `ori_iter_drop` decs the keep-alive copy, not the live borrow the reuse
+    // needs) + a paired `BurdenDec(%0)` after the reuse — `RL1_duplication_balanced`.
+    let mut pool = Pool::default();
+    let interner = ori_ir::StringInterner::new();
+    let mut func = borrowed_iter_then_index_func(&mut pool, &interner, /* with_reuse */ true);
+    let contracts = FxHashMap::default();
+
+    let (inc_before, dec_before) = burden_inc_dec_for(&func, v(0));
+    assert_eq!(
+        (inc_before, dec_before),
+        (0, 0),
+        "no burden ops on the borrowed param before the keep-alive pass"
+    );
+
+    emit_single_iter_consume_reuse_keepalive(&mut func, &pool, &interner, &contracts);
+
+    let (inc_after, dec_after) = burden_inc_dec_for(&func, v(0));
+    assert_eq!(
+        inc_after, 1,
+        "exactly one keep-alive BurdenInc on the reused param"
+    );
+    assert_eq!(
+        dec_after, 1,
+        "exactly one paired BurdenDec on the reused param"
+    );
+
+    // Placement pin: the keep-alive inc precedes the `@iter`, the paired dec
+    // follows the lineage's last non-iter use (the `@__index` reuse).
+    let body = &func.blocks[0].body;
+    let inc_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == v(0)));
+    let iter_pos = body.iter().position(
+        |i| matches!(i, ArcInstr::Apply { func: f, .. } if *f == interner.intern("iter")),
+    );
+    let dec_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == v(0)));
+    let index_pos = body.iter().position(
+        |i| matches!(i, ArcInstr::Apply { func: f, .. } if *f == interner.intern("__index")),
+    );
+    assert!(
+        inc_pos < iter_pos,
+        "keep-alive BurdenInc precedes the @iter (inc={inc_pos:?}, iter={iter_pos:?})"
+    );
+    assert!(
+        dec_pos > index_pos,
+        "paired BurdenDec follows the @__index reuse (dec={dec_pos:?}, index={index_pos:?})"
+    );
+
+    // burden_emitted marks %0 so VF-1's per-var balance check sees the pair.
+    assert!(
+        func.burden_emitted
+            .get(v(0).index())
+            .copied()
+            .unwrap_or(false),
+        "the reused param is marked in burden_emitted for VF-1"
+    );
+}
+
+#[test]
+fn single_iter_consume_without_reuse_gets_no_keepalive() {
+    // Negative / over-fire pin: a borrowed [str] param iter-consumed ONCE and NOT
+    // reused after (the no-reuse canary shape, `borrowed_str_list_single_call`)
+    // gets NO keep-alive — `lineage_live_out_after_use` is false, so the pass
+    // declines. Adding a keep-alive here would unbalance the no-reuse case.
+    let mut pool = Pool::default();
+    let interner = ori_ir::StringInterner::new();
+    let mut func = borrowed_iter_then_index_func(&mut pool, &interner, /* with_reuse */ false);
+    let contracts = FxHashMap::default();
+
+    emit_single_iter_consume_reuse_keepalive(&mut func, &pool, &interner, &contracts);
+
+    let (inc_after, dec_after) = burden_inc_dec_for(&func, v(0));
+    assert_eq!(
+        (inc_after, dec_after),
+        (0, 0),
+        "no keep-alive on a single-iter-consume param with no reuse (over-fire guard)"
+    );
+}
+
+// === Phase 6.68c — N>=2 callee-returned scalar-list cross-call surplus-inc strip ===
+
+/// Build a `@main`-shaped function mirroring the `for w in words yield w` two-call
+/// returned-`[int]` leak. `n_acquires` user-callee `[int]`-returning `Invoke`s;
+/// the FIRST result (`%0`) is live across the second call + iter-consumed. The
+/// spurious cross-call `BurdenInc %0` lands in the block carrying the second call.
+///
+/// Block layout (the leaking shape, minus the post-iter loop which is irrelevant
+/// to the explicit-op net since the lineage rep does not span the phi):
+///   bb0:  %0 = Invoke @clone_list(%2 [borrow]) normal bb1
+///   bb1:  burden_inc %0          // SPURIOUS cross-call inc (the surplus)
+///         %1 = Invoke @clone_list(%2 [borrow]) normal bb2
+///   bb2:  burden_inc %0          // genuine keep-alive before the @iter consume
+///         %9 = @iter(%0 [own])   // iter-consume -> the acquired ref's release
+///         burden_dec %0          // paired release of the keep-alive
+///         Return %0
+/// `%2` is the borrowed source (params), `elem_ty` = `int` (scalar).
+fn returned_int_list_two_call_func(
+    pool: &mut Pool,
+    interner: &ori_ir::StringInterner,
+    elem: Idx,
+    callee_name: &str,
+) -> ArcFunction {
+    let list_ty = pool.list(elem);
+    let callee = interner.intern(callee_name);
+    let iter_name = interner.intern("iter");
+    // vars: %0 first result, %1 second result, %2 source (all `[elem]` RcPtr), %3
+    // iter handle (scalar). Sized to cover every referenced index.
+    let var_types = vec![list_ty, list_ty, list_ty, Idx::INT];
+    let var_reprs = vec![
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::RcPointer,
+        ValueRepr::Scalar,
+    ];
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Invoke {
+            dst: v(0),
+            ty: list_ty,
+            func: callee,
+            args: vec![v(2)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(3),
+        },
+    };
+    let bb1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: Vec::new(),
+        body: vec![ArcInstr::BurdenInc { var: v(0) }],
+        terminator: ArcTerminator::Invoke {
+            dst: v(1),
+            ty: list_ty,
+            func: callee,
+            args: vec![v(2)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
+            normal: ArcBlockId::new(2),
+            unwind: ArcBlockId::new(3),
+        },
+    };
+    let bb2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::Apply {
+                dst: v(3),
+                ty: Idx::INT,
+                func: iter_name,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+            ArcInstr::BurdenDec { var: v(0) },
+        ],
+        terminator: ArcTerminator::Return { value: v(0) },
+    };
+    let bb3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Resume,
+    };
+    ArcFunction {
+        var_types,
+        var_reprs,
+        blocks: vec![bb0, bb1, bb2, bb3],
+        ..Default::default()
+    }
+}
+
+/// Positive pin: the spurious cross-call `BurdenInc %0` (in bb1, the block
+/// carrying the SECOND acquire where `%0` is not an argument) is the ONE surplus
+/// inc selected for stripping. The genuine keep-alive inc (bb2, before the
+/// `@iter` consume) is NOT selected.
+#[test]
+fn strip_surplus_cross_call_inc_for_returned_int_list_two_calls() {
+    let mut pool = Pool::default();
+    let interner = ori_ir::StringInterner::new();
+    let func = returned_int_list_two_call_func(&mut pool, &interner, Idx::INT, "clone_list");
+    let reps = identity_reps(4);
+    let strips = compute_returned_collection_surplus_inc_strips(&func, &pool, &interner, &reps);
+    // Exactly the bb1 inc (block 1, instr 0) — the cross-call surplus.
+    assert_eq!(
+        strips,
+        vec![(1usize, 0usize)],
+        "the spurious cross-call inc (bb1) is the sole surplus; the bb2 keep-alive is kept"
+    );
+}
+
+/// Negative over-fire pin: a `[str]` (heap-element) returned-list two-call shape
+/// MUST NOT be stripped — the buffer dec walks `elem_dec_fn` over shared source
+/// element strings, so removing the buffer keep-alive inc double-frees them. The
+/// scalar-element gate (`ArcClass::Scalar`) declines `str`.
+#[test]
+fn no_strip_for_returned_str_list_two_calls_heap_elements() {
+    let mut pool = Pool::default();
+    let interner = ori_ir::StringInterner::new();
+    let func = returned_int_list_two_call_func(&mut pool, &interner, Idx::STR, "clone_list");
+    let reps = identity_reps(4);
+    let strips = compute_returned_collection_surplus_inc_strips(&func, &pool, &interner, &reps);
+    assert!(
+        strips.is_empty(),
+        "heap-element ([str]) returned list declines the strip (scalar-element gate)"
+    );
+}
+
+/// Negative over-fire pin: a known BUILTIN-callee return (`@map`/`@filter` — here
+/// the protocol-builtin-shaped `__map`) is NOT a user-callee acquire; its result
+/// is a compiler-modelled self-alloc the base path balances. MUST NOT be stripped.
+#[test]
+fn no_strip_for_builtin_callee_returned_list() {
+    let mut pool = Pool::default();
+    let interner = ori_ir::StringInterner::new();
+    // `__`-prefixed callee = protocol builtin -> not a user-callee acquire.
+    let func = returned_int_list_two_call_func(&mut pool, &interner, Idx::INT, "__map");
+    let reps = identity_reps(4);
+    let strips = compute_returned_collection_surplus_inc_strips(&func, &pool, &interner, &reps);
+    assert!(
+        strips.is_empty(),
+        "a builtin-callee return is not a user-callee acquire (over-fire guard)"
+    );
+}
+
+/// MUTATION-VERIFY of the scalar-element gate: the `[str]` negative pin
+/// ([`no_strip_for_returned_str_list_two_calls_heap_elements`]) is GUARDED by the
+/// scalar-element check. This pin proves the gate is load-bearing: the ONLY
+/// difference between the firing `[int]` shape and the declining `[str]` shape is
+/// the element type — same block layout, same surplus inc, same live-across +
+/// iter-consume + net-+1. If the scalar-element gate were removed (forced to treat
+/// `str` as scalar), the `[str]` shape WOULD select the same bb1 surplus inc that
+/// the `[int]` shape does, double-freeing the shared element strings at runtime.
+/// Asserting the `[int]` shape DOES select `(1, 0)` while the `[str]` shape selects
+/// NOTHING pins that the element-type discriminator is the firing boundary.
+#[test]
+fn scalar_element_gate_is_the_firing_boundary_int_vs_str() {
+    let interner = ori_ir::StringInterner::new();
+    let reps = identity_reps(4);
+
+    let mut pool_int = Pool::default();
+    let func_int =
+        returned_int_list_two_call_func(&mut pool_int, &interner, Idx::INT, "clone_list");
+    let strips_int =
+        compute_returned_collection_surplus_inc_strips(&func_int, &pool_int, &interner, &reps);
+
+    let mut pool_str = Pool::default();
+    let func_str =
+        returned_int_list_two_call_func(&mut pool_str, &interner, Idx::STR, "clone_list");
+    let strips_str =
+        compute_returned_collection_surplus_inc_strips(&func_str, &pool_str, &interner, &reps);
+
+    // Identical IR shape modulo element type: int fires the same surplus the str
+    // shape would, but the scalar-element gate makes str decline. Forcing the gate
+    // true (treating str as scalar) would make `strips_str == strips_int` ->
+    // double-free; this asymmetry pins the gate as load-bearing.
+    assert_eq!(strips_int, vec![(1usize, 0usize)], "int (scalar) fires");
+    assert!(
+        strips_str.is_empty(),
+        "str (heap) declines via the scalar gate"
+    );
+    assert_ne!(
+        strips_int, strips_str,
+        "the scalar-element gate is the firing boundary between [int] and [str]"
     );
 }

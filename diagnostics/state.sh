@@ -541,6 +541,21 @@ build_dispositions_block() {
 # ---- Subcommand: refresh -----------------------------------------------------
 cmd_refresh() {
     require_jq
+
+    # Single-flight: serialize concurrent refreshes so the jq-read -> write_state
+    # read-modify-write in each mode below cannot lost-update (one mode's write
+    # clobbering a sibling mode's just-written block). Every refresh funnels
+    # through this subcommand, so one lock serializes all writers. flock-unavailable
+    # degrades to per-write-atomic last-writer-wins (write_state's rename stays
+    # atomic); known-state.json is a self-healing cache, so a dropped block is
+    # rebuilt on the next refresh. Lock fd is held until process exit (one-shot
+    # subcommand), covering the whole read-modify-write.
+    mkdir -p "$STATE_DIR"
+    if command -v flock >/dev/null 2>&1; then
+        exec {STATE_LOCK_FD}>"$STATE_FILE.lock"
+        flock "$STATE_LOCK_FD"
+    fi
+
     local current_sha updated_at updated_by_val
     current_sha=$(current_head_sha)
     updated_at=$(iso_now)

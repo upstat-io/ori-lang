@@ -264,6 +264,72 @@ pub(super) fn compute_borrowed_projection_dsts(func: &ArcFunction) -> FxHashSet<
     project_dsts
 }
 
+/// `Apply @__index(coll [borrow], idx [borrow]) -> view` result dsts whose EVERY
+/// use is at a BORROWED (non-owned) position — a pure borrow-view of the indexed
+/// collection's element per `Spec: Annex E §AIMS Protocol Builtins` (`Index`
+/// produces a borrowed element view; both args Borrowed). The collection OWNS the
+/// element backing and releases it via its whole-collection `elem_dec_fn` drop, so
+/// the borrowed `@__index` view gets NO dec (`Spec: Annex E §AIMS RL-2`
+/// `RL2_release_exactly_once`: an owned element is released EXACTLY once — by the
+/// collection's drop, never additionally by a borrow-view of it). A `FatValue` /
+/// `RcPtr`-typed `@__index` result (e.g. `coll[i] : str`) enters
+/// `owned_vars_needing_rc` by TYPE alone; without this exclusion a borrowed
+/// index-read (`coll[i].len()`, two indices of one list) gets a spurious last-use
+/// `BurdenDec`, over-releasing the element the collection drop already frees
+/// (double-free, exit 134). Parallel to [`compute_borrowed_projection_dsts`] (the
+/// `Project` field-read shape) — `@__index` is the Apply-result analogue that a
+/// `Project`-only scan does not reach.
+///
+/// Over-fire gate (RL-15a escape boundary, identical to the projection scan):
+/// excluded ONLY when never used at an owned arg position (`instr_transfer_vars`
+/// honors `is_owned_position`) AND never returned — an `@__index` result moved at
+/// an owned position (`f(coll[i] [own])`) or returned IS an owned reference whose
+/// consumer / caller inherits the release, so it KEEPS its burden RC. An
+/// index-read whose result is consumed by an owned-position transfer is the move
+/// shape the gate must NOT strip.
+pub(super) fn compute_borrowed_index_result_dsts(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let index_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+    let mut index_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == index_name {
+                    index_dsts.insert(*dst);
+                }
+            }
+        }
+    }
+    if index_dsts.is_empty() {
+        return FxHashSet::default();
+    }
+    let mut transferred_or_escaped: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for v in instr_transfer_vars(instr, func) {
+                transferred_or_escaped.insert(v);
+            }
+        }
+        let term = &block.terminator;
+        for (pos, &v) in term.used_vars().iter().enumerate() {
+            if term.is_owned_position(pos) {
+                transferred_or_escaped.insert(v);
+            }
+        }
+        if let ArcTerminator::Return { value } = term {
+            transferred_or_escaped.insert(*value);
+        }
+    }
+    index_dsts.retain(|d| !transferred_or_escaped.contains(d));
+    index_dsts
+}
+
 /// Apply / Invoke result dsts whose callee transfers an owned argument THROUGH
 /// the return (the callee's `MemoryContract` has a param with
 /// `transfers_through_return == true`, i.e. `return_alias == Some(Direct)`).
