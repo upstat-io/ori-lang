@@ -14,7 +14,9 @@ use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::dimensions::AccessClass;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, ValueRepr};
+use crate::ir::{
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, PrimOp, ValueRepr,
+};
 use crate::ownership::Ownership;
 use ori_types::TypeRegistry;
 
@@ -541,6 +543,22 @@ fn dead_param_forwarder_rep(
     block_idx: usize,
     param_var: ArcVarId,
 ) -> Option<ArcVarId> {
+    let rep = dead_param_single_feeding_rep(func, uf, block_idx, param_var)?;
+    uf.is_forwarder_rep.contains(&rep).then_some(rep)
+}
+
+/// Resolve a DEAD block-param to the SINGLE union-find rep feeding its position
+/// across every `Jump` predecessor, or `None` when the feeding edges resolve to
+/// zero or more than one rep (a genuine phi over distinct allocations). This is
+/// the gate-free core: callers apply their own admission gate (forwarder-identity
+/// for [`dead_param_forwarder_rep`]; sum-aggregate-Construct for
+/// [`compute_construct_fed_dead_param_lineage`]).
+fn dead_param_single_feeding_rep(
+    func: &ArcFunction,
+    uf: &mut ForwarderUnionFind,
+    block_idx: usize,
+    param_var: ArcVarId,
+) -> Option<ArcVarId> {
     let pos = func.blocks[block_idx]
         .params
         .iter()
@@ -560,8 +578,187 @@ fn dead_param_forwarder_rep(
     if !any_feed || feeding_reps.len() != 1 {
         return None;
     }
-    let rep = *feeding_reps.iter().next()?;
-    uf.is_forwarder_rep.contains(&rep).then_some(rep)
+    feeding_reps.iter().next().copied()
+}
+
+/// Result of [`compute_construct_fed_dead_param_lineage`]: the dead-block-param
+/// releases (Part A) + the lineage vars to suppress (Part B).
+pub(super) struct ConstructFedDeadParamLineage {
+    /// `block_idx → [dead block-param var]` — one representative dead-param var
+    /// per `(block, rep)` needing exactly ONE RL-5 dead-at-entry `BurdenDec`.
+    pub releases: FxHashMap<usize, Vec<ArcVarId>>,
+    /// Every var in an admitted construct-fed dead-param lineage class. These
+    /// carry spurious keep-alive incs (FRESH-Construct + dup-alias) and a
+    /// misplaced release that must be suppressed (removed from
+    /// `owned_vars_needing_rc`) so the sole release is the dead-param dec.
+    pub suppressed_lineage_vars: FxHashSet<ArcVarId>,
+}
+
+/// RL-5 dead-at-entry release for a SUM-AGGREGATE-Construct-fed allocation
+/// reaching a merge/return block's DEAD block-params, PLUS the spurious-op
+/// suppression that the over-emitting lineage requires.
+///
+/// Shape (the `for x in Some(str) yield { break }` lineage): a sum-aggregate
+/// `Construct` (`%1 = Construct Variant(Option.0)(%0)`, an `Option<str>` owning
+/// the heap str `%0`) is threaded — possibly through `Let { Var }` aliases
+/// (`%3 = %1`) — as a `Jump` arg to a merge/return block's DEAD block-param
+/// (`Jump bb3(%1)` → `%7: str?`, `Cardinality = Absent`). The Jump-arg → Owned-
+/// param handoff (RL-4 exemption) defers `%1`'s release to the dead successor
+/// param `%7`, which the Phase-5 walk never released → the str backing leaks
+/// (`RL5_cleanup_balanced` violated).
+///
+/// Distinct from [`compute_dead_forwarder_block_param_releases`] in TWO ways:
+///   1. The feeding allocation is a `Construct` (not an Invoke/Apply forwarder
+///      identity), so the rep is gated by `is_sum_aggregate_construct_rep`, NOT
+///      `is_forwarder_rep`.
+///   2. The lineage OVER-emits — the Construct gets a FRESH-site `BurdenInc`
+///      (TF-3) AND its Let-Var alias gets a dup-alias `BurdenInc` (the
+///      `use_counts >= 2` cardinality proxy mis-classes the same-alloc alias
+///      `%3 = %1` as a duplication: `%1` is "live" only because it ALSO feeds the
+///      `Jump bb3(%1)` handoff), plus a misplaced alias `BurdenDec` in the Some
+///      arm. RL-2 (`RL2_release_exactly_once`) requires ONE allocation released
+///      EXACTLY once with ZERO keep-alive incs; the lineage's two incs + one
+///      misplaced dec net +1 (leak). The cure removes the whole lineage from
+///      `owned_vars_needing_rc` (suppressing both incs + the misplaced dec) and
+///      supplies the sole release at the dead param `%7`.
+///
+/// Gates (the over-fire boundary — a double-free is FAR worse than the leak):
+///   (a) FRESH heap allocation: the rep's allocation root is a sum-aggregate
+///       `Construct` (`is_sum_aggregate_construct_rep`). A non-Construct lineage
+///       (forwarder, plain param) is NOT admitted here.
+///   (b) Heap element: the Construct dst is in `owned_vars_needing_rc` (the
+///       burden machinery proved the sum payload carries RC). An `int?`
+///       (`[Scalar]` repr) Construct is absent from `owned_vars_needing_rc` → not
+///       admitted (the int variant's burden ops are codegen no-ops anyway, but
+///       gating here keeps the suppression scoped to genuine heap lineages).
+///   (c) Dead merge/return param: the param is `Cardinality = Absent` (used
+///       nowhere) and every feeding `Jump` edge resolves to the ONE rep
+///       (`dead_param_single_feeding_rep`).
+///   (d) No alternate release: the rep has no member used at a NON-forwarder
+///       owned transfer position (`compute_alt_consumer_reps`). When an arm
+///       consumed the lineage at an owned call/Construct/Set the per-var path
+///       owns that release and the dead-param dec would double it.
+///
+/// SAFE for the both-paths-fail shape (verified `ORI_DISABLE_BURDEN_OPS=1`
+/// emits zero Option release): the predicate stack emits no normal-path release
+/// for this lineage, so suppressing the burden ops + supplying the dead-param
+/// release does not race a predicate-stack release. Spec: Annex E §AIMS RL-5 +
+/// RL-4 + RL-2.
+pub(super) fn compute_construct_fed_dead_param_lineage(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> ConstructFedDeadParamLineage {
+    let mut uf = ForwarderUnionFind::build(func, contracts);
+    let used = function_used_vars(func);
+    let alt_consumer_reps = compute_alt_consumer_reps(func, contracts, &mut uf);
+
+    let mut releases: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
+    let mut suppressed_lineage_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let mut seen_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+        // Collect the dead params + their feeding reps first, then apply gates,
+        // to avoid borrow conflicts on `uf` inside the loop.
+        let dead_params: Vec<(ArcVarId, ArcVarId)> = block
+            .params
+            .iter()
+            .filter(|(p, _)| !used.contains(p))
+            .filter_map(|&(param_var, _)| {
+                dead_param_single_feeding_rep(func, &mut uf, block_idx, param_var)
+                    .map(|rep| (param_var, rep))
+            })
+            .collect();
+        for (param_var, rep) in dead_params {
+            if alt_consumer_reps.contains(&rep) {
+                continue;
+            }
+            // Gate (a): rep's allocation root is a sum-aggregate Construct.
+            if !uf.is_sum_aggregate_construct_rep(rep) {
+                continue;
+            }
+            // Gate (b): heap element — at least one class member carries RC.
+            let members = uf.class_members(rep);
+            if !members.iter().any(|m| owned_vars_needing_rc.contains(m)) {
+                continue;
+            }
+            if seen_reps.insert(rep) {
+                releases.entry(block_idx).or_default().push(param_var);
+                // Part B: suppress the spurious keep-alive incs + misplaced
+                // release on the whole lineage class. The dead param itself is
+                // NOT suppressed — it carries the sole RL-5 release.
+                for m in &members {
+                    if *m != param_var {
+                        suppressed_lineage_vars.insert(*m);
+                    }
+                }
+                // Part B (cont.): the heap ELEMENT borrow-views projected out of
+                // the lineage (`%11 = Project %3.1` extracting the `str` payload,
+                // plus their `Let { Var }` alias closure `%12 = %11`) are BORROWS
+                // of the lineage's heap element (TF-4 `Project` is Borrowed). The
+                // lineage's sole release at the dead param frees that element, so a
+                // borrow-view release double-frees it. A `Project`-dst escapes
+                // `compute_borrowed_projection_dsts` once it is re-aliased by a
+                // Let-Var hop. Suppress the projected-element borrow-view closure.
+                for view in collect_lineage_element_borrow_views(func, &members) {
+                    suppressed_lineage_vars.insert(view);
+                }
+            }
+        }
+    }
+    ConstructFedDeadParamLineage {
+        releases,
+        suppressed_lineage_vars,
+    }
+}
+
+/// The heap-element borrow-view closure of a suppressed construct-fed lineage:
+/// every `Project { value, .. }` dst whose `value` is a lineage member (the
+/// element extracted out of the Option / sum payload), PLUS the `Let { Var }`
+/// alias closure of those projection dsts. These are BORROWS of the lineage's
+/// heap element (TF-4), so they carry no release — the lineage's sole dead-param
+/// release frees the element. Excluded from `owned_vars_needing_rc` alongside the
+/// lineage class itself.
+fn collect_lineage_element_borrow_views(
+    func: &ArcFunction,
+    lineage_members: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut views: FxHashSet<ArcVarId> = FxHashSet::default();
+    // Seed: Project dsts whose projected value is a lineage member.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if lineage_members.contains(value) {
+                    views.insert(*dst);
+                }
+            }
+        }
+    }
+    if views.is_empty() {
+        return views;
+    }
+    // Fixpoint: a `Let { Var(src) }` whose `src` is already a view makes `dst` a
+    // view too (the alias of a borrow is a borrow).
+    loop {
+        let mut grew = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if views.contains(src) && views.insert(*dst) {
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    views
 }
 
 /// Forwarder reps with an ALTERNATE consumer — a rep member used at a NON-forwarder
@@ -657,6 +854,12 @@ fn function_used_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
 struct ForwarderUnionFind {
     parent: FxHashMap<ArcVarId, ArcVarId>,
     is_forwarder_rep: FxHashSet<ArcVarId>,
+    /// Vars defined by a sum-aggregate `Construct` (`EnumVariant`) — the FRESH
+    /// heap allocation root of an `Option<T>` / `Result<T, E>` / user sum lineage.
+    /// Tracked per-var (resolved to rep via `find`) so the construct-fed
+    /// dead-block-param scan can gate on "this rep's allocation root is a sum
+    /// Construct" without re-walking the body.
+    sum_aggregate_construct_dsts: FxHashSet<ArcVarId>,
 }
 
 impl ForwarderUnionFind {
@@ -664,6 +867,7 @@ impl ForwarderUnionFind {
         let mut uf = ForwarderUnionFind {
             parent: FxHashMap::default(),
             is_forwarder_rep: FxHashSet::default(),
+            sum_aggregate_construct_dsts: FxHashSet::default(),
         };
         // Edge type 1: Let{Var} aliases.
         for block in &func.blocks {
@@ -675,6 +879,17 @@ impl ForwarderUnionFind {
                 } = instr
                 {
                     uf.union(*dst, *src);
+                }
+                // Record sum-aggregate `Construct` dsts (the FRESH allocation
+                // root of an Option / Result / user sum lineage). Recorded on
+                // the raw dst; resolved to rep at query time via `find`.
+                if let ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::EnumVariant { .. },
+                    ..
+                } = instr
+                {
+                    uf.sum_aggregate_construct_dsts.insert(*dst);
                 }
             }
         }
@@ -703,6 +918,33 @@ impl ForwarderUnionFind {
             }
         }
         uf
+    }
+
+    /// True iff `rep` (a union-find representative) has a member defined by a
+    /// sum-aggregate `Construct` — the construct-fed lineage gate. Resolves every
+    /// recorded sum-Construct dst to its rep and checks for a match.
+    fn is_sum_aggregate_construct_rep(&mut self, rep: ArcVarId) -> bool {
+        let dsts: Vec<ArcVarId> = self.sum_aggregate_construct_dsts.iter().copied().collect();
+        dsts.into_iter().any(|d| self.find(d) == rep)
+    }
+
+    /// Every member var of `rep`'s class, drawn from the recorded edge endpoints
+    /// (`parent` keys + values). Used to suppress the spurious keep-alive incs +
+    /// misplaced release on the construct-fed dead-param lineage.
+    fn class_members(&mut self, rep: ArcVarId) -> FxHashSet<ArcVarId> {
+        let endpoints: Vec<ArcVarId> = self
+            .parent
+            .keys()
+            .chain(self.parent.values())
+            .copied()
+            .collect();
+        let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+        for v in endpoints {
+            if self.find(v) == rep {
+                out.insert(v);
+            }
+        }
+        out
     }
 
     fn record_forwarder(

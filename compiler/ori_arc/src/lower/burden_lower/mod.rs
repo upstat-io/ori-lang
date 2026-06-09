@@ -25,11 +25,12 @@ use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
     collect_owned_burdens, compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
-    compute_borrowed_terminator_invoke_args, compute_dead_forwarder_block_param_releases,
-    compute_live_out_owned, compute_owned_vars_needing_rc,
-    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered,
+    compute_borrowed_terminator_invoke_args, compute_construct_fed_dead_param_lineage,
+    compute_dead_forwarder_block_param_releases, compute_live_out_owned,
+    compute_owned_vars_needing_rc, compute_transfer_through_return_param_vars,
+    compute_transfer_through_return_results, compute_transfer_via_move_alias,
+    compute_use_counts_and_dup_aliases, detect_last_uses, detect_transfer_points,
+    group_last_uses_filtered,
 };
 use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
 
@@ -50,6 +51,18 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// pipeline. Default (unset): the release is emitted. Spec: Annex E §AIMS RL-5.
 static DEAD_FORWARDER_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE").as_deref() == Ok("1")
+});
+
+/// `ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE=1` skips the Phase-5 RL-5
+/// dead-at-entry release + spurious-op suppression for a SUM-AGGREGATE-`Construct`-fed
+/// allocation reaching a merge/return block's dead block-params via Jump args
+/// ([`compute_construct_fed_dead_param_lineage`]). Bisection surface: isolates a leak /
+/// double-free to the construct-fed dead-param lineage cure vs the rest of the Phase-5
+/// walk. Default (unset): the lineage is suppressed + the single release emitted. Cures
+/// the `for x in Some(str) yield { ... }` over-emission (2 spurious keep-alive incs + 1
+/// misplaced release → +1 leak). Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
+static CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
 });
 
 use super::burden::{Burden, BurdenRef};
@@ -216,6 +229,28 @@ pub(crate) fn emit_burden_ops<'a>(
     // iterator-element tracker) to exclude the element-view lineage.
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
     owned_vars_needing_rc.retain(|v| !iter_element_defs.contains(v));
+    // RL-5 + RL-2: a SUM-AGGREGATE-`Construct`-fed allocation threaded (via Let-Var
+    // aliases) to a merge/return block's DEAD block-param OVER-emits — a FRESH-site
+    // `BurdenInc` on the Construct + a dup-alias `BurdenInc` on the Let-Var alias
+    // (`use_counts >= 2` cardinality proxy mis-classes the same-alloc alias as a
+    // duplication) + a misplaced alias release, netting +1 (leak). RL-2 requires ONE
+    // allocation released EXACTLY once with ZERO keep-alive incs. The cure removes the
+    // whole lineage class from `owned_vars_needing_rc` (Part B: suppresses both incs +
+    // the misplaced dec) and emits the sole RL-5 release at the dead param
+    // (`dead_forwarder_param_releases` merge below). SSOT:
+    // `compute_construct_fed_dead_param_lineage` (sum-aggregate-Construct + heap-element
+    // + dead-merge-param + no-alt-release gates bound the over-fire surface). Cures the
+    // `for x in Some(str) yield { ... }` both-paths-fail lineage; default-path-safe
+    // because the predicate stack provably emits no normal-path Option release here.
+    let construct_fed_dead_param = if *CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED {
+        ownership_scans::ConstructFedDeadParamLineage {
+            releases: FxHashMap::default(),
+            suppressed_lineage_vars: FxHashSet::default(),
+        }
+    } else {
+        compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
+    };
+    owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     {
         let mut owned: Vec<u32> = owned_vars_needing_rc
@@ -487,11 +522,21 @@ pub(crate) fn emit_burden_ops<'a>(
     // the forwarded allocation. SSOT: `compute_dead_forwarder_block_param_releases`
     // (one dec per distinct source allocation; forwarder-identity + edge-release gates
     // bound the over-fire surface).
-    let dead_forwarder_param_releases = if *DEAD_FORWARDER_PARAM_RELEASE_DISABLED {
+    let mut dead_forwarder_param_releases = if *DEAD_FORWARDER_PARAM_RELEASE_DISABLED {
         FxHashMap::default()
     } else {
         compute_dead_forwarder_block_param_releases(func, contracts)
     };
+    // Merge the construct-fed dead-param releases (Part A) into the same per-block
+    // release map. Both are RL-5 dead-at-entry releases emitted identically by
+    // `emit_burden_ops_for_blocks`; they target disjoint reps (forwarder-identity vs
+    // sum-aggregate-Construct), so the merge cannot double-release one allocation.
+    for (block_idx, params) in construct_fed_dead_param.releases {
+        dead_forwarder_param_releases
+            .entry(block_idx)
+            .or_default()
+            .extend(params);
+    }
 
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,

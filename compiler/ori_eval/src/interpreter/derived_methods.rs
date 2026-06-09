@@ -264,7 +264,9 @@ impl Interpreter<'_> {
                 Ok(Value::int(hash.cast_signed()))
             }
             // SAFETY: only Hash routes to unary variant handling; Hash pairs with HashCombine.
-            _ => unreachable!("only HashCombine uses unary variant handling"),
+            CombineOp::AllTrue | CombineOp::Lexicographic => {
+                unreachable!("only HashCombine uses unary variant handling")
+            }
         }
     }
 

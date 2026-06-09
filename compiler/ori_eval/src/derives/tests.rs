@@ -195,9 +195,9 @@ fn all_foreach_field_strategies_have_eval_dispatch() {
     // `Interpreter::for_each_struct` (interpreter/derived_methods.rs). Every
     // ForEachField pairing `DerivedTrait::strategy()` can emit MUST appear here,
     // or for_each_struct hits its `_ => unreachable!()` arm at runtime (a
-    // strategy-dispatch GAP per impl-hygiene §IR Variant Exhaustiveness). Adding
-    // a DerivedTrait whose strategy uses a new pairing fails this test until a
-    // matching for_each_struct arm AND this list are both updated.
+    // strategy-dispatch gap). Adding a DerivedTrait whose strategy uses a new
+    // pairing fails this test until a matching for_each_struct arm AND this list
+    // are both updated.
     const EVAL_DISPATCHED: &[(FieldOp, CombineOp)] = &[
         (FieldOp::Equals, CombineOp::AllTrue),
         (FieldOp::Compare, CombineOp::Lexicographic),
