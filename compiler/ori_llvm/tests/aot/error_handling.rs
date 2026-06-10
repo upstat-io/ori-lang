@@ -9,7 +9,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{assert_aot_success, assert_panic_exit, compile_and_run_capture};
 
 // ─── Result: basic patterns ───
 
@@ -256,4 +256,80 @@ fn test_catch_in_conditional() {
         "fixtures/error_handling/catch_in_conditional.ori"
     ));
     assert_eq!(exit_code, 0, "catch with conditional panics");
+}
+
+// ─── panic-message ownership: ori_panic owns + releases its message ───
+
+/// Regression: a heap panic message aliased past the catch boundary must
+/// survive the caught panic (the panic transfer dup-incs the still-live
+/// message; the runtime releases only the transferred reference).
+#[test]
+fn test_catch_panic_aliased_message_survives_catch() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_panic_aliased_message_survives.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "aliased message must stay valid after the caught panic, leak-clean:\n{stderr}"
+    );
+}
+
+/// Regression: nested catches each recover their own heap panic message;
+/// every message buffer is released exactly once (no leak, no double-free).
+#[test]
+fn test_nested_catch_panic_heap_messages_release_once() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/nested_catch_panic_heap_messages.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "nested catch must recover both messages, leak-clean:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: an SSO panic message has no heap buffer — the
+/// runtime release must no-op (no corruption, no spurious free).
+#[test]
+fn test_catch_panic_sso_message_no_heap_release() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_panic_sso_message.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "SSO message catch must stay clean (release no-ops on SSO):\n{stderr}"
+    );
+}
+
+/// Over-fire negative: the uncaught-panic exit path is unchanged — panic
+/// exit code, message on stderr, and the message buffer released before
+/// the unwind (leak-clean even though the process is exiting).
+#[test]
+fn test_uncaught_panic_heap_message_exit_unchanged() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_panic_heap_message.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught heap-message panic", &stderr);
+    assert!(
+        stderr.contains("uncaught heap panic message"),
+        "panic message must reach stderr intact:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("not freed"),
+        "uncaught panic path must not leak the message buffer:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: `expect` panics route the user message through the
+/// inline panic emission (manufactured transfer inc) — the panic exit and
+/// message are unchanged.
+#[test]
+fn test_expect_panic_heap_message_exit_unchanged() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/expect_panic_heap_message_uncaught.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught expect panic", &stderr);
+    assert!(
+        stderr.contains("expect failure message"),
+        "expect panic message must reach stderr intact:\n{stderr}"
+    );
 }

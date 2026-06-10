@@ -7429,3 +7429,96 @@ fn cow_map_updated_replaces_existing_key_value() {
     free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
+
+// ─── ori_panic message ownership ───
+
+thread_local! {
+    /// Message pointer smuggled into the `extern "C"` panic thunk below
+    /// (`jit_run_protected` takes a captureless fn pointer).
+    static PANIC_MSG_PTR: std::cell::Cell<*const OriStr> =
+        const { std::cell::Cell::new(std::ptr::null()) };
+}
+
+unsafe extern "C" fn panic_with_thread_local_msg() {
+    let ptr = PANIC_MSG_PTR.with(std::cell::Cell::get);
+    crate::io::ori_panic(ptr);
+}
+
+/// Semantic pin: `ori_panic` OWNS its message — it releases exactly ONE
+/// reference after copying the text into thread-local panic state. Would
+/// FAIL (refcount stays 2) if the release is reverted, and would FAIL
+/// (underflow abort / refcount 0) if the release ever double-fires.
+#[test]
+fn panic_releases_transferred_heap_message_exactly_once() {
+    let _guard = lock_rc();
+    // Heap message (> 23 bytes — SSO excluded).
+    let msg = OriStr::from_owned("heap panic message wider than the sso bound");
+    let data = msg.heap_data_ptr().expect("heap string expected");
+    // Hold a second reference so the buffer outlives the panic release and
+    // the refcount stays readable afterwards.
+    crate::rc::ori_str_rc_inc(data, unsafe { msg.heap.cap });
+    unsafe {
+        assert_eq!(*data.sub(8).cast::<i64>(), 2, "two references pre-panic");
+    }
+
+    PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
+    let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
+    let err = result.expect_err("panic must be reported");
+    assert!(
+        err.contains("heap panic message"),
+        "recovered text must match the message: {err}"
+    );
+    unsafe {
+        assert_eq!(
+            *data.sub(8).cast::<i64>(),
+            1,
+            "ori_panic releases exactly the one transferred reference"
+        );
+    }
+    free_heap_str(&msg);
+}
+
+/// Over-fire negative: an SSO message carries no heap buffer — the panic
+/// release no-ops and the message text still reaches the panic state.
+#[test]
+fn panic_sso_message_release_no_ops() {
+    let _guard = lock_rc();
+    let before = ori_rc_live_count();
+    let msg = OriStr::from_owned("short sso");
+    assert!(msg.heap_data_ptr().is_none(), "SSO string expected");
+
+    PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
+    let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
+    let err = result.expect_err("panic must be reported");
+    assert!(err.contains("short sso"), "SSO text intact: {err}");
+    // SAFETY: SSO storage is inline — unaffected by the panic release.
+    assert_eq!(unsafe { msg.as_str() }, "short sso");
+    assert_eq!(ori_rc_live_count(), before, "no RC traffic for SSO");
+}
+
+/// Over-fire negative: an immortal (`MAX_REFCOUNT`) message buffer is never
+/// freed by the panic release — the immortal sentinel skips the decrement.
+#[test]
+fn panic_immortal_message_release_skipped() {
+    let _guard = lock_rc();
+    let msg = OriStr::from_owned("immortal panic message wider than the sso bound");
+    let data = msg.heap_data_ptr().expect("heap string expected");
+    unsafe {
+        *data.sub(8).cast::<i64>() = MAX_REFCOUNT;
+    }
+
+    PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
+    let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
+    let err = result.expect_err("panic must be reported");
+    assert!(err.contains("immortal panic message"), "text intact: {err}");
+    unsafe {
+        assert_eq!(
+            *data.sub(8).cast::<i64>(),
+            MAX_REFCOUNT,
+            "immortal sentinel skips the panic release"
+        );
+        // Restore a real count so the test teardown can free the buffer.
+        *data.sub(8).cast::<i64>() = 1;
+    }
+    free_heap_str(&msg);
+}

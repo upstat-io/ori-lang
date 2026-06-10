@@ -73,12 +73,16 @@ pub extern "C" fn ori_print_bool(b: bool) {
 
 // ── Panic functions ──────────────────────────────────────────────────────
 
-/// Panic with a message.
+/// Panic with a message. OWNS the message: the caller transfers its message
+/// reference (callers pass a fresh +1 — ARC marks the arg Owned and dup-incs
+/// still-live messages; non-ARC emission sites inc explicitly).
 ///
 /// Dispatch order:
-/// 1. Store panic state (for JIT test assertions)
-/// 2. If user `@panic` handler registered and not re-entrant: call trampoline
-/// 3. Raise C exception (`_Unwind_RaiseException` on Itanium, `RaiseException` on MSVC).
+/// 1. Store panic state (for JIT test assertions) — copies the message text
+/// 2. Release the original message buffer (exactly-once: no caller-side
+///    release fires on any panic path; SSO/slice/immortal-aware)
+/// 3. If user `@panic` handler registered and not re-entrant: call trampoline
+/// 4. Raise C exception (`_Unwind_RaiseException` on Itanium, `RaiseException` on MSVC).
 ///    `catch(expr:)` landing pads catch the exception; uncaught panics propagate
 ///    to the JIT test wrapper's catch-all landing pad.
 #[no_mangle]
@@ -90,7 +94,23 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
         let ori_str = unsafe { &*s };
         // SAFETY: OriStr::as_str reads from the inline SSO buffer or heap data pointer.
         let text = unsafe { ori_str.as_str() };
-        text.to_string()
+        let text = text.to_string();
+
+        // Release the transferred message reference — the text was copied
+        // above, and `ori_catch_recover` reads thread-local state, never this
+        // buffer. ori_str_rc_dec skips SSO (bit-63 flag survives the union
+        // read of `heap.data`), routes slices to the original buffer, and
+        // no-ops on immortal (MAX_REFCOUNT) headers.
+        // SAFETY: heap union fields are plain i64/ptr reads valid for any
+        // 24-byte OriStr; ori_str_rc_dec classifies SSO/heap/slice itself.
+        unsafe {
+            crate::rc::ori_str_rc_dec(
+                ori_str.heap.data,
+                ori_str.heap.cap,
+                Some(crate::rc::ori_str_drop_buffer),
+            );
+        }
+        text
     };
 
     // Store panic state in thread-local storage

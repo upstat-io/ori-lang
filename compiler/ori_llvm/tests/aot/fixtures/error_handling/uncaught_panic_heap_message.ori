@@ -1,0 +1,4 @@
+@main () -> int = {
+    panic(msg: "uncaught heap panic message wider than the sso bound");
+    1
+}

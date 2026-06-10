@@ -20,6 +20,16 @@ use super::super::is_provably_scalar_repr;
 use super::live_extract_site::{choose_release_site, release_site_sound};
 use super::{function_used_vars, ForwarderReleasePos};
 
+/// One root's candidate admission, held until the gate (g) disjointness
+/// filter runs over the full candidate set.
+struct Candidate {
+    root: ArcVarId,
+    members: FxHashSet<ArcVarId>,
+    site_block: usize,
+    site_pos: ForwarderReleasePos,
+    dec_var: ArcVarId,
+}
+
 /// Result of [`compute_fresh_sum_live_extract_lineage`]: the same-alloc
 /// closure to suppress (Part A) + the single placed release (Part B).
 pub(in crate::lower::burden_lower) struct FreshSumLiveExtractLineage {
@@ -84,6 +94,12 @@ pub(in crate::lower::burden_lower) struct FreshSumLiveExtractLineage {
 ///      borrow-read on every normal exit; unwind paths (`Resume`) are exempt
 ///      (status-quo leak there, no new double-free — the closure carries no
 ///      other release).
+///  (g) pairwise-DISJOINT closures: two admitted roots whose closures share
+///      any member converge on ONE per-path allocation web (both match arms
+///      `Construct` into the same merge carrier — the caught-panic
+///      `catch(expr:)` Ok/Err shape); each admission would place its own dec
+///      at the shared final read, double-freeing the web. ALL roots of an
+///      overlapping group decline (status quo preserved).
 pub(in crate::lower::burden_lower) fn compute_fresh_sum_live_extract_lineage(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
@@ -97,6 +113,10 @@ pub(in crate::lower::burden_lower) fn compute_fresh_sum_live_extract_lineage(
     let used = function_used_vars(func);
     let preds = compute_predecessors(func);
 
+    // Per-root candidate admissions; gate (g) filters before application.
+    let mut candidates: Vec<Candidate> = Vec::new();
+    let mut claimed_roots: FxHashSet<ArcVarId> = FxHashSet::default();
+
     for root in collect_fresh_sum_roots(func, contracts) {
         let decline = |gate: &str| {
             tracing::trace!(
@@ -109,7 +129,7 @@ pub(in crate::lower::burden_lower) fn compute_fresh_sum_live_extract_lineage(
         };
         // Gate (b): heap-carrying + not already claimed + by-value sum repr.
         if !owned_vars_needing_rc.contains(&root)
-            || out.suppressed_lineage_vars.contains(&root)
+            || claimed_roots.contains(&root)
             || !matches!(func.var_repr(root), Some(ValueRepr::Aggregate))
         {
             decline("b:owned/claimed/repr");
@@ -144,11 +164,45 @@ pub(in crate::lower::burden_lower) fn compute_fresh_sum_live_extract_lineage(
             decline("f:site-soundness");
             continue;
         }
-        out.suppressed_lineage_vars.extend(members.iter().copied());
+        claimed_roots.extend(members.iter().copied());
+        candidates.push(Candidate {
+            root,
+            members,
+            site_block,
+            site_pos,
+            dec_var,
+        });
+    }
+
+    // Gate (g): decline EVERY candidate whose closure overlaps another
+    // candidate's closure — overlapping closures name one per-path allocation
+    // web and each would place its own dec at the shared final read.
+    let overlapping: Vec<bool> = candidates
+        .iter()
+        .map(|c| {
+            candidates
+                .iter()
+                .filter(|o| !std::ptr::eq(*o, c))
+                .any(|o| !c.members.is_disjoint(&o.members))
+        })
+        .collect();
+    for (cand, overlaps) in candidates.into_iter().zip(overlapping) {
+        if overlaps {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                root = cand.root.index(),
+                gate = "g:closure-overlap",
+                "fresh-sum live-extract root declined"
+            );
+            continue;
+        }
+        out.suppressed_lineage_vars
+            .extend(cand.members.iter().copied());
         out.releases
-            .entry((site_block, site_pos))
+            .entry((cand.site_block, cand.site_pos))
             .or_default()
-            .push(dec_var);
+            .push(cand.dec_var);
     }
     out
 }
