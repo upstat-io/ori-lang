@@ -30,8 +30,8 @@ use ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_construct_fed_dead_param_lineage, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_forwarder_identity_transparent_aliases,
-    compute_forwarder_result_under_release, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_owned_vars_needing_rc,
+    compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
+    compute_genuine_dup_move_aliases, compute_live_out_owned, compute_owned_vars_needing_rc,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
     detect_transfer_points, group_last_uses_filtered,
@@ -67,6 +67,21 @@ static DEAD_FORWARDER_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| 
 /// misplaced release → +1 leak). Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
 static CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
+});
+
+/// `ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE=1` skips the Phase-5 RL-1 + RL-2
+/// same-alloc lineage treatment for a FRESH niche-family sum allocation whose
+/// payload is EXTRACTED LIVE through a match (`match result { Some(s) -> s, .. }`)
+/// ([`compute_fresh_sum_live_extract_lineage`]). Default (unset): the whole
+/// same-alloc closure (the sum root + Let-Var aliases + niche-payload Project
+/// views + extract block-params) is removed from `owned_vars_needing_rc`
+/// (suppressing the spurious FRESH-result + dup-alias keep-alive incs AND the
+/// misplaced arm / last-use releases) and EXACTLY ONE whole-var release is
+/// emitted after the closure's final borrow-read. Bisection surface: isolates a
+/// match-extract leak / double-free to this treatment vs the rest of the
+/// Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2.
+static FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE").as_deref() == Ok("1")
 });
 
 /// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
@@ -429,6 +444,39 @@ pub(crate) fn emit_burden_ops<'a>(
         compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
+    // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
+    // (sum-aggregate Construct, or an Apply/Invoke result the callee hands the
+    // caller as an owned reference) read through Let-Var aliases + a niche-payload
+    // Project view and EXTRACTED LIVE to a merge block-param names ONE allocation
+    // across the whole closure — per RL-1 no duplication exists, yet the
+    // `use_counts >= 2` proxy + the FRESH-result inc leave 2 spurious keep-alive
+    // incs against 2 misplaced releases (the arm dec before the live reads + the
+    // extract's last-use dec before its final transitive read), netting +1 (the
+    // caller-owned reference is never released). The cure removes the closure from
+    // `owned_vars_needing_rc` (both incs + both misplaced decs) and emits EXACTLY
+    // ONE whole-var release after the closure's final borrow-read (no UAF — the
+    // read completes first). Runs AFTER the construct-fed retain so roots claimed
+    // by the dead-param family auto-decline (gate b); disjoint from the forwarder
+    // scans (Invoke roots with `transfers_through_return` callees decline). SSOT:
+    // `compute_fresh_sum_live_extract_lineage` (niche-family-sum + vetted
+    // borrow-read-only closure + live-extract + execution-final-site gates bound
+    // the over-fire surface). Cures the `match_arm_alias_option_str` family
+    // both-paths-fail lineage; default-path-safe because the predicate stack
+    // provably emits zero ops for this shape (predicate-only probe: bare alloc).
+    let fresh_sum_live_extract = if *FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED {
+        ownership_scans::FreshSumLiveExtractLineage {
+            suppressed_lineage_vars: FxHashSet::default(),
+            releases: FxHashMap::default(),
+        }
+    } else {
+        compute_fresh_sum_live_extract_lineage(
+            func,
+            contracts,
+            &owned_vars_needing_rc,
+            type_registry,
+        )
+    };
+    owned_vars_needing_rc.retain(|v| !fresh_sum_live_extract.suppressed_lineage_vars.contains(v));
     // RL-2 forwarder-result release: a transfer-through-return forwarder RESULT whose
     // monomorphized result-type burden is EMPTY (`burden_carries_rc == false`) is never
     // collected into `owned_vars_needing_rc`, so its lineage gets neither a FRESH inc nor
@@ -441,11 +489,21 @@ pub(crate) fn emit_burden_ops<'a>(
     // (carries_rc=true, in owned_vars, already over-decs). SSOT:
     // `compute_forwarder_result_under_release` (forwarder-identity + no-existing-release +
     // no-alt-consumer + used gates bound the over-fire / double-free surface).
-    let forwarder_result_releases = if *FORWARDER_RESULT_RELEASE_DISABLED {
+    let mut forwarder_result_releases = if *FORWARDER_RESULT_RELEASE_DISABLED {
         FxHashMap::default()
     } else {
         compute_forwarder_result_under_release(func, contracts, &owned_vars_needing_rc)
     };
+    // Merge the fresh-sum live-extract releases into the same placed-release
+    // emission surface (identical `ForwarderReleasePos` placement contract).
+    // The two families target disjoint lineages (forwarder-identity results vs
+    // non-forwarder fresh-sum closures), so the merge cannot double-release.
+    for (site, vars) in fresh_sum_live_extract.releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     {
         let mut owned: Vec<u32> = owned_vars_needing_rc

@@ -134,6 +134,8 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
                 }
                 ArcInstr::RcInc { var, .. }
                 | ArcInstr::RcDec { var, .. }
+                | ArcInstr::RcDecPartial { var, .. }
+                | ArcInstr::RcDecVariant { var }
                 | ArcInstr::BurdenInc { var }
                 | ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
@@ -141,7 +143,7 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
                 | ArcInstr::IsShared { var, .. }
                 | ArcInstr::Reset { var, .. } => mark_all(&aliases, &mut usage, *var),
 
-                ArcInstr::BurdenDecField { base, .. } => {
+                ArcInstr::RcDecField { base, .. } | ArcInstr::BurdenDecField { base, .. } => {
                     mark_all(&aliases, &mut usage, *base);
                 }
             }
@@ -305,7 +307,9 @@ pub(super) fn compute_pointer_only_params(
                     mark_needs_load(*base, &var_to_param, &mut needs_load);
                     mark_needs_load(*value, &var_to_param, &mut needs_load);
                 }
-                ArcInstr::SetTag { base, .. } | ArcInstr::BurdenDecField { base, .. } => {
+                ArcInstr::SetTag { base, .. }
+                | ArcInstr::BurdenDecField { base, .. }
+                | ArcInstr::RcDecField { base, .. } => {
                     mark_needs_load(*base, &var_to_param, &mut needs_load);
                 }
                 ArcInstr::Select {
@@ -320,6 +324,8 @@ pub(super) fn compute_pointer_only_params(
                 }
                 ArcInstr::RcInc { var, .. }
                 | ArcInstr::RcDec { var, .. }
+                | ArcInstr::RcDecPartial { var, .. }
+                | ArcInstr::RcDecVariant { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
                 | ArcInstr::BurdenDecVariant { var }
                 | ArcInstr::IsShared { var, .. }

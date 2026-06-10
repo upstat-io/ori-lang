@@ -123,6 +123,9 @@ fn var_uniqueness(
             | ArcInstr::Select { .. }
             | ArcInstr::RcInc { .. }
             | ArcInstr::RcDec { .. }
+            | ArcInstr::RcDecPartial { .. }
+            | ArcInstr::RcDecField { .. }
+            | ArcInstr::RcDecVariant { .. }
             | ArcInstr::BurdenInc { .. }
             | ArcInstr::BurdenDec { .. }
             | ArcInstr::BurdenDecPartial { .. }
