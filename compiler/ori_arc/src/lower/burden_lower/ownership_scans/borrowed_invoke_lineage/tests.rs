@@ -206,8 +206,14 @@ fn lineage_admitted_and_release_placed_at_dead_param() {
     owned.insert(vv(0));
     owned.insert(vv(1));
     let claimed = FxHashSet::default();
-    let out =
-        compute_borrowed_invoke_collection_lineage(&f, &owned, &claimed, &FxHashMap::default());
+    let live_extract = FxHashSet::default();
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &claimed,
+        &live_extract,
+        &FxHashMap::default(),
+    );
     assert!(
         out.suppressed_lineage_vars.contains(&vv(0))
             && out.suppressed_lineage_vars.contains(&vv(1)),
@@ -231,11 +237,46 @@ fn construct_fed_claimed_root_declines() {
     owned.insert(vv(1));
     let mut claimed: FxHashSet<ArcVarId> = FxHashSet::default();
     claimed.insert(vv(0));
-    let out =
-        compute_borrowed_invoke_collection_lineage(&f, &owned, &claimed, &FxHashMap::default());
+    let live_extract = FxHashSet::default();
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &claimed,
+        &live_extract,
+        &FxHashMap::default(),
+    );
     assert!(
         out.suppressed_lineage_vars.is_empty() && out.releases.is_empty(),
         "a root already claimed by the construct-fed dead-param family declines (gate b)",
+    );
+}
+
+#[test]
+fn live_extract_claimed_member_declines_whole_closure() {
+    // The fresh-sum live-extract scan (SSOT for the niche-family-sum
+    // match-extract RESULT lineage) already claimed a MEMBER of this closure
+    // (`%1`, the Let-Var alias — NOT the root). Gate (b') declines the whole
+    // closure at member grain: admitting it would place a second death-point
+    // release on the allocation the live-extract scan already released
+    // (double-free). The root `%0` is NOT in the live-extract set; only `%1`
+    // is — proving member-grain (not root-only) disjointness.
+    let f = live_across_dead_param_func();
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let claimed = FxHashSet::default();
+    let mut live_extract: FxHashSet<ArcVarId> = FxHashSet::default();
+    live_extract.insert(vv(1));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &claimed,
+        &live_extract,
+        &FxHashMap::default(),
+    );
+    assert!(
+        out.suppressed_lineage_vars.is_empty() && out.releases.is_empty(),
+        "a closure overlapping the live-extract claimed web declines at member grain (gate b')",
     );
 }
 

@@ -51,6 +51,11 @@ use ori_ir::Name;
 use ori_types::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+/// `(block_idx, pos) -> [release var]` placed-release map produced by the
+/// dead-param / fresh-sum / borrowed-`Invoke` lineage scans and merged into the
+/// `forwarder_result_releases` emission surface.
+type PlacedReleaseMap = FxHashMap<(usize, ownership_scans::ForwarderReleasePos), Vec<ArcVarId>>;
+
 /// `ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE=1` skips the Phase-5 RL-5
 /// dead-at-entry release for forwarder-identity allocations reaching a merge/return
 /// block's dead block-params ([`compute_dead_forwarder_block_param_releases`]).
@@ -464,6 +469,31 @@ pub(crate) fn emit_burden_ops<'a>(
         compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
+    // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
+    // (sum-aggregate Construct, or an Apply/Invoke result the callee hands the
+    // caller as an owned reference) read through Let-Var aliases + a niche-payload
+    // Project view and EXTRACTED LIVE to a merge block-param names ONE allocation
+    // across the whole closure — per RL-1 no duplication exists, yet the
+    // `use_counts >= 2` proxy + the FRESH-result inc leave 2 spurious keep-alive
+    // incs against 2 misplaced releases (the arm dec before the live reads + the
+    // extract's last-use dec before its final transitive read), netting +1 (the
+    // caller-owned reference is never released). The cure removes the closure from
+    // `owned_vars_needing_rc` (both incs + both misplaced decs) and emits EXACTLY
+    // ONE whole-var release after the closure's final borrow-read (no UAF — the
+    // read completes first). Runs AFTER the construct-fed retain so roots claimed
+    // by the dead-param family auto-decline (gate b); disjoint from the forwarder
+    // scans (Invoke roots with `transfers_through_return` callees decline). SSOT
+    // for the niche-family-sum match-extract RESULT lineage — runs BEFORE the
+    // borrowed-`Invoke` scan so its claimed-member web is threaded forward and the
+    // borrowed-`Invoke` RESULT-root family declines any overlapping closure (the
+    // two would otherwise both place a death-point release on one allocation).
+    // SSOT: `compute_fresh_sum_live_extract_lineage` (niche-family-sum + vetted
+    // borrow-read-only closure + live-extract + execution-final-site gates bound
+    // the over-fire surface). Cures the `match_arm_alias_option_str` family
+    // both-paths-fail lineage; default-path-safe because the predicate stack
+    // provably emits zero ops for this shape (predicate-only probe: bare alloc).
+    let (fresh_sum_claimed, fresh_sum_releases) =
+        apply_fresh_sum_live_extract(func, contracts, &mut owned_vars_needing_rc, type_registry);
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
     // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
@@ -478,8 +508,10 @@ pub(crate) fn emit_burden_ops<'a>(
     // ONE whole-var release at the lineage's execution-final borrow-read. The
     // dying unwind / unreachable edges are released by the Surface-1 Category-2
     // `deadAtSucc` conjunct (`edge_cleanup.rs`) — disjoint edges. Runs AFTER the
-    // construct-fed retain so dead-param-claimed roots auto-decline (gate b).
-    // SSOT: `compute_borrowed_invoke_collection_lineage` (collection-Construct
+    // construct-fed retain so dead-param-claimed roots auto-decline (gate b) AND
+    // AFTER the live-extract scan so its claimed-member web declines overlapping
+    // RESULT-root closures (gate b'). SSOT:
+    // `compute_borrowed_invoke_collection_lineage` (collection-Construct
     // root + vetted borrow-read-only closure + borrowed-Invoke-arg + execution
     // -final-site + pairwise-disjoint gates bound the over-fire surface). Spec:
     // Annex E §AIMS RL-2 + RL-4.
@@ -487,29 +519,9 @@ pub(crate) fn emit_burden_ops<'a>(
         func,
         &mut owned_vars_needing_rc,
         &construct_fed_dead_param.suppressed_lineage_vars,
+        &fresh_sum_claimed,
         contracts,
     );
-    // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
-    // (sum-aggregate Construct, or an Apply/Invoke result the callee hands the
-    // caller as an owned reference) read through Let-Var aliases + a niche-payload
-    // Project view and EXTRACTED LIVE to a merge block-param names ONE allocation
-    // across the whole closure — per RL-1 no duplication exists, yet the
-    // `use_counts >= 2` proxy + the FRESH-result inc leave 2 spurious keep-alive
-    // incs against 2 misplaced releases (the arm dec before the live reads + the
-    // extract's last-use dec before its final transitive read), netting +1 (the
-    // caller-owned reference is never released). The cure removes the closure from
-    // `owned_vars_needing_rc` (both incs + both misplaced decs) and emits EXACTLY
-    // ONE whole-var release after the closure's final borrow-read (no UAF — the
-    // read completes first). Runs AFTER the construct-fed retain so roots claimed
-    // by the dead-param family auto-decline (gate b); disjoint from the forwarder
-    // scans (Invoke roots with `transfers_through_return` callees decline). SSOT:
-    // `compute_fresh_sum_live_extract_lineage` (niche-family-sum + vetted
-    // borrow-read-only closure + live-extract + execution-final-site gates bound
-    // the over-fire surface). Cures the `match_arm_alias_option_str` family
-    // both-paths-fail lineage; default-path-safe because the predicate stack
-    // provably emits zero ops for this shape (predicate-only probe: bare alloc).
-    let fresh_sum_releases =
-        apply_fresh_sum_live_extract(func, contracts, &mut owned_vars_needing_rc, type_registry);
     // RL-2 forwarder-result release: a transfer-through-return forwarder RESULT whose
     // monomorphized result-type burden is EMPTY (`burden_carries_rc == false`) is never
     // collected into `owned_vars_needing_rc`, so its lineage gets neither a FRESH inc nor
@@ -983,8 +995,9 @@ fn apply_borrowed_invoke_collection_lineage(
     func: &ArcFunction,
     owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
+    claimed_by_live_extract: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
-) -> FxHashMap<(usize, ownership_scans::ForwarderReleasePos), Vec<ArcVarId>> {
+) -> PlacedReleaseMap {
     if borrowed_invoke_lineage_release_disabled() {
         return FxHashMap::default();
     }
@@ -992,6 +1005,7 @@ fn apply_borrowed_invoke_collection_lineage(
         func,
         owned_vars_needing_rc,
         claimed_by_construct_fed,
+        claimed_by_live_extract,
         contracts,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
@@ -1009,9 +1023,9 @@ fn apply_fresh_sum_live_extract(
     contracts: &FxHashMap<Name, MemoryContract>,
     owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
     type_registry: &TypeRegistry,
-) -> FxHashMap<(usize, ownership_scans::ForwarderReleasePos), Vec<ArcVarId>> {
+) -> (FxHashSet<ArcVarId>, PlacedReleaseMap) {
     if *FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED {
-        return FxHashMap::default();
+        return (FxHashSet::default(), FxHashMap::default());
     }
     let treatment = compute_fresh_sum_live_extract_lineage(
         func,
@@ -1020,7 +1034,7 @@ fn apply_fresh_sum_live_extract(
         type_registry,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
-    treatment.releases
+    (treatment.suppressed_lineage_vars, treatment.releases)
 }
 
 /// Populate `func.burden_emitted` from the just-emitted burden ops. Walks

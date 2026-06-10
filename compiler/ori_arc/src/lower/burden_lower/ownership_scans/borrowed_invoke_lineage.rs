@@ -13,14 +13,17 @@
 //! DISTINCT consume site (a borrowed may-unwind `Invoke` arg / result reaching a
 //! dead merge block-param vs a niche-family-sum match-extract).
 
+mod vet;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 
 use super::{function_used_vars, successor_reachable_blocks, ForwarderReleasePos};
+use vet::same_alloc_closure_vetted;
 
 /// One root's candidate admission, held until the pairwise-disjoint gate runs
 /// over the full candidate set.
@@ -90,17 +93,25 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///      decline naturally, per the re-consensus — keeps the panic-message
 ///      shapes Category-2 deliberately skips out of scope).
 ///  (b) root in `owned_vars_needing_rc` (the buffer carries RC) AND not already
-///      claimed by the construct-fed dead-param family (which runs first; its
-///      call-site-count ≤ 1 lineages are the dead-param shape, not this one).
+///      claimed by a PRIOR ownership-scan treatment: the construct-fed dead-param
+///      family AND the fresh-sum live-extract family (both run first). The
+///      live-extract scan is the SSOT for the niche-family-sum match-extract
+///      RESULT lineage (`match result { Some(s) -> s }`); its claimed-member set
+///      is threaded here so this scan's RESULT-root family declines any closure
+///      overlapping it — the two would otherwise both place a death-point release
+///      on the same allocation (double-free). Disjointness is enforced at MEMBER
+///      grain (the live-extract closure suppresses whole webs), not root-only.
 ///  (c) at least one closure member is a borrowed `Invoke` / `InvokeIndirect`
 ///      terminator arg (the carrier that needs the inline-dec suppression).
 ///  (d) vetted same-alloc closure ([`same_alloc_closure_vetted`]): every member
 ///      use is a borrow-read / borrowed-`Invoke` arg; any owned-position consume
 ///      / store / capture / `Select` / `IsShared` / `Reset` / `Reuse` / `Return`
 ///      / indirect-call / `Set` / `SetTag` declines (the codex gate list).
-///  (e) execution-final single release ([`choose_release_site`] +
-///      [`release_site_sound`]): the dec lands after the closure's final
-///      borrow-read on every normal exit; unwind paths are owned by Surface 1.
+///  (e) execution-final single dead-param release ([`choose_dead_param_release_site`]):
+///      the closure reaches EXACTLY ONE dead merge block-param, forward-reachable
+///      from every member-borrow-read block, so the placed dec lands after the
+///      closure's final borrow-read on every normal exit; unwind / unreachable
+///      paths are owned by Surface 1.
 ///  (f) pairwise-DISJOINT closures: two admitted roots whose closures overlap
 ///      converge on one shared final read; each would place its own dec there,
 ///      double-freeing. ALL roots of an overlapping group decline.
@@ -108,6 +119,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
+    claimed_by_live_extract: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> BorrowedInvokeCollectionLineage {
     let mut out = BorrowedInvokeCollectionLineage {
@@ -163,6 +175,17 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
             decline("d:closure-vet");
             continue;
         };
+        // Gate (b'): MEMBER-grain disjointness from the fresh-sum live-extract
+        // family. The live-extract scan (SSOT for niche-family-sum match-extract
+        // RESULT lineages) suppresses a whole same-alloc web — its claimed set
+        // names every member, not just the root. A RESULT root whose closure
+        // overlaps that web is the SAME allocation the live-extract scan already
+        // placed its execution-final release on; admitting it here would place a
+        // second death-point release → double-free. Decline the whole closure.
+        if !members.is_disjoint(claimed_by_live_extract) {
+            decline("b':live-extract-claimed");
+            continue;
+        }
         // Gate (c): a COLLECTION root must have a member at a borrowed `Invoke`
         // arg (the carrier whose inline dec is the bug). A RESULT root is itself
         // a may-unwind `Invoke` result (qualified by the collector) — no
@@ -352,149 +375,6 @@ fn closure_member_iter_consumed_at_invoke(
         }
     }
     false
-}
-
-/// Gate (d): grow the same-alloc closure from `root` (Let-Var aliases +
-/// `Jump`-arg → block-param hops), then vet every member use as a pure
-/// borrow-read / borrowed-`Invoke` arg / length `Project`. `None` on any vet
-/// failure.
-///
-/// The closure does NOT follow non-scalar `Project` views into the buffer's
-/// ELEMENTS (unlike `live_extract.rs`, whose niche-payload `Project` IS the
-/// same allocation): a collection-buffer element extracted by `__index` is the
-/// `Invoke` RESULT (a distinct allocation the result-lineage owns), not a
-/// same-alloc view of the buffer. Following it would over-suppress the element's
-/// own release. The length `Project` (`Project xs.0 : int`, scalar) is a
-/// borrow-read that drops out of the closure (scalar tag).
-fn same_alloc_closure_vetted(func: &ArcFunction, root: ArcVarId) -> Option<FxHashSet<ArcVarId>> {
-    let mut members: FxHashSet<ArcVarId> = FxHashSet::default();
-    members.insert(root);
-    loop {
-        let mut grew = false;
-        for block in &func.blocks {
-            for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if members.contains(src) && members.insert(*dst) {
-                        grew = true;
-                    }
-                }
-            }
-            if let ArcTerminator::Jump { target, args } = &block.terminator {
-                for (pos, &arg) in args.iter().enumerate() {
-                    if members.contains(&arg) {
-                        if let Some(&(param, _)) = func.blocks[target.index()].params.get(pos) {
-                            if members.insert(param) {
-                                grew = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-
-    member_uses_all_borrow_reads(func, &members).then_some(members)
-}
-
-/// Gate (d) vetting core: true iff EVERY use of every closure member is a pure
-/// borrow-read — a length / element `Project` of a member (TF-4 Borrowed), a
-/// borrowed call arg (`Apply` / `Invoke` non-owned position), or a closure-own
-/// hop (`Let { Var }` re-bind, `Jump` arg). ANY owned-position consume / store /
-/// capture / COW-machinery use / escape declines the whole closure (the codex
-/// gate list — a double-free is FAR worse than the status-quo leak).
-fn member_uses_all_borrow_reads(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
-    for block in &func.blocks {
-        for instr in &block.body {
-            let touches_member = instr.used_vars().iter().any(|v| members.contains(v));
-            if !touches_member {
-                continue;
-            }
-            match instr {
-                // Alias hops + element / length `Project` borrow-views are the
-                // closure's own borrow-read edges.
-                ArcInstr::Let {
-                    value: ArcValue::Var(_),
-                    ..
-                }
-                | ArcInstr::Project { .. } => {}
-                // COW / conditional-alias / mutation / reuse machinery on a
-                // member, a closure capture (`PartialApply` retains a
-                // reference), or an indirect call (`ApplyIndirect` has no
-                // contract to vet) are distinct sub-roots — decline.
-                ArcInstr::Select { .. }
-                | ArcInstr::IsShared { .. }
-                | ArcInstr::Reset { .. }
-                | ArcInstr::Set { .. }
-                | ArcInstr::SetTag { .. }
-                | ArcInstr::Reuse { .. }
-                | ArcInstr::CollectionReuse { .. }
-                | ArcInstr::PartialApply { .. }
-                | ArcInstr::ApplyIndirect { .. } => return false,
-                // A body `Apply` (e.g. `len` / a user borrowed-arg call) may
-                // read a member ONLY at a borrowed position; an owned-position
-                // consume transfers the buffer out of family.
-                ArcInstr::Apply { .. } => {
-                    for (pos, v) in instr.used_vars().iter().enumerate() {
-                        if members.contains(v) && instr.is_owned_position(pos) {
-                            return false;
-                        }
-                    }
-                }
-                // Owned-position consume at any other instruction = transfer; a
-                // list-concat `PrimOp Binary(Add)` consumes its `RcPointer`
-                // operands (the dual-consuming runtime contract) — decline.
-                _ => {
-                    for (pos, v) in instr.used_vars().iter().enumerate() {
-                        if members.contains(v) && instr.is_owned_position(pos) {
-                            return false;
-                        }
-                    }
-                    if super::list_concat_consumed_operands(instr, func)
-                        .iter()
-                        .any(|v| members.contains(v))
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-        let term = &block.terminator;
-        let term_touches = term.used_vars().iter().any(|v| members.contains(v));
-        if !term_touches {
-            continue;
-        }
-        match term {
-            // Jump hops are the closure's own param edges; Resume / Unreachable
-            // use nothing of the closure; Branch / Switch read a scalar — all
-            // are borrow-read-compatible no-ops.
-            ArcTerminator::Jump { .. }
-            | ArcTerminator::Resume
-            | ArcTerminator::Unreachable
-            | ArcTerminator::Branch { .. }
-            | ArcTerminator::Switch { .. } => {}
-            // A borrowed `Invoke` / `InvokeIndirect` arg (the carrier) is a
-            // borrow-read; an owned-position consume transfers out — decline.
-            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
-                for (pos, &v) in term.used_vars().iter().enumerate() {
-                    if members.contains(&v) && term.is_owned_position(pos) {
-                        return false;
-                    }
-                }
-            }
-            // A `Return` of a member transfers the buffer out (the caller owns
-            // the release) — decline.
-            ArcTerminator::Return { .. } => return false,
-        }
-    }
-    true
 }
 
 /// Gate (e): the lineage's death point — a DEAD block-param member (a member
