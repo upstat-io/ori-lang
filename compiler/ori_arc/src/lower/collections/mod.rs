@@ -184,6 +184,15 @@ impl ArcLowerer<'_> {
         let index_fn = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+        // List indexing panics on OOB (`__index` lowers to may-unwind
+        // `ori_list_get`), so an in-frame `catch(expr:)` needs an Invoke
+        // carrier here for the panic to land in the handler. BUG-04-153:
+        // the conversion is blocked on the Phase-5 burden walk's
+        // terminator-position accounting for contract-less borrowed Invoke
+        // args (the walk in-lines an alias release BEFORE the terminator
+        // that reads it — use-after-free). Until that lands, `__index`
+        // keeps the body-Apply carrier; the codegen-side Invoke plumbing
+        // (protocol dispatch + armed unwind route) is already in place.
         self.builder
             .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span), None)
     }

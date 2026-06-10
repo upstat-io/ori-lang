@@ -1956,3 +1956,139 @@ fn augment_own_contract_declines_when_own_name_called_in_body() {
         "an own-name call site MUST decline the own-contract binding",
     );
 }
+
+// Payload-containment all-paths proof (find_payload_containment_params)
+
+/// `@wrap_ok (m: T) -> Result<T, E> = Ok(m)` — the single return wraps the
+/// param, so BOTH the OR containment bit and the all-paths proof publish.
+#[test]
+fn extract_contract_single_return_wrap_proves_all_paths_containment() {
+    let func = ArcFunction {
+        name: name(30),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(1),
+                ty: ty(1),
+                ctor: CtorKind::EnumVariant {
+                    enum_name: Name::from_raw(20),
+                    variant: 0,
+                },
+                args: vec![var(0)],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+
+    let p = &contract.params[0];
+    assert!(p.return_payload_contains_param, "wrapped on some path");
+    assert!(
+        p.return_payload_contains_param_all_paths,
+        "single return wrapping the param proves the per-path wrap"
+    );
+}
+
+/// `@maybe_wrap (m: T) -> Result<T, E> = if c then Ok(m) else Err(0)` — the
+/// OR containment bit publishes but the all-paths proof must NOT (the
+/// non-wrapping return path makes the wrapper's payload credit
+/// path-dependent).
+#[test]
+fn extract_contract_branchy_wrap_keeps_all_paths_conservative() {
+    let func = ArcFunction {
+        name: name(31),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1), ty(1), ty(2)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(2),
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: var(3),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: var(1),
+                    ty: ty(1),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(20),
+                        variant: 0,
+                    },
+                    args: vec![var(0)],
+                }],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(1),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(20),
+                        variant: 1,
+                    },
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4).with_scalar(3);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+
+    let p = &contract.params[0];
+    assert!(p.return_payload_contains_param, "wrapped on SOME path");
+    assert!(
+        !p.return_payload_contains_param_all_paths,
+        "a non-wrapping return path keeps the per-path proof conservative"
+    );
+}

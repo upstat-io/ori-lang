@@ -1,0 +1,8 @@
+@main () -> int = {
+    let opt: Option<int> = None;
+    let result = catch(expr: opt.expect(msg: "expect-none caught message exceeds sso"));
+    match result {
+        Err(m) -> if m == "expect-none caught message exceeds sso" then 0 else 2,
+        Ok(_) -> 1
+    }
+}

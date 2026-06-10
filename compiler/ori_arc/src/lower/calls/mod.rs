@@ -31,6 +31,10 @@ impl ArcLowerer<'_> {
     /// `_Unwind_RaiseException` — they are `noreturn` but NOT nounwind.
     /// Classifying them as nounwind prevents the ARC pipeline from
     /// generating cleanup landing pads, causing RC leaks on unwind.
+    ///
+    /// `__index` on a list receiver is also may-unwind (OOB panics via
+    /// `ori_list_get`), but it never flows through this helper — it is
+    /// emitted directly by `lower_index`.
     fn is_nounwind_call(&self, name: Name) -> bool {
         let s = self.interner.lookup(name);
         if s.starts_with("ori_panic") || s.starts_with("ori_assert") {

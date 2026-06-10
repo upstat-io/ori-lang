@@ -408,6 +408,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let str_ty_id = self.builder.register_type(str_struct_ty.into());
         let msg_alloca = self.builder.alloca(str_ty_id, &format!("{label}.msg"));
         self.builder.store(msg, msg_alloca);
+        // ori_panic OWNS its message (releases it after copying into
+        // thread-local state). This inline emission is invisible to ARC's
+        // call-site ownership (the ARC IR carries the `expect` Apply, not an
+        // ori_panic call), so the borrowed user msg gets no RL-1 dup-inc —
+        // manufacture the transferred +1 here (slice/SSO-aware; panic path
+        // only, the normal path's caller-side release is untouched).
+        self.emit_slice_aware_rc_inc(msg, ori_types::Idx::STR);
         let panic_fn = self.builder.runtime_fn("ori_panic");
         self.emit_rt_call(panic_fn, &[msg_alloca], "");
         self.builder.unreachable();

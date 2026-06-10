@@ -402,6 +402,7 @@ impl Counter {
 }
 @test_while_body_try_ok tests _ () -> void = {
     let r = while_body_try_ok();
+    assert(cond: r.is_ok());  // success path: ? never short-circuits — clear diagnostic on regression to Err
     assert_eq(actual: r.unwrap_or(default: -1), expected: 3)  // 0 + 1 + 2
 }
 

@@ -43,9 +43,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         };
         let receiver_ty = self.pool.resolve_fully(func.var_type(first_arg));
-        let receiver_is_list = matches!(self.pool.tag(receiver_ty), ori_types::Tag::List);
         let method = self.interner.lookup(callee);
-        super::context::intercepted_emission_invokes_unwind(method, receiver_is_list)
+        super::context::intercepted_emission_invokes_unwind(method, self.pool.tag(receiver_ty))
     }
 
     pub(super) fn detect_dead_unwind_blocks(&self, func: &ArcFunction) -> DeadUnwindResult {

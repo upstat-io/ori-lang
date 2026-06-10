@@ -1,0 +1,8 @@
+@main () -> int = {
+    let result = catch(expr: panic(msg: "short sso"));
+    let caught = match result {
+        Err(e) -> e.contains(substr: "short sso"),
+        Ok(_) -> false,
+    };
+    if caught then 0 else 1
+}

@@ -362,3 +362,42 @@ fn protocol_contract_access_consistent_with_arg_ownership() {
         }
     }
 }
+
+/// Semantic pin: `ori_panic`'s message parameter is an RL-2 ownership
+/// TRANSFER — the panic machinery copies the message into thread-local
+/// state and releases the original; the caller emits no release on any
+/// panic path. Would FAIL if the seed is removed (message reverts to the
+/// all-borrowed external default and leaks on every caught-panic path)
+/// or if the param flips to Borrowed.
+#[test]
+fn seed_ori_panic_message_param_owned_transfer() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let ori_panic = interner.intern("ori_panic");
+    let contract = sigs
+        .get(&ori_panic)
+        .unwrap_or_else(|| panic!("ori_panic must carry a seeded contract"));
+    assert_eq!(
+        contract.params.len(),
+        1,
+        "ori_panic takes one message param"
+    );
+    assert_eq!(
+        contract.params[0].access,
+        AccessClass::Owned,
+        "the panic message transfers to the panic machinery"
+    );
+    assert_eq!(contract.params[0].consumption, Consumption::Linear);
+    // Effects stay CONSERVATIVE: the seed narrows ONLY param ownership vs
+    // the no-contract default; ori_panic always unwinds (may_throw).
+    assert!(
+        contract.effects.may_throw,
+        "ori_panic raises an exception — may_throw must stay true"
+    );
+    assert!(
+        contract.effects.may_deallocate,
+        "ori_panic releases the message — may_deallocate must stay true"
+    );
+}

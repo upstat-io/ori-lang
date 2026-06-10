@@ -128,6 +128,7 @@ fn oracle_accepts_matching_contract() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);
@@ -165,6 +166,7 @@ fn oracle_accepts_conservative_inference() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);
@@ -207,6 +209,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);
@@ -370,6 +373,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);
@@ -720,6 +724,7 @@ fn oracle_accepts_conservative_may_share() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);
@@ -787,6 +792,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
         },
@@ -801,6 +807,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
         },
@@ -836,6 +843,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     }]);

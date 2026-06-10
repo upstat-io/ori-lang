@@ -1,0 +1,10 @@
+@main () -> int = {
+    let m = "aliased panic message that lives past the catch boundary";
+    let result = catch(expr: panic(msg: m));
+    let caught = match result {
+        Err(e) -> e.contains(substr: "lives past"),
+        Ok(_) -> false,
+    };
+    let still_valid = m.contains(substr: "boundary");
+    if caught && still_valid then 0 else 1
+}

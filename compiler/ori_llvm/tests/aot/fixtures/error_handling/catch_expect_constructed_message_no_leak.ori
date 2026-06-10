@@ -1,0 +1,10 @@
+@make_msg () -> str = "constructed panic message exceeding sso" + "!";
+
+@main () -> int = {
+    let opt: Option<str> = None;
+    let result = catch(expr: opt.expect(msg: make_msg()));
+    match result {
+        Err(_) -> 0,
+        Ok(_) -> 1
+    }
+}

@@ -379,15 +379,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Arm the intercepted-unwind route: when the intercepted emission
-        // calls a panicking runtime function (list `updated` OOB), its
+        // calls a panicking runtime function (list `updated` / `__index`
+        // OOB, Option/Result `unwrap` / `expect` wrong-variant), its
         // `emit_rt_call` targets the live ARC unwind block via `invoke`
-        // so cleanup decs run on the panic path. Same predicate as
+        // so cleanup decs run on the panic path and the panic lands in an
+        // enclosing `catch(expr:)` handler. Same predicate as
         // `detect_dead_unwind_blocks` (the block is live iff this fires).
         self.intercepted_unwind = (callee_intercepted
             && !unwind_is_empty_cleanup
             && self.current_funclet_pad.is_none()
             && self.intercept_routes_unwind(callee, arc_args, arc_func))
         .then(|| self.block(unwind));
+        // Internal protocol intercepts: `__index` arrives as an Invoke when
+        // the receiver can panic (list OOB → `ori_list_get`); the armed
+        // route above sends that runtime call through `invoke`.
+        if self.try_emit_protocol(dst, callee, arc_args, arc_func) {
+            self.intercepted_unwind = None;
+            self.br_exiting_catchpad(normal_block);
+            self.builder.position_at_end(normal_block);
+            return;
+        }
         let builtin_val =
             self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst));
         self.intercepted_unwind = None;

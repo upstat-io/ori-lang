@@ -1,0 +1,7 @@
+@get (xs: [str], i: int) -> str = xs[i];
+
+@main () -> int = {
+    let xs = ["alpha string heap", "beta string heap", "gamma string heap"];
+    let result = catch(expr: get(xs: xs, i: 1));
+    match result { Ok(_) -> 0, Err(_) -> 1 }
+}

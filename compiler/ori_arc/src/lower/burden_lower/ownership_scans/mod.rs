@@ -18,7 +18,7 @@ use ori_ir::Name;
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::dimensions::AccessClass;
 use crate::ir::{
-    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, PrimOp, ValueRepr,
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp, ValueRepr,
 };
 use crate::ownership::Ownership;
 use ori_types::TypeRegistry;
@@ -1202,8 +1202,32 @@ pub(super) fn compute_construct_fed_dead_param_lineage(
             if uf.is_forwarder_rep.contains(&rep) {
                 continue;
             }
-            // Gate (a): rep's allocation root is a sum-aggregate Construct.
-            if !uf.is_sum_aggregate_construct_rep(rep) {
+            // Gate (a): rep's allocation root is a FRESH heap Construct — a
+            // sum-aggregate `EnumVariant` (Option/Result/user sum) OR a
+            // collection-buffer `ListLiteral`/`MapLiteral`/`SetLiteral`. The
+            // collection arm cures the borrowed-Invoke-arg fresh collection whose
+            // lineage dies at a merge/return DEAD block-param (the
+            // `catch(expr: callee(coll))` shape: `%3 = Construct List(..)` borrowed
+            // into `Invoke @get(%3 [borrow])`, threaded via the catch's match arms
+            // to a dead block-param — the base walk's fresh-site keep-alive inc has
+            // no executing-path release, so the buffer leaks). Toggle
+            // `ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE=1` restricts gate (a)
+            // to the sum-aggregate root (legacy behaviour). Spec: Annex E §AIMS
+            // RL-5 + RL-2.
+            let collection_admitted = std::env::var_os("ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE").is_none()
+                    && uf.is_fresh_collection_construct_rep(rep)
+                    // Over-fire boundary (collection arm only): the lineage must be
+                    // consumed at AT MOST ONE call site. A fresh collection borrowed
+                    // into a SECOND call after the catch (`catch(f(coll)); g(coll)`)
+                    // is LIVE-ACROSS — the value survives past the dead-param point,
+                    // so supplying a dead-param release here frees it before the
+                    // second borrowed use → use-after-free / double-free. A
+                    // single-call-site lineage genuinely dies at the dead param.
+                    // STRUCTURAL discriminator (call-site count, NOT a use-count
+                    // cardinality proxy) per LEDGER DO-NOT-RE-TRY. Spec: Annex E
+                    // §AIMS RL-2.
+                    && rep_call_site_count(func, &mut uf, rep) <= 1;
+            if !uf.is_sum_aggregate_construct_rep(rep) && !collection_admitted {
                 continue;
             }
             // Gate (b): heap element — at least one class member carries RC.
@@ -1517,6 +1541,39 @@ fn collect_lineage_element_borrow_views(
         }
     }
     views
+}
+
+/// Number of distinct CALL SITES (`Apply` / `ApplyIndirect` instruction or
+/// `Invoke` / `InvokeIndirect` terminator) that consume any member of `rep`'s
+/// union-find class as an argument. A site is counted ONCE regardless of how
+/// many of its arg positions name the rep. Structural call-site multiplicity —
+/// the over-fire discriminator for the construct-fed collection dead-param arm:
+/// a collection consumed at >1 call site is live-across (used after the catch),
+/// so a dead-param release would free it before a later borrowed use. Distinct
+/// from `compute_alt_consumer_reps` (owned-transfer positions only) — this
+/// counts BORROWED arg consumption too, which a second borrowed call is.
+fn rep_call_site_count(func: &ArcFunction, uf: &mut ForwarderUnionFind, rep: ArcVarId) -> usize {
+    let mut count = 0;
+    for block in &func.blocks {
+        for instr in &block.body {
+            let args: &[ArcVarId] = match instr {
+                ArcInstr::Apply { args, .. } | ArcInstr::ApplyIndirect { args, .. } => args,
+                _ => continue,
+            };
+            if args.iter().any(|&a| uf.find(a) == rep) {
+                count += 1;
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Invoke { args, .. } | ArcTerminator::InvokeIndirect { args, .. } => {
+                if args.iter().any(|&a| uf.find(a) == rep) {
+                    count += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    count
 }
 
 /// Forwarder reps with an ALTERNATE consumer — a rep member used at a NON-forwarder
@@ -1934,6 +1991,15 @@ struct ForwarderUnionFind {
     /// dead-block-param scan can gate on "this rep's allocation root is a sum
     /// Construct" without re-walking the body.
     sum_aggregate_construct_dsts: FxHashSet<ArcVarId>,
+    /// Vars defined by a FRESH heap-buffer allocation — a collection-buffer
+    /// `Construct` (`ListLiteral`/`MapLiteral`/`SetLiteral`) OR a `Let { Literal::
+    /// String }` (heap str body). Both share the dead-block-param over-emission
+    /// shape with the sum-aggregate Construct, but allocate a `CollectionBuffer` /
+    /// str body. Tracked per-var (resolved to rep via `find`) so the construct-fed
+    /// dead-block-param scan admits a borrowed-Invoke-arg fresh list/map/set/str
+    /// whose lineage dies at a merge/return DEAD block-param (the
+    /// `catch(expr: callee(coll))` shape). Spec: Annex E §AIMS RL-5 + RL-2.
+    fresh_collection_construct_dsts: FxHashSet<ArcVarId>,
 }
 
 impl ForwarderUnionFind {
@@ -1942,6 +2008,7 @@ impl ForwarderUnionFind {
             parent: FxHashMap::default(),
             is_forwarder_rep: FxHashSet::default(),
             sum_aggregate_construct_dsts: FxHashSet::default(),
+            fresh_collection_construct_dsts: FxHashSet::default(),
         };
         // Edge type 1: Let{Var} aliases.
         for block in &func.blocks {
@@ -1964,6 +2031,25 @@ impl ForwarderUnionFind {
                 } = instr
                 {
                     uf.sum_aggregate_construct_dsts.insert(*dst);
+                }
+                // Record FRESH heap-buffer dsts: list/map/set literal Constructs
+                // (CollectionBuffer) + `Let { Literal::String }` (heap str body) —
+                // the same dead-block-param over-emission shape, buffer-rooted.
+                if let ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
+                    ..
+                } = instr
+                {
+                    uf.fresh_collection_construct_dsts.insert(*dst);
+                }
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Literal(LitValue::String(_)),
+                    ..
+                } = instr
+                {
+                    uf.fresh_collection_construct_dsts.insert(*dst);
                 }
             }
         }
@@ -1999,6 +2085,18 @@ impl ForwarderUnionFind {
     /// recorded sum-Construct dst to its rep and checks for a match.
     fn is_sum_aggregate_construct_rep(&mut self, rep: ArcVarId) -> bool {
         let dsts: Vec<ArcVarId> = self.sum_aggregate_construct_dsts.iter().copied().collect();
+        dsts.into_iter().any(|d| self.find(d) == rep)
+    }
+
+    /// True iff `rep`'s allocation root is a FRESH heap-buffer allocation — a
+    /// collection-buffer `Construct` (`ListLiteral`/`MapLiteral`/`SetLiteral`) OR
+    /// a `Let { Literal::String }` (heap str body).
+    fn is_fresh_collection_construct_rep(&mut self, rep: ArcVarId) -> bool {
+        let dsts: Vec<ArcVarId> = self
+            .fresh_collection_construct_dsts
+            .iter()
+            .copied()
+            .collect();
         dsts.into_iter().any(|d| self.find(d) == rep)
     }
 

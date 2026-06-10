@@ -1,0 +1,7 @@
+@get (xs: [int], i: int) -> int = xs[i];
+
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let result = catch(expr: get(xs: xs, i: 1));
+    match result { Ok(_) -> 0, Err(_) -> 1 }
+}

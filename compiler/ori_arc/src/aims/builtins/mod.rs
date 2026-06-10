@@ -10,6 +10,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::sync::LazyLock;
+
 use ori_ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
@@ -19,6 +21,15 @@ use super::contract::{
     ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
 };
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
+
+/// `ORI_DISABLE_PANIC_MSG_TRANSFER=1` skips the `ori_panic` Owned message
+/// contract, restoring the all-borrowed default (the pre-transfer caller-side
+/// no-release arrangement — the message buffer leaks on every caught-panic
+/// path). Bisection surface: isolates a panic-path leak / double-free to the
+/// panic-message ownership transfer vs the rest of the contract seeding.
+/// Spec: Annex E §AIMS RL-2 (ownership-transferring terminal use).
+static PANIC_MSG_TRANSFER_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_PANIC_MSG_TRANSFER").as_deref() == Ok("1"));
 
 /// Pre-seed the signature map with contracts for all builtin methods.
 ///
@@ -127,6 +138,27 @@ fn seed_internal_runtime_contracts(
         fip: FipContract::Never,
         is_fbip: false,
     });
+
+    // ori_panic(msg: Owned) — RL-2 ownership TRANSFER. The panic machinery
+    // copies the message into thread-local state before unwinding and the
+    // runtime releases the original (slice/SSO/immortal-aware) — the caller
+    // emits NO release on any panic path (no unwind-edge cleanup can reach
+    // the message in frames between the panic site and the catch). Passing a
+    // still-live message dup-incs per RL-1, keeping caller-side references
+    // valid across a caught panic. Effects stay CONSERVATIVE so the seeded
+    // contract narrows ONLY param ownership vs the no-contract default
+    // (`may_throw` MUST stay true — ori_panic always unwinds).
+    if !*PANIC_MSG_TRANSFER_DISABLED {
+        let ori_panic = interner.intern("ori_panic");
+        sigs.entry(ori_panic).or_insert_with(|| MemoryContract {
+            params: vec![PARAM_OWNED_LINEAR],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary::CONSERVATIVE,
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+            is_fbip: false,
+        });
+    }
 
     // ori_list_slice_drop returns a seamless slice (negative cap, interior data
     // pointer) sharing the parent buffer's RC. Without an explicit MaybeShared
@@ -340,6 +372,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
+    return_payload_contains_param_all_paths: false,
     iter_consumes: false,
     // Conservative: builtin seed contracts never carry a read-only claim. The
     // user-call carve-out gate (`compute_user_call_arg_lineages`) returns early
@@ -361,6 +394,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
+    return_payload_contains_param_all_paths: false,
     iter_consumes: false,
     // Owned param is consumed, never read-only.
     borrowed_read_only: false,

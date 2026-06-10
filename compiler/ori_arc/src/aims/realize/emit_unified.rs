@@ -23,6 +23,7 @@ use crate::ir::{
 };
 
 use super::metrics;
+use super::transfer_anchor_net;
 use super::walk;
 
 /// `ORI_DISABLE_BURDEN_ELIM=1` bypasses Phase 2.5 burden-op elimination, read
@@ -819,6 +820,53 @@ fn emit_burden_path_probe_tail(
     strip_comparison_operand_keepalive(func, pool, same_alloc_reps);
     trace_phase_snapshot(
         "after_phase_6_97_comparison_operand_keepalive",
+        func,
+        interner,
+    );
+
+    // Phase 6.98 — RL-4 release on dying Invoke UNWIND edges whose
+    // predecessor carries a self-canceling whole-var burden pair (net 0 —
+    // the walk's terminator-arg bookkeeping). Without it, a panic landing
+    // in a LIVE unwind successor (`catch(expr: opt.expect(msg:))` via the
+    // armed intercepted-unwind route) leaks the value on the caught path.
+    // Runs LAST so every normal-path repair pass above computes against
+    // the unchanged baseline; touches only unwind-successor block fronts.
+    // Spec: Annex E §AIMS RL-4.
+    crate::aims::emit_rc::emit_invoke_unwind_pair_net_releases(
+        func,
+        state_map,
+        pool,
+        all_borrowed_defs,
+        take_move_facts,
+    );
+    trace_phase_snapshot(
+        "after_phase_6_98_invoke_unwind_pair_release",
+        func,
+        interner,
+    );
+
+    // Phase 6.99 — transfer-anchor credit net (RL-34 + RL-2 + RL-1). Per-rep
+    // alloc-aware net over the result-side lineage of a PROVEN
+    // `transfers_through_return ∧ Owned ∧ Direct` forwarder call whose arg-side
+    // lineage is CALLER-FRESH: models the transferred-in CREDIT (+1 at the
+    // anchor's normal successor — the caller re-acquires the SAME allocation,
+    // RL-34) + the `[own]` hand-offs (-1, RL-2) + fresh births (+1) + surviving
+    // whole-var ops (±1), then repairs the lineage to net EXACTLY 0 on every
+    // Return path (Resume/Unreachable >= 0): removing the single spurious
+    // fresh-site keep-alive inc, OR placing ONE whole-var release after the
+    // execution-final value-read (RC ops are NOT value-reads per TF-11). When
+    // the net cannot be proven, changes NOTHING. Runs LAST so every repair pass
+    // above computes against a byte-identical baseline. Spec: Annex E §AIMS
+    // RL-34 + RL-2 + RL-1 + RL-comp.
+    transfer_anchor_net::apply_transfer_anchor_credit_net(
+        func,
+        pool,
+        interner,
+        contracts,
+        same_alloc_reps,
+    );
+    trace_phase_snapshot(
+        "after_phase_6_99_transfer_anchor_credit_net",
         func,
         interner,
     );
@@ -5508,7 +5556,7 @@ fn compute_dead_owned_collection_releases(
 /// (`{ x: int, y: int }`) are excluded — they have no field drop-glue. The
 /// triviality classifier is the SSOT both `ArcClassifier` and the burden registry
 /// synthesis consume (no parallel heap-ness derivation). Spec: Annex E §AIMS RL-2.
-fn is_burden_carrying_aggregate(var: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
+pub(super) fn is_burden_carrying_aggregate(var: ArcVarId, func: &ArcFunction, pool: &Pool) -> bool {
     if !matches!(func.var_repr(var), Some(ValueRepr::Aggregate)) {
         return false;
     }
@@ -5810,7 +5858,7 @@ fn compute_dead_collection_source_releases(
 /// unthreaded reps. The apply-Direct seed is wired ONLY for the dead-owned-
 /// collection pass (the forwarder-RESULT leak), where the threaded rep attributes
 /// the result's borrowed-read scope-exit sink to its allocation source.
-fn compute_jump_threaded_reps(
+pub(super) fn compute_jump_threaded_reps(
     func: &ArcFunction,
     apply_direct_seed: Option<&FxHashMap<ArcVarId, ArcVarId>>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let r: Result<str, str> = Err("error payload string exceeding sso width!");
+    let result = catch(expr: r.expect(msg: "result-expect caught heap message text!"));
+    match result {
+        Err(m) -> if m == "result-expect caught heap message text!" then 0 else 2,
+        Ok(_) -> 1
+    }
+}

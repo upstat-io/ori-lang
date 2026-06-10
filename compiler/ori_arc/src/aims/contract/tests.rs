@@ -101,6 +101,7 @@ fn param_join_is_commutative() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     };
@@ -115,6 +116,7 @@ fn param_join_is_commutative() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
+        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
     };
@@ -295,6 +297,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
+            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
         }],

@@ -69,10 +69,18 @@ pub(super) fn tagged_union_has_boxed_inner(pool: &Pool, union_type: Idx) -> bool
 ///
 /// `updated` (`IndexSet`) is included because the list lowering calls
 /// `ori_list_updated_cow`, which panics on out-of-bounds keys (matching
-/// `list[key]`). Matching is by unqualified method name, so map `updated`
-/// (never panics) is conservatively included too.
-pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] =
-    &["unwrap", "unwrap_err", "expect", "expect_err", "updated"];
+/// `list[key]`). `__index` is included because the list lowering calls
+/// `ori_list_get`, which panics on out-of-bounds access. Matching is by
+/// unqualified method name, so map `updated` / map `__index` (never
+/// panic) are conservatively included too.
+pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
+    "unwrap",
+    "unwrap_err",
+    "expect",
+    "expect_err",
+    "updated",
+    "__index",
+];
 
 /// Check if a callee will be intercepted by builtin handlers during emission.
 ///
@@ -156,23 +164,38 @@ pub(crate) fn is_callee_intercepted(
 
 /// Whether an intercepted may-unwind builtin emission routes its panicking
 /// runtime call through the ARC unwind block (`invoke`), so the unwind
-/// block's cleanup decs run on the panic path.
+/// block's cleanup decs run on the panic path AND the panic lands in an
+/// enclosing `catch(expr:)` handler (Spec: Clause 17.4 — implicit panics
+/// are catchable).
 ///
-/// Keep in sync with the emission sites: list/fixed-list `updated`
-/// (`emit_list_updated_cow`) calls `ori_list_updated_cow`, which panics on
-/// out-of-bounds keys. Map `updated` never panics (`ori_map_updated_cow`
-/// carries `Nounwind`), so its unwind block stays dead — listing it here
-/// would create an orphan landingpad (no `invoke` ever targets it).
+/// Keep in sync with the emission sites; the predicate MUST be true only
+/// when the emission is guaranteed to emit at least one call to a
+/// non-nounwind runtime function — listing a never-panicking emission
+/// would create an orphan landingpad (no `invoke` ever targets it):
+/// - list `updated` (`emit_list_updated_cow`) calls `ori_list_updated_cow`,
+///   which panics on out-of-bounds keys. Map `updated` never panics
+///   (`ori_map_updated_cow` carries `Nounwind`).
+/// - Option/Result `unwrap` / `expect` (+ Result `unwrap_err` /
+///   `expect_err`) always emit a panic branch calling `ori_panic` /
+///   `ori_panic_cstr` (`emit_unwrap_branch` / `emit_expect_branch`).
+/// - list `__index` (`emit_list_index`) calls `ori_list_get`, which panics
+///   on out-of-bounds access. Map `__index` returns Option (never panics).
 ///
 /// Consumed by `detect_dead_unwind_blocks` (keep the unwind block live) and
-/// `emit_invoke` (arm `intercepted_unwind` around the builtin dispatch) —
-/// both sites MUST agree or the landingpad is orphaned / the invoke targets
-/// a dead block.
+/// `emit_invoke` (arm `intercepted_unwind` around the protocol + builtin
+/// dispatch) — both sites MUST agree or the landingpad is orphaned / the
+/// invoke targets a dead block.
 pub(crate) fn intercepted_emission_invokes_unwind(
     method_name: &str,
-    receiver_is_list: bool,
+    receiver_tag: ori_types::Tag,
 ) -> bool {
-    method_name == "updated" && receiver_is_list
+    use ori_types::Tag;
+    match method_name {
+        "updated" | "__index" => matches!(receiver_tag, Tag::List),
+        "unwrap" | "expect" => matches!(receiver_tag, Tag::Option | Tag::Result),
+        "unwrap_err" | "expect_err" => matches!(receiver_tag, Tag::Result),
+        _ => false,
+    }
 }
 
 /// Check whether an intercepted callee is guaranteed to be nounwind.

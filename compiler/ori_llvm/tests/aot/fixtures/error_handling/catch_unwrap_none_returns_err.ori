@@ -1,0 +1,8 @@
+@main () -> int = {
+    let opt: Option<int> = None;
+    let result = catch(expr: opt.unwrap());
+    match result {
+        Err(_) -> 0,
+        Ok(_) -> 1
+    }
+}

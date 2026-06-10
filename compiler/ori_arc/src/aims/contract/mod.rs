@@ -255,6 +255,7 @@ impl ReturnAliasShape {
         Locality SSOT migration), `may_share` (per-param sharing flag), \
         `transfers_through_return` (Return-flow alias), \
         `return_payload_contains_param` (transitive-drop containment), \
+        `return_payload_contains_param_all_paths` (per-path wrap proof), \
         `iter_consumes` (iter-consume inward-transfer, RL-2). \
         Bundling would obscure the analysis surface."
 )]
@@ -333,6 +334,32 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — no containment claim).
     pub return_payload_contains_param: bool,
+    /// Whether the parameter is structurally contained in the returned
+    /// transitive-drop variant payload on EVERY `Return` path (the per-path
+    /// strengthening of `return_payload_contains_param`, whose OR-join only
+    /// proves containment on SOME path).
+    ///
+    /// `true` when every `Return { value }` in the callee traces (through
+    /// Let-Var aliases) to an `EnumVariant` `Construct` whose direct args
+    /// contain an alias of this parameter — e.g., `@wrap_ok (m: T) ->
+    /// Result<T, E> = Ok(m)` (single return, always wraps). A callee that
+    /// wraps on one path but not another (`if c then Ok(m) else Err(e)`)
+    /// keeps `false`: the returned wrapper's payload reference on `m`'s
+    /// allocation is path-dependent there, so no caller-side static credit
+    /// is provable.
+    ///
+    /// Consumed by the Phase-6.99 WRAPPED transfer-anchor admission
+    /// (`realize::transfer_anchor_net`): the caller models the returned
+    /// wrapper as carrying exactly one reference on the payload's
+    /// allocation (RL-1 mint for a Borrowed param; RL-2 transfer-through
+    /// for an Owned param) ONLY when this proves the wrap fires on all
+    /// paths.
+    ///
+    /// IC-3 join: AND (the all-paths guarantee holds only if it holds on
+    /// every joined path).
+    ///
+    /// Default: `false` (conservative — no all-paths claim).
+    pub return_payload_contains_param_all_paths: bool,
     /// Whether the callee iter-consumes this borrowed parameter and frees it
     /// via the iterator drop (RL-2 iter-consume transfer).
     ///
@@ -420,6 +447,9 @@ impl ParamContract {
         // extract_contract when the param flows into a transitive-drop
         // variant payload that is returned.
         return_payload_contains_param: false,
+        // Conservative default: no all-paths wrap claim — the Phase-6.99
+        // wrapped-anchor credit never fires on an unknown callee.
+        return_payload_contains_param_all_paths: false,
         // Conservative default: caller keeps its dec. Promoted by
         // extract_contract when the borrowed param iter-consumes-and-frees.
         iter_consumes: false,
@@ -452,6 +482,11 @@ impl ParamContract {
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's structural payload-containment fact fires.
         return_payload_contains_param: false,
+        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
+        // all paths wrap). Join (AND) demotes to `false` when any joined
+        // path lacks the wrap. `extract_contract` overrides per-param from
+        // the body scan; OPTIMISTIC is the fixpoint seed only.
+        return_payload_contains_param_all_paths: true,
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's iter-consume-and-free fact fires.
         iter_consumes: false,
@@ -485,6 +520,10 @@ impl ParamContract {
             // Matches IC-3 componentwise-max semantics for boolean dimensions.
             return_payload_contains_param: self.return_payload_contains_param
                 || other.return_payload_contains_param,
+            // AND (conservative direction): the all-paths wrap guarantee
+            // holds only if it holds on EVERY joined path.
+            return_payload_contains_param_all_paths: self.return_payload_contains_param_all_paths
+                && other.return_payload_contains_param_all_paths,
             // OR (conservative direction): once true on any path, stays true.
             // Matches IC-3 componentwise-max semantics for boolean dimensions.
             iter_consumes: self.iter_consumes || other.iter_consumes,

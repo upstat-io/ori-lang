@@ -1,0 +1,7 @@
+@sum_all (xs: [int]) -> int = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let result = catch(expr: sum_all(xs: xs));
+    match result { Ok(_) -> 0, Err(_) -> 1 }
+}

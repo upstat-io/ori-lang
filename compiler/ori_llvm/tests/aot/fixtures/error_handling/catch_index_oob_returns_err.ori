@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let result = catch(expr: xs[7]);
+    match result {
+        Err(_) -> 0,
+        Ok(_) -> 1
+    }
+}

@@ -219,6 +219,10 @@ fn param_contract_for(
         // `return_alias`, which covers the result being an ALIAS of the
         // param. Consumed by `populate_class_payload_of_with_liveness`.
         return_payload_contains_param: facts.payload_containment.contains(&i),
+        // Per-path wrap proof — contained in the returned EnumVariant
+        // payload on EVERY return path. Gates the Phase-6.99 wrapped
+        // transfer-anchor credit (RL-1 mint / RL-2 transfer-through).
+        return_payload_contains_param_all_paths: facts.payload_containment_all_paths.contains(&i),
         // RL-2 iter-consume transfer fact (proven sound:
         // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
         iter_consumes: facts.iter_consume.contains(&i),
@@ -309,6 +313,10 @@ struct ParamFacts {
     /// (e.g., `wrap_ok(m) = Ok(m)`) — contained IN the result, not aliased
     /// to it. Consumed by the `class_payload_of` liveness gate.
     payload_containment: FxHashSet<usize>,
+    /// Subset of `payload_containment`: params contained in the returned
+    /// `EnumVariant` payload on EVERY return path — the per-path wrap proof
+    /// consumed by the Phase-6.99 wrapped transfer-anchor admission.
+    payload_containment_all_paths: FxHashSet<usize>,
     /// Params iter-consumed (`@iter` -> `ori_iter_drop`) inside the body —
     /// the RL-2 inward ownership transfer.
     iter_consume: FxHashSet<usize>,
@@ -337,7 +345,7 @@ fn detect_param_facts(
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
-    let payload_containment = find_payload_containment_params(func, &alias_to_param);
+    let containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
@@ -361,7 +369,8 @@ fn detect_param_facts(
         consumed,
         return_flow,
         return_alias_shapes,
-        payload_containment,
+        payload_containment: containment.any,
+        payload_containment_all_paths: containment.all_paths,
         iter_consume,
         borrowed_read_only,
     }

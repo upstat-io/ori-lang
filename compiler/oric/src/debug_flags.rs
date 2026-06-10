@@ -202,6 +202,23 @@ flags! {
     /// Usage: `ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE=1 ori build file.ori`
     ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE
 
+    /// Restrict the construct-fed-dead-param scan's gate (a) to the
+    /// sum-aggregate-`Construct` root, declining the FRESH collection-buffer
+    /// (`ListLiteral`/`MapLiteral`/`SetLiteral`) + `Let { Literal::String }`
+    /// heap-buffer arm.
+    ///
+    /// Default (unset): a fresh list/map/set/str borrowed into a may-unwind
+    /// user-call `Invoke` whose lineage dies at a merge/return DEAD block-param
+    /// (the `catch(expr: callee(coll))` shape) gets its sole RL-5 dead-at-entry
+    /// release — curing the borrowed-Invoke-arg buffer leak. The collection arm
+    /// is gated by a structural call-site-count <= 1 over-fire boundary (a
+    /// collection consumed at >1 call site is live-across, declined to avoid
+    /// freeing it before a later borrowed use). Consumed in
+    /// `ori_arc::lower::burden_lower`. Bisects a borrowed-collection-into-catch
+    /// leak to that arm vs the rest of the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE
+
     /// Disable the Phase-5 RL-2 scope-exit release for a transfer-through-return
     /// forwarder result whose monomorphized result-type burden is empty.
     ///
@@ -254,6 +271,73 @@ flags! {
     /// alias-lineage double-free / leak to the pair coupling.
     /// Usage: `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 ori build file.ori`
     ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING
+
+    /// Disable the `ori_panic` message ownership-transfer contract seed
+    /// (default: the panic machinery owns + releases its message; a
+    /// still-live message dup-incs per RL-1).
+    ///
+    /// Consumed in `ori_arc::aims::builtins` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// panic-message leak / double-free to the transfer seed.
+    /// Usage: `ORI_DISABLE_PANIC_MSG_TRANSFER=1 ori build file.ori`
+    ORI_DISABLE_PANIC_MSG_TRANSFER
+
+    /// Bypass the Phase-6.98 RL-4 release on dying Invoke UNWIND edges for
+    /// vars whose predecessor carries a self-canceling whole-var burden pair
+    /// (default: the caught-panic path's dying borrowed arg is released at
+    /// the unwind-successor front).
+    ///
+    /// Consumed in `ori_arc::aims::emit_rc::edge_cleanup` (raw `var`).
+    /// Defined here for documentation and `check-debug-flags.sh`
+    /// consistency. Bisects a caught-panic-path leak to this release.
+    /// Usage: `ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE
+
+    /// Bypass the Phase-6.99 transfer-anchor credit-net repair on the
+    /// result-side lineage of a `transfers_through_return ∧ Owned ∧ Direct`
+    /// forwarder call with a caller-fresh arg-side lineage (default: the
+    /// net-verified repair removes the single spurious fresh-site keep-alive
+    /// inc OR places one release after the execution-final value-read so
+    /// every Return path nets 0).
+    ///
+    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net` (raw
+    /// `var`). Defined here for documentation and `check-debug-flags.sh`
+    /// consistency. Bisects a forwarder-result leak / double-free to this
+    /// repair vs the rest of the burden-strip pipeline.
+    /// Usage: `ORI_DISABLE_TRANSFER_ANCHOR_CREDIT_NET=1 ori build file.ori`
+    ORI_DISABLE_TRANSFER_ANCHOR_CREDIT_NET
+
+    /// Force every Phase-6.99 same-allocation view into the Opaque
+    /// (balanced-pair-or-decline) class, disabling the unified member+view
+    /// ledger admission of niche-family (`Option` / `Result`) single-payload
+    /// borrow-views (default: a proven same-alloc view's whole-var RC ops
+    /// join the per-rep credit net at `±1`, so a lone niche-payload release
+    /// is modeled instead of declining the lineage).
+    ///
+    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net::views`
+    /// (raw `var`). Defined here for documentation and
+    /// `check-debug-flags.sh` consistency. Bisects a forwarder-result
+    /// Option-family verdict change to the view-ledger admission vs the
+    /// member-only net.
+    /// Usage: `ORI_DISABLE_VIEW_LEDGER_ADMISSION=1 ori build file.ori`
+    ORI_DISABLE_VIEW_LEDGER_ADMISSION
+
+    /// Decline the Phase-6.99 WRAPPED transfer-anchor class (the
+    /// `Ok(m)`-style wrap-forwarder credit: a callee whose contract proves
+    /// `return_payload_contains_param` on EVERY return path with a
+    /// same-allocation wrapper result), reverting wrap-forwarder call
+    /// sites to the unadmitted treatment (default: the returned wrapper
+    /// carries one credit on the payload's allocation; the wrapper, its
+    /// payload args, and live extractions form one coupled lineage
+    /// eligible for the combined remove-inc + place-release repair).
+    ///
+    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net::anchors`
+    /// (raw `var`). Defined here for documentation and
+    /// `check-debug-flags.sh` consistency. Bisects a wrap-forwarder-result
+    /// leak / repair change to the wrapped-credit admission vs the Direct
+    /// anchor machinery.
+    /// Usage: `ORI_DISABLE_WRAPPED_CREDIT_ANCHOR=1 ori build file.ori`
+    ORI_DISABLE_WRAPPED_CREDIT_ANCHOR
 
     /// Disable the as-compiled impl-method contract pre-pass + per-caller
     /// Phase-5 binding; impl-method call sites revert to the conservative

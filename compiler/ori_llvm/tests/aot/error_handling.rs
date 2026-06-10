@@ -9,7 +9,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{assert_aot_success, assert_panic_exit, compile_and_run_capture};
 
 // ─── Result: basic patterns ───
 
@@ -256,4 +256,328 @@ fn test_catch_in_conditional() {
         "fixtures/error_handling/catch_in_conditional.ori"
     ));
     assert_eq!(exit_code, 0, "catch with conditional panics");
+}
+
+// ─── panic-message ownership: ori_panic owns + releases its message ───
+
+/// Regression: a heap panic message aliased past the catch boundary must
+/// survive the caught panic (the panic transfer dup-incs the still-live
+/// message; the runtime releases only the transferred reference).
+#[test]
+fn test_catch_panic_aliased_message_survives_catch() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_panic_aliased_message_survives.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "aliased message must stay valid after the caught panic, leak-clean:\n{stderr}"
+    );
+}
+
+/// Regression: nested catches each recover their own heap panic message;
+/// every message buffer is released exactly once (no leak, no double-free).
+#[test]
+fn test_nested_catch_panic_heap_messages_release_once() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/nested_catch_panic_heap_messages.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "nested catch must recover both messages, leak-clean:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: an SSO panic message has no heap buffer — the
+/// runtime release must no-op (no corruption, no spurious free).
+#[test]
+fn test_catch_panic_sso_message_no_heap_release() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_panic_sso_message.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "SSO message catch must stay clean (release no-ops on SSO):\n{stderr}"
+    );
+}
+
+/// Over-fire negative: the uncaught-panic exit path is unchanged — panic
+/// exit code, message on stderr, and the message buffer released before
+/// the unwind (leak-clean even though the process is exiting).
+#[test]
+fn test_uncaught_panic_heap_message_exit_unchanged() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_panic_heap_message.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught heap-message panic", &stderr);
+    assert!(
+        stderr.contains("uncaught heap panic message"),
+        "panic message must reach stderr intact:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("not freed"),
+        "uncaught panic path must not leak the message buffer:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: `expect` panics route the user message through the
+/// inline panic emission (manufactured transfer inc) — the panic exit and
+/// message are unchanged.
+#[test]
+fn test_expect_panic_heap_message_exit_unchanged() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/expect_panic_heap_message_uncaught.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught expect panic", &stderr);
+    assert!(
+        stderr.contains("expect failure message"),
+        "expect panic message must reach stderr intact:\n{stderr}"
+    );
+}
+
+// catch(expr:) catchability parity: may-panic builtins (eval == AOT)
+
+/// Parity: `expect` on None inside `catch` returns Err carrying the user
+/// message — the interpreter catches this; AOT must too (Spec: Clause 17.4).
+#[test]
+fn test_catch_expect_none_returns_err_with_message() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_expect_none_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame expect panic with the message intact, leak-clean:\n{stderr}"
+    );
+}
+
+/// Parity: `unwrap` on None inside `catch` returns Err (Spec: Clause 17.4).
+#[test]
+fn test_catch_unwrap_none_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_unwrap_none_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame unwrap panic:\n{stderr}"
+    );
+}
+
+/// Parity: `Result.unwrap` on Err inside `catch` returns Err.
+#[test]
+fn test_catch_result_unwrap_err_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_result_unwrap_err_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame Result.unwrap panic:\n{stderr}"
+    );
+}
+
+/// Parity: `Result.unwrap_err` on Ok inside `catch` returns Err.
+#[test]
+fn test_catch_unwrap_err_on_ok_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_unwrap_err_on_ok_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame unwrap_err panic:\n{stderr}"
+    );
+}
+
+/// Parity + RC pin: `Result.expect` on Err with a heap message and heap
+/// payload — caught message content intact, leak-clean.
+#[test]
+fn test_catch_result_expect_heap_message_caught() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_result_expect_heap_message.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture Result.expect with heap message + payload, leak-clean:\n{stderr}"
+    );
+}
+
+/// Parity: list index OOB inside `catch` returns Err — implicit panics are
+/// catchable (Spec: Clause 17.2.4).
+#[test]
+#[ignore = "BUG-04-153: same-frame __index OOB panic uncatchable in AOT — Apply carrier has no unwind edge; Invoke conversion blocked on the Phase-5 walk's terminator-borrowed-arg accounting"]
+fn test_catch_index_oob_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_index_oob_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame index-OOB panic:\n{stderr}"
+    );
+}
+
+/// RC pin: the indexed list (heap str elements) survives the caught OOB
+/// panic — the unwind-edge cleanup must not release a value still live
+/// after the catch.
+#[test]
+#[ignore = "BUG-04-153: same-frame __index OOB panic uncatchable in AOT — Apply carrier has no unwind edge; Invoke conversion blocked on the Phase-5 walk's terminator-borrowed-arg accounting"]
+fn test_catch_index_oob_str_elements_survive_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_index_oob_str_elements_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "list must survive the caught OOB panic, leak-clean:\n{stderr}"
+    );
+}
+
+/// RC pin: a constructed (definitely-heap) expect message dead after the
+/// call is released exactly once across the caught panic path.
+#[test]
+fn test_catch_expect_constructed_message_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_expect_constructed_message_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "constructed expect message released exactly once across the caught panic:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: non-panicking `expect` inside `catch` returns Ok
+/// with the payload — the hot path is behaviorally unchanged.
+#[test]
+fn test_catch_expect_some_returns_ok() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_expect_some_returns_ok.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "non-panicking expect inside catch returns Ok(payload):\n{stderr}"
+    );
+}
+
+/// Over-fire negative: in-bounds index inside `catch` returns Ok.
+#[test]
+fn test_catch_index_inbounds_returns_ok() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_index_inbounds_returns_ok.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "in-bounds index inside catch returns Ok(element):\n{stderr}"
+    );
+}
+
+/// Cross-frame regression pin: an OOB index inside a CALLED function is
+/// caught by the caller's catch via the user-call Invoke edge (catchability
+/// holds), AND the borrowed [int]-list arg buffer is freed on the caught path.
+/// The fresh collection borrowed into the may-unwind user-call `Invoke`, whose
+/// lineage dies at the catch-match's DEAD merge block-param, gets its sole RL-5
+/// dead-at-entry release from the construct-fed-dead-param collection arm.
+#[test]
+fn test_catch_callee_index_oob_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_index_oob_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "cross-frame index-OOB panic caught at the caller's catch + no buffer leak:\n{stderr}"
+    );
+}
+
+/// Borrowed [int]-list arg at a may-unwind user-call `Invoke`, NORMAL in-bounds
+/// path: the fresh list lineage dies at the catch-match's dead merge block-param;
+/// the construct-fed-dead-param collection arm supplies the sole release so the
+/// 24-byte buffer is freed (`ORI_CHECK_LEAKS=1` exit 0). Spec: Annex E §AIMS
+/// RL-5 + RL-2.
+#[test]
+fn test_catch_callee_borrowed_intlist_normal_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_borrowed_intlist_normal_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "borrowed [int]-list arg at may-unwind Invoke, normal path, no buffer leak:\n{stderr}"
+    );
+}
+
+/// Borrowed [str]-list arg at a may-unwind user-call `Invoke`, NORMAL in-bounds
+/// path: the heap-str-element buffer + its element strings are freed.
+#[test]
+fn test_catch_callee_borrowed_strlist_normal_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_borrowed_strlist_normal_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "borrowed [str]-list arg at may-unwind Invoke, normal path, no leak:\n{stderr}"
+    );
+}
+
+/// Borrowed heap-`str` arg (plus a list) at a may-unwind user-call `Invoke`,
+/// NORMAL path: the str-literal-rooted lineage and the list lineage both die at
+/// the catch-match dead block-param; both buffers are freed. Covers the
+/// `Let { Literal::String }` heap-buffer root of the collection arm.
+#[test]
+fn test_catch_callee_borrowed_str_normal_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_borrowed_str_normal_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "borrowed str + list args at may-unwind Invoke, normal path, no leak:\n{stderr}"
+    );
+}
+
+/// Borrowed [str]-list arg at a may-unwind user-call `Invoke`, CAUGHT-panic
+/// (OOB) path: the buffer is freed on the recovered path.
+#[test]
+fn test_catch_callee_borrowed_strlist_caught_no_leak() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_borrowed_strlist_caught_no_leak.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "borrowed [str]-list arg at may-unwind Invoke, caught path, no leak:\n{stderr}"
+    );
+}
+
+/// Over-fire negative pin: a fresh list borrowed into a catch AND iter-consumed
+/// (`fold`) at the SAME single call site stays freed without double-free. The
+/// construct-fed-dead-param collection arm's call-site-count ≤ 1 gate admits
+/// this (single call), distinct from the live-across multi-call shape that the
+/// gate declines (proven by `fat_ptr_iter::unwind::test_unwind_list_reusable_after_catch`).
+#[test]
+fn test_catch_callee_iterconsume_no_regression() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_callee_iterconsume_no_regression.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "fresh list borrowed into a single catch'd fold, no leak / no double-free:\n{stderr}"
+    );
+}
+
+/// Nested-catch pin: the builtin panic unwinds to the INNERMOST handler
+/// (catch-target save/restore holds for intercepted emissions).
+#[test]
+fn test_catch_nested_inner_expect_caught_by_inner() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_nested_inner_expect.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "inner catch captures the expect panic; outer sees Ok:\n{stderr}"
+    );
+}
+
+/// Over-fire negative: the uncaught index-OOB exit path is unchanged —
+/// panic exit code and message on stderr.
+#[test]
+fn test_index_oob_uncaught_exit_unchanged() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/index_oob_uncaught_exit_unchanged.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught index-OOB panic", &stderr);
+    assert!(
+        stderr.contains("out of bounds"),
+        "OOB panic message must reach stderr intact:\n{stderr}"
+    );
 }
