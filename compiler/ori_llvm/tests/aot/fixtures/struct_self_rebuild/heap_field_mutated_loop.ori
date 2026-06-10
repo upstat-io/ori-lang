@@ -1,0 +1,14 @@
+// Loop-carried struct rebuilt with one field plainly forwarded and the other
+// genuinely mutated (push). The plain field transfers; the mutated field's
+// projection is consumed by push (a separate transfer producing a fresh list).
+// Both fields still move out, but the values grow — checks the full-move
+// classification holds across an Apply-consume + a Construct-arg transfer.
+type Record = { name: str, values: [int] }
+
+@main () -> int = {
+    let r = Record { name: "loop_growing_record_heap_payload", values: [1, 2, 3] };
+    for i in 0..30 do {
+        r = Record { name: r.name, values: r.values.push(i) };
+    };
+    if r.values.len() == 33 then 0 else 1
+}

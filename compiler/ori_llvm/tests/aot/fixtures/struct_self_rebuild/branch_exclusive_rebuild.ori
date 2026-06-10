@@ -1,0 +1,19 @@
+// Over-fire negative (guard 2): the self-rebuild happens on ONE branch arm
+// only; the other arm reads the fields. The sibling-union verdict must gate on
+// the Construct site lying on the def-to-dec path — a dec on the read-only arm
+// keeps its full release set. Must run leak-clean on both paths.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        if i % 2 == 0 then {
+            r = Pair { a: r.a, b: r.b };
+        }
+        else {
+            let $n = r.a.len() + r.b.len();
+            if n == 0 then panic(msg: "unreachable");
+        };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

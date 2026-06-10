@@ -1,0 +1,11 @@
+// Three-heap-field struct rebuilt from three plain self-projections in a
+// loop. Exercises the moved-out-field union across THREE sibling aliases.
+type Triple = { a: [int], b: [int], c: str }
+
+@main () -> int = {
+    let r = Triple { a: [1], b: [2], c: "another_real_heap_string_payload" };
+    for i in 0..20 do {
+        r = Triple { a: r.a, b: r.b, c: r.c };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

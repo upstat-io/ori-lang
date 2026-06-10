@@ -1,0 +1,16 @@
+// Sum-payload (guard 4): the rebuild's projections pass through a match on a
+// sum field — same-variant extraction feeding the new struct. The variant-tag
+// gate must unify only same-tag projections. Must run leak-clean.
+type Pair = { o: Option<[int]>, b: [int] }
+
+@main () -> int = {
+    let r = Pair { o: Some([1]), b: [2] };
+    for i in 0..30 do {
+        let $extracted = match r.o {
+            Some(xs) -> xs,
+            None -> [],
+        };
+        r = Pair { o: Some(extracted), b: r.b };
+    };
+    if r.b.len() == 1 then 0 else 1
+}

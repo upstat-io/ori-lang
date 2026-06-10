@@ -1,0 +1,16 @@
+// Guard 4 DECLINE negative: projections through DIFFERENT variant arms of the
+// same sum feed the rebuild on alternating iterations. Unification across
+// different variant tags must DECLINE (dec kept). Must run leak-clean.
+type Holder = { o: Option<[int]>, b: [int] }
+
+@main () -> int = {
+    let r = Holder { o: Some([1]), b: [2] };
+    for i in 0..30 do {
+        let $next = match r.o {
+            Some(xs) -> if i % 2 == 0 then None else Some(xs),
+            None -> Some([5]),
+        };
+        r = Holder { o: next, b: r.b };
+    };
+    if r.b.len() == 1 then 0 else 1
+}

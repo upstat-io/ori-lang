@@ -1,0 +1,13 @@
+// Mixed coverage (per-FIELD verdict + single-releaser): three heap fields,
+// only two plainly self-projected; the third is replaced fresh each iteration.
+// The covered fields' decs widen away; EXACTLY ONE kept dec releases the
+// replaced field's predecessor. Was expected to double-free pre-fix.
+type Triple = { a: [int], b: [int], c: [int] }
+
+@main () -> int = {
+    let r = Triple { a: [1], b: [2], c: [3] };
+    for i in 0..30 do {
+        r = Triple { a: r.a, b: r.b, c: [9, 9] };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

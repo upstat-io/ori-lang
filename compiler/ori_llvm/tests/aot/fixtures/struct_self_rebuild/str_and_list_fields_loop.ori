@@ -1,0 +1,13 @@
+// Loop-carried struct rebuilt from two plain self-projections of mixed heap
+// types (str + [int]), with real heap-allocated strings (NOT SSO). Both
+// fields are ConstructArg transfers; the partial-dec on each sibling alias
+// must be unified so the heap str + heap list are not double-freed.
+type Record = { name: str, values: [int] }
+
+@main () -> int = {
+    let r = Record { name: "a_real_heap_allocated_string_over_sso", values: [1, 2, 3] };
+    for i in 0..30 do {
+        r = Record { name: r.name, values: r.values };
+    };
+    if r.values.len() == 3 then 0 else 1
+}

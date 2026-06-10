@@ -1,0 +1,12 @@
+// Over-fire negative: two-field self-rebuild with NO loop (single reassign).
+// Both fields move into the new struct; the old struct's fields must transfer
+// without a spurious release, but with no back-edge there is no
+// double-free pressure. Must run leak-clean (the new struct holds both heap
+// buffers, released once at scope exit).
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1, 2, 3], b: [4, 5] };
+    r = Pair { a: r.a, b: r.b };
+    if r.a.len() == 3 then 0 else 1
+}
