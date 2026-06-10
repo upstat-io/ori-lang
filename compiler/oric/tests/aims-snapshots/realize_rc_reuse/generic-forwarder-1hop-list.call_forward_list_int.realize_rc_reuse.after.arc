@@ -8,5 +8,4 @@ fn @call_forward_list_int() -> [int] [entry: bb0]
   bb1:
     Return %4
   bb2:
-    RcDec %3 [HeapPtr]
     Resume
