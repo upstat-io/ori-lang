@@ -319,6 +319,29 @@ flags! {
     /// Usage: `ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE=1 ori build file.ori`
     ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE
 
+    /// Decline the Phase-5 borrowed-`Invoke` lineage treatment: the inline
+    /// borrowed-`Invoke`-terminator dec suppression + the single placed
+    /// death-point release for a FRESH collection-`Construct` buffer (or a
+    /// may-unwind borrowed-receiver user-call heap result) borrowed into a
+    /// may-unwind `Invoke` and reaching a DEAD merge block-param.
+    ///
+    /// Default (unset): the same-alloc closure is removed from
+    /// `owned_vars_needing_rc` (suppressing the dup-alias incs + the inline
+    /// terminator dec) and EXACTLY ONE whole-var release is placed at the
+    /// lineage's dead-block-param death point; the dying unwind / unreachable
+    /// edges are released by the Surface-1 Category-2 `deadAtSucc` conjunct.
+    /// With the toggle set, the lineage reverts to the pre-fix base walk
+    /// (inline dec before the terminator → use-after-free / double-free on the
+    /// still-live receiver). The Cat-2 `deadAtSucc` conjunct itself is NOT
+    /// gated (a pure narrowing of over-release, unconditional).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// borrowed-`Invoke` lineage leak / double-free to this treatment vs the
+    /// rest of the Phase-5 walk. Spec: Annex E §AIMS RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE
+
     /// Bypass the Phase-6.99 transfer-anchor credit-net repair on the
     /// result-side lineage of a `transfers_through_return ∧ Owned ∧ Direct`
     /// forwarder call with a caller-fresh arg-side lineage (default: the

@@ -764,19 +764,63 @@ pub(crate) fn compute_invoke_edge_dead_set(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            // BUG-04-090: gate normal edge
-            // dec via `apply_result_aliases`. Unwind edge always fires per
-            // `RL-4`.
-            if !should_suppress_apply_aliased_dec(state_map, arg, false) {
+            // RL-4 `deadAtSucc` same-alloc conjunct (mechanical port of the
+            // Category-1 normal-edge gate at :719-726): a borrowed-arg edge dec
+            // is a genuine release ONLY when the arg AND every same-allocation
+            // alias-class member is DEAD (`Cardinality = Absent`) at that
+            // successor's entry. A live-across receiver (`catch(expr: xs[9]);
+            // xs.len()` — the `[str]` lineage `%2`/`%5`/`%13` aliasing one
+            // buffer, read again past the catch) is non-Absent at the
+            // successor, so the per-edge dec would release a still-live
+            // allocation → double-free. The conjunct is a pure narrowing of an
+            // over-release; per-edge (normal + unwind), each checked against its
+            // own successor entry. BUG-04-090: the normal edge additionally
+            // gates via `apply_result_aliases`; the unwind edge does not.
+            if !same_alloc_member_live_at(env, arg, normal)
+                && !should_suppress_apply_aliased_dec(state_map, arg, false)
+            {
                 edge_decs.push((block_idx, normal.index(), arg, strategy));
             }
-            edge_decs.push((block_idx, unwind.index(), arg, strategy));
+            if !same_alloc_member_live_at(env, arg, unwind) {
+                edge_decs.push((block_idx, unwind.index(), arg, strategy));
+            }
         }
     }
     edge_decs
         .into_iter()
         .map(|(p, s, v, _)| (p, s, v))
         .collect()
+}
+
+/// RL-4 `deadAtSucc` same-alloc liveness probe: true iff `var` OR any
+/// same-allocation (`compute_same_alloc_reps` rep) member of its SSA-alias
+/// class is non-`Absent` (live) at `succ`'s entry. Mechanical mirror of the
+/// Category-1 normal-edge same-alloc suppression (`compute_branch_edge_dead_set`
+/// plus the Category-1 normal-path gate): only a TRUE same-allocation alias
+/// being live at the successor may suppress `var`'s edge dec; phi-merged
+/// alternatives (distinct allocations unioned via a Jump-arg block-param merge)
+/// are NOT same-alloc and must not suppress (RL-4 P1 plus §10 per-path-net-0).
+/// `var` itself being live at the successor is the receiver-survives-the-catch
+/// case. Spec: Annex E §AIMS RL-4.
+fn same_alloc_member_live_at(env: EdgeCleanupEnv<'_>, var: ArcVarId, succ: ArcBlockId) -> bool {
+    let EdgeCleanupEnv {
+        state_map,
+        same_alloc_reps,
+        ..
+    } = env;
+    if state_map.var_state_at_block_entry(succ, var).cardinality != Cardinality::Absent {
+        return true;
+    }
+    let Some(class_id) = state_map.ssa_alias_class_of(var) else {
+        return false;
+    };
+    let Some(members) = state_map.class_members(class_id) else {
+        return false;
+    };
+    members.iter().any(|&m| {
+        same_alloc(same_alloc_reps, m, var)
+            && state_map.var_state_at_block_entry(succ, m).cardinality != Cardinality::Absent
+    })
 }
 
 /// Check whether arg at position `i` has Owned ownership, respecting the

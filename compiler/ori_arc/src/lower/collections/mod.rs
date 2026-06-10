@@ -171,7 +171,11 @@ impl ArcLowerer<'_> {
         // Set hash_length so `#` resolves to collection length in the index expression.
         let old_hash = self.hash_length.take();
         let recv_ty = self.expr_type(receiver);
-        if recv_ty == Idx::STR || self.pool.tag(recv_ty) == Tag::List {
+        // List / str index panics on OOB; map / set index returns `Option<V>`
+        // and never panics. Only the panic-carrier receivers route through an
+        // Invoke carrier (Spec: Clause 17.2.3); a map index stays an `Apply`.
+        let panics_on_oob = recv_ty == Idx::STR || self.pool.tag(recv_ty) == Tag::List;
+        if panics_on_oob {
             // Emit a Project to extract the length field (field 0 for both
             // str {len, data} and list {len, cap, data})
             let len_var = self.builder.emit_project(Idx::INT, recv, 0, Some(span));
@@ -184,17 +188,20 @@ impl ArcLowerer<'_> {
         let index_fn = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
-        // List indexing panics on OOB (`__index` lowers to may-unwind
-        // `ori_list_get`), so an in-frame `catch(expr:)` needs an Invoke
-        // carrier here for the panic to land in the handler. BUG-04-153:
-        // the conversion is blocked on the Phase-5 burden walk's
-        // terminator-position accounting for contract-less borrowed Invoke
-        // args (the walk in-lines an alias release BEFORE the terminator
-        // that reads it — use-after-free). Until that lands, `__index`
-        // keeps the body-Apply carrier; the codegen-side Invoke plumbing
-        // (protocol dispatch + armed unwind route) is already in place.
-        self.builder
-            .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span), None)
+        // Spec: Clause 17.2.3 — list / str indexing panics on OOB (`__index`
+        // lowers to may-unwind `ori_list_get`). An in-frame `catch(expr:)` needs
+        // an Invoke carrier for the panic to land in the handler; outside a
+        // catch the body-`Apply` carrier suffices (cross-frame catchability uses
+        // the CALLER's user-call Invoke unwind edge — mirrors `emit_indirect_call`).
+        // A non-panicking map / set index always keeps the `Apply` carrier.
+        let in_catch = self.builder.catch_unwind_target.is_some();
+        if panics_on_oob && in_catch {
+            self.builder
+                .emit_invoke(ty, index_fn, vec![recv, idx_var], Some(span), None)
+        } else {
+            self.builder
+                .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span), None)
+        }
     }
 
     // Range

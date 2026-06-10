@@ -27,12 +27,14 @@ pub(crate) use cow_aliases::{compute_borrowed_alias_vars, compute_cow_inc_borrow
 use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
-    collect_owned_burdens, compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
-    compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
-    compute_construct_fed_dead_param_lineage, compute_dead_forwarder_block_param_releases,
-    compute_dead_owned_param_branch_releases, compute_forwarder_identity_transparent_aliases,
-    compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
-    compute_genuine_dup_move_aliases, compute_live_out_owned, compute_owned_vars_needing_rc,
+    borrowed_invoke_lineage_release_disabled, collect_owned_burdens,
+    compute_borrowed_arg_let_aliases, compute_borrowed_invoke_collection_lineage,
+    compute_borrowed_projection_dsts, compute_borrowed_store_dup_args,
+    compute_borrowed_terminator_invoke_args, compute_construct_fed_dead_param_lineage,
+    compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
+    compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
+    compute_fresh_sum_live_extract_lineage, compute_genuine_dup_move_aliases,
+    compute_live_out_owned, compute_owned_vars_needing_rc,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, detect_last_uses, detect_transfer_points,
@@ -462,6 +464,31 @@ pub(crate) fn emit_burden_ops<'a>(
         compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
+    // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
+    // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
+    // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
+    // `Invoke @__index(%5 [borrow], ..)` terminator, whose lineage is
+    // LIVE-ACROSS the catch (read again past it — `xs.len()` / `xs[0]`). The
+    // construct-fed dead-param collection arm DECLINED it (call-site-count > 1),
+    // so the base walk OVER-emits: a dup-alias `BurdenInc` + an inline
+    // `BurdenDec %5` BEFORE the terminator that reads `%5` → use-after-free /
+    // double-free on the still-live `%2` (cycle-1, attempt-147 teeth). The cure
+    // removes the whole same-alloc closure from `owned_vars_needing_rc`
+    // (suppressing the dup incs + the inline terminator dec) and places EXACTLY
+    // ONE whole-var release at the lineage's execution-final borrow-read. The
+    // dying unwind / unreachable edges are released by the Surface-1 Category-2
+    // `deadAtSucc` conjunct (`edge_cleanup.rs`) — disjoint edges. Runs AFTER the
+    // construct-fed retain so dead-param-claimed roots auto-decline (gate b).
+    // SSOT: `compute_borrowed_invoke_collection_lineage` (collection-Construct
+    // root + vetted borrow-read-only closure + borrowed-Invoke-arg + execution
+    // -final-site + pairwise-disjoint gates bound the over-fire surface). Spec:
+    // Annex E §AIMS RL-2 + RL-4.
+    let borrowed_invoke_releases = apply_borrowed_invoke_collection_lineage(
+        func,
+        &mut owned_vars_needing_rc,
+        &construct_fed_dead_param.suppressed_lineage_vars,
+        contracts,
+    );
     // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
     // (sum-aggregate Construct, or an Apply/Invoke result the callee hands the
     // caller as an owned reference) read through Let-Var aliases + a niche-payload
@@ -505,6 +532,15 @@ pub(crate) fn emit_burden_ops<'a>(
     // The two families target disjoint lineages (forwarder-identity results vs
     // non-forwarder fresh-sum closures), so the merge cannot double-release.
     for (site, vars) in fresh_sum_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
+    // Merge the borrowed-`Invoke`-collection lineage releases into the same
+    // surface. Disjoint family (fresh collection-buffer roots vs forwarder
+    // results / niche-family sums), so the merge cannot double-release.
+    for (site, vars) in borrowed_invoke_releases {
         forwarder_result_releases
             .entry(site)
             .or_default()
@@ -935,6 +971,31 @@ fn collect_invoke_ttr_edges(
         }
     }
     edges
+}
+
+/// Toggle-gated application of the RL-2 + RL-4 borrowed-`Invoke`-collection
+/// lineage treatment ([`compute_borrowed_invoke_collection_lineage`]): computes
+/// the vetted same-alloc closures, removes them from `owned_vars_needing_rc`
+/// (suppressing the dup-alias incs + the inline terminator dec), and returns the
+/// placed single death-point releases for the `forwarder_result_releases` merge.
+/// Empty when `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1`.
+fn apply_borrowed_invoke_collection_lineage(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    claimed_by_construct_fed: &FxHashSet<ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashMap<(usize, ownership_scans::ForwarderReleasePos), Vec<ArcVarId>> {
+    if borrowed_invoke_lineage_release_disabled() {
+        return FxHashMap::default();
+    }
+    let treatment = compute_borrowed_invoke_collection_lineage(
+        func,
+        owned_vars_needing_rc,
+        claimed_by_construct_fed,
+        contracts,
+    );
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
 }
 
 /// Toggle-gated application of the RL-1 + RL-2 fresh-sum live-extract

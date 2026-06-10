@@ -401,7 +401,6 @@ fn test_catch_result_expect_heap_message_caught() {
 /// Parity: list index OOB inside `catch` returns Err — implicit panics are
 /// catchable (Spec: Clause 17.2.4).
 #[test]
-#[ignore = "BUG-04-153: same-frame __index OOB panic uncatchable in AOT — Apply carrier has no unwind edge; Invoke conversion blocked on the Phase-5 burden walk's borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default"]
 fn test_catch_index_oob_returns_err() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_oob_returns_err.ori"
@@ -416,7 +415,6 @@ fn test_catch_index_oob_returns_err() {
 /// panic — the unwind-edge cleanup must not release a value still live
 /// after the catch.
 #[test]
-#[ignore = "BUG-04-153: same-frame __index OOB panic uncatchable in AOT — Apply carrier has no unwind edge; Invoke conversion blocked on the Phase-5 burden walk's borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default"]
 fn test_catch_index_oob_str_elements_survive_no_leak() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_oob_str_elements_no_leak.ori"
@@ -589,7 +587,6 @@ fn test_index_oob_uncaught_exit_unchanged() {
 /// per-successor-edge release must NOT fire on the normal edge where the
 /// receiver stays live (exit 0, zero leaks). Spec: Annex E §AIMS RL-2 + RL-4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_index_inbounds_receiver_reused_no_leak() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_inbounds_receiver_reused_no_leak.ori"
@@ -605,7 +602,6 @@ fn test_catch_index_inbounds_receiver_reused_no_leak() {
 /// receiver dies, not on the path it stays live (exit 0, zero leaks).
 /// Spec: Annex E §AIMS RL-2 + RL-4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_user_borrowed_invoke_normal_only_receiver() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_user_borrowed_invoke_normal_only_receiver.ori"
@@ -620,7 +616,6 @@ fn test_catch_user_borrowed_invoke_normal_only_receiver() {
 /// the catch, so the successor release must NOT be emitted on edges where the
 /// receiver stays live (exit 0, no double-free). Spec: Annex E §AIMS RL-4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_index_oob_receiver_reused_after_catch() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_oob_receiver_reused_after_catch.ori"
@@ -635,7 +630,6 @@ fn test_catch_index_oob_receiver_reused_after_catch() {
 /// element type carries no heap RC, but the receiver buffer does (exit 0).
 /// Spec: Clause 17.2.4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_index_oob_bool_elements() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_oob_bool_elements.ori"
@@ -650,7 +644,6 @@ fn test_catch_index_oob_bool_elements() {
 /// the heap str elements survive the caught panic (exit 0, zero leaks).
 /// Spec: Clause 17.2.4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_index_oob_option_str_elements() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_oob_option_str_elements.ori"
@@ -666,7 +659,6 @@ fn test_catch_index_oob_option_str_elements() {
 /// the conversion does not give map `__index` a spurious unwind edge.
 /// Spec: Clause 17.2.4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_map_index_miss_no_unwind_carrier() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_map_index_miss_no_unwind_carrier.ori"
@@ -682,7 +674,6 @@ fn test_catch_map_index_miss_no_unwind_carrier() {
 /// the unwind edge (exit 0 on both outcomes, zero leaks).
 /// Spec: Annex E §AIMS RL-4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_index_receiver_live_normal_dead_unwind() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_index_receiver_live_normal_dead_unwind.ori"
@@ -698,7 +689,6 @@ fn test_catch_index_receiver_live_normal_dead_unwind() {
 /// borrowed arg per executing path; a front-of-merge dec would double-free
 /// (exit 0, zero leaks). Spec: Annex E §AIMS RL-4.
 #[test]
-#[ignore = "BUG-04-153: borrowed-Invoke-terminator-arg release placement under the burden-sole-emitter default — over-fire (double-free on live-across) / under-fire (leak) pending the Phase-5 successor-edge release + Phase-6 dead-at-succ reconciliation"]
 fn test_catch_two_index_oob_shared_merge() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_two_index_oob_shared_merge.ori"
