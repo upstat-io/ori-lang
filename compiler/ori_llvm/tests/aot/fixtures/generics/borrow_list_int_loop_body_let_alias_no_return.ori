@@ -1,0 +1,22 @@
+// (Over-fire negative) Loop-body multi-hop Let-alias of a borrowed [int] param
+// whose value is NOT returned — the param is borrow-read through the alias
+// chain then dies at scope exit (no Return transfer). The multi-hop
+// transparent-alias treatment for the ttr-then-return shape MUST NOT change
+// this: the param's single release stays the scope-exit dec; suppressing it
+// would leak. Guards the over-fire boundary of the multi-hop read-alias
+// transparency.
+
+@borrow_int_loop_alias_no_return (xs: [int]) -> int = {
+    let total = 0;
+    for _i in 0..3 do {
+        let inner_alias = xs;
+        total = total + inner_alias.len()
+    };
+    total
+};
+
+@main () -> int = {
+    let original = [4, 5, 6];
+    let n = borrow_int_loop_alias_no_return(xs: original);
+    if n == 9 then 0 else 1
+}

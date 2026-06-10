@@ -790,19 +790,19 @@ pub(super) fn compute_forwarder_identity_transparent_aliases(
 
     for block in &func.blocks {
         for instr in &block.body {
-            // A nested re-alias of an alias keeps the whole lineage classified
-            // (single-hop only). The alias-def of a ttr param itself is the
-            // vetted hop — skip it (its `src` use is the move into the alias).
+            // A `Let { Var(src) }` whose `src` AND `dst` are both lineage members
+            // (the ttr root, or a transitive alias of it) is a vetted in-lineage
+            // move-hop — `collect_ttr_param_aliases` already folded the whole
+            // multi-hop read-only chain into one root, so the hop reads `src` at a
+            // move position (not a duplicating use) and re-binds it as another
+            // same-allocation view. Skip it (do NOT decline on the `src` read).
             if let ArcInstr::Let {
                 dst,
                 value: ArcValue::Var(src),
                 ..
             } = instr
             {
-                if alias_to_src.contains_key(src) {
-                    decline(*src, &mut declined_srcs);
-                }
-                if aliases_of.contains_key(src) && alias_to_src.contains_key(dst) {
+                if lineage_src_of(*src).is_some() && alias_to_src.contains_key(dst) {
                     continue;
                 }
             }
@@ -892,27 +892,161 @@ fn collect_ttr_param_aliases(
     if ttr_params.is_empty() {
         return None;
     }
+    // Transitive `Let { Var }` alias closure rooted at each ttr param: a nested
+    // re-alias of an alias (`%nested = %alias` where `%alias` already aliases the
+    // root) is the SAME allocation, so it joins the root's lineage. The loop-body
+    // shape `%0 -> %loop_alias = %0 (re-read per iteration) -> %nested = %loop_alias`
+    // is a >1-hop chain of one allocation; declining it on the nested hop leaves
+    // the deepest alias mis-classified (a spurious last-use dec on the returned
+    // param -> double-free). Fixpoint over `Let { Var }` edges keeps the whole
+    // chain mapped to its ttr root. Membership precedence: a var already an alias
+    // is not re-rooted; only NEW dsts off a lineage member are added.
     let mut aliases_of: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
     let mut alias_to_src: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if ttr_params.contains(src) {
-                    aliases_of.entry(*src).or_default().push(*dst);
-                    alias_to_src.insert(*dst, *src);
+    let in_lineage = |v: ArcVarId,
+                      ttr: &FxHashSet<ArcVarId>,
+                      a2s: &FxHashMap<ArcVarId, ArcVarId>|
+     -> Option<ArcVarId> {
+        if ttr.contains(&v) {
+            Some(v)
+        } else {
+            a2s.get(&v).copied()
+        }
+    };
+    // Bounded fixpoint: each pass adds at most the next alias hop, so the var
+    // count caps the iteration count.
+    for _ in 0..func.var_types.len() {
+        let mut changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if alias_to_src.contains_key(dst) {
+                        continue;
+                    }
+                    if let Some(root) = in_lineage(*src, &ttr_params, &alias_to_src) {
+                        aliases_of.entry(root).or_default().push(*dst);
+                        alias_to_src.insert(*dst, root);
+                        changed = true;
+                    }
                 }
             }
+        }
+        if !changed {
+            break;
         }
     }
     if aliases_of.is_empty() {
         return None;
     }
     Some((aliases_of, alias_to_src))
+}
+
+/// RL-1 + RL-2 iter-consume duplication: `Let { Var(src) }` aliases of an Owned
+/// `transfers_through_return` param whose lineage is consumed at an
+/// ITER-CONSUMING OWNED position — the `@iter` PROTOCOL builtin (`for x in xs`
+/// lowers to `Apply @iter(xs [own])` -> `ori_iter_drop` frees the buffer INSIDE
+/// the function) OR a user callee with `ParamContract.iter_consumes`. The
+/// iter-consume FREES the same allocation the param ALSO transfers out via the
+/// `Return` — one reference, two transfer consumes. Per AIMS RL-1
+/// (`RL1_duplication_balanced`) this is a DUPLICATION: the iter-consumed alias
+/// owes one `BurdenInc` (the duplicate the iterator frees via `ori_iter_drop`,
+/// the RL-2 `ApplyToIterConsumingParam` transfer release), leaving the param's
+/// original reference for the Return transfer. Without the kept inc the single
+/// allocation is freed once by the iterator and transferred out via Return =
+/// double-free (the `borrow_*_for_yield_then_return` family).
+///
+/// The returned set joins `genuine_dup_move_aliases` in the inc-suppression skip
+/// (`emit_burden_ops`): the alias keeps its FRESH-site inc while its last-use
+/// dec stays transfer-suppressed (the `@iter [own]` consume is an owned-position
+/// transfer — `instr_transfer_vars` already suppresses the dec). Net 0.
+///
+/// STRUCTURAL discriminators (the over-fire boundary — a missing transfer is a
+/// LEAK, an extra inc is also a leak per the no-return negative):
+/// - `src` (the alias source) is in a ttr Owned-param lineage (the param flows
+///   to a `Return` per THIS function's contract). An iter-consumed alias of a
+///   NON-returned collection dies at the iter-consume (single transfer) — NOT
+///   admitted (the `consume_only_no_return` over-fire negative: an extra inc
+///   leaves the buffer leaked, `ori_iter_drop` is the sole release).
+/// - The alias `dst` (directly, or via a single-use move chain) reaches an
+///   iter-consuming owned position. Detection mirrors the Phase-6.66c
+///   `record_iter_consume_uses` SSOT: `callee == iter_name` with the arg `[own]`
+///   (inline for-loop), OR a user contract param with `iter_consumes`.
+pub(super) fn compute_ttr_iter_consume_dup_aliases(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let Some((_, alias_to_src)) = collect_ttr_param_aliases(func, contracts) else {
+        return FxHashSet::default();
+    };
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    // The set of vars consumed at an iter-consuming OWNED arg position. A
+    // user-callee arg at an `iter_consumes` param is recorded; an `@iter [own]`
+    // protocol-builtin arg is recorded (the inline for-loop's iterator owns +
+    // frees the buffer via `ori_iter_drop`). Mirrors the Phase-6.66c
+    // `record_iter_consume_uses` SSOT.
+    let mut iter_consumed: FxHashSet<ArcVarId> = FxHashSet::default();
+    let user_iter_consume_args =
+        |callee: Name, args: &[ArcVarId], out: &mut FxHashSet<ArcVarId>| {
+            let Some(contract) = contracts.get(&callee) else {
+                return;
+            };
+            for (pos, &arg) in args.iter().enumerate() {
+                if contract.params.get(pos).is_some_and(|p| p.iter_consumes) {
+                    out.insert(arg);
+                }
+            }
+        };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } = instr
+            {
+                if *callee == iter_name {
+                    for (pos, &arg) in args.iter().enumerate() {
+                        if arg_ownership
+                            .get(pos)
+                            .is_none_or(|o| *o == crate::ir::ArgOwnership::Owned)
+                        {
+                            iter_consumed.insert(arg);
+                        }
+                    }
+                } else {
+                    user_iter_consume_args(*callee, args, &mut iter_consumed);
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            user_iter_consume_args(*callee, args, &mut iter_consumed);
+        }
+    }
+    if iter_consumed.is_empty() {
+        return FxHashSet::default();
+    }
+    // Admit a ttr-lineage alias whose own chain reaches an iter-consumed var.
+    // The alias `dst` and the iter-consumed var coincide for the `%alias =
+    // %param; @iter(%alias [own])` shape (the for-yield root); a single-hop
+    // intermediate move (`%a = %param; %b = %a; @iter(%b)`) is folded into the
+    // ttr lineage by `collect_ttr_param_aliases`, so any lineage member that is
+    // also iter-consumed admits its lineage's alias dsts.
+    alias_to_src
+        .keys()
+        .copied()
+        .filter(|dst| iter_consumed.contains(dst))
+        .collect()
 }
 
 /// True iff `used`, passed as a `Jump` arg to `target`, lands in a block-param

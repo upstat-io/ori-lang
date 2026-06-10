@@ -1218,6 +1218,60 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
     );
 }
 
+// Live-across borrowed-collection family — a transfer-through-return Owned param
+// that is ALSO iter-consumed (for...yield) or multi-hop read-aliased inside the
+// body. One allocation, two terminal consumes (iter-free / scope-read + Return
+// transfer): the iter-consume is an RL-1 duplication needing one BurdenInc, and
+// a multi-hop read-alias is transparent (no spurious dec). Positive cross-type
+// pins + over-fire negatives (consumed-but-NOT-returned must keep status quo).
+
+/// Regression: for...yield iter-consume over a heap-element `[str]` param +
+/// Return the param. The iterator frees the param buffer; the duplication inc
+/// (RL-1) leaves the original reference for the Return transfer. Cross-type
+/// sibling of `test_borrow_list_int_for_yield_then_return_no_leak`.
+#[test]
+fn test_borrow_list_str_for_yield_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_str_for_yield_then_return.ori"),
+        "borrow_list_str_for_yield_then_return",
+    );
+}
+
+/// Regression: loop-body multi-hop Let-alias of a heap-element `[str]` param +
+/// Return the param. The deepest alias is the same allocation the Return
+/// transfers out — it carries no spurious last-use dec. Cross-type sibling of
+/// `test_borrow_list_int_loop_body_let_alias_then_return_no_leak`.
+#[test]
+fn test_borrow_list_str_loop_body_let_alias_then_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_str_loop_body_let_alias_then_return.ori"),
+        "borrow_list_str_loop_body_let_alias_then_return",
+    );
+}
+
+/// Over-fire negative: for...yield iter-consume of a `[int]` param whose result
+/// is NOT returned — the param dies at the iter-consume (single transfer). The
+/// duplication-inc cure MUST NOT fire here (the `ori_iter_drop` is the sole
+/// release; an extra inc would leak). Mutation-verified guard.
+#[test]
+fn test_borrow_list_int_for_yield_consume_only_no_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_for_yield_consume_only_no_return.ori"),
+        "borrow_list_int_for_yield_consume_only_no_return",
+    );
+}
+
+/// Over-fire negative: loop-body multi-hop Let-alias of a `[int]` param that is
+/// borrow-read but NOT returned — the param's release stays the scope-exit dec.
+/// The multi-hop transparent-alias treatment MUST NOT suppress it (would leak).
+#[test]
+fn test_borrow_list_int_loop_body_let_alias_no_return_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/borrow_list_int_loop_body_let_alias_no_return.ori"),
+        "borrow_list_int_loop_body_let_alias_no_return",
+    );
+}
+
 // BUG-04-111: Canonical-rep semantics pins
 // Positive pins exercising post-fix canonical-rep selection logic.
 // May not be RED at HEAD (they verify NEW semantics introduced by the

@@ -252,6 +252,18 @@ flags! {
     /// Usage: `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 ori build file.ori`
     ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING
 
+    /// Restore the RL-1 inc-suppression for a `Let { Var }` alias of an Owned
+    /// transfer-through-return param that is iter-consumed (default: the
+    /// iter-consumed alias keeps its duplication inc — the iterator frees the
+    /// duplicate via `ori_iter_drop` while the param's original transfers out
+    /// through the Return; without it the single allocation is freed once by the
+    /// iterator AND returned = double-free).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// for-yield-then-return double-free to this inc.
+    /// Usage: `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1 ori build file.ori`
+    ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC
+
     /// Suppress the Phase-5 RL-1 duplication inc for a borrowed-param-rooted
     /// value consumed at an aggregate-store position (default: the inc is
     /// emitted — the store duplicates the caller's retained reference; the

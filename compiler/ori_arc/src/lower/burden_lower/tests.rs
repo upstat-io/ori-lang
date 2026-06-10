@@ -6887,6 +6887,90 @@ fn ttr_param_branch_aliases_with_borrow_read_are_transparent() {
     );
 }
 
+/// A ttr Owned param with `%1 = %0` iter-consumed by `@iter(%1 [own])` and the
+/// param returned at `%0`. `%1` is a genuine RL-1 duplication needing its inc
+/// kept (the iterator frees the dup; the param's original transfers via Return).
+fn ttr_iter_consume_func(interner: &ori_ir::StringInterner) -> ArcFunction {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let iter_fn = interner.intern(ProtocolBuiltin::Iter.name());
+    ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::from_raw(50),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::from_raw(50), Idx::from_raw(50), Idx::INT],
+        var_reprs: vec![
+            ValueRepr::RcPointer,
+            ValueRepr::RcPointer,
+            ValueRepr::Scalar,
+        ],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::from_raw(50),
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::INT,
+                    func: iter_fn,
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(77),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn ttr_iter_consume_alias_admits_dup_inc() {
+    // The `%1 = %0` alias iter-consumed while `%0` is returned MUST be admitted
+    // — its kept inc is the duplicate the iterator frees (RL-1 duplication).
+    let interner = ori_ir::StringInterner::new();
+    let func = ttr_iter_consume_func(&interner);
+    let set = super::ownership_scans::compute_ttr_iter_consume_dup_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+        &interner,
+    );
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "iter-consumed alias of a ttr param MUST keep its dup inc; got={set:?}",
+    );
+}
+
+#[test]
+fn iter_consume_alias_of_non_ttr_param_declines() {
+    // Over-fire guard: the SAME shape but the param does NOT transfer through
+    // the return (no ttr contract) — the param dies at the iter-consume (single
+    // transfer), so the dup inc MUST NOT fire (an extra inc leaks).
+    let interner = ori_ir::StringInterner::new();
+    let func = ttr_iter_consume_func(&interner);
+    // Conservative (non-ttr) contract for the function's own name.
+    let mut contracts = FxHashMap::default();
+    contracts.insert(
+        func.name,
+        crate::aims::contract::MemoryContract::conservative(1),
+    );
+    let set =
+        super::ownership_scans::compute_ttr_iter_consume_dup_aliases(&func, &contracts, &interner);
+    assert!(
+        set.is_empty(),
+        "iter-consumed alias of a NON-ttr param MUST decline (single transfer); got={set:?}",
+    );
+}
+
 #[test]
 fn alias_consumed_at_owned_position_keeps_whole_lineage_classified() {
     // Negative over-fire pin: a GENUINE duplication (alias consumed at an
@@ -6960,8 +7044,13 @@ fn borrowed_ttr_param_yields_no_transparent_aliases() {
 }
 
 #[test]
-fn nested_re_alias_keeps_whole_lineage_classified() {
-    // Single-hop only: an alias-of-alias declines the whole lineage.
+fn multi_hop_read_only_re_alias_stays_transparent() {
+    // Multi-hop: a read-only nested re-alias of an alias (`%6 = %3` where
+    // `%3 = %0` aliases the ttr param) joins the SAME-allocation lineage and is
+    // transparent — the whole chain `%0 -> %3 -> %6` is one allocation moving
+    // through the Return. `collect_ttr_param_aliases` folds the transitive chain
+    // so the deepest alias carries no spurious burden ops (the loop-body-alias
+    // double-free cure).
     let mut func = multi_use_forwarder_func();
     func.var_types.push(Idx::from_raw(50));
     func.var_reprs.push(ValueRepr::RcPointer);
@@ -6975,8 +7064,48 @@ fn nested_re_alias_keeps_whole_lineage_classified() {
         &own_forwarder_contracts(func.name),
     );
     assert!(
+        set.contains(&ArcVarId::new(6)),
+        "a read-only nested re-alias MUST be admitted (multi-hop transparent); got={set:?}",
+    );
+    // The whole lineage stays admitted: the original single-hop aliases too.
+    for raw in [1u32, 3, 4] {
+        assert!(
+            set.contains(&ArcVarId::new(raw)),
+            "lineage alias %{raw} MUST stay transparent with the nested hop; got={set:?}",
+        );
+    }
+}
+
+#[test]
+fn nested_re_alias_owned_consume_declines_whole_lineage() {
+    // Over-fire guard: a nested re-alias that ESCAPES to an owned-position
+    // consume (`Construct(%6)`) declines the WHOLE multi-hop lineage — the
+    // escape is a genuine duplication needing its own paired RC, not a
+    // transparent read-only view.
+    let mut func = multi_use_forwarder_func();
+    func.var_types.push(Idx::from_raw(50));
+    func.var_reprs.push(ValueRepr::RcPointer);
+    func.blocks[1].body.push(ArcInstr::Let {
+        dst: ArcVarId::new(6),
+        ty: Idx::from_raw(50),
+        value: ArcValue::Var(ArcVarId::new(3)),
+    });
+    func.blocks[1].body.push(ArcInstr::Construct {
+        dst: ArcVarId::new(7),
+        ty: Idx::from_raw(50),
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(6)],
+    });
+    func.var_types.push(Idx::from_raw(50));
+    func.var_reprs.push(ValueRepr::RcPointer);
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
         set.is_empty(),
-        "a nested re-alias MUST decline the whole lineage; got={set:?}",
+        "a nested re-alias escaping to an owned consume MUST decline the whole \
+         lineage; got={set:?}",
     );
 }
 

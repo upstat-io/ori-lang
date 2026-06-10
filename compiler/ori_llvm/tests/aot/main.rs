@@ -76,6 +76,7 @@ pub mod spec;
 pub mod stress;
 pub mod string_sso;
 pub mod strings;
+pub mod struct_self_rebuild;
 pub mod structs;
 pub mod tagless_enum;
 pub mod traits;

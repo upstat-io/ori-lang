@@ -1,0 +1,19 @@
+// (Cross-type) for...yield over a borrowed [str] param then Return the param.
+// The for-loop iter-consumes the param (`@iter [own]` -> `ori_iter_drop` frees
+// the buffer INSIDE the function), AND the param transfers through the Return.
+// One allocation, two transfer consumes -> the iter-consume is a duplication
+// (RL-1) needing one BurdenInc on the iter-consumed alias; without it the
+// iterator frees the buffer the Return also transfers out (double-free).
+// Heap-element [str] cross-type sibling of borrow_list_int_for_yield_then_return.
+
+@borrow_str_for_yield_then_return (xs: [str]) -> [str] = {
+    let _doubled = for x in xs yield x;
+    print(msg: `doubled-len: {_doubled.len()}`);
+    xs
+};
+
+@main () -> int = {
+    let original = ["aa", "bb", "cc"];
+    let returned = borrow_str_for_yield_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == "aa" && returned[2] == "cc" then 0 else 1
+}

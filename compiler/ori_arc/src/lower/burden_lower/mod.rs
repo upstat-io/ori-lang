@@ -33,8 +33,9 @@ use ownership_scans::{
     compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
     compute_genuine_dup_move_aliases, compute_live_out_owned, compute_owned_vars_needing_rc,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered,
+    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
+    compute_use_counts_and_dup_aliases, detect_last_uses, detect_transfer_points,
+    group_last_uses_filtered,
 };
 use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
 
@@ -142,6 +143,22 @@ static FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED: LazyLock<bool> = LazyLock::new(|
 /// Spec: Annex E §AIMS RL-1 + RL-2.
 static GENUINE_DUP_PAIR_COUPLING_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING").as_deref() == Ok("1"));
+
+/// `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1` restores the RL-1 inc-suppression for
+/// a `Let { Var }` alias of an Owned `transfers_through_return` param that is
+/// iter-consumed (`for x in xs` -> `@iter [own]` -> `ori_iter_drop`) — the
+/// move-chain symmetry suppresses the alias inc as if the iter-consume were a
+/// pure move. Default (unset): the iter-consumed alias of a ttr param KEEPS its
+/// duplication `BurdenInc` ([`compute_ttr_iter_consume_dup_aliases`]) — the
+/// iterator frees the duplicate via `ori_iter_drop` (RL-2
+/// `ApplyToIterConsumingParam` transfer) while the param's original reference
+/// transfers out through the `Return`. Without the kept inc the single
+/// allocation is freed once by the iterator AND transferred out via Return =
+/// double-free (the `borrow_*_for_yield_then_return` family). Bisection surface:
+/// isolates a for-yield-then-return double-free to this inc vs the rest of the
+/// Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2 + RL-34.
+static TTR_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC").as_deref() == Ok("1"));
 
 /// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
 /// consumed by Phase 5 here and by the Phase-6 per-var elision
@@ -599,6 +616,22 @@ pub(crate) fn emit_burden_ops<'a>(
     let genuine_dup_move_aliases =
         compute_genuine_dup_move_aliases(func, &dup_alias_dsts, &full_move_vars);
 
+    // RL-1 + RL-2 iter-consume duplication: an alias of an Owned ttr param that
+    // is iter-consumed (`for x in xs` -> `@iter [own]` -> `ori_iter_drop` frees
+    // the buffer) while the param ALSO transfers out via the Return is a genuine
+    // duplication — its inc is the duplicate the iterator frees, leaving the
+    // param's original for the Return. Like `genuine_dup_move_aliases` it skips
+    // the inc-suppression (its dec stays transfer-suppressed via the `@iter
+    // [own]` owned position). The store-only `genuine_dup_move_aliases` scan
+    // EXCLUDES call-arg consumers, so the iter-consume case needs its own
+    // structurally-discriminated scan. Empty when
+    // `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1`.
+    let ttr_iter_consume_dup_aliases = if *TTR_ITER_CONSUME_DUP_INC_DISABLED {
+        FxHashSet::default()
+    } else {
+        compute_ttr_iter_consume_dup_aliases(func, contracts, interner)
+    };
+
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
@@ -606,7 +639,10 @@ pub(crate) fn emit_burden_ops<'a>(
             };
             let tv = instr_transfer_vars(instr, func);
             for &var in last_used {
-                if tv.contains(&var) && !genuine_dup_move_aliases.contains(&var) {
+                if tv.contains(&var)
+                    && !genuine_dup_move_aliases.contains(&var)
+                    && !ttr_iter_consume_dup_aliases.contains(&var)
+                {
                     inc_suppressed_vars.insert(var);
                 }
             }
@@ -665,9 +701,12 @@ pub(crate) fn emit_burden_ops<'a>(
         // reference its alias-site inc supplies, while the source's original
         // reference stays live behind it. Its inc MUST be kept (suppressing
         // nets -1: the consumer releases a reference no inc supplied —
-        // `RL1_duplication_balanced`); only its dec is transfer-suppressed.
+        // `RL1_duplication_balanced`); only its dec is transfer-suppressed. The
+        // ttr-iter-consume dup alias is the same shape with an `@iter [own]`
+        // freeing consume instead of a store — its inc is equally load-bearing.
         if use_counts.get(&var).copied().unwrap_or(0) <= 1
             && !genuine_dup_move_aliases.contains(&var)
+            && !ttr_iter_consume_dup_aliases.contains(&var)
         {
             inc_suppressed_vars.insert(var);
         }
