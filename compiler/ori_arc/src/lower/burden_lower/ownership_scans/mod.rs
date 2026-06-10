@@ -256,7 +256,7 @@ pub(super) fn compute_borrowed_projection_dsts(func: &ArcFunction) -> FxHashSet<
     let mut transferred_or_escaped: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            for v in super::instr_transfer_vars(instr, func) {
+            for v in instr_transfer_vars(instr, func) {
                 transferred_or_escaped.insert(v);
             }
         }

@@ -19,7 +19,8 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::AimsState;
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId, ValueRepr};
 
-use super::{same_alloc_member_live_at, EdgeCleanupEnv};
+use super::invoke::same_alloc_member_live_at;
+use super::EdgeCleanupEnv;
 
 fn v(n: u32) -> ArcVarId {
     ArcVarId::new(n)
@@ -145,8 +146,15 @@ fn ghost_member_on_sibling_branch_does_not_suppress_edge_dec() {
     // member (it is defined on a sibling branch only).
     let defined_at_or_before: FxHashSet<ArcVarId> = [arg].into_iter().collect();
 
-    // Category 2 (borrowed-arg) discipline: ghost-EXCLUSIVE.
-    let live = same_alloc_member_live_at(env, arg, ArcBlockId::new(1), &defined_at_or_before, true);
+    // Category 2 (borrowed-arg) discipline: ghost-EXCLUSIVE, var-self included.
+    let live = same_alloc_member_live_at(
+        env,
+        arg,
+        ArcBlockId::new(1),
+        &defined_at_or_before,
+        true,
+        true,
+    );
     assert!(
         !live,
         "a ghost same-alloc member defined only on a sibling branch must NOT \
@@ -181,8 +189,14 @@ fn ghost_member_on_sibling_branch_suppresses_normal_edge_dec() {
     );
     let defined_at_or_before: FxHashSet<ArcVarId> = [arg].into_iter().collect();
 
-    let live =
-        same_alloc_member_live_at(env, arg, ArcBlockId::new(1), &defined_at_or_before, false);
+    let live = same_alloc_member_live_at(
+        env,
+        arg,
+        ArcBlockId::new(1),
+        &defined_at_or_before,
+        false,
+        false,
+    );
     assert!(
         live,
         "the same ghost member MUST suppress the Category-1 normal-edge release \
@@ -218,10 +232,92 @@ fn live_same_alloc_member_defined_at_or_before_suppresses_edge_dec() {
     // live-across receiver, reachable on this edge.
     let defined_at_or_before: FxHashSet<ArcVarId> = [arg, alias].into_iter().collect();
 
-    let live = same_alloc_member_live_at(env, arg, ArcBlockId::new(1), &defined_at_or_before, true);
+    let live = same_alloc_member_live_at(
+        env,
+        arg,
+        ArcBlockId::new(1),
+        &defined_at_or_before,
+        true,
+        true,
+    );
     assert!(
         live,
         "a live same-alloc member defined at-or-before the Invoke must suppress \
          the edge release — emitting it would double-free the live allocation"
+    );
+}
+
+/// Wire a state map where the CLASSLESS `arg` is `Once` (live) at block-1
+/// entry. No SSA-alias class is set, so the member loop is never reached — this
+/// isolates the `include_var_self` axis (the only path that can catch a
+/// classless var's own liveness).
+fn state_map_with_classless_var_live(func: &ArcFunction, arg: ArcVarId) -> AimsStateMap {
+    let mut state_map = AimsStateMap::new(func);
+
+    let mut entry: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
+    entry.insert(arg, AimsState::FRESH); // Once-live
+    state_map.update_block_entry(ArcBlockId::new(1), entry);
+
+    // No `set_ssa_alias_output` — `arg` carries no alias class.
+    state_map
+}
+
+/// `include_var_self` axis clamp. For a CLASSLESS receiver live at the
+/// successor, the Category-2 borrowed-arg gate (`include_var_self = true`)
+/// suppresses via the var-self short-circuit (the receiver survives the catch —
+/// the per-edge dec would double-free); the Category-1 normal-edge gate
+/// (`include_var_self = false`) does NOT — the caller has already established
+/// via `InvokeEdgeState.normal` that `arg` is `Absent` on THIS edge, so the
+/// merge-level self reading would over-suppress a genuine release. The member
+/// loop cannot catch a classless var, so the flag is the sole discriminator.
+#[test]
+fn classless_var_self_live_suppresses_only_when_include_var_self() {
+    let mut pool = Pool::new();
+    let func = make_probe_func(&mut pool);
+    let arg = v(0);
+
+    let state_map = state_map_with_classless_var_live(&func, arg);
+    let all_borrowed_defs = FxHashSet::default();
+    let take_move_facts = TakeMoveFacts::empty();
+    let reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let env = env(
+        &func,
+        &state_map,
+        &pool,
+        &all_borrowed_defs,
+        &take_move_facts,
+        &reps,
+    );
+    let defined_at_or_before: FxHashSet<ArcVarId> = [arg].into_iter().collect();
+
+    // Category 2: var-self short-circuit fires — live classless receiver suppresses.
+    assert!(
+        same_alloc_member_live_at(
+            env,
+            arg,
+            ArcBlockId::new(1),
+            &defined_at_or_before,
+            true,
+            true
+        ),
+        "Category-2 (include_var_self): a live classless receiver at the \
+         successor must suppress the edge release — emitting it would double-free"
+    );
+
+    // Negative pin — Category 1: var-self short-circuit OFF + no class ⇒ the
+    // member loop is unreachable, so a classless var's merge-level liveness must
+    // NOT suppress the normal-edge release (the edge already proved it dead).
+    assert!(
+        !same_alloc_member_live_at(
+            env,
+            arg,
+            ArcBlockId::new(1),
+            &defined_at_or_before,
+            false,
+            false,
+        ),
+        "Category-1 (no include_var_self): a classless var's merge-level liveness \
+         must NOT suppress the normal-edge release — that would over-suppress a \
+         genuine release proved dead on this edge"
     );
 }

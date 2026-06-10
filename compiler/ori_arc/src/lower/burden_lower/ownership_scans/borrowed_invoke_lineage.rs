@@ -6,12 +6,10 @@
 //!  - a heap RESULT of a may-unwind borrowed-receiver user call returning a
 //!    self-inc'd heap value (`@first(xs) = xs[0]`) — the RESULT lineage.
 //!
-//! Shape, over-emission mechanism, cure, and admission gates are documented on
+//! Shape, over-emission mechanism, cure, and admission gates: see
 //! [`compute_borrowed_invoke_collection_lineage`]. Sibling of `live_extract.rs`
-//! (the niche-family-sum live-extract treatment): same single-placed-release
-//! emission surface (`ForwarderReleasePos`), DISTINCT root families and a
-//! DISTINCT consume site (a borrowed may-unwind `Invoke` arg / result reaching a
-//! dead merge block-param vs a niche-family-sum match-extract).
+//! — same single-placed-release emission surface (`ForwarderReleasePos`),
+//! DISTINCT root families + a DISTINCT consume site.
 
 mod vet;
 
@@ -83,9 +81,10 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 /// (`edge_cleanup.rs::collect_invoke_edge_decs`) — disjoint edges from the
 /// placed normal-path release.
 ///
-/// Admission gates (ALL must hold per closure; ANY failure declines the root
-/// and keeps current behavior — the status-quo leak is FAR safer than an
-/// over-fire double-free):
+/// # Admission gates
+///
+/// ALL must hold per closure; ANY failure declines the root and keeps current
+/// behavior — the status-quo leak is FAR safer than an over-fire double-free.
 ///  (a) FRESH collection-`Construct` root: a `Construct { ctor: ListLiteral |
 ///      MapLiteral | SetLiteral }` dst (the fresh buffer). String literals /
 ///      panic messages have NO `Construct` definer → never candidates (they
