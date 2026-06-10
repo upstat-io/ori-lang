@@ -85,12 +85,38 @@ pub enum VerifyError {
 /// `expected_net` is always `0` for the function-exit check (every
 /// burden-emitted var MUST net to zero on every reachable exit per VF-1).
 /// `observed_net` is the algebraic delta observed at `exit_block`.
+///
+/// Attribution fields classify the violation for corpus-wide triage:
+/// `def_kind` is the var's defining-site kind, `exit_kind` the violating
+/// path kind, `residual_ops` the surviving burden-op census for the var at
+/// verification time (post-elimination, post-lowering residue).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BurdenBalanceError {
     pub var: ArcVarId,
     pub expected_net: i64,
     pub observed_net: i64,
     pub exit_block: ArcBlockId,
+    /// Defining-site kind of `var`: `param` / `block-param` / `alias` /
+    /// `construct` / `apply` / `invoke` / `project` / `reuse` / ... / `undef`.
+    pub def_kind: &'static str,
+    /// Violating path kind: `return` / `resume` / `unreachable` /
+    /// `merge-disagree`.
+    pub exit_kind: &'static str,
+    /// `var`'s machine repr: `scalar` / `rc-pointer` / `aggregate` /
+    /// `fat-value` / `none` (repr not populated).
+    pub var_repr: &'static str,
+    /// Surviving burden-op census for `var` over the whole function.
+    pub residual_ops: BurdenResidualOps,
+}
+
+/// Surviving burden-op census for one var (whole function), recorded on
+/// [`BurdenBalanceError`] at verification time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct BurdenResidualOps {
+    pub inc: u32,
+    pub dec: u32,
+    pub dec_partial: u32,
+    pub dec_variant: u32,
 }
 
 impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
@@ -190,21 +216,7 @@ impl std::fmt::Display for VerifyError {
                     violation.idx,
                 )
             }
-            VerifyError::BurdenImbalance(BurdenBalanceError {
-                var,
-                expected_net,
-                observed_net,
-                exit_block,
-            }) => {
-                write!(
-                    f,
-                    "burden imbalance (VF-1): v{} net={} expected={} at exit block {}",
-                    var.raw(),
-                    observed_net,
-                    expected_net,
-                    exit_block.raw(),
-                )
-            }
+            VerifyError::BurdenImbalance(e) => fmt_burden_imbalance(f, e),
         }
     }
 }
@@ -215,6 +227,30 @@ fn fmt_span(f: &mut std::fmt::Formatter<'_>, span: Option<Span>) -> std::fmt::Re
     } else {
         Ok(())
     }
+}
+
+/// Render a [`BurdenBalanceError`] with its classification attribution
+/// (`[def=.. exit=.. repr=.. ops=..]` suffix).
+fn fmt_burden_imbalance(
+    f: &mut std::fmt::Formatter<'_>,
+    e: &BurdenBalanceError,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "burden imbalance (VF-1): v{} net={} expected={} at exit block {} \
+         [def={} exit={} repr={} ops=i{}/d{}/p{}/v{}]",
+        e.var.raw(),
+        e.observed_net,
+        e.expected_net,
+        e.exit_block.raw(),
+        e.def_kind,
+        e.exit_kind,
+        e.var_repr,
+        e.residual_ops.inc,
+        e.residual_ops.dec,
+        e.residual_ops.dec_partial,
+        e.residual_ops.dec_variant,
+    )
 }
 
 // Small constructor helpers keep the individual `check_*` functions

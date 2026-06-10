@@ -66,6 +66,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
         // The reconstructed TypeRegistry surfaces collection / closure
         // UserBurdenSpec to the Phase-5 burden walker (type_registry.burden(idx)).
+        // Receiver-resolved impl-method contracts bind per function so the
+        // Phase-5 lookups (keyed by bare callee name) see them.
+        let augmented = ori_arc::augment_contracts_with_impl_callees(
+            arc_func,
+            &self.aims_contracts,
+            &self.impl_method_contracts,
+            self.pool,
+        );
+        let contracts = augmented.as_ref().unwrap_or(&self.aims_contracts);
         let arc_problems = ori_arc::run_arc_pipeline(
             arc_func,
             self.arc_classifier,
@@ -73,7 +82,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
-            &self.aims_contracts,
+            contracts,
             self.type_registry,
             self.verify_arc,
         );
@@ -255,7 +264,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // ARC processing — AIMS pipeline handles arg_ownership internally.
         // Lambda path mirrors the parent path: the reconstructed TypeRegistry
         // surfaces closure-env / collection UserBurdenSpec to the Phase-5
-        // burden walker.
+        // burden walker, and receiver-resolved impl-method contracts bind
+        // per function.
+        let augmented = ori_arc::augment_contracts_with_impl_callees(
+            lambda,
+            &self.aims_contracts,
+            &self.impl_method_contracts,
+            self.pool,
+        );
+        let contracts = augmented.as_ref().unwrap_or(&self.aims_contracts);
         let arc_problems = ori_arc::run_arc_pipeline(
             lambda,
             self.arc_classifier,
@@ -263,7 +280,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
-            &self.aims_contracts,
+            contracts,
             self.type_registry,
             self.verify_arc,
         );

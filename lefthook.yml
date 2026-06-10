@@ -93,6 +93,24 @@ pre-commit:
       # (sorry / admit / ': True := by trivial' / standalone axiom); a hit blocks.
       glob: "aims-proof/**/*.lean"
       run: aims-proof/scripts/lean-no-placeholder-lint.sh
+    dep-audit:
+      # Supply-chain dependency-audit gate (cargo-deny) — config in deny.toml.
+      # Runs advisories (known-vuln/unmaintained) + bans (duplicate/wildcard) +
+      # sources (registry/git allowlist) on dependency-manifest changes; surfaces
+      # vulnerable / unexpected-origin / newly-added dependencies for review
+      # before they reach the tree.
+      # Bedding-in mode: presence-guarded (skips when cargo-deny is absent) and
+      # warn-only (never blocks). Promote to gating by removing BOTH the
+      # `|| echo ...` warn-wrapper AND the trailing `exit 0` below, once the
+      # advisory/source baseline is clean.
+      glob: "{Cargo.toml,Cargo.lock,**/Cargo.toml,deny.toml}"
+      run: |
+        if ! command -v cargo-deny >/dev/null 2>&1; then
+          echo "dep-audit: cargo-deny not installed - skipping (cargo install cargo-deny)" >&2
+          exit 0
+        fi
+        cargo deny check advisories bans sources || echo "dep-audit: findings above (bedding-in warn-only; not blocking)" >&2
+        exit 0
 
 commit-msg:
   commands:

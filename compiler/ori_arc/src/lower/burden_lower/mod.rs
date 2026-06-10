@@ -16,6 +16,8 @@ mod ctx;
 mod emit;
 mod moved_fields;
 mod ownership_scans;
+
+pub(crate) use ownership_scans::collect_move_edges_and_store_consumes;
 mod terminator;
 
 pub(crate) use ctx::BurdenLowerCtx;
@@ -25,12 +27,14 @@ use cow_aliases::{compute_cow_inc_and_mutators, compute_scalar_literal_vars};
 pub(crate) use ownership_scans::list_concat_consumed_operands;
 use ownership_scans::{
     collect_owned_burdens, compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
-    compute_borrowed_terminator_invoke_args, compute_construct_fed_dead_param_lineage,
-    compute_dead_forwarder_block_param_releases, compute_live_out_owned,
-    compute_owned_vars_needing_rc, compute_transfer_through_return_param_vars,
-    compute_transfer_through_return_results, compute_transfer_via_move_alias,
-    compute_use_counts_and_dup_aliases, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered,
+    compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
+    compute_construct_fed_dead_param_lineage, compute_dead_forwarder_block_param_releases,
+    compute_dead_owned_param_branch_releases, compute_forwarder_identity_transparent_aliases,
+    compute_forwarder_result_under_release, compute_genuine_dup_move_aliases,
+    compute_live_out_owned, compute_owned_vars_needing_rc,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_use_counts_and_dup_aliases, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered,
 };
 use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
 
@@ -65,6 +69,118 @@ static CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new
     std::env::var("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
+/// release for a transfer-through-return forwarder RESULT whose monomorphized
+/// result-type burden is empty (`burden_carries_rc == false`), so the result
+/// lineage gets neither a FRESH inc nor any scope-exit dec, leaks its
+/// transferred-in allocation when consumed only by a borrow-projection then dead
+/// ([`compute_forwarder_result_under_release`]). Bisection surface: isolates a leak
+/// to the forwarder-result release vs the rest of the Phase-5 walk. Default
+/// (unset): the single whole-var release is emitted at the lineage's last use.
+/// Spec: Annex E §AIMS RL-2 (`RL2_borrowed_param_emits_caller_dec` +
+/// `RL2_release_exactly_once`) + RL-34 (forwarder identity).
+static FORWARDER_RESULT_RELEASE_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_FORWARDER_RESULT_RELEASE").as_deref() == Ok("1"));
+
+/// `ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1` skips the Phase-5 RL-4 per-edge
+/// release for an Owned non-scalar FUNCTION-param that dies crossing a CFG edge without
+/// transfer ([`compute_dead_owned_param_branch_releases`]). Shape: a multi-param callee
+/// returning ONE param path-sensitively (`triple<T>(c, x, y, z)`) — the non-returned
+/// params are dead on the returning branch and the Phase-5 walk emits no release, leaking
+/// them. Bisection surface: isolates a leak to the dead-owned-param-branch emission vs the
+/// rest of the Phase-5 walk. Default (unset): the single per-edge release is emitted at the
+/// dead branch's entry. Spec: Annex E §AIMS RL-4 (`RL4_edge_dec_decision`) + RL-2.
+static DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE").as_deref() == Ok("1")
+});
+
+/// `ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1` restores the RL-1 duplication
+/// classification for `Let { Var(src) }` aliases of a forwarder-identity source —
+/// an Owned param of THIS function whose own `MemoryContract` proves
+/// `transfers_through_return` with a read-only-or-move-out lineage
+/// ([`compute_forwarder_identity_transparent_aliases`]). Default (unset): such an
+/// alias is transparent (NO paired alias inc/dec; the moved-through allocation's
+/// release accounting stays with the lineage per RL-34), curing the
+/// multi-use-then-return forwarder over-release (the per-var DP-2/DP-3 pass splits
+/// the spurious pair: DP-3 elides the inc, DP-2 keeps the dec → double-free).
+/// Bisection surface: isolates a forwarder-lineage double-free / leak to the
+/// alias de-classification vs the rest of the Phase-5 walk.
+/// Spec: Annex E §AIMS RL-1 + RL-34 + RL-2.
+static FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP").as_deref() == Ok("1")
+});
+
+/// `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1` restores the decoupled treatment of a
+/// genuine RL-1 duplication pair: Phase 5 re-suppresses the alias-site `BurdenInc`
+/// of a [`compute_genuine_dup_move_aliases`] member (the move-chain inc-suppression
+/// symmetry fires as if the alias were a pure move), and Phase 6's per-var
+/// DP-2/DP-3 elision reverts to splitting an alias pair (inc elided on `Once ∧
+/// (Linear ∨ Affine)`, dec kept). Default (unset): the duplication pair is ATOMIC —
+/// Phase 5 keeps the load-bearing inc for an alias consumed at an owned position
+/// while its source stays live (the store creates a real second reference,
+/// `AimsProof.Realization::RL1_duplication_balanced`), and Phase 6 elides an
+/// alias pair only WHOLE (both inc and dec) — curing the
+/// genuine-duplication-from-ttr-param double-free (`@stash_and_return`: alias
+/// stored into a struct while the source is read after and returned). Bisection
+/// surface: isolates a duplication-lineage double-free / leak to the pair
+/// coupling vs the rest of the Phase-5 walk + Phase-6 elimination.
+/// Spec: Annex E §AIMS RL-1 + RL-2.
+static GENUINE_DUP_PAIR_COUPLING_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING").as_deref() == Ok("1"));
+
+/// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
+/// consumed by Phase 5 here and by the Phase-6 per-var elision
+/// (`aims::realize::burden_elim`) so both halves of the pair-coupling cure flip
+/// on ONE switch.
+pub(crate) fn genuine_dup_pair_coupling_disabled() -> bool {
+    *GENUINE_DUP_PAIR_COUPLING_DISABLED
+}
+
+/// `ORI_DISABLE_BORROWED_STORE_DUP_INC=1` suppresses the Phase-5 RL-1
+/// duplication `BurdenInc` for a BORROWED-param-rooted value consumed at an
+/// aggregate-STORE position (`Construct` / `Reuse` / `CollectionReuse` arg,
+/// `Set.value`). Default (unset): the inc is emitted — the caller retains its
+/// reference for the whole call (RL-2 borrowed-param caller-dec), so the store
+/// creates a real SECOND reference whose matched release is the container's
+/// drop (`AimsProof.Realization::RL1_duplication_balanced`); without the inc
+/// the container drop releases a reference no inc supplied (use-after-free on
+/// the caller's still-live value). Bisection surface: isolates a
+/// borrowed-store lineage use-after-free / leak to this inc vs the rest of the
+/// Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2.
+static BORROWED_STORE_DUP_INC_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_BORROWED_STORE_DUP_INC").as_deref() == Ok("1"));
+
+/// Read-only accessor for the `ORI_DISABLE_BORROWED_STORE_DUP_INC` toggle —
+/// consumed by the Phase-5 borrowed-store duplication scan
+/// (`ownership_scans::compute_borrowed_store_dup_args`).
+pub(in crate::lower::burden_lower) fn borrowed_store_dup_inc_disabled() -> bool {
+    *BORROWED_STORE_DUP_INC_DISABLED
+}
+
+/// `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1` restores the decoupled
+/// DP-2/DP-3 split for `Let { Var }` alias dsts whose alias-chain root is a
+/// LOCAL fresh `Construct`. Default (unset): such alias pairs are ATOMIC in
+/// the Phase-6 per-var elision (`aims::realize::burden_elim`) — elided WHOLE
+/// or kept WHOLE, never split — because an alias definition carries no birth
+/// `+1`: its `BurdenInc` IS the duplication's `+1` on the root's allocation,
+/// so eliding the inc while keeping the dec releases the root's still-live
+/// reference (net -1 over-release double-free; the local terminal-move-store
+/// shape). Apply / Invoke RESULT-rooted aliases stay on the decoupled split
+/// (load-bearing compensation for under-emissions, each cured in its own
+/// cycle). Bisection surface: isolates a local-rooted alias-lineage
+/// double-free / leak to the pair coupling vs the rest of the elimination.
+/// Spec: Annex E §AIMS RL-1 + RL-2.
+static LOCAL_CONSTRUCT_PAIR_COUPLING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING`
+/// toggle — consumed by the Phase-6 per-var elision
+/// (`aims::realize::burden_elim::collect_pair_atomic_alias_dsts`).
+pub(crate) fn local_construct_pair_coupling_disabled() -> bool {
+    *LOCAL_CONSTRUCT_PAIR_COUPLING_DISABLED
+}
+
 use super::burden::{Burden, BurdenRef};
 
 use emit::{emit_burden_ops_for_blocks, BurdenAnalysisCtx};
@@ -74,11 +190,45 @@ use terminator::{compute_terminator_inc_per_block, compute_terminator_transfer_p
 /// True iff `burden` carries any RC-tracked dimension. Used by the filter at
 /// `emit_burden_ops` to exclude scalars whose `lookup_burden` returns the empty
 /// builtin burden. Defends VF-1 `RcOnScalar` invariant.
+///
+/// TYPE-level only: a burden with variant entries (e.g. an all-scalar-payload
+/// sum type) passes this filter even when the concrete var's monomorphized
+/// repr is `Scalar` (niche-packed). Per-var admission pairs this with
+/// [`is_provably_scalar_repr`].
 pub(super) fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
     burden.self_heap_alloc()
         || burden.element_burden().is_some()
         || burden.variant_burdens().next().is_some()
         || burden.owned_fields().next().is_some()
+}
+
+/// `ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP=1` restores the legacy TYPE-level-only
+/// burden admission: vars whose monomorphized repr is `Scalar` receive
+/// whole-var burden ops again (which can never lower and survive as VF-1
+/// ledger residue). Bisection surface: isolates a gated-verification change to
+/// the repr-aware admission vs the rest of the Phase-5 walk. Default (unset):
+/// provably-Scalar-repr vars are excluded from burden admission.
+/// Spec: Annex E §AIMS L-9.
+static SCALAR_REPR_BURDEN_SKIP_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP").as_deref() == Ok("1"));
+
+/// True iff `var`'s monomorphized machine repr is PROVABLY `Scalar` per the
+/// pipeline Step-3 `compute_var_reprs` classification (`func.var_reprs`) — the
+/// SAME repr source the Phase-7 burden lowering consults.
+///
+/// A Scalar-repr value (a primitive, or a niche-packed all-scalar-payload sum
+/// instantiation) carries NO RC header: the scalar sentinel is excluded from
+/// the state map entirely and whole-var burden ops on it can never lower to
+/// RC — they would survive as VF-1 ledger residue. Admission skips ONLY the
+/// provable case: `None` (`var_reprs` unpopulated) and every non-`Scalar` repr
+/// KEEP the admission (over-admitting a scalar is ledger residue;
+/// under-admitting a heap value is a missing release — a leak).
+/// Spec: Annex E §AIMS L-9 (scalar sentinel exclusion) + TF-1/TF-2a.
+pub(super) fn is_provably_scalar_repr(func: &ArcFunction, var: ArcVarId) -> bool {
+    if *SCALAR_REPR_BURDEN_SKIP_DISABLED {
+        return false;
+    }
+    matches!(func.var_repr(var), Some(crate::ir::ValueRepr::Scalar))
 }
 
 /// Walk `func` and emit `BurdenInc` / `BurdenDec` ops per SSA variable from
@@ -174,6 +324,16 @@ pub(crate) fn emit_burden_ops<'a>(
             "burden owned-vars INITIAL (collected, pre-retain)"
         );
     }
+    // L-9 repr-aware admission gate: a var whose MONOMORPHIZED repr is provably
+    // `Scalar` (a niche-packed all-scalar-payload sum instantiation — the
+    // `burden_carries_rc` TYPE-level filter admits its variant entries while
+    // the concrete value carries no RC header) gets NO whole-var burden ops:
+    // Phase-7 lowering cannot rewrite them (`RcStrategy::from_repr` rejects
+    // `Scalar`) and every admitted op survives as VF-1 ledger residue
+    // (net=-1 per exit path). Consult the SAME `var_reprs` classification the
+    // lowering consults; skip ONLY the provable case ([`is_provably_scalar_repr`]).
+    // Spec: Annex E §AIMS L-9 + RE-2.
+    owned_vars_needing_rc.retain(|v| !is_provably_scalar_repr(func, *v));
     // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
     owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
     // Exclude borrowed-derived locals: a `Let { Var(src) }` alias of a borrowed
@@ -229,6 +389,24 @@ pub(crate) fn emit_burden_ops<'a>(
     // iterator-element tracker) to exclude the element-view lineage.
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
     owned_vars_needing_rc.retain(|v| !iter_element_defs.contains(v));
+    // RL-1 + RL-34 forwarder-identity alias transparency: a `Let { Var(src) }`
+    // alias of an Owned param that transfers through the return (per THIS
+    // function's own contract) with a read-only-or-move-out lineage is a
+    // same-allocation view of the moved-through value — NOT a duplication. It
+    // carries NO burden ops: no dup-alias classification (skip in
+    // `compute_use_counts_and_dup_aliases`) and no membership here (no
+    // last-use dec, no terminator inc/dec pair) — the lineage's single
+    // transferred-in reference is released by the CALLER of the bound result.
+    // Keeping the classification emits a paired alias inc/dec the per-var
+    // DP-2/DP-3 pass splits (inc elided, dec kept) → over-release double-free
+    // on the multi-use-then-return forwarder. SSOT + the all-or-nothing
+    // conservative vetting: `compute_forwarder_identity_transparent_aliases`.
+    let forwarder_identity_transparent_aliases = if *FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED {
+        FxHashSet::default()
+    } else {
+        compute_forwarder_identity_transparent_aliases(func, contracts)
+    };
+    owned_vars_needing_rc.retain(|v| !forwarder_identity_transparent_aliases.contains(v));
     // RL-5 + RL-2: a SUM-AGGREGATE-`Construct`-fed allocation threaded (via Let-Var
     // aliases) to a merge/return block's DEAD block-param OVER-emits — a FRESH-site
     // `BurdenInc` on the Construct + a dup-alias `BurdenInc` on the Let-Var alias
@@ -251,6 +429,23 @@ pub(crate) fn emit_burden_ops<'a>(
         compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
+    // RL-2 forwarder-result release: a transfer-through-return forwarder RESULT whose
+    // monomorphized result-type burden is EMPTY (`burden_carries_rc == false`) is never
+    // collected into `owned_vars_needing_rc`, so its lineage gets neither a FRESH inc nor
+    // a scope-exit dec — leaking its transferred-in allocation when consumed only by a
+    // borrow-projection then dead (`generic_forwarder_{set_int,result_list_str}`). RL-34
+    // makes the caller own the returned allocation; `RL2_borrowed_param_emits_caller_dec`
+    // mandates the release. Computed AFTER `owned_vars_needing_rc` is final so gate (b)
+    // ("no existing release on the lineage") sees the settled set — this distinguishes the
+    // genuinely-unreleased forwarder result (carries_rc=false) from the `inherent` over-emit
+    // (carries_rc=true, in owned_vars, already over-decs). SSOT:
+    // `compute_forwarder_result_under_release` (forwarder-identity + no-existing-release +
+    // no-alt-consumer + used gates bound the over-fire / double-free surface).
+    let forwarder_result_releases = if *FORWARDER_RESULT_RELEASE_DISABLED {
+        FxHashMap::default()
+    } else {
+        compute_forwarder_result_under_release(func, contracts, &owned_vars_needing_rc)
+    };
     let last_uses_at = group_last_uses_filtered(&ctx, &owned_vars_needing_rc);
     {
         let mut owned: Vec<u32> = owned_vars_needing_rc
@@ -328,19 +523,6 @@ pub(crate) fn emit_burden_ops<'a>(
     // the FRESH-site inc. A value transferred at a NON-last use (aliased, still
     // live) keeps its Inc — its dec is emitted at the later non-transfer use.
     let mut inc_suppressed_vars: FxHashSet<ArcVarId> = full_move_vars.clone();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
-                continue;
-            };
-            let tv = instr_transfer_vars(instr, func);
-            for &var in last_used {
-                if tv.contains(&var) {
-                    inc_suppressed_vars.insert(var);
-                }
-            }
-        }
-    }
 
     // RL-1 duplication-alias emission for Let-Var aliases: a `Let { Var(src) }`
     // alias whose SOURCE stays live after the alias is a genuine duplication —
@@ -352,9 +534,38 @@ pub(crate) fn emit_burden_ops<'a>(
     // ownership forwards through the move chain (transfer_via_move_alias) and the
     // source's own FRESH-site inc covers the lineage. "Source stays live" =
     // source appears in >= 2 used-var positions (the alias use plus at least one
-    // more downstream).
-    let (use_counts, dup_alias_dsts) =
-        compute_use_counts_and_dup_aliases(func, &mut inc_suppressed_vars);
+    // more downstream). Computed BEFORE the inc-suppression scans so the
+    // genuine-duplication exemption below can consult it.
+    let (use_counts, dup_alias_dsts) = compute_use_counts_and_dup_aliases(
+        func,
+        &mut inc_suppressed_vars,
+        &forwarder_identity_transparent_aliases,
+    );
+
+    // RL-1 genuine-duplication store-out aliases: dup-alias dsts whose source
+    // stays live PAST the alias site and whose move chain ends at an
+    // aggregate-store consume. Their alias-site `BurdenInc` is the lineage's
+    // second reference — the one the container drop releases — so BOTH
+    // inc-suppression scans below skip them (suppressing nets -1 →
+    // double-free; the dec side stays transfer-suppressed). Empty when
+    // `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1` (the compute fn owns the
+    // toggle). Spec: Annex E §AIMS RL-1 + RL-2.
+    let genuine_dup_move_aliases =
+        compute_genuine_dup_move_aliases(func, &dup_alias_dsts, &full_move_vars);
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
+                continue;
+            };
+            let tv = instr_transfer_vars(instr, func);
+            for &var in last_used {
+                if tv.contains(&var) && !genuine_dup_move_aliases.contains(&var) {
+                    inc_suppressed_vars.insert(var);
+                }
+            }
+        }
+    }
 
     // RL-2 transitive-transfer suppression through Let-Var MOVE-alias chains.
     // A value whose ownership transfers out (Return value, owned call arg,
@@ -437,7 +648,17 @@ pub(crate) fn emit_burden_ops<'a>(
         // last-use dec is suppressed (in `transfer_via_move_alias`). Suppressing
         // the inc here would under-count and collapse a COW receiver's RC below
         // the live alias count. Per AIMS RL-1/RL-2.
-        if use_counts.get(&var).copied().unwrap_or(0) <= 1 {
+        //
+        // A use-once GENUINE-duplication alias (`genuine_dup_move_aliases`: a
+        // dup-alias dst whose SOURCE stays live past the alias) is the one-hop-
+        // down twin of the dup'd source: its move-out consumes the DUPLICATE
+        // reference its alias-site inc supplies, while the source's original
+        // reference stays live behind it. Its inc MUST be kept (suppressing
+        // nets -1: the consumer releases a reference no inc supplied —
+        // `RL1_duplication_balanced`); only its dec is transfer-suppressed.
+        if use_counts.get(&var).copied().unwrap_or(0) <= 1
+            && !genuine_dup_move_aliases.contains(&var)
+        {
             inc_suppressed_vars.insert(var);
         }
     }
@@ -515,6 +736,13 @@ pub(crate) fn emit_burden_ops<'a>(
     let index_builtin_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
 
+    // RL-1 borrowed-store duplication incs: a BORROWED-param-rooted value
+    // consumed at an aggregate-STORE position duplicates the caller's retained
+    // reference — the store-site inc is load-bearing (the container's drop is
+    // the matched release). Empty when `ORI_DISABLE_BORROWED_STORE_DUP_INC=1`
+    // (the compute fn owns the toggle). SSOT: `compute_borrowed_store_dup_args`.
+    let borrowed_store_dup_args = compute_borrowed_store_dup_args(func, type_registry);
+
     // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching a
     // merge/return block's dead block-params: the Jump-arg → Owned-param handoff
     // (RL-4 exemption) suppresses the source's last-use dec expecting RL-5 to release
@@ -532,6 +760,27 @@ pub(crate) fn emit_burden_ops<'a>(
     // `emit_burden_ops_for_blocks`; they target disjoint reps (forwarder-identity vs
     // sum-aggregate-Construct), so the merge cannot double-release one allocation.
     for (block_idx, params) in construct_fed_dead_param.releases {
+        dead_forwarder_param_releases
+            .entry(block_idx)
+            .or_default()
+            .extend(params);
+    }
+    // RL-4 dead-owned-param-branch release: an Owned non-scalar FUNCTION-param returned on
+    // ONE branch is dead on the others (`triple<T>(c, x, y, z)`); its only last-use is a
+    // transfer-return on a different branch (RL-2 transfer-suppressed there), so the
+    // Phase-5 walk emits no release and it leaks on the dead branches. The per-edge dec
+    // (block-entry placement, single-predecessor-gated) releases it once on each dead
+    // branch. DISJOINT from the forwarder-identity + construct-fed dead-BLOCK-param
+    // releases above (those target Jump-arg-reached block params; this targets function
+    // params dead crossing a branch edge), so the merge cannot double-release. SSOT:
+    // `compute_dead_owned_param_branch_releases` (Owned-function-param + edge-deadness +
+    // not-transferred + single-pred gates bound the over-fire / double-free surface).
+    let dead_owned_param_branch_releases = if *DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED {
+        FxHashMap::default()
+    } else {
+        compute_dead_owned_param_branch_releases(func, &owned_vars_needing_rc)
+    };
+    for (block_idx, params) in dead_owned_param_branch_releases {
         dead_forwarder_param_releases
             .entry(block_idx)
             .or_default()
@@ -555,6 +804,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_results: &transfer_through_return_results,
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
+        borrowed_store_dup_args: &borrowed_store_dup_args,
     };
     emit_burden_ops_for_blocks(
         func,
@@ -562,6 +812,7 @@ pub(crate) fn emit_burden_ops<'a>(
         &terminator_transfer_per_block,
         &terminator_inc_per_block,
         &dead_forwarder_param_releases,
+        &forwarder_result_releases,
     );
     populate_burden_emitted(func);
     ctx

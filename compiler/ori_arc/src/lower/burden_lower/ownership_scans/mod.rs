@@ -5,7 +5,7 @@
 mod live_out;
 mod move_alias;
 
-pub(super) use live_out::compute_live_out_owned;
+pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use move_alias::compute_transfer_via_move_alias;
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -392,9 +392,14 @@ pub(super) fn compute_transfer_through_return_param_vars(
 ///   (`use_counts` ≥ 2) — a duplication alias (RL-1). The burden path emits the
 ///   alias's own paired `BurdenInc dst` (alias site) + `BurdenDec dst`
 ///   (last-use); the alias owns its release, not the predicate stack.
+/// - `forwarder_transparent_aliases` are NOT duplication aliases: a same-alloc
+///   view of a moved-through allocation (RL-34 forwarder identity) needs no
+///   paired RC of its own — see
+///   [`compute_forwarder_identity_transparent_aliases`].
 pub(super) fn compute_use_counts_and_dup_aliases(
     func: &ArcFunction,
     inc_suppressed_vars: &mut FxHashSet<ArcVarId>,
+    forwarder_transparent_aliases: &FxHashSet<ArcVarId>,
 ) -> (FxHashMap<ArcVarId, u32>, FxHashSet<ArcVarId>) {
     let mut use_counts: FxHashMap<ArcVarId, u32> = FxHashMap::default();
     for block in &func.blocks {
@@ -424,6 +429,9 @@ pub(super) fn compute_use_counts_and_dup_aliases(
                 ..
             } = instr
             {
+                if forwarder_transparent_aliases.contains(dst) {
+                    continue;
+                }
                 if use_counts.get(src).copied().unwrap_or(0) >= 2 {
                     dup_alias_dsts.insert(*dst);
                 }
@@ -431,6 +439,500 @@ pub(super) fn compute_use_counts_and_dup_aliases(
         }
     }
     (use_counts, dup_alias_dsts)
+}
+
+/// Genuine-duplication STORE-out aliases per AIMS RL-1: `Let { Var(src) }` dsts
+/// in `dup_alias_dsts` whose move chain terminates at an AGGREGATE-STORE
+/// consume (`Construct` / `Reuse` / `CollectionReuse` arg or `Set.value`) while
+/// a use of `src` is forward-REACHABLE from the alias site — `src` stays live
+/// PAST the alias on that path, so the store creates a real SECOND reference to
+/// `src`'s allocation while the first stays live. The alias-site `BurdenInc` is
+/// LOAD-BEARING (`AimsProof.Realization::RL1_duplication_balanced`: the
+/// duplication's inc is matched by exactly one release — the container's drop);
+/// the RL-2 inc-suppression symmetry MUST NOT fire on it (suppressing nets -1:
+/// the container releases a reference no inc supplied — double-free).
+///
+/// TWO exclusions bound the family:
+///
+/// - Terminal moves: when NO use of `src` is reachable past the alias, the
+///   store consumes `src`'s ORIGINAL reference (RL-2 transfer, no duplication)
+///   and the inc-suppression stays correct (keeping the inc nets +1).
+///   Reachability is the discriminator — NOT `last_use_points` entry counts:
+///   branch-EXCLUSIVE aliases (`bb3: %a = %s; bb4: %b = %s` under a `Branch`)
+///   give `src` two last-use entries, yet each path's alias is the terminal
+///   move of `src`'s one reference (neither use reaches the other). "Use after
+///   the alias" = later-in-block use (body or terminator), OR a use in any
+///   block forward-reachable from the alias block's successors (covers the
+///   loop back-edge: an earlier-in-block use re-reached on the next iteration
+///   IS a use after).
+/// - Call-arg consumers: an alias moved into an `Apply` / `Invoke` owned arg
+///   (user callee OR protocol builtin — `iter`'s `[own]` collection consume,
+///   `__iter_next`'s iterator) is OUT of the family. Those consumes have their
+///   own interprocedural / protocol ownership accounting (RL-2 iter-consume
+///   transfer, `MemoryContract` transfer-through-return, the loop-threading
+///   keep-alive machinery); injecting an alias inc there over-counts (+1 per
+///   loop on the iterator corpus). Only the aggregate-STORE family — the
+///   `Holder { kept: a }` duplication-by-storage shape — is classified.
+///
+/// `full_move_vars` members are excluded: their whole-var ops are owned by the
+/// field-projection full-move suppression, not the alias pair.
+pub(super) fn compute_genuine_dup_move_aliases(
+    func: &ArcFunction,
+    dup_alias_dsts: &FxHashSet<ArcVarId>,
+    full_move_vars: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    if super::genuine_dup_pair_coupling_disabled() {
+        return FxHashSet::default();
+    }
+    let use_sites = collect_use_sites(func);
+    let (alias_next, store_consumed) = collect_move_edges_and_store_consumes(func);
+    // Walk the single-use move chain from `dst`; true iff it ends at an
+    // aggregate-store consume. A var used >1 time is not a pure move hop, so
+    // the chain only follows `use_sites.len() == 1` links.
+    let chain_ends_in_store = |start: ArcVarId| -> bool {
+        let mut cur = start;
+        for _ in 0..func.var_types.len() {
+            if use_sites.get(&cur).map(Vec::len) != Some(1) {
+                return false;
+            }
+            if store_consumed.contains(&cur) {
+                return true;
+            }
+            match alias_next.get(&cur) {
+                Some(&next) => cur = next,
+                None => return false,
+            }
+        }
+        false
+    };
+    // Forward-reachable block set from `start`'s SUCCESSORS (start itself is
+    // included only when a cycle re-reaches it). Memoized per alias block.
+    let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    let mut genuine: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            else {
+                continue;
+            };
+            if !dup_alias_dsts.contains(dst)
+                || full_move_vars.contains(dst)
+                || !chain_ends_in_store(*dst)
+            {
+                continue;
+            }
+            let Some(sites) = use_sites.get(src) else {
+                continue;
+            };
+            let reachable = reachable_cache
+                .entry(block_idx)
+                .or_insert_with(|| successor_reachable_blocks(func, block_idx));
+            let src_used_after = sites
+                .iter()
+                .any(|&(ub, ui)| (ub == block_idx && ui > instr_idx) || reachable.contains(&ub));
+            if src_used_after {
+                genuine.insert(*dst);
+            }
+        }
+    }
+    genuine
+}
+
+/// Per-var use sites: body uses as `(block, instr_idx)`; terminator uses as
+/// `(block, usize::MAX)` so any body index in the block precedes them.
+fn collect_use_sites(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<(usize, usize)>> {
+    let mut use_sites: FxHashMap<ArcVarId, Vec<(usize, usize)>> = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            for &v in &instr.used_vars() {
+                use_sites.entry(v).or_default().push((block_idx, instr_idx));
+            }
+        }
+        for v in block.terminator.used_vars() {
+            use_sites
+                .entry(v)
+                .or_default()
+                .push((block_idx, usize::MAX));
+        }
+    }
+    use_sites
+}
+
+/// Single-use move-alias edges (`src -> dst`) + aggregate-store consume
+/// membership (`Construct` / `Reuse` / `CollectionReuse` args, `Set.value`),
+/// for the forward chain walk to an alias's terminal consumer. `pub(crate)`:
+/// the Phase-6 pair-atomic collector
+/// (`aims::realize::burden_elim::collect_pair_atomic_alias_dsts`) consumes the
+/// same store-consume membership for its Construct-rooted admission gate (one
+/// SSOT for the aggregate-STORE family).
+pub(crate) fn collect_move_edges_and_store_consumes(
+    func: &ArcFunction,
+) -> (FxHashMap<ArcVarId, ArcVarId>, FxHashSet<ArcVarId>) {
+    let mut alias_next: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let mut store_consumed: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } => {
+                    alias_next.insert(*src, *dst);
+                }
+                ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. }
+                | ArcInstr::CollectionReuse { args, .. } => {
+                    store_consumed.extend(args.iter().copied());
+                }
+                ArcInstr::Set { value, .. } => {
+                    store_consumed.insert(*value);
+                }
+                _ => {}
+            }
+        }
+    }
+    (alias_next, store_consumed)
+}
+
+/// Borrowed-store duplication args per AIMS RL-1: vars whose `Let { Var }`
+/// alias-chain ROOT is a BORROWED param and that are consumed at an
+/// aggregate-STORE position (`Construct` / `Reuse` / `CollectionReuse` arg or
+/// `Set.value`).
+///
+/// A borrow proves the CALLER retains a live reference across the whole call
+/// (RL-2: the caller emits the borrowed param's release —
+/// `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec`), so storing
+/// the borrowed value into an aggregate ALWAYS creates a real SECOND
+/// reference: the caller's reference persists and the aggregate takes a new
+/// one. The store-site `BurdenInc` is LOAD-BEARING
+/// (`AimsProof.Realization::RL1_duplication_balanced` — the duplication's inc
+/// is matched by exactly one release: the container's drop); without it the
+/// container's drop releases a reference no inc supplied (the caller's
+/// still-live value frees at live=1 — use-after-free).
+///
+/// THREE exclusions bound the family:
+///
+/// - Call-arg consumers: a borrowed value passed at an `Apply` / `Invoke` arg
+///   is OUT — call consumes have their own interprocedural / protocol
+///   ownership accounting; injecting an inc there over-counts. Only the
+///   aggregate-STORE family is classified.
+/// - Non-param roots: only a chain rooted at a BORROWED param carries the
+///   borrow proof. Owned roots keep their existing treatment (terminal move /
+///   genuine-dup per [`compute_genuine_dup_move_aliases`]); over-adding on an
+///   owned source leaks.
+/// - RC-free types: a stored value whose burden carries no RC dimension needs
+///   no inc (nothing to release).
+///
+/// Membership is per-VAR; the emission walk emits one inc per store SITE the
+/// member is consumed at (each store duplicates). No paired dec is emitted in
+/// this function — the container's drop is the matched release wherever the
+/// container dies.
+pub(super) fn compute_borrowed_store_dup_args(
+    func: &ArcFunction,
+    type_registry: &TypeRegistry,
+) -> FxHashSet<ArcVarId> {
+    if super::borrowed_store_dup_inc_disabled() {
+        return FxHashSet::default();
+    }
+    let mut borrowed_rooted: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| p.ownership == Ownership::Borrowed)
+        .map(|p| p.var)
+        .collect();
+    if borrowed_rooted.is_empty() {
+        return FxHashSet::default();
+    }
+    // Vars are defined before use within the function walk, so a single
+    // forward pass resolves each `Let { Var }` chain to its root (same
+    // discipline as `collect_use_sites`' single pass).
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if borrowed_rooted.contains(src) {
+                    borrowed_rooted.insert(*dst);
+                }
+            }
+        }
+    }
+    let mut dup_args: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut admit = |var: ArcVarId| {
+        if !borrowed_rooted.contains(&var) || dup_args.contains(&var) {
+            return;
+        }
+        // L-9 repr-aware admission gate (same SSOT as `owned_vars_needing_rc`):
+        // a provably-Scalar-repr stored value is a niche-packed copy — no
+        // second reference exists, and a store-site inc on it can never lower.
+        if super::is_provably_scalar_repr(func, var) {
+            return;
+        }
+        let ty: TypeRef = idx_to_type_ref(func.var_types[var.index()], type_registry);
+        if lookup_burden(ty, type_registry)
+            .as_ref()
+            .is_some_and(burden_carries_rc)
+        {
+            dup_args.insert(var);
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. }
+                | ArcInstr::CollectionReuse { args, .. } => {
+                    for &arg in args {
+                        admit(arg);
+                    }
+                }
+                ArcInstr::Set { value, .. } => admit(*value),
+                _ => {}
+            }
+        }
+    }
+    dup_args
+}
+
+/// Forward-reachable block set from `start`'s SUCCESSORS (`start` itself is
+/// included only when a cycle re-reaches it).
+fn successor_reachable_blocks(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = func
+        .blocks
+        .get(start)
+        .map(|b| {
+            crate::graph::successor_block_ids(&b.terminator)
+                .into_iter()
+                .map(crate::ir::ArcBlockId::index)
+                .collect()
+        })
+        .unwrap_or_default();
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        if let Some(block) = func.blocks.get(b) {
+            for s in crate::graph::successor_block_ids(&block.terminator) {
+                stack.push(s.index());
+            }
+        }
+    }
+    visited
+}
+
+/// Forwarder-identity transparent aliases per AIMS RL-1 + RL-34: `Let { Var(src) }`
+/// dsts where `src` is an Owned param of THIS function whose `MemoryContract`
+/// proves `transfers_through_return`, and the whole lineage (`src` plus every
+/// alias of it) is read-only-or-move-out. Such an alias is a same-allocation
+/// view of a value moving through to the `Return` — NOT an RL-1 duplication
+/// (no new retained reference exists: the lineage's single transferred-in
+/// reference stays live through the Return flow). Classifying it as a
+/// duplication emits a paired alias inc/dec that the per-var DP-2/DP-3
+/// elimination can split (DP-3 elides the `Once ∧ Affine` inc; DP-2 keeps the
+/// `Once` dec) — an over-release double-free on the moved-through allocation.
+///
+/// EXTREME-CONSERVATIVE vetting — ALL must hold, else the `src` and every one
+/// of its aliases keep the duplication classification (a genuine duplication
+/// NEEDS its paired inc/dec):
+/// - `src` is an `Ownership::Owned` param with `transfers_through_return` in
+///   this function's own contract (`Spec: Annex E §AIMS RL-34` — the
+///   structural Return-flow fact; the caller releases the bound result).
+/// - Every body use of `src` and of each alias is a non-owned position
+///   (borrow read: `Project` source, borrowed call arg) — never `Set` /
+///   `SetTag` base, never `Set.value`, never an owned-position consume
+///   (`Construct` / `Reuse` / `CollectionReuse` / `PartialApply` / owned
+///   `Apply` arg), never a nested `Let { Var }` re-alias (single-hop only).
+/// - Every terminator use is a `Return` value or a `Jump` arg feeding a LIVE
+///   successor block-param (the move-out hop); `Invoke` / `InvokeIndirect`
+///   args admit only borrowed positions. A Jump into a DEAD param declines
+///   (the RL-5 dead-param release machinery owns that shape).
+///
+/// All-or-nothing per `src`: one non-vetted use anywhere in the lineage keeps
+/// EVERY alias classified, so per-path nets are never half-changed.
+///
+/// Consumers: the duplication-classification skip in
+/// [`compute_use_counts_and_dup_aliases`] and the `owned_vars_needing_rc`
+/// exclusion in `emit_burden_ops` (the alias carries NO burden ops; the
+/// lineage's release accounting stays with `src`).
+pub(super) fn compute_forwarder_identity_transparent_aliases(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashSet<ArcVarId> {
+    let Some((aliases_of, alias_to_src)) = collect_ttr_param_aliases(func, contracts) else {
+        return FxHashSet::default();
+    };
+
+    let mut declined_srcs: FxHashSet<ArcVarId> = FxHashSet::default();
+    let lineage_src_of = |v: ArcVarId| -> Option<ArcVarId> {
+        if aliases_of.contains_key(&v) {
+            Some(v)
+        } else {
+            alias_to_src.get(&v).copied()
+        }
+    };
+    let decline = |v: ArcVarId, declined: &mut FxHashSet<ArcVarId>| {
+        if let Some(src) = lineage_src_of(v) {
+            declined.insert(src);
+        }
+    };
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            // A nested re-alias of an alias keeps the whole lineage classified
+            // (single-hop only). The alias-def of a ttr param itself is the
+            // vetted hop — skip it (its `src` use is the move into the alias).
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if alias_to_src.contains_key(src) {
+                    decline(*src, &mut declined_srcs);
+                }
+                if aliases_of.contains_key(src) && alias_to_src.contains_key(dst) {
+                    continue;
+                }
+            }
+            // Mutation through the lineage declines it: a `Set` / `SetTag`
+            // base write invalidates the read-only-view premise.
+            match instr {
+                ArcInstr::Set { base, value, .. } => {
+                    decline(*base, &mut declined_srcs);
+                    decline(*value, &mut declined_srcs);
+                }
+                ArcInstr::SetTag { base, .. } => {
+                    decline(*base, &mut declined_srcs);
+                }
+                _ => {}
+            }
+            for (pos, &used) in instr.used_vars().iter().enumerate() {
+                if lineage_src_of(used).is_none() {
+                    continue;
+                }
+                if instr.is_owned_position(pos) {
+                    decline(used, &mut declined_srcs);
+                }
+            }
+        }
+        for (pos, &used) in block.terminator.used_vars().iter().enumerate() {
+            if lineage_src_of(used).is_none() {
+                continue;
+            }
+            match &block.terminator {
+                ArcTerminator::Jump { target, args } => {
+                    // The Jump hop is the move-out only when the receiving
+                    // block-param is itself LIVE (used somewhere); a dead
+                    // param's release belongs to the RL-5 dead-param
+                    // machinery — decline to keep the status quo there.
+                    if !jump_arg_feeds_live_param(func, *target, args, used) {
+                        decline(used, &mut declined_srcs);
+                    }
+                }
+                ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
+                    if block.terminator.is_owned_position(pos) {
+                        decline(used, &mut declined_srcs);
+                    }
+                }
+                // `Return` is the move-out itself; `Branch` / `Switch` read a
+                // scalar; `Resume` / `Unreachable` use nothing.
+                ArcTerminator::Return { .. }
+                | ArcTerminator::Branch { .. }
+                | ArcTerminator::Switch { .. }
+                | ArcTerminator::Resume
+                | ArcTerminator::Unreachable => {}
+            }
+        }
+    }
+
+    aliases_of
+        .iter()
+        .filter(|(src, _)| !declined_srcs.contains(src))
+        .flat_map(|(_, dsts)| dsts.iter().copied())
+        .collect()
+}
+
+/// Collect the single-hop `Let { Var }` aliases of this function's Owned
+/// `transfers_through_return` params (per its own contract). Returns
+/// `(src -> [alias dsts], alias dst -> src)`; `None` when the function has no
+/// such param or no alias of one.
+#[expect(
+    clippy::type_complexity,
+    reason = "paired forward/reverse alias maps returned to one caller"
+)]
+fn collect_ttr_param_aliases(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Option<(
+    FxHashMap<ArcVarId, Vec<ArcVarId>>,
+    FxHashMap<ArcVarId, ArcVarId>,
+)> {
+    let contract = contracts.get(&func.name)?;
+    let ttr_params: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .zip(contract.params.iter())
+        .filter(|(param, pc)| {
+            matches!(param.ownership, Ownership::Owned) && pc.transfers_through_return
+        })
+        .map(|(param, _)| param.var)
+        .collect();
+    if ttr_params.is_empty() {
+        return None;
+    }
+    let mut aliases_of: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+    let mut alias_to_src: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if ttr_params.contains(src) {
+                    aliases_of.entry(*src).or_default().push(*dst);
+                    alias_to_src.insert(*dst, *src);
+                }
+            }
+        }
+    }
+    if aliases_of.is_empty() {
+        return None;
+    }
+    Some((aliases_of, alias_to_src))
+}
+
+/// True iff `used`, passed as a `Jump` arg to `target`, lands in a block-param
+/// that is itself used somewhere in the function (body or terminator).
+fn jump_arg_feeds_live_param(
+    func: &ArcFunction,
+    target: crate::ir::ArcBlockId,
+    args: &[ArcVarId],
+    used: ArcVarId,
+) -> bool {
+    args.iter()
+        .position(|&a| a == used)
+        .and_then(|i| {
+            func.blocks
+                .get(target.index())
+                .and_then(|tb| tb.params.get(i))
+        })
+        .is_some_and(|&(param_var, _)| {
+            func.blocks.iter().any(|b| {
+                b.body.iter().any(|i| i.used_vars().contains(&param_var))
+                    || b.terminator.uses_var(param_var)
+            })
+        })
 }
 
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress
@@ -517,6 +1019,13 @@ pub(super) fn compute_dead_forwarder_block_param_releases(
         for &(param_var, _) in &block.params {
             if used.contains(&param_var) {
                 continue; // not dead
+            }
+            // L-9 repr-aware admission gate (same SSOT as
+            // `owned_vars_needing_rc`): a provably-Scalar-repr dead param
+            // carries no allocation to release; an RL-5 dec on it can never
+            // lower and survives as VF-1 ledger residue.
+            if super::is_provably_scalar_repr(func, param_var) {
+                continue;
             }
             let Some(rep) = dead_param_forwarder_rep(func, &mut uf, block_idx, param_var) else {
                 continue;
@@ -1088,6 +1597,322 @@ fn function_used_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
         used.extend(block.terminator.used_vars());
     }
     used
+}
+
+/// RL-2 scope-exit release for a transfer-through-return forwarder RESULT whose
+/// monomorphized result-type burden is EMPTY (`burden_carries_rc == false`), so the
+/// result lineage was never collected into `owned_vars_needing_rc` and gets neither
+/// a FRESH inc nor any scope-exit dec — leaking its transferred-in allocation when
+/// the lineage is consumed only by a borrow-projection / borrow-read then dies.
+///
+/// Returns `(block_idx, instr_idx) -> [result_var]`: a single whole-var `BurdenDec`
+/// emitted AFTER the lineage's last-use instruction. The whole-var dec lowers
+/// (Phase 7) to a `RcDec` whose drop-glue recursively frees the result's owned
+/// fields (`result_list`'s `[int]` Ok-payload) OR the result pointer itself
+/// (`set_int`'s `{int}` buffer) — `RL2_release_exactly_once` holds: the transferred-in
+/// allocation's single lifecycle `+1` is matched by this single `-1`.
+///
+/// THE ROOT (ground-truthed 2026-06-09): `@id<T>(x: T) -> T` instantiated returns a
+/// distinct monomorphized result type `Idx` whose `UserBurdenSpec` is empty, so
+/// `compute_owned_vars_needing_rc` skips the result lineage. RL-34 makes the caller
+/// own the returned allocation; `RL2_borrowed_param_emits_caller_dec` mandates a dec
+/// at the borrow-read last use. The dec is MISSING. This restores it (the impl
+/// under-emits; the calculus is correct — case-(a) per `arc.md §CP-1`).
+///
+/// CONSERVATIVE GATES (the over-emission / double-free boundary — add ONLY when ALL hold):
+///  (a) the var is an Apply/Invoke result whose callee `transfers_through_return ∧ Owned`
+///      (the forwarder identity — RL-34) AND its forwarder-rep lineage exists;
+///  (b) NO lineage class member is in `owned_vars_needing_rc` — there is NO existing
+///      release (distinguishes from the `inherent` over-emission, where the result
+///      `carries_rc` is true, IS in `owned_vars`, and already over-decs, so a release
+///      here would deepen the double-free);
+///  (c) the lineage rep is NOT in `alt_consumer_reps` — never consumed at an owned arg
+///      position / returned / stored (a moved/transferred result's downstream consumer
+///      decs it; adding a dec here double-frees);
+///  (d) the lineage IS used (a genuinely-dead-immediately result is the dead-block-param
+///      shape, owned by `compute_dead_forwarder_block_param_releases`).
+/// When ANY gate is uncertain the release is NOT added — under-emission is the current
+/// leak (no regression); over-emission is a DOUBLE-FREE (catastrophic).
+pub(super) fn compute_forwarder_result_under_release(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>> {
+    let mut uf = ForwarderUnionFind::build(func, contracts);
+    let alt_consumer_reps = compute_alt_consumer_reps(func, contracts, &mut uf);
+
+    // Collect the forwarder-result vars: Apply/Invoke `dst` whose callee owns-transfers
+    // an arg through its return. Repr-admit RcPointer / FatValue / Aggregate (the
+    // forwarded heap value or sum/struct wrapper); scalars carry no RC.
+    let mut result_vars: Vec<ArcVarId> = Vec::new();
+    let result_repr_admits = |dst: ArcVarId| -> bool {
+        matches!(
+            func.var_repr(dst),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue | ValueRepr::Aggregate)
+        )
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            {
+                if args
+                    .iter()
+                    .any(|&a| arg_owned_transfers_through_return(contracts, *callee, a, args))
+                    && result_repr_admits(*dst)
+                {
+                    result_vars.push(*dst);
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            ..
+        } = &block.terminator
+        {
+            if args
+                .iter()
+                .any(|&a| arg_owned_transfers_through_return(contracts, *callee, a, args))
+                && result_repr_admits(*dst)
+            {
+                result_vars.push(*dst);
+            }
+        }
+    }
+
+    let mut out: FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>> = FxHashMap::default();
+    let mut seen_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for result_var in result_vars {
+        let rep = uf.find(result_var);
+        // Gate (a): forwarder-identity rep.
+        if !uf.is_forwarder_rep.contains(&rep) {
+            continue;
+        }
+        // Gate (c): not owned-transferred / returned / stored downstream.
+        if alt_consumer_reps.contains(&rep) {
+            continue;
+        }
+        // Gate (e) — the FRESH-Construct-owner boundary (the over-emission distinguisher).
+        // Decline when the forwarder's FULL class (arg + result, via `class_members`)
+        // contains a FRESH-allocating definition (`Construct`/`Reuse`/`CollectionReuse`/
+        // `PartialApply`) whose dst is owned-RC-tracked: that fresh member OWNS the shared
+        // allocation and retains its own scope-exit release, so a whole-var release here
+        // double-frees it (the `host`/imported-generic shape: `%3 = Construct List` flows
+        // `%5 = %3` → `identity(%5)` → result, and `%3`'s native release covers the alloc).
+        // FIRE only when the allocation entered the class via a CALL RESULT (`@__collect_set`)
+        // with no in-class FRESH-Construct owner — then no retained release exists (the
+        // `set_int` shape). The class members are resolved BEFORE the result-side narrowing
+        // because the over-fire owner is UPSTREAM of the result (the transferred-in arg).
+        if class_has_fresh_construct_owner(func, &uf.class_members(rep), owned_vars_needing_rc) {
+            continue;
+        }
+        // RESULT-SIDE lineage: the result var + its FORWARD Let-Var alias closure (the
+        // `%10 = %8` continuation). DISTINCT from the full forwarder-rep class (which
+        // ALSO unions the transferred-in ARG `%7` — whose own release is correctly
+        // transfer-suppressed at the forwarder call). Gate (b) + the release-site walk
+        // operate on the result-side lineage so the upstream arg's owned-RC membership
+        // does NOT mask the genuinely-unreleased result.
+        let result_lineage = result_side_lineage(func, result_var);
+        // Gate (b): NO existing release on the RESULT-SIDE lineage (the carries_rc=false
+        // bug). If any result-side member is owned-RC-tracked, the existing last-use
+        // machinery already releases it — adding a dec here double-frees (the `inherent`
+        // shape: its result `%7` carries_rc=true, IS in owned_vars, already over-decs).
+        if result_lineage
+            .iter()
+            .any(|m| owned_vars_needing_rc.contains(m))
+        {
+            continue;
+        }
+        // Gate (c, cont.): the result lineage's payload may be PROJECTED to an
+        // owned-RC var that the existing machinery releases (e.g. a `Box<[int]>`
+        // forwarder whose `[int]` field is projected and owns its own dec). If any
+        // payload-projection of a result-side member carries RC and is released, the
+        // whole-var dec here would double-free that field. Decline.
+        if lineage_has_released_projection(func, &result_lineage, owned_vars_needing_rc) {
+            continue;
+        }
+        // Dedup: one release per distinct forwarder allocation (multiple result vars
+        // can alias one rep through the union-find; a second dec double-frees).
+        if !seen_reps.insert(rep) {
+            continue;
+        }
+        // Find the result-side lineage's death point (just past its final borrow-read).
+        // Gate (d): a lineage with NO use is the dead-block-param shape (owned elsewhere)
+        // — skip.
+        let Some(site) = lineage_release_site(func, &result_lineage) else {
+            continue;
+        };
+        out.entry(site).or_default().push(result_var);
+    }
+    out
+}
+
+/// The RESULT-SIDE lineage of a forwarder result: the result var plus the FORWARD
+/// closure over `Let { Var }` aliases (`%10 = %8`) AND borrow `Project` dsts
+/// (`%14 = Project %9.1` — the Ok-payload of an Aggregate result). EXCLUDES the
+/// transferred-in arg (upstream of the forwarder call) — that arg's own release is
+/// transfer-suppressed at the call site and must NOT mask the result's missing release.
+///
+/// Forward-only fixpoint: seed with `result_var`; repeatedly add any `Let { dst = Var(m) }`
+/// dst or `Project { dst, value: m }` dst whose source `m` is already a member, until no
+/// growth. Gives the set of vars that share the result's allocation downstream of the
+/// forwarder — the lineage that needs the single whole-var release + whose final use is
+/// the death point.
+fn result_side_lineage(func: &ArcFunction, result_var: ArcVarId) -> FxHashSet<ArcVarId> {
+    let mut members: FxHashSet<ArcVarId> = FxHashSet::default();
+    members.insert(result_var);
+    loop {
+        let mut grew = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                match instr {
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Var(src),
+                        ..
+                    } if members.contains(src) && members.insert(*dst) => grew = true,
+                    ArcInstr::Project { dst, value, .. }
+                        if members.contains(value) && members.insert(*dst) =>
+                    {
+                        grew = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    members
+}
+
+/// True iff any member of the forwarder class is defined by a FRESH-allocating
+/// instruction (`Construct` / `Reuse` / `CollectionReuse` / `PartialApply`) AND is in
+/// `owned_vars_needing_rc`. Such a member OWNS the class's shared allocation and retains
+/// its own scope-exit release — a whole-var forwarder-result release would double-free it.
+///
+/// The over-emission distinguisher between the genuinely-unreleased forwarder result
+/// (allocation enters via a CALL RESULT — `@__collect_set` — with NO in-class FRESH-Construct
+/// owner) and the already-released one (`host`: `%3 = Construct List` flows into the
+/// forwarder, retains its native release). Resolving the FULL class (not result-side) is
+/// load-bearing — the FRESH owner is UPSTREAM of the result (the transferred-in arg).
+fn class_has_fresh_construct_owner(
+    func: &ArcFunction,
+    class_members: &FxHashSet<ArcVarId>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> bool {
+    for block in &func.blocks {
+        for instr in &block.body {
+            let fresh_dst = match instr {
+                ArcInstr::Construct { dst, .. }
+                | ArcInstr::Reuse { dst, .. }
+                | ArcInstr::CollectionReuse { dst, .. }
+                | ArcInstr::PartialApply { dst, .. } => Some(*dst),
+                _ => None,
+            };
+            if let Some(dst) = fresh_dst {
+                if class_members.contains(&dst) && owned_vars_needing_rc.contains(&dst) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Where a forwarder-result whole-var `BurdenDec` lands relative to one block. The
+/// release follows the lineage's FINAL borrow-read so the read completes before the
+/// allocation is freed (no UAF).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum ForwarderReleasePos {
+    /// At the START of the block's body (the normal-successor of a borrowed
+    /// terminator-`Invoke` whose arg was the lineage's final use — the borrowed call
+    /// completed on the predecessor's terminator, the result is dead at this entry).
+    BlockEntry,
+    /// Immediately AFTER the body instruction at `instr_idx` (the lineage's final use
+    /// was a body `Apply`/etc. borrow at that position).
+    AfterInstr(usize),
+}
+
+/// True iff any `Project` of a lineage member produces an owned-RC dst that the
+/// existing last-use machinery already releases (in `owned_vars_needing_rc`). Such a
+/// projection's field is freed by its own dec; a whole-var release on the parent
+/// would double-free it. Over-fire boundary for `compute_forwarder_result_under_release`.
+fn lineage_has_released_projection(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> bool {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if members.contains(value) && owned_vars_needing_rc.contains(dst) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Resolve the lineage's death point — the `(block_idx, pos)` just past its FINAL
+/// borrow-read, where the whole-var `BurdenDec` lands. Walks every block in forward
+/// CFG order; the last block carrying a member use wins (the lineage is straight-line
+/// forwarder-then-borrow, so the textually-last use is the death point).
+///
+/// Two terminal shapes:
+///  - the final use is a body instruction (e.g. `Apply @__index(.. [borrow])`) →
+///    `AfterInstr(instr_idx)`;
+///  - the final use is a BORROWED terminator-`Invoke` arg (e.g. `Invoke @len(.. [borrow])
+///    normal bbN`) → the value survives the borrowed call and dies at the normal
+///    successor's entry → `(normal_succ, BlockEntry)`.
+///
+/// An OWNED terminator-position use (Return / Jump-arg / owned Invoke-arg) is a
+/// transfer, NOT a borrow-read — `compute_alt_consumer_reps` already excluded such a
+/// lineage (gate c), so it cannot reach here; return `None` defensively if it does.
+fn lineage_release_site(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+) -> Option<(usize, ForwarderReleasePos)> {
+    let mut site: Option<(usize, ForwarderReleasePos)> = None;
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        // Body-instruction uses (skip Let-Var alias re-binds: their dst is itself a
+        // member, not a terminal read).
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::Let {
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if members.contains(src) {
+                    continue;
+                }
+            }
+            if instr.used_vars().iter().any(|v| members.contains(v)) {
+                site = Some((block_idx, ForwarderReleasePos::AfterInstr(instr_idx)));
+            }
+        }
+        // Terminator borrow-use: a member at a BORROWED position of an `Invoke` /
+        // `InvokeIndirect` (the result survives, dies at the normal successor's entry).
+        let term = &block.terminator;
+        if let ArcTerminator::Invoke { normal, .. } | ArcTerminator::InvokeIndirect { normal, .. } =
+            term
+        {
+            for (pos, &v) in term.used_vars().iter().enumerate() {
+                if members.contains(&v) && !term.is_owned_position(pos) {
+                    site = Some((normal.index(), ForwarderReleasePos::BlockEntry));
+                }
+            }
+        }
+    }
+    site
 }
 
 /// Structural forwarder-identity union-find over Let{Var} aliases (`%6 = %4`) +

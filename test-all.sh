@@ -574,18 +574,27 @@ DOCTEST_STATUS=$(suite_status "$DOCTEST_EXIT" "$DOCTEST_FAILED")
 RUST_RT_STATUS=$(suite_status "$RUST_RT_EXIT" "$RUST_RT_FAILED")
 RUST_LLVM_STATUS=$(suite_status "$RUST_LLVM_EXIT" "$RUST_LLVM_FAILED")
 AOT_STATUS=$(suite_status "$AOT_EXIT" "$AOT_FAILED")
+ORI_INTERP_STATUS=$(suite_status "$ORI_INTERP_EXIT" "$ORI_INTERP_FAILED")
 
 ERRORED_SUITES=""
+INCOMPLETE_SUITES=0
 for pair in \
     "Rust unit tests (workspace)=$RUST_STATUS" \
     "Rust doctests (workspace)=$DOCTEST_STATUS" \
     "Runtime library (ori_rt)=$RUST_RT_STATUS" \
     "Rust unit tests (ori_llvm)=$RUST_LLVM_STATUS" \
-    "AOT integration tests=$AOT_STATUS"; do
+    "AOT integration tests=$AOT_STATUS" \
+    "Ori spec (interpreter)=$ORI_INTERP_STATUS"; do
     if [ "${pair##*=}" = "errored" ]; then
         ERRORED_SUITES="${ERRORED_SUITES}  - ${pair%=*}\n"
+        INCOMPLETE_SUITES=$((INCOMPLETE_SUITES + 1))
     fi
 done
+# LLVM spec backend that never produced counts (build failure or crash) also
+# leaves the TOTAL row incomplete.
+if [ "${LLVM_BUILD_OK:-1}" -eq 0 ] || [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
+    INCOMPLETE_SUITES=$((INCOMPLETE_SUITES + 1))
+fi
 
 # --- Print Summary ---
 echo ""
@@ -617,7 +626,7 @@ else
 fi
 print_rust_row "Rust doctests (workspace)" "$DOCTEST_PASSED" "$DOCTEST_FAILED" "$DOCTEST_IGNORED" "$DOCTEST_STATUS"
 printf "%-30s %8s\n" "External playground WASM" "$WASM_STATUS"
-printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
+print_rust_row "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "$ORI_INTERP_STATUS"
 if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "skipped"
 elif [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
@@ -636,6 +645,9 @@ TOTAL_SKIPPED=$((DOCTEST_IGNORED + RUST_IGNORED + RUST_RT_IGNORED + RUST_LLVM_IG
 TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
+if [ "$INCOMPLETE_SUITES" -gt 0 ]; then
+    echo -e "${RED}${BOLD}TOTAL IS INCOMPLETE: $INCOMPLETE_SUITES suite(s) errored before producing counts — the real failure count is higher.${NC}"
+fi
 echo ""
 
 # State self-update is invoked AFTER emit_json (defined ~line 611), so it runs

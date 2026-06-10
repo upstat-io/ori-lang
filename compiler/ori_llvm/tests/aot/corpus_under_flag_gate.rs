@@ -10,8 +10,16 @@
 //!
 //! `baseline_failing_ids` is the checked-in fixture
 //! `fixtures/corpus_under_flag_gate/baseline_failing_ids.txt` -- the set of test
-//! IDs that fail with the predicate stack ON. The gate forbids ADDITIONS to that
-//! set when the burden path becomes the sole RC emitter (Spec: Annex E §AIMS).
+//! IDs that fail on the burden-default path under the test-all.sh verification
+//! environment. The gate forbids ADDITIONS to that set; the terminal target is
+//! the EMPTY set (Spec: Annex E §AIMS).
+//!
+//! METRIC CONTRACT: the baseline capture and the live gate run BOTH set
+//! `ORI_VERIFY_ARC=1` + `ORI_VERIFY_EACH=1` -- the same gates test-all.sh and
+//! CI export. A run without them counts only behavioral failures (leaks,
+//! double-frees, wrong output) and silently excludes every VF-1
+//! burden-imbalance verification failure, so its failing set is an under-count
+//! that MUST NOT be compared against this gate's operands.
 //!
 //! A SET-subset, NOT an equal-or-lower count: a count-only check masks a
 //! regression when a pre-existing baseline failure is incidentally fixed and a
@@ -157,17 +165,20 @@ test result: FAILED. 1 passed; 2 failed; 0 ignored
 // retirement.
 //
 // Mechanism: re-exec THIS aot test binary as a subprocess with
-// `ORI_DISABLE_PREDICATE_STACK_RC=1`, excluding this gate test itself (it would
-// recurse), parse the `... FAILED` IDs from libtest output, and assert that set
-// adds no ID outside the checked-in baseline. Re-capture the baseline (predicate-
-// stack ON) per the fixture's re-capture protocol before trusting this verdict.
+// `ORI_DISABLE_PREDICATE_STACK_RC=1` plus the test-all.sh verification gates,
+// excluding this gate test itself (it would recurse), parse the `... FAILED`
+// IDs from libtest output, and assert that set adds no ID outside the
+// checked-in baseline. Re-capture the baseline under the same gated
+// environment per the fixture's re-capture protocol before trusting this
+// verdict.
 #[test]
 #[ignore = "Spec: Annex E §AIMS -- corpus-under-flag SET-subset readiness gate. \
             PASS after predicate-stack retirement + BurdenInc->RcInc activation \
             (RL-2/RL-4/RL-5) make the burden path the sole RC emitter corpus-wide; \
             under-flag failing set is not yet a subset of the baseline until then. \
-            Re-capture the baseline (predicate-stack ON) per the fixture protocol \
-            before trusting the subset verdict."]
+            Re-capture the baseline under the gated environment (ORI_VERIFY_ARC=1 \
+            ORI_VERIFY_EACH=1) per the fixture protocol before trusting the \
+            subset verdict."]
 fn corpus_under_flag_failing_set_is_subset_of_baseline() {
     let baseline = parse_failing_id_set(BASELINE_FIXTURE);
     assert!(
@@ -181,6 +192,11 @@ fn corpus_under_flag_failing_set_is_subset_of_baseline() {
     // the subprocess does not recurse into itself.
     let output = std::process::Command::new(&test_bin)
         .env("ORI_DISABLE_PREDICATE_STACK_RC", "1")
+        // METRIC CONTRACT: match the test-all.sh verification environment, or
+        // the failing set under-counts (VF-1 imbalances become invisible) and
+        // the subset verdict is meaningless against the gated baseline.
+        .env("ORI_VERIFY_ARC", "1")
+        .env("ORI_VERIFY_EACH", "1")
         .args([
             "--skip",
             "corpus_under_flag_gate::corpus_under_flag_failing_set_is_subset_of_baseline",

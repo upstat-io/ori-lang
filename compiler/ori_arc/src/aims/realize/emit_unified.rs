@@ -8389,18 +8389,22 @@ pub(super) fn compute_cow_mutated_lineage_reps(
 /// old-value field drop); a whole-var `RcDec` would double-drop. They reach
 /// codegen unchanged.
 ///
-/// `Scalar` reprs cannot reach here — `emit_burden_ops` filters them (Spec:
-/// Annex E §AIMS RE-2 / DP-1). A `Scalar` or out-of-range `var_repr` leaves the
+/// `Scalar` reprs cannot reach here — `emit_burden_ops` filters them at
+/// admission via the type-level `burden_carries_rc` filter PLUS the per-var
+/// repr-aware gate consulting this same `var_reprs` source (Spec: Annex E
+/// §AIMS RE-2 / DP-1 / L-9). A `Scalar` or out-of-range `var_repr` leaves the
 /// burden op in place rather than synthesizing an unsound `RcDec`.
 ///
 /// `elidable_fresh_incs` (per `compute_elidable_fresh_self_alloc_incs`): FRESH
 /// self-allocation `BurdenInc` def-sites whose paired fresh inc is REDUNDANT
 /// under lowering — the allocation already supplies the lineage's `+1`. The
-/// FIRST `BurdenInc` encountered for such a var is left as a no-op `BurdenInc`
-/// marker (codegen no-ops it) instead of lowering to `RcInc`, so the lineage's
-/// alloc-aware net stays 0 (no leak). Subsequent `BurdenInc`s for the same var
-/// (genuine dup-alias acquires) still lower — only the ONE redundant fresh-site
-/// inc per var is elided.
+/// FIRST `BurdenInc` encountered for such a var is REMOVED (an elided op is
+/// gone from the op stream, keeping the VF-1 whole-var ledger net-0; a
+/// surviving no-op marker would count `+1` at function exit and abort gated
+/// runs). Subsequent `BurdenInc`s for the same var (genuine dup-alias
+/// acquires) still lower — only the ONE redundant fresh-site inc per var is
+/// elided. `ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL=1` restores the legacy
+/// no-op-marker form (codegen no-ops it) for bisection.
 ///
 /// Spec: Annex E §AIMS RL-comp (lowered `BurdenInc`/`BurdenDec` net-preservation).
 fn lower_burden_ops_to_rc(
@@ -8409,6 +8413,7 @@ fn lower_burden_ops_to_rc(
     elidable_fresh_incs: &FxHashSet<ArcVarId>,
 ) {
     let mut fresh_inc_elided: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut elided_sites: Vec<(usize, usize)> = Vec::new();
     for block_idx in 0..func.blocks.len() {
         let body_len = func.blocks[block_idx].body.len();
         for instr_idx in 0..body_len {
@@ -8418,21 +8423,24 @@ fn lower_burden_ops_to_rc(
                 continue;
             };
             // Elide the ONE redundant fresh-site inc: the first `BurdenInc` for
-            // an elidable FRESH self-alloc var stays a codegen-no-op marker
-            // (allocation already supplies the `+1`). Later incs for the var are
-            // genuine dup-alias acquires and lower normally.
+            // an elidable FRESH self-alloc var (allocation already supplies the
+            // `+1`). Later incs for the var are genuine dup-alias acquires and
+            // lower normally.
             if matches!(
                 func.blocks[block_idx].body[instr_idx],
                 ArcInstr::BurdenInc { .. }
             ) && elidable_fresh_incs.contains(&var)
                 && fresh_inc_elided.insert(var)
             {
+                elided_sites.push((block_idx, instr_idx));
                 continue;
             }
             // RE-2 backstop: scalars carry no RcStrategy. emit_burden_ops never
-            // emits whole-var burden ops on scalars (burden_carries_rc filter),
-            // so a Scalar/absent repr here is a contract violation — leave the
-            // burden op in place (codegen no-ops it) rather than emit unsound RC.
+            // emits whole-var burden ops on scalars (the type-level
+            // burden_carries_rc filter + the per-var repr-aware admission gate
+            // consulting this SAME var_reprs source), so a Scalar/absent repr
+            // here is a contract violation — leave the burden op in place
+            // (codegen no-ops it) rather than emit unsound RC.
             let Some(repr) = func.var_repr(var) else {
                 continue;
             };
@@ -8458,6 +8466,40 @@ fn lower_burden_ops_to_rc(
             };
             func.blocks[block_idx].body[instr_idx] = lowered;
         }
+    }
+    if !*ELIDED_FRESH_INC_REMOVAL_DISABLED {
+        remove_elided_fresh_inc_sites(func, &elided_sites);
+    }
+}
+
+/// `ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL=1` keeps each elided fresh-site
+/// `BurdenInc` as a codegen-no-op marker instead of removing it. Bisection
+/// surface: isolates a behavior change to the marker removal vs the elision
+/// verdict. Default (unset): elided incs are removed.
+static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL").as_deref() == Ok("1"));
+
+/// Remove the elided fresh-site `BurdenInc` instructions at `sites`
+/// (`(block_idx, instr_idx)` pairs recorded by [`lower_burden_ops_to_rc`]).
+/// An elided op is GONE from the op stream — the VF-1 whole-var ledger
+/// (`verify_burden_balance`) counts surviving burden ops, so a retained no-op
+/// marker would net `+1` at every function exit through its definition.
+fn remove_elided_fresh_inc_sites(func: &mut ArcFunction, sites: &[(usize, usize)]) {
+    if sites.is_empty() {
+        return;
+    }
+    let mut by_block: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    for &(b, i) in sites {
+        by_block.entry(b).or_default().insert(i);
+    }
+    for (block_idx, remove) in by_block {
+        let body = &mut func.blocks[block_idx].body;
+        let mut idx = 0usize;
+        body.retain(|_| {
+            let keep = !remove.contains(&idx);
+            idx += 1;
+            keep
+        });
     }
 }
 

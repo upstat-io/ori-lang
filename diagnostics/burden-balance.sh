@@ -66,9 +66,11 @@ for t in "${TARGETS[@]}"; do
   fi
 done
 
-# Distinct-imbalance extractor: pull `vN net=... at exit block M` tuples, dedup.
+# Distinct-imbalance extractor: pull `vN net=... at exit block M` tuples
+# (plus the attribution suffix `[def=<kind> exit=<kind> ops=iN/dN/pN/vN]`
+# when the compiler emits it), dedup.
 extract() {
-  grep -oE 'burden imbalance \(VF-1\): v[0-9]+ net=[-+0-9]+ expected=0 at exit block [0-9]+' \
+  grep -oE 'burden imbalance \(VF-1\): v[0-9]+ net=[-+0-9]+ expected=0 at exit block [0-9]+( \[def=[a-z-]+ exit=[a-z-]+ repr=[a-z-]+ ops=i[0-9]+/d[0-9]+/p[0-9]+/v[0-9]+\])?' \
     | sort -u
 }
 

@@ -100,11 +100,35 @@ pub fn analyze_program(
         "AIMS interprocedural analysis complete — FIP coverage"
     );
 
+    // Per-contract forwarder visibility: one event per function naming its
+    // `transfers_through_return` params, gated by `tracing::enabled!` (zero
+    // overhead off). Answers "is callee @inner's forwarder contract in the set
+    // a caller @main consults?" — the impl-method interprocedural-contract
+    // diagnostic. `ORI_LOG=ori_arc::aims::interprocedural=debug`.
+    if tracing::enabled!(target: "ori_arc::aims::interprocedural", tracing::Level::DEBUG) {
+        for (name, contract) in &all_sigs {
+            let ttr: Vec<usize> = contract
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.transfers_through_return)
+                .map(|(i, _)| i)
+                .collect();
+            tracing::debug!(
+                target: "ori_arc::aims::interprocedural",
+                fn_name = interner.lookup(*name),
+                params = contract.params.len(),
+                transfers_through_return_params = ?ttr,
+                "AIMS contract computed",
+            );
+        }
+    }
+
     all_sigs
 }
 
 /// Analyze a non-recursive function in a single pass.
-fn analyze_scc_single(
+pub(super) fn analyze_scc_single(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,

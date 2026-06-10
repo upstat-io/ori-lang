@@ -498,7 +498,7 @@ fn apply_edge_decs(
                 .iter()
                 .flat_map(|&(var, strategy)| {
                     if burden_only {
-                        super::release_burden_only_edge(func, *pred, var)
+                        super::release_burden_only_edge(func, *pred, *succ, var)
                     } else {
                         super::release_with_burden_edge(func, *pred, var, strategy)
                     }

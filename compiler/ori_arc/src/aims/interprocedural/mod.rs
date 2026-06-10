@@ -31,12 +31,16 @@
 
 mod demand_propagation;
 mod extract;
+mod impl_method_contracts;
 mod scc_driver;
 mod use_count;
 
 #[cfg(test)]
 mod tests;
 
+pub use impl_method_contracts::{
+    augment_contracts_with_impl_callees, compute_impl_method_contracts,
+};
 pub use scc_driver::analyze_program;
 
 pub(crate) use extract::{build_alias_to_param_map, extract_contract};

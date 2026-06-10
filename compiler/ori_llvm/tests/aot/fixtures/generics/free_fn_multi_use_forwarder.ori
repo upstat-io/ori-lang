@@ -1,0 +1,18 @@
+// Free-function twin of the multi-use-then-return impl forwarder: the
+// interprocedural contract proves `w` transfers through the return, yet the
+// borrow-read raises its use count so the branch aliases were classified as
+// duplications — the same spurious paired inc/dec split as the impl-method
+// shape, proving the defect is contract-independent.
+type Wrapper = { items: [int] };
+
+@touchf (w: Wrapper) -> Wrapper = {
+    let $n = w.items.len();
+
+    if n > 0 then w else w
+}
+
+@main () -> int = {
+    let w = Wrapper { items: [5, 6, 7] };
+    let w2 = touchf(w: w);
+    if w2.items.len() == 3 && w2.items[2] == 7 then 0 else 1
+}

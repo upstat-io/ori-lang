@@ -659,6 +659,50 @@ fn test_path_sensitive_triple_list_balances_rc_on_all_three_paths() {
     );
 }
 
+// Dead-owned-param-branch release (compute_dead_owned_param_branch_releases): a callee
+// Owned non-scalar PARAM that is returned on one branch but DEAD on others leaks on the
+// dead branches — the Phase-5 walk emits no per-edge RL-4 release. The positive pins clear
+// the leak (the two-param `pick`/`select` family); the negative pin clamps the
+// boundary (borrow-read-keeps-live) so the per-edge release never double-frees. Spec:
+// Annex E §AIMS RL-4 (edge dec) + RL-2 (release exactly once).
+
+/// Positive matrix pin (type dimension `[str]`): the two-param `pick(c, x, y)` shape over
+/// a HEAP-ELEMENT list. On each branch the non-returned `[str]` param is dead; the
+/// per-edge release frees the list buffer AND its `str` elements (drop-glue recursion).
+/// Reverting (`ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1`) leaks the dead `[str]` param.
+#[test]
+fn test_dead_param_pick_str_list_balances_rc() {
+    assert_aot_success(
+        include_str!("fixtures/generics/dead_param_pick_str_list_balances_rc.ori"),
+        "dead_param_pick_str_list_balances_rc",
+    );
+}
+
+/// Positive + no-double-free pin: a two-param `pick(c, x, y)` where each `[int]` param is
+/// returned on one branch and dead on the other; the per-edge release fires EXACTLY ONCE
+/// per param per dead branch (x on the else-edge, y on the then-edge). Reverting
+/// (`ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1`) leaks; an over-emitting per-edge dec
+/// (twice, or on the return edge) double-frees the transferred value (exit-134).
+#[test]
+fn test_dead_param_returned_on_all_paths_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/generics/dead_param_returned_on_all_paths_no_double_free.ori"),
+        "dead_param_returned_on_all_paths_no_double_free",
+    );
+}
+
+/// Negative over-fire pin (borrow-read keeps it live): a param borrow-read on a branch is
+/// LIVE there (in `live_in`), so the dead-param-branch pass MUST NOT emit a release at
+/// that block's entry. Reverting the `dead-at-entry` (`p ∉ live_in(B)`) gate emits a
+/// spurious release on the read branch → double-free.
+#[test]
+fn test_dead_param_borrow_read_then_dead_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/generics/dead_param_borrow_read_then_dead_no_double_free.ori"),
+        "dead_param_borrow_read_then_dead_no_double_free",
+    );
+}
+
 /// Negative pin for path-sensitivity: stress-test exercising
 /// `select<T>` across multiple call sites with mixed path selection.
 /// Surfaces leak-detection failures under naive global-suppression.
@@ -669,6 +713,48 @@ fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     assert_aot_success(
         include_str!("fixtures/generics/path_sensitive_select_negative_pin.ori"),
         "path_sensitive_select_negative_pin",
+    );
+}
+
+// Forwarder-result RL-2 release (compute_forwarder_result_under_release): a
+// transfer-through-return forwarder RESULT whose monomorphized result-type burden is
+// empty leaks its transferred-in allocation when borrow-consumed then dead, because the
+// result lineage gets neither a FRESH inc nor a scope-exit dec. The positive pin clears
+// the leak; the two negative pins clamp the over-emission boundary (gate c moved-onward,
+// gate e FRESH-Construct owner) so the release never double-frees.
+
+/// Positive pin (semantic): `Set<int>` from `@__collect_set` (a CALL RESULT, no
+/// in-class `Construct` owner) through a forwarder, borrow-consumed then dead. The
+/// forwarder-result release frees the 72-byte Set buffer; reverting it
+/// (`ORI_DISABLE_FORWARDER_RESULT_RELEASE=1`) re-surfaces the leak.
+#[test]
+fn test_forwarder_result_collect_set_borrow_consumed_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/generics/forwarder_result_collect_set_borrow_consumed.ori"),
+        "forwarder_result_collect_set_borrow_consumed",
+    );
+}
+
+/// Negative over-fire pin (gate c — alt-consumer): a forwarder result MOVED ONWARD into
+/// a second forwarder must NOT get the release (the downstream lineage owns + releases
+/// the allocation). Reverting gate c double-frees (exit-134).
+#[test]
+fn test_forwarder_result_collect_set_moved_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/generics/forwarder_result_collect_set_moved_no_double_free.ori"),
+        "forwarder_result_collect_set_moved_no_double_free",
+    );
+}
+
+/// Negative over-fire pin (gate e — FRESH-Construct owner): a `[int]` built by a
+/// `Construct List` flows into a forwarder; the forwarder class owns its allocation via
+/// the in-class Construct (retained release), so the forwarder-result release must NOT
+/// fire. Reverting gate e double-frees (the imported-generic `host` shape, exit-134).
+#[test]
+fn test_forwarder_result_list_construct_owner_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/generics/forwarder_result_list_construct_owner_no_double_free.ori"),
+        "forwarder_result_list_construct_owner_no_double_free",
     );
 }
 
@@ -1191,5 +1277,95 @@ fn test_borrow_list_int_nested_pin6_chain_then_return_no_leak() {
     assert_aot_success(
         include_str!("fixtures/generics/borrow_list_int_nested_pin6_chain_then_return.ori"),
         "borrow_list_int_nested_pin6_chain_then_return",
+    );
+}
+
+// As-compiled impl-method contract pins
+// Caller-side `transfers_through_return` binding for impl-method callees.
+
+/// Negative over-fire pin: a CONDITIONAL impl-method forwarder (both params
+/// may flow to the return) must not double-free under the caller-side
+/// as-compiled contract binding — the returned Wrapper is released once,
+/// the non-returned one by its own path release.
+#[test]
+fn test_impl_method_conditional_forwarder_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/generics/impl_method_conditional_forwarder_no_double_free.ori"),
+        "impl_method_conditional_forwarder_no_double_free",
+    );
+}
+
+// Forwarder-identity alias transparency
+// A `Let { Var }` alias of a transfers-through-return Owned param is a
+// same-allocation view of the moved-through value, not an RL-1 duplication.
+// Classifying it emits a paired alias inc/dec the per-var DP-2/DP-3
+// elimination splits (inc elided, dec kept) — an over-release double-free.
+// Toggle: ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1 restores the
+// classification (the double-free returns — mutation-verified).
+
+/// Multi-use-then-return impl forwarder: `self.items.len()` borrow-read plus
+/// `if .. then self else self` — the branch aliases of the moved-through
+/// `self` must carry no RC pair of their own; the allocation is released
+/// exactly once by the caller of the bound result.
+#[test]
+fn test_impl_method_multi_use_then_return_forwarder_releases_once() {
+    assert_aot_success(
+        include_str!("fixtures/generics/impl_method_multi_use_forwarder.ori"),
+        "impl_method_multi_use_forwarder",
+    );
+}
+
+/// Free-function twin of the multi-use-then-return forwarder: the defect is
+/// contract-independent (the real interprocedural contract already proved
+/// `transfers_through_return`, yet the alias classification ignored it), so
+/// the transparency rule must fire uniformly on free functions.
+#[test]
+fn test_free_fn_multi_use_then_return_forwarder_releases_once() {
+    assert_aot_success(
+        include_str!("fixtures/generics/free_fn_multi_use_forwarder.ori"),
+        "free_fn_multi_use_forwarder",
+    );
+}
+
+// Genuine-duplication pair coupling
+// A ttr-param alias consumed at an owned Construct position while the source
+// is read after the store and returned on BOTH arms is a GENUINE RL-1
+// duplication — the store creates a real second reference. The pair is
+// atomic: the alias-site inc backs the container's release (kept even though
+// the alias's own dec is transfer-suppressed), and the per-var DP-2/DP-3
+// elimination must never split a param-rooted alias pair (inc elided per the
+// alias's Once state, dec kept — net -1 over-release).
+// Toggle: ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 restores the decoupled
+// treatment (the double-free returns — mutation-verified).
+
+/// Stash-and-return: `let a = w; Holder { kept: a }` stores the duplicate
+/// while `w.items` is read after the store and `w` returns on both arms.
+/// The allocation must be released exactly twice across both owners — once
+/// by the Holder's drop, once by the caller of the returned value.
+#[test]
+fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
+    assert_aot_success(
+        include_str!("fixtures/generics/stash_and_return_genuine_dup.ori"),
+        "stash_and_return_genuine_dup",
+    );
+}
+
+// Local terminal-move store
+// A fresh local read once (borrow projection) then STORED into a Holder as
+// its terminal use. The store IS the move — the Holder's release is the
+// single release of the whole tree; the read-alias pair must never be split
+// by the per-var elimination (inc elided per the alias's Once state, dec
+// kept — net -1, an over-release double-free on top of the transfer).
+// Toggle: ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 restores the split
+// (the double-free returns — mutation-verified).
+
+/// Read-then-store: `let $n = w.items.len(); Holder { kept: w }` — the
+/// borrow read's alias pair stays whole, the store transfers the original
+/// reference, and the holder's drop releases the tree exactly once.
+#[test]
+fn test_local_terminal_move_store_releases_once() {
+    assert_aot_success(
+        include_str!("fixtures/generics/local_terminal_move_store.ori"),
+        "local_terminal_move_store",
     );
 }

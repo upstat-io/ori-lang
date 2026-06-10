@@ -215,18 +215,25 @@ fn has_whole_var_burden_dec_in_block(func: &ArcFunction, pred_block: usize, var:
 /// `BurdenDec` to a real `RcDec`. Emits ONLY for a var the Phase-5 burden walk
 /// DEFERRED (live-out of `pred_block`, so no in-body `BurdenDec` exists):
 /// suppresses when `var` carries no burden, is an owned-transfer arg of
-/// `pred_block`'s terminator (already balanced at the transfer point), OR
-/// already has an in-body whole-var `BurdenDec` (the walk's own dead-out
-/// release — a second edge dec would double-free). Spec: Annex E §AIMS RL-4.
+/// `pred_block`'s terminator (already balanced at the transfer point), the
+/// PREDECESSOR already has an in-body whole-var `BurdenDec` (the walk's own
+/// dead-out release), OR the SUCCESSOR block (`succ_block`) already has a
+/// block-entry whole-var `BurdenDec` for `var`. The successor check covers the
+/// Phase-5 RL-4/RL-5 dead-at-entry releases (`compute_dead_owned_param_branch_releases`
+/// / `compute_dead_forwarder_block_param_releases`) emitted at the SUCCESSOR's
+/// entry — `emit_edge_cleanup`'s edge dec lands at the SAME successor entry, so a
+/// second dec on the same `pred -> succ` edge double-frees. Spec: Annex E §AIMS RL-4.
 #[inline]
 pub(crate) fn release_burden_only_edge(
     func: &ArcFunction,
     pred_block: usize,
+    succ_block: usize,
     var: ArcVarId,
 ) -> Vec<ArcInstr> {
     if carries_burden(func, var)
         && !is_owned_transfer_arg_at_terminator(func, pred_block, var)
         && !has_whole_var_burden_dec_in_block(func, pred_block, var)
+        && !has_whole_var_burden_dec_in_block(func, succ_block, var)
     {
         vec![ArcInstr::BurdenDec { var }]
     } else {

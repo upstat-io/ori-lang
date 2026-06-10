@@ -1605,3 +1605,354 @@ fn extract_contract_with_trmc_computes_context_behavior() {
         "HeapEscaping return → may_share → non-linear"
     );
 }
+
+// As-compiled impl-method contracts (compute_impl_method_contracts)
+
+/// Forwarder `f(x: ref) -> ref = x` — the structural Direct return-flow pair
+/// is published; every other dimension stays at the conservative default
+/// (the contract describes the method AS COMPILED on the immediate-emit
+/// path, which never applies its own contract).
+#[test]
+fn impl_method_contract_forwarder_publishes_direct_ttr_pair_only() {
+    let func = ArcFunction {
+        name: name(10),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let out = compute_impl_method_contracts(
+        std::slice::from_ref(&func),
+        &classifier,
+        &builtins,
+        &interner,
+    );
+
+    let contract = &out[&name(10)];
+    let p = &contract.params[0];
+    assert!(p.transfers_through_return, "Direct return-flow published");
+    assert_eq!(
+        p.return_alias,
+        Some(crate::aims::contract::ReturnAliasShape::Direct)
+    );
+
+    // Every other field matches the conservative default.
+    let conservative = MemoryContract::conservative(1);
+    let cp = &conservative.params[0];
+    assert_eq!(p.access, cp.access, "access stays conservative (Owned)");
+    assert_eq!(p.consumption, cp.consumption);
+    assert_eq!(p.cardinality, cp.cardinality);
+    assert_eq!(p.uniqueness, cp.uniqueness);
+    assert_eq!(p.iter_consumes, cp.iter_consumes);
+    assert_eq!(p.borrowed_read_only, cp.borrowed_read_only);
+    assert_eq!(
+        p.return_payload_contains_param,
+        cp.return_payload_contains_param
+    );
+    assert_eq!(contract.return_info, conservative.return_info);
+    assert_eq!(contract.effects, conservative.effects);
+    assert_eq!(contract.fip, conservative.fip);
+}
+
+/// Non-forwarder (returns a literal, param read-only) — the published
+/// contract is FULLY conservative: no ttr, no return alias.
+#[test]
+fn impl_method_contract_non_forwarder_is_fully_conservative() {
+    let func = ArcFunction {
+        name: name(11),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: var(1),
+                ty: ty(1),
+                value: ArcValue::Literal(LitValue::Int(7)),
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let out = compute_impl_method_contracts(
+        std::slice::from_ref(&func),
+        &classifier,
+        &builtins,
+        &interner,
+    );
+
+    let contract = &out[&name(11)];
+    assert!(!contract.params[0].transfers_through_return);
+    assert_eq!(contract.params[0].return_alias, None);
+}
+
+// Per-function caller-side binding (augment_contracts_with_impl_callees)
+
+fn forwarder_contract_with_ttr() -> MemoryContract {
+    let mut c = MemoryContract::conservative(1);
+    c.params[0].transfers_through_return = true;
+    c.params[0].return_alias = Some(crate::aims::contract::ReturnAliasShape::Direct);
+    c
+}
+
+/// Caller with one `Apply @m(%0)` whose receiver type matches the impl key
+/// binds the bare name to the impl-method contract.
+fn caller_with_apply(
+    caller_name: Name,
+    callee: Name,
+    recv_ty: Idx,
+    args: Vec<ArcVarId>,
+) -> ArcFunction {
+    ArcFunction {
+        name: caller_name,
+        var_types: vec![recv_ty, recv_ty],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: recv_ty,
+                func: callee,
+                args,
+                arg_ownership: Vec::new(),
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn augment_binds_receiver_resolved_impl_callee() {
+    let pool = ori_types::Pool::default();
+    let recv = Idx::STR;
+    let callee = name(20);
+    let func = caller_with_apply(name(21), callee, recv, vec![var(0)]);
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((recv, callee), forwarder_contract_with_ttr());
+
+    let augmented = augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool)
+        .unwrap_or_else(|| panic!("binding fires"));
+    assert!(augmented[&callee].params[0].transfers_through_return);
+}
+
+#[test]
+fn augment_declines_when_base_already_has_name() {
+    let pool = ori_types::Pool::default();
+    let recv = Idx::STR;
+    let callee = name(20);
+    let func = caller_with_apply(name(21), callee, recv, vec![var(0)]);
+
+    let mut base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    base.insert(callee, MemoryContract::conservative(1));
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((recv, callee), forwarder_contract_with_ttr());
+
+    assert!(
+        augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none(),
+        "free-function / seeded name keeps its existing contract"
+    );
+}
+
+#[test]
+fn augment_declines_self_recursive_name() {
+    let pool = ori_types::Pool::default();
+    let recv = Idx::STR;
+    let callee = name(22);
+    // Caller IS the callee (self-recursive impl method shape).
+    let func = caller_with_apply(callee, callee, recv, vec![var(0)]);
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((recv, callee), forwarder_contract_with_ttr());
+
+    assert!(augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none());
+}
+
+#[test]
+fn augment_declines_receiver_type_mismatch() {
+    let pool = ori_types::Pool::default();
+    let callee = name(20);
+    // Call-site receiver is INT; the impl key is STR — ambiguous name.
+    let func = caller_with_apply(name(21), callee, Idx::INT, vec![var(0)]);
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((Idx::STR, callee), forwarder_contract_with_ttr());
+
+    assert!(augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none());
+}
+
+#[test]
+fn augment_declines_no_receiver_args() {
+    let pool = ori_types::Pool::default();
+    let callee = name(20);
+    let func = caller_with_apply(name(21), callee, Idx::STR, vec![]);
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((Idx::STR, callee), forwarder_contract_with_ttr());
+
+    assert!(augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none());
+}
+
+#[test]
+fn augment_declines_divergent_receivers_same_name() {
+    let pool = ori_types::Pool::default();
+    let callee = name(20);
+    // Two sites, receivers STR and INT, BOTH resolving impl keys — one
+    // bare name cannot carry two contracts; the name is poisoned.
+    let mut func = caller_with_apply(name(21), callee, Idx::STR, vec![var(0)]);
+    func.var_types.push(Idx::INT);
+    func.var_types.push(Idx::INT);
+    func.blocks[0].body.push(ArcInstr::Apply {
+        dst: var(3),
+        ty: Idx::INT,
+        func: callee,
+        args: vec![var(2)],
+        arg_ownership: Vec::new(),
+        mono_instance_id: None,
+    });
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((Idx::STR, callee), forwarder_contract_with_ttr());
+    impl_contracts.insert((Idx::INT, callee), forwarder_contract_with_ttr());
+
+    assert!(augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none());
+}
+
+#[test]
+fn augment_no_op_on_empty_impl_contracts() {
+    let pool = ori_types::Pool::default();
+    let func = caller_with_apply(name(21), name(20), Idx::STR, vec![var(0)]);
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let impl_contracts: FxHashMap<(Idx, Name), MemoryContract> = FxHashMap::default();
+
+    assert!(augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none());
+}
+
+// Own-contract binding (augment_contracts_with_impl_callees — own-name entry)
+
+/// An impl method compiling ITSELF (receiver-resolved by its own self param,
+/// no call sites carrying its own name) binds its as-compiled contract as its
+/// OWN entry, so Phase-5's own-contract consumers (RL-2 transfer-source-dec
+/// strip, RL-1/RL-34 forwarder-identity alias transparency) see the same
+/// structural ttr pair its callers see.
+#[test]
+fn augment_binds_own_contract_for_impl_method_self_compilation() {
+    let pool = ori_types::Pool::default();
+    let recv = Idx::STR;
+    let method = name(30);
+    let func = ArcFunction {
+        name: method,
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: recv,
+            ownership: crate::ownership::Ownership::Owned,
+        }],
+        var_types: vec![recv],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((recv, method), forwarder_contract_with_ttr());
+
+    let augmented = augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool)
+        .unwrap_or_else(|| panic!("own-contract binding fires"));
+    assert!(
+        augmented[&method].params[0].transfers_through_return,
+        "the method's own entry MUST carry the structural ttr pair",
+    );
+}
+
+/// Own-binding declines when the method's self-param receiver type matches no
+/// impl-contract key (a different type's same-named method or a free shape).
+#[test]
+fn augment_own_contract_declines_on_receiver_key_miss() {
+    let pool = ori_types::Pool::default();
+    let method = name(31);
+    let func = ArcFunction {
+        name: method,
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: Idx::INT,
+            ownership: crate::ownership::Ownership::Owned,
+        }],
+        var_types: vec![Idx::INT],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((Idx::STR, method), forwarder_contract_with_ttr());
+
+    assert!(
+        augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none(),
+        "a receiver key miss MUST decline the own-contract binding",
+    );
+}
+
+/// Own-binding declines when ANY call site in the function carries the
+/// function's own bare name (the receiver could resolve to a DIFFERENT
+/// type's same-named method — conservative status quo).
+#[test]
+fn augment_own_contract_declines_when_own_name_called_in_body() {
+    let pool = ori_types::Pool::default();
+    let recv = Idx::STR;
+    let method = name(32);
+    let mut func = caller_with_apply(method, method, recv, vec![var(0)]);
+    func.params = vec![crate::ir::ArcParam {
+        var: var(0),
+        ty: recv,
+        ownership: crate::ownership::Ownership::Owned,
+    }];
+
+    let base: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut impl_contracts = FxHashMap::default();
+    impl_contracts.insert((recv, method), forwarder_contract_with_ttr());
+
+    assert!(
+        augment_contracts_with_impl_callees(&func, &base, &impl_contracts, &pool).is_none(),
+        "an own-name call site MUST decline the own-contract binding",
+    );
+}

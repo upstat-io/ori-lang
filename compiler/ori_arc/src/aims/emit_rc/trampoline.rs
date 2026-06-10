@@ -34,7 +34,7 @@ pub(super) fn insert_trampoline(
         .iter()
         .flat_map(|&(var, strategy)| {
             if burden_only {
-                super::release_burden_only_edge(func, pred_idx, var)
+                super::release_burden_only_edge(func, pred_idx, succ_idx, var)
             } else {
                 super::release_with_burden_edge(func, pred_idx, var, strategy)
             }

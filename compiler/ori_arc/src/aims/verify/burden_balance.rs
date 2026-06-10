@@ -26,10 +26,10 @@
 //! per-block burden-delta breakdown for each imbalanced var (locates the
 //! surplus/deficit block for missing CFG-edge or dead-at-entry decs).
 
-use crate::aims::verify::burden_delta::balance_verdict;
+use crate::aims::verify::burden_delta::{balance_verdict, BalanceViolation, BalanceViolationKind};
 use crate::graph::compute_predecessors;
-use crate::ir::{ArcFunction, ArcVarId};
-use crate::verify::BurdenBalanceError;
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::verify::{BurdenBalanceError, BurdenResidualOps};
 
 /// Verify per-variable burden balance for every `v ∈ func.burden_emitted`.
 ///
@@ -70,12 +70,99 @@ pub(crate) fn verify_burden_balance(func: &ArcFunction) -> Vec<BurdenBalanceErro
                 expected_net: 0,
                 observed_net: v.observed_net,
                 exit_block: func.blocks[v.block_idx].id,
+                def_kind: var_def_kind(func, var),
+                exit_kind: violation_exit_kind(func, &v),
+                var_repr: var_repr_kind(func, var),
+                residual_ops: residual_ops_census(func, var),
             });
             trace_burden_imbalance(func, var, &verdict.delta);
         }
     }
 
     errors
+}
+
+/// Defining-site kind of `var` — the attribution dimension classifying
+/// WHICH emission family produced the imbalanced lineage.
+fn var_def_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
+    if func.params.iter().any(|p| p.var == var) {
+        return "param";
+    }
+    for block in &func.blocks {
+        if block.params.iter().any(|(v, _)| *v == var) {
+            return "block-param";
+        }
+        for instr in &block.body {
+            let kind = match instr {
+                ArcInstr::Let { dst, value, .. } if *dst == var => match value {
+                    ArcValue::Var(_) => "alias",
+                    ArcValue::Literal(_) => "let-literal",
+                    ArcValue::PrimOp { .. } => "let-primop",
+                },
+                ArcInstr::Apply { dst, .. } if *dst == var => "apply",
+                ArcInstr::ApplyIndirect { dst, .. } if *dst == var => "apply-indirect",
+                ArcInstr::PartialApply { dst, .. } if *dst == var => "closure",
+                ArcInstr::Project { dst, .. } if *dst == var => "project",
+                ArcInstr::Construct { dst, .. } if *dst == var => "construct",
+                ArcInstr::IsShared { dst, .. } if *dst == var => "is-shared",
+                ArcInstr::Reset { token, .. } if *token == var => "reset-token",
+                ArcInstr::Reuse { dst, .. } if *dst == var => "reuse",
+                ArcInstr::CollectionReuse { dst, .. } if *dst == var => "collection-reuse",
+                ArcInstr::Select { dst, .. } if *dst == var => "select",
+                _ => continue,
+            };
+            return kind;
+        }
+        match block.terminator {
+            ArcTerminator::Invoke { dst, .. } if dst == var => return "invoke",
+            ArcTerminator::InvokeIndirect { dst, .. } if dst == var => return "invoke-indirect",
+            _ => {}
+        }
+    }
+    "undef"
+}
+
+/// `var`'s machine repr label for attribution.
+fn var_repr_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
+    match func.var_repr(var) {
+        Some(crate::ir::ValueRepr::Scalar) => "scalar",
+        Some(crate::ir::ValueRepr::RcPointer) => "rc-pointer",
+        Some(crate::ir::ValueRepr::Aggregate) => "aggregate",
+        Some(crate::ir::ValueRepr::FatValue) => "fat-value",
+        None => "none",
+    }
+}
+
+/// Violating path kind: `merge-disagree` for CFG-merge predecessor
+/// disagreement; the terminal block's terminator kind otherwise.
+fn violation_exit_kind(func: &ArcFunction, v: &BalanceViolation) -> &'static str {
+    if v.kind == BalanceViolationKind::MergeDisagree {
+        return "merge-disagree";
+    }
+    match func.blocks[v.block_idx].terminator {
+        ArcTerminator::Return { .. } => "return",
+        ArcTerminator::Resume => "resume",
+        ArcTerminator::Unreachable => "unreachable",
+        _ => "non-terminal",
+    }
+}
+
+/// Whole-function census of SURVIVING burden ops targeting `var` at
+/// verification time (post-elimination, post-lowering residue).
+fn residual_ops_census(func: &ArcFunction, var: ArcVarId) -> BurdenResidualOps {
+    let mut census = BurdenResidualOps::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var: v } if *v == var => census.inc += 1,
+                ArcInstr::BurdenDec { var: v } if *v == var => census.dec += 1,
+                ArcInstr::BurdenDecPartial { var: v, .. } if *v == var => census.dec_partial += 1,
+                ArcInstr::BurdenDecVariant { var: v } if *v == var => census.dec_variant += 1,
+                _ => {}
+            }
+        }
+    }
+    census
 }
 
 /// Emit a per-block burden-delta breakdown for a `var` whose balance check

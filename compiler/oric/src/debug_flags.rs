@@ -186,6 +186,84 @@ flags! {
     /// Usage: `ORI_DISABLE_LINEAGE_REBALANCE=1 ori build file.ori`
     ORI_DISABLE_LINEAGE_REBALANCE
 
+    /// Disable the Phase-5 RL-5 dead-at-entry release for forwarder-identity
+    /// allocations reaching a merge/return block's dead block-params.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a
+    /// forwarder-dead-block-param leak / double-free to that emission.
+    /// Usage: `ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE
+
+    /// Disable the Phase-5 RL-5 dead-at-entry release + spurious-op suppression
+    /// for sum-aggregate-`Construct`-fed allocations reaching dead block-params.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a
+    /// construct-fed-dead-param leak / double-free to that lineage cure.
+    /// Usage: `ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE
+
+    /// Disable the Phase-5 RL-2 scope-exit release for a transfer-through-return
+    /// forwarder result whose monomorphized result-type burden is empty.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a forwarder-result
+    /// leak to that release vs the rest of the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_FORWARDER_RESULT_RELEASE
+
+    /// Disable the Phase-5 RL-4 per-edge release for an Owned non-scalar
+    /// function param that dies crossing a CFG edge without transfer.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a
+    /// dead-owned-param-branch leak to that emission.
+    /// Usage: `ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE
+
+    /// Restore the RL-1 duplication classification for `Let { Var(src) }`
+    /// aliases of a forwarder-identity source (default: alias is transparent).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a forwarder-lineage
+    /// double-free / leak to the alias de-classification.
+    /// Usage: `ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1 ori build file.ori`
+    ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP
+
+    /// Restore the decoupled treatment of a genuine RL-1 duplication pair
+    /// (default: the pair is atomic — Phase 5 keeps the load-bearing inc;
+    /// Phase 6 elides an alias pair only whole).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5) and the Phase-6
+    /// per-var elision. Bisects a duplication-lineage double-free / leak.
+    /// Usage: `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 ori build file.ori`
+    ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING
+
+    /// Suppress the Phase-5 RL-1 duplication inc for a borrowed-param-rooted
+    /// value consumed at an aggregate-store position (default: the inc is
+    /// emitted — the store duplicates the caller's retained reference; the
+    /// container's drop is the matched release).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// borrowed-store lineage use-after-free / leak to this inc.
+    /// Usage: `ORI_DISABLE_BORROWED_STORE_DUP_INC=1 ori build file.ori`
+    ORI_DISABLE_BORROWED_STORE_DUP_INC
+
+    /// Restore the decoupled DP-2/DP-3 split for alias dsts rooted at a local
+    /// fresh `Construct` (default: such alias pairs are atomic in the Phase-6
+    /// per-var elision — elided whole or kept whole, never split).
+    ///
+    /// Consumed in the Phase-6 per-var elision
+    /// (`ori_arc::aims::realize::burden_elim`). Bisects a local-rooted
+    /// alias-lineage double-free / leak to the pair coupling.
+    /// Usage: `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 ori build file.ori`
+    ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING
+
+    /// Disable the as-compiled impl-method contract pre-pass + per-caller
+    /// Phase-5 binding; impl-method call sites revert to the conservative
+    /// no-contract treatment.
+    ///
+    /// Consumed in `oric::commands::codegen_pipeline`. Bisects an
+    /// impl-method-caller RC change to contract visibility.
+    /// Usage: `ORI_DISABLE_IMPL_METHOD_CONTRACTS=1 ori build file.ori`
+    ORI_DISABLE_IMPL_METHOD_CONTRACTS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

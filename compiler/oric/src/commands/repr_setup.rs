@@ -28,12 +28,19 @@ pub(super) fn collect_all_arc_functions(
     ori_arc::collect_all_arc_functions(arc_cache)
 }
 
-/// ARC-lower impl methods for interprocedural repr analysis.
+/// ARC-lower impl methods for interprocedural repr + AIMS-contract analysis.
 ///
-/// The repr plan's range analysis needs to see call sites inside impl methods,
-/// not just top-level functions. This lowers each non-generic impl method
-/// (including default trait methods used in impl blocks) to ARC IR with
-/// type-qualified names for disambiguation.
+/// The repr plan's range analysis and the AIMS interprocedural contract
+/// computation both need to see impl-method bodies + call sites, not just
+/// top-level functions. This lowers each non-generic impl method (including
+/// default trait methods used in impl blocks) to ARC IR with type-qualified
+/// names for disambiguation.
+///
+/// Returns the lowered `ArcFunctions` plus a `(self_type_idx, method_name)
+/// -> qualified_name` map. The map keys the as-compiled impl-method
+/// contracts (`ori_arc::compute_impl_method_contracts`) that
+/// `ori_arc::augment_contracts_with_impl_callees` binds per caller function
+/// at Phase-5, exposing `transfers_through_return` for impl-method callees.
 ///
 /// These ARC functions are for analysis only — `compile_impls()` in the
 /// codegen pipeline does its own ARC lowering for LLVM emission.
@@ -43,8 +50,12 @@ pub(super) fn lower_impl_methods_for_analysis(
     interner: &StringInterner,
     canon: &CanonResult,
     pool: &Pool,
-) -> Vec<ori_arc::ArcFunction> {
+) -> (Vec<ori_arc::ArcFunction>, FxHashMap<(Idx, Name), Name>) {
     let mut funcs = Vec::new();
+    // (self_type_idx, method_name) -> qualified analysis name, ordinal-0 entries
+    // only (the receiver-type-disambiguated common case; same-name multi-impl
+    // ordinals are disambiguated by key-type at emission, out of scope here).
+    let mut qualified_by_recv: FxHashMap<(Idx, Name), Name> = FxHashMap::default();
     let mut impl_arc_problems = Vec::new();
     // Ordinal counter: tracks how many times each (self_type, method_name)
     // pair has been seen, for disambiguating same-type same-name impls
@@ -73,6 +84,17 @@ pub(super) fn lower_impl_methods_for_analysis(
             }
             let (ordinal, qualified_name) =
                 make_qualified_name(self_type_idx, method.name, interner, &mut method_ordinals);
+            // Key by the resolved self-param type — the same index the
+            // caller's receiver (`args[0]`) resolves to (and the index
+            // emission keys `type_idx_to_name` on), NOT the TypeEntry idx.
+            let recv_key = sig.param_types.first().map(|&t| pool.resolve_fully(t));
+            record_qualified_by_recv(
+                &mut qualified_by_recv,
+                recv_key,
+                method.name,
+                ordinal,
+                qualified_name,
+            );
             let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
                 crate::arc_lowering::lower_impl_method_to_arc_nth(
                     qualified_name,
@@ -116,9 +138,10 @@ pub(super) fn lower_impl_methods_for_analysis(
             &mut method_ordinals,
             &mut impl_arc_problems,
             &mut funcs,
+            &mut qualified_by_recv,
         );
     }
-    funcs
+    (funcs, qualified_by_recv)
 }
 
 /// Compute the ordinal-qualified name for an impl method.
@@ -152,6 +175,30 @@ fn make_qualified_name(
     (ordinal, qualified)
 }
 
+/// Record the `(self_type, method) -> qualified` analysis-name mapping.
+///
+/// Ordinal 0 inserts; ordinal > 0 REMOVES the key — two same-name impls on
+/// one type (e.g. `Index<int>` + `Index<str>`) make the `(type, method)` key
+/// ambiguous, so receiver-based contract binding must decline it entirely
+/// (binding ordinal 0's contract to call sites that dispatch to ordinal 1
+/// would consult the wrong contract).
+fn record_qualified_by_recv(
+    qualified_by_recv: &mut FxHashMap<(Idx, Name), Name>,
+    recv_key_idx: Option<Idx>,
+    method_name: Name,
+    ordinal: usize,
+    qualified_name: Name,
+) {
+    let Some(idx) = recv_key_idx else {
+        return;
+    };
+    if ordinal == 0 {
+        qualified_by_recv.insert((idx, method_name), qualified_name);
+    } else {
+        qualified_by_recv.remove(&(idx, method_name));
+    }
+}
+
 /// Lower default trait methods that appear in an impl block's sig list
 /// but have no parse-level method definition (using the trait's default body).
 #[expect(
@@ -170,6 +217,7 @@ fn lower_default_trait_methods<'a>(
     method_ordinals: &mut FxHashMap<(Idx, Name), usize>,
     impl_arc_problems: &mut Vec<ori_arc::ArcProblem>,
     funcs: &mut Vec<ori_arc::ArcFunction>,
+    qualified_by_recv: &mut FxHashMap<(Idx, Name), Name>,
 ) {
     let Some(trait_path) = &impl_def.trait_path else {
         return;
@@ -198,6 +246,14 @@ fn lower_default_trait_methods<'a>(
                 }
                 let (ordinal, qualified_name) =
                     make_qualified_name(self_type_idx, default.name, interner, method_ordinals);
+                let recv_key = sig.param_types.first().map(|&t| pool.resolve_fully(t));
+                record_qualified_by_recv(
+                    qualified_by_recv,
+                    recv_key,
+                    default.name,
+                    ordinal,
+                    qualified_name,
+                );
                 let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
                     crate::arc_lowering::lower_impl_method_to_arc_nth(
                         qualified_name,

@@ -200,6 +200,97 @@ fn lower_leaves_scalar_repr_burden_in_place() {
     );
 }
 
+/// Semantic pin: the elided fresh-site inc is REMOVED from the op stream —
+/// the VF-1 whole-var ledger counts surviving burden ops, so the lowered
+/// function verifies net-0 at every exit. A retained no-op marker would net
+/// `+1` and abort gated (`ORI_VERIFY_ARC=1`) compilation.
+#[test]
+fn lower_elided_fresh_inc_is_removed_and_vf1_ledger_nets_zero() {
+    let pool = Pool::default();
+    let mut func = rc_pointer_func(
+        1,
+        vec![
+            list_construct(v(0), Vec::new()),
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::BurdenDec { var: v(0) },
+        ],
+    );
+    func.burden_emitted = vec![true];
+    let elidable: rustc_hash::FxHashSet<ArcVarId> = std::iter::once(v(0)).collect();
+
+    lower_burden_ops_to_rc(&mut func, &pool, &elidable);
+
+    // The elided inc is GONE (not a surviving no-op marker); the release
+    // lowered to a real RcDec.
+    assert_eq!(
+        burden_count(&func),
+        0,
+        "elided fresh-site inc removed; no burden op survives"
+    );
+    let after = count_rc_ops(&func);
+    assert_eq!(after.inc, 0, "elided fresh inc never lowers to RcInc");
+    assert_eq!(after.dec, 1, "release lowered to exactly one real RcDec");
+    assert!(
+        crate::aims::verify::burden_balance::verify_burden_balance(&func).is_empty(),
+        "VF-1 whole-var ledger nets 0 after elision-by-removal"
+    );
+}
+
+/// Semantic pin: ONLY the first fresh-site inc per elidable var is removed —
+/// a subsequent `BurdenInc` on the same var is a genuine dup-alias acquire
+/// and still lowers to a real `RcInc`.
+#[test]
+fn lower_elided_var_second_inc_still_lowers_to_rcinc() {
+    let pool = Pool::default();
+    let mut func = rc_pointer_func(
+        1,
+        vec![
+            list_construct(v(0), Vec::new()),
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::BurdenDec { var: v(0) },
+        ],
+    );
+    let elidable: rustc_hash::FxHashSet<ArcVarId> = std::iter::once(v(0)).collect();
+
+    lower_burden_ops_to_rc(&mut func, &pool, &elidable);
+
+    let after = count_rc_ops(&func);
+    assert_eq!(
+        after.inc, 1,
+        "second (dup-alias) inc lowers to RcInc; only the first is elided"
+    );
+    assert_eq!(after.dec, 1, "release lowered to one real RcDec");
+    assert_eq!(burden_count(&func), 0, "no burden op survives");
+}
+
+/// Negative pin (mutation-verify shape): a SURVIVING no-op marker inc — the
+/// legacy elision form — fails VF-1 with `net=+1` and carries the
+/// classification attribution (`def_kind` / `exit_kind` / `residual_ops`).
+#[test]
+fn verify_flags_surviving_marker_inc_with_attribution() {
+    let mut func = rc_pointer_func(1, vec![list_construct(v(0), Vec::new())]);
+    func.blocks[0].body.push(ArcInstr::BurdenInc { var: v(0) });
+    func.burden_emitted = vec![true];
+
+    let errors = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert_eq!(errors.len(), 1, "surviving marker inc nets +1 at exit");
+    let e = &errors[0];
+    assert_eq!(e.observed_net, 1);
+    assert_eq!(e.def_kind, "construct");
+    assert_eq!(e.exit_kind, "return");
+    assert_eq!(e.var_repr, "rc-pointer");
+    assert_eq!(
+        (
+            e.residual_ops.inc,
+            e.residual_ops.dec,
+            e.residual_ops.dec_partial,
+            e.residual_ops.dec_variant
+        ),
+        (1, 0, 0, 0)
+    );
+}
+
 // --- M3 + Phase-7 elision pins (broad-shape collection-source freeing) ---
 
 /// Single-block reps map where each var is its own rep (no same-alloc aliasing).
@@ -3869,6 +3960,11 @@ fn nested_iter_element_view_consumed_by_inner_iter_gets_keepalive_inc() {
 /// [own], view [own])`); bb2 is the loop body re-binding the push result;
 /// `returned` controls whether bb3 RETURNS the result (the element-escape case) or
 /// iterates it IN-SCOPE then returns a scalar (the benign over-fire-boundary case).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one cohesive 4-block CFG fixture builder; splitting mid-CFG \
+              fragments the var-layout documented above"
+)]
 fn iter_element_pushed_collection_func(
     pool: &mut ori_types::Pool,
     interner: &ori_ir::StringInterner,
@@ -5091,12 +5187,12 @@ fn single_iter_consume_without_reuse_gets_no_keepalive() {
 ///
 /// Block layout (the leaking shape, minus the post-iter loop which is irrelevant
 /// to the explicit-op net since the lineage rep does not span the phi):
-///   bb0:  %0 = Invoke @clone_list(%2 [borrow]) normal bb1
-///   bb1:  burden_inc %0          // SPURIOUS cross-call inc (the surplus)
-///         %1 = Invoke @clone_list(%2 [borrow]) normal bb2
-///   bb2:  burden_inc %0          // genuine keep-alive before the @iter consume
+///   bb0:  %0 = Invoke @`clone_list(%2` [borrow]) normal bb1
+///   bb1:  `burden_inc` %0          // SPURIOUS cross-call inc (the surplus)
+///         %1 = Invoke @`clone_list(%2` [borrow]) normal bb2
+///   bb2:  `burden_inc` %0          // genuine keep-alive before the @iter consume
 ///         %9 = @iter(%0 [own])   // iter-consume -> the acquired ref's release
-///         burden_dec %0          // paired release of the keep-alive
+///         `burden_dec` %0          // paired release of the keep-alive
 ///         Return %0
 /// `%2` is the borrowed source (params), `elem_ty` = `int` (scalar).
 fn returned_int_list_two_call_func(

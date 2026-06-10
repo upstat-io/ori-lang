@@ -92,6 +92,7 @@ fn unbalanced_straight_line_fails() {
         expected_net,
         observed_net,
         exit_block,
+        ..
     } = errors[0].clone();
     assert_eq!(var, v(0));
     assert_eq!(expected_net, 0);

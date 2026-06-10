@@ -1,0 +1,16 @@
+// RL-2 forwarder-result release NEGATIVE over-fire pin (gate c — alt-consumer): a
+// `Set<int>` from `@__collect_set` flows through a forwarder, but its result is MOVED
+// ONWARD into a SECOND forwarder (`wrap(x: s)` → `id(x: x)`) and then borrow-consumed.
+// The intermediate forwarder result is consumed at an OWNED arg position (passed `[own]`
+// to the next forwarder), so `alt_consumer_reps` excludes it — a whole-var release here
+// would double-free (the downstream lineage owns + releases the allocation). Pins that
+// the forwarder-result release does NOT fire on a moved-onward result. Reverting gate (c)
+// surfaces an exit-134 double-free.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = wrap(x: s);
+    if s2.len() == 3 then 0 else 1
+}

@@ -1,0 +1,15 @@
+// RL-4 dead-owned-param-branch release NEGATIVE over-fire pin (no-dead-branch): a
+// two-param forwarder where BOTH params are returned on SOME path and NEITHER is dead on
+// any branch — `pick(c, x, y) -> if c then x else y`. Each param is live on exactly one
+// branch (returned) and dead on the other, but its release on the dead branch is the
+// ONLY release it needs (no existing dec, since it transfers via return on its live
+// branch). The dead-param-branch pass MUST emit exactly ONE release per param per dead
+// branch — never two. Pins that the per-edge dec fires once: x released on the else-edge,
+// y released on the then-edge; the returned value is transferred (not double-freed).
+@pick <T> (c: bool, x: T, y: T) -> T = if c then x else y;
+
+@main () -> int = {
+    let a = pick(c: true, x: [1, 1], y: [2, 2]);
+    let b = pick(c: false, x: [10, 10], y: [20, 20]);
+    if a[0] == 1 && b[0] == 20 then 0 else 1
+}

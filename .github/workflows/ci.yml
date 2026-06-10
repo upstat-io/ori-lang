@@ -98,6 +98,11 @@ jobs:
 
   # Main test suite - PR-only (skipped on dev push; the nightly dev->master PR
   # runs it before release).
+  #
+  # Runs ./test-all.sh — the SAME script developers run locally — so CI and
+  # local runs execute identical suites with identical parsing and report
+  # identical failure counts. Do NOT hand-roll cargo test invocations here;
+  # a parallel pipeline is how local and CI failure counts diverged.
   test:
     name: Test
     needs: setup
@@ -105,7 +110,7 @@ jobs:
     # guard here (it would always evaluate vacuously true).
     if: "github.event_name == 'pull_request'"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -125,90 +130,10 @@ jobs:
         with:
           key: test
 
-      - name: Build
-        run: cargo build --workspace
+      - name: Full test suite (test-all.sh — SSOT shared with local runs)
+        run: ./test-all.sh --json=test-results.json
         env:
           LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Rust unit tests
-        id: rust-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo test --workspace 2>&1 | tee rust-test-output.txt
-          # Sum all "X passed" counts from "test result:" lines
-          RUST_TESTS=$(grep -oE '[0-9]+ passed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RUST_FAILED=$(grep -oE '[0-9]+ failed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
-          echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Ori language tests
-        id: ori-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo run -p oric --bin ori -- test tests/ 2>&1 | tee ori-test-output.txt
-          # Extract from "1677 passed, 0 failed" format
-          ORI_TESTS=$(grep -oE '[0-9]+ passed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          ORI_FAILED=$(grep -oE '[0-9]+ failed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
-          echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Ori runtime tests
-        id: rt-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo test -p ori_rt 2>&1 | tee rt-test-output.txt
-          RT_TESTS=$(grep -oE '[0-9]+ passed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RT_FAILED=$(grep -oE '[0-9]+ failed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RT_SKIPPED=$(grep -oE '[0-9]+ ignored' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          echo "RT_TESTS=$RT_TESTS" >> $GITHUB_ENV
-          echo "RT_FAILED=$RT_FAILED" >> $GITHUB_ENV
-          echo "RT_SKIPPED=$RT_SKIPPED" >> $GITHUB_ENV
-
-      - name: Extract Rust skipped count
-        if: always()
-        run: |
-          RUST_SKIPPED=$(grep -oE '[0-9]+ ignored' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          ORI_SKIPPED=$(grep -oE '[0-9]+ skipped' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          echo "RUST_SKIPPED=$RUST_SKIPPED" >> $GITHUB_ENV
-          echo "ORI_SKIPPED=$ORI_SKIPPED" >> $GITHUB_ENV
-
-      - name: Save test results
-        if: always()
-        run: |
-          RUST_P=${RUST_TESTS:-0}
-          RUST_F=${RUST_FAILED:-0}
-          RUST_S=${RUST_SKIPPED:-0}
-          RT_P=${RT_TESTS:-0}
-          RT_F=${RT_FAILED:-0}
-          RT_S=${RT_SKIPPED:-0}
-          ORI_P=${ORI_TESTS:-0}
-          ORI_F=${ORI_FAILED:-0}
-          ORI_S=${ORI_SKIPPED:-0}
-          TOTAL_P=$((RUST_P + RT_P + ORI_P))
-          TOTAL_F=$((RUST_F + RT_F + ORI_F))
-          TOTAL_S=$((RUST_S + RT_S + ORI_S))
-          OVERALL="passed"
-          if [ "$TOTAL_F" -gt 0 ]; then OVERALL="failed"; fi
-          cat > test-results.json << EOF
-          {
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "overall": "$OVERALL",
-            "suites": [
-              { "name": "Rust unit tests (workspace)", "passed": $RUST_P, "failed": $RUST_F, "skipped": $RUST_S, "lcfail": null },
-              { "name": "Runtime library (ori_rt)", "passed": $RT_P, "failed": $RT_F, "skipped": $RT_S, "lcfail": null },
-              { "name": "Ori spec (interpreter)", "passed": $ORI_P, "failed": $ORI_F, "skipped": $ORI_S, "lcfail": null }
-            ],
-            "totals": { "passed": $TOTAL_P, "failed": $TOTAL_F, "skipped": $TOTAL_S, "lcfail": 0 }
-          }
-          EOF
-          cat test-results.json
 
       - name: Upload test results
         if: always()
@@ -217,10 +142,6 @@ jobs:
           name: test-results
           path: test-results.json
           retention-days: 90
-
-      - name: Fail if tests failed
-        if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure' || steps.rt-tests.outcome == 'failure'
-        run: exit 1
 
 
   # Cross-platform — full test suite including AOT. PR-only (skipped on dev push).

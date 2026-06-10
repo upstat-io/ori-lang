@@ -24,6 +24,7 @@ build-all.sh
 clippy-all.sh
 clippy.toml
 compiler
+deny.toml
 diagnostics
 docker
 docs

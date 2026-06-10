@@ -388,17 +388,20 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         );
 
         // Why: impl methods join the analysis set so interprocedural range
-        // analysis sees their call sites; they go into a separate vec to avoid
-        // interfering with compile_impls()'s own ARC lowering.
-        let all_arc_funcs = {
-            let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
-            funcs.extend(super::repr_setup::lower_impl_methods_for_analysis(
+        // analysis sees their call sites; they are lowered once (with
+        // type-qualified analysis names) and reused for both the repr plan
+        // and the as-compiled impl-method contract pre-pass below.
+        let (impl_analysis_funcs, impl_qualified_by_recv) =
+            super::repr_setup::lower_impl_methods_for_analysis(
                 parse_result,
                 type_result,
                 interner,
                 canon,
                 pool,
-            ));
+            );
+        let all_arc_funcs = {
+            let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+            funcs.extend(impl_analysis_funcs.iter().cloned());
             funcs
         };
         // Why: only non-generic impl methods enter the analysis set — generics
@@ -438,6 +441,32 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
         };
 
+        // Why: impl methods compile on the `compile_impls()` immediate-emit
+        // path and never enter `compute_aims_contracts` above, so callers see
+        // no contract for them (IC-1 gap) and every impl-method call site gets
+        // the conservative no-contract treatment. The as-compiled pre-pass
+        // computes each non-generic impl method's sanitized contract
+        // (conservative except the structural `transfers_through_return`
+        // Direct pair); `FunctionCompiler` binds them per caller function at
+        // Phase-5 via `augment_contracts_with_impl_callees`.
+        // `ORI_DISABLE_IMPL_METHOD_CONTRACTS=1` bisects.
+        let impl_method_contracts = if std::env::var("ORI_DISABLE_IMPL_METHOD_CONTRACTS")
+            .is_ok_and(|v| v != "0")
+        {
+            rustc_hash::FxHashMap::default()
+        } else {
+            let by_name = ori_arc::compute_impl_method_contracts(
+                &impl_analysis_funcs,
+                &classifier,
+                &builtins,
+                interner,
+            );
+            impl_qualified_by_recv
+                .iter()
+                .filter_map(|(&key, qualified)| by_name.get(qualified).map(|c| (key, c.clone())))
+                .collect()
+        };
+
         let mut fc = FunctionCompiler::new(
             &mut builder,
             &store,
@@ -453,6 +482,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             aims_contracts,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
+        fc.set_impl_method_contracts(impl_method_contracts);
 
         if !import_sigs.is_empty() {
             fc.declare_imports(import_sigs);

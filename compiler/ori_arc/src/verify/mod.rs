@@ -27,7 +27,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, Valu
 use crate::Ownership;
 
 use error::{push_dec_on_borrowed, push_rc_on_scalar, push_use_before_def};
-pub use error::{BurdenBalanceError, VerifyError};
+pub use error::{BurdenBalanceError, BurdenResidualOps, VerifyError};
 
 /// Safely look up the source span for an instruction.
 ///

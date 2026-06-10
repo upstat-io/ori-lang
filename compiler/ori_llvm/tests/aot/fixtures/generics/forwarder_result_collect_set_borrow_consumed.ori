@@ -1,0 +1,15 @@
+// RL-2 forwarder-result release positive pin: a `Set<int>` built via
+// `.iter().collect()` (an `@__collect_set` CALL RESULT, NOT a `Construct`) flows
+// through a generic forwarder `id<T>(x) = x`, then the result is consumed ONLY by a
+// borrow-read (`.len()`) and dies. The monomorphized forwarder-result type carries an
+// empty burden, so the result lineage gets neither a FRESH inc nor a scope-exit dec;
+// `compute_forwarder_result_under_release` emits the single whole-var release that
+// `RL2_borrowed_param_emits_caller_dec` mandates. Reverting the release re-surfaces a
+// 72-byte Set-buffer leak (verified under `ORI_CHECK_LEAKS=1`).
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    let s2 = id(x: s);
+    if s2.len() == 3 then 0 else 1
+}

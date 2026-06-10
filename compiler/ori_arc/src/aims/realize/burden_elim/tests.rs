@@ -15,7 +15,11 @@ use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
 };
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    CtorKind,
+};
+use crate::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
@@ -88,8 +92,8 @@ fn seed_exit_state(
     state_map.update_block_exit(block, map);
 }
 
-/// Run the elimination pass with an empty same-alloc rep map + empty contracts
-/// + a fresh interner — the per-var DP-2/DP-3 path these unit tests pin. Every
+/// Run the elimination pass with an empty same-alloc rep map, empty contracts,
+/// and a fresh interner — the per-var DP-2/DP-3 path these unit tests pin. Every
 /// test uses `predicate_stack_rc_disabled = false`, so the lineage re-balance
 /// (gated on the burden-only path) is inert; the empty maps + fresh interner are
 /// correct.
@@ -1689,5 +1693,405 @@ fn lineage_rebalance_still_fires_on_transfer_forwarder() {
         c[1], 1,
         "non-COW (forwarder-class) lineage must STILL keep exactly one release; \
          census = {c:?}"
+    );
+}
+
+// RL-1 duplication-pair coupling for param-rooted aliases
+// (`collect_pair_atomic_alias_dsts` consumed by `mark_whole_var_removals`)
+
+/// One-block func whose body aliases param `%0` into `%1` and carries the
+/// given burden ops. The alias chain roots at a function param, so the
+/// pair-coupling gate governs `%1`'s ops.
+fn param_alias_func(extra_alias_hop: bool, ops: Vec<ArcInstr>) -> ArcFunction {
+    let mut body = vec![ArcInstr::Let {
+        dst: v(1),
+        ty: ty(0),
+        value: ArcValue::Var(v(0)),
+    }];
+    if extra_alias_hop {
+        body.push(ArcInstr::Let {
+            dst: v(2),
+            ty: ty(0),
+            value: ArcValue::Var(v(1)),
+        });
+    }
+    body.extend(ops);
+    ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: v(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: (0..3).map(ty).collect(),
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// DP-3 fires on the alias's own (Once, Linear) state but DP-2 does not — the
+/// decoupled split (inc elided, dec kept) nets -1 on the still-live param
+/// lineage. The pair is ATOMIC: BOTH ops retained.
+#[test]
+fn param_rooted_alias_pair_kept_whole_when_dp2_fails() {
+    let mut func = param_alias_func(
+        false,
+        vec![
+            ArcInstr::BurdenInc { var: v(1) },
+            ArcInstr::BurdenDec { var: v(1) },
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (1, 1),
+        "param-rooted alias pair must be kept WHOLE (no inc-only split); census = {c:?}"
+    );
+}
+
+/// Inc-only param-rooted alias (its dec was transfer-suppressed at Phase 5;
+/// the move-out consumer owns the release): the inc backs the consumer's
+/// cross-var release and must NEVER be elided, even though DP-3 fires.
+#[test]
+fn param_rooted_alias_inc_only_never_elided() {
+    let mut func = param_alias_func(false, vec![ArcInstr::BurdenInc { var: v(1) }]);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        c[0], 1,
+        "inc-only param-rooted alias backs a cross-var release; census = {c:?}"
+    );
+}
+
+/// Transitive chain `%2 = %1 = %0(param)`: the root walk resolves multi-hop
+/// chains, so `%2`'s pair is coupled exactly like a direct alias of the param.
+#[test]
+fn param_rooted_alias_pair_coupling_is_transitive() {
+    let mut func = param_alias_func(
+        true,
+        vec![
+            ArcInstr::BurdenInc { var: v(2) },
+            ArcInstr::BurdenDec { var: v(2) },
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(2), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (1, 1),
+        "multi-hop param-rooted alias pair must be kept WHOLE; census = {c:?}"
+    );
+}
+
+/// A NON-param-rooted alias (`%1 = %0` where `%0` is a plain local) stays on
+/// the decoupled path: its lineage carries a birth-site `+1` the kept dec
+/// releases, so the inc-only split (DP-3 fires, DP-2 does not) is preserved
+/// behavior.
+#[test]
+fn non_param_rooted_alias_keeps_decoupled_split() {
+    let body = vec![
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    let mut func = one_block_func(2, body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (0, 1),
+        "non-param-rooted alias keeps the decoupled split (inc elided, dec kept); census = {c:?}"
+    );
+}
+
+/// Pair-atomic removal stays available: when DP-3 fires on the inc AND DP-2
+/// fires on the dec (dead-on-arrival alias pair split across blocks), the
+/// param-rooted pair is removed WHOLE on the co-emitter path.
+#[test]
+fn param_rooted_alias_pair_removed_whole_when_both_predicates_fire() {
+    let mut func = param_alias_func(false, vec![ArcInstr::BurdenInc { var: v(1) }]);
+    // Move the dec into a successor block whose exit state is Dead/Absent.
+    func.blocks[0].terminator = ArcTerminator::Jump {
+        target: block_id(1),
+        args: Vec::new(),
+    };
+    func.blocks.push(ArcBlock {
+        id: block_id(1),
+        params: Vec::new(),
+        body: vec![ArcInstr::BurdenDec { var: v(1) }],
+        terminator: ArcTerminator::Return { value: v(0) },
+    });
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+    seed_exit_state(
+        &mut state_map,
+        block_id(1),
+        &[(v(1), owned_state(Cardinality::Absent, Consumption::Dead))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (0, 0),
+        "pair removed WHOLE when DP-3 and DP-2 both fire (co-emitter path); census = {c:?}"
+    );
+}
+
+// RL-1 duplication-pair coupling for local-Construct-rooted terminal-store
+// lineages (`collect_pair_atomic_alias_dsts` Construct-root admission)
+
+/// Construct an aggregate-store instruction consuming `arg`.
+fn store_consuming(dst: u32, arg: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: v(dst),
+        ty: ty(0),
+        ctor: CtorKind::Tuple,
+        args: vec![v(arg)],
+    }
+}
+
+/// One-block func: `%0 = Construct; %1 = %0 [pair ops]; %2 = %0;
+/// %3 = Construct([%2])` — the lineage's terminal use is the aggregate store,
+/// so the read-alias `%1`'s pair is ATOMIC (kept whole; splitting nets -1 —
+/// the local terminal-move-store double-free).
+#[test]
+fn construct_rooted_terminal_store_alias_pair_kept_whole() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: Vec::new(),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::Let {
+            dst: v(2),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        store_consuming(3, 2),
+    ];
+    let mut func = one_block_func(4, body);
+    func.blocks[0].terminator = ArcTerminator::Return { value: v(3) };
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (1, 1),
+        "terminal-store Construct-rooted alias pair must be kept WHOLE; census = {c:?}"
+    );
+}
+
+/// Same lineage but a read-alias is DEFINED (and its pair ops sit) AFTER the
+/// store — the lineage is used past the store (the local genuine-dup shape),
+/// so the decoupled split is preserved behavior (its -1 compensates the kept
+/// FRESH-site inc until that over-emission's own cycle).
+#[test]
+fn construct_rooted_alias_used_after_store_keeps_split() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: Vec::new(),
+        },
+        ArcInstr::Let {
+            dst: v(2),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        store_consuming(3, 2),
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    let mut func = one_block_func(4, body);
+    func.blocks[0].terminator = ArcTerminator::Return { value: v(3) };
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (0, 1),
+        "a lineage used past the store keeps the decoupled split; census = {c:?}"
+    );
+}
+
+/// A Construct-rooted lineage with NO aggregate-store consume stays on the
+/// decoupled path (the borrowed-call-arg compensation arrangement).
+#[test]
+fn construct_rooted_no_store_keeps_split() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: Vec::new(),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    let mut func = one_block_func(2, body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (0, 1),
+        "a store-free Construct-rooted lineage keeps the decoupled split; census = {c:?}"
+    );
+}
+
+/// Loop back-edge re-reach counts as use-after-store: a store inside a loop
+/// whose header re-reads the lineage stays DECOUPLED (mirrors the Phase-5
+/// reachability discriminator).
+#[test]
+fn construct_rooted_store_in_loop_with_reread_keeps_split() {
+    // bb0: %0 = Construct; %1 = %0 [pair]; Jump bb1
+    // bb1: %2 = %0; store(%3, [%2]); Branch -> bb1 | bb2  (back edge re-reaches the store block)
+    // bb2: Return
+    let mut func = one_block_func(5, Vec::new());
+    func.blocks[0].body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: Vec::new(),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: ty(0),
+            value: ArcValue::Var(v(0)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    func.blocks[0].terminator = ArcTerminator::Jump {
+        target: block_id(1),
+        args: Vec::new(),
+    };
+    func.blocks.push(ArcBlock {
+        id: block_id(1),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::Var(v(0)),
+            },
+            store_consuming(3, 2),
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v(4),
+            then_block: block_id(1),
+            else_block: block_id(2),
+        },
+    });
+    func.blocks.push(ArcBlock {
+        id: block_id(2),
+        params: Vec::new(),
+        body: Vec::new(),
+        terminator: ArcTerminator::Return { value: v(3) },
+    });
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
+    );
+
+    run_elim(&mut func, &state_map, false);
+
+    let c = census(&func);
+    assert_eq!(
+        (c[0], c[1]),
+        (0, 1),
+        "a back-edge re-reached store block is not terminal; split preserved; census = {c:?}"
     );
 }

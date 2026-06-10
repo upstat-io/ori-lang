@@ -94,6 +94,11 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Pre-computed AIMS interprocedural contracts for param/arg ownership.
     /// Populated by [`ori_arc::compute_aims_contracts`] before the per-function loop.
     aims_contracts: FxHashMap<Name, MemoryContract>,
+    /// As-compiled impl-method contracts keyed by `(self_type_idx, method)`.
+    /// Populated by [`ori_arc::compute_impl_method_contracts`] (empty when the
+    /// pipeline supplies none); bound per caller function at Phase-5 via
+    /// [`ori_arc::augment_contracts_with_impl_callees`].
+    impl_method_contracts: FxHashMap<(Idx, Name), MemoryContract>,
     /// Whether to run ARC IR verification in release builds.
     /// In debug builds, verification always runs regardless of this flag.
     verify_arc: bool,
@@ -139,8 +144,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug_context,
             uniqueness_summaries,
             aims_contracts,
+            impl_method_contracts: FxHashMap::default(),
             verify_arc,
         }
+    }
+
+    /// Supply the as-compiled impl-method contract set (default: empty).
+    pub fn set_impl_method_contracts(&mut self, contracts: FxHashMap<(Idx, Name), MemoryContract>) {
+        self.impl_method_contracts = contracts;
     }
 
     // Phase 1: Declare

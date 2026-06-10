@@ -14,6 +14,7 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::instr_owned_position_transfer_vars;
+use super::ownership_scans::ForwarderReleasePos;
 
 /// Function-wide analysis results consumed by burden emission. Bundled into
 /// one struct so per-instruction and per-terminator helpers share a single
@@ -100,6 +101,13 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // it double-counts under sole-emitter Phase-7 lowering (net +1 leak per
     // heap element index).
     pub(super) index_builtin_name: Name,
+    // BORROWED-param-rooted vars consumed at an aggregate-STORE position
+    // (`Construct` / `Reuse` / `CollectionReuse` arg, `Set.value`). The store
+    // duplicates the caller's retained reference (RL-1), so a `BurdenInc` is
+    // emitted BEFORE each store site consuming a member; no paired dec — the
+    // container's drop is the matched release. SSOT:
+    // `compute_borrowed_store_dup_args`.
+    pub(super) borrowed_store_dup_args: &'a FxHashSet<ArcVarId>,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -123,6 +131,20 @@ pub(super) fn emit_burden_ops_for_blocks(
     // event in the block — `RL5_cleanup_balanced` (`[inc, dec]` nets 0) holds with
     // the predecessor Jump-arg handoff inc.
     dead_forwarder_param_releases: &FxHashMap<usize, Vec<ArcVarId>>,
+    // Per-`(block, instr)` forwarder-RESULT release vars: a single whole-var
+    // `BurdenDec(result_var)` emitted AFTER the lineage's last-use instruction for a
+    // transfer-through-return forwarder result whose monomorphized result-type burden
+    // is empty (so the result lineage was never collected into `owned_vars_needing_rc`).
+    // RL-2 `RL2_borrowed_param_emits_caller_dec` + RL-34: the caller owns the returned
+    // allocation and MUST release it at the borrow-read last use; the empty result-type
+    // burden dropped the dec. The whole-var dec lowers (Phase 7) to a `RcDec` whose
+    // drop-glue frees the result's owned fields (Aggregate Ok-payload) or the result
+    // pointer (RcPtr buffer). SSOT: `compute_forwarder_result_under_release`. NOT tallied
+    // into `inc_counts` — it balances the transferred-in allocation's lifecycle +1, not a
+    // same-block inc. Keyed by `(block, ForwarderReleasePos)`: `BlockEntry` (normal
+    // successor of a borrowed terminator-`Invoke`) or `AfterInstr(idx)` (after a body
+    // borrow-`Apply`).
+    forwarder_result_releases: &FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>>,
 ) {
     // Per-block Inc count map for symmetric Dec emission at terminator-transfer
     // points. Populated DURING the emit walk so the Dec emission sees every Inc
@@ -159,6 +181,21 @@ pub(super) fn emit_burden_ops_for_blocks(
                 new_body.push(ArcInstr::BurdenDec { var: param });
             }
         }
+        // RL-2 forwarder-result release at the NORMAL-SUCCESSOR entry: the lineage's
+        // final use was a BORROWED terminator-`Invoke` arg on a predecessor (e.g.
+        // `Invoke @len(%10 [borrow]) normal bbN`). The borrowed call completed on that
+        // terminator, so the result is dead at THIS block's entry — emit the single
+        // whole-var `BurdenDec(result_var)` here, before any body instruction. NOT
+        // tallied into `inc_counts` (balances the predecessor's transferred-in lifecycle,
+        // not a same-block inc). Placed after the Invoke-result FRESH incs + dead-forwarder
+        // releases so emission order within block entry is stable.
+        if let Some(release_vars) =
+            forwarder_result_releases.get(&(block_idx, ForwarderReleasePos::BlockEntry))
+        {
+            for &var in release_vars {
+                new_body.push(ArcInstr::BurdenDec { var });
+            }
+        }
         for (instr_idx, instr) in original.into_iter().enumerate() {
             let ctx = BurdenEmitCtx {
                 block_idx,
@@ -171,6 +208,19 @@ pub(super) fn emit_burden_ops_for_blocks(
             for emitted in &new_body[before..] {
                 if let ArcInstr::BurdenInc { var } = emitted {
                     *inc_counts.entry(*var).or_insert(0) += 1;
+                }
+            }
+            // RL-2 forwarder-result release: AFTER this instruction (the lineage's
+            // last use was a body borrow-`Apply`), emit the single whole-var
+            // `BurdenDec(result_var)` that the empty-result-type-burden gap dropped.
+            // Placed after the last-use instr so the borrow-read completes before the
+            // allocation is freed (no UAF). NOT tallied into `inc_counts` — it balances
+            // the transferred-in allocation's lifecycle, not a same-block inc.
+            if let Some(release_vars) = forwarder_result_releases
+                .get(&(block_idx, ForwarderReleasePos::AfterInstr(instr_idx)))
+            {
+                for &var in release_vars {
+                    new_body.push(ArcInstr::BurdenDec { var });
                 }
             }
         }
@@ -318,6 +368,10 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
     // args, so they precede the instruction.
     emit_owned_position_incs(new_body, &instr, ctx);
     emit_in_place_mutation_drops(new_body, &instr, ctx);
+    // RL-1 borrowed-store duplication incs follow the old-value drops so the
+    // `Set` ordering invariant holds: `BurdenDecField` BEFORE
+    // `BurdenInc(value)` BEFORE the mutation.
+    emit_borrowed_store_dup_incs(new_body, &instr, ctx);
     let transfer_vars = instr_owned_position_transfer_vars(&instr);
     // The FRESH-site Inc references `dst`, DEFINED by `instr`. Under the probe
     // (`predicate_stack_rc_disabled`) the surviving whole-var burden ops lower
@@ -448,6 +502,48 @@ fn emit_owned_position_incs(
         if ctx.analysis.cow_inc_borrowed_aliases.contains(base) {
             new_body.push(ArcInstr::BurdenInc { var: *base });
         }
+    }
+}
+
+/// Emit the RL-1 duplication `BurdenInc` for every BORROWED-param-rooted arg
+/// consumed at an aggregate-STORE position of THIS instruction (`Construct` /
+/// `Reuse` / `CollectionReuse` arg, `Set.value`) per
+/// `compute_borrowed_store_dup_args`.
+///
+/// The borrow proves the caller retains a live reference across the call, so
+/// the store creates a real SECOND reference: the inc supplies the reference
+/// the store consumes (`AimsProof.Realization::RL1_duplication_balanced`); the
+/// container's drop is the matched release. No paired dec is emitted here —
+/// borrowed values carry no scope-exit release in this function (RL-2: the
+/// caller emits the borrowed param's release). Emitted BEFORE the instruction
+/// on BOTH paths: the member var is a pre-existing alias / param, so the
+/// probe-path mechanical `BurdenInc -> RcInc` lowering sees a defined value.
+/// `CollectionReuse`'s `old_var` (position 0) is a consumed token, not a
+/// stored value — only buffer-stored args (positions 1..) are members, which
+/// the scan guarantees by construction (it admits `args` only).
+fn emit_borrowed_store_dup_incs(
+    new_body: &mut Vec<ArcInstr>,
+    instr: &ArcInstr,
+    ctx: &BurdenEmitCtx<'_>,
+) {
+    if ctx.analysis.borrowed_store_dup_args.is_empty() {
+        return;
+    }
+    let mut emit = |var: ArcVarId| {
+        if ctx.analysis.borrowed_store_dup_args.contains(&var) {
+            new_body.push(ArcInstr::BurdenInc { var });
+        }
+    };
+    match instr {
+        ArcInstr::Construct { args, .. }
+        | ArcInstr::Reuse { args, .. }
+        | ArcInstr::CollectionReuse { args, .. } => {
+            for &arg in args {
+                emit(arg);
+            }
+        }
+        ArcInstr::Set { value, .. } => emit(*value),
+        _ => {}
     }
 }
 

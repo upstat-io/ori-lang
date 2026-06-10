@@ -4,7 +4,7 @@
 
 use ori_ir::Name;
 use ori_types::{Idx, TypeRegistry};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{emit_burden_ops as emit_burden_ops_impl, BurdenLowerCtx};
 use crate::ir::{
@@ -5377,7 +5377,7 @@ fn borrowed_arg_let_aliases_excludes_dup_source_keeps_move_source() {
                 vec![Idx::STR, Idx::STR, Idx::INT],
             )
         };
-        let dst = ArcVarId::new(u32::try_from(var_types.len() - 1).unwrap());
+        let dst = ArcVarId::new(u32::try_from(var_types.len() - 1).unwrap_or(u32::MAX));
         ArcFunction {
             params: vec![ArcParam {
                 var: ArcVarId::new(0),
@@ -6771,5 +6771,901 @@ fn fresh_result_keeps_result_burden_inc() {
         !gate.contains(&ArcVarId::new(0)),
         "fresh-allocating callee result var(0) MUST NOT be in the \
          transfer-through-return gate (no forwarder param); gate={gate:?}",
+    );
+}
+
+// Forwarder-identity alias transparency
+// (`compute_forwarder_identity_transparent_aliases`)
+//
+// A `Let { Var(src) }` alias of an Owned param that transfers through the
+// return (own contract) with a read-only-or-move-out lineage is a
+// same-allocation view of the moved-through value — transparent, NOT an RL-1
+// duplication. All-or-nothing per src: one non-vetted use anywhere in the
+// lineage keeps every alias classified.
+
+/// Multi-use-then-return forwarder shape over an Owned ttr param:
+/// bb0: %1 = %0; %2 = Project %1.0; Branch %2 ? bb1 : bb2
+/// bb1: %3 = %0; Jump bb3(%3)
+/// bb2: %4 = %0; Jump bb3(%4)
+/// bb3(%5): Return %5
+fn multi_use_forwarder_func() -> ArcFunction {
+    ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::from_raw(50),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::from_raw(50); 6],
+        var_reprs: vec![ValueRepr::RcPointer; 6],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::from_raw(50),
+                        value: ArcValue::Var(ArcVarId::new(0)),
+                    },
+                    project_first(ArcVarId::new(2), Idx::from_raw(50), ArcVarId::new(1)),
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(2),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::from_raw(50),
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: vec![ArcVarId::new(3)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(4),
+                    ty: Idx::from_raw(50),
+                    value: ArcValue::Var(ArcVarId::new(0)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: vec![ArcVarId::new(4)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![(ArcVarId::new(5), Idx::from_raw(50))],
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(5),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+/// Own-contract map: this function's single param transfers through return.
+fn own_forwarder_contracts(
+    func_name: Name,
+) -> FxHashMap<Name, crate::aims::contract::MemoryContract> {
+    let mut contracts = FxHashMap::default();
+    contracts.insert(func_name, forwarder_contract());
+    contracts
+}
+
+#[test]
+fn ttr_param_branch_aliases_with_borrow_read_are_transparent() {
+    // Semantic pin: would FAIL if the forwarder-identity transparency is
+    // reverted — the branch aliases regain dup-alias pairs whose per-var
+    // DP-2/DP-3 split over-releases the moved-through allocation.
+    let func = multi_use_forwarder_func();
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    let mut got: Vec<u32> = set
+        .iter()
+        .map(|v| u32::try_from(v.index()).unwrap_or(u32::MAX))
+        .collect();
+    got.sort_unstable();
+    assert_eq!(
+        got,
+        vec![1, 3, 4],
+        "every read-only / move-out alias of the ttr param MUST be transparent",
+    );
+}
+
+#[test]
+fn alias_consumed_at_owned_position_keeps_whole_lineage_classified() {
+    // Negative over-fire pin: a GENUINE duplication (alias consumed at an
+    // owned Construct position while the lineage stays live) NEEDS its paired
+    // inc/dec — the gate must decline ALL aliases of the src (all-or-nothing).
+    let mut func = multi_use_forwarder_func();
+    func.blocks[0].body.push(ArcInstr::Construct {
+        dst: ArcVarId::new(2),
+        ty: Idx::from_raw(50),
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(1)],
+    });
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
+        set.is_empty(),
+        "an owned-position consume of ANY alias MUST decline the whole lineage; got={set:?}",
+    );
+}
+
+#[test]
+fn alias_jump_to_dead_block_param_keeps_lineage_classified() {
+    // The RL-5 dead-param release machinery owns the dead-successor shape; the
+    // transparency gate declines so the status quo is preserved there.
+    let mut func = multi_use_forwarder_func();
+    func.blocks[3].terminator = ArcTerminator::Unreachable;
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
+        set.is_empty(),
+        "a Jump into a DEAD successor param MUST decline the lineage; got={set:?}",
+    );
+}
+
+#[test]
+fn conservative_own_contract_yields_no_transparent_aliases() {
+    // Without the proven transfers_through_return fact the aliases stay
+    // classified (conservative status quo).
+    let func = multi_use_forwarder_func();
+    let mut contracts = FxHashMap::default();
+    contracts.insert(
+        func.name,
+        crate::aims::contract::MemoryContract::conservative(1),
+    );
+    let set =
+        super::ownership_scans::compute_forwarder_identity_transparent_aliases(&func, &contracts);
+    assert!(
+        set.is_empty(),
+        "no own-ttr contract fact MUST mean no transparency; got={set:?}",
+    );
+}
+
+#[test]
+fn borrowed_ttr_param_yields_no_transparent_aliases() {
+    // A Borrowed param carries no RC obligation — its aliases are excluded by
+    // the borrowed-alias retain, never by this gate.
+    let mut func = multi_use_forwarder_func();
+    func.params[0].ownership = Ownership::Borrowed;
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
+        set.is_empty(),
+        "a Borrowed param MUST yield no forwarder-identity transparency; got={set:?}",
+    );
+}
+
+#[test]
+fn nested_re_alias_keeps_whole_lineage_classified() {
+    // Single-hop only: an alias-of-alias declines the whole lineage.
+    let mut func = multi_use_forwarder_func();
+    func.var_types.push(Idx::from_raw(50));
+    func.var_reprs.push(ValueRepr::RcPointer);
+    func.blocks[1].body.push(ArcInstr::Let {
+        dst: ArcVarId::new(6),
+        ty: Idx::from_raw(50),
+        value: ArcValue::Var(ArcVarId::new(3)),
+    });
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
+        set.is_empty(),
+        "a nested re-alias MUST decline the whole lineage; got={set:?}",
+    );
+}
+
+#[test]
+fn set_base_through_alias_keeps_lineage_classified() {
+    // Mutation through the view invalidates the read-only premise.
+    let mut func = multi_use_forwarder_func();
+    func.blocks[0].body.push(ArcInstr::Set {
+        base: ArcVarId::new(1),
+        field: 0,
+        value: ArcVarId::new(2),
+    });
+    let set = super::ownership_scans::compute_forwarder_identity_transparent_aliases(
+        &func,
+        &own_forwarder_contracts(func.name),
+    );
+    assert!(
+        set.is_empty(),
+        "a Set base through the alias MUST decline the lineage; got={set:?}",
+    );
+}
+
+#[test]
+fn transparent_alias_carries_no_burden_ops_end_to_end() {
+    // Integration pin through emit_burden_ops: the transparent alias gets
+    // NEITHER the dup-alias FRESH-site inc NOR any last-use dec — zero burden
+    // ops on the alias; the lineage release stays with the caller of the
+    // bound result per RL-34.
+    let registry = TypeRegistry::new();
+    let mut func = multi_use_forwarder_func();
+    let contracts = own_forwarder_contracts(func.name);
+    emit_burden_ops(&mut func, &registry, &[], &[], &contracts, false);
+    for raw in [1u32, 3, 4] {
+        assert_eq!(
+            count_burden_incs(&func, ArcVarId::new(raw)),
+            0,
+            "transparent alias %{raw} MUST carry no BurdenInc",
+        );
+        assert_eq!(
+            count_burden_decs(&func, ArcVarId::new(raw)),
+            0,
+            "transparent alias %{raw} MUST carry no BurdenDec",
+        );
+    }
+}
+
+// Genuine-duplication store-out alias scan
+// (`compute_genuine_dup_move_aliases`)
+
+/// `Let` alias of `%0` into `dst`, typed STR.
+fn alias_of(dst: u32, src: u32) -> ArcInstr {
+    ArcInstr::Let {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        value: ArcValue::Var(ArcVarId::new(src)),
+    }
+}
+
+/// Aggregate store consuming `arg` into `dst` (a struct Construct).
+fn store_of(dst: u32, arg: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(arg)],
+    }
+}
+
+/// Two-block func: `bb0: %1 = %0; %3 = Construct(%1); Jump bb1` then `bb1`
+/// uses `%0` — the source is forward-reachable past the store-out alias, so
+/// the alias is a genuine RL-1 duplication.
+fn dup_alias_src_used_in_successor_func() -> ArcFunction {
+    ArcFunction {
+        var_types: (0..5).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![alias_of(1, 0), store_of(3, 1)],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![alias_of(2, 0), store_of(4, 2)],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn genuine_dup_scan_fires_when_src_used_in_reachable_successor() {
+    let func = dup_alias_src_used_in_successor_func();
+    let dup_alias_dsts: FxHashSet<ArcVarId> =
+        [ArcVarId::new(1), ArcVarId::new(2)].into_iter().collect();
+    let set = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "bb0 store-out alias %1 of %0 with a reachable bb1 use of %0 is a genuine duplication"
+    );
+    assert!(
+        !set.contains(&ArcVarId::new(2)),
+        "bb1 alias %2 is %0's last reachable use — a terminal move, not a duplication"
+    );
+}
+
+#[test]
+fn genuine_dup_scan_fires_on_later_same_block_use() {
+    // `%1 = %0; Construct(%1); %2 = %0; Construct(%2)` in ONE block: the
+    // first alias has a later same-block use of the source (genuine); the
+    // second is terminal.
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        store_of(3, 1),
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let dup_alias_dsts: FxHashSet<ArcVarId> =
+        [ArcVarId::new(1), ArcVarId::new(2)].into_iter().collect();
+    let set = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "first store-out alias has a later same-block source use — genuine duplication"
+    );
+    assert!(
+        !set.contains(&ArcVarId::new(2)),
+        "second alias is the source's terminal use — a move"
+    );
+}
+
+#[test]
+fn genuine_dup_scan_excludes_branch_exclusive_aliases() {
+    // `bb0: Branch -> bb1 | bb2`; each branch store-out aliases `%0` then
+    // returns. The source has TWO alias uses but neither reaches the other —
+    // each path's alias is the terminal move of the one reference (per-path
+    // RL-2 transfer, no duplication).
+    let func = ArcFunction {
+        var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![alias_of(2, 0), store_of(4, 2)],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![alias_of(3, 0), store_of(5, 3)],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(5),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let dup_alias_dsts: FxHashSet<ArcVarId> =
+        [ArcVarId::new(2), ArcVarId::new(3)].into_iter().collect();
+    let set = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        set.is_empty(),
+        "branch-exclusive aliases are per-path terminal moves, not duplications: {set:?}"
+    );
+}
+
+#[test]
+fn genuine_dup_scan_fires_on_loop_back_edge_reuse() {
+    // `bb0: %3 = %0 (earlier use); %2 = %0; Construct(%2); Branch -> bb0|bb1`
+    // — the earlier-in-block use of the source is re-reachable through the
+    // back edge, so the store-out alias IS a genuine duplication (the next
+    // iteration reads the source again).
+    let func = ArcFunction {
+        var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![alias_of(3, 0), alias_of(2, 0), store_of(4, 2)],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(0),
+                    else_block: ArcBlockId::new(1),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let dup_alias_dsts: FxHashSet<ArcVarId> = [ArcVarId::new(2)].into_iter().collect();
+    let set = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        set.contains(&ArcVarId::new(2)),
+        "an earlier-in-block source use re-reached via the back edge is a use after the alias"
+    );
+}
+
+#[test]
+fn genuine_dup_scan_excludes_call_arg_consumers() {
+    // `%1 = %0; Apply @f(%1); %2 = %0; Construct(%2)` — the FIRST alias moves
+    // into a CALL arg (iter-protocol / interprocedural ownership accounting
+    // owns it), so it is OUT of the store-out family even though the source
+    // is live after; only the aggregate-store alias classifies.
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        ArcInstr::Apply {
+            dst: ArcVarId::new(3),
+            ty: Idx::INT,
+            func: Name::from_raw(7),
+            args: vec![ArcVarId::new(1)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
+        },
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let dup_alias_dsts: FxHashSet<ArcVarId> =
+        [ArcVarId::new(1), ArcVarId::new(2)].into_iter().collect();
+    let set = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        !set.contains(&ArcVarId::new(1)),
+        "a call-arg consumer is outside the duplication-by-storage family"
+    );
+    assert!(
+        !set.contains(&ArcVarId::new(2)),
+        "the store alias is the source's terminal use here — a move"
+    );
+}
+
+#[test]
+fn genuine_dup_scan_respects_dup_and_full_move_gates() {
+    // Same shape as the same-block genuine case, but (a) the dst is not a
+    // dup-alias, or (b) the dst is a full-move var — neither classifies.
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        store_of(3, 1),
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let empty: FxHashSet<ArcVarId> = FxHashSet::default();
+    let not_dup = super::ownership_scans::compute_genuine_dup_move_aliases(&func, &empty, &empty);
+    assert!(
+        not_dup.is_empty(),
+        "a dst outside dup_alias_dsts never classifies"
+    );
+    let dup_alias_dsts: FxHashSet<ArcVarId> = [ArcVarId::new(1)].into_iter().collect();
+    let full_move: FxHashSet<ArcVarId> = [ArcVarId::new(1)].into_iter().collect();
+    let full_moved = super::ownership_scans::compute_genuine_dup_move_aliases(
+        &func,
+        &dup_alias_dsts,
+        &full_move,
+    );
+    assert!(
+        full_moved.is_empty(),
+        "a full-move dst is owned by the field-projection suppression, not the alias pair"
+    );
+}
+
+// Borrowed-store duplication scan (`compute_borrowed_store_dup_args`)
+
+/// One-block func with one param of `ownership`, typed `param_ty`, and the
+/// given body. Var types: `%0..%n` all `param_ty`.
+fn borrowed_store_func(
+    ownership: Ownership,
+    param_ty: Idx,
+    n: u32,
+    body: Vec<ArcInstr>,
+) -> ArcFunction {
+    ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: param_ty,
+            ownership,
+        }],
+        var_types: (0..n).map(|_| param_ty).collect(),
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Unreachable,
+        }],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn borrowed_store_scan_fires_on_borrowed_param_and_alias_stores() {
+    // `%1 = %0(borrowed); Construct(%2, [%1]); Construct(%3, [%0])` — both the
+    // alias and the param itself are borrowed-rooted store args: each store
+    // duplicates the caller's retained reference (RL-1).
+    let registry = TypeRegistry::new();
+    let func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::STR,
+        4,
+        vec![alias_of(1, 0), store_of(2, 1), store_of(3, 0)],
+    );
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.contains(&ArcVarId::new(1)) && set.contains(&ArcVarId::new(0)),
+        "borrowed param + its alias consumed at aggregate stores both classify; set = {set:?}"
+    );
+}
+
+#[test]
+fn borrowed_store_scan_excludes_owned_param_stores() {
+    // An OWNED param's store is the existing terminal-move / genuine-dup
+    // territory — over-adding an inc on an owned source leaks.
+    let registry = TypeRegistry::new();
+    let func = borrowed_store_func(
+        Ownership::Owned,
+        Idx::STR,
+        3,
+        vec![alias_of(1, 0), store_of(2, 1)],
+    );
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.is_empty(),
+        "owned-param-rooted stores never classify; set = {set:?}"
+    );
+}
+
+#[test]
+fn borrowed_store_scan_excludes_call_arg_consumers() {
+    // A borrowed value passed at an `Apply` arg is a CALL consume — its
+    // ownership accounting is interprocedural/protocol, never a store dup.
+    let registry = TypeRegistry::new();
+    let func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::STR,
+        3,
+        vec![
+            alias_of(1, 0),
+            ArcInstr::Apply {
+                dst: ArcVarId::new(2),
+                ty: Idx::STR,
+                func: Name::from_raw(99),
+                args: vec![ArcVarId::new(1)],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+    );
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.is_empty(),
+        "call-arg consumers are out of the aggregate-store family; set = {set:?}"
+    );
+}
+
+#[test]
+fn borrowed_store_scan_excludes_rc_free_types() {
+    // A borrowed scalar-typed param stored into an aggregate carries no RC
+    // burden — no inc to emit.
+    let registry = TypeRegistry::new();
+    let func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::INT,
+        3,
+        vec![alias_of(1, 0), store_of(2, 1)],
+    );
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.is_empty(),
+        "an RC-free stored value needs no duplication inc; set = {set:?}"
+    );
+}
+
+#[test]
+fn borrowed_store_scan_includes_set_value() {
+    // `Set { base, value: %1(borrowed-rooted) }` stores the borrowed value
+    // into an existing aggregate field — same RL-1 duplication as Construct.
+    let registry = TypeRegistry::new();
+    let func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::STR,
+        3,
+        vec![
+            alias_of(1, 0),
+            ArcInstr::Set {
+                base: ArcVarId::new(2),
+                field: 0,
+                value: ArcVarId::new(1),
+            },
+        ],
+    );
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "Set.value of a borrowed-rooted var classifies; set = {set:?}"
+    );
+}
+
+#[test]
+fn borrowed_store_inc_emitted_before_aggregate_store() {
+    // End-to-end Phase-5 pin: the emitted body carries `BurdenInc %1`
+    // immediately BEFORE the `Construct` consuming the borrowed-rooted alias
+    // (the aggregate takes a real second reference; the caller keeps its own).
+    let registry = TypeRegistry::new();
+    let mut func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::STR,
+        3,
+        vec![alias_of(1, 0), store_of(2, 1)],
+    );
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    let body = &func.blocks[0].body;
+    let store_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::Construct { .. }))
+        .unwrap_or_else(|| panic!("store missing from emitted body"));
+    assert!(
+        store_pos > 0
+            && matches!(
+                body[store_pos - 1],
+                ArcInstr::BurdenInc { var } if var == ArcVarId::new(1)
+            ),
+        "BurdenInc %1 must immediately precede the consuming store; body = {body:?}"
+    );
+}
+
+// Repr-aware admission gate (`is_provably_scalar_repr`)
+//
+// The type-level `burden_carries_rc` filter admits a TYPE whose burden carries
+// RC dimensions (variant entries / owned fields / self_heap_alloc) even when
+// the concrete var's MONOMORPHIZED repr is `Scalar` (a niche-packed
+// all-scalar-payload sum instantiation — `Option<int>` / `Result<int, int>`).
+// A whole-var burden op on a Scalar-repr var can never lower to RC (Phase-7
+// `RcStrategy::from_repr` rejects `Scalar`) and survives as VF-1 ledger
+// residue (net=-1 per exit path). The admission consults the SAME `var_reprs`
+// classification Phase-7 consults and skips ONLY the provable case.
+// Spec: Annex E §AIMS L-9 + RE-2.
+
+/// Owned param whose TYPE-level burden carries RC (`Idx::STR` —
+/// `self_heap_alloc=true` per `BURDEN_TABLE`) read once via a borrow
+/// projection. Pre-gate, the param receives a last-use `BurdenDec` (the
+/// family shape: lone unlowerable dec). `reprs` selects the monomorphized
+/// classification under pin.
+fn type_admitted_param_func(reprs: Vec<ValueRepr>) -> ArcFunction {
+    ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::INT],
+        var_reprs: reprs,
+        blocks: vec![entry_block(
+            vec![project_first(ArcVarId::new(1), Idx::INT, ArcVarId::new(0))],
+            ArcTerminator::Unreachable,
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn whole_var_burden_ops_skipped_when_repr_provably_scalar() {
+    // Positive pin for the repr-aware admission gate: a var whose
+    // monomorphized repr is provably `Scalar` receives ZERO whole-var burden
+    // ops even though its TYPE-level burden carries RC. Reverting the gate
+    // re-admits the var and re-introduces the unlowerable lone `BurdenDec`
+    // (VF-1 net=-1 residue at every exit through the def).
+    let registry = TypeRegistry::new();
+    let mut func = type_admitted_param_func(vec![ValueRepr::Scalar, ValueRepr::Scalar]);
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        0,
+        "provably-Scalar-repr var(0) MUST receive zero BurdenDec (L-9: scalars \
+         carry no RC; the op could never lower); body={:?}",
+        func.blocks[0].body,
+    );
+    assert_eq!(
+        count_burden_incs(&func, ArcVarId::new(0)),
+        0,
+        "provably-Scalar-repr var(0) MUST receive zero BurdenInc; body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn whole_var_burden_ops_preserved_when_repr_heap() {
+    // Over-fire negative (clamps the gate from below): the SAME fixture with
+    // the TRUE heap repr (`FatValue` for STR — stands in for any heap-backed
+    // instantiation, e.g. `Option<str>`'s `Aggregate`) keeps its admission and
+    // its last-use release. Widening the skip beyond provably-Scalar would
+    // drop this dec — a missing release (leak).
+    let registry = TypeRegistry::new();
+    let mut func = type_admitted_param_func(vec![ValueRepr::FatValue, ValueRepr::Scalar]);
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        1,
+        "heap-repr var(0) MUST keep its last-use BurdenDec (the release of the \
+         owned param); body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn whole_var_burden_ops_preserved_when_var_reprs_unpopulated() {
+    // Conservative-fallback pin: with `var_reprs` UNPOPULATED (pre-pipeline —
+    // `func.var_repr` returns `None`), the repr is NOT provably Scalar and the
+    // admission is unchanged. Widening the skip to `None` reprs would silently
+    // strip releases wherever the classification is unavailable.
+    let registry = TypeRegistry::new();
+    let mut func = type_admitted_param_func(Vec::new());
+    emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    assert_eq!(
+        count_burden_decs(&func, ArcVarId::new(0)),
+        1,
+        "unpopulated var_reprs MUST keep the admission (conservative: only the \
+         provable Scalar case skips); body={:?}",
+        func.blocks[0].body,
+    );
+}
+
+#[test]
+fn borrowed_store_scan_excludes_provably_scalar_repr_member() {
+    // Repr-gate pin on the independent borrowed-store admission: the SAME
+    // shape that fires in `borrowed_store_scan_fires_on_borrowed_param_and_alias_stores`
+    // (the vacuity guard) admits NOTHING when every member's repr is provably
+    // Scalar — a niche-packed stored value is a copy; no second reference
+    // exists and a store-site inc on it can never lower.
+    let registry = TypeRegistry::new();
+    let mut func = borrowed_store_func(
+        Ownership::Borrowed,
+        Idx::STR,
+        4,
+        vec![alias_of(1, 0), store_of(2, 1), store_of(3, 0)],
+    );
+    func.var_reprs = vec![ValueRepr::Scalar; 4];
+    let set = super::ownership_scans::compute_borrowed_store_dup_args(&func, &registry);
+    assert!(
+        set.is_empty(),
+        "provably-Scalar-repr members MUST NOT classify as borrowed-store dups; set = {set:?}"
+    );
+}
+
+/// Two-block forwarder-fed dead-param fixture: `bb0: %0 = Construct;
+/// %1 = Apply @fwd(%0 [own]); Jump bb1(%1)` then `bb1(%2 DEAD): Return %3`.
+/// The dead param's feeding rep is the forwarder lineage `{%0, %1}`.
+fn dead_forwarder_param_func(reprs: Vec<ValueRepr>, callee: Name) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::STR, Idx::INT],
+        var_reprs: reprs,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: Vec::new(),
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::STR,
+                        func: callee,
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(1)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(2), Idx::STR)],
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn dead_forwarder_param_release_fires_on_heap_repr_param() {
+    // Vacuity guard for the scalar-repr pin below: with heap reprs the RL-5
+    // dead-param release DOES fire on this fixture (the dead param holds the
+    // forwarded allocation's sole reference).
+    let callee = Name::from_raw(200);
+    let func = dead_forwarder_param_func(
+        vec![
+            ValueRepr::FatValue,
+            ValueRepr::FatValue,
+            ValueRepr::FatValue,
+            ValueRepr::Scalar,
+        ],
+        callee,
+    );
+    let mut contracts = FxHashMap::default();
+    contracts.insert(callee, forwarder_contract());
+    let releases =
+        super::ownership_scans::compute_dead_forwarder_block_param_releases(&func, &contracts);
+    assert_eq!(
+        releases.get(&1).map(Vec::as_slice),
+        Some([ArcVarId::new(2)].as_slice()),
+        "heap-repr dead forwarder param var(2) MUST receive the RL-5 release; \
+         releases = {releases:?}"
+    );
+}
+
+#[test]
+fn dead_forwarder_param_release_skipped_for_scalar_repr_param() {
+    // Repr-gate pin on the independent RL-5 dead-param admission: the SAME
+    // fixture with provably-Scalar reprs admits NOTHING — a Scalar-repr dead
+    // param carries no allocation to release, and the dec could never lower.
+    let callee = Name::from_raw(201);
+    let func = dead_forwarder_param_func(vec![ValueRepr::Scalar; 4], callee);
+    let mut contracts = FxHashMap::default();
+    contracts.insert(callee, forwarder_contract());
+    let releases =
+        super::ownership_scans::compute_dead_forwarder_block_param_releases(&func, &contracts);
+    assert!(
+        releases.is_empty(),
+        "provably-Scalar-repr dead param MUST NOT receive an RL-5 release; \
+         releases = {releases:?}"
     );
 }

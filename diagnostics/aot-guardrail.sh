@@ -10,9 +10,22 @@
 #                      guardrail-2 regression). No baseline => report count only.
 #   --out FILE         Write the sorted failing-ID set here (default:
 #                      /tmp/aot-guardrail-fails.txt).
+#   --log FILE         Keep the FULL cargo-test run log at FILE (default: a
+#                      mktemp path, echoed). The log carries each failing
+#                      cell's compile stderr incl. the VF-1 attribution
+#                      lines (`[def=.. exit=.. repr=.. ops=..]`) consumed by
+#                      burden-imbalance classification.
 #   --env "V=1 W=2"    Extra env vars exported into the AOT run (e.g.
 #                      "ORI_DISABLE_BURDEN_OPS=1 ORI_DISABLE_PREDICATE_STACK_RC=0"
 #                      for the predicate-stack path). Default: burden default.
+#
+# METRIC CONTRACT: the run ALWAYS exports ORI_VERIFY_ARC=1 + ORI_VERIFY_EACH=1
+# (the same verification gates test-all.sh and CI export), so the failing-ID
+# set this script captures is the SAME metric the full suite reports. A bare
+# `cargo test -p ori_llvm --test aot` without the gates counts only behavioral
+# failures and silently excludes every VF-1 burden-imbalance verification
+# failure -- an under-count that MUST NOT be used as a floor or baseline.
+# Diagnostic-bisection override: --env "ORI_VERIFY_ARC=0 ORI_VERIFY_EACH=0".
 #   --threads N        cargo test --test-threads (default 8).
 #   --no-build         Skip the oric+ori_rt rebuild + staticlib confirm (caller
 #                      already built this cycle).
@@ -42,6 +55,7 @@ OUT="/tmp/aot-guardrail-fails.txt"
 EXTRA_ENV=""
 THREADS=8
 DO_BUILD=1
+RUN_LOG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -50,13 +64,17 @@ while [[ $# -gt 0 ]]; do
         --env) EXTRA_ENV="${2:-}"; shift 2 ;;
         --threads) THREADS="${2:-}"; shift 2 ;;
         --no-build) DO_BUILD=0; shift ;;
+        --log) RUN_LOG="${2:-}"; shift 2 ;;
         -h|--help) sed -n '2,/^$/{ s/^# \?//; p }' "$0"; exit 0 ;;
         *) echo "Error: unknown option: $1" >&2; echo "Run with --help." >&2; exit 2 ;;
     esac
 done
 
 cd "$REPO_ROOT" || exit 2
-RUN_LOG="$(mktemp /tmp/aot-guardrail-run.XXXXXX.log)"
+if [[ -z "$RUN_LOG" ]]; then
+    RUN_LOG="$(mktemp /tmp/aot-guardrail-run.XXXXXX.log)"
+fi
+echo "run log: $RUN_LOG"
 
 if [[ "$DO_BUILD" == "1" ]]; then
     echo "=== rebuild oric + ori_rt (serialize staticlib) ==="
@@ -69,7 +87,12 @@ if [[ "$DO_BUILD" == "1" ]]; then
     cargo test -p ori_llvm --test aot --no-run 2>&1 | tail -1
 fi
 
-echo "=== AOT suite (env: ${EXTRA_ENV:-<burden default>}; threads $THREADS) ==="
+# test-all.sh metric parity (see METRIC CONTRACT in the header). --env entries
+# follow these in the `env` invocation, so an explicit override still wins.
+export ORI_VERIFY_ARC=1
+export ORI_VERIFY_EACH=1
+
+echo "=== AOT suite (env: ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 ${EXTRA_ENV:-<burden default>}; threads $THREADS) ==="
 # shellcheck disable=SC2086
 env $EXTRA_ENV cargo test -p ori_llvm --test aot -- --test-threads "$THREADS" 2>&1 \
     | tee "$RUN_LOG" | tail -3
@@ -77,12 +100,16 @@ env $EXTRA_ENV cargo test -p ori_llvm --test aot -- --test-threads "$THREADS" 2>
 grep -E '^test .* \.\.\. FAILED' "$RUN_LOG" \
     | sed -E 's/^test //; s/ \.\.\. FAILED$//' | sort -u > "$OUT"
 
+# Two surface forms of the same staticlib race (a parallel `cargo build`
+# clobbering target/debug/libori_rt.a mid-run): E5005 fires when oric cannot
+# FIND the lib pre-link; E5006 `cannot find -lori_rt` fires when `cc` cannot.
 ABORTS="$(grep -c 'E5005 runtime library not found' "$RUN_LOG")"
+LINK_ABORTS="$(grep -c 'cannot find -lori_rt' "$RUN_LOG")"
 COUNT="$(wc -l < "$OUT")"
-echo "=== FAIL COUNT: $COUNT | E5005-aborts: $ABORTS | failing-ids: $OUT ==="
+echo "=== FAIL COUNT: $COUNT | E5005-aborts: $ABORTS | linker-aborts: $LINK_ABORTS | failing-ids: $OUT ==="
 
-if [[ "$ABORTS" -gt 0 ]]; then
-    echo "STATICLIB-ABORT FALSE-RED ($ABORTS) — result UNTRUSTABLE; rebuild + re-run." >&2
+if [[ "$ABORTS" -gt 0 || "$LINK_ABORTS" -gt 0 ]]; then
+    echo "STATICLIB-ABORT FALSE-RED (E5005: $ABORTS, linker: $LINK_ABORTS) — result UNTRUSTABLE; rebuild + re-run." >&2
     exit 3
 fi
 
@@ -91,8 +118,13 @@ if [[ -n "$BASELINE" ]]; then
         echo "Error: baseline file not found: $BASELINE" >&2
         exit 2
     fi
-    NEW="$(comm -13 "$BASELINE" "$OUT")"
-    FIXED="$(comm -23 "$BASELINE" "$OUT")"
+    # Baseline files MAY carry a `#` doc header; comm needs comment-free
+    # sorted input on both sides.
+    BASELINE_CLEAN="$(mktemp /tmp/aot-guardrail-baseline.XXXXXX.txt)"
+    grep -vE '^(#|$)' "$BASELINE" | sort -u > "$BASELINE_CLEAN"
+    NEW="$(comm -13 "$BASELINE_CLEAN" "$OUT")"
+    FIXED="$(comm -23 "$BASELINE_CLEAN" "$OUT")"
+    rm -f "$BASELINE_CLEAN"
     echo "=== NEW failures vs baseline (guardrail-2: MUST be empty): ==="
     echo "${NEW:-<none>}"
     echo "=== FIXED vs baseline: ==="
