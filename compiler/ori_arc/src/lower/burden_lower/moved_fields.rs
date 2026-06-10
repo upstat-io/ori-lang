@@ -147,6 +147,13 @@ pub(super) fn populate_moved_out_fields(
     // semantics consumed by `compute_full_move_vars` /
     // `compute_partial_move_vars`. Cleared first to keep
     // `populate_moved_out_fields` idempotent on repeat invocation.
+    // `moved_out_fields_union[carrier]` carries the per-carrier moved-field
+    // attribution derived from `project_origins` (Pass 1) through the Pass-2
+    // transfer + Pass-3 dataflow: a field counts under the carrier (the
+    // `project_src` alias) that lowered its projection. The sibling-alias
+    // cross-check post-process consumes THIS union (the same projection-origin
+    // attribution, already folded per carrier) — no re-derivation. Spec: Annex E
+    // §AIMS RL-2.
     ctx.moved_out_fields_union.clear();
     for per_block in &ctx.moved_out_fields_block_exit {
         for (&src, fields) in per_block {

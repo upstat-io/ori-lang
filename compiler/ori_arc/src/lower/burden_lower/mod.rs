@@ -16,6 +16,7 @@ mod ctx;
 mod emit;
 mod moved_fields;
 mod ownership_scans;
+mod sibling_union;
 
 pub(crate) use ownership_scans::collect_move_edges_and_store_consumes;
 mod terminator;
@@ -568,10 +569,34 @@ pub(crate) fn emit_burden_ops<'a>(
     // need their drop; skip_fields names the transferred subset). AIMS
     // Invariant 5 case (b) — extends ArcInstr enum on the SAME var dimension;
     // no parallel emission, no shadow tracker.
-    let partial_move_vars = compute_partial_move_vars(
+    let mut partial_move_vars = compute_partial_move_vars(
         &ctx.moved_out_fields_union,
         &full_move_vars,
         &owned_vars_needing_rc,
+    );
+
+    // RL-2 sibling-alias moved-field cross-check: the loop-carried struct
+    // self-rebuild (`r = T { a: r.a, b: r.b }`) lowers each plain self-projection
+    // through a DISTINCT `Let { Var }` alias of the loop block-param; the
+    // moved-out-field scan attributes each moved field ONLY to the alias that
+    // lowered that projection, so each sibling's `BurdenDecPartial skip=[k]`
+    // releases the field its SIBLING transferred into the new struct — a
+    // double-free of a buffer carried to the next iteration. The post-process
+    // unifies the sibling moved-field sets, widening each alias's skip with the
+    // sibling-covered fields and absorbing fully-covered aliases into
+    // `full_move_vars` (so their FRESH-site dup-alias inc is suppressed
+    // coherently via the `inc_suppressed_vars = full_move_vars` coupling below).
+    // The alias-chain ROOT is never a suppression target. Toggle
+    // `ORI_DISABLE_SIBLING_MOVED_FIELD_UNION=1` restores per-alias attribution.
+    // Spec: Annex E §AIMS RL-2.
+    let mut full_move_vars = full_move_vars;
+    sibling_union::apply_sibling_moved_field_union(
+        func,
+        type_registry,
+        &ctx.moved_out_fields_union,
+        &owned_vars_needing_rc,
+        &mut full_move_vars,
+        &mut partial_move_vars,
     );
 
     // RL-2 transfer-suppression symmetry: a fresh value whose paired BurdenDec

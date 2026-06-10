@@ -274,6 +274,20 @@ flags! {
     /// Usage: `ORI_DISABLE_BORROWED_STORE_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_BORROWED_STORE_DUP_INC
 
+    /// Restore per-alias moved-field attribution for a loop-carried struct
+    /// self-rebuild (default: the sibling-alias moved-field cross-check unifies
+    /// the moved-out-field sets across the `Let { Var }` projection aliases of
+    /// one alias-chain root, widening each alias's `BurdenDecPartial.skip_fields`
+    /// so a field transferred by a SIBLING is not double-freed). With the toggle
+    /// set, each alias keeps the partial-dec for its sibling's transferred field
+    /// — the pre-fix double-free shape.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// loop-carried struct self-rebuild double-free to the sibling-union
+    /// post-process vs the rest of the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_SIBLING_MOVED_FIELD_UNION=1 ori build file.ori`
+    ORI_DISABLE_SIBLING_MOVED_FIELD_UNION
+
     /// Restore the decoupled DP-2/DP-3 split for alias dsts rooted at a local
     /// fresh `Construct` (default: such alias pairs are atomic in the Phase-6
     /// per-var elision — elided whole or kept whole, never split).
