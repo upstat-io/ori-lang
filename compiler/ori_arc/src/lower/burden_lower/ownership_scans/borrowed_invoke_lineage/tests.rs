@@ -280,6 +280,81 @@ fn live_extract_claimed_member_declines_whole_closure() {
     );
 }
 
+/// A block-param fed by the lineage root on one arm and a DIFFERENT
+/// allocation on a sibling arm is a phi merging distinct allocations. The
+/// fixpoint validation DECLINES the WHOLE closure (`None`) rather than grow
+/// across the allocation boundary — the conservative cure for the
+/// `04B.2-cross-class-uaf` shape (a foreign-allocation merge would mis-suppress
+/// / place a release on a merged-in foreign allocation).
+///
+/// `bb0: %0 = Construct List() ; %1 = Construct List() (distinct) ;
+///       Branch %5 -> bb1, bb2`
+/// `bb1: Jump bb3(%0)` / `bb2: Jump bb3(%1)`
+/// `bb3(%4): Return %3` — `%4` merges `%0` (member) and `%1` (foreign).
+#[test]
+fn phi_merge_distinct_allocations_declines_closure() {
+    let f = func(
+        6,
+        vec![
+            block(
+                0,
+                vec![list_construct(0), list_construct(1)],
+                ArcTerminator::Branch {
+                    cond: vv(5),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], jump(3, vec![vv(0)])),
+            block(2, vec![], jump(3, vec![vv(1)])),
+            block_with_params(
+                3,
+                vec![(vv(4), Idx::INT)],
+                vec![],
+                ArcTerminator::Return { value: vv(3) },
+            ),
+        ],
+    );
+    assert!(
+        same_alloc_closure_vetted(&f, vv(0)).is_none(),
+        "the merge param %4 is fed by foreign alloc %1 on the sibling arm — the \
+         fixpoint phi-merge validation declines the whole closure (no over-grow \
+         across the allocation boundary)",
+    );
+    // Symmetric: a root grown from the FOREIGN alloc %1 also declines.
+    assert!(
+        same_alloc_closure_vetted(&f, vv(1)).is_none(),
+        "the same phi-merge declines the %1 closure too (symmetric guard)",
+    );
+}
+
+/// A block-param ALL of whose predecessors pass a same-alloc member is a
+/// legitimate same-allocation merge (the loop-carried / single-arm carry case).
+/// The fixpoint validation admits it and the param joins the closure.
+/// `bb0: %0 = Construct List() ; Jump bb1(%0)` / `bb1(%1): Return %2` — the sole
+/// predecessor passes the member, so %1 is the same allocation.
+#[test]
+fn single_predecessor_member_param_joins_closure() {
+    let f = func(
+        3,
+        vec![
+            block(0, vec![list_construct(0)], jump(1, vec![vv(0)])),
+            block_with_params(
+                1,
+                vec![(vv(1), Idx::INT)],
+                vec![],
+                ArcTerminator::Return { value: vv(2) },
+            ),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    assert!(
+        members.contains(&vv(1)),
+        "the sole predecessor passes member %0 at the param position — %1 is the \
+         same allocation and joins the closure",
+    );
+}
+
 #[test]
 fn no_dead_param_death_point_declines() {
     // The receiver dies at the borrowed Invoke (no Jump to a dead merge param) —

@@ -21,6 +21,9 @@ use crate::ir::{
 use super::trampoline::{compute_defined_at_or_before, insert_trampoline};
 use super::{block_id, rc_strategy, should_suppress_apply_aliased_dec, DeferredDec, EdgeDec};
 
+#[cfg(test)]
+mod tests;
+
 /// Whether the successor block at `succ_idx` is an unwind block (terminator
 /// = Resume).
 ///
@@ -29,13 +32,11 @@ use super::{block_id, rc_strategy, should_suppress_apply_aliased_dec, DeferredDe
 /// successors, prefer the explicit `normal`/`unwind` field distinction —
 /// `is_unwind_succ_block` is a fallback when the explicit flag is unknown.
 ///
-/// Per BUG-04-090, intermediate blocks reachable via Invoke
-/// unwind-successor cluster may not have Resume terminators themselves; this
-/// shallow check under-detects unwind blocks for the cluster case. For the
-/// bug-pin scope this is sound because hop2/hop4/F-prj/E-mat exercise
-/// non-unwind control flow exclusively. F-try (try-block, the unwind-edge
-/// case) requires the deeper authoritative `ArcFunction::unwind_blocks`
-/// accessor — tracked as a Hypothesis D component #1 follow-up.
+/// Intermediate blocks reachable via the Invoke unwind-successor cluster may
+/// not have Resume terminators themselves, so this shallow check under-detects
+/// unwind blocks for the cluster case. It is sound for non-unwind control flow;
+/// the unwind-edge (try-block) case requires the deeper authoritative
+/// `ArcFunction::unwind_blocks` accessor.
 #[inline]
 fn is_unwind_succ_block(func: &ArcFunction, succ_idx: usize) -> bool {
     matches!(func.blocks[succ_idx].terminator, ArcTerminator::Resume)
@@ -381,9 +382,8 @@ pub(crate) fn compute_branch_edge_dead_set(
                 ))
                 && rc_strategy(func, var, pool).is_some()
             {
-                // BUG-04-090: suppress
-                // edge dec when `var` was consumed by an Apply/Invoke
-                // whose dst aliases it.
+                // Suppress the edge dec when `var` was consumed by an
+                // Apply/Invoke whose dst aliases it.
                 let is_unwind_succ = is_unwind_succ_block(func, succ_id.index());
                 if should_suppress_apply_aliased_dec(state_map, var, is_unwind_succ) {
                     tracing::debug!(
@@ -409,17 +409,17 @@ pub(crate) fn compute_branch_edge_dead_set(
                         // else y`) must NOT suppress — each alternative needs
                         // its own edge dec on the branch where it dies
                         // (RL-4 P1 + §10 under-elimination per-path-net-0).
-                        // BUG-04-123 sibling (project-merge): a same-alloc
-                        // member `m` may only carry `var`'s drop across the
-                        // THIS-block→succ edge if it actually EXISTS at this
-                        // block (defined-at-or-before `block_idx`, mirroring
-                        // the `var` guard above). A member defined only on a
+                        // Project-merge guard: a same-alloc member `m` may
+                        // only carry `var`'s drop across the THIS-block→succ
+                        // edge if it actually EXISTS at this block
+                        // (defined-at-or-before `block_idx`, mirroring the
+                        // `var` guard above). A member defined only on a
                         // SIBLING branch (e.g. `%15 = %p2` in the else arm)
                         // is reported `Once`-live at the then-successor entry
                         // by `var_state_at_block_entry` (backward alias-demand
                         // bleed) but is NOT reachable on this edge — counting
                         // it phantom-suppresses the not-taken parent's edge
-                        // dec → leak (`04B.2-under-elim` per-path-net-0).
+                        // dec → leak. Spec: Annex E §AIMS RL-4.
                         if let Some(&m_live) = members.iter().find(|&&m| {
                             defined_at_or_before.contains(&m)
                                 && same_alloc(same_alloc_reps, m, var)
@@ -549,8 +549,8 @@ fn collect_invoke_edge_decs(
 )]
 #[expect(
     clippy::cognitive_complexity,
-    reason = "BUG-04-090 added per-category apply_result_aliases gates; \
-              splitting Cat 1/2/3 into helpers would obscure the unwind-vs-normal contract"
+    reason = "per-category apply_result_aliases gates; splitting Cat 1/2/3 into \
+              helpers would obscure the unwind-vs-normal contract"
 )]
 pub(crate) fn compute_invoke_edge_dead_set(
     env: EdgeCleanupEnv<'_>,
@@ -615,16 +615,16 @@ pub(crate) fn compute_invoke_edge_dead_set(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            // PIN-5: per-edge class batching across Cat 3 and
-            // Cat 1/2. If `arg` is in a class, mark the class as inserted on
-            // the unwind edge so subsequent Cat 1 / Cat 2 emissions skip.
-            if let Some(class_id) = state_map.ssa_alias_class_of(arg) {
-                let edge_classes = classes_inserted_per_edge
-                    .entry((block_idx, unwind.index()))
-                    .or_default();
-                if !edge_classes.insert(class_id) {
-                    continue;
-                }
+            // PIN-5: per-edge class batching across Cat 3 and Cat 1/2. Marking
+            // `arg`'s class on the unwind edge makes subsequent Cat 1 / Cat 2
+            // emissions of the same class skip.
+            if !emit_class_once(
+                state_map,
+                &mut classes_inserted_per_edge,
+                (block_idx, unwind.index()),
+                arg,
+            ) {
+                continue;
             }
             edge_decs.push((block_idx, unwind.index(), arg, strategy));
             cat3_unwind_vars.insert(arg);
@@ -677,19 +677,14 @@ pub(crate) fn compute_invoke_edge_dead_set(
                     .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
                 if unwind_state.cardinality == Cardinality::Absent {
                     if let Some(strategy) = rc_strategy(func, var, pool) {
-                        // PIN-5: per-edge class batching for the
-                        // unwind edge. If the class already emitted on the
-                        // unwind edge (e.g., via Cat 3), skip.
-                        let mut emit = true;
-                        if let Some(class_id) = state_map.ssa_alias_class_of(var) {
-                            let edge_classes = classes_inserted_per_edge
-                                .entry((block_idx, unwind.index()))
-                                .or_default();
-                            if !edge_classes.insert(class_id) {
-                                emit = false;
-                            }
-                        }
-                        if emit {
+                        // PIN-5: per-edge class batching for the unwind edge.
+                        // If the class already emitted (e.g., via Cat 3), skip.
+                        if emit_class_once(
+                            state_map,
+                            &mut classes_inserted_per_edge,
+                            (block_idx, unwind.index()),
+                            var,
+                        ) {
                             edge_decs.push((block_idx, unwind.index(), var, strategy));
                         }
                     }
@@ -697,11 +692,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             }
 
             // Check normal path.
-            // BUG-04-090: gate the normal
-            // edge dec via `apply_result_aliases`. The unwind edge above
-            // is unaffected per `RL-4` (unwind paths
-            // always emit cleanup decs). Per component #2, the gate
-            // cannot match a Let-alias var.
+            // Gate the normal edge dec via `apply_result_aliases`. The unwind
+            // edge above is unaffected per RL-4 (unwind paths always emit
+            // cleanup decs); the gate cannot match a Let-alias var.
             let normal_state = edge_state
                 .normal
                 .get(&var)
@@ -711,11 +704,21 @@ pub(crate) fn compute_invoke_edge_dead_set(
                 if let Some(strategy) = rc_strategy(func, var, pool) {
                     if !should_suppress_apply_aliased_dec(state_map, var, false) {
                         // PIN-4 + PIN-5: class-aware skip + batch.
+                        // GHOST-INCLUSIVE same-allocation suppression (RL-4 P1:
+                        // phi-merged alternatives must not suppress). The Invoke
+                        // normal-edge MERGES arms, so a same-alloc member live on
+                        // a sibling arm at the merge successor is genuine
+                        // cross-path liveness — that sibling path owns the
+                        // release, suppressing here is correct. Distinct from the
+                        // Category-2 borrowed-arg edge (`same_alloc_member_live_at`
+                        // with the ghost-EXCLUSIVE guard), whose arg edge does NOT
+                        // merge so a sibling-only ghost member is unreachable.
+                        // Suppression is class-gated: a var with NO alias class is
+                        // never suppressed here (a ghost-exclusive OR var-self
+                        // short-circuit would double-free / over-suppress).
                         let mut emit = true;
                         if let Some(class_id) = state_map.ssa_alias_class_of(var) {
                             if let Some(members) = state_map.class_members(class_id) {
-                                // Same-allocation-only suppression (RL-4 P1):
-                                // phi-merged alternatives must not suppress.
                                 if members.iter().any(|&m| {
                                     same_alloc(same_alloc_reps, m, var)
                                         && state_map.var_state_at_block_entry(normal, m).cardinality
@@ -724,13 +727,15 @@ pub(crate) fn compute_invoke_edge_dead_set(
                                     emit = false;
                                 }
                             }
-                            if emit {
-                                let edge_classes = classes_inserted_per_edge
-                                    .entry((block_idx, normal.index()))
-                                    .or_default();
-                                if !edge_classes.insert(class_id) {
-                                    emit = false;
-                                }
+                            if emit
+                                && !emit_class_once(
+                                    state_map,
+                                    &mut classes_inserted_per_edge,
+                                    (block_idx, normal.index()),
+                                    var,
+                                )
+                            {
+                                emit = false;
                             }
                         }
                         if emit {
@@ -774,14 +779,22 @@ pub(crate) fn compute_invoke_edge_dead_set(
             // successor, so the per-edge dec would release a still-live
             // allocation → double-free. The conjunct is a pure narrowing of an
             // over-release; per-edge (normal + unwind), each checked against its
-            // own successor entry. BUG-04-090: the normal edge additionally
-            // gates via `apply_result_aliases`; the unwind edge does not.
-            if !same_alloc_member_live_at(env, arg, normal)
+            // own successor entry. The normal edge additionally gates via
+            // `apply_result_aliases`; the unwind edge does not.
+            // No per-edge class-id batching here (unlike Cat 1 / Cat 3): Cat 2
+            // iterates the Invoke's ARG positions, which are DISTINCT
+            // allocations even when they share one SSA-alias class via a
+            // Jump-phi merge (edge type 2 unions distinct allocations into one
+            // class — see `compute_same_alloc_reps`). Class-batching here would
+            // collapse two genuinely-distinct live allocations to one dec and
+            // leak the other. True same-allocation aliasing is already narrowed
+            // by the `same_alloc_member_live_at` suppression conjunct below.
+            if !same_alloc_member_live_at(env, arg, normal, &defined_at_or_before, true)
                 && !should_suppress_apply_aliased_dec(state_map, arg, false)
             {
                 edge_decs.push((block_idx, normal.index(), arg, strategy));
             }
-            if !same_alloc_member_live_at(env, arg, unwind) {
+            if !same_alloc_member_live_at(env, arg, unwind, &defined_at_or_before, true) {
                 edge_decs.push((block_idx, unwind.index(), arg, strategy));
             }
         }
@@ -792,17 +805,38 @@ pub(crate) fn compute_invoke_edge_dead_set(
         .collect()
 }
 
-/// RL-4 `deadAtSucc` same-alloc liveness probe: true iff `var` OR any
-/// same-allocation (`compute_same_alloc_reps` rep) member of its SSA-alias
-/// class is non-`Absent` (live) at `succ`'s entry. Mechanical mirror of the
-/// Category-1 normal-edge same-alloc suppression (`compute_branch_edge_dead_set`
-/// plus the Category-1 normal-path gate): only a TRUE same-allocation alias
-/// being live at the successor may suppress `var`'s edge dec; phi-merged
+/// RL-4 `deadAtSucc` same-alloc liveness probe — the SSOT shared by the Invoke
+/// Category-1 normal-edge gate and the Category-2 borrowed-arg gate: true iff
+/// `var` OR any same-allocation (`compute_same_alloc_reps` rep) member of its
+/// SSA-alias class is non-`Absent` (live) at `succ`'s entry. Only a TRUE
+/// same-allocation alias being live may suppress `var`'s edge dec; phi-merged
 /// alternatives (distinct allocations unioned via a Jump-arg block-param merge)
-/// are NOT same-alloc and must not suppress (RL-4 P1 plus §10 per-path-net-0).
+/// are NOT same-alloc and must not suppress (RL-4 P1 plus per-path-net-0).
 /// `var` itself being live at the successor is the receiver-survives-the-catch
-/// case. Spec: Annex E §AIMS RL-4.
-fn same_alloc_member_live_at(env: EdgeCleanupEnv<'_>, var: ArcVarId, succ: ArcBlockId) -> bool {
+/// case.
+///
+/// `require_defined_at_or_before` selects the ghost-member discipline per call
+/// site (the SOLE behavioral difference between the two consumers):
+///  - `true` (Category 2 borrowed-arg): a same-alloc member only suppresses when
+///    it actually EXISTS at this block (`defined_at_or_before`). A member defined
+///    ONLY on a sibling branch (a ghost member) is reported `Once`-live at
+///    `succ`'s entry by `var_state_at_block_entry` (backward alias-demand bleed)
+///    but is NOT reachable on the borrowed-arg edge — counting it
+///    phantom-suppresses a genuine release → leak.
+///  - `false` (Category 1 Invoke normal-edge): a member live on a sibling arm at
+///    the merge successor DOES keep the allocation reachable on that path, which
+///    owns the release — suppressing here is correct, and a ghost-exclusive guard
+///    would double-free. The normal-edge merges arms, so ghost liveness is
+///    genuine cross-path liveness.
+///
+/// Spec: Annex E §AIMS RL-4.
+fn same_alloc_member_live_at(
+    env: EdgeCleanupEnv<'_>,
+    var: ArcVarId,
+    succ: ArcBlockId,
+    defined_at_or_before: &FxHashSet<ArcVarId>,
+    require_defined_at_or_before: bool,
+) -> bool {
     let EdgeCleanupEnv {
         state_map,
         same_alloc_reps,
@@ -818,9 +852,31 @@ fn same_alloc_member_live_at(env: EdgeCleanupEnv<'_>, var: ArcVarId, succ: ArcBl
         return false;
     };
     members.iter().any(|&m| {
-        same_alloc(same_alloc_reps, m, var)
+        (!require_defined_at_or_before || defined_at_or_before.contains(&m))
+            && same_alloc(same_alloc_reps, m, var)
             && state_map.var_state_at_block_entry(succ, m).cardinality != Cardinality::Absent
     })
+}
+
+/// PIN-5 per-edge class batching: record `var`'s SSA-alias class on the
+/// `(pred, succ)` edge and return whether this is the FIRST member of that class
+/// to claim the edge. Returns `true` (emit) when `var` has no class, or when its
+/// class was not yet inserted for this edge; `false` (skip) on a subsequent
+/// member of an already-claimed class. One dec per alias-class per edge — two
+/// aliasing members of one allocation never double-release on the same edge.
+fn emit_class_once(
+    state_map: &AimsStateMap,
+    classes_inserted_per_edge: &mut FxHashMap<(usize, usize), FxHashSet<u32>>,
+    edge: (usize, usize),
+    var: ArcVarId,
+) -> bool {
+    match state_map.ssa_alias_class_of(var) {
+        Some(class_id) => classes_inserted_per_edge
+            .entry(edge)
+            .or_default()
+            .insert(class_id),
+        None => true,
+    }
 }
 
 /// Check whether arg at position `i` has Owned ownership, respecting the

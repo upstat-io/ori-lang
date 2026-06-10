@@ -4,6 +4,7 @@
 
 use rustc_hash::FxHashSet;
 
+use crate::graph::compute_predecessors;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 /// Gate (d): grow the same-alloc closure from `root` (Let-Var aliases +
@@ -18,12 +19,26 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 /// same-alloc view of the buffer. Following it would over-suppress the element's
 /// own release. The length `Project` (`Project xs.0 : int`, scalar) is a
 /// borrow-read that drops out of the closure (scalar tag).
+///
+/// The closure grows into a `Jump`-target block-param via the Jump-arg hop,
+/// then a FIXPOINT validation pass rejects any joined block-param that is a phi
+/// merging DISTINCT allocations: every predecessor of the param's block must
+/// reach it via a `Jump` whose arg at that position is itself a closure member
+/// (so the param is the SAME allocation on every incoming edge). The check runs
+/// at fixpoint (not mid-growth) so a LOOP back-edge — whose loop-carried arg is
+/// a member only after earlier iterations grow it — validates correctly; a phi
+/// fed by a member on one arm and a foreign allocation on a sibling arm fails.
+/// On any failed param the WHOLE closure declines (`None`) — the conservative
+/// status-quo leak, never the `04B.2-cross-class-uaf` foreign-merge bug
+/// (wrong suppression / a release on a merged-in foreign allocation).
 pub(super) fn same_alloc_closure_vetted(
     func: &ArcFunction,
     root: ArcVarId,
 ) -> Option<FxHashSet<ArcVarId>> {
     let mut members: FxHashSet<ArcVarId> = FxHashSet::default();
     members.insert(root);
+    // Block-params joined via a Jump-arg hop, to validate at fixpoint.
+    let mut joined_params: Vec<(usize, usize)> = Vec::new();
     loop {
         let mut grew = false;
         for block in &func.blocks {
@@ -40,13 +55,17 @@ pub(super) fn same_alloc_closure_vetted(
                 }
             }
             if let ArcTerminator::Jump { target, args } = &block.terminator {
+                let target_idx = target.index();
                 for (pos, &arg) in args.iter().enumerate() {
-                    if members.contains(&arg) {
-                        if let Some(&(param, _)) = func.blocks[target.index()].params.get(pos) {
-                            if members.insert(param) {
-                                grew = true;
-                            }
-                        }
+                    if !members.contains(&arg) {
+                        continue;
+                    }
+                    let Some(&(param, _)) = func.blocks[target_idx].params.get(pos) else {
+                        continue;
+                    };
+                    if members.insert(param) {
+                        grew = true;
+                        joined_params.push((target_idx, pos));
                     }
                 }
             }
@@ -56,7 +75,45 @@ pub(super) fn same_alloc_closure_vetted(
         }
     }
 
+    // Fixpoint phi-merge validation: a joined block-param whose predecessors do
+    // not ALL pass a member at its position merges a foreign allocation.
+    let preds = compute_predecessors(func);
+    for &(target, pos) in &joined_params {
+        if !all_preds_pass_member(func, &preds, target, pos, &members) {
+            return None;
+        }
+    }
+
     member_uses_all_borrow_reads(func, &members).then_some(members)
+}
+
+/// True iff EVERY predecessor of `target` reaches it via a `Jump` whose arg at
+/// `pos` is a closure member — so the merged block-param at `pos` is the SAME
+/// allocation on every incoming edge. Evaluated at fixpoint (`members` complete),
+/// so a loop back-edge whose carried arg is a member validates; a predecessor
+/// reaching `target` via a non-`Jump` edge, or whose `Jump` arg at `pos` is not
+/// a member, fails (the param could carry a different allocation on that edge).
+fn all_preds_pass_member(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    target: usize,
+    pos: usize,
+    members: &FxHashSet<ArcVarId>,
+) -> bool {
+    let Some(pred_blocks) = preds.get(target) else {
+        return false;
+    };
+    if pred_blocks.is_empty() {
+        return false;
+    }
+    pred_blocks.iter().all(|&p| {
+        matches!(
+            &func.blocks[p].terminator,
+            ArcTerminator::Jump { target: t, args }
+                if t.index() == target
+                    && args.get(pos).is_some_and(|a| members.contains(a))
+        )
+    })
 }
 
 /// Gate (d) vetting core: true iff EVERY use of every closure member is a pure

@@ -41,7 +41,7 @@ struct Candidate {
 pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
     /// Every var in an admitted fresh-collection borrowed-`Invoke` closure.
     /// Removed from `owned_vars_needing_rc` so the walk emits NO inline
-    /// terminator dec (the cycle-1 UAF) AND no lineage-wide duplication inc
+    /// terminator dec (the use-after-free) AND no lineage-wide duplication inc
     /// (the multi-borrow `%5 = %2` dup-alias inc); the sole release is the
     /// placed dec below.
     pub suppressed_lineage_vars: FxHashSet<ArcVarId>,
@@ -71,8 +71,7 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 /// same-alloc alias as a duplication: `%2` is "live" only because it ALSO feeds
 /// the second `Invoke` / the post-catch read) + an inline `BurdenDec %5`
 /// emitted BEFORE the terminator that reads `%5`. The inline dec releases the
-/// collection buffer while `%2` is still live → use-after-free / double-free
-/// (cycle-1, attempt-147 teeth).
+/// collection buffer while `%2` is still live → use-after-free / double-free.
 ///
 /// The cure removes the WHOLE same-alloc closure (the Construct root + Let-Var
 /// aliases + Jump-arg block-params) from `owned_vars_needing_rc` — suppressing
@@ -86,7 +85,7 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///
 /// Admission gates (ALL must hold per closure; ANY failure declines the root
 /// and keeps current behavior — the status-quo leak is FAR safer than an
-/// over-fire double-free, per the attempt-147 DO-NOT-RE-TRY):
+/// over-fire double-free):
 ///  (a) FRESH collection-`Construct` root: a `Construct { ctor: ListLiteral |
 ///      MapLiteral | SetLiteral }` dst (the fresh buffer). String literals /
 ///      panic messages have NO `Construct` definer → never candidates (they
@@ -198,10 +197,10 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
         // ITER-CONSUMING callee (`for w in coll` inside the callee → its
         // `ori_iter_drop` frees the buffer; RL-2 `iter_consumes` ownership
         // transfer DESPITE the borrowed position). The callee owns the release,
-        // so a dead-param release here double-frees — the cycle-1 attempt-147
-        // DO-NOT-RE-TRY `unwind_list_reusable_after_catch` over-fire (a fresh
-        // collection borrowed into a catch'd iter-consuming user call AND reused
-        // after). Restricts the family to NON-iter-consuming borrowed-`Invoke`
+        // so a dead-param release here double-frees — the
+        // `unwind_list_reusable_after_catch` over-fire (a fresh collection
+        // borrowed into a catch'd iter-consuming user call AND reused after).
+        // Restricts the family to NON-iter-consuming borrowed-`Invoke`
         // carriers (`__index`, `@first(xs) = xs[0]`) whose borrowed arg is a
         // genuine borrow-read, not a transfer.
         if closure_member_iter_consumed_at_invoke(func, &members, contracts) {
@@ -322,7 +321,7 @@ fn collect_borrowed_call_result_roots(
 
 /// Gate (c): true iff any closure member is used at a BORROWED (non-owned) arg
 /// position of an `Invoke` / `InvokeIndirect` terminator — the carrier whose
-/// inline-before-terminator `BurdenDec` is the cycle-1 UAF.
+/// inline-before-terminator `BurdenDec` is the use-after-free.
 fn closure_has_borrowed_invoke_arg(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
     for block in &func.blocks {
         let term = &block.terminator;

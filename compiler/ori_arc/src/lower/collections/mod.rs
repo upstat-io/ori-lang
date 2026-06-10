@@ -402,7 +402,7 @@ impl ArcLowerer<'_> {
 // Consumed by `lower::patterns::bind_pattern_inner` (let-binding destructuring)
 // and `decision_tree::emit::resolve_path` (match-pattern decision-tree
 // lowering). Both paths must emit the same primitives so `let` and `match`
-// produce identical observable behavior on list patterns. Re BUG-04-086.
+// produce identical observable behavior on list patterns.
 
 pub(crate) fn emit_list_element(
     builder: &mut ArcIrBuilder,
