@@ -1,21 +1,17 @@
 //! Sibling-alias moved-field cross-check (RL-2): the per-field verdict that
 //! cures the loop-carried struct self-rebuild double-free.
 //!
-//! A struct reassigned from two-or-more plain self-projections
-//! (`r = T { a: r.a, b: r.b }`) lowers each projection through a DISTINCT
-//! `Let { Var }` alias of the loop block-param. The moved-out-field scan
-//! attributes each moved field ONLY to the alias that lowered that projection,
-//! so each sibling's `BurdenDecPartial skip=[k]` releases the field its SIBLING
-//! transferred — a double-free of a buffer already moved into the new struct
-//! and carried to the next iteration.
+//! `r = T { a: r.a, b: r.b }` lowers each self-projection through a DISTINCT
+//! `Let { Var }` alias of the loop block-param; the moved-out-field scan
+//! attributes each moved field ONLY to its own alias, so each sibling's
+//! `BurdenDecPartial skip=[k]` releases the field its SIBLING transferred —
+//! a double-free of a buffer carried to the next iteration.
 //!
-//! The cure post-processes after `compute_partial_move_vars`: build
-//! sibling-alias groups keyed to the alias-chain root, compute the per-group
-//! UNION of moved-out fields, and WIDEN each sibling's `skip_fields` with the
-//! sibling-covered fields. A sibling whose widened skip covers ALL its owned
-//! RC-carrying fields joins `full_move_vars` (dec fully suppressed AND its
-//! FRESH-site inc suppressed via the `inc_suppressed_vars = full_move_vars`
-//! coupling). The alias-chain ROOT is NEVER a suppression target.
+//! Cure (post-`compute_partial_move_vars`): group sibling aliases by chain
+//! root; UNION their moved-out fields; WIDEN each sibling's `skip_fields`
+//! with sibling-covered fields. Full coverage joins `full_move_vars` (dec +
+//! FRESH-site inc suppressed via the `inc_suppressed_vars` coupling). The
+//! alias-chain ROOT is NEVER a suppression target.
 //!
 //! Spec: Annex E §AIMS RL-2 (`RL2_transfer_kinds_no_dec`: a transferred field's
 //! obligation moves to the consumer; a dec on it double-releases).
@@ -273,7 +269,6 @@ fn block_on_cycle(func: &ArcFunction, block_idx: usize) -> bool {
 /// Apply the per-field verdict to one sibling group: compute the sibling-union
 /// of moved fields, widen each sibling's skip set, and absorb fully-covered
 /// siblings into `full_move_vars`.
-#[allow(clippy::too_many_arguments, reason = "cohesive per-group verdict")]
 fn apply_group(
     func: &ArcFunction,
     type_registry: &TypeRegistry,
