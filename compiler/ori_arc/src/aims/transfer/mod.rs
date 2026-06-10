@@ -97,6 +97,9 @@ pub fn transfer_def(
         // arm exactly like RcInc/RcDec.
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
         | ArcInstr::BurdenInc { .. }
         | ArcInstr::BurdenDec { .. }
         | ArcInstr::BurdenDecPartial { .. }
@@ -292,6 +295,9 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         ArcInstr::PartialApply { .. }
         | ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
         | ArcInstr::BurdenInc { .. }
         | ArcInstr::BurdenDec { .. }
         | ArcInstr::BurdenDecPartial { .. }

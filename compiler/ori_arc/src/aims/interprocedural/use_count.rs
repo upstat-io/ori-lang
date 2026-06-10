@@ -55,13 +55,15 @@ fn instr_use_count(instr: &ArcInstr, var: ArcVarId) -> usize {
         | ArcInstr::Reset { var: v, .. }
         | ArcInstr::RcInc { var: v, .. }
         | ArcInstr::RcDec { var: v, .. }
+        | ArcInstr::RcDecPartial { var: v, .. }
+        | ArcInstr::RcDecVariant { var: v }
         | ArcInstr::BurdenInc { var: v }
         | ArcInstr::BurdenDec { var: v }
         | ArcInstr::BurdenDecPartial { var: v, .. }
         | ArcInstr::BurdenDecVariant { var: v } => usize::from(*v == var),
-        ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
-            usize::from(*base == var)
-        }
+        ArcInstr::RcDecField { base, .. }
+        | ArcInstr::BurdenDecField { base, .. }
+        | ArcInstr::SetTag { base, .. } => usize::from(*base == var),
         ArcInstr::Set { base, value, .. } => usize::from(*base == var) + usize::from(*value == var),
         ArcInstr::Reuse { token, args, .. } => {
             usize::from(*token == var) + args.iter().filter(|&&v| v == var).count()

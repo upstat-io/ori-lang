@@ -11,7 +11,8 @@
 #
 # Checks:
 #   1. Every ORI_* flag defined in debug_flags.rs is used somewhere in the codebase
-#   2. Every raw std::env::var("ORI_*") check references a flag in debug_flags.rs
+#   2. Every raw std::env::var("ORI_*") or std::env::var_os("ORI_*") check
+#      references a flag in debug_flags.rs
 #      (excludes runtime-only flags in ori_rt, non-diagnostic flags, and test guards)
 #   3. CLAUDE.md documents all diagnostic env vars
 #
@@ -158,9 +159,12 @@ done
 printf "\n${C_BOLD}3. Orphan checks (raw env var, not in debug_flags.rs):${C_NC}\n"
 orphan_count=0
 
-# Find all raw ORI_* env var checks in compiler source
+# Find all raw ORI_* env var checks in compiler source.
+# Matches both std::env::var("ORI_*") and std::env::var_os("ORI_*") — a
+# var_os-accessed flag is the same SSOT-registration obligation as a
+# var-accessed one and must not slip past orphan detection.
 mapfile -t RAW_CHECKS < <(
-    grep -rnoP 'std::env::var\("(ORI_\w+)"' "$ROOT_DIR/compiler/" \
+    grep -rnoP 'std::env::var(?:_os)?\("(ORI_\w+)"' "$ROOT_DIR/compiler/" \
         --include='*.rs' \
         | grep -v "/target/" \
         | grep -v "debug_flags.rs" \
@@ -185,8 +189,8 @@ for check in "${RAW_CHECKS[@]}"; do
     # Check if it's defined in debug_flags.rs
     if ! grep -q "^\s*$check\$" "$DEBUG_FLAGS"; then
         printf "  ${C_YELLOW}ORPHAN${C_NC}: %s — used in source but not defined in debug_flags.rs\n" "$check"
-        # Show where it's used
-        grep -rn "std::env::var(\"$check\"" "$ROOT_DIR/compiler/" --include='*.rs' \
+        # Show where it's used (both var and var_os access forms)
+        grep -rnP "std::env::var(?:_os)?\(\"$check\"" "$ROOT_DIR/compiler/" --include='*.rs' \
             | grep -v "/target/" \
             | grep -v "debug_flags.rs" \
             | sed 's|'"$ROOT_DIR/"'||' \

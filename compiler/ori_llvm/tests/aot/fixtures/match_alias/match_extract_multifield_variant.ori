@@ -1,0 +1,10 @@
+type Wide = Both(a: str, b: str) | Empty;
+
+@main () -> int = {
+    let w = Both(a: "first_heap_payload_string_a", b: "second_heap_payload_string_b");
+    let n = match w {
+        Both(a:, b:) -> a.len() + b.len(),
+        Empty -> 0,
+    };
+    if n == 55 then 0 else 1
+}

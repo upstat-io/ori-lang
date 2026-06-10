@@ -2,9 +2,12 @@
 //! collection, transfer-point and last-use detection, move-alias chains,
 //! use counts, and the live-out / gen-kill dataflow inputs.
 
+mod live_extract;
+mod live_extract_site;
 mod live_out;
 mod move_alias;
 
+pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use move_alias::compute_transfer_via_move_alias;
 

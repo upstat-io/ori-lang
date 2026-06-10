@@ -148,6 +148,24 @@ pub fn fmt_instr(
             out.push_str(fmt_atomicity_suffix(*atomicity));
         }
 
+        ArcInstr::RcDecPartial { var, skip_fields } => {
+            write!(
+                out,
+                "rc_dec_partial {} skip={:?}",
+                fmt_var(func, *var),
+                skip_fields
+            )
+            .unwrap();
+        }
+
+        ArcInstr::RcDecField { base, field } => {
+            write!(out, "rc_dec_field {}.{}", fmt_var(func, *base), field).unwrap();
+        }
+
+        ArcInstr::RcDecVariant { var } => {
+            write!(out, "rc_dec_variant({})", fmt_var(func, *var)).unwrap();
+        }
+
         ArcInstr::BurdenInc { var } => {
             write!(out, "burden_inc {}", fmt_var(func, *var)).unwrap();
         }

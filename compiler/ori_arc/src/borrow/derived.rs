@@ -153,6 +153,9 @@ pub fn infer_derived_ownership(
                 // dst, no ownership effect on derived ownership state.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
+                | ArcInstr::RcDecPartial { .. }
+                | ArcInstr::RcDecField { .. }
+                | ArcInstr::RcDecVariant { .. }
                 | ArcInstr::BurdenInc { .. }
                 | ArcInstr::BurdenDec { .. }
                 | ArcInstr::BurdenDecPartial { .. }

@@ -8384,10 +8384,17 @@ pub(super) fn compute_cow_mutated_lineage_reps(
 /// pending).
 ///
 /// Field-grain `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` are
-/// NOT rewritten — codegen already emits their per-field / per-variant drop glue
-/// (`skip_fields`-aware partial drop, `SetTag` pre-drop variant walk, `Set`
-/// old-value field drop); a whole-var `RcDec` would double-drop. They reach
-/// codegen unchanged.
+/// rewritten to their REALIZED spellings (`RcDecPartial` / `RcDecField` /
+/// `RcDecVariant`) — same codegen drop glue (`skip_fields`-aware partial drop,
+/// `SetTag` pre-drop variant walk, `Set` old-value field drop), never a
+/// whole-var `RcDec` (would double-drop). The re-spelling takes the lowered op
+/// OUT of the Step-11 burden census: the VF-1 whole-var ledger counts SURVIVING
+/// burden ops, and a mechanically-lowered op must leave the burden stream with
+/// its pair partner (the whole-var acquire inc lowers to `RcInc` in the same
+/// pass) — a half-pair surviving in burden spelling nets `-1` at every exit
+/// through its path and aborts gated runs (Spec: Annex E §AIMS RL-comp
+/// net-preservation). `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` restores the
+/// legacy burden-spelled survival for bisection.
 ///
 /// `Scalar` reprs cannot reach here — `emit_burden_ops` filters them at
 /// admission via the type-level `burden_carries_rc` filter PLUS the per-var
@@ -8414,9 +8421,13 @@ fn lower_burden_ops_to_rc(
 ) {
     let mut fresh_inc_elided: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut elided_sites: Vec<(usize, usize)> = Vec::new();
+    let lower_field_grain = !*FIELD_GRAIN_DEC_LOWERING_DISABLED;
     for block_idx in 0..func.blocks.len() {
         let body_len = func.blocks[block_idx].body.len();
         for instr_idx in 0..body_len {
+            if lower_field_grain && respell_field_grain_dec(func, block_idx, instr_idx) {
+                continue;
+            }
             let (ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var }) =
                 func.blocks[block_idx].body[instr_idx]
             else {
@@ -8478,6 +8489,60 @@ fn lower_burden_ops_to_rc(
 /// verdict. Default (unset): elided incs are removed.
 static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL").as_deref() == Ok("1"));
+
+/// `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` keeps `BurdenDecPartial` /
+/// `BurdenDecField` / `BurdenDecVariant` in burden spelling through Phase 7
+/// (the legacy half-pair shape the Step-11 VF-1 ledger nets `-1`). Bisection
+/// surface: isolates a gated-verification change to the field-grain
+/// re-spelling vs the rest of the lowering. Default (unset): field-grain decs
+/// lower to `RcDecPartial` / `RcDecField` / `RcDecVariant`.
+static FIELD_GRAIN_DEC_LOWERING_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING").as_deref() == Ok("1"));
+
+/// RE-2 backstop for the field-grain re-spelling: a field-grain dec on a
+/// provably-Scalar (or repr-unpopulated) subject is an upstream admission
+/// contract violation — leave it burden-spelled so the Step-11 census surfaces
+/// it instead of emitting drop glue against a header-less value.
+fn field_grain_repr_lowerable(func: &ArcFunction, var: ArcVarId) -> bool {
+    match func.var_repr(var) {
+        Some(crate::ir::ValueRepr::Scalar) | None => false,
+        Some(_) => true,
+    }
+}
+
+/// Phase-7 field-grain dec re-spelling at one instruction slot:
+/// `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` become their
+/// realized `RcDecPartial` / `RcDecField` / `RcDecVariant` forms (same
+/// drop-glue codegen arm; out of the Step-11 burden census). Returns `true`
+/// when the slot held a field-grain dec (re-spelled, or left in place by the
+/// [`field_grain_repr_lowerable`] RE-2 backstop so the census surfaces it).
+fn respell_field_grain_dec(func: &mut ArcFunction, block_idx: usize, instr_idx: usize) -> bool {
+    let realized = match &func.blocks[block_idx].body[instr_idx] {
+        ArcInstr::BurdenDecPartial { var, skip_fields }
+            if field_grain_repr_lowerable(func, *var) =>
+        {
+            ArcInstr::RcDecPartial {
+                var: *var,
+                skip_fields: skip_fields.clone(),
+            }
+        }
+        ArcInstr::BurdenDecField { base, field } if field_grain_repr_lowerable(func, *base) => {
+            ArcInstr::RcDecField {
+                base: *base,
+                field: *field,
+            }
+        }
+        ArcInstr::BurdenDecVariant { var } if field_grain_repr_lowerable(func, *var) => {
+            ArcInstr::RcDecVariant { var: *var }
+        }
+        ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. } => return true,
+        _ => return false,
+    };
+    func.blocks[block_idx].body[instr_idx] = realized;
+    true
+}
 
 /// Remove the elided fresh-site `BurdenInc` instructions at `sites`
 /// (`(block_idx, instr_idx)` pairs recorded by [`lower_burden_ops_to_rc`]).

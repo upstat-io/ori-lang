@@ -113,6 +113,31 @@ pub enum ArcInstr {
         atomicity: RcAtomicity,
     },
 
+    /// Realized (Phase-7-lowered) form of `BurdenDecPartial`: partial-move
+    /// drop of `var`'s owned fields, skipping the moved-out `skip_fields`
+    /// top-level indices. Codegen emits the per-field / per-variant drop
+    /// glue; NOT a whole-var `RcDec` (the glue walks interior fields only —
+    /// a whole-var dec would double-drop). Spelled out of the burden census:
+    /// the Step-11 burden-balance ledger counts SURVIVING burden ops, and a
+    /// mechanically-lowered op must leave the burden stream (Spec: Annex E
+    /// §AIMS RL-comp net-preservation).
+    RcDecPartial {
+        var: ArcVarId,
+        skip_fields: Vec<u32>,
+    },
+
+    /// Realized (Phase-7-lowered) form of `BurdenDecField`: release of the
+    /// prior value of `base.field` before an in-place `Set` store. Codegen
+    /// emits the single-field drop glue. See `RcDecPartial` for the
+    /// realized-spelling contract.
+    RcDecField { base: ArcVarId, field: u32 },
+
+    /// Realized (Phase-7-lowered) form of `BurdenDecVariant`: `SetTag`
+    /// old-variant payload release for `var` before the tag change clobbers
+    /// the discriminant. Codegen emits the per-variant drop-glue walk. See
+    /// `RcDecPartial` for the realized-spelling contract.
+    RcDecVariant { var: ArcVarId },
+
     /// Burden-increment marker. Trivial side-effect-only annotation emitted
     /// by Phase 5 ARC lowering at every owned-arg transfer point. Carries
     /// only the SSA variable that is the subject of the burden transfer —
@@ -260,6 +285,9 @@ impl ArcInstr {
 
             ArcInstr::RcInc { .. }
             | ArcInstr::RcDec { .. }
+            | ArcInstr::RcDecPartial { .. }
+            | ArcInstr::RcDecField { .. }
+            | ArcInstr::RcDecVariant { .. }
             | ArcInstr::BurdenInc { .. }
             | ArcInstr::BurdenDec { .. }
             | ArcInstr::BurdenDecPartial { .. }
@@ -335,6 +363,8 @@ impl ArcInstr {
 
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::RcDecPartial { var, .. }
+            | ArcInstr::RcDecVariant { var }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
             | ArcInstr::BurdenDecPartial { var, .. }
@@ -342,7 +372,9 @@ impl ArcInstr {
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => smallvec![*var],
 
-            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
+            ArcInstr::RcDecField { base, .. }
+            | ArcInstr::BurdenDecField { base, .. }
+            | ArcInstr::SetTag { base, .. } => {
                 smallvec![*base]
             }
 
@@ -394,6 +426,8 @@ impl ArcInstr {
 
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::RcDecPartial { var, .. }
+            | ArcInstr::RcDecVariant { var }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
             | ArcInstr::BurdenDecPartial { var, .. }
@@ -401,9 +435,9 @@ impl ArcInstr {
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => *var == target,
 
-            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
-                *base == target
-            }
+            ArcInstr::RcDecField { base, .. }
+            | ArcInstr::BurdenDecField { base, .. }
+            | ArcInstr::SetTag { base, .. } => *base == target,
 
             ArcInstr::Set { base, value, .. } => *base == target || *value == target,
 
@@ -511,13 +545,17 @@ impl ArcInstr {
             ArcInstr::Project { value, .. } => sub(value, old, new),
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var, .. }
+            | ArcInstr::RcDecPartial { var, .. }
+            | ArcInstr::RcDecVariant { var }
             | ArcInstr::BurdenInc { var }
             | ArcInstr::BurdenDec { var }
             | ArcInstr::BurdenDecPartial { var, .. }
             | ArcInstr::BurdenDecVariant { var }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => sub(var, old, new),
-            ArcInstr::BurdenDecField { base, .. } | ArcInstr::SetTag { base, .. } => {
+            ArcInstr::RcDecField { base, .. }
+            | ArcInstr::BurdenDecField { base, .. }
+            | ArcInstr::SetTag { base, .. } => {
                 sub(base, old, new);
             }
             ArcInstr::Set { base, value, .. } => {

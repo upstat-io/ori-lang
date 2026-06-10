@@ -116,6 +116,9 @@ fn check_instr_for_unresolved_idx<S: BuildHasher>(
         }
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
         | ArcInstr::BurdenInc { .. }
         | ArcInstr::BurdenDec { .. }
         | ArcInstr::BurdenDecPartial { .. }

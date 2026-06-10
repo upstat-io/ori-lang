@@ -264,6 +264,77 @@ flags! {
     /// Usage: `ORI_DISABLE_IMPL_METHOD_CONTRACTS=1 ori build file.ori`
     ORI_DISABLE_IMPL_METHOD_CONTRACTS
 
+    /// Keep each elided fresh-site `BurdenInc` as a codegen-no-op marker
+    /// instead of removing it during Phase-7 lowering.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified`. Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// behavior change to the marker removal vs the elision verdict.
+    /// Usage: `ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL=1 ori build file.ori`
+    ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL
+
+    /// Keep `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` in
+    /// burden spelling through Phase-7 instead of re-spelling them to the
+    /// realized `RcDecPartial` / `RcDecField` / `RcDecVariant` instructions.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified`. Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// gated-verification change to the field-grain re-spelling.
+    /// Usage: `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1 ori build file.ori`
+    ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING
+
+    /// Disable the Phase-5 RL-1 + RL-2 same-alloc lineage treatment for a
+    /// fresh niche-family sum allocation whose payload is extracted live
+    /// through a match.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// match-extract leak / double-free to this treatment vs the rest of
+    /// the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE
+
+    /// Restore the legacy type-level-only Phase-5 burden admission (do not
+    /// exclude provably-`Scalar`-repr vars from burden admission).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// gated-verification change to the repr-aware admission vs the rest of
+    /// the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP=1 ori build file.ori`
+    ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP
+
+    /// Bypass the Phase-6.68c returned-collection surplus-inc strip (the
+    /// spurious cross-call `BurdenInc` on a callee-returned scalar-list
+    /// acquired at N>=2 call sites and iter-consumed live).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
+    /// Defined here for documentation and `check-debug-flags.sh` consistency.
+    /// Bisects a returned-scalar-list leak to this pass vs the base walk.
+    /// Usage: `ORI_DISABLE_RETURNED_COLLECTION_SURPLUS_INC_STRIP=1 ori build file.ori`
+    ORI_DISABLE_RETURNED_COLLECTION_SURPLUS_INC_STRIP
+
+    /// Bypass the Phase-6.66c borrowed-`Invoke` iter-consume source
+    /// suppression (the spurious caller FRESH `BurdenInc` + scope-exit
+    /// `BurdenDec` on an owned fresh collection iter-consumed via a
+    /// borrowed-`Invoke` arg).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
+    /// Defined here for documentation and `check-debug-flags.sh` consistency.
+    /// Bisects a returned-collection-source leak to this pass vs the base walk.
+    /// Usage: `ORI_DISABLE_BORROWED_INVOKE_ITER_CONSUME_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_BORROWED_INVOKE_ITER_CONSUME_SUPPRESS
+
+    /// Omit the RL-31 param `noalias` attribute emission on function
+    /// declarations.
+    ///
+    /// Consumed in `ori_llvm::codegen::function_compiler` (which cannot depend
+    /// on `oric`; raw `var_os`). Defined here for documentation and
+    /// `check-debug-flags.sh` consistency. Bisects a miscompile to the
+    /// AIMS-exported `noalias` attribute vs the rest of codegen.
+    /// Usage: `ORI_DISABLE_RL31_NOALIAS=1 ori build file.ori`
+    ORI_DISABLE_RL31_NOALIAS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

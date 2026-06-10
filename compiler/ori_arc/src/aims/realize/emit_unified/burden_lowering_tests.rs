@@ -2,9 +2,11 @@
 //!
 //! Pins [`super::lower_burden_ops_to_rc`]: under the probe
 //! (`predicate_stack_rc_disabled`), surviving whole-var `BurdenInc` /
-//! `BurdenDec` lower to real `RcInc` / `RcDec`, while the field-grain
-//! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` variants are
-//! left intact for codegen's per-field / per-variant drop glue.
+//! `BurdenDec` lower to real `RcInc` / `RcDec`, and the field-grain
+//! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` variants
+//! lower by RE-SPELLING to `RcDecPartial` / `RcDecField` / `RcDecVariant`
+//! (identical per-field / per-variant drop glue at codegen; out of the
+//! Step-11 burden census per RL-comp net-preservation).
 //!
 //! RC counts use the SSOT `crate::pipeline::rc_count::count_rc_ops`.
 
@@ -113,12 +115,15 @@ fn lower_whole_var_burden_inc_dec_becomes_real_rc() {
 }
 
 #[test]
-fn lower_preserves_field_grain_burden_variants() {
+fn lower_respells_field_grain_decs_to_realized_forms() {
     let pool = Pool::default();
     // BurdenDecPartial / BurdenDecField / BurdenDecVariant carry field/variant
-    // info codegen consumes directly (instr_dispatch.rs); Phase-7 lowering must
-    // NOT rewrite them to a whole-var RcDec (that would double-drop the
-    // moved-out / surviving fields).
+    // info codegen consumes directly (instr_dispatch.rs); Phase-7 lowering
+    // RE-SPELLS them to RcDecPartial / RcDecField / RcDecVariant — same drop
+    // glue, OUT of the Step-11 burden census (a mechanically-lowered op must
+    // leave the burden stream with its pair partner per RL-comp; a surviving
+    // half-pair nets -1 and aborts gated runs). NEVER a whole-var RcDec (that
+    // would double-drop the moved-out / surviving fields).
     let mut func = rc_pointer_func(
         2,
         vec![
@@ -137,34 +142,35 @@ fn lower_preserves_field_grain_burden_variants() {
 
     lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
 
-    // The whole-var BurdenInc lowered; the three field-grain variants survive
-    // verbatim for codegen.
+    // The whole-var BurdenInc lowered; the three field-grain variants
+    // re-spelled to their realized forms with payloads preserved.
     let body = &func.blocks[0].body;
     assert!(
         matches!(body[0], ArcInstr::RcInc { var, count: 1, .. } if var == v(0)),
         "whole-var BurdenInc lowered to RcInc"
     );
     assert!(
-        matches!(&body[1], ArcInstr::BurdenDecPartial { var, skip_fields } if *var == v(0) && skip_fields == &[0]),
-        "BurdenDecPartial preserved verbatim — NOT rewritten to RcDec"
+        matches!(&body[1], ArcInstr::RcDecPartial { var, skip_fields } if *var == v(0) && skip_fields == &[0]),
+        "BurdenDecPartial re-spelled to RcDecPartial with skip_fields preserved"
     );
     assert!(
-        matches!(body[2], ArcInstr::BurdenDecField { base, field: 0 } if base == v(1)),
-        "BurdenDecField preserved verbatim"
+        matches!(body[2], ArcInstr::RcDecField { base, field: 0 } if base == v(1)),
+        "BurdenDecField re-spelled to RcDecField"
     );
     assert!(
-        matches!(body[3], ArcInstr::BurdenDecVariant { var } if var == v(1)),
-        "BurdenDecVariant preserved verbatim"
+        matches!(body[3], ArcInstr::RcDecVariant { var } if var == v(1)),
+        "BurdenDecVariant re-spelled to RcDecVariant"
     );
 
-    // Negative pin: the three field-grain variants still count as burden ops.
+    // Semantic pin: ZERO burden ops survive a complete Phase-7 lowering — the
+    // Step-11 census sees the empty stream (RL3_elision_net_preserving shape).
     assert_eq!(
         burden_count(&func),
-        3,
-        "field-grain burden variants are NOT consumed by whole-var lowering"
+        0,
+        "no burden op survives Phase-7 lowering"
     );
-    // Negative pin: lowering whole-var ops to a whole-var RcDec for v(1) would
-    // be a double-drop — assert NO whole-var RcDec was synthesized for v(1).
+    // Negative pin: lowering field-grain ops to a whole-var RcDec for v(1)
+    // would be a double-drop — assert NO whole-var RcDec was synthesized.
     let v1_whole_rcdec = func
         .blocks
         .iter()
@@ -174,6 +180,66 @@ fn lower_preserves_field_grain_burden_variants() {
     assert_eq!(
         v1_whole_rcdec, 0,
         "no spurious whole-var RcDec synthesized for a field-grain-only var"
+    );
+}
+
+/// Semantic pin (the family-C VF-1 shape): an aggregate call-result whose
+/// acquire inc lowers to `RcInc` while its per-path release is a
+/// `BurdenDecPartial` nets 0 on the Step-11 whole-var ledger AFTER the
+/// re-spelling — the matched pair leaves the burden census TOGETHER
+/// (RL-comp net-preservation; RL-1 duplication pair, RL-2 exactly-once
+/// release). Pre-respelling this exact stream aborted gated runs at
+/// `net=-1 ops=p1`.
+#[test]
+fn lower_partial_dec_pair_nets_zero_on_vf1_ledger_after_respelling() {
+    let pool = Pool::default();
+    let mut func = rc_pointer_func(
+        1,
+        vec![
+            list_construct(v(0), Vec::new()),
+            ArcInstr::BurdenInc { var: v(0) },
+            ArcInstr::BurdenDecPartial {
+                var: v(0),
+                skip_fields: vec![1],
+            },
+        ],
+    );
+    func.burden_emitted = vec![true];
+
+    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+
+    assert_eq!(
+        burden_count(&func),
+        0,
+        "pair fully out of the burden census"
+    );
+    assert!(
+        crate::aims::verify::burden_balance::verify_burden_balance(&func).is_empty(),
+        "VF-1 whole-var ledger nets 0 once the partial dec is re-spelled"
+    );
+}
+
+/// RE-2 backstop pin: a field-grain dec on a Scalar-repr subject is an
+/// upstream admission contract violation — the re-spelling refuses it and
+/// leaves the burden op in place so the Step-11 census surfaces it.
+#[test]
+fn lower_leaves_scalar_repr_field_grain_dec_in_place() {
+    let pool = Pool::default();
+    let mut func = rc_pointer_func(
+        1,
+        vec![ArcInstr::BurdenDecPartial {
+            var: v(0),
+            skip_fields: vec![0],
+        }],
+    );
+    func.var_reprs[0] = ValueRepr::Scalar;
+
+    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+
+    assert_eq!(
+        burden_count(&func),
+        1,
+        "scalar-repr field-grain dec left burden-spelled (census abort surface)"
     );
 }
 
@@ -288,6 +354,65 @@ fn verify_flags_surviving_marker_inc_with_attribution() {
             e.residual_ops.dec_variant
         ),
         (1, 0, 0, 0)
+    );
+}
+
+/// Negative ledger pin (mutation-verify shape): a genuinely-unbalanced
+/// SURVIVING `BurdenDecPartial` — spurious residue the Phase-7 re-spelling
+/// never consumed (hand-built IR; equivalently the
+/// `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` legacy half-pair) — still fails
+/// VF-1 with `net=-1` and a `dec_partial` census. The verifier's whole-var
+/// counting (`whole_var_dec_target`) is UNTOUCHED by the family-C cure; the
+/// cure is lowering-completeness, never verifier widening.
+#[test]
+fn verify_flags_surviving_partial_dec_with_attribution() {
+    let mut func = rc_pointer_func(1, vec![list_construct(v(0), Vec::new())]);
+    func.blocks[0].body.push(ArcInstr::BurdenDecPartial {
+        var: v(0),
+        skip_fields: vec![1],
+    });
+    func.burden_emitted = vec![true];
+
+    let errors = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert_eq!(errors.len(), 1, "surviving partial dec nets -1 at exit");
+    let e = &errors[0];
+    assert_eq!(e.observed_net, -1);
+    assert_eq!(e.def_kind, "construct");
+    assert_eq!(e.exit_kind, "return");
+    assert_eq!(e.var_repr, "rc-pointer");
+    assert_eq!(
+        (
+            e.residual_ops.inc,
+            e.residual_ops.dec,
+            e.residual_ops.dec_partial,
+            e.residual_ops.dec_variant
+        ),
+        (0, 0, 1, 0)
+    );
+}
+
+/// Negative ledger pin twin: a spurious SURVIVING `BurdenDecVariant` still
+/// fails VF-1 with `net=-1` and a `dec_variant` census.
+#[test]
+fn verify_flags_surviving_variant_dec_with_attribution() {
+    let mut func = rc_pointer_func(1, vec![list_construct(v(0), Vec::new())]);
+    func.blocks[0]
+        .body
+        .push(ArcInstr::BurdenDecVariant { var: v(0) });
+    func.burden_emitted = vec![true];
+
+    let errors = crate::aims::verify::burden_balance::verify_burden_balance(&func);
+    assert_eq!(errors.len(), 1, "surviving variant dec nets -1 at exit");
+    let e = &errors[0];
+    assert_eq!(e.observed_net, -1);
+    assert_eq!(
+        (
+            e.residual_ops.inc,
+            e.residual_ops.dec,
+            e.residual_ops.dec_partial,
+            e.residual_ops.dec_variant
+        ),
+        (0, 0, 0, 1)
     );
 }
 

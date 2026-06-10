@@ -530,7 +530,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // No LLVM IR emitted.
             }
 
-            ArcInstr::BurdenDecPartial { var, skip_fields } => {
+            // Burden spelling = legacy pre-lowering survivor
+            // (`ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1`); Rc spelling = the
+            // Phase-7 realized form. One canonical glue body for both.
+            ArcInstr::BurdenDecPartial { var, skip_fields }
+            | ArcInstr::RcDecPartial { var, skip_fields } => {
                 // Per AIMS rule RL-2: partial-move BurdenDec on an owned
                 // struct emits RC cleanup for ONLY the fields NOT in
                 // `skip_fields` (the moved-out indices). Reuses the
@@ -618,7 +622,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            ArcInstr::BurdenDecVariant { var } => {
+            ArcInstr::BurdenDecVariant { var } | ArcInstr::RcDecVariant { var } => {
                 // Per AIMS rule TF-15a + RL-10: SetTag invalidates ALL
                 // payload fields of the OLD variant. Walk the per-variant
                 // RC-bearing fields BEFORE the upstream SetTag store
@@ -672,7 +676,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_variant_burden_walk(self.current_function, base_val, base_ty, &variants);
             }
 
-            ArcInstr::BurdenDecField { base, field } => {
+            ArcInstr::BurdenDecField { base, field } | ArcInstr::RcDecField { base, field } => {
                 // Emit RC cleanup for the field's prior value BEFORE the
                 // upstream Set's GEP+store clobbers the slot. Codegen: GEP
                 // to the field position + load the prior value + dispatch

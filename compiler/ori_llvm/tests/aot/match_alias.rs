@@ -127,6 +127,31 @@ fn test_result_str_jumparg_apply_owned_param() {
     );
 }
 
+// Fresh-sum live-extract match cells — a fresh `Option<str>` / `Result<str, str>`
+// matched with the payload extracted LIVE shares ONE allocation across the sum,
+// its aliases, and the extracted payload; the match emits exactly one release
+// after the final payload read (no spurious keep-alive incs, no leak, no UAF).
+
+#[test]
+fn test_match_extract_result_ok_arm_releases_payload_once() {
+    assert_aot_success(
+        include_str!("fixtures/match_alias/match_extract_result_ok_arm.ori"),
+        "match_extract_result_ok_arm",
+    );
+}
+
+#[test]
+fn test_match_extract_multifield_variant_keeps_per_field_releases() {
+    // Stays-green pin: a variant carrying TWO heap payloads is NOT the
+    // single-allocation niche-family shape — the single-release treatment
+    // must decline and the per-field release machinery must keep freeing
+    // both payloads.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/match_extract_multifield_variant.ori"),
+        "match_extract_multifield_variant",
+    );
+}
+
 // Semantic-pin cells — preservation guard for Select-independence per PIN-2
 
 #[test]
