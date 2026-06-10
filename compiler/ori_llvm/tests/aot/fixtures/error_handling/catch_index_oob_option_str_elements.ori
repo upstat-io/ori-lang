@@ -1,0 +1,12 @@
+@main () -> int = {
+    let xs = [Some("eta string exceeding the sso width!!!"), None];
+    let result = catch(expr: xs[9]);
+    let still = xs[0];
+    match result {
+        Err(_) -> match still {
+            Some(s) -> if s == "eta string exceeding the sso width!!!" then 0 else 2,
+            None -> 3
+        },
+        Ok(_) -> 1
+    }
+}

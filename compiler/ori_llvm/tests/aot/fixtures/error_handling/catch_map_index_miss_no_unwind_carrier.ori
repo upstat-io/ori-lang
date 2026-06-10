@@ -1,0 +1,11 @@
+@main () -> int = {
+    let m = {"theta string exceeding the sso width!": 7};
+    let result = catch(expr: m["missing key string exceeding the sso width!"]);
+    match result {
+        Ok(opt) -> match opt {
+            None -> 0,
+            Some(_) -> 2
+        },
+        Err(_) -> 1
+    }
+}

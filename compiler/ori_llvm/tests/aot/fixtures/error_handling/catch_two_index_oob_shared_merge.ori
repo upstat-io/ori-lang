@@ -1,0 +1,9 @@
+@main () -> int = {
+    let xs = ["lambda string exceeding the sso width!", "mu string exceeding the sso width!!!!!"];
+    let a = catch(expr: xs[7]);
+    let b = catch(expr: xs[9]);
+    let still = xs[0];
+    let av = match a { Err(_) -> 1, Ok(_) -> 0 };
+    let bv = match b { Err(_) -> 1, Ok(_) -> 0 };
+    if av == 1 && bv == 1 && still == "lambda string exceeding the sso width!" then 0 else 2
+}

@@ -1,0 +1,14 @@
+@probe (xs: [str], i: int) -> str = {
+    let result = catch(expr: xs[i]);
+    match result {
+        Ok(v) -> if v == xs[0] then "live-ok" else "live-bad",
+        Err(_) -> "caught"
+    }
+}
+
+@main () -> int = {
+    let xs = ["iota string exceeding the sso width!!", "kappa string exceeding the sso width!"];
+    let normal = probe(xs: xs, i: 0);
+    let caught = probe(xs: xs, i: 9);
+    if normal == "live-ok" && caught == "caught" then 0 else 2
+}

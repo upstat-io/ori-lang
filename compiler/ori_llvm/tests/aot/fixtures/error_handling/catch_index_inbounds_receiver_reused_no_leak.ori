@@ -1,0 +1,9 @@
+@main () -> int = {
+    let xs = ["alpha string exceeding the sso width!", "beta string exceeding the sso width!!"];
+    let result = catch(expr: xs[1]);
+    let still = xs[0];
+    match result {
+        Ok(v) -> if v == "beta string exceeding the sso width!!" && still == "alpha string exceeding the sso width!" then 0 else 2,
+        Err(_) -> 1
+    }
+}
