@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashSet;
 
-use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::super::successor_reachable_blocks;
 use super::ForwarderReleasePos;
@@ -53,7 +53,131 @@ pub(super) fn choose_death_point(
     if !allow_no_sink {
         return None;
     }
-    choose_no_sink_carrier(func, members).map(|claim| DeathPoint::NoSink { claim })
+    let claim = choose_no_sink_carrier(func, members)?;
+    // Live Project-extract decline gate: `same_alloc_closure_vetted` does NOT
+    // grow the closure to include `Project` results (a buffer element / niche
+    // payload extracted from a member is a DISTINCT allocation the result-lineage
+    // owns). Such a same-alloc view extracted from a member can be LIVE across the
+    // carrier's successor edge where the Cat-2 release fires — a no-sink edge
+    // release would then double-free the buffer the extract still holds. DECLINE
+    // no-sink (dead-param mode only); a DECLINE, never a same_alloc closure union.
+    // Spec: Annex E §AIMS RL-2.
+    let carrier_block = carrier_block_of(func, members, claim)?;
+    if has_live_project_extract(func, members, carrier_block) {
+        return None;
+    }
+    Some(DeathPoint::NoSink { claim })
+}
+
+/// The block index whose may-unwind `Invoke`/`InvokeIndirect` terminator reads
+/// `claim` (the carrier) at a borrowed arg position. `None` when not found
+/// (declines the no-sink claim conservatively).
+fn carrier_block_of(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    claim: ArcVarId,
+) -> Option<usize> {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let term = &block.terminator;
+        if !matches!(
+            term,
+            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
+        ) {
+            continue;
+        }
+        for (pos, &v) in term.used_vars().iter().enumerate() {
+            if v == claim && members.contains(&v) && !term.is_owned_position(pos) {
+                return Some(block_idx);
+            }
+        }
+    }
+    None
+}
+
+/// True iff a same-allocation `Project` extracted from a lineage member is LIVE
+/// across the carrier's release edges — read in a block OTHER than the carrier's
+/// own block. The extract's transitive flow (`Let { Var }` aliases + `Jump`-arg →
+/// block-param hops) is grown FIRST (the same discipline `same_alloc_closure_vetted`
+/// applies to members), then any extract-closure member used in a non-carrier
+/// block declines the no-sink claim — an edge release would double-free the
+/// buffer the extract still holds.
+fn has_live_project_extract(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    carrier_block: usize,
+) -> bool {
+    // Seed: every `Project` dst whose SOURCE is a lineage member (the extracted
+    // same-alloc view). Members themselves are excluded — they are the borrowed
+    // receiver, not an extract.
+    let mut extract: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if members.contains(value) && !members.contains(dst) {
+                    extract.insert(*dst);
+                }
+            }
+        }
+    }
+    if extract.is_empty() {
+        return false;
+    }
+    // Grow the extract's transitive aliases: `Let { Var(src) }` re-binds + Jump-arg
+    // → block-param hops. A Jump arg that is an extract member flows into the
+    // target block-param (the live-across receiver of the extracted buffer).
+    loop {
+        let mut grew = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if extract.contains(src) && !members.contains(dst) && extract.insert(*dst) {
+                        grew = true;
+                    }
+                }
+            }
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                let target_idx = target.index();
+                for (pos, &arg) in args.iter().enumerate() {
+                    if !extract.contains(&arg) {
+                        continue;
+                    }
+                    if let Some(&(param, _)) = func.blocks[target_idx].params.get(pos) {
+                        if !members.contains(&param) && extract.insert(param) {
+                            grew = true;
+                        }
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    // Any extract member used in a block OTHER than the carrier's own block is
+    // live across the carrier's release edges.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        if block_idx == carrier_block {
+            continue;
+        }
+        let used_here = block
+            .body
+            .iter()
+            .any(|i| i.used_vars().iter().any(|v| extract.contains(v)))
+            || block
+                .terminator
+                .used_vars()
+                .iter()
+                .any(|v| extract.contains(v));
+        if used_here {
+            return true;
+        }
+    }
+    false
 }
 
 /// NO-SINK MODE: the lineage has no dead-param sink (the receiver

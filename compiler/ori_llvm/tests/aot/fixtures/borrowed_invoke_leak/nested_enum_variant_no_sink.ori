@@ -1,0 +1,21 @@
+// Pin 12 (positive — nesting does not confuse the family test): a fresh
+// `Option<Option<[int]>>` (`Some(Some([..]))`) — an EnumVariant whose payload is
+// itself an EnumVariant owning a heap [int] — is borrowed into a user fn
+// returning int. The fresh nested EnumVariant root dies on the borrowing call's
+// edges with no dead-param sink. The EnumVariant-root admission claims the carrier
+// regardless of nesting depth (the family test is structural per-Construct, not
+// recursive). Spec: Annex E §AIMS RL-2 + RL-4.
+@nested_total (o: Option<Option<[int]>>) -> int = match o {
+    Some(inner) -> match inner {
+        Some(xs) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+        None -> 0,
+    },
+    None -> -1,
+};
+
+@main () -> int = {
+    let o = Some(Some([7, 8]));
+    let total = nested_total(o: o);
+
+    if total == 15 then 0 else 1
+}

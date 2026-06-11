@@ -1,0 +1,18 @@
+// Pin 13a (positive — multi-variant one-heap-payload, HEAP arm exercised): a sum
+// `Mix = Tag(n: int) | Bag(xs: [int])` where only `Bag` carries a heap payload.
+// The HEAP-carrying variant (`Bag`) flows through the borrow into a user fn
+// returning int — the claim must fire correctly on the heap path, releasing the
+// [int] exactly once. Spec: Annex E §AIMS RL-2 + RL-4.
+type Mix = Tag(n: int) | Bag(xs: [int]);
+
+@mix_total (m: Mix) -> int = match m {
+    Tag(n:) -> n,
+    Bag(xs:) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+};
+
+@main () -> int = {
+    let m = Bag(xs: [7, 8]);
+    let total = mix_total(m: m);
+
+    if total == 15 then 0 else 1
+}

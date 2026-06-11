@@ -1,0 +1,20 @@
+// Pin 3 (EnumVariant family, non-recursive user sum, no-sink): a fresh user sum
+// `Shape = Circle(r:int) | Pair(xs:[int])` `Pair` variant (owning a heap [int])
+// is borrowed into a user fn returning int. The fresh EnumVariant root dies on
+// the borrowing call's edges with no dead-param sink; the bare inline dec frees
+// the live Pair (and its [int] payload) before the borrowing read. The
+// EnumVariant-root admission covers the non-recursive user-sum case beyond the
+// recursive Tree. Spec: Annex E §AIMS RL-2 + RL-4.
+type Shape = Circle(r: int) | Pair(xs: [int]);
+
+@shape_total (s: Shape) -> int = match s {
+    Circle(r:) -> r,
+    Pair(xs:) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+};
+
+@main () -> int = {
+    let s = Pair(xs: [7, 8]);
+    let total = shape_total(s: s);
+
+    if total == 15 then 0 else 1
+}

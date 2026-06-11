@@ -1,0 +1,28 @@
+// Pin 5 (positive — dead-param mode unchanged): a fresh EnumVariant sum
+// `Box = Wrap(xs: [int])` borrowed into a may-unwind user call inside a `catch`,
+// whose lineage threads through the catch's arms to a merge/return DEAD
+// block-param. With EnumVariant admitted as a fresh-Construct root, the existing
+// dead-param arm claims it (no regression from the no-sink widening) — exactly
+// one dead-at-entry release at the merge param. Must stay clean. Spec: Annex E
+// §AIMS RL-5 + RL-2.
+type Box = Wrap(xs: [int]);
+
+@probe_len (b: Box) -> int = match b {
+    Wrap(xs) -> xs.len(),
+};
+
+@guarded () -> int = {
+    let b = Wrap(xs: [7, 8, 9]);
+    let r = catch(expr: probe_len(b: b));
+
+    match r {
+        Ok(n) -> n,
+        Err(_) -> 0,
+    }
+}
+
+@main () -> int = {
+    let n = guarded();
+
+    if n == 3 then 0 else 1
+}

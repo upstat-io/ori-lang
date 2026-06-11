@@ -75,6 +75,27 @@ fn list_construct(dst: u32) -> ArcInstr {
     }
 }
 
+fn enum_variant_construct(dst: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: vv(dst),
+        ty: Idx::INT,
+        ctor: CtorKind::EnumVariant {
+            enum_name: Name::from_raw(11),
+            variant: 0,
+        },
+        args: vec![],
+    }
+}
+
+fn struct_construct(dst: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: vv(dst),
+        ty: Idx::INT,
+        ctor: CtorKind::Struct(Name::from_raw(12)),
+        args: vec![],
+    }
+}
+
 fn borrowed_invoke(dst: u32, recv: u32, normal: u32, unwind: u32) -> ArcTerminator {
     ArcTerminator::Invoke {
         dst: vv(dst),
@@ -106,11 +127,194 @@ fn collect_roots_admits_list_construct_declines_string_literal() {
             ArcTerminator::Unreachable,
         )],
     );
-    let roots = collect_fresh_collection_construct_roots(&f);
+    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
     assert_eq!(
         roots,
         vec![vv(0)],
         "the List Construct is the sole root; the string literal has no Construct definer (declines naturally)",
+    );
+}
+
+#[test]
+fn collect_roots_admits_owned_enum_variant_construct() {
+    // bb0: %0 = Construct EnumVariant(..) ; %1 = Construct Struct(..) ; Unreachable.
+    // The EnumVariant dst is admitted ONLY when in owned_vars_needing_rc; the plain
+    // Struct Construct is NEVER a root (no failing cell -> stays declined).
+    let f = func(
+        2,
+        vec![block(
+            0,
+            vec![enum_variant_construct(0), struct_construct(1)],
+            ArcTerminator::Unreachable,
+        )],
+    );
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let roots = collect_fresh_construct_roots(&f, &owned);
+    assert_eq!(
+        roots,
+        vec![vv(0)],
+        "the owned EnumVariant Construct is admitted; the plain Struct Construct stays declined",
+    );
+}
+
+#[test]
+fn collect_roots_declines_scalar_payload_enum_variant() {
+    // An EnumVariant Construct whose dst is NOT in owned_vars_needing_rc (an
+    // all-scalar-payload sum like Option<int>, niche-packed, no RC header) is
+    // declined -> keeps the treatment scoped to genuine heap lineages.
+    let f = func(
+        1,
+        vec![block(
+            0,
+            vec![enum_variant_construct(0)],
+            ArcTerminator::Unreachable,
+        )],
+    );
+    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
+    assert!(
+        roots.is_empty(),
+        "an EnumVariant Construct absent from owned_vars_needing_rc is not a root",
+    );
+}
+
+/// An `EnumVariant` root borrowed into a may-unwind Invoke dying on the call edges
+/// with no dead-param sink is admitted in NO-SINK mode and the carrier is claimed
+/// for the Cat-2 per-edge release.
+#[test]
+fn enum_variant_root_no_sink_admitted_and_claimed() {
+    // bb0: %0 = Construct EnumVariant(..) ; %1 = %0 ;
+    //      Invoke @f(%1 [borrow]) normal bb1 unwind bb2
+    // bb1: Return %3 ; bb2: Resume.
+    let f = func(
+        4,
+        vec![
+            block(
+                0,
+                vec![
+                    enum_variant_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                ],
+                borrowed_invoke(2, 1, 1, 2),
+            ),
+            block(1, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+    );
+    assert!(
+        out.suppressed_lineage_vars.contains(&vv(0))
+            && out.suppressed_lineage_vars.contains(&vv(1)),
+        "the EnumVariant no-sink closure {{%0, %1}} is suppressed",
+    );
+    assert_eq!(
+        out.claimed_no_sink_vars.iter().copied().collect::<Vec<_>>(),
+        vec![vv(1)],
+        "EXACTLY the carrier %1 is claimed for the Cat-2 per-edge release",
+    );
+    assert!(
+        out.releases.is_empty(),
+        "no dead-param release is placed — Cat-2 owns the per-edge release",
+    );
+}
+
+/// A plain Struct root reaching the same shape is NEVER a candidate (gate a does
+/// not admit `CtorKind::Struct`), so the scan suppresses nothing and claims
+/// nothing — the IR stays unchanged for the Struct lineage.
+#[test]
+fn struct_root_not_a_candidate() {
+    let f = func(
+        4,
+        vec![
+            block(
+                0,
+                vec![
+                    struct_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                ],
+                borrowed_invoke(2, 1, 1, 2),
+            ),
+            block(1, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+    );
+    assert!(
+        out.suppressed_lineage_vars.is_empty()
+            && out.claimed_no_sink_vars.is_empty()
+            && out.releases.is_empty(),
+        "a plain Struct root is never a candidate (gate a declines it) — IR unchanged",
+    );
+}
+
+/// A live Project-extract of a member (a same-alloc view read AFTER the carrier
+/// in a different block) forces the no-sink mode to DECLINE — the extract would
+/// be double-freed by an edge release. `choose_death_point` returns None (no
+/// dead-param sink either).
+#[test]
+fn live_project_extract_declines_no_sink() {
+    // bb0: %0 = Construct EnumVariant(..) ; %1 = %0 ; %4 = Project %0.0 (extract) ;
+    //      Invoke @f(%1 [borrow]) normal bb1 unwind bb2
+    // bb1: Return %4 (the extract LIVE-ACROSS the carrier) ; bb2: Resume.
+    let f = func(
+        5,
+        vec![
+            block(
+                0,
+                vec![
+                    enum_variant_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: vv(4),
+                        ty: Idx::INT,
+                        value: vv(0),
+                        field: 0,
+                    },
+                ],
+                borrowed_invoke(2, 1, 1, 2),
+            ),
+            block(1, vec![], ArcTerminator::Return { value: vv(4) }),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true),
+        None,
+        "a live Project-extract of a member declines no-sink (extract live-across \
+         the carrier release edge would double-free)",
     );
 }
 

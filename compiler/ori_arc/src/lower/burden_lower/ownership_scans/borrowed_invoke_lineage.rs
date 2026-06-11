@@ -169,7 +169,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     //    borrow-read-only then reaching a dead block-param. Its FRESH-site inc
     //    is spurious (the callee already transferred +1); suppressing the
     //    lineage strips it and the dead-param release frees the callee's +1.
-    let collection_roots = collect_fresh_collection_construct_roots(func);
+    let collection_roots = collect_fresh_construct_roots(func, owned_vars_needing_rc);
     let (result_root_vec, fresh_result_roots) =
         collect_borrowed_call_result_roots(func, owned_vars_needing_rc, contracts);
     let result_roots: FxHashSet<ArcVarId> = result_root_vec.iter().copied().collect();
@@ -350,21 +350,39 @@ fn try_build_candidate(
     })
 }
 
-/// Gate (a): candidate roots — every `Construct { ctor: ListLiteral |
-/// MapLiteral | SetLiteral }` dst (the fresh collection buffer). A
-/// `Let { Literal::String }` heap-str body is NOT a candidate (no `Construct`
-/// definer; panic-message / string-literal lineages decline naturally).
-fn collect_fresh_collection_construct_roots(func: &ArcFunction) -> Vec<ArcVarId> {
+/// Gate (a): candidate roots — every FRESH heap-`Construct` dst:
+///  - a collection buffer `Construct { ctor: ListLiteral | MapLiteral |
+///    SetLiteral }`, OR
+///  - a sum-aggregate `Construct { ctor: EnumVariant }` (Option / Result / user
+///    sum) whose dst is in `owned_vars_needing_rc` — the same family the
+///    construct-fed dead-param scan admits (`is_sum_aggregate_construct_rep`).
+///    The `owned_vars_needing_rc` gate excludes all-scalar-payload sum
+///    instantiations (`Option<int>`: niche-packed, no RC header), keeping the
+///    no-sink / dead-param treatment scoped to genuine heap lineages.
+///
+/// Plain `Struct` ctors stay DECLINED (no failing cell; a wider admission is
+/// over-fire surface without evidence). A `Let { Literal::String }` heap-str body
+/// is NOT a candidate (no `Construct` definer; string-literal lineages decline
+/// naturally).
+fn collect_fresh_construct_roots(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> Vec<ArcVarId> {
     let mut roots: Vec<ArcVarId> = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Construct {
-                dst,
-                ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-                ..
-            } = instr
-            {
-                roots.push(*dst);
+            match instr {
+                ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
+                    ..
+                } => roots.push(*dst),
+                ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::EnumVariant { .. },
+                    ..
+                } if owned_vars_needing_rc.contains(dst) => roots.push(*dst),
+                _ => {}
             }
         }
     }
