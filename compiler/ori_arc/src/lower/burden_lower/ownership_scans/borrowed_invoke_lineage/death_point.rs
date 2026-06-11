@@ -1,6 +1,6 @@
 //! Gate (e) death-point selection for the borrowed-`Invoke` lineage scan: the
 //! DEAD-PARAM mode (a dead merge block-param sink) and the NO-SINK edge-death
-//! mode (the borrowed-`Invoke` carrier's successor edges, BUG-04-142). Split
+//! mode (the borrowed-`Invoke` carrier's successor edges). Split
 //! from `borrowed_invoke_lineage.rs` for the 500-line cap. Spec: Annex E §AIMS
 //! RL-2 + RL-4 + RL-5.
 
@@ -12,6 +12,7 @@ use super::super::successor_reachable_blocks;
 use super::ForwarderReleasePos;
 
 /// The lineage's death-point treatment, chosen by [`choose_death_point`].
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum DeathPoint {
     /// DEAD-PARAM MODE: the lineage reaches EXACTLY ONE dead merge block-param,
     /// execution-final; the sole release lands at that block's entry.
@@ -55,7 +56,7 @@ pub(super) fn choose_death_point(
     choose_no_sink_carrier(func, members).map(|claim| DeathPoint::NoSink { claim })
 }
 
-/// NO-SINK MODE (BUG-04-142): the lineage has no dead-param sink (the receiver
+/// NO-SINK MODE: the lineage has no dead-param sink (the receiver
 /// dies on the borrowed-`Invoke` carrier's successor edges directly). Returns
 /// the carrier var to CLAIM for the landed Category-2 `deadAtSucc` per-edge
 /// release.

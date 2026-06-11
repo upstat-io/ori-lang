@@ -120,7 +120,7 @@ fn all_preds_pass_member(
 /// borrow-read — a length / element `Project` of a member (TF-4 Borrowed), a
 /// borrowed call arg (`Apply` / `Invoke` non-owned position), or a closure-own
 /// hop (`Let { Var }` re-bind, `Jump` arg). ANY owned-position consume / store /
-/// capture / COW-machinery use / escape declines the whole closure (the codex
+/// capture / COW-machinery use / escape declines the whole closure (the
 /// gate list — a double-free is FAR worse than the status-quo leak).
 pub(super) fn member_uses_all_borrow_reads(
     func: &ArcFunction,

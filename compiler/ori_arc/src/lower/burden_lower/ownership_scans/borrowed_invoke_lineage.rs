@@ -107,8 +107,8 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///  (a) FRESH collection-`Construct` root: a `Construct { ctor: ListLiteral |
 ///      MapLiteral | SetLiteral }` dst (the fresh buffer). String literals /
 ///      panic messages have NO `Construct` definer → never candidates (they
-///      decline naturally, per the re-consensus — keeps the panic-message
-///      shapes Category-2 deliberately skips out of scope).
+///      decline naturally — keeps the panic-message shapes Category-2
+///      deliberately skips out of scope).
 ///  (b) root in `owned_vars_needing_rc` (the buffer carries RC) AND not already
 ///      claimed by a PRIOR ownership-scan treatment: the construct-fed dead-param
 ///      family AND the fresh-sum live-extract family (both run first). The
@@ -123,13 +123,13 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///  (d) vetted same-alloc closure ([`same_alloc_closure_vetted`]): every member
 ///      use is a borrow-read / borrowed-`Invoke` arg; any owned-position consume
 ///      / store / capture / `Select` / `IsShared` / `Reset` / `Reuse` / `Return`
-///      / indirect-call / `Set` / `SetTag` declines (the codex gate list).
+///      / indirect-call / `Set` / `SetTag` declines.
 ///  (e) death-point treatment ([`choose_death_point`]) — TWO modes:
 ///      - DEAD-PARAM MODE: the closure reaches EXACTLY ONE dead merge
 ///        block-param, forward-reachable from every member-borrow-read block, so
 ///        the placed dec lands after the closure's final borrow-read on every
 ///        normal exit; unwind / unreachable paths are owned by Surface 1.
-///      - NO-SINK MODE (BUG-04-142): the closure has NO dead-param sink — the
+///      - NO-SINK MODE: the closure has NO dead-param sink — the
 ///        receiver dies on the borrowed-`Invoke` carrier's successor edges
 ///        directly (the `is_ref(a: [7,8])` minimal — the base walk's inline
 ///        `BurdenDec` before the borrowing terminator nets the fresh inc to zero
@@ -347,8 +347,7 @@ fn try_build_candidate(
 /// Gate (a): candidate roots — every `Construct { ctor: ListLiteral |
 /// MapLiteral | SetLiteral }` dst (the fresh collection buffer). A
 /// `Let { Literal::String }` heap-str body is NOT a candidate (no `Construct`
-/// definer; the re-consensus declines panic-message / string-literal lineages
-/// naturally).
+/// definer; panic-message / string-literal lineages decline naturally).
 fn collect_fresh_collection_construct_roots(func: &ArcFunction) -> Vec<ArcVarId> {
     let mut roots: Vec<ArcVarId> = Vec::new();
     for block in &func.blocks {

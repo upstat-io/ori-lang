@@ -2,7 +2,9 @@
 //! classification (incl. string-literal decline), gate declines (owned-position
 //! consume, no-borrowed-invoke), death-point selection, and the toggle skip.
 
-use super::death_point::{choose_dead_param_release_site, choose_no_sink_carrier};
+use super::death_point::{
+    choose_dead_param_release_site, choose_death_point, choose_no_sink_carrier,
+};
 use super::*;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
@@ -107,7 +109,7 @@ fn collect_roots_admits_list_construct_declines_string_literal() {
     assert_eq!(
         roots,
         vec![vv(0)],
-        "the List Construct is the sole root; the string literal has no Construct definer (declines naturally per the re-consensus)",
+        "the List Construct is the sole root; the string literal has no Construct definer (declines naturally)",
     );
 }
 
@@ -371,7 +373,7 @@ fn no_dead_param_dead_param_helper_returns_none() {
     );
 }
 
-/// The no-sink minimal (BUG-04-142 pin 1): `bb0: %0 = Construct List() ;
+/// The no-sink minimal: `bb0: %0 = Construct List() ;
 /// %1 = %0 ; Invoke @is_ref(%1 [borrow]) normal bb1 unwind bb2`; `bb1: Return %3`
 /// `bb2: Resume`. The receiver `%0`/`%1` dies on the bb1/bb2 edges directly with
 /// NO dead-param sink — the no-sink edge-death case.
@@ -532,5 +534,24 @@ fn no_sink_disabled_toggle_skips_treatment() {
     assert!(
         !borrowed_invoke_lineage_release_disabled(),
         "the toggle is unset in the test env -> the no-sink treatment is active",
+    );
+}
+
+#[test]
+fn choose_death_point_dispatch_no_sink_fallback_and_gate() {
+    // Dispatch order: dead-param site wins when present; otherwise the no-sink
+    // carrier ONLY when `allow_no_sink` (fresh-collection roots); else None.
+    let f = no_sink_minimal_func();
+    let members = vet_or_panic(&f, vv(0));
+    let used: FxHashSet<ArcVarId> = members.clone();
+
+    match choose_death_point(&f, &members, &used, true) {
+        Some(DeathPoint::NoSink { claim }) => assert_eq!(claim, vv(1)),
+        other => panic!("expected the no-sink carrier claim, got {other:?}"),
+    }
+    assert_eq!(
+        choose_death_point(&f, &members, &used, false),
+        None,
+        "result-root lineages (allow_no_sink=false) take NO death point",
     );
 }
