@@ -17,7 +17,7 @@ use ori_types::Pool;
 use crate::aims::intraprocedural::state_map::{AimsStateMap, ApplyAliasSource};
 use crate::aims::lattice::{AccessClass, Cardinality};
 use crate::graph::{compute_predecessors, successor_block_ids};
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, RcStrategy};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
 use super::trampoline::insert_trampoline;
 use super::{block_id, DeferredDec, EdgeDec};
@@ -102,61 +102,19 @@ fn is_owned_for_rc(
 /// `collect_branch_edge_decs` so only a TRUE same-allocation alias being live
 /// at a successor suppresses `var`'s edge dec — phi-merged alternatives must
 /// not (RL-4 P1 + §10 under-elimination-leaks per-path-net-0 invariant).
+///
+/// Thin projection over the §1.9 unified alias-table construction
+/// (`project_aliases::compute_genuine_same_alloc_reps`) — ONE builder behind
+/// both this query and the table's over-approximation classification; no
+/// parallel tracker. Spec: Annex E §AIMS.
 pub(crate) fn compute_same_alloc_reps(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
-    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
-        let p = *parent.get(&v).unwrap_or(&v);
-        if p == v {
-            return v;
-        }
-        let r = find(parent, p);
-        parent.insert(v, r);
-        r
-    }
-    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
-        let ra = find(parent, a);
-        let rb = find(parent, b);
-        if ra != rb {
-            parent.insert(ra, rb);
-        }
-    }
-    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    // Edge type 1: Let{Var} aliases.
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                union(&mut parent, *dst, *src);
-            }
-        }
-    }
-    // Edge type 4: apply-result Direct + Conditional (Project/Wrapped excluded
-    // per PIN-2, matching compute_ssa_alias_classes). Edge type 2 (Jump-phi)
-    // and edge type 3 (Select, already dropped) are intentionally NOT unioned.
-    for (&dst, source) in apply_result_aliases {
-        match source {
-            ApplyAliasSource::Direct(arg) => union(&mut parent, dst, *arg),
-            ApplyAliasSource::Conditional { candidates } => {
-                for &cand in candidates {
-                    union(&mut parent, dst, cand);
-                }
-            }
-            ApplyAliasSource::Project { .. } | ApplyAliasSource::Wrapped(_) => {}
-        }
-    }
-    let keys: Vec<ArcVarId> = parent.keys().copied().collect();
-    let mut reps = FxHashMap::default();
-    for v in keys {
-        let r = find(&mut parent, v);
-        reps.insert(v, r);
-    }
-    reps
+    crate::aims::intraprocedural::project_aliases::compute_genuine_same_alloc_reps(
+        func,
+        apply_result_aliases,
+    )
 }
 
 /// Whether `a` and `b` denote the same runtime allocation (same

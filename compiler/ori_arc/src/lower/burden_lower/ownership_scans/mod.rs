@@ -184,8 +184,8 @@ pub(super) fn compute_borrowed_terminator_invoke_args(func: &ArcFunction) -> FxH
 /// sole inc + release. Without excluding these aliases the dup-alias FRESH-site
 /// `BurdenInc` + borrowed-arg scope-exit `BurdenDec` pair on each alias leaves the
 /// source's FRESH inc orphaned (VF-1 net=+1 leak). Excluded from
-/// `owned_vars_needing_rc` (neither inc nor dec) per the LEDGER §06.1
-/// "borrowed aliases get neither" principle. Use-count gated to 1 so a value also
+/// `owned_vars_needing_rc` (neither inc nor dec) — a borrowed alias gets
+/// neither. Use-count gated to 1 so a value also
 /// used at an OWNED position keeps its burden ops.
 pub(super) fn compute_borrowed_arg_let_aliases(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let borrowed_args = compute_borrowed_terminator_invoke_args(func);
@@ -1362,7 +1362,7 @@ pub(super) fn compute_construct_fed_dead_param_lineage(
                     // second borrowed use → use-after-free / double-free. A
                     // single-call-site lineage genuinely dies at the dead param.
                     // STRUCTURAL discriminator (call-site count, NOT a use-count
-                    // cardinality proxy) per LEDGER DO-NOT-RE-TRY. Spec: Annex E
+                    // cardinality proxy). Spec: Annex E
                     // §AIMS RL-2.
                     && rep_call_site_count(func, &mut uf, rep) <= 1;
             if !uf.is_sum_aggregate_construct_rep(rep) && !collection_admitted {
@@ -2322,4 +2322,118 @@ pub(crate) fn list_concat_consumed_operands(
         }
     }
     consumed
+}
+
+/// `ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE=1` declines the RL-5
+/// dead-at-entry release for a sibling-union-fired loop-carried rebuild lineage
+/// reaching a dead loop-exit block-param ([`compute_rebuild_lineage_dead_param_releases`]).
+/// With the toggle set, the loop's final value leaks when the loop-carried var
+/// is unused after the loop (the union suppressed the in-loop decs; no
+/// post-loop use means no last-use dec). Spec: Annex E §AIMS RL-5.
+pub(super) fn rebuild_lineage_dead_param_release_disabled() -> bool {
+    std::env::var("ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
+}
+
+/// RL-5 dead-at-entry release for a sibling-union-fired loop-carried rebuild
+/// lineage: the union's verdict suppressed the lineage's per-iteration releases
+/// (full-move widening / keeper assignment), so the loop's FINAL value exits
+/// through the loop-exit `Jump` edge into a successor block-param that becomes
+/// the lineage's sole terminal owner. When that param is DEAD (no uses — the
+/// loop-carried var is unused after the loop), no last-use dec ever fires and
+/// the final struct's fields leak. Emit EXACTLY ONE whole-var `BurdenDec` at
+/// the dead param's block entry (RL-5: an Owned non-scalar block param with
+/// `Cardinality = Absent` at entry receives an immediate dec).
+///
+/// Root-kind scoping (the over-fire boundary): ONLY params fed by a Jump-arg
+/// whose genuine same-allocation rep matches a FIRED union root (the
+/// back-edge loop param whose group verdict applied). Gates:
+/// - the feeding edge is FORWARD (a back-edge re-entry is the loop carrying
+///   the value to the next iteration, never a death point);
+/// - the target param has exactly ONE incoming edge (single-predecessor v1 —
+///   a true merge may receive a live allocation on another path);
+/// - the param is DEAD (`function_used_vars` miss) and not provably-Scalar
+///   repr (L-9: a scalar-repr dec can never lower);
+/// - one release per distinct arriving rep per block (a second same-rep dead
+///   param would double-release the same arriving allocation);
+/// - NO live same-rep param in the same target block (the live alias's own
+///   last-use dec is the release).
+///
+/// Spec: Annex E §AIMS RL-5 + RL-2.
+pub(super) fn compute_rebuild_lineage_dead_param_releases(
+    func: &ArcFunction,
+    fired_rebuild_roots: &FxHashSet<ArcVarId>,
+    genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    param_edge_args: &FxHashMap<
+        ArcVarId,
+        smallvec::SmallVec<[crate::aims::intraprocedural::project_aliases::ParamEdgeArg; 2]>,
+    >,
+) -> FxHashMap<usize, Vec<ArcVarId>> {
+    let mut out: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
+    if rebuild_lineage_dead_param_release_disabled() || fired_rebuild_roots.is_empty() {
+        return out;
+    }
+    let rep = |v: ArcVarId| genuine_same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let root_reps: FxHashSet<ArcVarId> = fired_rebuild_roots.iter().map(|&r| rep(r)).collect();
+    let used = function_used_vars(func);
+
+    let mut seen_reps_per_block: FxHashMap<usize, FxHashSet<ArcVarId>> = FxHashMap::default();
+    for (pred_idx, block) in func.blocks.iter().enumerate() {
+        let ArcTerminator::Jump { target, args } = &block.terminator else {
+            continue;
+        };
+        let target_idx = target.index();
+        let Some(target_block) = func.blocks.get(target_idx) else {
+            continue;
+        };
+        for (i, &arg) in args.iter().enumerate() {
+            let arg_rep = rep(arg);
+            if !root_reps.contains(&arg_rep) {
+                continue;
+            }
+            let Some(&(param_var, _)) = target_block.params.get(i) else {
+                continue;
+            };
+            let Some(edges) = param_edge_args.get(&param_var) else {
+                continue;
+            };
+            // Single-predecessor + FORWARD edge gates.
+            let [only] = edges.as_slice() else {
+                continue;
+            };
+            if only.is_back_edge || only.pred_block != pred_idx {
+                continue;
+            }
+            if used.contains(&param_var) {
+                continue; // live — its own last-use dec releases
+            }
+            if super::is_provably_scalar_repr(func, param_var) {
+                continue;
+            }
+            // NO live same-rep sibling param in the target block: the live
+            // alias's last-use dec is the release; a dec here double-frees.
+            let live_same_rep_sibling = target_block
+                .params
+                .iter()
+                .any(|&(p, _)| p != param_var && used.contains(&p) && rep(p) == arg_rep);
+            if live_same_rep_sibling {
+                continue;
+            }
+            if seen_reps_per_block
+                .entry(target_idx)
+                .or_default()
+                .insert(arg_rep)
+            {
+                tracing::trace!(
+                    target: "ori_arc::aims::realize",
+                    fn_name = ?func.name,
+                    pred_block = pred_idx,
+                    target_block = target_idx,
+                    param = param_var.index(),
+                    "rebuild-lineage dead-param release placed (RL-5)"
+                );
+                out.entry(target_idx).or_default().push(param_var);
+            }
+        }
+    }
+    out
 }

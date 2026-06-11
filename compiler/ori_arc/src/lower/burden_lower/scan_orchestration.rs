@@ -27,9 +27,10 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
     compute_genuine_dup_move_aliases, compute_live_out_owned,
-    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
+    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
+    compute_transfer_through_return_results, compute_transfer_via_move_alias,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases, instr_transfer_vars,
+    list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -54,6 +55,12 @@ use super::{
               per-block emit walk are one cohesive pass; splitting mid-sequence \
               fragments the load-bearing emission order"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Phase-5 emission inputs are the typed pre-pass side tables \
+              (ownership, contracts, immortals, apply-result aliases) the walk \
+              consumes per AIMS Invariant 5"
+)]
 pub(crate) fn emit_burden_ops<'a>(
     func: &mut ArcFunction,
     type_registry: &'a TypeRegistry,
@@ -74,6 +81,16 @@ pub(crate) fn emit_burden_ops<'a>(
     // else the FRESH-site inc orphans (VF-1 net=+1). Tests pass `&[]`.
     immortals: &[bool],
     contracts: &FxHashMap<Name, MemoryContract>,
+    // Apply-result allocation-identity map (`AimsStateMap::apply_result_aliases`,
+    // converged at Step 4) — input to the §1.9 unified alias-table construction
+    // (`compute_project_alias_table`) the sibling-union cross-block identity
+    // consumes. AIMS Invariant 5 — the ONE table builder; no parallel tracker.
+    // Tests pass `&FxHashMap::default()` (the structural Let / Jump-arg /
+    // Project edges still build the table).
+    apply_result_aliases: &FxHashMap<
+        ArcVarId,
+        crate::aims::intraprocedural::state_map::ApplyAliasSource,
+    >,
     // When true (`ORI_DISABLE_PREDICATE_STACK_RC=1`), the predicate-stack edge
     // cleanup is OFF, so the burden walk is the sole RC emitter. The
     // borrowed-Invoke-arg scope-exit `BurdenDec` (normally deferred to the
@@ -172,11 +189,49 @@ pub(crate) fn emit_burden_ops<'a>(
     // `ORI_DISABLE_SIBLING_MOVED_FIELD_UNION=1` restores per-alias attribution.
     // Spec: Annex E §AIMS RL-2.
     let mut full_move_vars = full_move_vars;
-    sibling_union::apply_sibling_moved_field_union(
+
+    // RL-1 duplication-alias classification for Let-Var aliases: a `Let {
+    // Var(src) }` alias whose SOURCE stays live after the alias is a genuine
+    // duplication — a new reference to `src`'s allocation. The burden path
+    // emits the alias's own paired RC: a FRESH-site `BurdenInc dst` at the
+    // alias site (emit_fresh_site_burden_inc) balanced by a `BurdenDec dst` at
+    // the alias's true last-use (emit_last_use_decs /
+    // emit_terminator_burden_decs). Net 0. A move-alias (source used only at
+    // the alias) is NOT a dup_alias_dst — its ownership forwards through the
+    // move chain (transfer_via_move_alias) and the source's own FRESH-site inc
+    // covers the lineage. "Source stays live" = source appears in >= 2 used-var
+    // positions (the alias use plus at least one more downstream). Computed
+    // BEFORE the sibling union (which declines multi-hop chains whose
+    // intermediate carries a kept dup inc) and BEFORE the inc-suppression scans
+    // (so the genuine-duplication exemption can consult it). The zero-use vars
+    // it inserts into `inc_suppressed_vars` are independent of the sibling
+    // union's `full_move_vars` mutation; the full-move coupling is applied
+    // AFTER the union via `extend` (set union — order-independent).
+    let mut inc_suppressed_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    let (use_counts, dup_alias_dsts) = compute_use_counts_and_dup_aliases(
+        func,
+        &mut inc_suppressed_vars,
+        &forwarder_identity_transparent_aliases,
+    );
+
+    // §1.9 unified alias table + per-predecessor-edge attribution — the
+    // cross-block same-allocation identity the sibling union consumes (ONE
+    // table; the table-resolved hop widening + back-edge decline live in
+    // `sibling_union`). Spec: Annex E §AIMS.
+    let alias_table = crate::aims::intraprocedural::project_aliases::compute_project_alias_table(
+        func,
+        apply_result_aliases,
+    );
+    let param_edge_args =
+        crate::aims::intraprocedural::project_aliases::compute_param_edge_args(func);
+    let sibling_union_outcome = sibling_union::apply_sibling_moved_field_union(
         func,
         type_registry,
         &ctx.moved_out_fields_union,
         &owned_vars_needing_rc,
+        &alias_table,
+        &param_edge_args,
+        &dup_alias_dsts,
         &mut full_move_vars,
         &mut partial_move_vars,
     );
@@ -192,25 +247,15 @@ pub(crate) fn emit_burden_ops<'a>(
     // and balanced by emit_terminator_burden_incs, a separate inc/dec pair from
     // the FRESH-site inc. A value transferred at a NON-last use (aliased, still
     // live) keeps its Inc — its dec is emitted at the later non-transfer use.
-    let mut inc_suppressed_vars: FxHashSet<ArcVarId> = full_move_vars.clone();
-
-    // RL-1 duplication-alias emission for Let-Var aliases: a `Let { Var(src) }`
-    // alias whose SOURCE stays live after the alias is a genuine duplication —
-    // a new reference to `src`'s allocation. The burden path emits the alias's
-    // own paired RC: a FRESH-site `BurdenInc dst` at the alias site
-    // (emit_fresh_site_burden_inc) balanced by a `BurdenDec dst` at the alias's
-    // true last-use (emit_last_use_decs / emit_terminator_burden_decs). Net 0.
-    // A move-alias (source used only at the alias) is NOT a dup_alias_dst — its
-    // ownership forwards through the move chain (transfer_via_move_alias) and the
-    // source's own FRESH-site inc covers the lineage. "Source stays live" =
-    // source appears in >= 2 used-var positions (the alias use plus at least one
-    // more downstream). Computed BEFORE the inc-suppression scans so the
-    // genuine-duplication exemption below can consult it.
-    let (use_counts, dup_alias_dsts) = compute_use_counts_and_dup_aliases(
-        func,
-        &mut inc_suppressed_vars,
-        &forwarder_identity_transparent_aliases,
-    );
+    inc_suppressed_vars.extend(full_move_vars.iter().copied());
+    // RL-1 keeper inc-suppression: the assigned keeper's whole `burden_dec` at
+    // last use is the designated balancing release for its dup INTERMEDIATE's
+    // kept inc; the keeper's own FRESH-site dup-alias inc is therefore
+    // suppressed here (one allocation, one net release). Encoded at Phase 5
+    // rather than relying on the Phase-6 DP-3 split (which the loop-carried
+    // pair-atomicity guard bans for pure borrow-view aliases). Spec: Annex E
+    // §AIMS RL-1 (`RL1_duplication_balanced`).
+    inc_suppressed_vars.extend(sibling_union_outcome.keepers.iter().copied());
 
     // RL-1 genuine-duplication store-out aliases: dup-alias dsts whose source
     // stays live PAST the alias site and whose move chain ends at an
@@ -441,6 +486,28 @@ pub(crate) fn emit_burden_ops<'a>(
             .entry(block_idx)
             .or_default()
             .extend(params);
+    }
+    // RL-5 rebuild-lineage dead-param release: a sibling-union-fired loop-carried
+    // rebuild lineage whose loop-exit Jump edge feeds a DEAD successor block-param
+    // (the loop-carried var unused after the loop). The union suppressed the
+    // in-loop releases, making the dead param the lineage's sole terminal owner.
+    // DISJOINT root kind from the forwarder-identity + sum-aggregate-Construct-fed
+    // scans above (union-fired back-edge param roots only); the contains-gated
+    // push below keeps the merge idempotent regardless. SSOT:
+    // `compute_rebuild_lineage_dead_param_releases`.
+    let rebuild_lineage_releases = compute_rebuild_lineage_dead_param_releases(
+        func,
+        &sibling_union_outcome.fired_roots,
+        &alias_table.genuine_same_alloc_reps,
+        &param_edge_args,
+    );
+    for (block_idx, params) in rebuild_lineage_releases {
+        let entry = dead_forwarder_param_releases.entry(block_idx).or_default();
+        for p in params {
+            if !entry.contains(&p) {
+                entry.push(p);
+            }
+        }
     }
 
     let analysis = BurdenAnalysisCtx {

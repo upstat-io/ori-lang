@@ -13,7 +13,7 @@
 //! into this block.
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
@@ -139,7 +139,8 @@ pub(crate) fn compute_block_entry_state(
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
     invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
-    project_alias_sources: &FxHashMap<ArcVarId, super::project_aliases::ProjectSources>,
+    demand_sources: &FxHashMap<ArcVarId, super::project_aliases::ProjectSources>,
+    select_alias_dsts: &FxHashSet<ArcVarId>,
 ) -> BlockAnalysisResult {
     let block = &func.blocks[block_id.index()];
 
@@ -230,7 +231,8 @@ pub(crate) fn compute_block_entry_state(
     propagate_project_source_demand(
         &mut current,
         state_map,
-        project_alias_sources,
+        demand_sources,
+        select_alias_dsts,
         &block.params,
     );
 

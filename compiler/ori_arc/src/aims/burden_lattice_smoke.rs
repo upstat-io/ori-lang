@@ -95,6 +95,7 @@ fn drive_steps_4_and_4b(
         &[],
         &[],
         &rustc_hash::FxHashMap::default(),
+        &rustc_hash::FxHashMap::default(),
         false,
         &smoke_interner,
     );
@@ -370,6 +371,7 @@ fn emit_burden_ops_on_scalar_fixture_is_observationally_inert() {
         &registry,
         &[],
         &[],
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashMap::default(),
         false,
         &smoke_interner,

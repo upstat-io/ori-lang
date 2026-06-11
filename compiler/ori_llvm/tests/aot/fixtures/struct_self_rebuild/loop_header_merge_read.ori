@@ -1,0 +1,18 @@
+// Over-fire negative: the loop-header block-param genuinely merges the
+// forward INIT value (entry edge) with the back-edge ITERATION value of the
+// same lineage. Back-edge unification must DECLINE per-edge — the back-edge
+// arg is the NEXT iteration's value, never this iteration's allocation — and
+// the pre-rebuild read must see the current iteration's struct. Must run
+// leak-clean and compute the correct total.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let init = Pair { a: [1], b: [2] };
+    let r = init;
+    let total = 0;
+    for i in 0..10 do {
+        total = total + r.a.len();
+        r = Pair { a: r.a, b: r.b };
+    };
+    if total == 10 then 0 else 1
+}

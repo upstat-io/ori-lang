@@ -5366,3 +5366,252 @@ fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
         "ContextHole shape annotation must not mint or redirect the underlying TypeId"
     );
 }
+
+// compute_project_alias_table — unified-closure membership, demand split,
+// over-approximation classification, genuine-rep parity
+
+/// R2 generalized: a `Let { Var }` of a NON-projected root (no sources of its
+/// own) seeds the whole-var identity in the UNIFIED closure but NOT in the
+/// backward-demand table.
+#[test]
+fn alias_table_r2gen_whole_var_identity_in_unified_not_demand() {
+    // v1 = Let Var(v0)   — v0 has no sources (bare root)
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: var(1),
+                ty: ty(0),
+                value: ArcValue::Var(var(0)),
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let table = super::project_aliases::compute_project_alias_table(&func, &FxHashMap::default());
+    assert_single_source(&table.sources, var(1), var(0), "R2-gen whole-var identity");
+    assert!(
+        !table.demand_sources.contains_key(&var(1)),
+        "whole-var Let alias of a non-projected root must NOT enter backward demand"
+    );
+}
+
+/// R5 Select: the dst joins the unified closure with both operands (plus their
+/// sources), is recorded in `select_alias_dsts`, and stays OUT of the demand
+/// table.
+#[test]
+fn alias_table_r5_select_unified_membership_and_demand_exclusion() {
+    // v3 = Project v0.0 ; v4 = Select(cond=v2, t=v3, f=v1)
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Select {
+                    dst: var(4),
+                    ty: ty(0),
+                    cond: var(2),
+                    true_val: var(3),
+                    false_val: var(1),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(4) },
+        }],
+        ..Default::default()
+    };
+    let table = super::project_aliases::compute_project_alias_table(&func, &FxHashMap::default());
+    let Some(select_sources) = table.sources.get(&var(4)) else {
+        panic!("Select dst must be in the unified closure")
+    };
+    assert!(
+        select_sources.contains(&var(3)) && select_sources.contains(&var(1)),
+        "Select dst carries both operands"
+    );
+    assert!(
+        select_sources.contains(&var(0)),
+        "Select dst carries the true-operand's transitive Project source"
+    );
+    assert!(
+        table.select_alias_dsts.contains(&var(4)),
+        "Select dst recorded in select_alias_dsts"
+    );
+    assert!(
+        !table.demand_sources.contains_key(&var(4)),
+        "Select dst must NOT enter backward demand"
+    );
+}
+
+/// The demand table is the ORIGINAL §1.9 closure: R1 + R3 + R6 entries match
+/// the unified table for projection-rooted chains.
+#[test]
+fn alias_table_demand_matches_unified_on_projection_chains() {
+    // v1 = Project v0.0 ; v2 = Let Var(v1) ; Jump bb1(v2) ; bb1 params [v3]
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: var(1),
+                        ty: ty(0),
+                        value: var(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: var(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(var(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(3), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+    let table = super::project_aliases::compute_project_alias_table(&func, &FxHashMap::default());
+    for v in [var(1), var(2), var(3)] {
+        assert_eq!(
+            table.sources.get(&v),
+            table.demand_sources.get(&v),
+            "projection-rooted chain entries identical across unified + demand tables"
+        );
+    }
+}
+
+/// Over-approximation classification: a CFG-merge param whose predecessor args
+/// trace to TWO distinct genuine same-allocation reps is an over-approximation
+/// dst; a single-pred rename is not.
+#[test]
+fn alias_table_merge_spanning_two_reps_is_over_approximation() {
+    // bb0: v2 = Project v0.0 ; Branch v4 ? bb1 : bb2
+    // bb1: Jump bb3(v2) ; bb2: v3 = Project v1.0 ; Jump bb3(v3)
+    // bb3 params [v5] — merges projections of v0 and v1 (distinct reps)
+    let func = ArcFunction {
+        var_types: vec![ty(0); 6],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: var(4),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(3),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: var(1),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(3),
+                    args: vec![var(3)],
+                },
+            },
+            ArcBlock {
+                id: block_id(3),
+                params: vec![(var(5), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(5) },
+            },
+        ],
+        ..Default::default()
+    };
+    let table = super::project_aliases::compute_project_alias_table(&func, &FxHashMap::default());
+    assert!(
+        table.over_approximation_dsts.contains(&var(5)),
+        "merge param spanning two genuine reps is an over-approximation dst"
+    );
+    assert!(
+        !table.over_approximation_dsts.contains(&var(2)),
+        "single-root projection is NOT an over-approximation dst"
+    );
+}
+
+/// Superset-parity: `compute_same_alloc_reps` is a thin projection of the
+/// table's genuine same-allocation builder — identical maps on a
+/// representative IR carrying Let aliases + a Jump-arg rename.
+#[test]
+fn same_alloc_reps_parity_with_genuine_table_builder() {
+    let func = ArcFunction {
+        var_types: vec![ty(0); 4],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: var(1),
+                        ty: ty(0),
+                        value: ArcValue::Var(var(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: var(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(var(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(3), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+    let from_projection =
+        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
+    let from_table =
+        super::project_aliases::compute_genuine_same_alloc_reps(&func, &FxHashMap::default());
+    assert_eq!(from_projection, from_table, "thin-projection parity");
+    // Jump-arg rename (edge type 2) stays EXCLUDED from genuine reps.
+    assert!(
+        !from_table.contains_key(&var(3)),
+        "block-param rename never joins the genuine same-allocation union-find"
+    );
+}

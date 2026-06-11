@@ -669,9 +669,22 @@ fn class_lifetime_extends_past_path_sensitive(
     // _live_exit, max_a_in_body, a_at_term) but NOT for B-related checks
     // (all_b_dead_exit stays based on real b_members per the lifetime check
     // semantic — B's destruction is what we're testing A's survival past).
+    let over_approximation_dsts = state_map.alias_over_approximation_dsts();
     let extended_a_witnesses: FxHashSet<ArcVarId> = {
         let mut witnesses = a_members.iter().copied().collect::<FxHashSet<_>>();
         for (&alias_var, sources) in state_map.project_alias_sources() {
+            // Soundness boundary (Spec: Annex E §AIMS — `project_alias_sources`
+            // is the ALIAS closure, NOT same-alloc-everywhere): a MERGE (R4) /
+            // Select (R5) OVER-APPROXIMATION denotes a DIFFERENT allocation per
+            // path, never an unconditional same-alloc witness for a single
+            // B-member. Counting it would extend A's lifetime spuriously past
+            // B's destruction (the merge-edge scoped-cleanup leak). The table's
+            // `alias_over_approximation_dsts` is the SSOT for this classification
+            // (sources spanning ≥2 genuine same-alloc reps); a genuine same-alloc
+            // alias (Project/Let chain of ONE root) is admitted.
+            if over_approximation_dsts.contains(&alias_var) {
+                continue;
+            }
             if sources.iter().any(|src| b_members.contains(src)) {
                 witnesses.insert(alias_var);
             }

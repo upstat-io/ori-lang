@@ -36,6 +36,7 @@ fn emit_burden_ops<'a>(
         derived_ownership,
         immortals,
         contracts,
+        &FxHashMap::default(),
         predicate_stack_rc_disabled,
         &interner,
     )
@@ -59,6 +60,7 @@ fn emit_burden_ops_with_interner<'a>(
         derived_ownership,
         immortals,
         contracts,
+        &FxHashMap::default(),
         predicate_stack_rc_disabled,
         interner,
     )

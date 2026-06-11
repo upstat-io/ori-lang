@@ -11,8 +11,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::super::moved_fields::populate_moved_out_fields;
 use super::super::BurdenLowerCtx;
 use super::{
-    apply_sibling_moved_field_union, block_on_cycle, build_sibling_groups, instr_transfers_owned,
+    apply_sibling_moved_field_union, build_sibling_groups, instr_transfers_owned,
     owned_top_level_fields, root_is_multivariant_sum, var_carries_rc,
+};
+use crate::aims::intraprocedural::project_aliases::{
+    compute_param_edge_args, compute_project_alias_table,
 };
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
@@ -149,23 +152,45 @@ fn two_field_loop_self_rebuild() -> (ArcFunction, TypeRegistry) {
     (func, registry)
 }
 
+/// Test harness: build the §1.9 alias table + per-edge attribution from the
+/// fixture (empty apply-result map — structural edges only) and group with an
+/// empty dup set unless the test computes one.
+fn groups_for(func: &ArcFunction) -> Vec<super::SiblingGroup> {
+    let table = compute_project_alias_table(func, &FxHashMap::default());
+    let edges = compute_param_edge_args(func);
+    build_sibling_groups(func, &table, &edges, &FxHashSet::default())
+}
+
 #[test]
-fn block_on_cycle_detects_loop_header() {
+fn param_edge_args_classifies_loop_back_edge() {
     let (func, _registry) = two_field_loop_self_rebuild();
-    // bb1 (header) + bb2 (back-edge body) lie on the cycle; bb0/bb3 do not.
-    assert!(block_on_cycle(&func, 1), "loop header bb1 is on the cycle");
-    assert!(
-        block_on_cycle(&func, 2),
-        "back-edge body bb2 is on the cycle"
+    let edges = compute_param_edge_args(&func);
+    let Some(param_edges) = edges.get(&ArcVarId::new(1)) else {
+        panic!("loop block-param %1 has incoming Jump edges")
+    };
+    assert_eq!(param_edges.len(), 2, "init edge + back-edge");
+    let init = param_edges
+        .iter()
+        .find(|e| e.pred_block == 0)
+        .unwrap_or_else(|| panic!("bb0 init edge present"));
+    assert!(!init.is_back_edge, "bb0 -> bb1 init edge is FORWARD");
+    assert_eq!(init.arg, ArcVarId::new(0), "init edge passes %0");
+    let back = param_edges
+        .iter()
+        .find(|e| e.pred_block == 2)
+        .unwrap_or_else(|| panic!("bb2 back-edge present"));
+    assert!(back.is_back_edge, "bb2 -> bb1 closes the cycle (back-edge)");
+    assert_eq!(
+        back.arg,
+        ArcVarId::new(6),
+        "back-edge passes the new struct"
     );
-    assert!(!block_on_cycle(&func, 0), "entry bb0 is not on the cycle");
-    assert!(!block_on_cycle(&func, 3), "return bb3 is not on the cycle");
 }
 
 #[test]
 fn build_sibling_groups_keys_two_carriers_to_loop_param_root() {
     let (func, _registry) = two_field_loop_self_rebuild();
-    let groups = build_sibling_groups(&func);
+    let groups = groups_for(&func);
     assert_eq!(groups.len(), 1, "one rebuild group");
     let g = &groups[0];
     assert_eq!(g.root, ArcVarId::new(1), "root is the loop block-param");
@@ -180,7 +205,7 @@ fn build_sibling_groups_keys_two_carriers_to_loop_param_root() {
 #[test]
 fn root_never_a_sibling() {
     let (func, _registry) = two_field_loop_self_rebuild();
-    let groups = build_sibling_groups(&func);
+    let groups = groups_for(&func);
     let g = &groups[0];
     assert!(
         !g.siblings.contains(&g.root),
@@ -229,11 +254,16 @@ fn per_field_widening_absorbs_both_siblings_into_full_move() {
             .into_iter()
             .collect();
 
+    let table = compute_project_alias_table(&func, &FxHashMap::default());
+    let edges = compute_param_edge_args(&func);
     apply_sibling_moved_field_union(
         &func,
         &registry,
         union,
         &owned_vars_needing_rc,
+        &table,
+        &edges,
+        &FxHashSet::default(),
         &mut full_move,
         &mut partial,
     );
@@ -270,17 +300,22 @@ fn toggle_skips_the_post_process() {
             .into_iter()
             .collect();
 
-    // SAFETY: single-threaded test process; restored before return.
-    std::env::set_var("ORI_DISABLE_SIBLING_MOVED_FIELD_UNION", "1");
-    apply_sibling_moved_field_union(
+    // Injected disabled-verdict — no process-global env mutation (env writes
+    // race parallel test threads reading the same toggle).
+    let table = compute_project_alias_table(&func, &FxHashMap::default());
+    let edges = compute_param_edge_args(&func);
+    super::apply_sibling_moved_field_union_with(
+        true,
         &func,
         &registry,
         &union,
         &owned_vars_needing_rc,
+        &table,
+        &edges,
+        &FxHashSet::default(),
         &mut full_move,
         &mut partial,
     );
-    std::env::remove_var("ORI_DISABLE_SIBLING_MOVED_FIELD_UNION");
 
     assert!(
         full_move.is_empty(),
@@ -365,5 +400,131 @@ fn var_carries_rc_distinguishes_heap_from_scalar() {
     assert!(
         !var_carries_rc(&func, scalar_var, &registry),
         "a scalar int var carries no RC -> contributes nothing to the union",
+    );
+}
+
+/// RL-5 rebuild-lineage dead-param release: the loop-exit Jump edge feeding a
+/// DEAD successor block-param with the union-fired root's value gets exactly
+/// one release at that param; the back-edge re-entry never does.
+#[test]
+fn rebuild_lineage_dead_exit_param_gets_one_release() {
+    let (mut func, _registry) = two_field_loop_self_rebuild();
+    let v = ArcVarId::new;
+    // Rewire bb3: loop exit now THREADS the loop param to a dead param in bb4.
+    func.var_types.push(PAIR_IDX); // v7
+    func.var_reprs.push(ValueRepr::Aggregate);
+    func.blocks[3].terminator = ArcTerminator::Jump {
+        target: ArcBlockId::new(4),
+        args: vec![v(1)],
+    };
+    func.blocks.push(ArcBlock {
+        id: ArcBlockId::new(4),
+        params: vec![(v(7), PAIR_IDX)],
+        body: Vec::new(),
+        terminator: ArcTerminator::Unreachable,
+    });
+
+    let table = compute_project_alias_table(&func, &FxHashMap::default());
+    let edges = compute_param_edge_args(&func);
+    let fired: FxHashSet<ArcVarId> = [v(1)].into_iter().collect();
+    let releases = super::super::ownership_scans::compute_rebuild_lineage_dead_param_releases(
+        &func,
+        &fired,
+        &table.genuine_same_alloc_reps,
+        &edges,
+    );
+    assert_eq!(
+        releases.get(&4).map(Vec::as_slice),
+        Some(&[v(7)][..]),
+        "dead loop-exit param receives exactly one RL-5 release"
+    );
+    assert_eq!(releases.len(), 1, "no release on any other block");
+    assert!(
+        !releases.contains_key(&1),
+        "the back-edge re-entry param is never a release target"
+    );
+}
+
+/// The RL-5 release scan declines a LIVE exit param (its own last-use dec is
+/// the release) and an empty fired-root set.
+#[test]
+fn rebuild_lineage_release_declines_live_param_and_unfired_root() {
+    let (mut func, _registry) = two_field_loop_self_rebuild();
+    let v = ArcVarId::new;
+    func.var_types.push(PAIR_IDX); // v7
+    func.var_reprs.push(ValueRepr::Aggregate);
+    func.blocks[3].terminator = ArcTerminator::Jump {
+        target: ArcBlockId::new(4),
+        args: vec![v(1)],
+    };
+    // v7 is LIVE (returned).
+    func.blocks.push(ArcBlock {
+        id: ArcBlockId::new(4),
+        params: vec![(v(7), PAIR_IDX)],
+        body: Vec::new(),
+        terminator: ArcTerminator::Return { value: v(7) },
+    });
+
+    let table = compute_project_alias_table(&func, &FxHashMap::default());
+    let edges = compute_param_edge_args(&func);
+    let fired: FxHashSet<ArcVarId> = [v(1)].into_iter().collect();
+    let releases = super::super::ownership_scans::compute_rebuild_lineage_dead_param_releases(
+        &func,
+        &fired,
+        &table.genuine_same_alloc_reps,
+        &edges,
+    );
+    assert!(
+        releases.is_empty(),
+        "live exit param declines the RL-5 release"
+    );
+
+    let unfired: FxHashSet<ArcVarId> = FxHashSet::default();
+    let releases = super::super::ownership_scans::compute_rebuild_lineage_dead_param_releases(
+        &func,
+        &unfired,
+        &table.genuine_same_alloc_reps,
+        &edges,
+    );
+    assert!(releases.is_empty(), "no fired roots -> no releases");
+}
+
+/// The union outcome reports fired roots; a fired two-carrier group names the
+/// loop block-param root.
+#[test]
+fn union_outcome_reports_fired_back_edge_root() {
+    let (func, registry) = two_field_loop_self_rebuild();
+    let terminator_transfer: Vec<FxHashSet<ArcVarId>> =
+        vec![FxHashSet::default(); func.blocks.len()];
+    let mut ctx = BurdenLowerCtx::new(&func);
+    populate_moved_out_fields(&mut ctx, &func, &terminator_transfer, &registry);
+    let union = ctx.moved_out_fields_union.clone();
+    let owned_vars_needing_rc: FxHashSet<ArcVarId> =
+        [ArcVarId::new(2), ArcVarId::new(4)].into_iter().collect();
+    let mut full_move: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut partial: FxHashMap<ArcVarId, Vec<u32>> =
+        [(ArcVarId::new(2), vec![0]), (ArcVarId::new(4), vec![1])]
+            .into_iter()
+            .collect();
+    let table = compute_project_alias_table(&func, &FxHashMap::default());
+    let edges = compute_param_edge_args(&func);
+    let outcome = apply_sibling_moved_field_union(
+        &func,
+        &registry,
+        &union,
+        &owned_vars_needing_rc,
+        &table,
+        &edges,
+        &FxHashSet::default(),
+        &mut full_move,
+        &mut partial,
+    );
+    assert!(
+        outcome.fired_roots.contains(&ArcVarId::new(1)),
+        "applied two-carrier group reports the loop block-param root as fired"
+    );
+    assert!(
+        outcome.keepers.is_empty(),
+        "direct one-hop group assigns no keeper"
     );
 }

@@ -214,6 +214,27 @@ pub(crate) fn local_construct_pair_coupling_disabled() -> bool {
     *LOCAL_CONSTRUCT_PAIR_COUPLING_DISABLED
 }
 
+/// `ORI_DISABLE_LOOP_CARRIED_PAIR_COUPLING=1` restores the decoupled
+/// DP-2/DP-3 split for `Let { Var }` alias dsts whose alias-chain root is a
+/// loop-carried BLOCK-param (a block-param carrying a back-edge per the
+/// per-predecessor-edge attribution). Default (unset): such alias pairs are
+/// ATOMIC in the Phase-6 per-var elision — an alias of the loop's threaded
+/// value is a same-allocation view, never a birth site, so splitting its
+/// inc/dec pair (DP-3 elides the inc on the alias's own `Once` view, DP-2
+/// keeps the dec) releases the loop lineage's still-live reference (net -1 —
+/// the branch-exclusive read-arm double-free). Bisection surface: isolates a
+/// loop-carried borrow-alias double-free to the pair coupling vs the rest of
+/// the elimination. Spec: Annex E §AIMS RL-1 + RL-2.
+static LOOP_CARRIED_PAIR_COUPLING_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_LOOP_CARRIED_PAIR_COUPLING").as_deref() == Ok("1"));
+
+/// Read-only accessor for the `ORI_DISABLE_LOOP_CARRIED_PAIR_COUPLING`
+/// toggle — consumed by the Phase-6 per-var elision
+/// (`aims::realize::burden_elim::collect_pair_atomic_alias_dsts`).
+pub(crate) fn loop_carried_pair_coupling_disabled() -> bool {
+    *LOOP_CARRIED_PAIR_COUPLING_DISABLED
+}
+
 use super::burden::{Burden, BurdenRef};
 
 /// True iff `burden` carries any RC-tracked dimension. Used by the filter at

@@ -207,20 +207,33 @@ pub fn analyze_function(
         ssa_alias_output.class_payload_of,
     );
 
-    // Precompute Project destination + transitive Let alias → Project source
-    // map. Static structure — computed once, reused across worklist iterations.
-    let project_alias_sources =
-        project_aliases::compute_project_alias_sources(func, state_map.apply_result_aliases());
+    // Precompute the unified same-allocation alias table: Project destination +
+    // transitive Let alias (R2 generalized to whole-var non-projected identity)
+    // + Jump-arg + CFG-merge + Select (R5) → source map. Static structure —
+    // computed once, reused across worklist iterations. The R5 Select-origin dst
+    // set gates the backward-demand consumer per §1.9.
+    let project_alias_table =
+        project_aliases::compute_project_alias_table(func, state_map.apply_result_aliases());
+    let project_alias_sources = project_alias_table.sources;
+    let demand_sources = project_alias_table.demand_sources;
+    let over_approximation_dsts = project_alias_table.over_approximation_dsts;
+    let select_alias_dsts = project_alias_table.select_alias_dsts;
 
-    // Persist the project_alias_sources side-
-    // table on AimsStateMap so the post-convergence pass
-    // `populate_class_payload_of_with_liveness` can widen its A-live witness
-    // set with Project-derived aliases. The local map remains for
-    // `propagate_project_source_demand` during the worklist loop; the clone
-    // is the persistent copy consumed AFTER convergence (PL-5: read-only
-    // after install). AIMS Invariant #5(c) — extends the unified model via
-    // typed pre-pass input on AimsStateMap.
+    // Persist the UNIFIED alias closure (R1 + R2-gen + R3 + R4 + R5 + R6) on
+    // AimsStateMap for the post-convergence consumers (witness extension,
+    // PIN-6 project-alias seeds in dead_cleanup / walk_dec,
+    // cleanup_redundant) — paired with `alias_over_approximation_dsts`, the
+    // soundness boundary excluding R4-merge / R5-Select entries from
+    // unconditional same-alloc treatment. The backward-demand worklist
+    // consumes `demand_sources` (the ORIGINAL §1.9 closure — no R2-gen, no
+    // R5) instead; widening DEMAND with whole-var identity would over-extend
+    // lifetimes (the merge-edge scoped-cleanup leak). The local maps remain
+    // for `propagate_project_source_demand` during the worklist loop; the
+    // clones are the persistent copies consumed AFTER convergence (PL-5:
+    // read-only after install). AIMS Invariant #5(c) — extends the unified
+    // model via typed pre-pass input on AimsStateMap.
     state_map.set_project_alias_sources(project_alias_sources.clone());
+    state_map.set_alias_over_approximation_dsts(over_approximation_dsts.clone());
 
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;
@@ -286,7 +299,8 @@ pub fn analyze_function(
                 &state_map,
                 sigs,
                 &invoke_defs,
-                &project_alias_sources,
+                &demand_sources,
+                &select_alias_dsts,
             );
             state_map.accumulate_effect(result.effects);
             state_map.update_block_entry(block_id, result.entry_state);

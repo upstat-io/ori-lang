@@ -289,7 +289,7 @@ pub(crate) fn run_aims_pipeline(
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    emit_burden_ops_step(func, config, &derived_ownership);
+    emit_burden_ops_step(func, config, &derived_ownership, &state_map);
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
     if *DUMP_AFTER_BURDEN {
@@ -367,6 +367,10 @@ fn emit_burden_ops_step(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
     derived_ownership: &[crate::ownership::DerivedOwnership],
+    // Converged Step-4 state map — supplies `apply_result_aliases` to the
+    // §1.9 unified alias-table construction inside the burden walk (the
+    // sibling-union cross-block identity). Spec: Annex E §AIMS.
+    state_map: &crate::aims::intraprocedural::AimsStateMap,
 ) {
     if *BURDEN_OPS_DISABLED {
         return;
@@ -386,6 +390,7 @@ fn emit_burden_ops_step(
         derived_ownership,
         &immortals,
         config.contracts,
+        state_map.apply_result_aliases(),
         config.predicate_stack_rc_disabled,
         config.interner,
     );
