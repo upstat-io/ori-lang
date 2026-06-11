@@ -101,6 +101,7 @@ pub(crate) fn emit_burden_ops<'a>(
         forwarder_result_releases,
         construct_fed_dead_param,
         last_uses_at,
+        claimed_no_sink_vars,
     } = compute_owned_rc_filter(
         &mut ctx,
         func,
@@ -470,5 +471,16 @@ pub(crate) fn emit_burden_ops<'a>(
         &forwarder_result_releases,
     );
     populate_burden_emitted(func);
+    // RL-2 + RL-4 no-sink borrowed-`Invoke` claim: a carrier var whose inline
+    // terminator dec was suppressed (no dead-param sink) carries NO in-body
+    // burden ops, so `populate_burden_emitted` leaves its bit false and the
+    // landed Category-2 `release_with_burden_edge` would drop the paired
+    // `BurdenDec` (the `carries_burden` gate). Set the bit so Cat-2 emits the
+    // per-edge `BurdenDec` (lowered to the real `RcDec` on each dying successor
+    // edge) — the receiver is released exactly once per executing path. Spec:
+    // Annex E §AIMS RL-2 + RL-4.
+    for var in &claimed_no_sink_vars {
+        super::mark_emitted(&mut func.burden_emitted, var.index());
+    }
     ctx
 }

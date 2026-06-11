@@ -55,6 +55,12 @@ pub(super) struct OwnedRcFilter {
     pub(super) construct_fed_dead_param: ConstructFedDeadParamLineage,
     /// Per-`(block, instr)` last-use sites filtered to `owned_vars_needing_rc`.
     pub(super) last_uses_at: FxHashMap<(usize, usize), Vec<ArcVarId>>,
+    /// No-sink borrowed-`Invoke` carrier vars CLAIMED for the landed Category-2
+    /// `deadAtSucc` per-edge release. Their `func.burden_emitted` bit is set
+    /// after `populate_burden_emitted` so Cat-2's `release_with_burden_edge`
+    /// admits the paired `BurdenDec` even though the var carries NO in-body
+    /// burden ops (the inline dec was suppressed). Spec: Annex E §AIMS RL-2 + RL-4.
+    pub(super) claimed_no_sink_vars: FxHashSet<ArcVarId>,
 }
 
 /// Run the burden-walk suppression-filter prologue: populate `ctx`, compute the
@@ -271,7 +277,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // root + vetted borrow-read-only closure + borrowed-Invoke-arg + execution
     // -final-site + pairwise-disjoint gates bound the over-fire surface). Spec:
     // Annex E §AIMS RL-2 + RL-4.
-    let borrowed_invoke_releases = apply_borrowed_invoke_collection_lineage(
+    let (borrowed_invoke_releases, claimed_no_sink_vars) = apply_borrowed_invoke_collection_lineage(
         func,
         &mut owned_vars_needing_rc,
         &construct_fed_dead_param.suppressed_lineage_vars,
@@ -341,6 +347,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         forwarder_result_releases,
         construct_fed_dead_param,
         last_uses_at,
+        claimed_no_sink_vars,
     }
 }
 
@@ -392,18 +399,19 @@ pub(super) fn collect_invoke_ttr_edges(
 /// Toggle-gated application of the RL-2 + RL-4 borrowed-`Invoke`-collection
 /// lineage treatment ([`compute_borrowed_invoke_collection_lineage`]): computes
 /// the vetted same-alloc closures, removes them from `owned_vars_needing_rc`
-/// (suppressing the dup-alias incs + the inline terminator dec), and returns the
-/// placed single death-point releases for the `forwarder_result_releases` merge.
-/// Empty when `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1`.
+/// (suppressing the dup-alias incs + the inline terminator dec), and returns a
+/// pair: the placed dead-param releases for the `forwarder_result_releases`
+/// merge, and the no-sink carrier vars claimed for the Category-2 per-edge
+/// release. Empty when `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1`.
 fn apply_borrowed_invoke_collection_lineage(
     func: &ArcFunction,
     owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
     claimed_by_live_extract: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
-) -> PlacedReleaseMap {
+) -> (PlacedReleaseMap, FxHashSet<ArcVarId>) {
     if borrowed_invoke_lineage_release_disabled() {
-        return FxHashMap::default();
+        return (FxHashMap::default(), FxHashSet::default());
     }
     let treatment = compute_borrowed_invoke_collection_lineage(
         func,
@@ -413,7 +421,7 @@ fn apply_borrowed_invoke_collection_lineage(
         contracts,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
-    treatment.releases
+    (treatment.releases, treatment.claimed_no_sink_vars)
 }
 
 /// Toggle-gated application of the RL-1 + RL-2 fresh-sum live-extract

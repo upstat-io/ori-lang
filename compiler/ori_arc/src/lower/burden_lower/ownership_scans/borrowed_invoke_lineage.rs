@@ -11,6 +11,7 @@
 //! — same single-placed-release emission surface (`ForwarderReleasePos`),
 //! DISTINCT root families + a DISTINCT consume site.
 
+mod death_point;
 mod vet;
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -20,7 +21,8 @@ use ori_ir::Name;
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 
-use super::{function_used_vars, successor_reachable_blocks, ForwarderReleasePos};
+use super::{function_used_vars, ForwarderReleasePos};
+use death_point::{choose_death_point, DeathPoint};
 use vet::same_alloc_closure_vetted;
 
 /// One root's candidate admission, held until the pairwise-disjoint gate runs
@@ -28,30 +30,47 @@ use vet::same_alloc_closure_vetted;
 struct Candidate {
     root: ArcVarId,
     members: FxHashSet<ArcVarId>,
-    site_block: usize,
-    site_pos: ForwarderReleasePos,
-    dec_var: ArcVarId,
+    /// The death-point treatment chosen for this closure (gate e).
+    death: DeathPoint,
 }
 
 /// Result of [`compute_borrowed_invoke_collection_lineage`]: the same-alloc
 /// closure to suppress (the inline borrowed-`Invoke` dec + lineage-wide
-/// duplication incs) + the single placed release at the lineage's death point.
+/// duplication incs) + the single placed release at the lineage's death point
+/// (dead-param mode) OR the claim that hands the per-edge release to the landed
+/// Category-2 `deadAtSucc` machinery (no-sink mode).
 pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
     /// Every var in an admitted fresh-collection borrowed-`Invoke` closure.
     /// Removed from `owned_vars_needing_rc` so the walk emits NO inline
     /// terminator dec (the use-after-free) AND no lineage-wide duplication inc
     /// (the multi-borrow `%5 = %2` dup-alias inc); the sole release is the
-    /// placed dec below.
+    /// placed dec below (dead-param mode) or the per-edge Category-2 dec
+    /// (no-sink mode).
     pub suppressed_lineage_vars: FxHashSet<ArcVarId>,
-    /// `(block_idx, pos) -> [dec var]` — exactly ONE whole-var `BurdenDec` per
-    /// admitted closure, placed AFTER the lineage's execution-final transitive
-    /// borrow-read (the normal successor of the LAST borrowed-`Invoke` that
-    /// reads the lineage). Merged into the `forwarder_result_releases` emission
-    /// surface (identical `ForwarderReleasePos` placement contract). The unwind
-    /// / unreachable per-edge releases on the dying paths are owned by the
+    /// `(block_idx, pos) -> [dec var]` — DEAD-PARAM MODE ONLY: exactly ONE
+    /// whole-var `BurdenDec` per admitted closure with a dead merge block-param
+    /// sink, placed AFTER the lineage's execution-final transitive borrow-read
+    /// (the normal successor of the LAST borrowed-`Invoke` that reads the
+    /// lineage). Merged into the `forwarder_result_releases` emission surface
+    /// (identical `ForwarderReleasePos` placement contract). The unwind /
+    /// unreachable per-edge releases on the dying paths are owned by the
     /// Surface-1 Category-2 `collect_invoke_edge_decs` `deadAtSucc` conjunct
     /// (`edge_cleanup.rs`) — disjoint edges, no double-release.
     pub releases: FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>>,
+    /// NO-SINK MODE: the receiver var (the borrowed-`Invoke` carrier) of an
+    /// admitted no-dead-param closure, CLAIMED for the landed Category-2 per-edge
+    /// `deadAtSucc` emission. The inline-before-terminator dec is suppressed
+    /// (via `suppressed_lineage_vars`); the per-edge release lands on each dying
+    /// successor edge of the carrier's `Invoke` (normal + unwind). Cat-2's
+    /// `release_with_burden_edge` gates its paired `BurdenDec` on
+    /// `carries_burden` (`func.burden_emitted[var]`), so the claim sets that bit
+    /// — without it the suppressed var carries no burden ops and Cat-2 filters
+    /// out the burden dec, leaving the lowered path's per-value ledger unbalanced.
+    /// A live-across receiver (read past the carrier) takes its release at the
+    /// LAST borrowed-`Invoke` in its lineage — Cat-2's per-edge `deadAtSucc`
+    /// fires only where the carrier is genuinely dead at the successor, so the
+    /// post-call last read is the natural death point with no separate placement.
+    pub claimed_no_sink_vars: FxHashSet<ArcVarId>,
 }
 
 /// RL-2 + RL-4 lineage-death-point treatment for a borrowed-`Invoke`-terminator
@@ -105,11 +124,26 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///      use is a borrow-read / borrowed-`Invoke` arg; any owned-position consume
 ///      / store / capture / `Select` / `IsShared` / `Reset` / `Reuse` / `Return`
 ///      / indirect-call / `Set` / `SetTag` declines (the codex gate list).
-///  (e) execution-final single dead-param release ([`choose_dead_param_release_site`]):
-///      the closure reaches EXACTLY ONE dead merge block-param, forward-reachable
-///      from every member-borrow-read block, so the placed dec lands after the
-///      closure's final borrow-read on every normal exit; unwind / unreachable
-///      paths are owned by Surface 1.
+///  (e) death-point treatment ([`choose_death_point`]) — TWO modes:
+///      - DEAD-PARAM MODE: the closure reaches EXACTLY ONE dead merge
+///        block-param, forward-reachable from every member-borrow-read block, so
+///        the placed dec lands after the closure's final borrow-read on every
+///        normal exit; unwind / unreachable paths are owned by Surface 1.
+///      - NO-SINK MODE (BUG-04-142): the closure has NO dead-param sink — the
+///        receiver dies on the borrowed-`Invoke` carrier's successor edges
+///        directly (the `is_ref(a: [7,8])` minimal — the base walk's inline
+///        `BurdenDec` before the borrowing terminator nets the fresh inc to zero
+///        pre-call, leaking the rc=1 allocation on every executing path). The
+///        per-edge release is handed to the landed Category-2 `deadAtSucc`
+///        machinery (`edge_cleanup.rs`); the carrier var is CLAIMED so Cat-2's
+///        paired `BurdenDec` is admitted (`carries_burden` gate). Requires the
+///        carrier `Invoke` to be may-unwind (a `normal`/`unwind` edge split) and
+///        the receiver to NOT be live past its LAST borrowed-`Invoke` carrier —
+///        a live-across receiver takes its release at that last carrier's
+///        successor edge (Cat-2's `deadAtSucc` fires only where the carrier is
+///        genuinely dead, so the post-call last read is the natural death point).
+///        Spec: Annex E §AIMS RL-2 `RL2_borrowed_param_emits_caller_dec` + RL-4
+///        `RL4_edge_release_balanced`.
 ///  (f) pairwise-DISJOINT closures: two admitted roots whose closures overlap
 ///      converge on one shared final read; each would place its own dec there,
 ///      double-freeing. ALL roots of an overlapping group decline.
@@ -123,6 +157,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     let mut out = BorrowedInvokeCollectionLineage {
         suppressed_lineage_vars: FxHashSet::default(),
         releases: FxHashMap::default(),
+        claimed_no_sink_vars: FxHashSet::default(),
     };
     let used = function_used_vars(func);
     // Two root families share the dead-param death-point treatment:
@@ -148,82 +183,20 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     let mut claimed_roots: FxHashSet<ArcVarId> = FxHashSet::default();
 
     for root in roots {
-        let decline = |gate: &str| {
-            tracing::trace!(
-                target: "ori_arc::aims::realize",
-                fn_name = ?func.name,
-                root = root.index(),
-                gate,
-                "borrowed-invoke collection lineage declined"
-            );
-        };
-        // Gate (b): heap-carrying buffer + not already claimed by the
-        // construct-fed dead-param family (the call-site-count ≤ 1 dead-param
-        // shape) + not already claimed within this scan.
-        if !owned_vars_needing_rc.contains(&root)
-            || claimed_by_construct_fed.contains(&root)
-            || claimed_roots.contains(&root)
-        {
-            decline("b:owned/claimed");
-            continue;
-        }
-        // Gate (d): vetted same-alloc closure (incl. the Jump-arg → dead
-        // block-param hop — the lineage's death point).
-        let Some(members) = same_alloc_closure_vetted(func, root) else {
-            decline("d:closure-vet");
-            continue;
-        };
-        // Gate (b'): MEMBER-grain disjointness from the fresh-sum live-extract
-        // family. The live-extract scan (SSOT for niche-family-sum match-extract
-        // RESULT lineages) suppresses a whole same-alloc web — its claimed set
-        // names every member, not just the root. A RESULT root whose closure
-        // overlaps that web is the SAME allocation the live-extract scan already
-        // placed its execution-final release on; admitting it here would place a
-        // second death-point release → double-free. Decline the whole closure.
-        if !members.is_disjoint(claimed_by_live_extract) {
-            decline("b':live-extract-claimed");
-            continue;
-        }
-        // Gate (c): a COLLECTION root must have a member at a borrowed `Invoke`
-        // arg (the carrier whose inline dec is the bug). A RESULT root is itself
-        // a may-unwind `Invoke` result (qualified by the collector) — no
-        // borrowed-arg carrier needed.
-        if !result_roots.contains(&root) && !closure_has_borrowed_invoke_arg(func, &members) {
-            decline("c:no-borrowed-invoke");
-            continue;
-        }
-        // Gate (c2): DECLINE when any member is a borrowed-`Invoke` arg to an
-        // ITER-CONSUMING callee (`for w in coll` inside the callee → its
-        // `ori_iter_drop` frees the buffer; RL-2 `iter_consumes` ownership
-        // transfer DESPITE the borrowed position). The callee owns the release,
-        // so a dead-param release here double-frees — the
-        // `unwind_list_reusable_after_catch` over-fire (a fresh collection
-        // borrowed into a catch'd iter-consuming user call AND reused after).
-        // Restricts the family to NON-iter-consuming borrowed-`Invoke`
-        // carriers (`__index`, `@first(xs) = xs[0]`) whose borrowed arg is a
-        // genuine borrow-read, not a transfer.
-        if closure_member_iter_consumed_at_invoke(func, &members, contracts) {
-            decline("c2:iter-consume-transfer");
-            continue;
-        }
-        // Gate (e): the lineage's death point is a DEAD block-param (the
-        // post-catch-merge sink the receiver is carried to), execution-final
-        // (forward-reachable from every member-read block). The release lands at
-        // that dead-param block's entry — the receiver is freed exactly once
-        // after all borrow-reads complete.
-        let Some((site_block, dec_var)) = choose_dead_param_release_site(func, &members, &used)
-        else {
-            decline("e:dead-param-site");
-            continue;
-        };
-        claimed_roots.extend(members.iter().copied());
-        candidates.push(Candidate {
+        if let Some(cand) = try_build_candidate(
+            func,
             root,
-            members,
-            site_block,
-            site_pos: ForwarderReleasePos::BlockEntry,
-            dec_var,
-        });
+            &used,
+            owned_vars_needing_rc,
+            claimed_by_construct_fed,
+            claimed_by_live_extract,
+            &result_roots,
+            &claimed_roots,
+            contracts,
+        ) {
+            claimed_roots.extend(cand.members.iter().copied());
+            candidates.push(cand);
+        }
     }
 
     // Gate (f): decline EVERY candidate whose closure overlaps another's.
@@ -249,12 +222,126 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
         }
         out.suppressed_lineage_vars
             .extend(cand.members.iter().copied());
-        out.releases
-            .entry((cand.site_block, cand.site_pos))
-            .or_default()
-            .push(cand.dec_var);
+        match cand.death {
+            DeathPoint::DeadParam {
+                site_block,
+                site_pos,
+                dec_var,
+            } => {
+                out.releases
+                    .entry((site_block, site_pos))
+                    .or_default()
+                    .push(dec_var);
+            }
+            DeathPoint::NoSink { claim } => {
+                tracing::trace!(
+                    target: "ori_arc::aims::realize",
+                    fn_name = ?func.name,
+                    root = cand.root.index(),
+                    claim = claim.index(),
+                    mode = "no-sink",
+                    "borrowed-invoke collection lineage admitted (edge-death claim)"
+                );
+                out.claimed_no_sink_vars.insert(claim);
+            }
+        }
     }
     out
+}
+
+/// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
+/// `None` (declined). Extracted from
+/// [`compute_borrowed_invoke_collection_lineage`] for the 100-line cap; the
+/// per-root gate sequence is unchanged.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the per-root gate sequence threads the full claimed-set context \
+              (construct-fed, live-extract, in-scan, result-roots) — bundling \
+              would obscure the gate-(b)/(b')/(c) claim disjointness"
+)]
+fn try_build_candidate(
+    func: &ArcFunction,
+    root: ArcVarId,
+    used: &FxHashSet<ArcVarId>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    claimed_by_construct_fed: &FxHashSet<ArcVarId>,
+    claimed_by_live_extract: &FxHashSet<ArcVarId>,
+    result_roots: &FxHashSet<ArcVarId>,
+    claimed_roots: &FxHashSet<ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Option<Candidate> {
+    let decline = |gate: &str| {
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            root = root.index(),
+            gate,
+            "borrowed-invoke collection lineage declined"
+        );
+    };
+    // Gate (b): heap-carrying buffer + not already claimed by the construct-fed
+    // dead-param family (the call-site-count ≤ 1 dead-param shape) + not already
+    // claimed within this scan.
+    if !owned_vars_needing_rc.contains(&root)
+        || claimed_by_construct_fed.contains(&root)
+        || claimed_roots.contains(&root)
+    {
+        decline("b:owned/claimed");
+        return None;
+    }
+    // Gate (d): vetted same-alloc closure (incl. the Jump-arg → dead block-param
+    // hop — the lineage's death point).
+    let members = same_alloc_closure_vetted(func, root).or_else(|| {
+        decline("d:closure-vet");
+        None
+    })?;
+    // Gate (b'): MEMBER-grain disjointness from the fresh-sum live-extract
+    // family. The live-extract scan (SSOT for niche-family-sum match-extract
+    // RESULT lineages) suppresses a whole same-alloc web — its claimed set names
+    // every member, not just the root. A RESULT root whose closure overlaps that
+    // web is the SAME allocation the live-extract scan already placed its
+    // execution-final release on; admitting it here would place a second
+    // death-point release → double-free. Decline the whole closure.
+    if !members.is_disjoint(claimed_by_live_extract) {
+        decline("b':live-extract-claimed");
+        return None;
+    }
+    // Gate (c): a COLLECTION root must have a member at a borrowed `Invoke` arg
+    // (the carrier whose inline dec is the bug). A RESULT root is itself a
+    // may-unwind `Invoke` result (qualified by the collector) — no borrowed-arg
+    // carrier needed.
+    if !result_roots.contains(&root) && !closure_has_borrowed_invoke_arg(func, &members) {
+        decline("c:no-borrowed-invoke");
+        return None;
+    }
+    // Gate (c2): DECLINE when any member is a borrowed-`Invoke` arg to an
+    // ITER-CONSUMING callee (`for w in coll` inside the callee → its
+    // `ori_iter_drop` frees the buffer; RL-2 `iter_consumes` ownership transfer
+    // DESPITE the borrowed position). The callee owns the release, so a release
+    // here double-frees — the `unwind_list_reusable_after_catch` over-fire.
+    if closure_member_iter_consumed_at_invoke(func, &members, contracts) {
+        decline("c2:iter-consume-transfer");
+        return None;
+    }
+    // Gate (e): choose the death-point treatment — a DEAD merge block-param sink
+    // (dead-param mode) OR the borrowed-`Invoke` carrier's successor edges
+    // (no-sink mode). The NO-SINK mode is restricted to FRESH-collection-
+    // `Construct` roots (a buffer the caller allocates at rc=1 and owns) — a
+    // RESULT root is a borrowed-call result whose release is the callee's
+    // transfer / the existing result-lineage machinery, NOT a caller-fresh
+    // allocation; the no-sink claim would place a spurious Cat-2 dec on a slice /
+    // forwarded view (`@substring`/`@repeat` return a same-buffer slice →
+    // double-free). RESULT roots stay DEAD-PARAM-mode-only.
+    let allow_no_sink = !result_roots.contains(&root);
+    let death = choose_death_point(func, &members, used, allow_no_sink).or_else(|| {
+        decline("e:death-point");
+        None
+    })?;
+    Some(Candidate {
+        root,
+        members,
+        death,
+    })
 }
 
 /// Gate (a): candidate roots — every `Construct { ctor: ListLiteral |
@@ -373,65 +460,6 @@ fn closure_member_iter_consumed_at_invoke(
         }
     }
     false
-}
-
-/// Gate (e): the lineage's death point — a DEAD block-param member (a member
-/// bound by a block-param AND unused: `Cardinality = Absent`, its only
-/// appearance is its own binding slot) reached by the receiver's Jump-arg
-/// hand-offs, that is EXECUTION-FINAL: forward-reachable from every block that
-/// borrows a member, so every borrow-read completes before the release. Returns
-/// `(dead_param_block, dead_param_var)`; the release lands at that block's entry
-/// (`ForwarderReleasePos::BlockEntry`). `None` when the lineage has no dead
-/// block-param, or has more than one (a fork the single release cannot cover),
-/// or the dead-param block is not forward-reachable from some member-read block
-/// (a member borrowed AFTER the dec would UAF). A CFG cycle re-reaching the
-/// dead-param block declines (a re-reached dec double-frees).
-fn choose_dead_param_release_site(
-    func: &ArcFunction,
-    members: &FxHashSet<ArcVarId>,
-    used: &FxHashSet<ArcVarId>,
-) -> Option<(usize, ArcVarId)> {
-    // Dead block-param members: a member that is a block-param of some block AND
-    // is never used (the carried-to-merge sink). Collect (block_idx, param_var).
-    let mut dead_params: Vec<(usize, ArcVarId)> = Vec::new();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for &(param, _) in &block.params {
-            if members.contains(&param) && !used.contains(&param) {
-                dead_params.push((block_idx, param));
-            }
-        }
-    }
-    // Exactly one dead block-param sink — a fork (two dead params on disjoint
-    // paths) cannot be covered by a single release; decline.
-    if dead_params.len() != 1 {
-        return None;
-    }
-    let (site_block, dec_var) = dead_params[0];
-    // (e1) the dead-param block must not sit in a CFG cycle (a re-reached dec
-    // double-frees).
-    if successor_reachable_blocks(func, site_block).contains(&site_block) {
-        return None;
-    }
-    // (e2) every block that BORROW-READS a member must forward-reach the
-    // dead-param block — every read completes before the release (no UAF).
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        if block_idx == site_block {
-            continue;
-        }
-        let reads_member = block
-            .body
-            .iter()
-            .any(|i| i.used_vars().iter().any(|v| members.contains(v)))
-            || block
-                .terminator
-                .used_vars()
-                .iter()
-                .any(|v| members.contains(v));
-        if reads_member && !successor_reachable_blocks(func, block_idx).contains(&site_block) {
-            return None;
-        }
-    }
-    Some((site_block, dec_var))
 }
 
 /// `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` declines the Phase-5

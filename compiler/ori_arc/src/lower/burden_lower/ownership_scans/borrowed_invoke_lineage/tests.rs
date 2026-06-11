@@ -2,6 +2,7 @@
 //! classification (incl. string-literal decline), gate declines (owned-position
 //! consume, no-borrowed-invoke), death-point selection, and the toggle skip.
 
+use super::death_point::{choose_dead_param_release_site, choose_no_sink_carrier};
 use super::*;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
@@ -356,12 +357,27 @@ fn single_predecessor_member_param_joins_closure() {
 }
 
 #[test]
-fn no_dead_param_death_point_declines() {
+fn no_dead_param_dead_param_helper_returns_none() {
     // The receiver dies at the borrowed Invoke (no Jump to a dead merge param) —
-    // there is no dead-block-param sink, so gate (e) declines (the Surface-1
-    // edge conjunct owns the per-edge release for that shape).
-    let f = func(
-        3,
+    // the DEAD-PARAM helper finds no dead-block-param sink. The no-sink mode
+    // (`choose_no_sink_carrier`) takes over in `choose_death_point` — see
+    // `no_sink_minimal_classified_as_edge_death`.
+    let f = no_sink_minimal_func();
+    let used = function_used_vars(&f);
+    let members = vet_or_panic(&f, vv(0));
+    assert!(
+        choose_dead_param_release_site(&f, &members, &used).is_none(),
+        "no dead block-param sink -> the dead-param helper returns None",
+    );
+}
+
+/// The no-sink minimal (BUG-04-142 pin 1): `bb0: %0 = Construct List() ;
+/// %1 = %0 ; Invoke @is_ref(%1 [borrow]) normal bb1 unwind bb2`; `bb1: Return %3`
+/// `bb2: Resume`. The receiver `%0`/`%1` dies on the bb1/bb2 edges directly with
+/// NO dead-param sink — the no-sink edge-death case.
+fn no_sink_minimal_func() -> ArcFunction {
+    func(
+        4,
         vec![
             block(
                 0,
@@ -375,14 +391,146 @@ fn no_dead_param_death_point_declines() {
                 ],
                 borrowed_invoke(2, 1, 1, 2),
             ),
-            block(1, vec![], ArcTerminator::Unreachable),
+            block(1, vec![], ArcTerminator::Return { value: vv(3) }),
             block(2, vec![], ArcTerminator::Resume),
         ],
+    )
+}
+
+#[test]
+fn no_sink_minimal_classified_as_edge_death() {
+    // `choose_no_sink_carrier` finds the borrowed-Invoke carrier `%1` (the
+    // member at a borrowed Invoke arg, may-unwind, execution-final). The lineage
+    // enters NO-SINK mode and the carrier is claimed for Category-2.
+    let f = no_sink_minimal_func();
+    let members = vet_or_panic(&f, vv(0));
+    assert_eq!(
+        choose_no_sink_carrier(&f, &members),
+        Some(vv(1)),
+        "the borrowed-Invoke arg %1 is the no-sink edge-death carrier",
     );
-    let used = function_used_vars(&f);
+}
+
+#[test]
+fn no_sink_lineage_suppresses_and_claims_carrier() {
+    // End-to-end: the no-sink minimal closure is suppressed (no inline dec /
+    // dup inc) AND the carrier `%1` is claimed for the Cat-2 per-edge release.
+    // No dead-param `releases` are placed (Cat-2 owns the per-edge dec).
+    let f = no_sink_minimal_func();
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let claimed = FxHashSet::default();
+    let live_extract = FxHashSet::default();
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &claimed,
+        &live_extract,
+        &FxHashMap::default(),
+    );
+    assert!(
+        out.suppressed_lineage_vars.contains(&vv(0))
+            && out.suppressed_lineage_vars.contains(&vv(1)),
+        "the no-sink closure {{%0, %1}} is suppressed (inline dec + dup inc killed)",
+    );
+    assert!(
+        out.releases.is_empty(),
+        "no dead-param release is placed — Cat-2 owns the per-edge release",
+    );
+    assert_eq!(
+        out.claimed_no_sink_vars.iter().copied().collect::<Vec<_>>(),
+        vec![vv(1)],
+        "EXACTLY the carrier %1 is claimed for the Cat-2 deadAtSucc per-edge release",
+    );
+}
+
+#[test]
+fn no_sink_self_loop_carrier_declines() {
+    // A carrier whose Invoke self-loops (the carrier block is its own successor,
+    // a CFG cycle) declines — a re-reached per-edge dec double-frees. Gate n1.
+    // `bb0: %0 = Construct ; %1 = %0 ; Invoke @f(%1 [borrow]) normal bb0 unwind bb1`.
+    let f = func(
+        4,
+        vec![
+            block(
+                0,
+                vec![
+                    list_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                ],
+                borrowed_invoke(2, 1, 0, 1),
+            ),
+            block(1, vec![], ArcTerminator::Resume),
+        ],
+    );
     let members = vet_or_panic(&f, vv(0));
     assert!(
-        choose_dead_param_release_site(&f, &members, &used).is_none(),
-        "no dead block-param sink -> no death-point site (Surface 1 owns the release)",
+        choose_no_sink_carrier(&f, &members).is_none(),
+        "a carrier whose Invoke re-reaches its own block declines (CFG cycle, gate n1)",
+    );
+}
+
+#[test]
+fn no_sink_live_across_carrier_is_last_invoke() {
+    // Live-across receiver: `%0` read at a FIRST borrowed Invoke (`@f`), aliased
+    // to `%5`, then read at a SECOND borrowed Invoke (`@len`). The execution-final
+    // carrier is the SECOND (last) Invoke's arg `%5` — every member-read block
+    // (incl. bb0) forward-reaches the last carrier block. The release lands at the
+    // post-call last read.
+    // bb0: %0 = Construct ; %1 = %0 ; Invoke @f(%1 [borrow]) normal bb1 unwind bb2
+    // bb1: %5 = %0 ; Invoke @len(%5 [borrow]) normal bb3 unwind bb4
+    // bb2/bb4: Resume ; bb3: Return %6
+    let f = func(
+        7,
+        vec![
+            block(
+                0,
+                vec![
+                    list_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                ],
+                borrowed_invoke(3, 1, 1, 2),
+            ),
+            block(
+                1,
+                vec![ArcInstr::Let {
+                    dst: vv(5),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(vv(0)),
+                }],
+                borrowed_invoke(4, 5, 3, 4),
+            ),
+            block(2, vec![], ArcTerminator::Resume),
+            block(3, vec![], ArcTerminator::Return { value: vv(6) }),
+            block(4, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    assert_eq!(
+        choose_no_sink_carrier(&f, &members),
+        Some(vv(5)),
+        "the execution-final carrier is the LAST borrowed Invoke's arg %5 (the \
+         post-call last read), not the first %1",
+    );
+}
+
+#[test]
+fn no_sink_disabled_toggle_skips_treatment() {
+    // The `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` toggle gates the whole
+    // scan (dead-param + no-sink modes). The accessor is the single switch
+    // `scan_helpers::apply_borrowed_invoke_collection_lineage` consults; unset in
+    // the test environment it returns false (treatment active).
+    assert!(
+        !borrowed_invoke_lineage_release_disabled(),
+        "the toggle is unset in the test env -> the no-sink treatment is active",
     );
 }
