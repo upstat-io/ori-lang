@@ -53,6 +53,20 @@ for arg in "$@"; do
     esac
 done
 
+# Serialize whole runs: a second test-all queues instead of interleaving.
+# Concurrent runs rebuild shared target/ artifacts mid-suite and mass-fail the
+# AOT leg with bogus per-test failures. flock --close drops the lock fd before
+# exec'ing children so cargo/ori subprocesses never inherit it; the kernel
+# releases the lock if the holder dies.
+mkdir -p target
+if [ -z "${ORI_TESTALL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
+    if ! flock --nonblock target/.test-all.lock true 2>/dev/null; then
+        echo "waiting for a concurrent test-all run to finish..."
+    fi
+    export ORI_TESTALL_FLOCKED=1
+    exec flock --close target/.test-all.lock "$0" "$@"
+fi
+
 # Always log full output to a fixed file (cleared on each run)
 LOG_FILE="test-all.log"
 > "$LOG_FILE"
@@ -327,6 +341,14 @@ parse_ori_results() {
 #   failed > 0          -> failed
 #   exit != 0, no fails  -> errored (build/run failure or pre-output crash)
 #   otherwise            -> passed
+# Identity fingerprint (dev:inode:mtime:size) of the shared AOT artifacts.
+# GNU stat first; BSD/macOS fallback.
+artifact_identity() {
+    stat -c '%d:%i:%Y:%s' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
+        || stat -f '%d:%i:%m:%z' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
+        || echo "absent"
+}
+
 suite_status() {
     local exit_code="${1:-0}" failed="${2:-0}"
     if [ "$failed" -gt 0 ]; then
@@ -402,6 +424,11 @@ if [[ $PARALLEL -eq 1 ]]; then
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
     # - run_wasm_build: separate target dir (website playground workspace)
+    # Artifact-identity baseline (AOT-leg gate): a mid-run swap of the shared
+    # compiler binary / staticlib invalidates AOT counts; the post-leg re-check
+    # marks the leg errored instead of reporting bogus per-test failures.
+    AOT_ARTIFACT_BASELINE=$(artifact_identity)
+
     run_rust_workspace &
     RUST_PID=$!
 
@@ -466,6 +493,7 @@ else
     echo ""
     run_rust_doctests || DOCTEST_EXIT=1
     echo ""
+    AOT_ARTIFACT_BASELINE=$(artifact_identity)
     run_aot || AOT_EXIT=1
     echo ""
     run_wasm_build || WASM_EXIT=1
@@ -556,6 +584,20 @@ parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 # assert_aot_success panics with "leaked memory" when exit code is 2.
 AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || true)
 AOT_LEAKS=${AOT_LEAKS:-0}
+
+# Artifact-identity re-check: the shared compiler binary / staticlib changed
+# mid-run (concurrent build) -> the AOT counts are not trustworthy. Zero the
+# counts and force the errored pathway so the table + TOTAL report INCOMPLETE
+# instead of bogus failures.
+AOT_INVALID=0
+if [ -n "${AOT_ARTIFACT_BASELINE:-}" ] && [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
+    AOT_INVALID=1
+    AOT_FAILED=0
+    AOT_PASSED=0
+    AOT_EXIT=1
+    echo ""
+    echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run (concurrent build detected); AOT counts are not trustworthy${NC}"
+fi
 
 # Determine WASM status
 if grep -q "skipped" "$WASM_OUTPUT" 2>/dev/null; then

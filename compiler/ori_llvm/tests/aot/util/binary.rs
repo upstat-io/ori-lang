@@ -3,9 +3,13 @@
 //! Provides `ori_binary()`, `stdlib_path()`, and `ir_capture_binary()`
 //! for locating the workspace `ori` compiler binary and standard library.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+
+#[cfg(test)]
+mod tests;
 
 /// Get the workspace root directory (contains `Cargo.toml` + `compiler/`).
 pub(super) fn workspace_root() -> PathBuf {
@@ -78,6 +82,170 @@ fn ensure_ori_binary_fresh_for_profile(release: bool) {
     }
 }
 
+/// How a snapshot pins an artifact against concurrent replacement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SnapshotStrategy {
+    /// Hard-link the source inode (instant; immune to write-temp-then-rename
+    /// replacement, which retargets the directory entry, never the inode).
+    /// Falls back to a full copy when the link fails (e.g. cross-device).
+    HardLink,
+    /// Full byte copy. Used as the `HardLink` fallback and pinned directly
+    /// by the harness unit tests.
+    Copy,
+}
+
+/// Snapshot `required` + any present `optional` artifacts from `source_dir`
+/// into `stage_dir`. Idempotent: an existing staged file is removed and
+/// re-snapshotted from the CURRENT source. A missing required source is an
+/// error — never a silent fallback to the mutable shared path.
+pub(super) fn stage_snapshot(
+    source_dir: &Path,
+    stage_dir: &Path,
+    required: &[&str],
+    optional: &[&str],
+    strategy: SnapshotStrategy,
+) -> Result<(), String> {
+    fs::create_dir_all(stage_dir)
+        .map_err(|e| format!("cannot create staging dir {}: {e}", stage_dir.display()))?;
+
+    let snapshot_one = |name: &str| -> Result<(), String> {
+        let src = source_dir.join(name);
+        let dst = stage_dir.join(name);
+        let _ = fs::remove_file(&dst);
+        match strategy {
+            SnapshotStrategy::HardLink => {
+                if fs::hard_link(&src, &dst).is_err() {
+                    fs::copy(&src, &dst).map(|_| ()).map_err(|e| {
+                        format!(
+                            "cannot snapshot {} into {}: {e}",
+                            src.display(),
+                            stage_dir.display()
+                        )
+                    })?;
+                }
+            }
+            SnapshotStrategy::Copy => {
+                fs::copy(&src, &dst).map(|_| ()).map_err(|e| {
+                    format!(
+                        "cannot snapshot {} into {}: {e}",
+                        src.display(),
+                        stage_dir.display()
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    };
+
+    for name in required {
+        if !source_dir.join(name).exists() {
+            return Err(format!(
+                "required artifact {} missing from {} — cannot stage a snapshot \
+                 (a missing artifact here would otherwise produce mass bogus \
+                 failures under concurrent builds)",
+                name,
+                source_dir.display()
+            ));
+        }
+        snapshot_one(name)?;
+    }
+    for name in optional {
+        if source_dir.join(name).exists() {
+            snapshot_one(name)?;
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort removal of `ori-aot-stage-<pid>-*` dirs left by prior test
+/// processes whose PID is no longer alive.
+pub(super) fn clean_stale_stage_dirs() {
+    let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let own_pid = std::process::id();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix("ori-aot-stage-") else {
+            continue;
+        };
+        let Some(pid_str) = rest.split('-').next() else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        if pid == own_pid || pid_is_alive(pid) {
+            continue;
+        }
+        let _ = fs::remove_dir_all(entry.path());
+    }
+}
+
+#[cfg(unix)]
+fn pid_is_alive(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[cfg(not(unix))]
+fn pid_is_alive(_pid: u32) -> bool {
+    // Conservative: never reclaim on platforms without a cheap liveness probe.
+    true
+}
+
+/// Snapshot the freshly-built `ori` binary + runtime staticlib into a
+/// per-test-process staging directory and return that directory.
+///
+/// A concurrent `cargo build` in the shared `target/` replaces those artifacts
+/// via write-temp-then-rename; a suite resolving them from `target/<profile>/`
+/// mid-run sees the swap and aborts en masse (hundreds of bogus failures that
+/// look like real test results). The snapshot pins the ORIGINAL inodes, so the
+/// whole run executes against one immutable view. The staticlib is staged NEXT
+/// TO the binary because the AOT runtime discovery searches the compiler
+/// binary's own directory first.
+fn staged_artifacts_dir(release: bool) -> &'static Path {
+    static DEBUG_STAGE: OnceLock<PathBuf> = OnceLock::new();
+    static RELEASE_STAGE: OnceLock<PathBuf> = OnceLock::new();
+
+    let cell = if release {
+        &RELEASE_STAGE
+    } else {
+        &DEBUG_STAGE
+    };
+    cell.get_or_init(|| {
+        clean_stale_stage_dirs();
+
+        let profile = if release { "release" } else { "debug" };
+        let stage =
+            std::env::temp_dir().join(format!("ori-aot-stage-{}-{profile}", std::process::id()));
+        let profile_dir = workspace_root().join("target").join(profile);
+        let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+        let (lib, asan_lib) = if cfg!(windows) {
+            ("ori_rt.lib", "ori_rt_asan.lib")
+        } else {
+            ("libori_rt.a", "libori_rt_asan.a")
+        };
+
+        if let Err(e) = stage_snapshot(
+            &profile_dir,
+            &stage,
+            &[&exe, lib],
+            &[asan_lib],
+            SnapshotStrategy::HardLink,
+        ) {
+            panic!("AOT harness: {e}");
+        }
+
+        eprintln!(
+            "[aot-tests] staged `{exe}` + `{lib}` ({profile}) at {} (immutable snapshot \
+             for this test process)",
+            stage.display()
+        );
+        stage
+    })
+}
+
 /// Ensure the workspace `ori` binary matching the current test profile is
 /// freshly built, invoking `cargo build -p oric --bin ori [--release]` exactly
 /// once per test process.
@@ -111,35 +279,24 @@ fn ensure_ori_binary_fresh() {
 pub fn ori_binary() -> PathBuf {
     ensure_ori_binary_fresh();
 
-    let workspace_root = workspace_root();
-
+    let release = !cfg!(debug_assertions);
     let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
-    let debug_path = workspace_root.join("target/debug").join(&exe);
-    let release_path = workspace_root.join("target/release").join(&exe);
 
-    let debug_llvm = debug_path.exists() && has_llvm_support(&debug_path);
-    let release_llvm = release_path.exists() && has_llvm_support(&release_path);
-
-    // Pick the binary that matches the current build profile.
-    let (preferred, fallback) = if cfg!(debug_assertions) {
-        ((debug_llvm, &debug_path), (release_llvm, &release_path))
-    } else {
-        ((release_llvm, &release_path), (debug_llvm, &debug_path))
-    };
-
-    if preferred.0 {
-        return preferred.1.clone();
+    // Resolve from the per-process immutable snapshot — never the shared
+    // mutable `target/<profile>/` path a concurrent build can swap mid-run.
+    let staged = staged_artifacts_dir(release).join(&exe);
+    if staged.exists() && has_llvm_support(&staged) {
+        return staged;
     }
-    if fallback.0 {
-        let profile = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        };
-        eprintln!(
-            "warning: {profile} ori binary has no LLVM support, falling back to other profile"
-        );
-        return fallback.1.clone();
+
+    // The profile-matched binary lacks LLVM support: build + stage the other
+    // profile and use its snapshot instead.
+    let profile = if release { "release" } else { "debug" };
+    eprintln!("warning: {profile} ori binary has no LLVM support, falling back to other profile");
+    ensure_ori_binary_fresh_for_profile(!release);
+    let fallback = staged_artifacts_dir(!release).join(&exe);
+    if fallback.exists() && has_llvm_support(&fallback) {
+        return fallback;
     }
 
     panic!(
@@ -148,13 +305,13 @@ pub fn ori_binary() -> PathBuf {
          Run `cargo build` (debug) or `cargo build --release` (release) first,\n\
          or use `./llvm-test.sh` which builds automatically.\n\
          \n\
-         Checked:\n  \
-           debug:   {} (exists: {})\n  \
-           release: {} (exists: {})",
-        debug_path.display(),
-        debug_path.exists(),
-        release_path.display(),
-        release_path.exists(),
+         Checked staged snapshots:\n  \
+           preferred: {} (exists: {})\n  \
+           fallback:  {} (exists: {})",
+        staged.display(),
+        staged.exists(),
+        fallback.display(),
+        fallback.exists(),
     );
 }
 
@@ -192,15 +349,14 @@ fn has_llvm_support(binary: &Path) -> bool {
 pub fn ir_capture_binary() -> PathBuf {
     ensure_ori_binary_fresh_for_profile(false);
 
-    let workspace_root = workspace_root();
     let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
-    let debug_path = workspace_root.join("target/debug").join(&exe);
+    let staged = staged_artifacts_dir(false).join(&exe);
 
-    if debug_path.exists() && has_llvm_support(&debug_path) {
-        return debug_path;
+    if staged.exists() && has_llvm_support(&staged) {
+        return staged;
     }
     panic!(
-        "No debug ori binary found for IR capture after refresh.\n\
+        "No staged debug ori binary found for IR capture after refresh.\n\
          Run `cargo build -p oric --bin ori` manually from the workspace root \
          to investigate."
     );

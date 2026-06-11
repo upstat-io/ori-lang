@@ -23,13 +23,9 @@ fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
 
     std::fs::write(&source_path, source).expect("Failed to write source");
 
-    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
-    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
-    let binary = workspace_root.join("target/debug").join(&exe);
+    // Resolve through the staged snapshot — never the mutable shared
+    // target/debug path a concurrent build can swap mid-suite.
+    let binary = crate::util::ir_capture_binary();
 
     let result = Command::new(binary)
         .args([
@@ -698,12 +694,6 @@ fn test_narrowing_policy_disabled_suppresses_local_narrowing() {
 #[test]
 fn test_narrowing_policy_disabled_behavioral_correctness() {
     // Run with ORI_NO_REPR_OPT=1 — same binary, different env
-    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
-
     let temp_dir = TempDir::new().expect("temp dir");
     let source_path = temp_dir.path().join("test_disabled.ori");
     let binary_path = temp_dir
@@ -716,8 +706,7 @@ fn test_narrowing_policy_disabled_behavioral_correctness() {
     )
     .unwrap();
 
-    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
-    let binary = workspace_root.join("target/debug").join(&exe);
+    let binary = crate::util::ir_capture_binary();
 
     // Compile with ORI_NO_REPR_OPT=1
     let compile = Command::new(&binary)

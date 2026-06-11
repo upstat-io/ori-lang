@@ -15,7 +15,7 @@ mod object;
 mod wasm;
 
 // Re-export everything for transparent access via `crate::util::*`
-pub use binary::{ori_binary, stdlib_path};
+pub use binary::{ir_capture_binary, ori_binary, stdlib_path};
 pub use compile::{
     assert_aot_success, assert_multifile_aot_success, assert_no_signal_crash, assert_panic_exit,
     compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args,
