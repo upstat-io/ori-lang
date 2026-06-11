@@ -170,7 +170,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     //    is spurious (the callee already transferred +1); suppressing the
     //    lineage strips it and the dead-param release frees the callee's +1.
     let collection_roots = collect_fresh_collection_construct_roots(func);
-    let result_root_vec =
+    let (result_root_vec, fresh_result_roots) =
         collect_borrowed_call_result_roots(func, owned_vars_needing_rc, contracts);
     let result_roots: FxHashSet<ArcVarId> = result_root_vec.iter().copied().collect();
     let mut roots: Vec<ArcVarId> = collection_roots;
@@ -191,6 +191,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
             claimed_by_construct_fed,
             claimed_by_live_extract,
             &result_roots,
+            &fresh_result_roots,
             &claimed_roots,
             contracts,
         ) {
@@ -267,6 +268,7 @@ fn try_build_candidate(
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
     claimed_by_live_extract: &FxHashSet<ArcVarId>,
     result_roots: &FxHashSet<ArcVarId>,
+    fresh_result_roots: &FxHashSet<ArcVarId>,
     claimed_roots: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> Option<Candidate> {
@@ -332,7 +334,16 @@ fn try_build_candidate(
     // allocation; the no-sink claim would place a spurious Cat-2 dec on a slice /
     // forwarded view (`@substring`/`@repeat` return a same-buffer slice →
     // double-free). RESULT roots stay DEAD-PARAM-mode-only.
-    let allow_no_sink = !result_roots.contains(&root);
+    // A RESULT root joins the no-sink mode ONLY when its callee contract proves
+    // a FRESH allocation (Unique + preserves_freshness, never ttr) — the
+    // contract-aware discriminator separating fresh results (`@push` copies,
+    // whose mis-placed pre-terminator dec is a use-after-free) from same-buffer
+    // views (`@substring` / `@repeat`, where an edge release double-frees).
+    // A RESULT root joins the no-sink mode ONLY when its callee contract proves
+    // a FRESH allocation (Unique + preserves_freshness, never ttr) — the
+    // contract-aware discriminator separating fresh results from same-buffer
+    // views (`@substring` / `@repeat`, where an edge release double-frees).
+    let allow_no_sink = !result_roots.contains(&root) || fresh_result_roots.contains(&root);
     let death = choose_death_point(func, &members, used, allow_no_sink).or_else(|| {
         decline("e:death-point");
         None
@@ -379,7 +390,7 @@ fn collect_borrowed_call_result_roots(
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
-) -> Vec<ArcVarId> {
+) -> (Vec<ArcVarId>, FxHashSet<ArcVarId>) {
     let owned_result_non_forwarder_non_iter = |callee: &Name| -> bool {
         contracts.get(callee).is_some_and(|c| {
             matches!(
@@ -390,7 +401,22 @@ fn collect_borrowed_call_result_roots(
                 && !c.params.iter().any(|p| p.iter_consumes)
         })
     };
+    // PROVABLY-FRESH result: the callee's contract proves the returned value is
+    // a NEW allocation (`Unique` + `preserves_freshness`), never a same-buffer
+    // view (`@substring` / `@repeat` are ttr / non-fresh and stay excluded).
+    // Only this subset is safe for the NO-SINK edge-death claim — an edge
+    // release on a view double-frees the viewed buffer. Spec: Annex E §AIMS
+    // RL-2.
+    let provably_fresh = |callee: &Name| -> bool {
+        contracts.get(callee).is_some_and(|c| {
+            c.return_info.uniqueness == crate::aims::lattice::Uniqueness::Unique
+                && c.return_info.preserves_freshness
+                && !c.params.iter().any(|p| p.transfers_through_return)
+                && !c.params.iter().any(|p| p.iter_consumes)
+        })
+    };
     let mut roots: Vec<ArcVarId> = Vec::new();
+    let mut fresh: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         if let ArcTerminator::Invoke {
             dst, func: callee, ..
@@ -398,10 +424,13 @@ fn collect_borrowed_call_result_roots(
         {
             if owned_vars_needing_rc.contains(dst) && owned_result_non_forwarder_non_iter(callee) {
                 roots.push(*dst);
+                if provably_fresh(callee) {
+                    fresh.insert(*dst);
+                }
             }
         }
     }
-    roots
+    (roots, fresh)
 }
 
 /// Gate (c): true iff any closure member is used at a BORROWED (non-owned) arg

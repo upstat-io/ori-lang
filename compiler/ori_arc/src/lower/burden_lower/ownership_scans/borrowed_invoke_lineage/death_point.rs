@@ -86,8 +86,18 @@ pub(super) fn choose_no_sink_carrier(
     let mut carriers: Vec<(usize, ArcVarId)> = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let term = &block.terminator;
-        let (ArcTerminator::Invoke { normal, unwind, .. }
-        | ArcTerminator::InvokeIndirect { normal, unwind, .. }) = term
+        let (ArcTerminator::Invoke {
+            dst,
+            normal,
+            unwind,
+            ..
+        }
+        | ArcTerminator::InvokeIndirect {
+            dst,
+            normal,
+            unwind,
+            ..
+        }) = term
         else {
             continue;
         };
@@ -95,6 +105,19 @@ pub(super) fn choose_no_sink_carrier(
         // fires on the dying normal + unwind edges). A self-loop normal==unwind
         // is not a may-unwind carrier.
         if normal == unwind {
+            continue;
+        }
+        // A heap-typed result may be a same-allocation VIEW of the carrier (a
+        // slice): the view keeps the allocation live at the successor, the
+        // per-edge probe suppresses the release on both edges, and the
+        // suppressed inline pair releases nothing. Only a provably-Scalar
+        // result is safe for the no-sink claim (an unpopulated repr declines
+        // conservatively). Spec: Annex E §AIMS RL-2.
+        if func
+            .var_reprs
+            .get(dst.index())
+            .is_none_or(|r| *r != crate::ir::ValueRepr::Scalar)
+        {
             continue;
         }
         for (pos, &v) in term.used_vars().iter().enumerate() {

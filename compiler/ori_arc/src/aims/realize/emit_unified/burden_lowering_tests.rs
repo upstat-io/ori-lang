@@ -19,7 +19,8 @@ use super::{
     compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
     compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
     compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
-    compute_returned_collection_surplus_inc_strips, emit_for_yield_index_consumed_element_rc,
+    compute_returned_collection_surplus_inc_strips, emit_cow_inc_terminator_edge_release,
+    emit_for_yield_index_consumed_element_rc,
     emit_iter_element_pushed_into_returned_collection_keepalive_inc,
     emit_iter_element_view_iter_consume_keepalive_inc, emit_single_iter_consume_reuse_keepalive,
     is_burden_carrying_aggregate, iterator_consumer_collection_names,
@@ -5491,5 +5492,199 @@ fn scalar_element_gate_is_the_firing_boundary_int_vs_str() {
     assert_ne!(
         strips_int, strips_str,
         "the scalar-element gate is the firing boundary between [int] and [str]"
+    );
+}
+
+/// Build the borrowed-param COW-push shape: a borrowed param `%0`, COW-inc'd
+/// alias `%1 = %0` consumed `[own]` at an `Invoke @push` terminator, then —
+/// when `live_after` — a LATER block re-reads the same allocation via `%9 = %0`
+/// at a borrowed `@len`. Mirrors `@check(list) = { list.push(99); list.len() }`
+/// (`live_after = true`) vs `@extend_list(items) = items.push(..)` returning the
+/// result (`live_after = false`).
+fn borrowed_param_cow_push_func(
+    interner: &ori_ir::StringInterner,
+    live_after: bool,
+) -> ArcFunction {
+    let push_name = interner.intern("push");
+    let len_name = interner.intern("len");
+    // %0 borrowed param, %1 push receiver alias, %2 elem, %3 push result,
+    // %4 push-result alias, %5 scalar len, %6 re-read alias of %0, %7 scalar len2.
+    let var_reprs = vec![
+        ValueRepr::RcPointer, // %0 borrowed param
+        ValueRepr::RcPointer, // %1 = %0 (push receiver)
+        ValueRepr::Scalar,    // %2 push elem
+        ValueRepr::RcPointer, // %3 push result (fresh)
+        ValueRepr::RcPointer, // %4 = %3 (len-alias)
+        ValueRepr::Scalar,    // %5 len(result)
+        ValueRepr::RcPointer, // %6 = %0 (re-read of the borrowed param)
+        ValueRepr::Scalar,    // %7 len(param)
+    ];
+    let var_types: Vec<Idx> = (0..var_reprs.len()).map(|_| Idx::from_raw(0)).collect();
+    let mut blocks = vec![
+        // bb0: `%1 = %0`; BurdenInc %1; `Invoke @push(%1 [own], %2 [own]) -> %3`.
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::from_raw(0),
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::BurdenInc { var: v(1) },
+            ],
+            terminator: ArcTerminator::Invoke {
+                dst: v(3),
+                ty: Idx::from_raw(0),
+                func: push_name,
+                args: vec![v(1), v(2)],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                mono_instance_id: None,
+                normal: ArcBlockId::new(1),
+                unwind: ArcBlockId::new(2),
+            },
+        },
+        // bb1: `%4 = %3`; borrow-read `@len(%4)` -> %5; then exit (or re-read).
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: Vec::new(),
+            body: vec![ArcInstr::Let {
+                dst: v(4),
+                ty: Idx::from_raw(0),
+                value: ArcValue::Var(v(3)),
+            }],
+            terminator: ArcTerminator::Invoke {
+                dst: v(5),
+                ty: Idx::from_raw(0),
+                func: len_name,
+                args: vec![v(4)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+                normal: ArcBlockId::new(if live_after { 3 } else { 4 }),
+                unwind: ArcBlockId::new(2),
+            },
+        },
+        // bb2: unwind pad.
+        ArcBlock {
+            id: ArcBlockId::new(2),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+    blocks.push(borrowed_param_cow_push_tail_block(live_after, len_name));
+    let params = vec![ArcParam {
+        var: v(0),
+        ty: Idx::from_raw(0),
+        ownership: Ownership::Borrowed,
+    }];
+    ArcFunction {
+        params,
+        blocks,
+        var_types,
+        var_reprs,
+        ..Default::default()
+    }
+}
+
+/// The tail block of [`borrowed_param_cow_push_func`]: bb3 re-reads the borrowed
+/// param (`%6 = %0`; `Apply @len(%6 [borrow])`) when `live_after`, else bb4 is a
+/// bare exit (the push result is returned, the receiver not re-read).
+fn borrowed_param_cow_push_tail_block(live_after: bool, len_name: Name) -> ArcBlock {
+    if live_after {
+        ArcBlock {
+            id: ArcBlockId::new(3),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: v(6),
+                    ty: Idx::from_raw(0),
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Apply {
+                    dst: v(7),
+                    ty: Idx::from_raw(0),
+                    func: len_name,
+                    args: vec![v(6)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(3) },
+        }
+    } else {
+        ArcBlock {
+            id: ArcBlockId::new(4),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Return { value: v(3) },
+        }
+    }
+}
+
+/// Same-alloc reps over the function's `Let { Var }` aliases (the test-local
+/// projection of `compute_same_alloc_reps`'s Let-edge unions).
+fn let_alias_reps(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                let root = reps.get(src).copied().unwrap_or(*src);
+                reps.insert(*dst, root);
+            }
+        }
+    }
+    reps
+}
+
+/// Positive pin: a borrowed-param COW-push receiver that is LIVE-AFTER the call
+/// (re-read through a same-alloc alias) gets NO callee-side edge `BurdenDec` on
+/// its lineage. The step-1 COW-inc is balanced by the COW helper's own slow-path
+/// dec; the caller owns + drops the allocation. A callee edge-dec would free the
+/// caller's still-owned reference before the later read (UAF) and double-free
+/// against the caller's drop. Spec: Annex E §AIMS RL-1 + RL-2.
+#[test]
+fn borrowed_param_cow_push_live_after_emits_no_edge_release() {
+    let interner = ori_ir::StringInterner::new();
+    let mut func = borrowed_param_cow_push_func(&interner, true);
+    let reps = let_alias_reps(&func);
+    emit_cow_inc_terminator_edge_release(&mut func, &interner, &reps);
+    let dec_on_lineage = func.blocks.iter().any(|b| {
+        b.body.iter().any(|i| {
+            matches!(i, ArcInstr::BurdenDec { var }
+                if reps.get(var).copied().unwrap_or(*var) == v(0) || *var == v(1))
+        })
+    });
+    assert!(
+        !dec_on_lineage,
+        "live-after borrowed-param COW receiver must get NO callee edge release"
+    );
+}
+
+/// Negative pin: a borrowed-param COW-push receiver that is DEAD after the call
+/// (the push result is returned, the receiver not re-read) DOES get the
+/// both-edge `BurdenDec` — the inc'd reference is dead on each successor and the
+/// caller provides the matching ref (str-list shape). Clamps the live-after
+/// suppression from below: dropping the gate would leak this shape's receiver.
+#[test]
+fn borrowed_param_cow_push_dead_after_keeps_edge_release() {
+    let interner = ori_ir::StringInterner::new();
+    let mut func = borrowed_param_cow_push_func(&interner, false);
+    let reps = let_alias_reps(&func);
+    emit_cow_inc_terminator_edge_release(&mut func, &interner, &reps);
+    let dec_on_lineage = func.blocks.iter().any(|b| {
+        b.body.iter().any(|i| {
+            matches!(i, ArcInstr::BurdenDec { var }
+                if reps.get(var).copied().unwrap_or(*var) == v(0) || *var == v(1))
+        })
+    });
+    assert!(
+        dec_on_lineage,
+        "dead-after borrowed-param COW receiver must keep the both-edge release"
     );
 }

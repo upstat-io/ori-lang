@@ -8,7 +8,7 @@ use super::death_point::{
 use super::*;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
-    CtorKind, LitValue,
+    CtorKind, LitValue, ValueRepr,
 };
 use ori_ir::Name;
 use ori_types::Idx;
@@ -58,6 +58,7 @@ fn jump(target: u32, args: Vec<ArcVarId>) -> ArcTerminator {
 fn func(n_vars: u32, blocks: Vec<ArcBlock>) -> ArcFunction {
     ArcFunction {
         var_types: (0..n_vars).map(|i| Idx::from_raw(i + 1)).collect(),
+        var_reprs: (0..n_vars).map(|_| ValueRepr::Scalar).collect(),
         blocks,
         entry: ArcBlockId::new(0),
         name: Name::from_raw(0),
@@ -553,5 +554,21 @@ fn choose_death_point_dispatch_no_sink_fallback_and_gate() {
         choose_death_point(&f, &members, &used, false),
         None,
         "result-root lineages (allow_no_sink=false) take NO death point",
+    );
+}
+
+#[test]
+fn no_sink_declines_heap_result_carrier() {
+    // The borrowing Invoke's dst is a heap value (RcPointer) — a possible
+    // same-allocation VIEW of the carrier (a slice). Suppressing the carrier's
+    // inline pair while the per-edge probe sees the view live at the successor
+    // releases NOTHING; the no-sink claim must decline (scalar results only).
+    let mut f = no_sink_minimal_func();
+    f.var_reprs[2] = ValueRepr::RcPointer;
+    let members = vet_or_panic(&f, vv(0));
+    assert_eq!(
+        choose_no_sink_carrier(&f, &members),
+        None,
+        "a heap-result borrowing Invoke may return a same-alloc view; decline",
     );
 }

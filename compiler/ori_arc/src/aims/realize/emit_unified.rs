@@ -390,7 +390,7 @@ fn emit_burden_path_probe_tail(
     // SUPPRESSES this via `is_owned_transfer_arg_at_terminator` (it treats the
     // owned Invoke position as an ownership transfer), so the dedicated pass below
     // is the freeing-dec emitter for the COW-inc'd lineage.
-    emit_cow_inc_terminator_edge_release(func, interner);
+    emit_cow_inc_terminator_edge_release(func, interner, same_alloc_reps);
     trace_phase_snapshot("after_phase_6_6_cow_inc_edge_release", func, interner);
 
     // Phase 6.65 — RL-2/RL-4 relocation of a borrowed-terminator-Invoke arg's
@@ -970,7 +970,11 @@ fn lower_and_diagnose_burden_path(
 /// successor block, before any other instruction, so a successor that re-reads
 /// `recv` (e.g. `@main`'s `if r1 == ...` after `Invoke @push`) is unaffected —
 /// `recv` is dead at the successor by the edge-dead precondition.
-fn emit_cow_inc_terminator_edge_release(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
+fn emit_cow_inc_terminator_edge_release(
+    func: &mut ArcFunction,
+    interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
     let borrowed_aliases = crate::lower::burden_lower::compute_borrowed_alias_vars(func);
     if borrowed_aliases.is_empty() {
         return;
@@ -990,37 +994,75 @@ fn emit_cow_inc_terminator_edge_release(func: &mut ArcFunction, interner: &ori_i
     // buffer), so it gets NO edge dec here.
     let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
     cow_mutators.remove(&interner.intern("iter"));
-    // Collect (successor_block_idx, recv) edges to release. A COW-MUTATOR-inc'd
-    // receiver at an owned Invoke-terminator position is released on its
-    // normal+unwind successors. Gather first (immutable borrow), then mutate.
-    let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
-    for block in &func.blocks {
+    // Same-allocation reps over the receiver's `Let { Var }` alias chain: the
+    // borrowed-param root (`%0`), its aliases (`%1 = %0`), and a later re-read
+    // (`%9 = %0`) all name ONE allocation. The live-out check operates on the rep
+    // so a use through ANY alias keeps the lineage live.
+    let recv_reps = same_alloc_reps;
+    let rep_of = |v: ArcVarId| recv_reps.get(&v).copied().unwrap_or(v);
+    // Reps whose same-alloc root is a BORROWED parameter: the caller retains and
+    // drops the allocation. A COW-mutator inc on such a receiver is balanced by
+    // the COW helper's own slow-path dec of the copied-from buffer (rc 2 -> 1),
+    // leaving the caller's borrowed reference for the caller to drop — the callee
+    // emits NO release on a live-across lineage (a callee dec double-frees against
+    // the caller's drop).
+    let borrowed_param_reps: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| matches!(p.ownership, crate::ownership::Ownership::Borrowed))
+        .map(|p| recv_reps.get(&p.var).copied().unwrap_or(p.var))
+        .collect();
+    let mut edge_releases: Vec<(usize, ArcVarId)> = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
         use crate::ir::ArcTerminator;
-        let (succs, used, callee): (Vec<crate::ir::ArcBlockId>, &ArcTerminator, Option<&Name>) =
-            match &block.terminator {
-                ArcTerminator::Invoke {
-                    normal,
-                    unwind,
-                    func: callee,
-                    ..
-                } => (vec![*normal, *unwind], &block.terminator, Some(callee)),
-                // InvokeIndirect (closure call) is never a builtin COW mutator —
-                // closures dispatch through user code, not `all_cow_method_names`.
-                _ => continue,
-            };
+        let (normal, unwind, used, callee): (
+            crate::ir::ArcBlockId,
+            crate::ir::ArcBlockId,
+            &ArcTerminator,
+            Option<&Name>,
+        ) = match &block.terminator {
+            ArcTerminator::Invoke {
+                normal,
+                unwind,
+                func: callee,
+                ..
+            } => (*normal, *unwind, &block.terminator, Some(callee)),
+            // InvokeIndirect (closure call) is never a builtin COW mutator —
+            // closures dispatch through user code, not `all_cow_method_names`.
+            _ => continue,
+        };
         let Some(callee) = callee else { continue };
         if !cow_mutators.contains(callee) {
             continue;
         }
         for (pos, &var) in used.used_vars().iter().enumerate() {
-            if used.is_owned_position(pos) && cow_inc.contains(&var) {
-                for s in &succs {
-                    releases.push((s.index(), var));
-                }
+            if !(used.is_owned_position(pos) && cow_inc.contains(&var)) {
+                continue;
             }
+            let rep = rep_of(var);
+            // RL-4 `deadAtSucc` precondition: the inc'd receiver is released on a
+            // dying successor edge ONLY when it is genuinely dead at that successor.
+            // A BORROWED-param-rooted receiver live PAST the call through a
+            // same-alloc alias (`@check(list)`'s `list.push(..); list.len()`) is NOT
+            // dead at the normal successor — and the CALLER owns + drops the
+            // allocation. The step-1 COW-inc is balanced by the helper's own
+            // slow-path dec of the copied-from buffer (rc 2 -> 1) —
+            // `RL1_duplication_balanced`, the inc and copy-source-dec are the
+            // matched pair. The callee emits NO release on ANY edge: a callee
+            // edge-dec frees the caller's still-owned reference before the later
+            // same-alloc read (UAF) and double-frees against the caller's drop.
+            // All other receivers (owned-local, or borrowed-param dead-after-call)
+            // keep the unconditional both-edge release.
+            if borrowed_param_reps.contains(&rep)
+                && lineage_live_out(func, recv_reps, rep, block_idx)
+            {
+                continue;
+            }
+            edge_releases.push((normal.index(), var));
+            edge_releases.push((unwind.index(), var));
         }
     }
-    for (succ_idx, var) in releases {
+    for (succ_idx, var) in edge_releases {
         if let Some(block) = func.blocks.get_mut(succ_idx) {
             block.body.insert(0, ArcInstr::BurdenDec { var });
         }
