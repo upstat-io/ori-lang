@@ -76,39 +76,26 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 /// RL-2 + RL-4 lineage-death-point treatment for a borrowed-`Invoke`-terminator
 /// arg whose lineage root is a FRESH `Construct` collection buffer.
 ///
-/// Shape (the `catch(expr: xs[9]); xs.len()` / `catch(expr: xs[1])` family —
-/// a fresh `[str]` / `[int]` collection indexed inside a `catch`): a fresh
-/// collection `%2 = Construct List(..)` is read through `Let { Var }` aliases
-/// (`%5 = %2`, `%13 = %2`) and a length `Project`, then BORROWED into a
-/// may-unwind `Invoke @__index(%5 [borrow], ..)` terminator. The collection is
-/// LIVE-ACROSS the catch (read again past it — `xs.len()` / `xs[0]`), so the
-/// construct-fed-dead-param collection arm (`compute_construct_fed_dead_param_lineage`
-/// gate (a), call-site-count ≤ 1) DECLINES it. The base walk then OVER-emits:
-/// a dup-alias `BurdenInc` on `%5` (the `use_counts >= 2` proxy mis-classes the
-/// same-alloc alias as a duplication: `%2` is "live" only because it ALSO feeds
-/// the second `Invoke` / the post-catch read) + an inline `BurdenDec %5`
-/// emitted BEFORE the terminator that reads `%5`. The inline dec releases the
-/// collection buffer while `%2` is still live → use-after-free / double-free.
+/// Shape: a fresh `Construct` allocation read through `Let { Var }` aliases is
+/// BORROWED into a may-unwind `Invoke` terminator while still live. The base
+/// walk OVER-emits — a dup-alias `BurdenInc` (the `use_counts >= 2` proxy
+/// mis-classes the same-alloc alias as a duplication) plus an inline
+/// `BurdenDec` BEFORE the terminator that reads the arg — releasing the
+/// buffer while the root is live: use-after-free / double-free.
 ///
-/// The cure removes the WHOLE same-alloc closure (the Construct root + Let-Var
-/// aliases + Jump-arg block-params) from `owned_vars_needing_rc` — suppressing
-/// the dup-alias incs AND the inline terminator dec — and emits EXACTLY ONE
-/// whole-var `BurdenDec` on the lineage var read at the closure's
-/// execution-FINAL borrow-read, placed AFTER that read
-/// (`RL2_release_exactly_once`, no UAF). The dying unwind / unreachable edges
-/// are released by the Surface-1 Category-2 `deadAtSucc` conjunct
-/// (`edge_cleanup.rs::collect_invoke_edge_decs`) — disjoint edges from the
-/// placed normal-path release.
+/// The cure removes the WHOLE same-alloc closure from `owned_vars_needing_rc`
+/// (suppressing the dup-alias incs + inline terminator dec) and emits EXACTLY
+/// ONE whole-var `BurdenDec` after the closure's execution-final borrow-read
+/// (`RL2_release_exactly_once`); dying unwind / unreachable edges are released
+/// by the Category-2 `deadAtSucc` conjunct (`edge_cleanup.rs`) — disjoint.
 ///
 /// # Admission gates
 ///
 /// ALL must hold per closure; ANY failure declines the root and keeps current
 /// behavior — the status-quo leak is FAR safer than an over-fire double-free.
-///  (a) FRESH collection-`Construct` root: a `Construct { ctor: ListLiteral |
-///      MapLiteral | SetLiteral }` dst (the fresh buffer). String literals /
-///      panic messages have NO `Construct` definer → never candidates (they
-///      decline naturally — keeps the panic-message shapes Category-2
-///      deliberately skips out of scope).
+///  (a) FRESH `Construct` root (collection literal or sum-aggregate
+///      `EnumVariant`). String literals / panic messages have NO `Construct`
+///      definer → never candidates.
 ///  (b) root in `owned_vars_needing_rc` (the buffer carries RC) AND not already
 ///      claimed by a PRIOR ownership-scan treatment: the construct-fed dead-param
 ///      family AND the fresh-sum live-extract family (both run first). The
@@ -134,16 +121,11 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///        directly (the `is_ref(a: [7,8])` minimal — the base walk's inline
 ///        `BurdenDec` before the borrowing terminator nets the fresh inc to zero
 ///        pre-call, leaking the rc=1 allocation on every executing path). The
-///        per-edge release is handed to the landed Category-2 `deadAtSucc`
-///        machinery (`edge_cleanup.rs`); the carrier var is CLAIMED so Cat-2's
-///        paired `BurdenDec` is admitted (`carries_burden` gate). Requires the
-///        carrier `Invoke` to be may-unwind (a `normal`/`unwind` edge split) and
-///        the receiver to NOT be live past its LAST borrowed-`Invoke` carrier —
-///        a live-across receiver takes its release at that last carrier's
-///        successor edge (Cat-2's `deadAtSucc` fires only where the carrier is
-///        genuinely dead, so the post-call last read is the natural death point).
-///        Spec: Annex E §AIMS RL-2 `RL2_borrowed_param_emits_caller_dec` + RL-4
-///        `RL4_edge_release_balanced`.
+///        per-edge release is handed to the Category-2 `deadAtSucc` machinery
+///        (`edge_cleanup.rs`); the carrier var is CLAIMED so Cat-2's paired
+///        `BurdenDec` is admitted. Requires a may-unwind carrier `Invoke` and
+///        a receiver not live past its LAST borrowed-`Invoke` carrier.
+///        Spec: Annex E §AIMS RL-2 + RL-4.
 ///  (f) pairwise-DISJOINT closures: two admitted roots whose closures overlap
 ///      converge on one shared final read; each would place its own dec there,
 ///      double-freeing. ALL roots of an overlapping group decline.

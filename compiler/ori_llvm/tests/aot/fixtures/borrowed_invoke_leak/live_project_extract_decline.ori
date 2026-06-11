@@ -1,4 +1,4 @@
-// Pin 10 (negative GREEN guard — the Project-extract decline gate, §02 item 4):
+// Pin 10 (negative GREEN guard — the Project-extract decline gate):
 // in ONE function a fresh sum `Box = Wrap(xs: [int])` is borrowed into a user
 // call (`probe`, returning int = the carrier) AND its heap payload is EXTRACTED
 // via a match (`Wrap(xs) -> xs`), with the extract read AFTER the borrowed call
