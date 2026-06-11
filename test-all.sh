@@ -343,10 +343,31 @@ parse_ori_results() {
 #   otherwise            -> passed
 # Identity fingerprint (dev:inode:mtime:size) of the shared AOT artifacts.
 # GNU stat first; BSD/macOS fallback.
+# KEEP IN SYNC with artifact_identity_of() in
+# compiler/ori_llvm/tests/aot/util/binary.rs — the AOT harness writes the
+# same tuple into its stage manifest; the gate below string-compares the two.
 artifact_identity() {
     stat -c '%d:%i:%Y:%s' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
         || stat -f '%d:%i:%m:%z' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
         || echo "absent"
+}
+
+# Stage manifest the AOT harness publishes while snapshotting its per-process
+# artifacts (staged_artifacts_dir in compiler/ori_llvm/tests/aot/util/binary.rs).
+# Deleted at baseline capture, so post-leg presence proves THIS run staged.
+AOT_STAGE_MANIFEST="build/aot-stage-manifest-debug.txt"
+
+# Stage-time source identities recorded in the manifest for the same artifacts
+# artifact_identity() stats, newline-joined in the same order. Empty output =
+# manifest missing or unparseable (gate falls back to the live compare).
+manifest_source_identity() {
+    local manifest="$1" ori_id rt_id
+    [ -f "$manifest" ] || return 0
+    ori_id=$(awk '$1 == "artifact" && $2 == "ori" { print $4; exit }' "$manifest")
+    rt_id=$(awk '$1 == "artifact" && $2 == "libori_rt.a" { print $4; exit }' "$manifest")
+    if [ -n "$ori_id" ] && [ -n "$rt_id" ]; then
+        printf '%s\n%s\n' "$ori_id" "$rt_id"
+    fi
 }
 
 suite_status() {
@@ -424,9 +445,13 @@ if [[ $PARALLEL -eq 1 ]]; then
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
     # - run_wasm_build: separate target dir (website playground workspace)
-    # Artifact-identity baseline (AOT-leg gate): a mid-run swap of the shared
-    # compiler binary / staticlib invalidates AOT counts; the post-leg re-check
-    # marks the leg errored instead of reporting bogus per-test failures.
+    # AOT identity-gate baseline (Go model: pin at start, immune thereafter).
+    # The AOT harness snapshots the compiler binary + staticlib into a
+    # per-process hardlink stage and records the staged source identities in
+    # $AOT_STAGE_MANIFEST; the post-leg gate validates THAT manifest against
+    # this baseline — live target/ churn after staging is harmless. Delete any
+    # stale manifest first: post-leg presence proves THIS run staged.
+    rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
 
     run_rust_workspace &
@@ -493,6 +518,9 @@ else
     echo ""
     run_rust_doctests || DOCTEST_EXIT=1
     echo ""
+    # AOT identity-gate baseline + stale-manifest delete (see the parallel
+    # block's comment for the Go-model contract).
+    rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
     run_aot || AOT_EXIT=1
     echo ""
@@ -508,13 +536,29 @@ else
 fi
 
 # Show verbose output if requested or on failure
-# Detect mid-run artifact invalidation BEFORE any failure dump — invalidated
-# per-test output is noise, not signal.
+# AOT identity gate (Go model) — decide BEFORE any failure dump: invalidated
+# per-test output is noise, not signal. Decision table:
+#   manifest present, staged identities == baseline -> VALID (the per-process
+#     snapshot pinned the baseline inodes; later target/ churn never reached
+#     the leg — no invalidation even if artifact_identity changed mid-run)
+#   manifest present, staged identities != baseline -> INVALID (a build
+#     crossed the baseline->stage window; the AOT leg ran different artifacts
+#     than the rest of the run)
+#   manifest absent/unparseable -> conservative legacy live compare
 AOT_INVALID=0
-if [ -n "${AOT_ARTIFACT_BASELINE:-}" ] && [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
-    AOT_INVALID=1
-    echo ""
-    echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run (concurrent build detected); AOT counts are not trustworthy${NC}"
+if [ -n "${AOT_ARTIFACT_BASELINE:-}" ]; then
+    AOT_STAGED_IDENTITY=$(manifest_source_identity "$AOT_STAGE_MANIFEST")
+    if [ -n "$AOT_STAGED_IDENTITY" ]; then
+        if [ "$AOT_STAGED_IDENTITY" != "$AOT_ARTIFACT_BASELINE" ]; then
+            AOT_INVALID=1
+            echo ""
+            echo -e "${RED}AOT LEG INVALID - the AOT harness staged artifacts differing from the pre-run baseline (a build replaced them before staging); AOT counts are not trustworthy${NC}"
+        fi
+    elif [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
+        AOT_INVALID=1
+        echo ""
+        echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run and no stage manifest was published (snapshot staging never ran); AOT counts are not trustworthy${NC}"
+    fi
 fi
 
 if [[ $VERBOSE -eq 1 ]]; then

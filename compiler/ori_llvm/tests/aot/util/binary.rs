@@ -94,49 +94,113 @@ pub(super) enum SnapshotStrategy {
     Copy,
 }
 
+/// Per-artifact record of what a snapshot pinned.
+#[derive(Clone, Debug)]
+pub(super) struct StagedArtifact {
+    /// File name of the artifact inside both `source_dir` and `stage_dir`.
+    pub(super) name: String,
+    /// Stage-time identity (`dev:inode:mtime:size`) of the pinned artifact.
+    /// KEEP IN SYNC with `artifact_identity()` in `test-all.sh` — the AOT
+    /// identity gate compares these values against its pre-run baseline.
+    pub(super) source_identity: String,
+    /// `"hardlink"` or `"copy"` — the strategy that actually took effect.
+    pub(super) strategy_used: &'static str,
+}
+
+/// Identity tuple `dev:inode:mtime:size` for an on-disk artifact.
+///
+/// KEEP IN SYNC with `artifact_identity()` in `test-all.sh`: that gate
+/// captures the same tuple via GNU `stat -c '%d:%i:%Y:%s'` as its pre-run
+/// baseline and string-compares it against the values the harness writes
+/// into the stage manifest.
+#[cfg(unix)]
+fn artifact_identity_of(path: &Path) -> Result<String, String> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = fs::metadata(path)
+        .map_err(|e| format!("cannot stat {} for the stage manifest: {e}", path.display()))?;
+    Ok(format!(
+        "{}:{}:{}:{}",
+        meta.dev(),
+        meta.ino(),
+        meta.mtime(),
+        meta.size()
+    ))
+}
+
+/// Off-Unix fallback: no dev/inode surface; mtime+size still pin a
+/// replacement. The `test-all.sh` gate never matches off-Unix artifact names
+/// (exe suffix / lib naming differ), so it falls back to its live compare.
+#[cfg(not(unix))]
+fn artifact_identity_of(path: &Path) -> Result<String, String> {
+    let meta = fs::metadata(path)
+        .map_err(|e| format!("cannot stat {} for the stage manifest: {e}", path.display()))?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    Ok(format!("0:0:{mtime}:{}", meta.len()))
+}
+
 /// Snapshot `required` + any present `optional` artifacts from `source_dir`
-/// into `stage_dir`. Idempotent: an existing staged file is removed and
-/// re-snapshotted from the CURRENT source. A missing required source is an
-/// error — never a silent fallback to the mutable shared path.
+/// into `stage_dir`, returning one [`StagedArtifact`] per staged file.
+/// Idempotent: an existing staged file is removed and re-snapshotted from
+/// the CURRENT source. A missing required source is an error — never a
+/// silent fallback to the mutable shared path.
 pub(super) fn stage_snapshot(
     source_dir: &Path,
     stage_dir: &Path,
     required: &[&str],
     optional: &[&str],
     strategy: SnapshotStrategy,
-) -> Result<(), String> {
+) -> Result<Vec<StagedArtifact>, String> {
     fs::create_dir_all(stage_dir)
         .map_err(|e| format!("cannot create staging dir {}: {e}", stage_dir.display()))?;
 
-    let snapshot_one = |name: &str| -> Result<(), String> {
+    let snapshot_one = |name: &str| -> Result<StagedArtifact, String> {
         let src = source_dir.join(name);
         let dst = stage_dir.join(name);
         let _ = fs::remove_file(&dst);
-        match strategy {
+        let copy_into_stage = || {
+            fs::copy(&src, &dst).map(|_| ()).map_err(|e| {
+                format!(
+                    "cannot snapshot {} into {}: {e}",
+                    src.display(),
+                    stage_dir.display()
+                )
+            })
+        };
+        let strategy_used = match strategy {
             SnapshotStrategy::HardLink => {
-                if fs::hard_link(&src, &dst).is_err() {
-                    fs::copy(&src, &dst).map(|_| ()).map_err(|e| {
-                        format!(
-                            "cannot snapshot {} into {}: {e}",
-                            src.display(),
-                            stage_dir.display()
-                        )
-                    })?;
+                if fs::hard_link(&src, &dst).is_ok() {
+                    "hardlink"
+                } else {
+                    copy_into_stage()?;
+                    "copy"
                 }
             }
             SnapshotStrategy::Copy => {
-                fs::copy(&src, &dst).map(|_| ()).map_err(|e| {
-                    format!(
-                        "cannot snapshot {} into {}: {e}",
-                        src.display(),
-                        stage_dir.display()
-                    )
-                })?;
+                copy_into_stage()?;
+                "copy"
             }
-        }
-        Ok(())
+        };
+        // Identity of the artifact actually pinned: a hardlink shares the
+        // source inode, so the STAGED path carries the stage-time source
+        // identity even if the source is swapped between link and stat; a
+        // copy has its own inode, so the source path is statted instead.
+        let identity_path: &Path = if strategy_used == "hardlink" {
+            &dst
+        } else {
+            &src
+        };
+        Ok(StagedArtifact {
+            name: name.to_string(),
+            source_identity: artifact_identity_of(identity_path)?,
+            strategy_used,
+        })
     };
 
+    let mut staged = Vec::new();
     for name in required {
         if !source_dir.join(name).exists() {
             return Err(format!(
@@ -147,18 +211,98 @@ pub(super) fn stage_snapshot(
                 source_dir.display()
             ));
         }
-        snapshot_one(name)?;
+        staged.push(snapshot_one(name)?);
     }
     for name in optional {
         if source_dir.join(name).exists() {
-            snapshot_one(name)?;
+            staged.push(snapshot_one(name)?);
         } else {
             // Source gone: drop any stale staged copy so the snapshot mirrors
             // the current source set.
             let _ = fs::remove_file(stage_dir.join(name));
         }
     }
-    Ok(())
+    Ok(staged)
+}
+
+/// File name of the stage manifest inside each per-PID stage dir.
+const STAGE_MANIFEST_NAME: &str = "stage-manifest.txt";
+
+/// Render the stage manifest the `test-all.sh` AOT identity gate consumes.
+///
+/// One record per line, space-separated:
+///
+/// ```text
+/// schema 1
+/// pid <u32>
+/// profile <debug|release>
+/// stage-dir <path>
+/// source-dir <path>
+/// artifact <name> <hardlink|copy> <dev:inode:mtime:size>
+/// ```
+///
+/// The gate extracts whitespace field 4 of each `artifact` line and compares
+/// it against its own pre-run `artifact_identity()` baseline.
+fn render_stage_manifest(
+    profile: &str,
+    stage_dir: &Path,
+    source_dir: &Path,
+    artifacts: &[StagedArtifact],
+) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    // Writing into a String is infallible; the results are discardable.
+    let _ = writeln!(out, "schema 1");
+    let _ = writeln!(out, "pid {}", std::process::id());
+    let _ = writeln!(out, "profile {profile}");
+    let _ = writeln!(out, "stage-dir {}", stage_dir.display());
+    let _ = writeln!(out, "source-dir {}", source_dir.display());
+    for artifact in artifacts {
+        let _ = writeln!(
+            out,
+            "artifact {} {} {}",
+            artifact.name, artifact.strategy_used, artifact.source_identity
+        );
+    }
+    out
+}
+
+/// Atomically write `content` to `dest` via a pid-suffixed temp sibling +
+/// rename(2): readers never observe a partial manifest, and concurrent
+/// harness processes cannot clobber each other's in-flight temp file.
+fn write_manifest_atomic(dest: &Path, content: &str) -> Result<(), String> {
+    let parent = dest
+        .parent()
+        .ok_or_else(|| format!("manifest path {} has no parent dir", dest.display()))?;
+    fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+    let file_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("manifest path {} has no file name", dest.display()))?;
+    let tmp = parent.join(format!("{file_name}.{}.tmp", std::process::id()));
+    fs::write(&tmp, content).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, dest).map_err(|e| {
+        format!(
+            "cannot rename {} over {}: {e}",
+            tmp.display(),
+            dest.display()
+        )
+    })
+}
+
+/// Write the stage manifest to both homes: inside the stage dir (travels and
+/// dies with the snapshot; covered by the dead-PID cleaner) and at the
+/// well-known per-profile pointer path (the discovery channel for
+/// out-of-process consumers — per-PID temp stage dirs are not discoverable
+/// from the shell). Pointer files are per-profile and overwrite-only: no
+/// cleanup pass needed.
+fn publish_stage_manifest(
+    stage_dir: &Path,
+    pointer_path: &Path,
+    content: &str,
+) -> Result<(), String> {
+    write_manifest_atomic(&stage_dir.join(STAGE_MANIFEST_NAME), content)?;
+    write_manifest_atomic(pointer_path, content)
 }
 
 /// Best-effort removal of `ori-aot-stage-<pid>-*` dirs left by prior test
@@ -244,14 +388,32 @@ fn staged_artifacts_dir(release: bool) -> &'static Path {
             ("libori_rt.a", "libori_rt_asan.a")
         };
 
-        if let Err(e) = stage_snapshot(
+        let staged_artifacts = match stage_snapshot(
             &profile_dir,
             &stage,
             &[&exe, lib],
             &[asan_lib],
             SnapshotStrategy::HardLink,
         ) {
-            panic!("AOT harness: {e}");
+            Ok(artifacts) => artifacts,
+            Err(e) => panic!("AOT harness: {e}"),
+        };
+
+        // Stage manifest: records the stage-time source identities so the
+        // test-all.sh AOT identity gate can validate the SNAPSHOT against its
+        // pre-run baseline instead of the live (concurrently mutable)
+        // target/<profile>/ paths. A write failure is loud but non-fatal:
+        // without a manifest the gate falls back to its conservative live
+        // compare.
+        let manifest = render_stage_manifest(profile, &stage, &profile_dir, &staged_artifacts);
+        let pointer = workspace_root()
+            .join("build")
+            .join(format!("aot-stage-manifest-{profile}.txt"));
+        if let Err(e) = publish_stage_manifest(&stage, &pointer, &manifest) {
+            eprintln!(
+                "[aot-tests] warning: cannot publish stage manifest ({e}); the \
+                 test-all.sh identity gate falls back to live artifact comparison"
+            );
         }
 
         eprintln!(
