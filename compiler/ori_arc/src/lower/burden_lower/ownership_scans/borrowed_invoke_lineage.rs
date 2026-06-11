@@ -333,16 +333,11 @@ fn try_build_candidate(
     // transfer / the existing result-lineage machinery, NOT a caller-fresh
     // allocation; the no-sink claim would place a spurious Cat-2 dec on a slice /
     // forwarded view (`@substring`/`@repeat` return a same-buffer slice →
-    // double-free). RESULT roots stay DEAD-PARAM-mode-only.
-    // A RESULT root joins the no-sink mode ONLY when its callee contract proves
-    // a FRESH allocation (Unique + preserves_freshness, never ttr) — the
-    // contract-aware discriminator separating fresh results (`@push` copies,
-    // whose mis-placed pre-terminator dec is a use-after-free) from same-buffer
-    // views (`@substring` / `@repeat`, where an edge release double-frees).
-    // A RESULT root joins the no-sink mode ONLY when its callee contract proves
-    // a FRESH allocation (Unique + preserves_freshness, never ttr) — the
-    // contract-aware discriminator separating fresh results from same-buffer
-    // views (`@substring` / `@repeat`, where an edge release double-frees).
+    // double-free). A RESULT root joins the no-sink mode ONLY when its callee
+    // contract proves a FRESH allocation (Unique + preserves_freshness, never
+    // ttr) — the contract-aware discriminator separating provably-fresh results
+    // from same-buffer views (`@substring` / `@repeat`, where an edge release
+    // double-frees); all other result roots stay DEAD-PARAM-mode-only.
     let allow_no_sink = !result_roots.contains(&root) || fresh_result_roots.contains(&root);
     let death = choose_death_point(func, &members, used, allow_no_sink).or_else(|| {
         decline("e:death-point");
