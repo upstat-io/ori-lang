@@ -1,23 +1,8 @@
-//! Match-handoff extract-transfer attribution (RL-2): the all-arms verdict
-//! that cures the sum-payload loop-rebuild double-free.
-//!
-//! `r = Pair { o: Some(extracted), b: r.b }` where `extracted = match r.o
-//! { Some(xs) -> xs, None -> [] }` extracts the sum field's PAYLOAD through
-//! the match block-param handoff and re-wraps it into the rebuild construct.
-//! The carrier's `BurdenDecPartial` still releases the sum field — freeing a
-//! payload whose ownership already transferred (RL-2 `ConstructArg`) into the
-//! new loop-carried struct: a double-free.
-//!
-//! Cure (post-sibling-union): a still-released sum field counts MOVED when
-//! EVERY switch arm over the field's tag either (a) transfers the extracted
-//! payload into the rebuild construct on an UNCONDITIONAL arm path (owning
-//! Construct-arg position, per-edge block-param attribution), or (b) is a
-//! payload-less-variant arm (vacuous). ANY arm with a conditional / partial
-//! flow DECLINES — the release stays (the dropped-payload path needs it).
-//!
-//! Spec: Annex E §AIMS RL-2 (`RL2_transfer_kinds_no_dec`: a transferred
-//! payload's obligation moves to the consumer; a dec on it double-releases;
-//! `RL2_nontransfer_kinds_dec`: a non-transferred payload keeps its release).
+//! Verdict gates for the match-handoff extract-transfer attribution: the
+//! all-arms field verdict ([`all_arms_transfer_field`]) and its structural
+//! sub-gates (scrutinee-view discovery, arm extraction, unconditional-path
+//! `jump_only_chain`, rebuild-construct identification, transfer flow-track).
+//! Spec: Annex E §AIMS RL-2.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
@@ -27,269 +12,24 @@ use ori_types::TypeRegistry;
 use crate::aims::intraprocedural::project_aliases::ParamEdgeArg;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
-use super::super::burden::{Burden, BurdenRef, TypeRef};
-use super::super::burden_lookup::{idx_to_type_ref, lookup_burden};
-use super::sibling_union::owned_top_level_fields;
+use super::super::super::burden::{Burden, BurdenRef, TypeRef};
+use super::super::super::burden_lookup::{idx_to_type_ref, lookup_burden};
+use super::FuncIndex;
 
-/// `ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER=1` restores the per-field
-/// attribution WITHOUT the all-arms extract-transfer verdict: a rebuild
-/// carrier's `BurdenDecPartial` keeps releasing a sum field whose payload was
-/// extracted through the match block-param handoff and re-wrapped into the
-/// rebuild construct (the pre-fix double-free shape). Bisection surface:
-/// isolates the sum-payload match-rebuild double-free to this verdict vs the
-/// rest of the Phase-5 walk. Default (unset): the all-arms verdict widens the
-/// carrier's skip set. Spec: Annex E §AIMS RL-2.
-pub(super) fn match_handoff_extract_transfer_disabled() -> bool {
-    std::env::var("ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER").as_deref() == Ok("1")
-}
-
-/// Apply the all-arms match-handoff extract-transfer verdict, mutating
-/// `partial_move_vars` (widening a carrier's `skip_fields` with all-arms-
-/// transferred sum fields) and `full_move_vars` (absorbing carriers whose
-/// widened skip covers every owned RC field). Runs after
-/// `apply_sibling_moved_field_union` and BEFORE `inc_suppressed_vars` is
-/// derived from `full_move_vars`.
-pub(super) fn apply_match_handoff_extract_transfer(
-    func: &ArcFunction,
-    type_registry: &TypeRegistry,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    param_edge_args: &FxHashMap<ArcVarId, SmallVec<[ParamEdgeArg; 2]>>,
-    full_move_vars: &mut FxHashSet<ArcVarId>,
-    partial_move_vars: &mut FxHashMap<ArcVarId, Vec<u32>>,
-) {
-    apply_match_handoff_extract_transfer_with(
-        match_handoff_extract_transfer_disabled(),
-        func,
-        type_registry,
-        owned_vars_needing_rc,
-        param_edge_args,
-        full_move_vars,
-        partial_move_vars,
-    );
-}
-
-/// Toggle-injected body of [`apply_match_handoff_extract_transfer`]; `disabled`
-/// carries the `ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER` verdict so tests
-/// exercise the disabled path without mutating process-global env.
-pub(super) fn apply_match_handoff_extract_transfer_with(
-    disabled: bool,
-    func: &ArcFunction,
-    type_registry: &TypeRegistry,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    param_edge_args: &FxHashMap<ArcVarId, SmallVec<[ParamEdgeArg; 2]>>,
-    full_move_vars: &mut FxHashSet<ArcVarId>,
-    partial_move_vars: &mut FxHashMap<ArcVarId, Vec<u32>>,
-) {
-    if disabled {
-        return;
-    }
-    let idx = FuncIndex::build(func);
-
-    let carriers: Vec<(ArcVarId, Vec<u32>)> = partial_move_vars
-        .iter()
-        .map(|(&c, skip)| (c, skip.clone()))
-        .collect();
-    for (carrier, skip) in carriers {
-        if !owned_vars_needing_rc.contains(&carrier) {
-            continue;
-        }
-        // The carrier MUST resolve to a back-edge block-param root (the
-        // loop-carried rebuild lineage). Non-loop shapes keep their release.
-        let Some(root) = idx.resolve_root(carrier, param_edge_args) else {
-            tracing::trace!(
-                target: "ori_arc::aims::realize",
-                fn_name = ?func.name,
-                carrier = carrier.index(),
-                "match-handoff verdict declined: no loop-carried root"
-            );
-            continue;
-        };
-        // The merge block holding the carrier's Let definition — the rebuild
-        // + partial-dec site.
-        let Some(&merge_block) = idx.def_block.get(&carrier) else {
-            continue;
-        };
-        let owned_fields = owned_top_level_fields(func, carrier, type_registry);
-        let mut widened: Vec<u32> = skip.clone();
-        for &field in &owned_fields {
-            if skip.contains(&field) {
-                continue;
-            }
-            if all_arms_transfer_field(
-                func,
-                type_registry,
-                &idx,
-                param_edge_args,
-                carrier,
-                root,
-                merge_block,
-                field,
-            ) {
-                widened.push(field);
-                tracing::trace!(
-                    target: "ori_arc::aims::realize",
-                    fn_name = ?func.name,
-                    carrier = carrier.index(),
-                    field,
-                    "match-handoff extract-transfer verdict: field counts moved (all arms transfer)"
-                );
-            }
-        }
-        if widened.len() == skip.len() {
-            continue;
-        }
-        widened.sort_unstable();
-        let covers_all = owned_fields.iter().all(|f| widened.contains(f));
-        if covers_all {
-            partial_move_vars.remove(&carrier);
-            full_move_vars.insert(carrier);
-        } else {
-            partial_move_vars.insert(carrier, widened);
-        }
-    }
-}
-
-/// Structural per-function indexes the verdict consumes.
-struct FuncIndex {
-    /// `Let { dst, Var(src) }` edges: dst -> src.
-    alias_src: FxHashMap<ArcVarId, ArcVarId>,
-    /// All block-param vars.
-    block_params: FxHashSet<ArcVarId>,
-    /// var -> defining block index (instr dsts only; params excluded).
-    def_block: FxHashMap<ArcVarId, usize>,
-    /// Project dst -> (source value, field).
-    project_of: FxHashMap<ArcVarId, (ArcVarId, u32)>,
-}
-
-impl FuncIndex {
-    fn build(func: &ArcFunction) -> Self {
-        let mut alias_src = FxHashMap::default();
-        let mut block_params = FxHashSet::default();
-        let mut def_block = FxHashMap::default();
-        let mut project_of = FxHashMap::default();
-        for (block_idx, block) in func.blocks.iter().enumerate() {
-            for &(p, _) in &block.params {
-                block_params.insert(p);
-            }
-            for instr in &block.body {
-                if let Some(dst) = instr.defined_var() {
-                    def_block.insert(dst, block_idx);
-                }
-                match instr {
-                    ArcInstr::Let {
-                        dst,
-                        value: ArcValue::Var(src),
-                        ..
-                    } => {
-                        alias_src.insert(*dst, *src);
-                    }
-                    ArcInstr::Project {
-                        dst, value, field, ..
-                    } => {
-                        project_of.insert(*dst, (*value, *field));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Self {
-            alias_src,
-            block_params,
-            def_block,
-            project_of,
-        }
-    }
-
-    /// Resolve `start` to its loop-carried chain root: follow `Let { Var }`
-    /// edges; a block-param hop passes through when EVERY non-back-edge
-    /// incoming edge's arg resolves to the SAME root (per-edge attribution —
-    /// all edges agreeing on one allocation is a pure rename, not a true
-    /// merge); a back-edge-carrying param IS the root terminus. `None` when
-    /// the chain dead-ends or edges disagree. Generalizes the sibling-union
-    /// single-pred hop to the all-edges-agree multi-pred case (the match
-    /// merge passes the SAME loop struct from every arm). Spec: Annex E
-    /// §AIMS RL-1 + RL-2 (per-edge attribution).
-    fn resolve_root(
-        &self,
-        start: ArcVarId,
-        param_edge_args: &FxHashMap<ArcVarId, SmallVec<[ParamEdgeArg; 2]>>,
-    ) -> Option<ArcVarId> {
-        self.resolve_root_inner(start, param_edge_args, 0)
-    }
-
-    fn resolve_root_inner(
-        &self,
-        start: ArcVarId,
-        param_edge_args: &FxHashMap<ArcVarId, SmallVec<[ParamEdgeArg; 2]>>,
-        depth: usize,
-    ) -> Option<ArcVarId> {
-        // Bounded recursion: each param hop recurses once per edge; chains are
-        // short (the rebuild handoff spans a handful of hops).
-        if depth > 32 {
-            return None;
-        }
-        let mut cur = start;
-        for _ in 0..=self.alias_src.len().max(self.block_params.len()) {
-            if self.block_params.contains(&cur) {
-                let edges = param_edge_args.get(&cur)?;
-                // Pure rename: EVERY incoming edge passes the SAME arg var —
-                // the param IS that allocation on every path, regardless of
-                // edge cycle classification (a merge inside the loop body has
-                // its edges classified back-edges because the body reaches
-                // them around the loop; same-arg edges stay one allocation).
-                let first = edges.first()?.arg;
-                if first != cur && edges.iter().all(|e| e.arg == first) {
-                    cur = first;
-                    continue;
-                }
-                if edges.iter().any(|e| e.is_back_edge) {
-                    // Loop-header merge (init edge + iteration back-edge
-                    // disagree): the loop-carried root terminus. The
-                    // back-edge itself is never traversed.
-                    return Some(cur);
-                }
-                // Forward merge with disagreeing args: every edge's arg must
-                // resolve to one root.
-                let mut agreed: Option<ArcVarId> = None;
-                for e in edges {
-                    let r = self.resolve_root_inner(e.arg, param_edge_args, depth + 1)?;
-                    match agreed {
-                        None => agreed = Some(r),
-                        Some(prev) if prev == r => {}
-                        Some(_) => return None,
-                    }
-                }
-                return agreed;
-            }
-            match self.alias_src.get(&cur) {
-                Some(&next) => cur = next,
-                None => return None,
-            }
-        }
-        None
-    }
-}
-
-/// The all-arms verdict for one still-released sum field of one carrier:
-/// every switch arm over the field's tag either transfers the extracted
-/// payload into the rebuild construct (unconditional arm path) or is the
-/// payload-less-variant arm. Per-edge identity throughout — NEVER a
-/// use-count proxy.
-///
+/// The all-arms verdict for one still-released sum field of one carrier
+/// (per-edge identity, NEVER a use-count proxy): every switch arm over the
+/// field's tag either transfers the extracted payload into the rebuild
+/// construct (unconditional arm path) or is the payload-less-variant arm.
 /// v1 shape gate: a TWO-variant single-payload sum (the `Option`-family
-/// match-handoff). The payload arm is identified STRUCTURALLY (the arm that
-/// projects the payload out of the view), never by variant-id ordinal —
-/// the burden-row variant ordering and the runtime discriminant tags are
-/// independent numbering surfaces, so a counting argument (exactly one
-/// payload row, exactly one extracting arm) replaces an ordinal mapping:
-/// when the counts match, the non-extracting arm IS the payload-less
-/// variant on every execution.
+/// match-handoff), with the payload arm identified by the counting argument
+/// (exactly one payload row, exactly one extracting arm) — never by
+/// variant-id ordinal (burden-row and runtime-tag numbering are independent).
 #[expect(
     clippy::too_many_arguments,
     reason = "verdict inputs are the per-carrier structural indexes; grouping \
               would add indirection to a single-call-site helper"
 )]
-fn all_arms_transfer_field(
+pub(super) fn all_arms_transfer_field(
     func: &ArcFunction,
     type_registry: &TypeRegistry,
     idx: &FuncIndex,
@@ -514,7 +254,7 @@ fn arm_transfers_extract(
                 ArcInstr::Construct { dst, args, .. }
                     if wrap_dst.is_some_and(|w| {
                         args.iter()
-                            .any(|a| *a == w || idx.alias_src.get(a) == Some(&w))
+                            .any(|a| *a == w || idx.chain.alias_src.get(a) == Some(&w))
                     }) =>
                 {
                     if Some(*dst) == rebuild {
@@ -628,6 +368,7 @@ fn rebuild_construct_in(
         let consumes_projection = args.iter().any(|a| {
             carrier_projections.contains(a)
                 || idx
+                    .chain
                     .alias_src
                     .get(a)
                     .is_some_and(|s| carrier_projections.contains(s))
@@ -653,13 +394,10 @@ fn construct_args_contain(
                 if *dst == construct {
                     return args
                         .iter()
-                        .any(|a| *a == var || idx.alias_src.get(a) == Some(&var));
+                        .any(|a| *a == var || idx.chain.alias_src.get(a) == Some(&var));
                 }
             }
         }
     }
     false
 }
-
-#[cfg(test)]
-mod tests;

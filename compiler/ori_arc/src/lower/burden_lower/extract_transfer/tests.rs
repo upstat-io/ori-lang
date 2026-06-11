@@ -15,7 +15,9 @@ use ori_types::{FieldDef, Idx, TypeRegistry, Visibility};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::apply_match_handoff_extract_transfer_with;
-use crate::aims::intraprocedural::project_aliases::compute_param_edge_args;
+use crate::aims::intraprocedural::project_aliases::{
+    compute_param_edge_args, compute_project_alias_table,
+};
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind,
     ValueRepr,
@@ -380,11 +382,13 @@ fn run_verdict(
     let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
     owned.insert(carrier);
     let edges = compute_param_edge_args(func);
+    let alias_table = compute_project_alias_table(func, &FxHashMap::default());
     apply_match_handoff_extract_transfer_with(
         disabled,
         func,
         registry,
         &owned,
+        &alias_table,
         &edges,
         &mut full_move_vars,
         &mut partial_move_vars,

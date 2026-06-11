@@ -11,6 +11,7 @@
 //! `moved_fields` owns the moved-out-fields forward dataflow + full/partial-move
 //! partition; `emit` owns the per-instruction + per-terminator emission.
 
+mod chain_root;
 mod cow_aliases;
 mod ctx;
 mod emit;

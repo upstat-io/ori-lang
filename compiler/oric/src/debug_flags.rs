@@ -468,6 +468,40 @@ flags! {
     /// Usage: `ORI_DISABLE_RL31_NOALIAS=1 ori build file.ori`
     ORI_DISABLE_RL31_NOALIAS
 
+    /// Restore the decoupled DP-2/DP-3 split for `Let { Var }` alias dsts whose
+    /// alias-chain root is a loop-carried block-param (back-edge-carrying) and
+    /// whose every use is a `Project` read feeding only borrowed positions.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// loop-carried borrow-alias double-free to the pair coupling vs the rest of
+    /// the Phase-6 elimination. Spec: Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_LOOP_CARRIED_PAIR_COUPLING=1 ori build file.ori`
+    ORI_DISABLE_LOOP_CARRIED_PAIR_COUPLING
+
+    /// Restore per-field attribution WITHOUT the all-arms match-handoff
+    /// extract-transfer verdict: a rebuild carrier's `BurdenDecPartial` keeps
+    /// releasing a sum field whose payload was extracted through the match
+    /// block-param handoff and re-wrapped into the rebuild construct.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// sum-payload match-rebuild double-free to this verdict vs the rest of the
+    /// Phase-5 walk. Spec: Annex E §AIMS RL-2.
+    /// Usage: `ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER=1 ori build file.ori`
+    ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER
+
+    /// Decline the Phase-5 RL-5 dead-at-entry release for a sibling-union-fired
+    /// loop-carried rebuild lineage reaching a DEAD loop-exit block-param (the
+    /// loop-carried struct unused after the loop: the union suppressed the
+    /// in-loop releases, so the dead param is the lineage's sole terminal owner).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a loop-exit
+    /// leak to this release vs the rest of the Phase-5 walk. Spec: Annex E §AIMS RL-5.
+    /// Usage: `ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

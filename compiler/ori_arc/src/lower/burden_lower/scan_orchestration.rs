@@ -251,6 +251,7 @@ pub(crate) fn emit_burden_ops<'a>(
         func,
         type_registry,
         &owned_vars_needing_rc,
+        &alias_table,
         &param_edge_args,
         &mut full_move_vars,
         &mut partial_move_vars,
