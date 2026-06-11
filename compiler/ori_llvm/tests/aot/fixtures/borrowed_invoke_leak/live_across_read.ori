@@ -1,0 +1,17 @@
+// Pin 6b: live-across receiver (read-after-call). `xs` is read via `.len()`
+// AFTER `is_ref(a: xs)`, so the receiver lineage survives the first borrowed
+// call and dies at its TRUE post-call last read (the `len` call). The release
+// lands at that final read, not before the first Invoke.
+@is_ref (a: [int]) -> bool = {
+    let r = a == [7, 8];
+
+    r
+}
+
+@main () -> int = {
+    let xs = [7, 8];
+    let ok = is_ref(a: xs);
+    let n = xs.len();
+
+    if ok && n == 2 then 0 else 1
+}

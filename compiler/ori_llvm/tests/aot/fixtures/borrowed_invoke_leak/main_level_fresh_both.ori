@@ -1,0 +1,9 @@
+// Pin 8 (negative GREEN guard): main-level `[7,8] == [7,8]` with fresh both
+// sides — no borrowed user-call Invoke at all (the `==` desugars to an
+// Eq::equals call, but both operands are caller-local fresh literals released
+// at their own scope exit). Must stay clean.
+@main () -> int = {
+    let r = [7, 8] == [7, 8];
+
+    if r then 0 else 1
+}

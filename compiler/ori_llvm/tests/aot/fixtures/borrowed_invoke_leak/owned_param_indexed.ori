@@ -1,0 +1,14 @@
+// Pin 7 (negative GREEN guard): an OWNED param indexed/len/summed in the
+// callee — the callee consumes the buffer, NOT a borrow-read. The no-sink
+// edge-death mode must not perturb this owned-transfer shape.
+@sum_first (a: [int]) -> int = {
+    let n = a.len();
+
+    a[0] + n
+}
+
+@main () -> int = {
+    let total = sum_first(a: [7, 8]);
+
+    if total == 9 then 0 else 1
+}
