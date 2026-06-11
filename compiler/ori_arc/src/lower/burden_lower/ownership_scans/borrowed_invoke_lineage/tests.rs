@@ -319,6 +319,52 @@ fn live_project_extract_declines_no_sink() {
 }
 
 #[test]
+fn live_project_of_project_chain_declines_no_sink() {
+    // Project-of-Project: %4 = Project %0.0 (extract); %5 = Project %4.0
+    // (extract OF the extract — same allocation tree); only the GRAND-extract
+    // %5 is live across the carrier. The closure must follow the chain.
+    let f = func(
+        6,
+        vec![
+            block(
+                0,
+                vec![
+                    enum_variant_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: vv(4),
+                        ty: Idx::INT,
+                        value: vv(0),
+                        field: 0,
+                    },
+                    ArcInstr::Project {
+                        dst: vv(5),
+                        ty: Idx::INT,
+                        value: vv(4),
+                        field: 0,
+                    },
+                ],
+                borrowed_invoke(2, 1, 1, 2),
+            ),
+            block(1, vec![], ArcTerminator::Return { value: vv(5) }),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true),
+        None,
+        "a live Project-of-Project grand-extract declines no-sink (the chain \
+         views the same allocation tree)",
+    );
+}
+
+#[test]
 fn vetted_closure_declines_owned_position_consume() {
     // %0 = Construct List() ; Apply @f(%0 [own]) ; Unreachable.
     // The owned-position consume transfers the buffer out of family -> decline.

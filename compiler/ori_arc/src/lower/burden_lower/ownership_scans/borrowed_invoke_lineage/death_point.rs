@@ -122,9 +122,11 @@ fn has_live_project_extract(
     if extract.is_empty() {
         return false;
     }
-    // Grow the extract's transitive aliases: `Let { Var(src) }` re-binds + Jump-arg
-    // → block-param hops. A Jump arg that is an extract member flows into the
-    // target block-param (the live-across receiver of the extracted buffer).
+    // Grow the extract's transitive aliases: `Let { Var(src) }` re-binds,
+    // `Project`-of-extract chains (an extract of an extract still views the
+    // same allocation tree), and Jump-arg → block-param hops. A Jump arg that
+    // is an extract member flows into the target block-param (the live-across
+    // receiver of the extracted buffer).
     loop {
         let mut grew = false;
         for block in &func.blocks {
@@ -136,6 +138,11 @@ fn has_live_project_extract(
                 } = instr
                 {
                     if extract.contains(src) && !members.contains(dst) && extract.insert(*dst) {
+                        grew = true;
+                    }
+                }
+                if let ArcInstr::Project { dst, value, .. } = instr {
+                    if extract.contains(value) && !members.contains(dst) && extract.insert(*dst) {
                         grew = true;
                     }
                 }
