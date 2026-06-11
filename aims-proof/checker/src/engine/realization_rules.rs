@@ -447,7 +447,7 @@ fn verify_rl1_inc_on_live_duplication() -> EngineResult {
         // Moved-once: alloc, inc elided (move transfers), ownership handed off.
         // Balanced (no inc, no dec — the single reference moves out).
         LedgerCase {
-            label: "moved_once_inc_elided_balanced",
+            label: "single_use_inc_elided_balanced",
             events: &[RcEvent::Alloc, RcEvent::ElideIncMove, RcEvent::TransferOut],
             expect_balanced: true,
         },
@@ -464,10 +464,10 @@ fn verify_rl1_inc_on_live_duplication() -> EngineResult {
             ],
             expect_balanced: true,
         },
-        // Negative witness: inc emitted on a moved-once value (RL-1 wrongly
+        // Negative witness: inc emitted on a single-use value (RL-1 wrongly
         // failing to elide) leaves an extra reference — leak (net = +1).
         LedgerCase {
-            label: "NEG_inc_on_moved_once_leaks",
+            label: "NEG_inc_on_single_use_leaks",
             events: &[RcEvent::Alloc, RcEvent::IncLiveDup, RcEvent::TransferOut],
             expect_balanced: false,
         },
@@ -730,10 +730,10 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
     }
 
     // (P2) Elision preserves balance: the elided form and the redundant-op form
-    // both balance to 0. We model a moved-once value: with the redundant inc+dec
+    // both balance to 0. A single-use value: with the redundant inc+dec
     // present (balanced) and with both elided (also balanced).
     let cases: &[LedgerCase] = &[
-        // Redundant inc+dec present on a moved-once value — still balances.
+        // Redundant inc+dec present on a single-use value — still balances.
         LedgerCase {
             label: "redundant_inc_dec_present_balanced",
             events: &[

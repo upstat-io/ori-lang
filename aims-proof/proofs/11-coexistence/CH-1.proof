@@ -156,8 +156,8 @@ Theorem CH-1: Burden-registry-lattice composition soundness
       canonical rows): is_rc_dec_unnecessary(L[v]) = true iff canonical row
       (Dead, Absent); false on canonical rows {(Linear, Once), (Linear,
       Many), (Affine, Once), (Affine, Many), (Unrestricted, Once),
-      (Unrestricted, Many)}. DP-3 false except on canonical row (Linear,
-      Once). These per-row decisions are pure-function on L[v].
+      (Unrestricted, Many)}. DP-3 false except on canonical rows (Linear,
+      Once) and (Affine, Once). These per-row decisions are pure-function on L[v].
 
       Verifier: consume_stack walks F's instruction stream; for each v
       with BR.burden_emitted[v] = true, queries DP-2(L[v]) or DP-3(L[v])
