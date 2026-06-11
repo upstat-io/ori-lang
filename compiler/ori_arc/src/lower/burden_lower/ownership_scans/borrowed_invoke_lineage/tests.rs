@@ -311,7 +311,7 @@ fn live_project_extract_declines_no_sink() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true),
+        choose_death_point(&f, &members, &used, true, vv(0), false),
         None,
         "a live Project-extract of a member declines no-sink (extract live-across \
          the carrier release edge would double-free)",
@@ -357,7 +357,7 @@ fn live_project_of_project_chain_declines_no_sink() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true),
+        choose_death_point(&f, &members, &used, true, vv(0), false),
         None,
         "a live Project-of-Project grand-extract declines no-sink (the chain \
          views the same allocation tree)",
@@ -796,12 +796,12 @@ fn choose_death_point_dispatch_no_sink_fallback_and_gate() {
     let members = vet_or_panic(&f, vv(0));
     let used: FxHashSet<ArcVarId> = members.clone();
 
-    match choose_death_point(&f, &members, &used, true) {
+    match choose_death_point(&f, &members, &used, true, vv(0), false) {
         Some(DeathPoint::NoSink { claim }) => assert_eq!(claim, vv(1)),
         other => panic!("expected the no-sink carrier claim, got {other:?}"),
     }
     assert_eq!(
-        choose_death_point(&f, &members, &used, false),
+        choose_death_point(&f, &members, &used, false, vv(0), false),
         None,
         "result-root lineages (allow_no_sink=false) take NO death point",
     );
@@ -820,5 +820,219 @@ fn no_sink_declines_heap_result_carrier() {
         choose_no_sink_carrier(&f, &members),
         None,
         "a heap-result borrowing Invoke may return a same-alloc view; decline",
+    );
+}
+
+/// LOOP-EXIT mode fixture: a loop-INVARIANT fresh list (`%0`, defined before
+/// the loop) borrow-read each iteration via a per-iteration alias (`%2 = %0`)
+/// at a may-unwind borrowed `Invoke`; the lineage dies once, at the loop's
+/// sole non-unwind exit (bb5).
+///
+/// ```text
+/// bb0: %0 = Construct List()    Jump bb1
+/// bb1: (header)                 Branch %1 ? bb2 : bb5
+/// bb2: %2 = %0                  Invoke @f(%2 [borrow]) -> %3, normal bb3 unwind bb4
+/// bb3: (latch)                  Jump bb1
+/// bb4:                          Resume
+/// bb5: (loop exit)              Return %1
+/// ```
+fn loop_invariant_borrowed_func() -> ArcFunction {
+    func(
+        4,
+        vec![
+            block(0, vec![list_construct(0)], jump(1, vec![])),
+            block(
+                1,
+                vec![],
+                ArcTerminator::Branch {
+                    cond: vv(1),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(5),
+                },
+            ),
+            block(
+                2,
+                vec![ArcInstr::Let {
+                    dst: vv(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(vv(0)),
+                }],
+                borrowed_invoke(3, 2, 3, 4),
+            ),
+            block(3, vec![], jump(1, vec![])),
+            block(4, vec![], ArcTerminator::Resume),
+            block(5, vec![], ArcTerminator::Return { value: vv(1) }),
+        ],
+    )
+}
+
+#[test]
+fn loop_invariant_borrowed_lineage_takes_loop_exit_release() {
+    let f = loop_invariant_borrowed_func();
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true, vv(0), true),
+        Some(DeathPoint::LoopExit {
+            site_block: 5,
+            site_pos: ForwarderReleasePos::BlockEntry,
+            dec_var: vv(0),
+        }),
+        "a loop-invariant borrowed-collection lineage releases ONCE at the \
+         loop's sole non-unwind exit, never per iteration",
+    );
+}
+
+#[test]
+fn loop_exit_mode_disabled_flag_declines() {
+    let f = loop_invariant_borrowed_func();
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true, vv(0), false),
+        None,
+        "with allow_loop_exit off the loop-borrowed shape takes NO death point",
+    );
+}
+
+#[test]
+fn per_iteration_fresh_root_declines_loop_exit() {
+    // The root Construct sits INSIDE the loop (per-iteration fresh buffer):
+    // one exit release would leak every earlier iteration's instance. (l3).
+    let f = func(
+        4,
+        vec![
+            block(0, vec![], jump(1, vec![])),
+            block(
+                1,
+                vec![],
+                ArcTerminator::Branch {
+                    cond: vv(1),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(5),
+                },
+            ),
+            block(
+                2,
+                vec![
+                    list_construct(0),
+                    ArcInstr::Let {
+                        dst: vv(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(vv(0)),
+                    },
+                ],
+                borrowed_invoke(3, 2, 3, 4),
+            ),
+            block(3, vec![], jump(1, vec![])),
+            block(4, vec![], ArcTerminator::Resume),
+            block(5, vec![], ArcTerminator::Return { value: vv(1) }),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true, vv(0), true),
+        None,
+        "a per-iteration fresh root declines loop-exit placement (l3)",
+    );
+}
+
+#[test]
+fn post_loop_member_read_declines_loop_exit() {
+    // A member is borrow-read AFTER the loop (bb5 length Project): the read
+    // block is outside the cycle, so an exit-entry release would UAF. (l1/l2).
+    let f = func(
+        5,
+        vec![
+            block(0, vec![list_construct(0)], jump(1, vec![])),
+            block(
+                1,
+                vec![],
+                ArcTerminator::Branch {
+                    cond: vv(1),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(5),
+                },
+            ),
+            block(
+                2,
+                vec![ArcInstr::Let {
+                    dst: vv(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(vv(0)),
+                }],
+                borrowed_invoke(3, 2, 3, 4),
+            ),
+            block(3, vec![], jump(1, vec![])),
+            block(4, vec![], ArcTerminator::Resume),
+            block(
+                5,
+                vec![ArcInstr::Project {
+                    dst: vv(4),
+                    ty: Idx::INT,
+                    value: vv(0),
+                    field: 0,
+                }],
+                ArcTerminator::Return { value: vv(4) },
+            ),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true, vv(0), true),
+        None,
+        "a post-loop member read declines loop-exit placement (read outside \
+         the cycle would UAF after the exit-entry release)",
+    );
+}
+
+#[test]
+fn two_exit_loop_declines_loop_exit() {
+    // The cycle has TWO non-unwind exits (bb5 via the header, bb6 via a break
+    // branch in the latch): a fork the single release cannot cover. (l4).
+    let f = func(
+        4,
+        vec![
+            block(0, vec![list_construct(0)], jump(1, vec![])),
+            block(
+                1,
+                vec![],
+                ArcTerminator::Branch {
+                    cond: vv(1),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(5),
+                },
+            ),
+            block(
+                2,
+                vec![ArcInstr::Let {
+                    dst: vv(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(vv(0)),
+                }],
+                borrowed_invoke(3, 2, 3, 4),
+            ),
+            block(
+                3,
+                vec![],
+                ArcTerminator::Branch {
+                    cond: vv(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(6),
+                },
+            ),
+            block(4, vec![], ArcTerminator::Resume),
+            block(5, vec![], ArcTerminator::Return { value: vv(1) }),
+            block(6, vec![], ArcTerminator::Return { value: vv(1) }),
+        ],
+    );
+    let members = vet_or_panic(&f, vv(0));
+    let used = function_used_vars(&f);
+    assert_eq!(
+        choose_death_point(&f, &members, &used, true, vv(0), true),
+        None,
+        "a two-exit loop declines loop-exit placement (l4 fork)",
     );
 }

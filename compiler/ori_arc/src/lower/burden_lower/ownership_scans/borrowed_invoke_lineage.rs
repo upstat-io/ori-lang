@@ -227,6 +227,24 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
                 );
                 out.claimed_no_sink_vars.insert(claim);
             }
+            DeathPoint::LoopExit {
+                site_block,
+                site_pos,
+                dec_var,
+            } => {
+                tracing::trace!(
+                    target: "ori_arc::aims::realize",
+                    fn_name = ?func.name,
+                    root = cand.root.index(),
+                    site_block,
+                    mode = "loop-exit",
+                    "borrowed-invoke collection lineage admitted (loop-exit release)"
+                );
+                out.releases
+                    .entry((site_block, site_pos))
+                    .or_default()
+                    .push(dec_var);
+            }
         }
     }
     out
@@ -321,10 +339,17 @@ fn try_build_candidate(
     // from same-buffer views (`@substring` / `@repeat`, where an edge release
     // double-frees); all other result roots stay DEAD-PARAM-mode-only.
     let allow_no_sink = !result_roots.contains(&root) || fresh_result_roots.contains(&root);
-    let death = choose_death_point(func, &members, used, allow_no_sink).or_else(|| {
-        decline("e:death-point");
-        None
-    })?;
+    // LOOP-EXIT mode is COLLECTION-root-only: a loop-invariant fresh buffer the
+    // caller allocates before the loop and borrow-reads inside it. A RESULT
+    // root is defined by an in-loop `Invoke` (per-iteration; (l3) declines it
+    // anyway) and stays with the dead-param / no-sink modes.
+    let allow_loop_exit =
+        !result_roots.contains(&root) && !loop_borrowed_lineage_exit_release_disabled();
+    let death = choose_death_point(func, &members, used, allow_no_sink, root, allow_loop_exit)
+        .or_else(|| {
+            decline("e:death-point");
+            None
+        })?;
     Some(Candidate {
         root,
         members,
@@ -492,6 +517,18 @@ pub(in crate::lower::burden_lower) fn borrowed_invoke_lineage_release_disabled()
     use std::sync::LazyLock;
     static DISABLED: LazyLock<bool> = LazyLock::new(|| {
         std::env::var("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE").as_deref() == Ok("1")
+    });
+    *DISABLED
+}
+
+/// `ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE=1` declines the LOOP-EXIT
+/// death-point mode only (the loop-invariant borrowed-collection single
+/// exit-block release); dead-param + no-sink modes stay active. Read once at
+/// first access.
+fn loop_borrowed_lineage_exit_release_disabled() -> bool {
+    use std::sync::LazyLock;
+    static DISABLED: LazyLock<bool> = LazyLock::new(|| {
+        std::env::var("ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE").as_deref() == Ok("1")
     });
     *DISABLED
 }
