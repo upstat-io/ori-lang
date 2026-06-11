@@ -50,11 +50,12 @@ echo ""
 if [[ -t 1 ]]; then
     C_RED='\033[0;31m'
     C_GREEN='\033[0;32m'
+    C_YELLOW='\033[0;33m'
     C_BOLD='\033[1m'
     C_DIM='\033[2m'
     C_NC='\033[0m'
 else
-    C_RED="" C_GREEN="" C_BOLD="" C_DIM="" C_NC=""
+    C_RED="" C_GREEN="" C_YELLOW="" C_BOLD="" C_DIM="" C_NC=""
 fi
 
 # --- Counters ---
@@ -560,6 +561,23 @@ BLJSON2
         "$SCRIPT_DIR/state.sh" baseline compare --key SELFTEST
     run_test_exit_code "baseline clear exits 0" 0 \
         "$SCRIPT_DIR/state.sh" baseline clear --key SELFTEST
+    # Degraded test_suite cache (null totals / status unknown) MUST refuse
+    # capture and compare with exit 6 — zeros fabricated from an unmeasured
+    # cache poison the baseline and flag pre-tracked failures as REGRESSION.
+    cat > "$ORI_STATE_FILE" <<'BLJSON3'
+{ "schema_version": 3, "head_sha": "cccc333",
+  "test_suite": { "status": "unknown", "last_run_sha": "",
+    "totals": {"passed": null, "failed": null, "skipped": null},
+    "known_failing_count": 0, "failures": [] },
+  "clippy": {"status": "clean", "warnings": 0, "errors": 0},
+  "test_dispositions": {"totals": {"total": 10, "untracked": 0}} }
+BLJSON3
+    run_test_exit_code "baseline capture refuses degraded cache (exit 6)" 6 \
+        "$SCRIPT_DIR/state.sh" baseline capture --key DEGRADED --by self-test
+    run_test_output_contains "degraded-capture refusal names the cure" "refresh" \
+        "$SCRIPT_DIR/state.sh" baseline capture --key DEGRADED --by self-test
+    run_test_exit_code "baseline compare refuses degraded current (exit 6)" 6 \
+        "$SCRIPT_DIR/state.sh" baseline compare --key SELFTEST2
     unset ORI_STATE_FILE ORI_BASELINES_FILE
     rm -rf "$BL_TMP"
 else

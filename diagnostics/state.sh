@@ -81,6 +81,10 @@ Subcommands:
                                               regressions (newly-failing tests,
                                               new untracked dispositions, or more
                                               clippy errors); exit 4 = no baseline.
+                                              capture + compare exit 6 when the
+                                              test_suite cache is degraded (status
+                                              not clean/known-failing or null
+                                              totals) — refresh first.
                           list                List captured baselines.
                           clear --key K       Remove baseline K.
   refresh               Update the cache.
@@ -942,6 +946,22 @@ write_baselines() {
     mv "$tmp" "$BASELINES_FILE"
 }
 
+# Refuse baseline work on a degraded test_suite cache: status outside
+# {clean, known-failing} or null totals means the cache holds no real
+# measurement — `// 0` coercion would fabricate a clean snapshot and the
+# later compare would flag every pre-tracked failure as REGRESSION.
+# Exit 6 = degraded-state refusal (0 ok, 4 absent, 5 regression).
+require_measured_test_suite() {
+    local status passed
+    status=$(jq -r '.test_suite.status // "unknown"' "$STATE_FILE")
+    passed=$(jq -r '.test_suite.totals.passed' "$STATE_FILE")
+    if [[ "$status" != "clean" && "$status" != "known-failing" ]] \
+        || [[ "$passed" == "null" ]]; then
+        echo "error: test_suite cache is degraded (status=$status, passed=$passed) — no real measurement to baseline. Run: state.sh refresh --full (or baseline capture --refresh)" >&2
+        exit 6
+    fi
+}
+
 # Normalized snapshot object extracted from known-state.json.
 baseline_snapshot_from_state() {
     require_state_file
@@ -998,6 +1018,7 @@ baseline_capture() {
             echo "warning: known-state cache SHA ($cache_sha) != HEAD ($head_sha); baseline may be stale (use --refresh for a fresh measurement)" >&2
         fi
     fi
+    require_measured_test_suite
     local snapshot captured_sha captured_at by entry merged
     snapshot=$(baseline_snapshot_from_state)
     captured_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
@@ -1040,6 +1061,7 @@ baseline_show() {
 baseline_compare() {
     [[ -n "$BASELINE_KEY" ]] || die "baseline compare requires --key"
     require_state_file
+    require_measured_test_suite
     ensure_baselines_file
     local base
     base=$(jq -c --arg k "$BASELINE_KEY" '.baselines[$k] // empty' "$BASELINES_FILE")
