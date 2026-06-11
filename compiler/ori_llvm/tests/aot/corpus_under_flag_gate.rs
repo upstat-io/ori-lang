@@ -172,7 +172,7 @@ test result: FAILED. 1 passed; 2 failed; 0 ignored
 // environment per the fixture's re-capture protocol before trusting this
 // verdict.
 #[test]
-#[ignore = "Spec: Annex E §AIMS -- corpus-under-flag SET-subset readiness gate. \
+#[ignore = "BUG-04-121: burden-path emission fidelity gap. Spec: Annex E §AIMS -- corpus-under-flag SET-subset readiness gate. \
             PASS after predicate-stack retirement + BurdenInc->RcInc activation \
             (RL-2/RL-4/RL-5) make the burden path the sole RC emitter corpus-wide; \
             under-flag failing set is not yet a subset of the baseline until then. \
