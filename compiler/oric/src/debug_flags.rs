@@ -502,6 +502,19 @@ flags! {
     /// Usage: `ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE=1 ori build file.ori`
     ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE
 
+    /// Decline the LOOP-EXIT death-point mode for a loop-invariant borrowed
+    /// collection lineage: the in-loop borrowed-`Invoke` carrier's inline dec
+    /// returns, releasing the loop-invariant buffer once PER ITERATION
+    /// (use-after-free on iteration 2+).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// loop-invariant borrowed-collection use-after-free to the loop-exit
+    /// release vs the rest of the death-point selection. Spec: Annex E §AIMS
+    /// RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
