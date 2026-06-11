@@ -56,7 +56,7 @@ fi
 readonly -a CONFORMANCE_ROWS=(
     "DP-1|emit_unified|emit_rc_unified|DP-1 is_rc_needed: RC emission from state map (Owned ∧ ≠Dead ∧ ¬scalar)"
     "DP-2|burden_elim|is_rc_dec_unnecessary|DP-2 is_rc_dec_unnecessary: burden elimination of supplementary decs (Absent ∨ Dead)"
-    "DP-3|burden_elim|is_rc_inc_elidable|DP-3 is_rc_inc_elidable: burden elimination of incs (Once ∧ Linear)"
+    "DP-3|burden_elim|is_rc_inc_elidable|DP-3 is_rc_inc_elidable: burden elimination of incs (Once AND {Linear, Affine})"
     "DP-4|decide|Uniqueness::MaybeShared|DP-4 needs_cow_check: COW decision branches on MaybeShared (decide_cow)"
     "DP-5|decide|decide_cow|DP-5 can_mutate_in_place: alias-safety gates StaticUnique branch in decide_cow"
     "DP-6|decide|decide_reuse|DP-6 is_reuse_candidate: reuse decision policy (Owned ∧ ≠Shared ∧ ≠NonReusable)"

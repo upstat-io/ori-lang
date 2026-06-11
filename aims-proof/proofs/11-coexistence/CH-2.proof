@@ -13,8 +13,8 @@ Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-
       (post-CN-1 canonical states; the disjunction is bidirectionally implied)
     - DP-3 (`is_rc_inc_elidable`) is the canonical-state truth-table predicate
       discharged at aims-proof/proofs/05-decisions/DP-3.proof:
-        is_rc_inc_elidable(s) iff s.cardinality = Once and s.consumption = Linear
-      (canonical states; moved-once, no inc required)
+        is_rc_inc_elidable(s) iff s.cardinality = Once and s.consumption in {Linear, Affine}
+      (canonical states; single-use move or borrow, no inc required)
     - Predicate-stack-derived ops are the sec-03-sec-04 lattice-only emission path
       operating purely on L without consulting BR per Handshake.proof
       Function 2 (`predicate_stack_path`); realization rules per

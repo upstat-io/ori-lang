@@ -1473,22 +1473,22 @@ lists only case_analysis)",
         assert_eq!(true_canonical, 1);
     }
 
-    // DP-3 negative witness: DP-3 = true on EXACTLY (Once, Linear); every
-    // other canonical state returns false. Confirms the conjunction
-    // captures the move-once semantics.
+    // DP-3 negative witness: DP-3 = true on EXACTLY (Once, Linear) and
+    // (Once, Affine); every other canonical state returns false. Confirms the
+    // conjunction captures the single-use semantics (move or borrow).
     #[test]
-    fn dp3_only_once_linear_yields_true() {
+    fn dp3_only_once_linear_or_affine_yields_true() {
         let mut true_count = 0;
         for &consumption in CONSUMPTION_CARRIER.iter() {
             for &cardinality in CARDINALITY_CARRIER.iter() {
                 if dp3_predicate(cardinality, consumption) {
                     true_count += 1;
                     assert_eq!(cardinality, "Once");
-                    assert_eq!(consumption, "Linear");
+                    assert!(consumption == "Linear" || consumption == "Affine");
                 }
             }
         }
-        assert_eq!(true_count, 1);
+        assert_eq!(true_count, 2);
     }
 
     // DP-4 negative witness: only MaybeShared triggers the runtime COW

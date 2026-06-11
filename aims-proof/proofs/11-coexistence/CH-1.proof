@@ -64,9 +64,9 @@ Theorem CH-1: Burden-registry-lattice composition soundness
       Annex E §AIMS DP-2 + sec-8 RL-2: terminal RL-2 / RL-4 / RL-5 emissions
       own their own logic, NOT suppressed by DP-2's pre-pass false-positive
     - depends-on sec-05 DP-3 truth table at aims-proof/proofs/05-decisions/DP-3.proof
-      — `is_rc_inc_elidable(s) iff s.cardinality = Once and s.consumption = Linear`
-      (canonical states; moved-once, no inc). Direct truth-table consequence
-      of the lattice's LinearxOnce cell.
+      — `is_rc_inc_elidable(s) iff s.cardinality = Once and s.consumption in {Linear, Affine}`
+      (canonical states; single-use move or borrow, no inc). Direct truth-table
+      consequence of the lattice's {Linear,Affine}xOnce cells.
     - depends-on sec-02 L-1..L-8 lattice properties at aims-proof/proofs/02-lattice/
       L-1.proof..L-8.proof — substrate for the burden-owned conjunction
       (each conjunct is a per-dimension query on the lattice; per L-3

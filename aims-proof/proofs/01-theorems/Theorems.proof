@@ -998,12 +998,13 @@ Theorem DP-3: is_rc_inc_elidable truth table
   Preconditions:
     - s is an AimsState per the canonical proof notation
     - is_rc_inc_elidable predicate per Annex E §AIMS DP-3
-    - Moved-once + Linear consumption is the only true case
+    - Single-use (Once) + Linear-or-Affine consumption are the true cases
 
   Soundness property:
     Forall s in AimsState.
       is_rc_inc_elidable(s)
-        iff (s.cardinality = 1 and s.consumption = Linear)
+        iff (s.cardinality = 1 and (s.consumption = Linear or
+             s.consumption = Affine))
 
   Proof obligation:
     sorry -- discharged by sec-05 decision predicate proofs

@@ -24,10 +24,12 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
           (line 140), routing every inc/dec decision through
           realize/decide.rs.
     - RL-1 is gated by DP-3 (is_rc_inc_elidable, Appendix C): an inc is
-      ELIDED exactly when Cardinality = Once AND Consumption = Linear (the
-      value is moved once, so the existing reference transfers and no new
-      reference is created). RL-1 emits the inc in every other duplication
-      case (the value is still live afterward).
+      ELIDED exactly when Cardinality = Once AND Consumption is Linear or
+      Affine (the value is used once, so no new owned reference is created —
+      a move (Linear) transfers the existing reference, a borrow (Affine)
+      reads it non-consumingly and releases it via its own RL-2 scope-exit
+      dec). RL-1 emits the inc in every other duplication case (the value is
+      still live afterward).
     - depends-on sec-05: DP-3 (is_rc_inc_elidable) soundness is proven at
       sec-05; RL-1's emission decision consumes that predicate.
 
@@ -38,8 +40,10 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
 
       (P1) Emission decision: RL-1 emits an RcInc for the duplication iff
            NOT is_rc_inc_elidable(state(v)) — i.e. iff NOT (Cardinality(v)
-           = Once AND Consumption(v) = Linear). A moved-once value's inc is
-           elided because the move transfers the sole reference.
+           = Once AND Consumption(v) is Linear or Affine). A single-use
+           value's inc is elided because the single use creates no new owned
+           reference (move transfers the sole reference; borrow releases via
+           its own scope-exit dec).
 
       (P2) RC-count preservation (refinement of plain ARC): over v's full
            lifecycle, every reference created — the 1 from allocation plus
@@ -51,8 +55,9 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
 
     RL-1 refines plain ARC: plain ARC incs on EVERY duplication
     unconditionally; RL-1 emits the inc only when the value is still live
-    (DP-3 elides the moved-once case), eliminating the redundant inc/dec
-    pair on a pure move while preserving the same observable RC balance.
+    (DP-3 elides the single-use case, move or borrow), eliminating the
+    redundant inc/dec pair on a single use while preserving the same
+    observable RC balance.
 
   Proof obligation:
     Constructive discharge by the rc_counting engine via per-instruction
@@ -66,10 +71,10 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
       The verifier enumerates a decision grid over (Cardinality,
       Consumption) and asserts RL-1's emit-inc decision equals
       NOT dp3_inc_elidable(card, cons) on every row:
-        (Once, Linear) -> elide (pure move transfers the reference)
+        (Once, Linear) -> elide (single-use move transfers the reference)
+        (Once, Affine) -> elide (single-use borrow; own scope-exit dec balances)
         (Many, Unrestricted) -> emit (live after dup)
         (Many, Affine) -> emit (live after dup)
-        (Once, Affine) -> emit (droppable; not a pure move)
         (Once, Unrestricted) -> emit (re-used)
       Coverage gate: 5 decisions, each cross-checked against the
       sec-05-proven DP-3 predicate. A divergence between RL-1's emission and

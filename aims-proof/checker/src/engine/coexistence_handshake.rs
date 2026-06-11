@@ -287,12 +287,14 @@ fn verify_ch1_lattice_bridge_consistency() -> EngineResult {
             expect_burden_owned: false,
             expect_dp2_or_dp3: false,
         },
-        // Owned + Affine + Once + Unique: NOT burden-owned per the canonical
-        // Class A pattern (burden_owned requires Linear, not Affine); DP-3 false
-        // (requires Linear); the lattice-bridge correctly excludes this state
-        // from the burden registry's class_covered annotation.
+        // Owned + Affine + Once + Unique: DP-3 fires (Once ∧ Affine is elidable);
+        // but burden_owned stays false because its DP-2 conjunct is false here
+        // (Once ∧ Affine is neither Absent nor Dead). burden_owned widening to
+        // accept Affine does NOT admit this state — the DP-2 dec-unnecessary
+        // conjunct still excludes it from the burden registry's class_covered
+        // annotation.
         BridgeRow {
-            label: "owned_affine_once_unique_not_class_a_excluded",
+            label: "owned_affine_once_unique_dp3_fires_not_burden_owned",
             state: ModeledState {
                 access: Access::Owned,
                 consumption: Consumption::Affine,
@@ -300,7 +302,7 @@ fn verify_ch1_lattice_bridge_consistency() -> EngineResult {
                 uniqueness: Uniqueness::Unique,
             },
             expect_burden_owned: false,
-            expect_dp2_or_dp3: false,
+            expect_dp2_or_dp3: true,
         },
     ];
     let mut checked: u64 = 0;

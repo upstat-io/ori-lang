@@ -53,7 +53,7 @@
 ; - DP-2 is_rc_dec_unnecessary — gates SUPPLEMENTARY decs only — terminal
 ; RL-2 emissions own their logic.
 ; [aims-proof/proofs/05-decisions/DP-2.proof]
-; - DP-3 is_rc_inc_elidable: cardinality = Once ∧ consumption = Linear.
+; - DP-3 is_rc_inc_elidable: cardinality = Once ∧ consumption ∈ {Linear, Affine}.
 ; [aims-proof/proofs/05-decisions/DP-3.proof]
 ; - RL-1-RL-2 composition RC-balance over heap-allocated owned non-scalar.
 ; [aims-proof/proofs/08-realization/RL-1-RL-2-composition.proof]

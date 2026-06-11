@@ -109,11 +109,11 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
       Consider s = (Owned, Linear, Once, Shared, BlockLocal, NonReusable, NONE),
       is_scalar = false. Per the predicate s.uniqueness = Shared violates
       fifth conjunct -> DP-7 = false. Per Appendix C Row 5 the same row
-      yields false. Sound: caller's RcInc fires (DP-1 = true; non-elidable
-      per DP-3 because is_inc_elidable requires Linear+Once AND Unique
-      implicitly is reflected upstream). Callee's RcDec elision (per RL-3 +
-      DP-7) would leak the duplicate. Excluding via Uniqueness = Unique
-      requirement is the gate that prevents this.
+      yields false. Sound: caller's RcInc fires (DP-1 = true); the inc/dec
+      pair is non-skippable here because DP-7's is_rc_skip_eligible requires
+      Uniqueness = Unique, which this Shared state fails. Callee's RcDec
+      elision (per RL-3 + DP-7) would leak the duplicate. Excluding via
+      Uniqueness = Unique requirement is the gate that prevents this.
 
     ArgEscaping not-local witness (DP-8 composition):
       Consider s = (Owned, Linear, Once, Unique, ArgEscaping, ReusableCtor*,

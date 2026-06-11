@@ -46,8 +46,8 @@ Theorem CH-1: Burden-registry-lattice composition soundness
               burden-registry SHALL agree (no burden write for
               this v at this point);
           (d) DP-3 evaluated on L[v]: if is_rc_inc_elidable
-              (cardinality = 1 AND consumption = L), the
-              burden-registry SHALL agree;
+              (cardinality = 1 AND (consumption = L OR consumption = A)),
+              the burden-registry SHALL agree;
           (e) on disagreement, consume_stack returns an
               inconsistency diagnostic (this CH-1 theorem proves
               no inconsistency arises under well-formed BR + L).

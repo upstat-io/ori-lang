@@ -15,8 +15,8 @@ Theorem RL-3: RC op elision when DP-2 / DP-3 / DP-7 prove the op unnecessary
       sec-05):
         * DP-2 is_rc_dec_unnecessary <=> Cardinality = Absent OR Consumption
           = Dead — a SUPPLEMENTARY dec on an absent/dead value is redundant.
-        * DP-3 is_rc_inc_elidable <=> Cardinality = Once AND Consumption =
-          Linear — a moved-once value needs no inc.
+        * DP-3 is_rc_inc_elidable <=> Cardinality = Once AND Consumption is
+          Linear or Affine — a single-use value (moved or borrowed) needs no inc.
         * DP-7 is_rc_skip_eligible <=> is_local AND Access = Owned AND
           Consumption = Linear AND Cardinality = Once AND Uniqueness =
           Unique AND NOT is_scalar — the caller-inc + callee-dec pair

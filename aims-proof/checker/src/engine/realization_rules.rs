@@ -210,8 +210,10 @@ enum RcEvent {
     /// Shipped: emit_rc/forward_walk.rs + realize/mod.rs
     /// inject_cow_borrowed_receiver_incs.
     IncLiveDup,
-    /// RL-3 / DP-3: inc ELIDED on a moved-once value (Once ∧ Linear). The move
-    /// transfers the existing reference; no new reference is created.
+    /// RL-3 / DP-3: inc ELIDED on a single-use value (Once ∧ (Linear ∨ Affine)).
+    /// The single use creates no new owned reference: a move (Linear) transfers
+    /// the existing reference; a borrow (Affine) reads it non-consumingly and
+    /// releases it via its own RL-2 scope-exit dec.
     /// Shipped: realize/decide.rs is_rc_inc_elidable gate.
     ElideIncMove,
     /// RL-2: `RcDec` at last use or scope exit (terminal, non-transfer).
@@ -371,8 +373,10 @@ enum Uniq {
 // duplicated (passed to Owned param while still live)." Soundness: the inc
 // creates one reference, balanced by the callee's dec (RL-2 on the Owned
 // param) — so RC count is preserved. RL-1 refines plain ARC: plain ARC incs
-// on EVERY duplication; RL-1's inc is ELIDED on a moved-once value (DP-3:
-// Once ∧ Linear) because the move transfers the existing reference.
+// on EVERY duplication; RL-1's inc is ELIDED on the single-use value (DP-3:
+// Once ∧ (Linear ∨ Affine)) because the single use creates no new owned
+// reference (a move transfers the existing reference; a borrow reads it
+// non-consumingly and releases it via its own RL-2 scope-exit dec).
 //
 // (P1) Emission decision: inc is emitted iff NOT DP-3-elidable (the value is
 // still live / used more than once after the dup).
@@ -384,18 +388,20 @@ enum Uniq {
 // realize/decide.rs.
 
 fn verify_rl1_inc_on_live_duplication() -> EngineResult {
-    // (P1) Decision grid: emit inc iff NOT (Once ∧ Linear).
+    // (P1) Decision grid: emit inc iff NOT (Once ∧ (Linear ∨ Affine)).
     // Each row: (cardinality, consumption, expect_inc).
     let decision_grid: &[(Card, Cons, bool)] = &[
-        // Moved-once (Once ∧ Linear) → inc ELIDED (DP-3 fires).
+        // Single-use move (Once, Linear) → inc ELIDED (DP-3 fires).
         (Card::Once, Cons::Linear, false),
+        // Single-use borrow (Once ∧ Affine) → inc ELIDED (DP-3 fires: the
+        // borrow creates no new owned reference; its own RL-2 scope-exit dec
+        // balances the read).
+        (Card::Once, Cons::Affine, false),
         // Live after dup (Many) → inc EMITTED.
         (Card::Many, Cons::Unrestricted, true),
         (Card::Many, Cons::Affine, true),
-        // Once but NOT Linear (Affine — droppable) → inc EMITTED (not a pure
-        // move; the value may be dropped on another path).
-        (Card::Once, Cons::Affine, true),
-        // Once + Unrestricted → inc EMITTED.
+        // Once + Unrestricted → inc EMITTED (Unrestricted co-occurs with a
+        // genuine multi-use that needs the inc).
         (Card::Once, Cons::Unrestricted, true),
     ];
     let mut decisions_checked: u64 = 0;
@@ -403,7 +409,7 @@ fn verify_rl1_inc_on_live_duplication() -> EngineResult {
         let emit_inc = !dp3_inc_elidable(*card, *cons);
         if emit_inc != *expect_inc {
             return fail(format!(
-                "RL-1 (P1) emission decision: ({:?}, {:?}) expected emit_inc={} but DP-3 gate yields emit_inc={}; RL-1 must elide exactly the Once∧Linear move",
+                "RL-1 (P1) emission decision: ({:?}, {:?}) expected emit_inc={} but DP-3 gate yields emit_inc={}; RL-1 must elide exactly the single-use value: Once AND (Linear OR Affine)",
                 card, cons, expect_inc, emit_inc
             ));
         }
@@ -644,7 +650,8 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
         expect_elide: bool,
     }
     let grid: &[ElisionRow] = &[
-        // DP-3 fires (Once∧Linear move) → inc elided.
+        // DP-3 fires on a single use (here the Once + Linear move witness; DP-3
+        // also fires on Once + Affine) → inc elided.
         ElisionRow {
             label: "dp3_move_elides_inc",
             dp2: dp2_dec_unnecessary(Card::Once, Cons::Linear),
@@ -4110,10 +4117,10 @@ mod tests {
 
     #[test]
     fn dp_predicate_models_match_appendix_c() {
-        // DP-3: only Once∧Linear.
+        // DP-3: Once ∧ (Linear ∨ Affine).
         assert!(dp3_inc_elidable(Card::Once, Cons::Linear));
         assert!(!dp3_inc_elidable(Card::Many, Cons::Linear));
-        assert!(!dp3_inc_elidable(Card::Once, Cons::Affine));
+        assert!(dp3_inc_elidable(Card::Once, Cons::Affine));
         // DP-2: Absent ∨ Dead.
         assert!(dp2_dec_unnecessary(Card::Absent, Cons::Dead));
         assert!(dp2_dec_unnecessary(Card::Many, Cons::Dead));
