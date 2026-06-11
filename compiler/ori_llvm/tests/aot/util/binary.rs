@@ -152,6 +152,10 @@ pub(super) fn stage_snapshot(
     for name in optional {
         if source_dir.join(name).exists() {
             snapshot_one(name)?;
+        } else {
+            // Source gone: drop any stale staged copy so the snapshot mirrors
+            // the current source set.
+            let _ = fs::remove_file(stage_dir.join(name));
         }
     }
     Ok(())
@@ -183,14 +187,27 @@ pub(super) fn clean_stale_stage_dirs() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn pid_is_alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{pid}")).exists()
 }
 
+// Non-Linux Unix has no /proc; `kill -0` probes liveness without signaling.
+// A spawn per candidate dir is fine on this cold cleanup path.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn pid_is_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true)
+}
+
 #[cfg(not(unix))]
 fn pid_is_alive(_pid: u32) -> bool {
-    // Conservative: never reclaim on platforms without a cheap liveness probe.
+    // Conservative: never reclaim without a cheap liveness probe — stale dirs
+    // accumulate in the OS temp dir (reclaimed by OS temp cleanup) rather
+    // than risking deletion of a live process's snapshot.
     true
 }
 
@@ -315,8 +332,8 @@ pub fn ori_binary() -> PathBuf {
     );
 }
 
-/// Check whether an `ori` binary has LLVM/AOT support by running `ori build`
-/// with no arguments and checking for the E5004 "requires LLVM backend" error.
+/// Check whether an `ori` binary has LLVM/AOT support by running
+/// `ori build --help` and checking for the E5004 "requires LLVM backend" error.
 fn has_llvm_support(binary: &Path) -> bool {
     Command::new(binary)
         .args(["build", "--help"])

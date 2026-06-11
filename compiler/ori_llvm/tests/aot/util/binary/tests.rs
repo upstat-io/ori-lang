@@ -7,6 +7,7 @@
 
 use super::{stage_snapshot, SnapshotStrategy};
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
@@ -172,6 +173,7 @@ fn missing_required_source_is_an_error_never_a_silent_fallback() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn staged_hardlink_shares_inode_with_source_at_stage_time() {
     let root = temp_test_dir("inode");
@@ -194,14 +196,18 @@ fn staged_hardlink_shares_inode_with_source_at_stage_time() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[cfg(unix)]
 #[test]
 fn stale_dead_pid_stage_dirs_are_cleaned() {
     let tag_root = std::env::temp_dir();
     // A PID that cannot be alive (beyond pid_max defaults) embedded in the
     // stale dir name; the cleaner must remove it. A dir named with OUR live
     // pid must survive.
-    let stale = tag_root.join("ori-aot-stage-999999999-debug");
-    let live = tag_root.join(format!("ori-aot-stage-{}-debug", std::process::id()));
+    // Non-profile suffixes: never collide with the REAL staged-artifacts dir
+    // of this very test process (creating/removing that name mid-suite would
+    // clobber the production snapshot).
+    let stale = tag_root.join("ori-aot-stage-999999999-pintest");
+    let live = tag_root.join(format!("ori-aot-stage-{}-pintest", std::process::id()));
     if let Err(e) = fs::create_dir_all(&stale) {
         panic!("test setup: {e}");
     }

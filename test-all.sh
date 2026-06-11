@@ -508,6 +508,15 @@ else
 fi
 
 # Show verbose output if requested or on failure
+# Detect mid-run artifact invalidation BEFORE any failure dump — invalidated
+# per-test output is noise, not signal.
+AOT_INVALID=0
+if [ -n "${AOT_ARTIFACT_BASELINE:-}" ] && [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
+    AOT_INVALID=1
+    echo ""
+    echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run (concurrent build detected); AOT counts are not trustworthy${NC}"
+fi
+
 if [[ $VERBOSE -eq 1 ]]; then
     echo ""
     echo "=== Detailed Output ==="
@@ -549,7 +558,7 @@ else
         echo -e "${RED}--- Rust LLVM test failures ---${NC}"
         cat "$RUST_LLVM_OUTPUT"
     fi
-    if [[ $AOT_EXIT -ne 0 ]]; then
+    if [[ $AOT_EXIT -ne 0 && $AOT_INVALID -ne 1 ]]; then
         echo ""
         echo -e "${RED}--- AOT integration test failures ---${NC}"
         cat "$AOT_OUTPUT"
@@ -585,18 +594,14 @@ parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || true)
 AOT_LEAKS=${AOT_LEAKS:-0}
 
-# Artifact-identity re-check: the shared compiler binary / staticlib changed
-# mid-run (concurrent build) -> the AOT counts are not trustworthy. Zero the
-# counts and force the errored pathway so the table + TOTAL report INCOMPLETE
-# instead of bogus failures.
-AOT_INVALID=0
-if [ -n "${AOT_ARTIFACT_BASELINE:-}" ] && [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
-    AOT_INVALID=1
+# Artifact-identity invalidation (detected above, pre-dump): zero the counts
+# and force the errored pathway so the table + TOTAL report INCOMPLETE instead
+# of bogus per-test failures.
+if [ "${AOT_INVALID:-0}" = "1" ]; then
     AOT_FAILED=0
     AOT_PASSED=0
+    AOT_IGNORED=0
     AOT_EXIT=1
-    echo ""
-    echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run (concurrent build detected); AOT counts are not trustworthy${NC}"
 fi
 
 # Determine WASM status
