@@ -11,7 +11,7 @@ use ori_arc::ir::ValueRepr;
 use ori_arc::ownership::Ownership;
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::Name;
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::super::abi::FunctionAbi;
@@ -29,28 +29,6 @@ use crate::codegen::type_info::TypeInfoStore;
 /// applies equally to struct fields and tuple elements.
 pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx) -> bool {
     crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(pool, owner_type, field_type)
-}
-
-/// True iff any payload position of a tagged union (`Option` / `Result` /
-/// `Enum`) `union_type` is a boxed recursive Struct/Enum back-edge — i.e.,
-/// the union stores a `ptr` box in some variant slot. Used to decide whether
-/// a drop/RC traversal must be tag-aware (the inactive variant's slot holds
-/// the tag/niche, not a valid pointer).
-pub(super) fn tagged_union_has_boxed_inner(pool: &Pool, union_type: Idx) -> bool {
-    let resolved = pool.resolve_fully(union_type);
-    match pool.tag(resolved) {
-        Tag::Option => is_boxed_enum_field(pool, resolved, pool.option_inner(resolved)),
-        Tag::Result => {
-            is_boxed_enum_field(pool, resolved, pool.result_ok(resolved))
-                || is_boxed_enum_field(pool, resolved, pool.result_err(resolved))
-        }
-        Tag::Enum => pool
-            .enum_variants(resolved)
-            .into_iter()
-            .flat_map(|(_, fields)| fields)
-            .any(|fi| is_boxed_enum_field(pool, resolved, fi)),
-        _ => false,
-    }
 }
 
 // Callee interception detection

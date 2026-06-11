@@ -14,6 +14,7 @@
 mod cow_aliases;
 mod ctx;
 mod emit;
+mod extract_transfer;
 mod moved_fields;
 mod ownership_scans;
 mod scan_helpers;

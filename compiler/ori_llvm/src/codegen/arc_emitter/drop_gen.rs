@@ -27,7 +27,7 @@ use ori_arc::{DropInfo, DropKind};
 use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
-use super::context::{is_boxed_enum_field, tagged_union_has_boxed_inner};
+use super::context::is_boxed_enum_field;
 use super::ArcIrEmitter;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
@@ -473,20 +473,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // Tagged unions (Option/Result/Enum) carrying a BOXED RECURSIVE inner
-        // MUST be dropped tag-aware: the inactive variant's payload slot holds
-        // the niche/tag, not a valid pointer. The flat extract_rc_data_ptrs
-        // path would unconditionally dec that slot — a crash when the inner is
-        // a boxed recursive pointer (the None tag `0x1` is not null, so
-        // ori_rc_dec faults). dec_value_rc switches on the discriminant and
-        // decs only the live variant. Non-recursive tagged unions keep the
-        // flat path (their data ptrs are inner heap pointers that ori_rc_dec
-        // null-checks safely).
+        // Inline aggregates (Option/Result/Enum/Struct/Tuple) MUST be
+        // dropped via the value-traversal path: the flat extract_rc_data_ptrs
+        // path extracts an INNER member's pointer but pairs it with the OUTER
+        // aggregate's drop fn — when the member's refcount hits zero, the
+        // aggregate's drop glue runs ON THE MEMBER ALLOCATION (reads a
+        // discriminant / a sibling field out of member payload bytes, decs a
+        // garbage pointer — a type-confusion double-free / misaligned dec).
+        // dec_value_rc releases each live member with its OWN typed release
+        // (buffer-aware for collections, tag-switched for boxed /
+        // multi-variant unions, per-field for structs/tuples); a
+        // zero-initialized empty variant's null payload pointer is a safe
+        // no-op. The flat path also emitted NO release at all for non-boxed
+        // Result/Enum (extract_rc_data_ptrs returns no pointers for them — a
+        // leak). Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
         if matches!(
             tag,
-            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
-        ) && tagged_union_has_boxed_inner(self.pool, resolved)
-        {
+            ori_types::Tag::Option
+                | ori_types::Tag::Result
+                | ori_types::Tag::Enum
+                | ori_types::Tag::Struct
+                | ori_types::Tag::Tuple
+        ) {
             self.dec_value_rc(val, field_type);
             return;
         }

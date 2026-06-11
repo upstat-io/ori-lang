@@ -132,3 +132,15 @@ fn test_nested_heap_field_loop_self_rebuild() {
         "struct_self_rebuild_nested_heap_field",
     );
 }
+
+// Positive: nested-struct field replaced FRESH each iteration — the partial
+// dec releases the struct-typed field at refcount zero through the
+// value-traversal glue (exit 134 misaligned-pointer dec pre-fix: the flat
+// path paired the inner list buffer with the OUTER struct's drop fn).
+#[test]
+fn test_nested_struct_field_replaced_releases_with_member_typed_dec() {
+    assert_aot_success(
+        include_str!("fixtures/struct_self_rebuild/nested_struct_field_replaced_loop.ori"),
+        "struct_self_rebuild_nested_struct_field_replaced",
+    );
+}

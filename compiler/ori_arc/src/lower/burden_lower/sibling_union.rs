@@ -602,7 +602,7 @@ fn apply_group(
 /// v1 conservative declines: >1 dup intermediate (one whole dec cannot balance
 /// two kept incs); a keeper that MOVED a field (its dec is partial — cannot
 /// balance the whole inc); an intermediate used outside the group's sibling
-/// Lets (the kept inc may be balanced elsewhere); union not covering all owned
+/// `Let` aliases (the kept inc may be balanced elsewhere); union not covering all owned
 /// fields (an uncovered field needs the entering reference released too — one
 /// whole dec cannot do both). Spec: Annex E §AIMS RL-1
 /// (`RL1_duplication_balanced`).
@@ -668,7 +668,9 @@ fn assign_keeper(
 /// The set of top-level field indices (`OwnedField.field_path[0]`) carrying RC
 /// in `var`'s burden. The grain the sibling union operates at; nested owned
 /// fields are released by the outer drop-glue (top-level `field_path[0]`).
-fn owned_top_level_fields(
+/// Shared with the match-handoff extract-transfer verdict
+/// (`extract_transfer`) — the same field grain.
+pub(super) fn owned_top_level_fields(
     func: &ArcFunction,
     var: ArcVarId,
     type_registry: &TypeRegistry,

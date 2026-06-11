@@ -37,8 +37,8 @@ use super::scan_helpers::{
 };
 use super::terminator::{compute_terminator_inc_per_block, compute_terminator_transfer_per_block};
 use super::{
-    sibling_union, DEAD_FORWARDER_PARAM_RELEASE_DISABLED, DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED,
-    TTR_ITER_CONSUME_DUP_INC_DISABLED,
+    extract_transfer, sibling_union, DEAD_FORWARDER_PARAM_RELEASE_DISABLED,
+    DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, TTR_ITER_CONSUME_DUP_INC_DISABLED,
 };
 
 /// Walk `func` and emit `BurdenInc` / `BurdenDec` ops per SSA variable from
@@ -232,6 +232,26 @@ pub(crate) fn emit_burden_ops<'a>(
         &alias_table,
         &param_edge_args,
         &dup_alias_dsts,
+        &mut full_move_vars,
+        &mut partial_move_vars,
+    );
+
+    // RL-2 match-handoff extract-transfer attribution: a rebuild carrier's
+    // still-released SUM field counts MOVED when EVERY switch arm over the
+    // field's tag either transfers the extracted payload into the rebuild
+    // construct (unconditional arm path, per-edge identity) or is the
+    // payload-less-variant arm — the `r = Pair { o: Some(extracted), b: r.b }`
+    // shape where the partial dec would double-free the re-wrapped payload. A
+    // conditional / partial flow DECLINES (the dropped-payload path keeps its
+    // release). Runs AFTER the sibling union (consumes the widened skip sets)
+    // and BEFORE the `inc_suppressed_vars = full_move_vars` coupling below.
+    // Toggle `ORI_DISABLE_MATCH_HANDOFF_EXTRACT_TRANSFER=1` restores the
+    // un-widened attribution. Spec: Annex E §AIMS RL-2.
+    extract_transfer::apply_match_handoff_extract_transfer(
+        func,
+        type_registry,
+        &owned_vars_needing_rc,
+        &param_edge_args,
         &mut full_move_vars,
         &mut partial_move_vars,
     );

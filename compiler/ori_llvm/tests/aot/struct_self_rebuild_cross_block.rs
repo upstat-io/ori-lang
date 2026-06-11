@@ -1,10 +1,10 @@
-//! Cross-block loop self-rebuild RC accounting — the BUG-04-156 RED matrix.
+//! Cross-block loop self-rebuild RC accounting.
 //!
 //! Shapes that thread the loop-carried struct (or a field) across CFG-block
 //! boundaries: branch-arm-exclusive rebuilds, sum-payload match block-param
 //! handoffs, post-construct duplication reads, and alternating variant arms.
-//! Both RC emission paths mis-account on these (the predicate-stack baseline
-//! leaks too); the same-block sibling-union analysis deliberately declines
+//! The same-block sibling-union analysis deliberately declines these; the
+//! per-edge identity table + the all-arms extract-transfer attribution own
 //! them. Eval is clean on every fixture — the family is AOT-only.
 
 use crate::util::{assert_aot_success, compile_and_run_with_build_env};
@@ -23,9 +23,11 @@ fn test_branch_exclusive_rebuild_no_overfire() {
 }
 
 // Positive: sum-payload field extracted through a match feeding the rebuild
-// (pre-fix SIGSEGV, exit 139).
+// (pre-fix SIGSEGV, exit 139). The all-arms extract-transfer attribution
+// counts the sum field MOVED (the Some arm transfers the extracted payload
+// into the rebuild construct through the match block-param handoff; the None
+// arm is payload-less), so the carrier's partial dec is fully suppressed.
 #[test]
-#[ignore = "BUG-04-156: sum-payload match rebuild — the bb-resident carrier's partial dec releases the sum field whose PAYLOAD was extracted through the match block-param handoff and re-wrapped into the new struct (misaligned-pointer dec); needs variant-tag-aware extract-transfer attribution (every switch arm either transfers the field payload to the rebuild construct or is a payload-less-variant arm) before the field counts as moved"]
 fn test_sum_payload_sibling_fields_no_overfire() {
     assert_aot_success(
         include_str!("fixtures/struct_self_rebuild/sum_payload_match_rebuild.ori"),
@@ -48,10 +50,13 @@ fn test_late_use_alias_keeps_uncovered_dec() {
 }
 
 // Positive: projections through DIFFERENT variant arms across iterations —
-// nondeterministic misaligned-pointer dec (type confusion) pre-fix; the
-// cross-variant DECLINE must also leave the shape leak-clean.
+// nondeterministic misaligned-pointer dec (type confusion) pre-fix. The
+// extract is CONDITIONALLY transferred (an inner branch inside the Some arm),
+// so the all-arms attribution DECLINES (the partial dec stays) and the kept
+// release goes through the tag-aware value-traversal glue: the dropped
+// payload on the None-result path releases with its OWN typed release (no
+// outer-drop-fn pairing on the inner payload pointer).
 #[test]
-#[ignore = "BUG-04-156: cross-variant projection — moved-field attribution mis-types across variant arms (misaligned-pointer dec); the per-arm extract is CONDITIONALLY transferred (inner branch inside the Some arm), so the variant-tag-aware extract-transfer attribution must DECLINE here while still releasing the dropped payload on the None-result path; residual mis-typed dec persists on both RC paths"]
 fn test_cross_variant_projection_declines_unification() {
     assert_aot_success(
         include_str!("fixtures/struct_self_rebuild/cross_variant_projection_loop.ori"),
