@@ -104,6 +104,7 @@ fn param_join_is_commutative() {
         return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
+        borrowed_cow_consumed: false,
     };
     let b = ParamContract {
         access: AccessClass::Borrowed,
@@ -119,6 +120,7 @@ fn param_join_is_commutative() {
         return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
+        borrowed_cow_consumed: false,
     };
     assert_eq!(a.join(&b), b.join(&a));
 }
@@ -300,6 +302,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
+            borrowed_cow_consumed: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary::default(),

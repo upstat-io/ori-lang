@@ -9,8 +9,14 @@
 //! in-flight test as FAILED with a stderr tail, accounts the file's
 //! remaining tests as failed-by-crash, and continues with the next file.
 
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read};
+mod exit_class;
+mod finalize;
+mod stream;
+#[cfg(test)]
+mod test_fixtures;
+mod token;
+
+use std::io::{BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,15 +25,15 @@ use std::time::{Duration, Instant};
 
 use rustc_hash::FxHashSet;
 
-use super::super::protocol::{self, WorkerEvent, PROTOCOL_PREFIX};
+use self::finalize::finalize_worker_exit;
+use self::stream::{
+    collect_stderr_ring, read_line_capped, spawn_stderr_drain, CappedLine, LINE_CAP_BYTES,
+    LINE_TRUNCATION_MARKER, STDERR_JOIN_TIMEOUT,
+};
+use self::token::generate_protocol_token;
+use super::super::protocol::{self, WorkerEvent};
 use super::super::result::{FileSummary, TestResult};
 use super::TestRunnerConfig;
-
-/// Number of trailing worker-stderr lines rendered into crash failures.
-const STDERR_TAIL_LINES: usize = 20;
-
-/// Ring-buffer capacity for captured worker stderr lines.
-const STDERR_RING_CAPACITY: usize = 200;
 
 /// Default per-file worker wall-clock budget in seconds.
 ///
@@ -48,10 +54,15 @@ fn worker_timeout() -> Duration {
 }
 
 /// Run one test file in a fresh worker process and reconstruct its summary.
+///
+/// `skip_names` carries the parent-computed incremental skip decisions
+/// (tests whose targets are unchanged per the PARENT-owned cache); the
+/// worker reports each as `SkippedUnchanged` without running it.
 pub(super) fn run_file_isolated(
     path: &Path,
     interner: &crate::ir::StringInterner,
     config: &TestRunnerConfig,
+    skip_names: &[String],
 ) -> FileSummary {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -64,6 +75,22 @@ pub(super) fn run_file_isolated(
         }
     };
 
+    let (cmd, token) = build_worker_command(&exe, path, config, skip_names);
+    run_worker_command(cmd, path, interner, worker_timeout(), &token)
+}
+
+/// Build the worker command for one test file, with a fresh per-spawn
+/// protocol token.
+///
+/// INVARIANT: the token is set ONLY on the spawn env (`Command::env`) —
+/// the parent's own environment never carries it, so nothing the parent
+/// later spawns can see another worker's nonce.
+pub(super) fn build_worker_command(
+    exe: &Path,
+    path: &Path,
+    config: &TestRunnerConfig,
+    skip_names: &[String],
+) -> (Command, String) {
     let mut cmd = Command::new(exe);
     cmd.arg("test").arg("--backend=llvm").arg("--__worker");
     if let Some(filter) = &config.filter {
@@ -72,18 +99,32 @@ pub(super) fn run_file_isolated(
     if config.incremental {
         cmd.arg("--incremental");
     }
+    // Parent-computed incremental skip decisions (the parent owns the
+    // cache; the worker never computes its own).
+    if !skip_names.is_empty() {
+        cmd.arg(format!("--__skip-unchanged={}", skip_names.join(",")));
+    }
     cmd.arg(path);
     cmd.env("RUST_BACKTRACE", "1");
 
-    run_worker_command(cmd, path, interner, worker_timeout())
+    // Per-spawn unguessable nonce: protocol lines parse only when stamped
+    // with it, so test code printing protocol-shaped lines at line start
+    // cannot forge results (test `print()` shares the worker's stdout).
+    let token = generate_protocol_token();
+    cmd.env(crate::debug_flags::ORI_TEST_PROTOCOL_TOKEN, &token);
+    (cmd, token)
 }
 
 /// Streaming protocol state accumulated while a worker runs.
 #[derive(Default)]
 struct ProtocolState {
-    /// Announced tests, in announcement order.
+    /// Announced tests, in announcement order, deduplicated (set semantics:
+    /// a duplicate `plan` record is ignored, so failed-by-crash attribution
+    /// is per unique name).
     planned: Vec<String>,
-    /// Tests that produced a result record.
+    /// Membership index over [`ProtocolState::planned`].
+    planned_set: FxHashSet<String>,
+    /// Tests that produced a result record (first result wins).
     resulted: FxHashSet<String>,
     /// Test that started but has not yet produced a result.
     in_flight: Option<String>,
@@ -93,14 +134,16 @@ struct ProtocolState {
 
 /// Spawn the worker command, stream its protocol, classify its exit.
 ///
-/// Takes a pre-built [`Command`] so tests can substitute fake workers, and a
-/// per-file wall-clock budget: a worker still alive at the deadline is killed
-/// by the watchdog and its in-flight test counted FAILED (timeout).
+/// Takes a pre-built [`Command`] so tests can substitute fake workers, the
+/// per-spawn protocol token the worker's lines must carry, and a per-file
+/// wall-clock budget: a worker still alive at the deadline is killed by the
+/// watchdog and its in-flight test counted FAILED (timeout).
 pub(super) fn run_worker_command(
     mut cmd: Command,
     path: &Path,
     interner: &crate::ir::StringInterner,
     timeout: Duration,
+    token: &str,
 ) -> FileSummary {
     let mut summary = FileSummary::new(path.to_path_buf());
     cmd.stdin(Stdio::null())
@@ -130,31 +173,55 @@ pub(super) fn run_worker_command(
     let child = Arc::new(parking_lot::Mutex::new(child));
     let done = Arc::new(AtomicBool::new(false));
     let timed_out = Arc::new(AtomicBool::new(false));
-    let watchdog = spawn_watchdog(&child, &done, &timed_out, timeout);
+    let kill_error: Arc<parking_lot::Mutex<Option<String>>> =
+        Arc::new(parking_lot::Mutex::new(None));
+    let watchdog = spawn_watchdog(&child, &done, &timed_out, &kill_error, timeout);
 
     let mut state = ProtocolState::default();
-    if let Some(stdout) = stdout {
-        consume_worker_stdout(stdout, &mut state, &mut summary, interner);
+    let consumer_panic = stdout.and_then(|stdout| {
+        consume_worker_stdout_guarded(stdout, &mut state, &mut summary, interner, token)
+    });
+    if consumer_panic.is_some() {
+        // Harness-internal failure: take the worker group down NOW instead
+        // of leaving it to run out the watchdog budget.
+        // INVARIANT: `done` is set BEFORE the kill so the watchdog can never
+        // attribute this kill to a timeout — the failure entry stays the
+        // consumer-panic one.
+        done.store(true, Ordering::SeqCst);
+        let error = kill_worker(&mut child.lock());
+        record_kill_error(&kill_error, error);
     }
 
     let status = wait_for_exit(&child);
     done.store(true, Ordering::SeqCst);
     let _ = watchdog.join();
-    let stderr_ring = stderr_drain
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default();
+    // Bounded stderr join BEFORE finalize consumes the tail: the drain exits
+    // when the pipe closes; a surviving descendant holding the write end open
+    // costs at most the timeout instead of hanging the runner.
+    let (stderr_ring, stderr_note) = collect_stderr_ring(stderr_drain, STDERR_JOIN_TIMEOUT);
 
     let timeout_budget = timed_out.load(Ordering::SeqCst).then_some(timeout);
+    let kill_failure = kill_error.lock().take();
     match status {
         Ok(status) => finalize_worker_exit(
             &state,
             status,
             timeout_budget,
+            kill_failure.as_deref(),
             &stderr_ring,
             &mut summary,
             interner,
         ),
         Err(e) => summary.add_error(format!("failed to wait for test worker: {e}")),
+    }
+    if let Some(note) = stderr_note {
+        summary.add_error(note);
+    }
+    if let Some(panic_msg) = consumer_panic {
+        summary.add_error(format!(
+            "internal test-runner error while consuming worker output \
+             (worker killed): {panic_msg}"
+        ));
     }
 
     summary
@@ -169,19 +236,30 @@ fn spawn_watchdog(
     child: &Arc<parking_lot::Mutex<Child>>,
     done: &Arc<AtomicBool>,
     timed_out: &Arc<AtomicBool>,
+    kill_error: &Arc<parking_lot::Mutex<Option<String>>>,
     timeout: Duration,
 ) -> std::thread::JoinHandle<()> {
     let child = Arc::clone(child);
     let done = Arc::clone(done);
     let timed_out = Arc::clone(timed_out);
+    let kill_error = Arc::clone(kill_error);
     std::thread::spawn(move || {
         let deadline = Instant::now() + timeout;
         while !done.load(Ordering::SeqCst) {
             if Instant::now() >= deadline {
+                let mut guard = child.lock();
+                // Boundary guard: a worker that already exited at the
+                // deadline — reaped by `wait_for_exit` (`try_wait` returns
+                // the cached status) or exited-unreaped — completed
+                // normally; attribute no timeout, record no kill error.
+                if done.load(Ordering::SeqCst) || matches!(guard.try_wait(), Ok(Some(_))) {
+                    return;
+                }
                 timed_out.store(true, Ordering::SeqCst);
                 // SIGKILL cannot be caught: the worker WILL die, its pipes
                 // close, and the runner's stdout read unblocks.
-                kill_worker(&mut child.lock());
+                let error = kill_worker(&mut guard);
+                record_kill_error(&kill_error, error);
                 return;
             }
             std::thread::sleep(WATCHDOG_POLL);
@@ -189,21 +267,61 @@ fn spawn_watchdog(
     })
 }
 
+/// Record a kill failure for crash-detail rendering (first failure wins).
+fn record_kill_error(slot: &parking_lot::Mutex<Option<String>>, error: Option<String>) {
+    if let Some(error) = error {
+        let mut guard = slot.lock();
+        if guard.is_none() {
+            *guard = Some(error);
+        }
+    }
+}
+
 /// Kill the worker and (on unix) its whole process group.
+///
+/// Returns a description of any kill failure so the caller can surface it
+/// in the crash-failure detail — never swallowed; `None` when the group
+/// kill succeeded.
 #[cfg(unix)]
-fn kill_worker(child: &mut Child) {
-    // Group kill (the worker is its own group leader per `process_group(0)`)
-    // via the POSIX `kill` utility — std has no kill-by-pgid.
-    let _ = Command::new("kill")
-        .args(["-KILL", "--", &format!("-{}", child.id())])
-        .status();
-    let _ = child.kill();
+#[expect(
+    unsafe_code,
+    reason = "kill(2) by negative pid is the only kill-by-process-group path; std has no equivalent"
+)]
+fn kill_worker(child: &mut Child) -> Option<String> {
+    // Group kill: the worker is its own group leader per `process_group(0)`,
+    // so a negative pid addresses the whole group. std has no kill-by-pgid.
+    let group_result = match i32::try_from(child.id()) {
+        // SAFETY: kill(2) takes a pid and a signal number; it has no
+        // memory-safety preconditions and reports failure via errno.
+        Ok(pid) => match unsafe { libc::kill(-pid, libc::SIGKILL) } {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error().to_string()),
+        },
+        Err(_) => Err(format!("worker pid {} exceeds pid_t range", child.id())),
+    };
+    // Fallback: always also kill the direct child pid so a group-kill
+    // failure still takes the worker itself down.
+    let child_result = child.kill();
+    match (group_result, child_result) {
+        (Ok(()), _) => None,
+        (Err(group_err), Ok(())) => Some(format!(
+            "group kill failed ({group_err}); direct child kill succeeded"
+        )),
+        (Err(group_err), Err(child_err)) => Some(format!(
+            "group kill failed ({group_err}); direct child kill failed ({child_err})"
+        )),
+    }
 }
 
 /// Kill the worker process (no process groups off unix).
+///
+/// Returns a description of any kill failure; `None` on success.
 #[cfg(not(unix))]
-fn kill_worker(child: &mut Child) {
-    let _ = child.kill();
+fn kill_worker(child: &mut Child) -> Option<String> {
+    child
+        .kill()
+        .err()
+        .map(|e| format!("child kill failed ({e})"))
 }
 
 /// Reap the worker after its stdout reached EOF.
@@ -220,46 +338,78 @@ fn wait_for_exit(child: &Arc<parking_lot::Mutex<Child>>) -> std::io::Result<Exit
     }
 }
 
+/// Run [`consume_worker_stdout`], trapping harness-internal panics.
+///
+/// Returns the panic message when the consumer itself failed; the caller
+/// kills the worker group immediately and records a file-level error.
+fn consume_worker_stdout_guarded(
+    stdout: impl Read,
+    state: &mut ProtocolState,
+    summary: &mut FileSummary,
+    interner: &crate::ir::StringInterner,
+    token: &str,
+) -> Option<String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        consume_worker_stdout(stdout, state, summary, interner, token);
+    }))
+    .err()
+    .map(|payload| super::panic_message(payload.as_ref()))
+}
+
 /// Read worker stdout to EOF: protocol lines update state; everything else
 /// (test program output) passes through verbatim.
+///
+/// A protocol record parses ONLY when the marker starts the line AND the
+/// line carries the per-spawn token — a mid-line `@@ori-test` (test output
+/// embedding the marker) or a line-start marker without the unguessable
+/// token passes through as plain output, so test programs cannot forge
+/// protocol events.
+///
+/// Per-line reads are capped at [`LINE_CAP_BYTES`]; a read error records a
+/// file-level note instead of silently truncating the stream (the worker's
+/// exit classification still governs the failure accounting).
 fn consume_worker_stdout(
     stdout: impl Read,
     state: &mut ProtocolState,
     summary: &mut FileSummary,
     interner: &crate::ir::StringInterner,
+    token: &str,
 ) {
     let mut reader = BufReader::new(stdout);
     let mut buf: Vec<u8> = Vec::new();
     loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
+        let truncated = match read_line_capped(&mut reader, &mut buf, LINE_CAP_BYTES) {
+            Ok(CappedLine::Eof) => break,
+            Ok(CappedLine::Line { truncated }) => truncated,
+            Err(e) => {
+                summary.add_error(format!(
+                    "error reading test-worker stdout: {e} (worker output truncated)"
+                ));
+                break;
+            }
+        };
         let line_owned = String::from_utf8_lossy(&buf);
         let line = line_owned.trim_end_matches(['\n', '\r']);
 
-        // A test printing without a trailing newline can glue its output to
-        // the front of a protocol record; locate the marker anywhere.
-        let Some(marker) = line.find(PROTOCOL_PREFIX.trim_end()) else {
-            println!("{line}");
-            continue;
-        };
-        let (passthrough, candidate) = line.split_at(marker);
-        match protocol::parse_line(candidate) {
-            Some(event) => {
-                if !passthrough.is_empty() {
-                    println!("{passthrough}");
-                }
-                consume_event(event, state, summary, interner);
-            }
-            // Malformed protocol-shaped line: surface verbatim.
+        match protocol::parse_line(line, token) {
+            // A truncated protocol line keeps its (truncated) payload — the
+            // prefix/name/kind fields all precede the free-text detail, so
+            // the result accounting survives an over-cap failure detail.
+            Some(event) => consume_event(event, state, summary, interner),
+            // Non-protocol line, mid-line marker, absent/mismatched token,
+            // or malformed protocol-shaped line: surface verbatim.
+            None if truncated => println!("{line}{LINE_TRUNCATION_MARKER}"),
             None => println!("{line}"),
         }
     }
 }
 
 /// Apply one protocol event to the accumulating state + summary.
+///
+/// Validation/dedup contract:
+/// - duplicate `plan` for one name: ignored (set semantics)
+/// - `result` for a name never planned: ignored, protocol-anomaly note
+/// - duplicate `result` for one name: first wins, protocol-anomaly note
 fn consume_event(
     event: WorkerEvent,
     state: &mut ProtocolState,
@@ -267,13 +417,33 @@ fn consume_event(
     interner: &crate::ir::StringInterner,
 ) {
     match event {
-        WorkerEvent::Plan { name } => state.planned.push(name),
+        WorkerEvent::Plan { name } => {
+            if state.planned_set.insert(name.clone()) {
+                state.planned.push(name);
+            }
+        }
         WorkerEvent::Start { name } => state.in_flight = Some(name),
         WorkerEvent::Result {
             name,
             outcome,
             duration,
         } => {
+            if !state.planned_set.contains(&name) {
+                // A result the worker never announced is a harness bug (test
+                // code cannot forge tokenized lines): keep it out of the test
+                // counts but surface it as a file-level anomaly.
+                summary.add_error(format!(
+                    "worker protocol anomaly: result for unplanned test '{name}' ignored"
+                ));
+                return;
+            }
+            if !state.resulted.insert(name.clone()) {
+                summary.add_error(format!(
+                    "worker protocol anomaly: duplicate result for test '{name}' ignored \
+                     (first result wins)"
+                ));
+                return;
+            }
             if state.in_flight.as_deref() == Some(name.as_str()) {
                 state.in_flight = None;
             }
@@ -283,164 +453,10 @@ fn consume_event(
                 outcome,
                 duration,
             });
-            state.resulted.insert(name);
         }
         WorkerEvent::FileError { message } => summary.add_error(message),
         WorkerEvent::LlvmCompileError => summary.llvm_compile_error = true,
         WorkerEvent::Done => state.done = true,
-    }
-}
-
-/// Classify the worker's exit and account for tests lost to a crash.
-fn finalize_worker_exit(
-    state: &ProtocolState,
-    status: ExitStatus,
-    timeout_budget: Option<Duration>,
-    stderr_ring: &VecDeque<String>,
-    summary: &mut FileSummary,
-    interner: &crate::ir::StringInterner,
-) {
-    if state.done {
-        if !status.success() {
-            summary.add_error(format!(
-                "test worker exited abnormally after completing its file: {}",
-                classify_exit(status)
-            ));
-        }
-        return;
-    }
-
-    // Protocol truncated: the worker died (or exited) mid-file.
-    let class = match timeout_budget {
-        Some(budget) => format!(
-            "watchdog timeout after {budget:.0?} — worker killed ({})",
-            classify_exit(status)
-        ),
-        None => classify_exit(status),
-    };
-    let tail = stderr_tail(stderr_ring);
-    let mut tail_attached = false;
-
-    // The in-flight test is the crash site: count it FAILED with full detail.
-    if let Some(name) = state.in_flight.as_deref() {
-        if !state.resulted.contains(name) {
-            summary.add_result(TestResult::failed(
-                interner.intern(name),
-                vec![],
-                format!("test crashed: worker terminated by {class}{tail}"),
-                Duration::ZERO,
-            ));
-            tail_attached = true;
-        }
-    }
-
-    // Remaining announced tests never ran: count each FAILED (failed-by-crash).
-    let crash_site = state
-        .in_flight
-        .clone()
-        .unwrap_or_else(|| "LLVM compilation/setup".to_string());
-    for name in &state.planned {
-        if state.resulted.contains(name) || state.in_flight.as_deref() == Some(name.as_str()) {
-            continue;
-        }
-        let detail_tail = if tail_attached {
-            String::new()
-        } else {
-            tail_attached = true;
-            tail.clone()
-        };
-        summary.add_result(TestResult::failed(
-            interner.intern(name),
-            vec![],
-            format!(
-                "not run: test worker crashed ({class}) during '{crash_site}' — \
-                 counted as failed-by-crash{detail_tail}"
-            ),
-            Duration::ZERO,
-        ));
-    }
-
-    // Crash before test discovery: no per-test anchor exists, so record a
-    // file-level error (counts toward the failing exit code).
-    if state.planned.is_empty() && state.in_flight.is_none() {
-        summary.add_error(format!(
-            "test worker crashed before test discovery: {class}{tail}"
-        ));
-    }
-}
-
-/// Drain worker stderr on a thread: pass lines through to the parent's
-/// stderr and keep a bounded ring for crash-tail rendering.
-fn spawn_stderr_drain(
-    stderr: impl Read + Send + 'static,
-) -> std::thread::JoinHandle<VecDeque<String>> {
-    std::thread::spawn(move || {
-        let mut ring: VecDeque<String> = VecDeque::new();
-        let mut reader = BufReader::new(stderr);
-        let mut buf: Vec<u8> = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {}
-            }
-            let line_owned = String::from_utf8_lossy(&buf);
-            let line = line_owned.trim_end_matches(['\n', '\r']);
-            eprintln!("{line}");
-            if ring.len() == STDERR_RING_CAPACITY {
-                ring.pop_front();
-            }
-            ring.push_back(line.to_string());
-        }
-        ring
-    })
-}
-
-/// Render the last [`STDERR_TAIL_LINES`] captured stderr lines.
-fn stderr_tail(ring: &VecDeque<String>) -> String {
-    if ring.is_empty() {
-        return String::new();
-    }
-    let skip = ring.len().saturating_sub(STDERR_TAIL_LINES);
-    let tail: Vec<&str> = ring.iter().skip(skip).map(String::as_str).collect();
-    format!(
-        "\n--- worker stderr (last {} lines) ---\n{}",
-        tail.len(),
-        tail.join("\n")
-    )
-}
-
-/// Human-readable classification of a worker's exit status.
-fn classify_exit(status: ExitStatus) -> String {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            return format!("signal {signal} ({})", signal_name(signal));
-        }
-    }
-    match status.code() {
-        Some(134) => "exit code 134 (SIGABRT-class abort)".to_string(),
-        Some(101) => "exit code 101 (Rust panic)".to_string(),
-        Some(code) => format!("exit code {code}"),
-        None => "unknown termination".to_string(),
-    }
-}
-
-/// Map common POSIX signal numbers to their names.
-#[cfg(unix)]
-fn signal_name(signal: i32) -> &'static str {
-    match signal {
-        4 => "SIGILL",
-        5 => "SIGTRAP",
-        6 => "SIGABRT",
-        7 => "SIGBUS",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        11 => "SIGSEGV",
-        13 => "SIGPIPE",
-        15 => "SIGTERM",
-        _ => "unknown signal",
     }
 }
 

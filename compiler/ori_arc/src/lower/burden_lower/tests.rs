@@ -7833,37 +7833,50 @@ fn run_move_alias_scan(func: &ArcFunction, owned: &[u32]) -> FxHashSet<ArcVarId>
     )
 }
 
-/// bb0: `%0` fresh str + a non-terminal use (`%1 = Apply f(%0)` with the given
-/// ownership — `Owned` models the consuming COW-receiver hand-off, `Borrowed`
-/// the non-consuming read), Jump bb1. bb1 body per `bb1_body`; bb1 terminator
-/// per `bb1_term`. Optional bb2 for successor-use shapes. `%0` is the dup'd
-/// source (2+ uses).
+/// bb0: `%0` fresh str + a non-terminal use, Jump bb1. bb1 body per
+/// `bb1_body`; bb1 terminator per `bb1_term`. Optional bb2 for successor-use
+/// shapes. `%0` is the dup'd source (2+ uses).
+///
+/// The `Owned` non-terminal use routes through a `Let { Var }` alias
+/// (`%5 = %0; %1 = Apply f(%5 [own])`) — the lowered COW-receiver hand-off
+/// shape (`%6 = %4; Invoke @insert(%6 [own], ..)`). A DIRECT owned-position
+/// consume of `%0` would put `%0` itself into the instruction-transfer seed
+/// (`instr_transfer_vars`) and mask the relaxed gate's verdict. The `Borrowed`
+/// variant reads `%0` directly (a borrow is not a seed position).
 fn cross_block_dup_source_func_with(
     bb0_use_ownership: ArgOwnership,
     bb1_body: Vec<ArcInstr>,
     bb1_term: ArcTerminator,
     bb2: Option<(Vec<ArcInstr>, ArcTerminator)>,
 ) -> ArcFunction {
-    let bb0_use = ArcInstr::Apply {
+    let mut bb0_body = vec![ArcInstr::Let {
+        dst: ArcVarId::new(0),
+        ty: Idx::STR,
+        value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+    }];
+    let consumed_arg = if matches!(bb0_use_ownership, ArgOwnership::Owned) {
+        bb0_body.push(ArcInstr::Let {
+            dst: ArcVarId::new(5),
+            ty: Idx::STR,
+            value: ArcValue::Var(ArcVarId::new(0)),
+        });
+        ArcVarId::new(5)
+    } else {
+        ArcVarId::new(0)
+    };
+    bb0_body.push(ArcInstr::Apply {
         dst: ArcVarId::new(1),
         ty: Idx::INT,
         func: Name::from_raw(100),
-        args: vec![ArcVarId::new(0)],
+        args: vec![consumed_arg],
         arg_ownership: vec![bb0_use_ownership],
         mono_instance_id: None,
-    };
+    });
     let mut blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![
-                ArcInstr::Let {
-                    dst: ArcVarId::new(0),
-                    ty: Idx::STR,
-                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
-                },
-                bb0_use,
-            ],
+            body: bb0_body,
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(1),
                 args: Vec::new(),
@@ -7885,7 +7898,7 @@ fn cross_block_dup_source_func_with(
         });
     }
     ArcFunction {
-        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR, Idx::INT],
+        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR, Idx::INT, Idx::STR],
         blocks,
         entry: ArcBlockId::new(0),
         name: Name::from_raw(0),
@@ -8103,5 +8116,538 @@ fn move_alias_cross_block_with_borrowed_non_terminal_use_keeps_source_release() 
         !transferred.contains(&ArcVarId::new(0)),
         "a non-consuming non-terminal use MUST keep the source's terminal \
          release; transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_alternative_arm_aliases_keep_source_release() {
+    // bb0: `%0` fresh, Branch -> bb1 | bb2. EACH arm has its own
+    // `Let { Var(%0) }` alias consumed at a Construct (the recursive
+    // sum-rebuild shape: `if .. then Left(v, next: tail) else
+    // Right(v, next: tail)`). Per arm, the alias IS the final use (the sibling
+    // arm is unreachable from it), but the arms are ALTERNATIVES: the sibling
+    // arm's consume never runs on this path, so it does NOT discharge this
+    // path's duplicate reference — the kept terminal dec is that duplicate's
+    // only release. Cancellation MUST decline on BOTH arms (a non-terminal
+    // use discharges only when its block DOMINATES the terminal block).
+    let arm = |alias: u32, dst: u32| {
+        vec![
+            ArcInstr::Let {
+                dst: ArcVarId::new(alias),
+                ty: Idx::STR,
+                value: ArcValue::Var(ArcVarId::new(0)),
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(dst),
+                ty: Idx::STR,
+                ctor: CtorKind::Tuple,
+                args: vec![ArcVarId::new(alias)],
+            },
+        ]
+    };
+    let func = ArcFunction {
+        var_types: vec![Idx::STR, Idx::BOOL, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(0),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                    },
+                    ArcInstr::Let {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: arm(2, 3),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: arm(4, 5),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(5),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3, 4, 5]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "alternative-arm aliases MUST keep the source's per-arm release; \
+         transferred = {transferred:?}"
+    );
+}
+
+// Genuine-duplication OWNED-CALL-ARG alias scan
+// (`compute_genuine_dup_call_arg_aliases`)
+
+/// Owned-position user-fn `Apply` consuming `arg` (structural `[own]`).
+fn owned_apply_of(dst: u32, callee: Name, arg: u32) -> ArcInstr {
+    ArcInstr::Apply {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        func: callee,
+        args: vec![ArcVarId::new(arg)],
+        arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
+    }
+}
+
+/// Borrowed-annotated user-fn `Apply` consuming `arg` (the pre-`realize`
+/// borrowed default at Phase-5 call sites).
+fn borrowed_apply_of(dst: u32, callee: Name, arg: u32) -> ArcInstr {
+    ArcInstr::Apply {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        func: callee,
+        args: vec![ArcVarId::new(arg)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    }
+}
+
+/// One-block func: `%1 = %0; %3 = callee(%1 [own]); %2 = %0; %4 = callee(%2)`.
+/// The first call-arg alias has a later source use (genuine duplication); the
+/// second is the source's terminal move.
+fn call_arg_dup_func(callee: Name) -> ArcFunction {
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        owned_apply_of(3, callee, 1),
+        alias_of(2, 0),
+        owned_apply_of(4, callee, 2),
+    ];
+    func
+}
+
+#[test]
+fn call_arg_dup_scan_fires_on_owned_user_call_with_later_source_use() {
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("user_fork");
+    let func = call_arg_dup_func(callee);
+    let set = super::ownership_scans::compute_genuine_dup_call_arg_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "first owned-call-arg alias with a later source use is a genuine duplication"
+    );
+    assert!(
+        !set.contains(&ArcVarId::new(2)),
+        "second alias is the source's terminal use — a move, never admitted"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_excludes_iter_protocol_consumes() {
+    let interner = ori_ir::StringInterner::new();
+    let iter = interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    let func = call_arg_dup_func(iter);
+    let set = super::ownership_scans::compute_genuine_dup_call_arg_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        set.is_empty(),
+        "`iter` owned args are iter-consume transfers with their own RL-2 accounting — never admitted"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_excludes_dunder_protocol_builtins() {
+    let interner = ori_ir::StringInterner::new();
+    let next =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
+    let func = call_arg_dup_func(next);
+    let set = super::ownership_scans::compute_genuine_dup_call_arg_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        set.is_empty(),
+        "`__`-prefixed protocol builtins carry their own ownership protocol — never admitted"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_admits_contract_owned_borrowed_annotation() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("user_consumer");
+    let mut func = func_with_n_vars(5);
+    // Borrowed call-site annotations (the Phase-5 default for user calls) with
+    // a contract proving the param Owned: the alias is still a duplication.
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        borrowed_apply_of(3, callee, 1),
+        alias_of(2, 0),
+        borrowed_apply_of(4, callee, 2),
+    ];
+    let mut param = ParamContract::CONSERVATIVE;
+    param.access = crate::aims::lattice::AccessClass::Owned;
+    let contract = MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    };
+    let contracts: FxHashMap<Name, MemoryContract> = [(callee, contract)].into_iter().collect();
+    let set =
+        super::ownership_scans::compute_genuine_dup_call_arg_aliases(&func, &contracts, &interner);
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "contract-Owned position admits despite the stale borrowed call-site annotation"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_admits_borrowed_cow_consumed_contract() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("cow_pusher");
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        borrowed_apply_of(3, callee, 1),
+        alias_of(2, 0),
+        borrowed_apply_of(4, callee, 2),
+    ];
+    let mut param = ParamContract::CONSERVATIVE;
+    param.access = crate::aims::lattice::AccessClass::Borrowed;
+    param.borrowed_cow_consumed = true;
+    let contract = MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    };
+    let contracts: FxHashMap<Name, MemoryContract> = [(callee, contract)].into_iter().collect();
+    let set =
+        super::ownership_scans::compute_genuine_dup_call_arg_aliases(&func, &contracts, &interner);
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "a borrowed-COW-consumed-at-death callee param obligates caller funding — admitted"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_excludes_borrowed_read_only_contract() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("pure_reader");
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        borrowed_apply_of(3, callee, 1),
+        alias_of(2, 0),
+        borrowed_apply_of(4, callee, 2),
+    ];
+    let mut param = ParamContract::CONSERVATIVE;
+    param.access = crate::aims::lattice::AccessClass::Borrowed;
+    param.borrowed_read_only = true;
+    let contract = MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    };
+    let contracts: FxHashMap<Name, MemoryContract> = [(callee, contract)].into_iter().collect();
+    let set =
+        super::ownership_scans::compute_genuine_dup_call_arg_aliases(&func, &contracts, &interner);
+    assert!(
+        set.is_empty(),
+        "a pure borrow-read callee nets 0 on the caller's lineage — never admitted"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_excludes_ttr_pass_through_positions() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("forwarder_id");
+    let func = call_arg_dup_func(callee);
+    let mut param = ParamContract::CONSERVATIVE;
+    param.access = crate::aims::lattice::AccessClass::Owned;
+    param.transfers_through_return = true;
+    let contract = MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    };
+    let contracts: FxHashMap<Name, MemoryContract> = [(callee, contract)].into_iter().collect();
+    let set =
+        super::ownership_scans::compute_genuine_dup_call_arg_aliases(&func, &contracts, &interner);
+    assert!(
+        set.is_empty(),
+        "a transfers-through-return position is a pass-through (RL-34), not a consume"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_declines_loop_variant_reassignment_source() {
+    // `bb0 -> bb1(header, param %0) -> bb2(body): %1 = %0; %2 = push(%1 [own]);
+    // Jump bb1(%2)` — the back-edge threads the CONSUME RESULT (`xs =
+    // xs.push(i)`): re-reaching the header re-DEFINES the binding, so the
+    // alias is the old binding's terminal move, never a duplication.
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("user_push");
+    let func = ArcFunction {
+        var_types: (0..3).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(ArcVarId::new(0), Idx::STR)],
+                body: Vec::new(),
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(2),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![alias_of(1, 0), owned_apply_of(2, callee, 1)],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![ArcVarId::new(2)],
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let set = super::ownership_scans::compute_genuine_dup_call_arg_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        set.is_empty(),
+        "loop-variant reassignment: the source's only re-reach crosses its defining block — declined"
+    );
+}
+
+#[test]
+fn call_arg_dup_scan_admits_loop_invariant_source_with_post_loop_use() {
+    // `bb0: %0 born; Jump bb1` then `bb1(loop): %1 = %0; %2 = fork(%1 [own]);
+    // Branch -> bb1 | bb2` then `bb2` stores `%0` — the source is defined
+    // OUTSIDE the cycle and read after the loop, so the in-loop fork alias is
+    // a genuine duplication (the source's defining block is never re-reached
+    // from the alias's successors — the cut does not fire).
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("user_fork");
+    let func = ArcFunction {
+        var_types: (0..5).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![store_of(0, 3)],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![alias_of(1, 0), owned_apply_of(2, callee, 1)],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(2),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![store_of(4, 0)],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let set = super::ownership_scans::compute_genuine_dup_call_arg_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        set.contains(&ArcVarId::new(1)),
+        "loop-invariant source with a post-loop use — the per-iteration fork is a duplication"
+    );
+}
+
+// Call-result-aggregate element FINAL-READ release designation
+// (`compute_call_result_element_final_read_releases`)
+
+/// Contract for a 0-param callee whose result is a fresh caller-owned
+/// acquisition (`return_info.uniqueness == Unique`, no ttr params).
+fn unique_return_contract() -> crate::aims::contract::MemoryContract {
+    let mut c = crate::aims::contract::MemoryContract::conservative(0);
+    c.return_info.uniqueness = crate::aims::lattice::Uniqueness::Unique;
+    c
+}
+
+/// Canonical multi-read shape: `%0 = make()` (Aggregate result),
+/// `%1 = Project %0.0` (`RcPtr` element view), two `Let { Var }` read aliases
+/// (`%2`, `%4`) each borrow-read by `reader` — `let (a, b) = make();
+/// a.len(); a[0]`.
+fn result_elem_multi_read_func(make: Name, reader: Name) -> ArcFunction {
+    let mut func = func_with_n_vars(6);
+    func.var_reprs = vec![
+        ValueRepr::Aggregate, // %0 call-result tuple
+        ValueRepr::RcPointer, // %1 element projection
+        ValueRepr::RcPointer, // %2 read alias 1
+        ValueRepr::Scalar,    // %3 reader result
+        ValueRepr::RcPointer, // %4 read alias 2 (execution-final)
+        ValueRepr::Scalar,    // %5 reader result
+    ];
+    func.blocks[0].body = vec![
+        ArcInstr::Apply {
+            dst: ArcVarId::new(0),
+            ty: Idx::STR,
+            func: make,
+            args: Vec::new(),
+            arg_ownership: Vec::new(),
+            mono_instance_id: None,
+        },
+        ArcInstr::Project {
+            dst: ArcVarId::new(1),
+            ty: Idx::STR,
+            value: ArcVarId::new(0),
+            field: 0,
+        },
+        alias_of(2, 1),
+        borrowed_apply_of(3, reader, 2),
+        alias_of(4, 1),
+        borrowed_apply_of(5, reader, 4),
+    ];
+    func
+}
+
+#[test]
+fn final_read_release_designates_execution_final_alias_of_multi_read_element() {
+    let interner = ori_ir::StringInterner::new();
+    let make = interner.intern("make_pair");
+    let reader = interner.intern("reader");
+    let func = result_elem_multi_read_func(make, reader);
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> =
+        [(make, unique_return_contract())].into_iter().collect();
+    let releases = super::ownership_scans::compute_call_result_element_final_read_releases(
+        &func,
+        &contracts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        releases.contains(&ArcVarId::new(4)),
+        "the execution-final read alias carries the element's single release; \
+         releases = {releases:?}"
+    );
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly ONE release per multi-read lineage (RL-2 release-exactly-once); \
+         releases = {releases:?}"
+    );
+}
+
+#[test]
+fn final_read_release_skips_single_read_element_unchanged() {
+    // Single-read lineage: one alias, one borrow-read — the alias already
+    // carries its lone last-use dec on today's arrangement; no designation.
+    let interner = ori_ir::StringInterner::new();
+    let make = interner.intern("make_pair");
+    let reader = interner.intern("reader");
+    let mut func = result_elem_multi_read_func(make, reader);
+    func.blocks[0].body.truncate(4); // drop the second alias + its read
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> =
+        [(make, unique_return_contract())].into_iter().collect();
+    let releases = super::ownership_scans::compute_call_result_element_final_read_releases(
+        &func,
+        &contracts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        releases.is_empty(),
+        "a single-read element keeps its lone last-use dec — never designated; \
+         releases = {releases:?}"
+    );
+}
+
+#[test]
+fn final_read_release_declines_element_consumed_at_owned_position() {
+    // The second alias is CONSUMED at an owned call-arg position — the element
+    // escapes; its release belongs to the consumer, not a designated read.
+    let interner = ori_ir::StringInterner::new();
+    let make = interner.intern("make_pair");
+    let reader = interner.intern("reader");
+    let consumer = interner.intern("consumer");
+    let mut func = result_elem_multi_read_func(make, reader);
+    func.blocks[0].body[5] = owned_apply_of(5, consumer, 4);
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> =
+        [(make, unique_return_contract())].into_iter().collect();
+    let releases = super::ownership_scans::compute_call_result_element_final_read_releases(
+        &func,
+        &contracts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        releases.is_empty(),
+        "an owned-position consume declines the lineage (the consumer owns the \
+         release); releases = {releases:?}"
+    );
+}
+
+#[test]
+fn final_read_release_declines_non_unique_call_result() {
+    // A conservative (MaybeShared-return) contract never proves the caller owns
+    // the only reference — the lineage stays on today's arrangement.
+    let interner = ori_ir::StringInterner::new();
+    let make = interner.intern("make_pair");
+    let reader = interner.intern("reader");
+    let func = result_elem_multi_read_func(make, reader);
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> =
+        [(make, crate::aims::contract::MemoryContract::conservative(0))]
+            .into_iter()
+            .collect();
+    let releases = super::ownership_scans::compute_call_result_element_final_read_releases(
+        &func,
+        &contracts,
+        &FxHashSet::default(),
+    );
+    assert!(
+        releases.is_empty(),
+        "a non-Unique call result is not a proven fresh acquisition — declined; \
+         releases = {releases:?}"
     );
 }

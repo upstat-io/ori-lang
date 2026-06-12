@@ -83,6 +83,7 @@ fn absent_param() -> ParamContract {
         return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
+        borrowed_cow_consumed: false,
     }
 }
 

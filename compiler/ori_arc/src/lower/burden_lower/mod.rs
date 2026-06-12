@@ -32,7 +32,8 @@ pub(crate) use ctx::BurdenLowerCtx;
 
 pub(crate) use cow_aliases::{compute_borrowed_alias_vars, compute_cow_inc_borrowed_aliases};
 pub(crate) use ownership_scans::{
-    collect_move_edges_and_store_consumes, list_concat_consumed_operands,
+    collect_move_edges_and_store_consumes, compute_genuine_dup_call_arg_aliases,
+    contract_consuming_arg_position, list_concat_consumed_operands,
 };
 // Re-exported into `burden_lower` scope so sibling submodules (`emit`,
 // `moved_fields`) resolve them via `super::`.
@@ -168,7 +169,9 @@ static TTR_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> =
 /// ([`ownership_scans::compute_transfer_via_move_alias`]). Default (unset): a
 /// dup'd CROSS-BLOCK move source whose `Let { Var }` alias is its proven global
 /// final use (successor-reachability final-use proof; loop back-edge re-use
-/// declines) joins the transfer fixpoint, cancelling the pending last-use
+/// declines; an alternative-arm sibling use — a non-terminal use whose block
+/// does NOT dominate the terminal block — declines) joins the transfer
+/// fixpoint, cancelling the pending last-use
 /// release when the alias hands off at an owned position (Construct arg /
 /// `[own]` call arg / Return) per `AimsProof.Realization::
 /// RL2_transfer_kinds_no_dec`. With the toggle set, the post-Construct release

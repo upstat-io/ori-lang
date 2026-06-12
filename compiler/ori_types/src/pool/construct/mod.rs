@@ -292,8 +292,8 @@ impl Pool {
     /// generalization pass).
     ///
     /// Used by `unify::generalization::generalize` to canonicalize scheme
-    /// bodies during the §08.3b migration retiring the
-    /// `Tag::Var(VarState::Generalized)` body representation.
+    /// bodies, retiring the `Tag::Var(VarState::Generalized)` body
+    /// representation.
     pub fn bound_var(&mut self, var_id: u32) -> Idx {
         self.intern(Tag::BoundVar, var_id)
     }

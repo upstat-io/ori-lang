@@ -297,8 +297,8 @@ fn check_impl_method(
                 &FxHashSet::default(),
             );
 
-            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar` per. Impl methods have no
+            // Normalize `Tag::Var(Generalized)` leaves to
+            // `Tag::BoundVar`. Impl methods have no
             // top-level scheme_var_ids (generic params are RigidVars),
             // so only pending_generalized_vars from inner let-polymorphism
             // drives the rewrite here. See `check_function` for full rationale.

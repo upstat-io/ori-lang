@@ -1,11 +1,13 @@
 //! Binary-operator support rules — operator-to-trait mapping, cross-type
 //! arithmetic, and trait dispatch.
 
-use ori_ir::{BinaryOp, ExprArena, ExprId, Span};
+use ori_ir::{BinaryOp, ExprArena, ExprId, Name, Span};
 
 use super::super::super::InferEngine;
 use super::super::registry_bridge::is_binary_op_supported;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag};
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookup, MethodLookupResult, Pool, Tag,
+};
 
 /// Map a binary operator to its trait method name.
 ///
@@ -69,38 +71,85 @@ pub(super) fn check_cross_type_arithmetic(
     }
 }
 
-/// Check if a user-defined type implements the Comparable trait specifically.
+/// Extract the nominal base name of a receiver type.
 ///
-/// Verifies the `compare` method comes from a trait impl whose trait is
-/// actually named "Comparable" — not just any trait with a `compare` method.
-/// This prevents types implementing `trait Weird { @compare(...) -> int }`
-/// from bypassing the ordering operator gate.
-pub(crate) fn has_comparable_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
-    let Some(compare_name) = engine.intern_name("compare") else {
-        return false;
-    };
-    let Some(comparable_name) = engine.intern_name("Comparable") else {
-        return false;
-    };
+/// `Tag::Applied(Name, [args])` and `Tag::Named(Name)` carry a nominal head
+/// name. Other tags (primitives, function types, vars) have no nominal base.
+fn base_name(pool: &Pool, ty: Idx) -> Option<Name> {
+    match pool.tag(ty) {
+        Tag::Applied => Some(pool.applied_name(ty)),
+        Tag::Named => Some(pool.named_name(ty)),
+        _ => None,
+    }
+}
 
+/// Check if a user nominal type implements a specific trait, identified by the
+/// trait's name and its canonical method name.
+///
+/// Two-tier lookup, matching `infer/expr/calls/impl_lookup.rs` dispatch:
+/// 1. Exact-`Idx` `lookup_method_checked` — handles non-generic `Named` types
+///    and inherent-shadows-trait correctly.
+/// 2. Base-name impl scan — covers generic impls (`impl<T> Pair<T>: Trait`)
+///    whose `self_type = Applied(Name, [Named(T)])` does not exact-match a
+///    concrete receiver `Applied(Name, [int])`.
+///
+/// Verifying the trait by name prevents an unrelated `trait Weird { @compare }`
+/// (or `@eq`) from bypassing the operator gate.
+fn type_implements_named_trait(
+    engine: &InferEngine<'_>,
+    ty: Idx,
+    method_name_str: &str,
+    trait_name_str: &str,
+) -> bool {
+    let Some(method_name) = engine.intern_name(method_name_str) else {
+        return false;
+    };
+    let Some(trait_name) = engine.intern_name(trait_name_str) else {
+        return false;
+    };
     let Some(trait_registry) = engine.trait_registry() else {
         return false;
     };
+    let pool = engine.pool();
 
-    // Check that the compare method comes from the Comparable trait specifically.
-    // lookup_method_checked handles the case where inherent impls shadow trait impls.
-    match trait_registry.lookup_method_checked(ty, compare_name) {
-        crate::MethodLookupResult::Found(crate::MethodLookup::Trait { trait_idx, .. }) => {
-            // Verify the trait is actually Comparable (by name)
-            let tag = engine.pool().tag(trait_idx);
-            if tag == Tag::Named {
-                engine.pool().named_name(trait_idx) == comparable_name
-            } else {
-                false
-            }
+    let is_named_trait = |trait_idx: Idx| -> bool {
+        pool.tag(trait_idx) == Tag::Named && pool.named_name(trait_idx) == trait_name
+    };
+
+    // Tier 1: exact-Idx checked lookup (non-generic Named + inherent shadowing).
+    if let MethodLookupResult::Found(MethodLookup::Trait { trait_idx, .. }) =
+        trait_registry.lookup_method_checked(ty, method_name)
+    {
+        if is_named_trait(trait_idx) {
+            return true;
         }
-        _ => false,
     }
+
+    // Tier 2: base-name impl scan for generic instantiations.
+    let Some(base) = base_name(pool, ty) else {
+        return false;
+    };
+    trait_registry.impls_iter().any(|(_, entry)| {
+        entry.trait_idx.is_some_and(is_named_trait)
+            && base_name(pool, entry.self_type) == Some(base)
+            && entry.methods.contains_key(&method_name)
+    })
+}
+
+/// Check if a user-defined type implements the Comparable trait specifically.
+/// Recognizes non-generic and generic (`impl<T> T: Comparable`) impls.
+pub(crate) fn has_comparable_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
+    type_implements_named_trait(engine, ty, "compare", "Comparable")
+}
+
+/// Check if a user-defined type implements the Eq trait specifically.
+///
+/// Recognizes `#derive(Eq)`, manual `impl T: Eq`, and generic
+/// (`impl<T: Eq> Pair<T>: Eq`) impls. Verifying the trait by name prevents an
+/// unrelated `eq` method from bypassing the equality-operator gate.
+/// Spec: 14-expressions.md "Equality" — operands shall implement `Eq`.
+pub(crate) fn has_eq_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
+    type_implements_named_trait(engine, ty, "eq", "Eq")
 }
 
 /// Try to resolve a binary operator via trait dispatch.

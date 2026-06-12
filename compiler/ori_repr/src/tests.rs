@@ -304,7 +304,7 @@ fn value_range_is_interval_lattice() {
 
 #[test]
 fn escape_info_placeholder_exists() {
-    // Verify the placeholder type compiles — replaced by §08.
+    // Verify the placeholder type compiles — replaced when escape analysis ships.
     assert_eq!(std::mem::size_of::<EscapeInfo>(), 0);
 }
 

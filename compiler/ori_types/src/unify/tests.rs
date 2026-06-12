@@ -269,10 +269,10 @@ fn generalize_identity_function() {
     let vars = engine.pool().scheme_vars(scheme);
     assert_eq!(vars.len(), 1);
 
-    // §08.3b — Body is structurally a function `BoundVar -> BoundVar`, NOT
-    // the original `fn_ty` Idx. Generalization now rewrites scheme bodies
-    // to `Tag::BoundVar` leaves per (cell A pins the full
-    // shape; this test stays as a scheme-construction smoke check).
+    // Body is structurally a function `BoundVar -> BoundVar`, NOT the
+    // original `fn_ty` Idx. Generalization rewrites scheme bodies to
+    // `Tag::BoundVar` leaves (cell A pins the full shape; this test
+    // stays as a scheme-construction smoke check).
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
     let params: Vec<Idx> = engine.pool().function_params(body).clone();
@@ -304,13 +304,12 @@ fn generalize_does_not_generalize_outer_vars() {
     assert_eq!(vars.len(), 1);
 }
 
-// §08.3b — Scheme-body canonicalization: Generalized -> BoundVar migration.
+// Scheme-body canonicalization: Generalized -> BoundVar migration.
 //
-// Target: — scheme bodies SHALL contain `Tag::BoundVar` leaves
-// with `data = var_id`, not `Tag::Var(VarState::Generalized)`. These cells pin
+// Target: scheme bodies SHALL contain `Tag::BoundVar` leaves with
+// `data = var_id`, not `Tag::Var(VarState::Generalized)`. These cells pin
 // the post-migration shape and are RED until `rewrite_body_generalized_to_bound_var`
 // lands in `generalize()`.
-// section-08-codegen-poly-lambda.md §08.3b.
 
 /// Cell A — poly-lambda single-call at concrete type.
 ///
@@ -337,7 +336,7 @@ fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     let ret = engine.pool().function_return(body);
     assert_eq!(params.len(), 1);
 
-    // Post-migration assertions: RED until §08.3b lands.
+    // Post-migration assertions: RED until the BoundVar scheme-body rewrite lands.
     assert_eq!(
         engine.pool().tag(params[0]),
         Tag::BoundVar,

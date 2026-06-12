@@ -4,8 +4,11 @@
 
 #[cfg(feature = "llvm")]
 mod arc_lowering;
+mod file_run;
 #[cfg(feature = "llvm")]
 mod imported_mono;
+#[cfg(feature = "llvm")]
+mod incremental;
 #[cfg(feature = "llvm")]
 mod llvm_backend;
 #[cfg(feature = "llvm")]
@@ -17,21 +20,25 @@ mod worker;
 #[cfg(feature = "llvm")]
 pub use worker::run_worker;
 
+/// Serializes tests that read or mutate the process environment (the
+/// worker-protocol token scrub + spawn-env pins) — env vars are process
+/// globals, so concurrent test threads would race.
+#[cfg(all(test, feature = "llvm"))]
+pub(crate) static ENV_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use rayon::prelude::*;
 
 use crate::db::{CompilerDb, Db};
-use crate::eval::Evaluator;
 use crate::input::SourceFile;
 use crate::ir::TestDef;
-use crate::query::{parsed, typed, typed_pool};
+use crate::query::parsed;
 
-use super::change_detection::{FunctionChangeMap, TestRunCache, TestTargetIndex};
+use super::change_detection::TestRunCache;
 use super::discovery::{discover_tests_in_all, TestFile};
 use super::protocol;
-use super::result::TestOutcome;
 use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
 
 /// Extract a human-readable message from a `catch_unwind` payload.
@@ -78,6 +85,16 @@ pub struct TestRunnerConfig {
     /// (`test::protocol`) to stdout. Set by the hidden `--__worker` flag the
     /// parent runner passes when isolating LLVM test files in subprocesses.
     pub worker_protocol: bool,
+    /// Per-spawn protocol nonce stamped onto every emitted protocol line
+    /// (forgery guard — see `test::protocol` module docs). Populated in
+    /// worker mode from `ORI_TEST_PROTOCOL_TOKEN`; `None` otherwise.
+    pub protocol_token: Option<String>,
+    /// Worker mode: names of tests whose targets the PARENT's incremental
+    /// cache proved unchanged. Set by the hidden `--__skip-unchanged=` flag
+    /// the parent passes when spawning a worker; the worker reports each as
+    /// `SkippedUnchanged` without running it. The parent owns the incremental
+    /// cache — a worker never consults a cache of its own.
+    pub skip_unchanged: Vec<String>,
 }
 
 impl Default for TestRunnerConfig {
@@ -90,8 +107,25 @@ impl Default for TestRunnerConfig {
             backend: Backend::Interpreter,
             incremental: false,
             worker_protocol: false,
+            protocol_token: None,
+            skip_unchanged: Vec::new(),
         }
     }
+}
+
+/// On-disk incremental-cache path for this config, if persistence applies.
+///
+/// `None` unless incremental mode is on, the run is NOT a worker (the parent
+/// owns the cache file exclusively), and `ORI_TEST_INCREMENTAL_CACHE` names a
+/// non-empty path.
+fn incremental_cache_path(config: &TestRunnerConfig) -> Option<PathBuf> {
+    if !config.incremental || config.worker_protocol {
+        return None;
+    }
+    std::env::var(crate::debug_flags::ORI_TEST_INCREMENTAL_CACHE)
+        .ok()
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Test runner.
@@ -112,19 +146,38 @@ pub struct TestRunner {
 impl TestRunner {
     /// Create a new test runner with default config.
     pub fn new() -> Self {
-        TestRunner {
-            config: TestRunnerConfig::default(),
-            interner: crate::ir::SharedInterner::new(),
-            cache: parking_lot::Mutex::new(TestRunCache::new()),
-        }
+        Self::with_config(TestRunnerConfig::default())
     }
 
     /// Create a test runner with custom config.
+    ///
+    /// When incremental mode is on and `ORI_TEST_INCREMENTAL_CACHE` names a
+    /// cache file, the per-function body-hash snapshots are loaded from it so
+    /// unchanged-test skipping works across runner instances. The parent owns
+    /// the cache file exclusively — worker mode never loads (or saves) it.
     pub fn with_config(config: TestRunnerConfig) -> Self {
+        let interner = crate::ir::SharedInterner::new();
+        let cache = match incremental_cache_path(&config) {
+            Some(path) => TestRunCache::load_from(&path, &interner),
+            None => TestRunCache::new(),
+        };
         TestRunner {
             config,
-            interner: crate::ir::SharedInterner::new(),
-            cache: parking_lot::Mutex::new(TestRunCache::new()),
+            interner,
+            cache: parking_lot::Mutex::new(cache),
+        }
+    }
+
+    /// Save the incremental cache to its configured on-disk path, if any.
+    fn persist_incremental_cache(&self) {
+        let Some(path) = incremental_cache_path(&self.config) else {
+            return;
+        };
+        if let Err(e) = self.cache.lock().save_to(&path, &self.interner) {
+            tracing::warn!(
+                "failed to save incremental test cache to {}: {e}",
+                path.display()
+            );
         }
     }
 
@@ -143,6 +196,14 @@ impl TestRunner {
     /// Run all tests across multiple paths (files and/or directories),
     /// deduplicated, in one combined summary.
     pub fn run_paths(&self, paths: &[PathBuf]) -> TestSummary {
+        let summary = self.run_discovered(paths);
+        self.persist_incremental_cache();
+        summary
+    }
+
+    /// Discover test files and dispatch them to the backend-appropriate
+    /// execution strategy.
+    fn run_discovered(&self, paths: &[PathBuf]) -> TestSummary {
         let test_files = discover_tests_in_all(paths);
 
         // LLVM backend: per-file subprocess isolation. A crashing test
@@ -168,14 +229,34 @@ impl TestRunner {
     }
 
     /// Run LLVM-backend tests with one worker subprocess per test file.
+    ///
+    /// Under `--incremental`, the parent computes per-file skip decisions
+    /// against its own cache BEFORE spawning: a fully-unchanged file is
+    /// accounted parent-side without a worker spawn; a partially-unchanged
+    /// file's skip decisions are forwarded to the worker, which reports the
+    /// skipped tests as `SkippedUnchanged` without running them.
     #[cfg(feature = "llvm")]
     fn run_llvm_isolated(&self, files: &[TestFile]) -> TestSummary {
         let mut summary = TestSummary::new();
         let start = Instant::now();
 
         for file in files {
-            let file_summary =
-                subprocess::run_file_isolated(&file.path, &self.interner, &self.config);
+            let skip_plan = if self.config.incremental {
+                incremental::plan_file_skips(&file.path, &self.interner, &self.config, &self.cache)
+            } else {
+                incremental::SkipPlan::Spawn {
+                    skip_names: Vec::new(),
+                }
+            };
+            let file_summary = match skip_plan {
+                incremental::SkipPlan::Synthesized(synthesized) => synthesized,
+                incremental::SkipPlan::Spawn { skip_names } => subprocess::run_file_isolated(
+                    &file.path,
+                    &self.interner,
+                    &self.config,
+                    &skip_names,
+                ),
+            };
             summary.add_file(file_summary);
         }
 
@@ -280,6 +361,18 @@ impl TestRunner {
             .is_none_or(|f| interner.lookup(test.name).contains(f.as_str()))
     }
 
+    /// The protocol-emission token: present only in worker mode with the
+    /// parent-provided non-empty per-spawn nonce.
+    fn emit_token(config: &TestRunnerConfig) -> Option<&str> {
+        if !config.worker_protocol {
+            return None;
+        }
+        config
+            .protocol_token
+            .as_deref()
+            .filter(|token| !token.is_empty())
+    }
+
     /// Worker protocol: announce every filter-passing test up front so the
     /// parent can account for tests lost to a mid-file worker crash.
     /// No-op outside worker mode.
@@ -288,12 +381,12 @@ impl TestRunner {
         config: &TestRunnerConfig,
         interner: &crate::ir::StringInterner,
     ) {
-        if !config.worker_protocol {
+        let Some(token) = Self::emit_token(config) else {
             return;
-        }
+        };
         for test in tests {
             if Self::test_passes_filter(test, config, interner) {
-                protocol::emit_plan(interner.lookup(test.name));
+                protocol::emit_plan(token, interner.lookup(test.name));
             }
         }
     }
@@ -304,8 +397,8 @@ impl TestRunner {
         config: &TestRunnerConfig,
         interner: &crate::ir::StringInterner,
     ) {
-        if config.worker_protocol {
-            protocol::emit_start(interner.lookup(name));
+        if let Some(token) = Self::emit_token(config) {
+            protocol::emit_start(token, interner.lookup(name));
         }
     }
 
@@ -315,310 +408,14 @@ impl TestRunner {
         config: &TestRunnerConfig,
         interner: &crate::ir::StringInterner,
     ) {
-        if config.worker_protocol {
+        if let Some(token) = Self::emit_token(config) {
             protocol::emit_result(
+                token,
                 interner.lookup(result.name),
                 &result.outcome,
                 result.duration,
             );
         }
-    }
-
-    /// Run all tests in a single file with a shared interner.
-    ///
-    /// This is the core implementation that creates a fresh `CompilerDb` per file
-    /// while sharing the interner across all files. This allows parallel execution
-    /// (each file gets its own Salsa query cache) while maintaining `Name` comparability
-    /// (all `Name` values come from the same interner).
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-phase test file execution pipeline"
-    )]
-    fn run_file_with_interner(
-        path: &Path,
-        interner: &crate::ir::SharedInterner,
-        config: &TestRunnerConfig,
-        cache: &parking_lot::Mutex<TestRunCache>,
-    ) -> FileSummary {
-        let mut summary = FileSummary::new(path.to_path_buf());
-
-        // Read and parse the file
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                summary.add_error(format!("Failed to read file: {e}"));
-                return summary;
-            }
-        };
-
-        // Create a fresh CompilerDb with the shared interner.
-        // Each file gets its own Salsa query cache, but all share the same interner
-        // so Name values are comparable across files.
-        let db = CompilerDb::with_interner(interner.clone());
-        let file = SourceFile::new(&db, path.to_path_buf(), content);
-        // Retrieve source from SourceFile for error matching (borrows from Salsa).
-        // No clone needed: all subsequent `db` usage is shared borrows, so the
-        // `&String` returned by `file.text(&db)` remains valid.
-        let source = file.text(&db);
-
-        // Parse the file
-        let parse_result = parsed(&db, file);
-        if parse_result.has_errors() {
-            for error in &parse_result.errors {
-                summary.add_error(format!("{}: {}", error.span(), error.message()));
-            }
-            return summary;
-        }
-
-        // Check if there are any tests
-        if parse_result.module.tests.is_empty() {
-            return summary;
-        }
-
-        let interner = db.interner();
-
-        // Type check via Salsa query — ensures PoolCache is populated and
-        // Salsa dependency tracking is consistent with the query pipeline.
-        let type_result = typed(&db, file);
-        let Some(pool) = typed_pool(&db, file) else {
-            summary.add_error("internal error: Pool not cached after type checking".to_string());
-            return summary;
-        };
-
-        // Canonicalize once for all tests (compile_fail and regular).
-        // Runs even with type errors — pattern problems are independent.
-        // Skip only if parse errors exist (AST may be malformed).
-        // Store in CanonCache so downstream consumers (evaluator, LLVM) can reuse.
-        let shared_canon =
-            crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
-
-        // Incremental change detection: compute body hashes and determine skippable tests.
-        let skippable = if config.incremental {
-            let current_map = FunctionChangeMap::from_canon(&shared_canon);
-            let path_buf = path.to_path_buf();
-
-            // Single lock acquisition: extract both `changed` set and whether
-            // a previous snapshot existed. Avoids redundant re-locking.
-            let (changed, had_previous) = {
-                let cache_guard = cache.lock();
-                if let Some(previous) = cache_guard.get(&path_buf) {
-                    (current_map.changed_since(previous), true)
-                } else {
-                    (rustc_hash::FxHashSet::default(), false)
-                }
-            };
-
-            let skippable = if had_previous {
-                // Have a previous snapshot — compute which tests can be skipped
-                // based on which functions changed (may be none, some, or all).
-                let index = TestTargetIndex::from_module(&parse_result.module);
-                let all_tests: Vec<&TestDef> = parse_result.module.tests.iter().collect();
-                index
-                    .skippable_tests(&changed, &all_tests)
-                    .into_iter()
-                    .collect::<rustc_hash::FxHashSet<_>>()
-            } else {
-                // First run, no previous cache — run everything.
-                rustc_hash::FxHashSet::default()
-            };
-
-            // Update cache with current snapshot.
-            cache.lock().insert(path_buf, current_map);
-
-            skippable
-        } else {
-            rustc_hash::FxHashSet::default()
-        };
-
-        // Separate compile_fail tests from regular tests
-        // compile_fail tests don't need evaluation - they just check for type errors
-        let (compile_fail_tests, mut regular_tests): (Vec<_>, Vec<_>) = parse_result
-            .module
-            .tests
-            .iter()
-            .partition(|t| t.is_compile_fail());
-
-        Self::protocol_plan(
-            compile_fail_tests
-                .iter()
-                .chain(regular_tests.iter())
-                .copied(),
-            config,
-            interner,
-        );
-
-        // Effect-driven prioritization: effectful tests first, pure tests last.
-        // Effectful tests are more likely to detect real regressions because they
-        // exercise I/O paths and external interactions. Pure tests are deterministic
-        // and cacheable, so running them last allows early failure detection.
-        if config.incremental {
-            Self::prioritize_tests(&mut regular_tests, &type_result.typed, interner);
-        }
-
-        // Run compile_fail tests first (they don't need load_module)
-        for test in &compile_fail_tests {
-            if !Self::test_passes_filter(test, config, interner) {
-                continue;
-            }
-            Self::protocol_start(test.name, config, interner);
-
-            let inner_result = Self::run_compile_fail_test(
-                test,
-                &type_result,
-                &shared_canon.problems,
-                source,
-                interner,
-            );
-
-            let result = if let Some(expected_failure) = test.fail_expected {
-                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
-            } else {
-                inner_result
-            };
-
-            Self::protocol_result(&result, config, interner);
-            summary.add_result(result);
-        }
-
-        // Skip regular test execution if there are no regular tests
-        if regular_tests.is_empty() {
-            return summary;
-        }
-
-        // Check for type errors before running regular tests.
-        // Errors within compile_fail test bodies are expected and should not block
-        // regular tests. Only errors OUTSIDE compile_fail tests indicate real problems.
-        let compile_fail_spans: Vec<_> = compile_fail_tests.iter().map(|t| t.span).collect();
-        let non_compile_fail_errors: Vec<_> = type_result
-            .errors()
-            .iter()
-            .filter(|error| {
-                let error_span = error.span();
-                // Keep error if it's NOT contained in any compile_fail test span
-                !compile_fail_spans
-                    .iter()
-                    .any(|test_span| test_span.contains_span(error_span))
-            })
-            .collect();
-
-        if !non_compile_fail_errors.is_empty() {
-            // Type errors outside compile_fail tests block all regular tests.
-            // For interpreter: these are real failures.
-            // For LLVM: these are LLVM compile failures (type errors the interpreter
-            // handles but LLVM can't codegen yet).
-            let is_llvm = matches!(config.backend, Backend::LLVM);
-
-            for test in &regular_tests {
-                let result = if is_llvm {
-                    TestResult {
-                        name: test.name,
-                        targets: test.targets.clone(),
-                        outcome: TestOutcome::LlvmCompileFail(
-                            "blocked by type errors in file".to_string(),
-                        ),
-                        duration: Duration::ZERO,
-                    }
-                } else {
-                    TestResult::failed(
-                        test.name,
-                        test.targets.clone(),
-                        "blocked by type errors in file".to_string(),
-                        Duration::ZERO,
-                    )
-                };
-                Self::protocol_result(&result, config, interner);
-                summary.add_result(result);
-            }
-            for error in non_compile_fail_errors {
-                summary.add_error(error.message());
-            }
-            if is_llvm {
-                summary.llvm_compile_error = true;
-            }
-            return summary;
-        }
-
-        // Run regular tests based on backend
-        match config.backend {
-            Backend::Interpreter => {
-                // Create evaluator in TestRun mode with type information
-                // TestRun mode: 500-depth recursion limit, test result collection
-                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
-                    .mode(ori_eval::EvalMode::TestRun {
-                        only_attached: false,
-                    })
-                    .canon(shared_canon.clone())
-                    .build();
-
-                evaluator.register_prelude();
-
-                if let Err(errors) = evaluator.load_module(&parse_result, path, Some(&shared_canon))
-                {
-                    for error in &errors {
-                        summary.add_error(error.message.clone());
-                    }
-                    return summary;
-                }
-
-                // Run each regular test
-                for test in &regular_tests {
-                    if !Self::test_passes_filter(test, config, interner) {
-                        continue;
-                    }
-
-                    // Incremental: skip tests whose targets are unchanged.
-                    if skippable.contains(&test.name) {
-                        let result = TestResult {
-                            name: test.name,
-                            targets: test.targets.clone(),
-                            outcome: TestOutcome::SkippedUnchanged,
-                            duration: Duration::ZERO,
-                        };
-                        Self::protocol_result(&result, config, interner);
-                        summary.add_result(result);
-                        continue;
-                    }
-
-                    Self::protocol_start(test.name, config, interner);
-                    let inner_result = Self::run_single_test(&mut evaluator, test, interner);
-
-                    // If #[fail] is present, wrap the result
-                    let result = if let Some(expected_failure) = test.fail_expected {
-                        Self::apply_fail_wrapper(inner_result, expected_failure, interner)
-                    } else {
-                        inner_result
-                    };
-
-                    Self::protocol_result(&result, config, interner);
-                    summary.add_result(result);
-                }
-            }
-            #[cfg(feature = "llvm")]
-            Backend::LLVM => {
-                // Use LLVM JIT backend — only pass regular_tests since
-                // compile_fail tests are already handled in the common path above.
-                Self::run_file_llvm(
-                    &mut summary,
-                    &db,
-                    path,
-                    &parse_result,
-                    &regular_tests,
-                    &type_result,
-                    &pool,
-                    &shared_canon,
-                    interner,
-                    config,
-                );
-            }
-            #[cfg(not(feature = "llvm"))]
-            Backend::LLVM => {
-                summary.add_error(
-                    "LLVM backend not available (compile with --features llvm)".to_string(),
-                );
-            }
-        }
-
-        summary
     }
 }
 

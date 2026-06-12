@@ -152,7 +152,8 @@ fn print_file_results(file: &FileSummary, interner: &StringInterner, verbose: bo
             TestOutcome::Failed(msg) => format!("  FAIL: {name} - {msg}"),
             TestOutcome::Skipped(reason) if verbose => format!("  SKIP: {name} - {reason}"),
             TestOutcome::SkippedUnchanged if verbose => format!("  SKIP: {name} (unchanged)"),
-            TestOutcome::LlvmCompileFail(reason) if verbose => {
+            // Why: compile-fail is a failure; failures render truthfully without --verbose.
+            TestOutcome::LlvmCompileFail(reason) => {
                 format!("  LLVM COMPILE FAIL: {name} - {reason}")
             }
             _ => continue,

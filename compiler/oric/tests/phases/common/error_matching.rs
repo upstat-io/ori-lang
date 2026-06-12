@@ -8,10 +8,9 @@
 //! - Batch error matching
 //! - Unmatched expectation detection
 
-use ori_ir::Name;
-use ori_types::{ErrorContext, Idx, TypeCheckError};
+use ori_types::{ErrorContext, Idx, Pool, TypeCheckError};
 use oric::ir::{ExpectedError, SharedInterner, Span};
-use oric::test::{match_errors, matches_expected};
+use oric::test::{format_actual, match_errors, matches_expected};
 
 /// Create a mismatch error (E2001) at the given offset.
 ///
@@ -28,14 +27,17 @@ fn make_mismatch(offset: u32) -> TypeCheckError {
 
 /// Create an unknown identifier error (E2003) at the given offset.
 ///
-/// Produces message containing "unknown identifier".
-fn make_unknown_ident(offset: u32) -> TypeCheckError {
-    TypeCheckError::unknown_ident(Span::new(offset, offset + 5), Name::from_raw(999), vec![])
+/// Produces message containing "unknown identifier". The name is interned so the
+/// Pool-aware renderer can resolve it.
+fn make_unknown_ident(offset: u32, interner: &SharedInterner) -> TypeCheckError {
+    let name = interner.intern("missing_ident");
+    TypeCheckError::unknown_ident(Span::new(offset, offset + 5), name, vec![])
 }
 
 #[test]
 fn test_match_message() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "let x = 1\nlet y = 2";
 
     let err = make_mismatch(0);
@@ -46,12 +48,13 @@ fn test_match_message() {
         column: None,
     };
 
-    assert!(matches_expected(&err, &exp, source, &interner));
+    assert!(matches_expected(&err, &exp, source, &interner, &pool));
 }
 
 #[test]
 fn test_match_code() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "let x = 1";
 
     let err = make_mismatch(0);
@@ -62,7 +65,7 @@ fn test_match_code() {
         column: None,
     };
 
-    assert!(matches_expected(&err, &exp, source, &interner));
+    assert!(matches_expected(&err, &exp, source, &interner, &pool));
 
     let exp_wrong = ExpectedError {
         message: None,
@@ -70,12 +73,15 @@ fn test_match_code() {
         line: None,
         column: None,
     };
-    assert!(!matches_expected(&err, &exp_wrong, source, &interner));
+    assert!(!matches_expected(
+        &err, &exp_wrong, source, &interner, &pool
+    ));
 }
 
 #[test]
 fn test_match_line() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "line1\nline2\nline3";
 
     // Error at line 2 (offset 6 is start of "line2")
@@ -87,7 +93,7 @@ fn test_match_line() {
         column: None,
     };
 
-    assert!(matches_expected(&err, &exp, source, &interner));
+    assert!(matches_expected(&err, &exp, source, &interner, &pool));
 
     let exp_wrong = ExpectedError {
         message: None,
@@ -95,12 +101,15 @@ fn test_match_line() {
         line: Some(1),
         column: None,
     };
-    assert!(!matches_expected(&err, &exp_wrong, source, &interner));
+    assert!(!matches_expected(
+        &err, &exp_wrong, source, &interner, &pool
+    ));
 }
 
 #[test]
 fn test_match_multiple_criteria() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "line1\nline2";
 
     let err = make_mismatch(6);
@@ -111,15 +120,16 @@ fn test_match_multiple_criteria() {
         column: Some(1),
     };
 
-    assert!(matches_expected(&err, &exp, source, &interner));
+    assert!(matches_expected(&err, &exp, source, &interner, &pool));
 }
 
 #[test]
 fn test_match_errors_all_matched() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "line1\nline2";
 
-    let errors = vec![make_mismatch(0), make_unknown_ident(6)];
+    let errors = vec![make_mismatch(0), make_unknown_ident(6, &interner)];
     let expectations = vec![
         ExpectedError {
             message: Some(interner.intern("type mismatch")),
@@ -135,7 +145,7 @@ fn test_match_errors_all_matched() {
         },
     ];
 
-    let result = match_errors(&errors, &expectations, source, &interner);
+    let result = match_errors(&errors, &expectations, source, &interner, &pool);
     assert!(result.all_matched());
     assert!(result.unmatched_expectations.is_empty());
 }
@@ -143,6 +153,7 @@ fn test_match_errors_all_matched() {
 #[test]
 fn test_match_errors_unmatched_expectation() {
     let interner = SharedInterner::default();
+    let pool = Pool::new();
     let source = "line1";
 
     let errors = vec![make_mismatch(0)];
@@ -153,7 +164,30 @@ fn test_match_errors_unmatched_expectation() {
         column: None,
     }];
 
-    let result = match_errors(&errors, &expectations, source, &interner);
+    let result = match_errors(&errors, &expectations, source, &interner, &pool);
     assert!(!result.all_matched());
     assert_eq!(result.unmatched_expectations.len(), 1);
+}
+
+/// Display pin: `format_actual` renders the real type name for a non-primitive
+/// operand, not the `<type>` placeholder the Pool-less `message()` falls back to.
+#[test]
+fn format_actual_renders_real_type_name_for_non_primitive() {
+    let interner = SharedInterner::default();
+    let mut pool = Pool::new();
+    let widget = interner.intern("Widget");
+    let widget_ty = pool.named(widget);
+    let source = "let r = a == b";
+
+    let err = TypeCheckError::unsupported_operator(Span::new(8, 14), widget_ty, "==", "Eq");
+    let rendered = format_actual(&err, source, &pool, &interner);
+
+    assert!(
+        rendered.contains("Widget"),
+        "format_actual must name the real type; got: {rendered}"
+    );
+    assert!(
+        !rendered.contains("<type>"),
+        "format_actual must not emit the placeholder; got: {rendered}"
+    );
 }

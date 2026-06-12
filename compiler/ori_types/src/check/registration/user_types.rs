@@ -172,11 +172,11 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             // can dispatch `N(value)` constructor calls and `n.unwrap()` /
             // `n.inner` accessors to transparent wraps instead of through the
             // function-ref / method-dispatch paths that misroute newtype names
-            // as unresolvable function references (plan §08.3c).
+            // as unresolvable function references.
             checker
                 .pool_mut()
                 .register_newtype_ctor(decl.name, underlying_ty);
-            // Newtypes are layout-transparent per — same
+            // Newtypes are layout-transparent — same
             // `abi_size`, `abi_alignment`, `layout`, `niche` as the inner
             // type. Linking the `Tag::Named` Idx to its underlying Idx via
             // `set_resolution` lets `ori_llvm::codegen::type_info::store`
@@ -185,7 +185,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             // warnings or falling back to opaque-pointer guesses (which then
             // surface as "Call parameter type does not match function
             // signature" LLVM verifier errors at newtype constructor /
-            // accessor call sites — plan §08.3c symptom).
+            // accessor call sites).
             checker.pool_mut().set_resolution(idx, underlying_ty);
         }
     }

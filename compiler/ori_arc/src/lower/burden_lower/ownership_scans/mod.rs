@@ -10,6 +10,7 @@
 
 mod borrowed;
 mod borrowed_invoke_lineage;
+mod call_arg_dup;
 mod construct_fed;
 mod dead_param;
 mod dup_inc;
@@ -28,6 +29,10 @@ pub(super) use borrowed::{
 };
 pub(super) use borrowed_invoke_lineage::{
     borrowed_invoke_lineage_release_disabled, compute_borrowed_invoke_collection_lineage,
+};
+pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
+pub(crate) use call_arg_dup::{
+    compute_genuine_dup_call_arg_aliases, contract_consuming_arg_position,
 };
 pub(super) use construct_fed::{
     compute_construct_fed_dead_param_lineage, ConstructFedDeadParamLineage,

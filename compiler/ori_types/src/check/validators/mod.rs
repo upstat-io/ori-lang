@@ -396,7 +396,7 @@ fn collect_first_unbound_var(
 ///
 /// # Why this is a helper
 ///
-/// migration (§08.3b.1) adds the `Generalized → E2005` leak-alarm
+/// The Generalized->BoundVar normalization adds the `Generalized → E2005` leak-alarm
 /// path mirroring the `Unbound` path. Extracting this arm keeps the parent's
 /// nesting depth ≤ 4 and its length < 100.
 fn check_var_tag(
@@ -411,9 +411,9 @@ fn check_var_tag(
     match pool.var_state(var_id) {
         // Unbound: inference failure — PC-2 violation unless exempt.
         //
-        // Generalized: post-§08.3b.1 leak alarm — after the end-of-body
-        // normalization pass in `check::bodies` rewrites every generalized
-        // leaf to `Tag::BoundVar` per, a surviving
+        // Generalized: leak alarm — the end-of-body normalization pass in
+        // `check::bodies` rewrites every generalized leaf to
+        // `Tag::BoundVar`, so a surviving
         // `Generalized` here means the pass missed a position. Treat
         // identically to Unbound (same exempt-scheme-var semantics, same
         // `E2005` emission).

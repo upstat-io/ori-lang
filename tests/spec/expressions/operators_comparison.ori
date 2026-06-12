@@ -480,7 +480,7 @@ type Point = { x: int, y: int }
 }
 
 // =============================================================================
-// Ordering on User Types — Comparable Trait Required (BUG-02-003)
+// Ordering on User Types — Comparable Trait Required
 // =============================================================================
 //
 // User-defined types require #derive(Comparable) to use ordering operators.
@@ -537,7 +537,7 @@ type Point = { x: int, y: int }
     a >= b
 }
 
-// Negative: type WITHOUT Comparable rejects ordering operators (BUG-02-003 semantic pin)
+// Negative: type WITHOUT Comparable rejects ordering operators (semantic pin)
 // Point has no derives at all — ordering must be rejected at compile time.
 #compile_fail("Comparable")
 @test_no_comparable_lt tests @no_comparable_lt () -> void = {
@@ -571,18 +571,15 @@ type Point = { x: int, y: int }
     print(msg: r.debug())
 }
 
-// Regression guard: equality (==, !=) still works without Eq derive —
-// the evaluator provides structural equality for all types.
+// Negative: equality (==, !=) on a struct WITHOUT Eq is rejected at typeck
+// (Spec 14-expressions.md "Equality" — operands shall implement Eq), exactly
+// as ordering requires Comparable. `Point` has no #derive(Eq) / manual @eq.
+#compile_fail("Eq")
 @test_struct_eq_no_derive tests @struct_eq_no_derive () -> void = {
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 1, y: 2 };
-    assert(cond: a == b)
-}
-
-@struct_eq_no_derive () -> bool = {
-    let a = Point { x: 1, y: 2 };
-    let b = Point { x: 1, y: 2 };
-    a == b
+    let r = a == b;
+    print(msg: r.debug())
 }
 
 // Negative: type with Eq but NOT Comparable rejects ordering

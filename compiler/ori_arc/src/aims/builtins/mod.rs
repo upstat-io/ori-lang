@@ -380,6 +380,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     // per-user-fn `borrowed_read_only` is computed from the body scan in
     // `extract_contract`, which reads Apply-arg POSITIONS directly, not this seed.
     borrowed_read_only: false,
+    borrowed_cow_consumed: false,
 };
 
 /// Owned parameter consumed exactly once (linear).
@@ -398,6 +399,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     iter_consumes: false,
     // Owned param is consumed, never read-only.
     borrowed_read_only: false,
+    borrowed_cow_consumed: false,
 };
 
 /// Return contract for methods producing unique results (COW operations).

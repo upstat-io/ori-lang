@@ -87,8 +87,7 @@ pub struct Pool {
     /// codegen. This map is the SSOT for "which names are newtype constructors"
     /// — `ori_arc::lower` consults it to dispatch newtype calls to transparent
     /// `Let { Var(arg) }` instead of unresolvable `PartialApply` (the prior
-    /// behavior surfaced as `emit_partial_apply: callee not found name="UserId"`
-    /// per plan §08.3c).
+    /// behavior surfaced as `emit_partial_apply: callee not found name="UserId"`).
     ///
     /// Unlike `resolutions`, this map is keyed by `Name`, not `Idx`, because
     /// the lowering pass sees the constructor's source-level name (`Ident`,

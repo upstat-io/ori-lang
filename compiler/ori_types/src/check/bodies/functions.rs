@@ -222,9 +222,8 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         let mut expr_types = engine.take_expr_types();
         engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
 
-        // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves in
-        // `expr_types` / sig positions to `Tag::BoundVar` per
-        //. Drains `pending_generalized_vars` from
+        // Normalize `Tag::Var(Generalized)` leaves in `expr_types` / sig
+        // positions to `Tag::BoundVar`. Drains `pending_generalized_vars` from
         // inner let-polymorphism AND rewrites the sig's scheme var
         // ids (populated by signatures pass for top-level polymorphic
         // functions). MUST run after defaulting (keeps `Idx::NEVER`
@@ -361,7 +360,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mut expr_types = engine.take_expr_types();
     engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
 
-    // §08.3b.1 — normalize scheme vars to `Tag::BoundVar` per.
+    // Normalize scheme vars to `Tag::BoundVar`.
     // See `check_function` for the full rationale.
     engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
 

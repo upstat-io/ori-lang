@@ -55,7 +55,7 @@ fn make_module(tests: &[(u32, &[u32])]) -> Module {
     module
 }
 
-// ── FunctionChangeMap ────────────────────────────────────────
+// FunctionChangeMap
 
 #[test]
 fn change_map_from_canon() {
@@ -113,7 +113,7 @@ fn deleted_function_detected_as_changed() {
     assert!(changed.contains(&Name::from_raw(2)));
 }
 
-// ── TestTargetIndex ──────────────────────────────────────────
+// TestTargetIndex
 
 #[test]
 fn index_bidirectional_mapping() {
@@ -200,7 +200,7 @@ fn test_body_change_prevents_skip() {
     );
 }
 
-// ── TestRunCache ─────────────────────────────────────────────
+// TestRunCache
 
 #[test]
 fn cache_insert_and_get() {
@@ -214,4 +214,114 @@ fn cache_insert_and_get() {
     assert_eq!(cache.len(), 1);
     assert!(cache.get(Path::new("/test.ori")).is_some());
     assert!(cache.get(Path::new("/other.ori")).is_none());
+}
+
+// compute_skippable_and_update
+
+#[test]
+fn test_compute_skippable_first_sight_skips_nothing() {
+    let cache = parking_lot::Mutex::new(TestRunCache::new());
+    let canon = make_canon(&[(1, 42), (100, 7)]);
+    let module = make_module(&[(100, &[1])]);
+
+    let skippable = compute_skippable_and_update(&cache, Path::new("/test.ori"), &canon, &module);
+    assert!(
+        skippable.is_empty(),
+        "first sight of a file has no previous snapshot — nothing skippable"
+    );
+    assert_eq!(cache.lock().len(), 1, "the fresh snapshot must be stored");
+}
+
+#[test]
+fn test_compute_skippable_unchanged_rerun_skips_targeted_test() {
+    let cache = parking_lot::Mutex::new(TestRunCache::new());
+    let canon = make_canon(&[(1, 42), (100, 7)]);
+    let module = make_module(&[(100, &[1])]);
+
+    let _ = compute_skippable_and_update(&cache, Path::new("/test.ori"), &canon, &module);
+    let skippable = compute_skippable_and_update(&cache, Path::new("/test.ori"), &canon, &module);
+    assert!(
+        skippable.contains(&Name::from_raw(100)),
+        "an unchanged targeted test must be skippable on the second run"
+    );
+}
+
+#[test]
+fn test_compute_skippable_changed_target_reruns_test() {
+    let cache = parking_lot::Mutex::new(TestRunCache::new());
+    let module = make_module(&[(100, &[1])]);
+
+    let canon_v1 = make_canon(&[(1, 42), (100, 7)]);
+    let _ = compute_skippable_and_update(&cache, Path::new("/test.ori"), &canon_v1, &module);
+
+    // Target function 1's body changed between runs.
+    let canon_v2 = make_canon(&[(1, 43), (100, 7)]);
+    let skippable =
+        compute_skippable_and_update(&cache, Path::new("/test.ori"), &canon_v2, &module);
+    assert!(
+        !skippable.contains(&Name::from_raw(100)),
+        "a test whose target changed must re-run"
+    );
+}
+
+// Cache persistence (save_to / load_from)
+
+#[test]
+fn test_cache_save_load_roundtrip_preserves_hashes_across_interners() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let cache_path = dir.path().join("cache");
+
+    // Names must round-trip by STRING (interned ids are process-local).
+    let writer_interner = crate::ir::StringInterner::new();
+    let double = writer_interner.intern("double");
+    let triple = writer_interner.intern("triple");
+    let mut map = FunctionChangeMap::default();
+    map.insert(double, 0xDEAD_BEEF_0000_0001);
+    map.insert(triple, 0x0000_0000_0000_0002);
+    let mut cache = TestRunCache::new();
+    cache.insert(PathBuf::from("/some dir/test.ori"), map);
+
+    cache
+        .save_to(&cache_path, &writer_interner)
+        .unwrap_or_else(|e| panic!("save failed: {e}"));
+
+    // A fresh interner models a fresh process: ids differ, strings match.
+    let reader_interner = crate::ir::StringInterner::new();
+    reader_interner.intern("unrelated-padding");
+    let loaded = TestRunCache::load_from(&cache_path, &reader_interner);
+
+    let Some(loaded_map) = loaded.get(Path::new("/some dir/test.ori")) else {
+        panic!("loaded cache must carry the saved file entry")
+    };
+    assert_eq!(
+        loaded_map.get(reader_interner.intern("double")),
+        Some(0xDEAD_BEEF_0000_0001),
+        "hash must round-trip keyed by name string"
+    );
+    assert_eq!(
+        loaded_map.get(reader_interner.intern("triple")),
+        Some(0x0000_0000_0000_0002)
+    );
+}
+
+#[test]
+fn test_cache_load_missing_file_returns_empty_cache() {
+    let interner = crate::ir::StringInterner::new();
+    let loaded = TestRunCache::load_from(Path::new("/nonexistent/ori-cache"), &interner);
+    assert!(loaded.is_empty(), "a missing cache file starts cold");
+}
+
+#[test]
+fn test_cache_load_unrecognized_header_returns_empty_cache() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let cache_path = dir.path().join("cache");
+    std::fs::write(&cache_path, "some-other-format v9\nfile /a.ori\n01 f\n")
+        .unwrap_or_else(|e| panic!("write failed: {e}"));
+
+    let interner = crate::ir::StringInterner::new();
+    let loaded = TestRunCache::load_from(&cache_path, &interner);
+    assert!(
+        loaded.is_empty(),
+        "a version/format mismatch must be treated as an empty cache"
+    );
 }

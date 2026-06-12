@@ -7,14 +7,10 @@ use crate::pool::re_intern::{
 };
 use crate::{FunctionSig, Idx, Pool, Tag, VarState};
 
-// §08.3 WILL add `re_intern_type_with_var_remap` and
-// `re_intern_sig_with_var_remap` to `pool/re_intern/mod.rs` and un-gate every
-// `#[cfg(any())]`-guarded positive pin below. Until then, those tests are
-// compiled-out — their existence as cell-authored TDD scaffolding is preserved
-// under source control, ready to activate in the same commit that lands the
-// §08.3 implementation. See
-//
-// §08.2 cells (e1–e5) + §08.3.
+// `re_intern_type_with_var_remap` and `re_intern_sig_with_var_remap` in
+// `pool/re_intern/mod.rs` are the remap-aware re-intern entry points; the
+// positive pins below pin their behavior, and the legacy-path negative pins
+// document the var-id collision the remap exists to prevent.
 
 // === Primitive Types ===
 
@@ -371,29 +367,22 @@ fn scheme_type_re_interned() {
     assert_eq!(target.hash(result), source.hash(scheme));
 }
 
-// ============================================================================
-// §08.2 Matrix Extension (e1–e5) — cross-module pool-merge var_id remap
-// ============================================================================
+// Matrix extension (e1–e5) — cross-module pool-merge var_id remap
 //
-// Pins the cross-module pool-merge var_id collision diagnosed in §08.1.R of
-//
+// Pins the cross-module pool-merge var_id collision.
 //
 // - Negative pins (no `_with_var_remap` suffix): assert the collision is
 //   present on the legacy `re_intern_type` / `re_intern_sig` path — regression
-//   pins that document WHY §08.3's remap-aware variant is required. They
-//   remain GREEN after §08.3 lands because the legacy path is preserved.
-// - Positive pins (`_with_var_remap` suffix, `#[ignore]`): pin the required
-//   behavior of the §08.3 remap-aware path (currently a `todo!()` stub in
-//   `pool/re_intern/mod.rs`). §08.3 un-ignores them by providing the bodies.
-//
-// Plan-annotation cleanup on these tests is scheduled for §08.N per
-//.
+//   pins that document WHY the remap-aware variant is required. They
+//   remain GREEN because the legacy path is preserved.
+// - Positive pins (`_with_var_remap` suffix): pin the required behavior
+//   of the remap-aware path.
 
 // --- (e1) Leaf var remap across pools — Tag::Var / BoundVar / RigidVar ------
 
 /// Helper: construct a target pool whose `var_state(var_id)` is
 /// `Generalized { id: var_id, name: None }` — the "host-file poly-lambda
-/// residue" the §08.1.R diagnosis describes.
+/// residue" shape from the cross-module pool-merge collision.
 fn target_with_generalized_slot(var_id: u32) -> Pool {
     let mut target = Pool::new();
     target.ensure_var_capacity(var_id + 1);
@@ -405,7 +394,7 @@ fn target_with_generalized_slot(var_id: u32) -> Pool {
 }
 
 /// Regression guard — backward-compat `re_intern_type` delegates to the
-/// remap-aware entry point per §08.3.
+/// remap-aware entry point.
 ///
 /// The host-file poly-lambda residue at `target.var_states[0]` (a
 /// `VarState::Generalized` slot the imported source module never touched)
@@ -475,9 +464,9 @@ fn re_intern_type_rigid_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
     assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
 }
 
-/// §08.2 cell (e1, positive pin) — `Tag::Var` under remap-aware re-intern.
+/// Matrix cell (e1, positive pin) — `Tag::Var` under remap-aware re-intern.
 ///
-/// After §08.3 lands, re-interning a source `Tag::Var(0)` into a target
+/// Re-interning a source `Tag::Var(0)` into a target
 /// holding an unrelated `Generalized(0)` slot MUST: (a) allocate a fresh
 /// `dst_id` via `target.next_var_id`, (b) record `0 → dst_id` in `var_remap`,
 /// (c) rebuild `target.var_state(dst_id)` as `Unbound { id: dst_id, .. }`
@@ -513,7 +502,7 @@ fn remap_aware_re_intern_var_leaf_allocates_fresh_dst_id_and_rebuilds_var_state(
     );
 }
 
-/// §08.2 cell (e1, positive pin) — `Tag::BoundVar`.
+/// Matrix cell (e1, positive pin) — `Tag::BoundVar`.
 #[test]
 fn remap_aware_re_intern_bound_var_leaf_allocates_fresh_dst_id() {
     let mut source = Pool::new();
@@ -533,7 +522,7 @@ fn remap_aware_re_intern_bound_var_leaf_allocates_fresh_dst_id() {
     assert_eq!(var_remap.get(&0), Some(&dst_id));
 }
 
-/// §08.2 cell (e1, positive pin) — `Tag::RigidVar`.
+/// Matrix cell (e1, positive pin) — `Tag::RigidVar`.
 #[test]
 fn remap_aware_re_intern_rigid_var_leaf_allocates_fresh_dst_id_and_preserves_rigid_name() {
     let mut source = Pool::new();
@@ -567,7 +556,7 @@ fn remap_aware_re_intern_rigid_var_leaf_allocates_fresh_dst_id_and_preserves_rig
 // --- (e2) Scheme binder list remaps together with body leaves ---------------
 
 /// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme`
-/// delegates to the remap-aware path per §08.3.
+/// delegates to the remap-aware path.
 ///
 /// Binders `[7, 9]` and body-leaf `Tag::Var(7)` must remap coherently through
 /// a single `var_remap` map; the binder list in the target MUST NOT preserve
@@ -601,9 +590,9 @@ fn re_intern_type_scheme_via_legacy_api_remaps_binders_and_body_coherently() {
     );
 }
 
-/// §08.2 cell (e2, positive pin).
+/// Matrix cell (e2, positive pin).
 ///
-/// After §08.3 lands, re-interning `Scheme([7, 9], body{Tag::Var(7), ...})`
+/// Re-interning `Scheme([7, 9], body{Tag::Var(7), ...})`
 /// across pools MUST yield a scheme whose binder list is `[remap[7], remap[9]]`
 /// AND whose body-leaf `Tag::Var` uses the SAME `remap[7]`. A remap that
 /// touches body leaves but clones binders (or vice versa) produces an
@@ -651,7 +640,7 @@ fn remap_aware_re_intern_scheme_remaps_binders_and_body_leaves_coherently() {
 // --- (e3) FunctionSig.scheme_var_ids coherence with remapped type tree ------
 
 /// Regression guard — backward-compat `re_intern_sig` delegates to the
-/// remap-aware path per §08.3.
+/// remap-aware path.
 ///
 /// Both `scheme_var_ids` and the leaf `Tag::Var` ids in `param_types` /
 /// `return_type` must remap through a single shared `var_remap`, so the
@@ -690,9 +679,9 @@ fn re_intern_sig_via_legacy_api_remaps_scheme_var_ids_coherently_with_leaves() {
     );
 }
 
-/// §08.2 cell (e3, positive pin).
+/// Matrix cell (e3, positive pin).
 ///
-/// After §08.3 lands, `re_intern_sig_with_var_remap` MUST rewrite
+/// `re_intern_sig_with_var_remap` MUST rewrite
 /// `scheme_var_ids` via the same `var_remap` that rewrites leaf `Tag::Var`
 /// ids, so the monomorphizer's `var_subst = HashMap::from([(scheme_var_ids[0],
 /// concrete)])` resolves every leaf in `param_types` / `return_type`.
@@ -732,9 +721,9 @@ fn remap_aware_re_intern_sig_remaps_scheme_var_ids_coherently_with_leaves() {
 
 // --- (e4) VarState variant-aware rebuild ------------------------------------
 
-/// §08.2 cell (e4, positive pin) — `Unbound` variant.
+/// Matrix cell (e4, positive pin) — `Unbound` variant.
 ///
-/// Per §08.1.5 step 6: rebuild preserves `rank` and `name` verbatim; `id` is
+/// Rebuild preserves `rank` and `name` verbatim; `id` is
 /// the fresh `dst_id` (NOT source's `id`). A literal-byte clone that kept
 /// source's `id` would reintroduce the aliasing the remap exists to eliminate.
 #[test]
@@ -762,7 +751,7 @@ fn remap_aware_re_intern_rebuilds_unbound_with_fresh_id_and_preserved_rank_name(
     }
 }
 
-/// §08.2 cell (e4, positive pin) — `Generalized` variant.
+/// Matrix cell (e4, positive pin) — `Generalized` variant.
 #[test]
 fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name() {
     let mut source = Pool::new();
@@ -795,7 +784,7 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
     }
 }
 
-/// §08.2 cell (e4, positive pin) — `Rigid` variant.
+/// Matrix cell (e4, positive pin) — `Rigid` variant.
 ///
 /// `Rigid.name` is a global `Name` intern (pool-independent); there is no `id`
 /// field on `Rigid`. Clone verbatim.
@@ -822,13 +811,12 @@ fn remap_aware_re_intern_rebuilds_rigid_with_preserved_name() {
     }
 }
 
-/// §08.2 cell (e4, positive pin) — `Link` variant.
+/// Matrix cell (e4, positive pin) — `Link` variant.
 ///
-/// Per §08.1.5 step 6: `Link.target: Idx` is source-pool-local and MUST be
+/// `Link.target: Idx` is source-pool-local and MUST be
 /// rewritten via recursive `re_intern_type` — NOT preserved verbatim (would
 /// leak source-pool identity), NOT resolved via `cache.get(&source.target)
-/// .expect(...)` (panics on Link targets reachable ONLY through this Link,
-/// per the 2026-04-19 Round 2 F1 fix referenced in §08.3 step 6).
+/// .expect(...)` (panics on Link targets reachable ONLY through this Link).
 #[test]
 fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
     let mut source = Pool::new();
@@ -870,7 +858,7 @@ fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
 // | HAS_RIGID_VAR` all clear even though binder `var_id=7` is pool-local and
 // MUST remap.
 
-/// §08.2 cell (e5, negative pin i).
+/// Matrix cell (e5, negative pin i).
 ///
 /// Confirms that a `HAS_VAR`-gated fast-path guard on `Tag::Scheme` would
 /// miss this case: `source.flags(scheme)` has no var-bit set, so a guard
@@ -892,7 +880,7 @@ fn scheme_with_var_bearing_binders_and_var_free_body_has_no_propagated_var_flags
 }
 
 /// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme` with a
-/// var-free body still remaps binders per §08.3.
+/// var-free body still remaps binders.
 ///
 /// This is the edge case `PROPAGATE_MASK` (TF-3) does NOT flag on
 /// the scheme parent: the body has no var-bit, so a fast-path guard keyed only
@@ -921,10 +909,10 @@ fn re_intern_type_scheme_with_var_free_body_via_legacy_api_remaps_binder() {
     assert_eq!(target.scheme_body(result), Idx::INT);
 }
 
-/// §08.2 cell (e5, positive pin).
+/// Matrix cell (e5, positive pin).
 ///
-/// After §08.3 lands, the unconditional `Tag::Scheme` skip of the fast-path
-/// (per §08.1.5 step 7) MUST fire even when the scheme's parent flags have no
+/// The unconditional `Tag::Scheme` skip of the fast-path
+/// MUST fire even when the scheme's parent flags have no
 /// var-bit set, so binders are walked by step 5 regardless of body flags. The
 /// resulting scheme's binder list is `[remap[7]]` and — because scheme hashing
 /// is extra-backed — its hash in `target` differs from the

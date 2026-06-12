@@ -61,6 +61,12 @@ pub(super) struct OwnedRcFilter {
     /// admits the paired `BurdenDec` even though the var carries NO in-body
     /// burden ops (the inline dec was suppressed). Spec: Annex E §AIMS RL-2 + RL-4.
     pub(super) claimed_no_sink_vars: FxHashSet<ArcVarId>,
+    /// Execution-final read aliases designated as the single release carrier
+    /// for a multi-read call-result-aggregate element lineage — their
+    /// keep-alive inc is suppressed in `scan_orchestration` so the lone
+    /// last-use `BurdenDec` survives. SSOT:
+    /// `compute_call_result_element_final_read_releases`.
+    pub(super) final_read_release_aliases: FxHashSet<ArcVarId>,
 }
 
 /// Run the burden-walk suppression-filter prologue: populate `ctx`, compute the
@@ -153,7 +159,17 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // Owned-param-only, so `f(x, x)` over Borrowed params creates no reference at
     // either arg — the owned source carries the inc+release, the alias gets
     // neither (else the source's FRESH inc orphans, VF-1 net=+1 leak).
-    let borrowed_arg_aliases = compute_borrowed_arg_let_aliases(func);
+    let mut borrowed_arg_aliases = compute_borrowed_arg_let_aliases(func);
+    // RL-1 owned-call-arg duplication carve-out: an alias whose sole use is a
+    // borrowed-ANNOTATED terminator-Invoke arg at a position the callee's
+    // contract proves OWNED (the Phase-5 `arg_ownership` annotation is still
+    // the pre-`realize_rc_reuse` borrowed default) is a genuine duplication,
+    // NOT a borrow-view — it keeps its membership so the alias-site
+    // `BurdenInc` is emitted (`compute_genuine_dup_call_arg_aliases` SSOT;
+    // the consumer's owned-param release is the matched release).
+    let call_arg_dup_aliases =
+        ownership_scans::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+    borrowed_arg_aliases.retain(|v| !call_arg_dup_aliases.contains(v));
     owned_vars_needing_rc.retain(|v| !borrowed_arg_aliases.contains(v));
     // RL-2 / TF-4: a `Project` dst used only at borrow positions is a borrow-view
     // of the parent aggregate's field — the parent owns + drops the field via
@@ -209,6 +225,20 @@ pub(super) fn compute_owned_rc_filter<'a>(
         compute_forwarder_identity_transparent_aliases(func, contracts)
     };
     owned_vars_needing_rc.retain(|v| !forwarder_identity_transparent_aliases.contains(v));
+    // RL-2 final-read release designation: a MULTI-read element of a fresh
+    // caller-owned call-result aggregate (a returned tuple's `Project` view
+    // with no burden carrier anywhere on its lineage) gets its execution-final
+    // read alias re-included so that alias's lone last-use `BurdenDec` is the
+    // element's single release (the alias's keep-alive inc is suppressed in
+    // `scan_orchestration`). SSOT + decline fences:
+    // `compute_call_result_element_final_read_releases`.
+    let final_read_release_aliases =
+        ownership_scans::compute_call_result_element_final_read_releases(
+            func,
+            contracts,
+            &owned_vars_needing_rc,
+        );
+    owned_vars_needing_rc.extend(final_read_release_aliases.iter().copied());
     // RL-5 + RL-2: a SUM-AGGREGATE-`Construct`-fed allocation threaded (via Let-Var
     // aliases) to a merge/return block's DEAD block-param OVER-emits — a FRESH-site
     // `BurdenInc` on the Construct + a dup-alias `BurdenInc` on the Let-Var alias
@@ -348,6 +378,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         construct_fed_dead_param,
         last_uses_at,
         claimed_no_sink_vars,
+        final_read_release_aliases,
     }
 }
 

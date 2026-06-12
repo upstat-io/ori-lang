@@ -56,6 +56,56 @@ fn test_summary_exit_code() {
     assert_eq!(summary2.exit_code(), 1); // File errors = failure
 }
 
+/// Semantic pin: an incremental no-change run (every test skipped-unchanged,
+/// nothing failed) has tests — it exits 0, never 2 ("no tests found").
+#[test]
+fn test_exit_code_all_skipped_unchanged_run_exits_zero() {
+    let mut summary = TestSummary::new();
+    summary.skipped_unchanged = 7;
+    assert_eq!(summary.total(), 7, "skipped-unchanged tests are present");
+    assert!(!summary.has_failures());
+    assert_eq!(summary.exit_code(), 0);
+
+    // Negative pin: a genuinely-empty run still reports "no tests found".
+    let empty = TestSummary::new();
+    assert_eq!(empty.total(), 0);
+    assert_eq!(empty.exit_code(), 2);
+}
+
+/// Skipped-unchanged tests never mask real failures in the exit code.
+#[test]
+fn test_exit_code_skipped_unchanged_with_failures_exits_one() {
+    let mut summary = TestSummary::new();
+    summary.skipped_unchanged = 3;
+    summary.failed = 1;
+    assert_eq!(summary.exit_code(), 1);
+}
+
+/// `FileSummary::total()` counts skipped-unchanged results so per-file
+/// rendering treats an all-unchanged file as having tests.
+#[test]
+fn test_file_summary_total_includes_skipped_unchanged() {
+    let interner = test_interner();
+    let test1 = interner.intern("test1");
+
+    let mut file = FileSummary::new(PathBuf::from("test.ori"));
+    file.add_result(TestResult {
+        name: test1,
+        targets: vec![],
+        outcome: TestOutcome::SkippedUnchanged,
+        duration: Duration::ZERO,
+    });
+    assert_eq!(file.skipped_unchanged, 1);
+    assert_eq!(file.total(), 1);
+    assert!(!file.has_failures());
+
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+    assert_eq!(summary.skipped_unchanged, 1);
+    assert_eq!(summary.total(), 1);
+    assert_eq!(summary.exit_code(), 0);
+}
+
 /// A test that cannot compile via LLVM is a failed test: it joins `failed`,
 /// `has_failures()`, and the non-zero exit code (with `llvm_compile_fail`
 /// tracking the reason breakdown as a subset).

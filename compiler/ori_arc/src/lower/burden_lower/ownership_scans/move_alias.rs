@@ -5,6 +5,8 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aims::emit_rc::block_id;
+use crate::graph::DominatorTree;
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
 use super::{instr_transfer_vars, successor_reachable_blocks};
@@ -104,7 +106,9 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     //   cancelled iff its terminal alias dst GENUINELY transfers out at an
     //   owned position per AIMS RL-2, AND every NON-terminal use of the source
     //   also discharges a duplicate reference — an owned-position consume, or
-    //   a `Let { Var }` alias whose own lineage transfers. A non-consuming
+    //   a `Let { Var }` alias whose own lineage transfers — from a block that
+    //   DOMINATES the terminal block (an alternative-arm use never runs on
+    //   the terminal's path, so it discharges nothing there). A non-consuming
     //   non-terminal use (borrow read, slice view) leaves a duplicate
     //   reference whose only release IS the terminal dec, so cancellation
     //   declines. Function PARAMS are excluded: a param's last-use dec marker
@@ -116,6 +120,9 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
     let mut handoff_edges: Vec<HandoffEdge> = Vec::new();
     let mut reach_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    // Built lazily — only a function with at least one cross-block final-use
+    // candidate pays for the dominator tree.
+    let mut dom_tree: Option<DominatorTree> = None;
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::Let {
@@ -144,8 +151,9 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
                         instr_idx,
                     )
                 {
+                    let dom = dom_tree.get_or_insert_with(|| DominatorTree::build(func));
                     if let Some(required) =
-                        non_terminal_uses_all_discharge(func, *src, block_idx, instr_idx)
+                        non_terminal_uses_all_discharge(func, dom, *src, block_idx, instr_idx)
                     {
                         handoff_edges.push(HandoffEdge {
                             dst: *dst,
@@ -250,12 +258,23 @@ struct HandoffEdge {
 ///   base, borrowed terminator arg) — does NOT consume a reference; the
 ///   terminal dec is that duplicate's only release, so cancellation DECLINES
 ///   (`None`).
+///
+/// Every non-terminal use's block MUST additionally DOMINATE the terminal
+/// block (same-block uses are earlier-in-block by the caller's finality
+/// proof). A discharge counts only when it executes on EVERY path reaching
+/// the terminal; an ALTERNATIVE-arm use (sibling `Branch`/`Switch` arm — the
+/// per-arm sum-rebuild shape `if c then Left(v, next: t) else
+/// Right(v, next: t)`) never runs on this arm's path, so the kept per-arm dec
+/// is that path's only release for the path-insensitive duplication inc —
+/// cancellation DECLINES (`None`).
 fn non_terminal_uses_all_discharge(
     func: &ArcFunction,
+    dom: &DominatorTree,
     src: ArcVarId,
     terminal_block: usize,
     terminal_idx: usize,
 ) -> Option<Vec<ArcVarId>> {
+    let terminal_block_id = block_id(terminal_block);
     let mut required: Vec<ArcVarId> = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -264,6 +283,10 @@ fn non_terminal_uses_all_discharge(
             }
             if !instr.used_vars().contains(&src) {
                 continue;
+            }
+            if block_idx != terminal_block && !dom.dominates(block_id(block_idx), terminal_block_id)
+            {
+                return None;
             }
             if let ArcInstr::Let {
                 dst,
@@ -288,7 +311,12 @@ fn non_terminal_uses_all_discharge(
         }
         let term_uses = block.terminator.used_vars();
         for (pos, &var) in term_uses.iter().enumerate() {
-            if var == src && !block.terminator.is_owned_position(pos) {
+            if var != src {
+                continue;
+            }
+            if !block.terminator.is_owned_position(pos)
+                || !dom.dominates(block_id(block_idx), terminal_block_id)
+            {
                 return None;
             }
         }

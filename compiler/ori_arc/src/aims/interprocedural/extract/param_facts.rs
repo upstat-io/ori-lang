@@ -270,3 +270,170 @@ fn borrowed_ro_arg_forward_safe(
         .and_then(|c| c.params.get(pos))
         .is_some_and(|p| p.borrowed_read_only)
 }
+
+/// Find Borrowed-eligible params COW-CONSUMED at the lineage's LAST body use —
+/// the `ParamContract.borrowed_cow_consumed` fact obligating CALLER funding
+/// (one duplication inc per call site, RL-1 `RL1_duplication_balanced`).
+///
+/// A param qualifies when an alias of it is consumed at a COW-MUTATOR owned
+/// position — a builtin consuming receiver (`@push`/`@insert`/`@remove`/... at
+/// pos 0, or pos 1 for `consuming_second_arg` callees), or transitively a user
+/// callee whose corresponding param carries `borrowed_cow_consumed` (SCC:
+/// callee contract finalized first per IC-1) — AND no use of ANY alias of the
+/// same param is forward-reachable past the consume site (the consume is the
+/// lineage's death; the callee's COW-inc edge release then nets -1 on the
+/// caller's allocation). A live-past consume declines (the callee's edge
+/// release declines too — net 0, no funding obligation). Aggregate STORES are
+/// NOT COW consumes (the borrowed-store dup inc + container drop net 0).
+/// Spec: Annex E §AIMS RL-1 + RL-2.
+pub(super) fn find_borrowed_cow_consumed_params(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<usize> {
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let param_use_sites = collect_param_alias_use_sites(func, alias_to_param);
+    // A COW-MUTATOR owned position: builtin consuming receiver / second arg,
+    // or a transitive user-callee `borrowed_cow_consumed` param.
+    let cow_consuming_position = |callee: Name, pos: usize| -> bool {
+        if builtins.consuming_receiver.contains(&callee)
+            || builtins.consuming_receiver_only.contains(&callee)
+        {
+            return pos == 0 || (pos == 1 && builtins.consuming_second_arg.contains(&callee));
+        }
+        if builtins.is_builtin(callee) || builtins.protocol.contains_key(&callee) {
+            return false;
+        }
+        sigs.get(&callee)
+            .and_then(|c| c.params.get(pos))
+            .is_some_and(|p| p.borrowed_cow_consumed)
+    };
+    let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    let mut out: FxHashSet<usize> = FxHashSet::default();
+    let check = |callee: Name,
+                 args: &[ArcVarId],
+                 block_idx: usize,
+                 site_idx: usize,
+                 reachable_cache: &mut FxHashMap<usize, FxHashSet<usize>>,
+                 out: &mut FxHashSet<usize>| {
+        for (pos, &arg) in args.iter().enumerate() {
+            if !cow_consuming_position(callee, pos) {
+                continue;
+            }
+            let Some(params) = alias_to_param.get(&arg) else {
+                continue;
+            };
+            let reachable = reachable_cache
+                .entry(block_idx)
+                .or_insert_with(|| successor_reachable(func, block_idx));
+            for &i in params {
+                let Some(uses) = param_use_sites.get(&i) else {
+                    continue;
+                };
+                let used_after = uses
+                    .iter()
+                    .any(|&(ub, ui)| (ub == block_idx && ui > site_idx) || reachable.contains(&ub));
+                if !used_after {
+                    out.insert(i);
+                }
+            }
+        }
+    };
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                check(
+                    *callee,
+                    args,
+                    block_idx,
+                    instr_idx,
+                    &mut reachable_cache,
+                    &mut out,
+                );
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            // The terminator's own use site is `usize::MAX`; pass it as the
+            // site index so the consume's own occurrence never counts as a
+            // use after itself.
+            check(
+                *callee,
+                args,
+                block_idx,
+                usize::MAX,
+                &mut reachable_cache,
+                &mut out,
+            );
+        }
+    }
+    out
+}
+
+/// Per-param alias use sites (body `(block, instr)`; terminator
+/// `(block, usize::MAX)`) — the death-at-consume reachability input of
+/// [`find_borrowed_cow_consumed_params`].
+fn collect_param_alias_use_sites(
+    func: &ArcFunction,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashMap<usize, Vec<(usize, usize)>> {
+    let mut param_use_sites: FxHashMap<usize, Vec<(usize, usize)>> = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            for &v in &instr.used_vars() {
+                if let Some(params) = alias_to_param.get(&v) {
+                    for &i in params {
+                        param_use_sites
+                            .entry(i)
+                            .or_default()
+                            .push((block_idx, instr_idx));
+                    }
+                }
+            }
+        }
+        for v in block.terminator.used_vars() {
+            if let Some(params) = alias_to_param.get(&v) {
+                for &i in params {
+                    param_use_sites
+                        .entry(i)
+                        .or_default()
+                        .push((block_idx, usize::MAX));
+                }
+            }
+        }
+    }
+    param_use_sites
+}
+
+/// Forward-reachable block set from `start`'s SUCCESSORS (`start` itself only
+/// when a cycle re-reaches it).
+fn successor_reachable(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = func
+        .blocks
+        .get(start)
+        .map(|b| {
+            crate::graph::successor_block_ids(&b.terminator)
+                .into_iter()
+                .map(crate::ir::ArcBlockId::index)
+                .collect()
+        })
+        .unwrap_or_default();
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        if let Some(block) = func.blocks.get(b) {
+            for s in crate::graph::successor_block_ids(&block.terminator) {
+                stack.push(s.index());
+            }
+        }
+    }
+    visited
+}

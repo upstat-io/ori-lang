@@ -157,8 +157,10 @@ impl FileSummary {
         self.errors.push(error);
     }
 
+    /// Total tests in this file. Includes skipped-unchanged tests: an
+    /// incremental no-change run still has tests, they just did not re-run.
     pub fn total(&self) -> usize {
-        self.passed + self.failed + self.skipped
+        self.passed + self.failed + self.skipped + self.skipped_unchanged
     }
 
     /// Returns true if any test failed (including LLVM compile failures) or
@@ -213,8 +215,10 @@ impl TestSummary {
         self.files.push(summary);
     }
 
+    /// Total tests across all files. Includes skipped-unchanged tests: an
+    /// incremental no-change run still has tests, they just did not re-run.
     pub fn total(&self) -> usize {
-        self.passed + self.failed + self.skipped
+        self.passed + self.failed + self.skipped + self.skipped_unchanged
     }
 
     /// Returns true if any test failure or file error occurred.
@@ -232,6 +236,9 @@ impl TestSummary {
     }
 
     /// Get exit code: 0 = all pass, 1 = failures (tests or type errors), 2 = no tests found.
+    ///
+    /// Skipped-unchanged tests count as present: an incremental run where
+    /// every test was skipped-unchanged exits 0, not 2.
     pub fn exit_code(&self) -> i32 {
         if self.total() == 0 && self.error_files == 0 && self.llvm_compile_fail_files == 0 {
             2

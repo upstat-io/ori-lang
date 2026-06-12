@@ -27,7 +27,9 @@ use alias_flow::{
     find_consumed_via_callees, find_payload_containment_params, find_return_alias_shapes,
     find_return_flow_params,
 };
-use param_facts::{find_borrowed_read_only_params, find_iter_consume_params};
+use param_facts::{
+    find_borrowed_cow_consumed_params, find_borrowed_read_only_params, find_iter_consume_params,
+};
 use return_contract::extract_return_info;
 
 /// Extract a [`MemoryContract`] from a converged intraprocedural state map.
@@ -231,6 +233,10 @@ fn param_contract_for(
         // excluded. Proven sound:
         // `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec`.
         borrowed_read_only: facts.borrowed_read_only.contains(&i),
+        // RL-1 + RL-2 borrowed-COW-consume-at-death fact — the caller's
+        // owned-call-arg duplication-inc admission funds one reference per
+        // call site (`compute_genuine_dup_call_arg_aliases`).
+        borrowed_cow_consumed: facts.borrowed_cow_consumed.contains(&i),
     }
 }
 
@@ -325,6 +331,10 @@ struct ParamFacts {
     /// complement of `consumed` + `iter_consume` feeding the caller
     /// carve-out gate.
     borrowed_read_only: FxHashSet<usize>,
+    /// Params COW-consumed at the lineage's LAST body use (builtin COW
+    /// mutator receiver / second arg, or transitive callee fact) — the
+    /// caller-funding obligation behind `ParamContract.borrowed_cow_consumed`.
+    borrowed_cow_consumed: FxHashSet<usize>,
 }
 
 /// Detect every structural [`ParamFacts`] set in one pass over the body
@@ -348,6 +358,8 @@ fn detect_param_facts(
     let containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
+    let borrowed_cow_consumed =
+        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -373,6 +385,7 @@ fn detect_param_facts(
         payload_containment_all_paths: containment.all_paths,
         iter_consume,
         borrowed_read_only,
+        borrowed_cow_consumed,
     }
 }
 

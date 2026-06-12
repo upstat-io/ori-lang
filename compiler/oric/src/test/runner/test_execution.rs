@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use ori_types::TypeCheckResult;
+use ori_types::{Pool, TypeCheckResult};
 
 use crate::eval::Evaluator;
 use crate::ir::TestDef;
@@ -15,6 +15,16 @@ use super::super::error_matching::{
 };
 use super::super::result::{TestOutcome, TestResult};
 use super::TestRunner;
+
+/// Outcome of one interpreter test run plus evaluator-state health.
+pub(super) struct SingleTestRun {
+    /// The test's reported result.
+    pub(super) result: TestResult,
+    /// Whether a caught Rust panic may have left the shared per-file
+    /// evaluator inconsistent. The caller MUST rebuild the evaluator before
+    /// running another test on it.
+    pub(super) evaluator_poisoned: bool,
+}
 
 impl TestRunner {
     /// Run a `compile_fail` test.
@@ -34,6 +44,7 @@ impl TestRunner {
         pattern_problems: &[ori_ir::canon::PatternProblem],
         source: &str,
         interner: &crate::ir::StringInterner,
+        pool: &Pool,
     ) -> TestResult {
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
@@ -115,6 +126,7 @@ impl TestRunner {
             &test.expected_errors,
             source,
             interner,
+            pool,
         );
 
         if match_result.all_matched() {
@@ -130,7 +142,7 @@ impl TestRunner {
 
             let mut actual: Vec<String> = type_errors_to_match
                 .iter()
-                .map(|e| format_actual(e, source))
+                .map(|e| format_actual(e, source, pool, interner))
                 .collect();
             actual.extend(
                 pattern_problems_to_match
@@ -254,50 +266,70 @@ impl TestRunner {
         max_effect
     }
 
-    /// Run a single test.
+    /// Run a single test on the shared per-file evaluator.
+    ///
+    /// `evaluator_poisoned` is set when a Rust panic was caught during
+    /// evaluation: the evaluator's interpreter state (scopes, environment,
+    /// in-flight bookkeeping) may be inconsistent after an unwind, so the
+    /// caller rebuilds a fresh evaluator before the next test.
     pub(super) fn run_single_test(
         evaluator: &mut Evaluator,
         test: &TestDef,
         interner: &crate::ir::StringInterner,
-    ) -> TestResult {
+    ) -> SingleTestRun {
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
             let reason_str = interner.lookup(reason).to_string();
-            return TestResult::skipped(test.name, test.targets.clone(), reason_str);
+            return SingleTestRun {
+                result: TestResult::skipped(test.name, test.targets.clone(), reason_str),
+                evaluator_poisoned: false,
+            };
         }
 
         // Time the test execution
         let start = Instant::now();
 
         let Some(can_id) = evaluator.canon_root_for(test.name) else {
-            return TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                "internal error: test has no canonical root".to_string(),
-                start.elapsed(),
-            );
+            return SingleTestRun {
+                result: TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    "internal error: test has no canonical root".to_string(),
+                    start.elapsed(),
+                ),
+                evaluator_poisoned: false,
+            };
         };
         // Harness contract: a Rust panic inside evaluation is a FAILED test,
         // never a dead runner — catch it and continue with the next test.
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| evaluator.eval_can(can_id)));
         match result {
-            Ok(Ok(_)) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
-            Ok(Err(e)) => TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                e.into_eval_error().message,
-                start.elapsed(),
-            ),
-            Err(payload) => TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                format!(
-                    "test panicked (evaluator): {}",
-                    super::panic_message(payload.as_ref())
+            Ok(Ok(_)) => SingleTestRun {
+                result: TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
+                evaluator_poisoned: false,
+            },
+            Ok(Err(e)) => SingleTestRun {
+                result: TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    e.into_eval_error().message,
+                    start.elapsed(),
                 ),
-                start.elapsed(),
-            ),
+                evaluator_poisoned: false,
+            },
+            Err(payload) => SingleTestRun {
+                result: TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    format!(
+                        "test panicked (evaluator): {}",
+                        super::panic_message(payload.as_ref())
+                    ),
+                    start.elapsed(),
+                ),
+                evaluator_poisoned: true,
+            },
         }
     }
 }

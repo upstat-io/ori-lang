@@ -10,6 +10,7 @@ pub mod apply_alias_coverage;
 pub mod arc;
 pub mod borrow_independence;
 pub mod borrowed_invoke_leak;
+pub mod burden_dup_inc;
 pub mod cli;
 pub mod closure_drop;
 pub mod coalesce;

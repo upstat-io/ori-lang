@@ -210,7 +210,7 @@ fn rich_message_missing_assoc_type() {
     );
 }
 
-// Refutable-pattern (BUG-02-022 / CF-3) tests
+// Refutable-pattern (CF-3) tests
 
 #[test]
 fn create_refutable_pattern_error_list_length() {
@@ -328,4 +328,39 @@ fn format_with_uses_pool_and_interner() {
     let error = TypeCheckError::unknown_ident(Span::new(0, 6), name, vec![]);
     let msg = error.format_with(&pool, &interner);
     assert_eq!(msg, "unknown identifier `my_var`");
+}
+
+#[test]
+fn format_with_renders_named_type_where_message_falls_back_to_placeholder() {
+    // SSOT pin: the Pool-aware renderer resolves a non-primitive type Idx to its
+    // real name; the Pool-less `message()` falls back to `<type>`. Harness error
+    // rendering must route through `format_with`, never `message()`.
+    let mut pool = crate::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let widget = interner.intern("Widget");
+    let widget_ty = pool.named(widget);
+
+    let error = TypeCheckError::unsupported_operator(Span::new(0, 5), widget_ty, "==", "Eq");
+
+    // Lossy Pool-less path: the documented `<type>` fallback (the bug surface).
+    let lossy = error.message();
+    assert!(
+        lossy.contains("<type>"),
+        "message() falls back to <type>; got: {lossy}"
+    );
+    assert!(
+        !lossy.contains("Widget"),
+        "message() has no Pool, cannot name Widget; got: {lossy}"
+    );
+
+    // Pool-aware path: resolves the real type name (the fix target).
+    let rich = error.format_with(&pool, &interner);
+    assert!(
+        rich.contains("Widget"),
+        "format_with names Widget; got: {rich}"
+    );
+    assert!(
+        !rich.contains("<type>"),
+        "format_with must not emit the placeholder; got: {rich}"
+    );
 }

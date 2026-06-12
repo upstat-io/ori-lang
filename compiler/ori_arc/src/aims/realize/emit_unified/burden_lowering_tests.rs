@@ -14,11 +14,12 @@ use super::{
     borrow_survives_transform_names, borrowed_arg_release_verdict, collection_conversion_names,
     collection_set_algebra_names, compute_borrowed_terminator_aggregate_relocations,
     compute_branch_dead_value_releases, compute_comparison_operand_keepalive_strips,
-    compute_dead_collection_source_releases, compute_dead_iterator_handle_candidates,
-    compute_dead_iterator_handle_releases, compute_dead_no_use_aggregate_releases,
-    compute_dead_owned_collection_releases, compute_elidable_fresh_self_alloc_incs,
-    compute_fresh_owned_collection_reps, compute_jump_threaded_reps,
-    compute_lineage_alloc_aware_net, compute_redundant_project_borrowed_view_dec_strips,
+    compute_cow_mutated_lineage_reps, compute_dead_collection_source_releases,
+    compute_dead_iterator_handle_candidates, compute_dead_iterator_handle_releases,
+    compute_dead_no_use_aggregate_releases, compute_dead_owned_collection_releases,
+    compute_elidable_fresh_self_alloc_incs, compute_fresh_owned_collection_reps,
+    compute_jump_threaded_reps, compute_lineage_alloc_aware_net,
+    compute_redundant_project_borrowed_view_dec_strips,
     compute_returned_collection_surplus_inc_strips, emit_cow_inc_terminator_edge_release,
     emit_for_yield_index_consumed_element_rc,
     emit_iter_element_pushed_into_returned_collection_keepalive_inc,
@@ -30,7 +31,7 @@ use super::{
     suppress_single_borrowed_invoke_iter_consume_source, user_callee_iter_consume_uses_of_rep,
     EdgeRelease, EscapeSafeBorrowedNames, IterHandleRelease,
 };
-use crate::aims::contract::{MemoryContract, ReturnAliasShape};
+use crate::aims::contract::{MemoryContract, ParamContract, ReturnAliasShape};
 use crate::aims::lattice::AccessClass;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
@@ -467,6 +468,7 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
         &func,
         &reps,
         &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -513,6 +515,7 @@ fn keep_fresh_inc_for_cow_mutated_self_alloc() {
         &func,
         &reps,
         &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -522,6 +525,96 @@ fn keep_fresh_inc_for_cow_mutated_self_alloc() {
     assert!(
         !elidable.contains(&v(1)),
         "the other COW `+` operand also keeps its fresh inc"
+    );
+}
+
+/// One-block func: `%0 = Construct List(); %1 = Apply callee(%0 [borrow])` —
+/// an `RcPtr` collection at a borrowed user-call arg position, the
+/// interprocedural may-COW shape `compute_cow_mutated_lineage_reps` vets.
+fn borrowed_user_call_arg_func(callee: ori_ir::Name) -> ArcFunction {
+    rc_pointer_func(
+        2,
+        vec![
+            list_construct(v(0), Vec::new()),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::from_raw(0),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+    )
+}
+
+/// Contract for a 1-param callee whose param is `Borrowed` with the given
+/// `borrowed_read_only` fact.
+fn borrowed_param_contract(read_only: bool) -> MemoryContract {
+    let mut param = ParamContract::CONSERVATIVE;
+    param.access = AccessClass::Borrowed;
+    param.borrowed_read_only = read_only;
+    MemoryContract {
+        params: vec![param],
+        ..MemoryContract::conservative(1)
+    }
+}
+
+/// Narrowing pin: a user callee whose contract proves the param a pure
+/// borrow-read (`access == Borrowed && borrowed_read_only`) cannot COW the
+/// arg — the lineage is NOT counted COW-mutated, so the fresh inc stays
+/// elidable downstream.
+#[test]
+fn cow_lineage_excludes_contract_proven_borrowed_read_only_callee_arg() {
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("pure_reader");
+    let func = borrowed_user_call_arg_func(callee);
+    let contracts: FxHashMap<ori_ir::Name, MemoryContract> =
+        [(callee, borrowed_param_contract(true))]
+            .into_iter()
+            .collect();
+    let reps = compute_cow_mutated_lineage_reps(&func, &identity_reps(2), &interner, &contracts);
+    assert!(
+        !reps.contains(&v(0)),
+        "a contract-proven pure borrow-read position is NOT may-COW; reps = {reps:?}"
+    );
+}
+
+/// Funding-direction pin: an UNKNOWN user callee (no contract) stays
+/// conservatively may-COW — the fresh inc is kept (when in doubt, fund).
+#[test]
+fn cow_lineage_keeps_unknown_contract_user_callee_arg() {
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("unknown_user_fn");
+    let func = borrowed_user_call_arg_func(callee);
+    let reps = compute_cow_mutated_lineage_reps(
+        &func,
+        &identity_reps(2),
+        &interner,
+        &FxHashMap::default(),
+    );
+    assert!(
+        reps.contains(&v(0)),
+        "an unknown-contract user callee stays conservatively may-COW"
+    );
+}
+
+/// Funding-direction pin: a contract whose Borrowed param lacks the
+/// `borrowed_read_only` fact (the COW-through-borrowed-param risk —
+/// `@check` doing `list.push(..)` on a borrowed param) stays may-COW.
+#[test]
+fn cow_lineage_keeps_borrowed_non_read_only_callee_arg() {
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("cow_pusher");
+    let func = borrowed_user_call_arg_func(callee);
+    let contracts: FxHashMap<ori_ir::Name, MemoryContract> =
+        [(callee, borrowed_param_contract(false))]
+            .into_iter()
+            .collect();
+    let reps = compute_cow_mutated_lineage_reps(&func, &identity_reps(2), &interner, &contracts);
+    assert!(
+        reps.contains(&v(0)),
+        "a Borrowed param WITHOUT the read-only fact stays may-COW (funding direction)"
     );
 }
 
@@ -562,6 +655,7 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
         &func,
         &reps,
         &ori_ir::StringInterner::new(),
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -697,6 +791,7 @@ fn elide_fresh_inc_for_invoke_terminator_self_alloc_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -782,6 +877,7 @@ fn keep_fresh_inc_for_invoke_terminator_result_owned_consumed() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -844,6 +940,7 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -896,6 +993,7 @@ fn keep_fresh_inc_for_single_use_list_take_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -992,6 +1090,7 @@ fn keep_fresh_inc_for_jump_threaded_list_take_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(

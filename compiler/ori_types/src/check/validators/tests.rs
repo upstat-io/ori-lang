@@ -287,8 +287,8 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
 /// exposes the leak as `E2005` — a regression alarm, not a false positive.
 ///
 /// This test is RED until the post-generalize `expr_types` /
-/// `FunctionSig` port in §08.3b.1 plan item 2 ships AND the validator
-/// exemption arm is stripped in §08.3b.1 plan item 4. At that point the
+/// `FunctionSig` port ships AND the validator
+/// exemption arm is stripped. At that point the
 /// only remaining way for a `VarState::Generalized` to reach `expr_types`
 /// is a genuine port-side failure, and firing `E2005` is the correct
 /// behavior — the validator becomes the leak alarm. Prior to those two
@@ -296,9 +296,7 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
 /// silences `Generalized` at `validators/mod.rs::collect_first_unbound_var`.
 ///
 /// Replaces the former `generalized_var_in_expr_types_emits_no_diagnostic`
-/// (pre-§08.3b.1 exemption-is-correct assertion). See
-///
-/// §08.3b.1 Cell L.
+/// (the prior exemption-is-correct assertion); Cell L of the leak-alarm matrix.
 #[test]
 fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
@@ -314,7 +312,7 @@ fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     assert_eq!(
         errors.len(),
         1,
-        "post-§08.3b.1: Tag::Var(Generalized) in expr_types is a leak \
+        "post-normalization: Tag::Var(Generalized) in expr_types is a leak \
          (the expr_types position was not re-pointed at the rewritten \
          BoundVar Idx); validator strip MUST fire E2005 once per position"
     );
@@ -665,12 +663,11 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 /// `!HAS_VAR` gate and emits no diagnostic. This is the legitimate
 /// spec-target form of a generalized polymorphic lambda.
 ///
-/// Semantic pin for the poly-lambda-return code path after §08.3 lands a
-/// fix that produces the target `BoundVar` shape rather than the currently
+/// Semantic pin for the poly-lambda-return code path once a fix
+/// produces the target `BoundVar` shape rather than the currently
 /// shipped `Var(Generalized)` divergence.
 ///
-/// Not the enforcement point — see
-/// §08.1.R.
+/// Not the enforcement point.
 #[test]
 fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -701,17 +698,15 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
 /// `E2005` via the `HAS_VAR` propagation through `Tag::Scheme` →
 /// `Tag::Function` → `Tag::Var`.
 ///
-/// This test is RED until the §08.3b.1 `expr_types` / `FunctionSig` port
-/// (plan item 2) AND the validator exemption strip (plan item 4) land.
+/// This test is RED until the `expr_types` / `FunctionSig` port AND the
+/// validator exemption strip land.
 /// Prior to those items, the exemption still silences `Generalized` and
 /// the E2005 assertion fails. Post-ship, the only way a `Generalized` var
 /// reaches a scheme-wrapped expression position is a genuine port-side
 /// failure, and firing `E2005` is the leak alarm's correct behavior.
 ///
 /// Replaces the former `polylambda_return_type_with_generalized_var_emits_no_diagnostic`
-/// (pre-§08.3b.1 exemption-is-correct assertion). See
-///
-/// §08.3b.1 Cell L.
+/// (the prior exemption-is-correct assertion); Cell L of the leak-alarm matrix.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
@@ -721,7 +716,7 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
         id: var_id,
         name: None,
     };
-    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — post-§08.3b.1
+    // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — post-normalization
     // this shape SHOULD NOT reach the validator: the rewrite pass lands
     // `Tag::BoundVar` at every position, and any surviving `Tag::Var`
     // inside a scheme body is a port-side failure.
@@ -740,7 +735,7 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     assert_eq!(
         errors.len(),
         1,
-        "post-§08.3b.1: Tag::Var(Generalized) inside a scheme body is a \
+        "post-normalization: Tag::Var(Generalized) inside a scheme body is a \
          port-side leak; validator strip MUST fire exactly one E2005 at \
          the expression position"
     );
@@ -754,8 +749,8 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
 
 /// — a polymorphic-lambda return-type position
 /// carrying a surviving `Tag::Var(VarState::Unbound)` is a genuine PC-2
-/// violation and MUST fire `E2005`. This is the negative pin for the
-/// §08.1.5 audit: if any future refactor either (a) extends the
+/// violation and MUST fire `E2005`. This is the negative pin:
+/// if any future refactor either (a) extends the
 /// `VarState::Generalized` exemption to cover `Unbound` at this position,
 /// or (b) silently drops the PC-2 walk inside `Tag::Function` /
 /// `Tag::Scheme`, this test fails — catching the over-exemption and
@@ -769,8 +764,7 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
 /// propagation through the composite Function-in-Scheme shape that models
 /// the typed IR's poly-lambda representation.
 ///
-/// Not the enforcement point — see
-/// §08.1.R.
+/// Not the enforcement point.
 #[test]
 fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
     let mut pool = Pool::new();

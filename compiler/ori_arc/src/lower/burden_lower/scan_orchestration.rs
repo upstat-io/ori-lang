@@ -119,6 +119,7 @@ pub(crate) fn emit_burden_ops<'a>(
         construct_fed_dead_param,
         last_uses_at,
         claimed_no_sink_vars,
+        final_read_release_aliases,
     } = compute_owned_rc_filter(
         &mut ctx,
         func,
@@ -289,6 +290,32 @@ pub(crate) fn emit_burden_ops<'a>(
     let genuine_dup_move_aliases =
         compute_genuine_dup_move_aliases(func, &dup_alias_dsts, &full_move_vars);
 
+    // RL-1 genuine-duplication OWNED-CALL-ARG aliases: dup-alias dsts whose
+    // source stays live PAST the alias site and whose move chain ends at an
+    // owned call-arg consume (builtin COW receiver `push`/`insert`/`set`/
+    // `remove`, or a user callee whose contract proves the param Owned). Each
+    // such fork is a genuine duplication: the kept alias-site `BurdenInc`
+    // funds the consumer's release (the COW helper's copy-source dec / the
+    // callee's owned-param release), so it skips BOTH inc-suppression scans
+    // below AND escapes the `emit_terminator_burden_decs` symmetric same-block
+    // cancellation (the `inc_counts` tally gate in `emit_burden_ops_for_blocks`).
+    // Filtered to the Phase-5 emission gates (a dst outside `dup_alias_dsts`
+    // never gets the alias-site inc; a `full_move_vars` member's whole-var ops
+    // are owned by the field-projection machinery). Empty when
+    // `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1` (the compute fn owns the toggle).
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    let mut genuine_dup_call_arg_aliases =
+        super::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+    genuine_dup_call_arg_aliases
+        .retain(|v| dup_alias_dsts.contains(v) && !full_move_vars.contains(v));
+
+    // RL-2 final-read release carriers: suppress the dup-alias keep-alive inc
+    // so the designated alias carries ONLY its last-use `BurdenDec` — the
+    // multi-read call-result-aggregate element's single release. SSOT:
+    // `compute_call_result_element_final_read_releases` (scan_helpers re-adds
+    // the alias to `owned_vars_needing_rc`).
+    inc_suppressed_vars.extend(final_read_release_aliases.iter().copied());
+
     // RL-1 + RL-2 iter-consume duplication: an alias of an Owned ttr param that
     // is iter-consumed (`for x in xs` -> `@iter [own]` -> `ori_iter_drop` frees
     // the buffer) while the param ALSO transfers out via the Return is a genuine
@@ -314,6 +341,7 @@ pub(crate) fn emit_burden_ops<'a>(
             for &var in last_used {
                 if tv.contains(&var)
                     && !genuine_dup_move_aliases.contains(&var)
+                    && !genuine_dup_call_arg_aliases.contains(&var)
                     && !ttr_iter_consume_dup_aliases.contains(&var)
                 {
                     inc_suppressed_vars.insert(var);
@@ -379,6 +407,7 @@ pub(crate) fn emit_burden_ops<'a>(
         // freeing consume instead of a store — its inc is equally load-bearing.
         if use_counts.get(&var).copied().unwrap_or(0) <= 1
             && !genuine_dup_move_aliases.contains(&var)
+            && !genuine_dup_call_arg_aliases.contains(&var)
             && !ttr_iter_consume_dup_aliases.contains(&var)
         {
             inc_suppressed_vars.insert(var);
@@ -549,6 +578,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
         borrowed_store_dup_args: &borrowed_store_dup_args,
+        call_arg_dup_aliases: &genuine_dup_call_arg_aliases,
     };
     emit_burden_ops_for_blocks(
         func,

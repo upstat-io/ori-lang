@@ -522,7 +522,7 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
     }
 }
 
-/// Nested-panic-during-drop-cleanup abort entry point (§04.3).
+/// Nested-panic-during-drop-cleanup abort entry point.
 ///
 /// Invoked by codegen-emitted landing pads when a SECOND panic surfaces
 /// during the field-walk cleanup phase of a Drop-implementing type's

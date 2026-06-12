@@ -175,12 +175,32 @@ pub(in crate::lower::burden_lower) fn compute_genuine_dup_move_aliases(
     genuine
 }
 
+/// Whether `instr` is a burden-op accounting marker (TF-N/A metadata, not a
+/// real value use). The duplication scans run BOTH pre-emission (Phase 5 —
+/// no burden ops exist) and post-emission (the Phase-6 pair-atomic / Phase-7
+/// lineage-net consumers recompute the SAME set on the op-carrying IR), so
+/// use counting MUST skip them to stay in lock-step across phases.
+pub(super) fn is_burden_op(instr: &ArcInstr) -> bool {
+    matches!(
+        instr,
+        ArcInstr::BurdenInc { .. }
+            | ArcInstr::BurdenDec { .. }
+            | ArcInstr::BurdenDecPartial { .. }
+            | ArcInstr::BurdenDecVariant { .. }
+            | ArcInstr::BurdenDecField { .. }
+    )
+}
+
 /// Per-var use sites: body uses as `(block, instr_idx)`; terminator uses as
 /// `(block, usize::MAX)` so any body index in the block precedes them.
-fn collect_use_sites(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<(usize, usize)>> {
+/// Burden-op markers are skipped (TF-N/A metadata, not uses).
+pub(super) fn collect_use_sites(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<(usize, usize)>> {
     let mut use_sites: FxHashMap<ArcVarId, Vec<(usize, usize)>> = FxHashMap::default();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
+            if is_burden_op(instr) {
+                continue;
+            }
             for &v in &instr.used_vars() {
                 use_sites.entry(v).or_default().push((block_idx, instr_idx));
             }

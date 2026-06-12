@@ -61,6 +61,11 @@ tempfile = "3.10"
 # File watching (ori watch)
 notify = "7"
 
+# Process-group kill for test-worker subprocess isolation (already present
+# transitively in the workspace dependency tree)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }

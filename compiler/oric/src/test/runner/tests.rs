@@ -1,3 +1,4 @@
+use super::super::result::TestOutcome;
 use super::*;
 use tempfile::tempdir;
 
@@ -101,6 +102,56 @@ fn test_runner_filter() {
     assert!(name_str.contains("foo"));
 }
 
+#[test]
+fn test_blocked_by_type_errors_honors_name_filter() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("blocked.ori");
+    // `@bad` carries a type error OUTSIDE any compile_fail test, which blocks
+    // every regular test in the file; the blocked-result emission must still
+    // honor the name filter.
+    std::fs::write(
+        &path,
+        r#"
+@bad () -> int = "not an int";
+@foo () -> int = 1;
+
+@test_alpha tests @foo () -> void = print(msg: "x");
+@test_beta tests @foo () -> void = print(msg: "x");
+"#,
+    )
+    .unwrap();
+
+    let config = TestRunnerConfig {
+        filter: Some("alpha".to_string()),
+        ..Default::default()
+    };
+    let runner = TestRunner::with_config(config);
+    let summary = runner.run_file(&path);
+
+    assert_eq!(
+        summary.total(),
+        1,
+        "blocked results must be emitted only for filter-passing tests: {:?}",
+        summary.results
+    );
+    assert_eq!(summary.failed, 1);
+    let name = summary.results[0].name_str(runner.interner());
+    assert!(
+        name.contains("alpha"),
+        "the surviving blocked result must be the filtered test: {name}"
+    );
+    let TestOutcome::Failed(detail) = &summary.results[0].outcome else {
+        panic!(
+            "blocked test must be Failed: {:?}",
+            summary.results[0].outcome
+        );
+    };
+    assert!(
+        detail.contains("blocked by type errors"),
+        "blocked result must name the type-error block: {detail}"
+    );
+}
+
 /// `panic_message` extracts String and &str payloads and falls back to a
 /// stable label for non-string payloads (the `catch_unwind` failure detail
 /// rendered for tests that panic inside the evaluator or LLVM compilation).
@@ -119,3 +170,85 @@ fn test_panic_message_extracts_string_and_str_payloads() {
         "panic with non-string payload"
     );
 }
+
+/// The LLVM JIT path must honor parent-computed skip decisions: a worker-mode
+/// run with `skip_unchanged` set reports those tests as `SkippedUnchanged`
+/// without JIT-running them, while the rest run normally.
+#[cfg(feature = "llvm")]
+#[test]
+fn test_llvm_worker_mode_reports_parent_skip_decisions_as_skipped_unchanged() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("skip_honor.ori");
+    std::fs::write(&path, LLVM_SKIP_FIXTURE).unwrap();
+
+    let config = TestRunnerConfig {
+        backend: Backend::LLVM,
+        worker_protocol: true,
+        parallel: false,
+        skip_unchanged: vec!["double_works".to_string()],
+        ..TestRunnerConfig::default()
+    };
+    let runner = TestRunner::with_config(config);
+    let summary = runner.run(&path);
+
+    assert_eq!(
+        summary.skipped_unchanged, 1,
+        "skip decision must be honored"
+    );
+    assert_eq!(summary.passed, 1, "the non-skipped test must still run");
+    assert_eq!(summary.failed, 0);
+    let interner = runner.interner();
+    let file = &summary.files[0];
+    let outcome = |name: &str| {
+        file.results
+            .iter()
+            .find(|r| r.name_str(interner) == name)
+            .map(|r| &r.outcome)
+    };
+    assert_eq!(
+        outcome("double_works"),
+        Some(&TestOutcome::SkippedUnchanged),
+        "the parent-skipped test must surface as SkippedUnchanged"
+    );
+    assert_eq!(outcome("triple_works"), Some(&TestOutcome::Passed));
+}
+
+/// Negative twin: the same file with NO skip decisions runs everything —
+/// proves the skip honoring (not the fixture) produced the skips above.
+#[cfg(feature = "llvm")]
+#[test]
+fn test_llvm_worker_mode_without_skip_decisions_runs_every_test() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("no_skip.ori");
+    std::fs::write(&path, LLVM_SKIP_FIXTURE).unwrap();
+
+    let config = TestRunnerConfig {
+        backend: Backend::LLVM,
+        worker_protocol: true,
+        parallel: false,
+        ..TestRunnerConfig::default()
+    };
+    let runner = TestRunner::with_config(config);
+    let summary = runner.run(&path);
+
+    assert_eq!(summary.skipped_unchanged, 0);
+    assert_eq!(summary.passed, 2, "without skip decisions both tests run");
+    assert_eq!(summary.failed, 0);
+}
+
+#[cfg(feature = "llvm")]
+const LLVM_SKIP_FIXTURE: &str = r"
+@double (x: int) -> int = x * 2;
+
+@double_works tests @double () -> void = {
+    let _ = double(x: 2);
+    ()
+}
+
+@triple (x: int) -> int = x * 3;
+
+@triple_works tests @triple () -> void = {
+    let _ = triple(x: 2);
+    ()
+}
+";

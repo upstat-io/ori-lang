@@ -7,7 +7,7 @@ use super::super::infer_expr;
 use super::super::registry_bridge::is_binary_op_supported;
 use super::dispatch::{
     binary_op_to_trait_name, check_cross_type_arithmetic, comparison_trait_name,
-    has_comparable_trait, resolve_binary_op_via_trait,
+    has_comparable_trait, has_eq_trait, resolve_binary_op_via_trait,
 };
 use crate::{ContextKind, ErrorContext, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
@@ -195,27 +195,30 @@ pub(crate) fn infer_binary(
                 }
             }
 
-            // For ordering operators on user-defined types: verify Comparable trait.
-            // Equality operators (==, !=) use structural comparison for all types
-            // in the evaluator, so they don't require an Eq derive. Ordering
-            // operators (< <= > >=) require the type to implement Comparable.
-            // Compound types (List, Option, Result, etc.) have their own evaluator
-            // dispatch — we validate Named (non-generic user types) and Applied
-            // (generic instantiations like Box<int>) types.
-            if matches!(
-                op,
-                BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
-            ) && matches!(left_tag, Tag::Named | Tag::Applied)
-                && !has_comparable_trait(engine, resolved_left)
-            {
-                let trait_name = comparison_trait_name(op);
-                engine.push_error(TypeCheckError::unsupported_operator(
-                    span,
-                    resolved_left,
-                    op_str,
-                    trait_name,
-                ));
-                return Idx::ERROR;
+            // Comparison operators on user-defined types require the corresponding
+            // trait per Spec 14-expressions.md: equality (==, !=) requires `Eq`,
+            // ordering (< <= > >=) requires `Comparable`. Compound types (List,
+            // Option, Result, etc.) have their own evaluator dispatch — we validate
+            // Named (non-generic user types) and Applied (generic instantiations
+            // like Box<int>) types.
+            if matches!(left_tag, Tag::Named | Tag::Applied) {
+                let unsatisfied = match op {
+                    BinaryOp::Eq | BinaryOp::NotEq => !has_eq_trait(engine, resolved_left),
+                    BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
+                        !has_comparable_trait(engine, resolved_left)
+                    }
+                    _ => false,
+                };
+                if unsatisfied {
+                    let trait_name = comparison_trait_name(op);
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        span,
+                        resolved_left,
+                        op_str,
+                        trait_name,
+                    ));
+                    return Idx::ERROR;
+                }
             }
 
             // Unify left and right operands

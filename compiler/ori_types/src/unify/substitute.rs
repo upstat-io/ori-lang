@@ -65,10 +65,9 @@ impl UnifyEngine<'_> {
     ///
     /// Returns the original type if no substitutions apply.
     fn substitute(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
-        // Fast path: no variables OR bound vars to substitute. §08.3b widened
-        // the gate to include HAS_BOUND_VAR — instantiation now walks scheme
-        // bodies whose leaves are `Tag::BoundVar` (HAS_BOUND_VAR=true,
-        // HAS_VAR=false) per.
+        // Fast path: no variables OR bound vars to substitute. The gate
+        // includes HAS_BOUND_VAR — instantiation walks scheme bodies whose
+        // leaves are `Tag::BoundVar` (HAS_BOUND_VAR=true, HAS_VAR=false).
         if !self
             .pool
             .flags(ty)

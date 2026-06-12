@@ -43,6 +43,7 @@ impl TestRunner {
         type_result: &TypeCheckResult,
         pool: &ori_types::Pool,
         shared_canon: &ori_ir::canon::SharedCanonResult,
+        skippable: &rustc_hash::FxHashSet<crate::ir::Name>,
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
     ) {
@@ -59,11 +60,24 @@ impl TestRunner {
         }
 
         // Filter regular tests before compilation
-        let filtered_tests: Vec<_> = regular_tests
+        let (skipped_unchanged, filtered_tests): (Vec<_>, Vec<_>) = regular_tests
             .iter()
             .filter(|test| Self::test_passes_filter(test, config, interner))
             .copied()
-            .collect();
+            .partition(|test| skippable.contains(&test.name));
+
+        // Incremental: report unchanged tests as skipped (mirrors the
+        // interpreter path) and keep them out of JIT compilation entirely.
+        for test in &skipped_unchanged {
+            let result = TestResult {
+                name: test.name,
+                targets: test.targets.clone(),
+                outcome: TestOutcome::SkippedUnchanged,
+                duration: Duration::ZERO,
+            };
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
 
         if filtered_tests.is_empty() {
             return;
@@ -143,8 +157,7 @@ impl TestRunner {
         // re-interning reuses them (all 3 consumer sites below — canon arena
         // re-intern, concrete sig re-intern, generic sig re-intern — for a
         // given imported module share the SAME var_remap, keeping
-        // scheme_var_ids and the leaf Tag::Var ids they bind coherent per
-        // §08.3).
+        // scheme_var_ids and the leaf Tag::Var ids they bind coherent).
         let mut per_module_caches: Vec<rustc_hash::FxHashMap<ori_types::Idx, ori_types::Idx>> =
             vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
         let mut per_module_var_remaps: Vec<rustc_hash::FxHashMap<u32, u32>> =
@@ -209,7 +222,7 @@ impl TestRunner {
                     // Re-intern the signature from the source pool into the merged pool,
                     // reusing the per-module cache AND var_remap built during canon
                     // re-mapping — scheme_var_ids and leaf Tag::Var ids must remap
-                    // coherently through the same var_remap (§08.3).
+                    // coherently through the same var_remap.
                     let source_pool = &imported_pools[func_ref.module_index];
                     let cache = &mut per_module_caches[func_ref.module_index];
                     let var_remap = &mut per_module_var_remaps[func_ref.module_index];
@@ -274,8 +287,7 @@ impl TestRunner {
 
         // Build imported MonoFunction structs for imported generic
         // instantiations. Delegated to `imported_mono::build_imported_mono_functions`
-        // to keep `run_file_llvm` under the 100-line fn-length limit
-        // (§08.H F13).
+        // to keep `run_file_llvm` under the 100-line fn-length limit.
         let imported_mono_fns = super::imported_mono::build_imported_mono_functions(
             type_result,
             &imported_generic_sigs,

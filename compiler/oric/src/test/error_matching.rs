@@ -6,7 +6,7 @@
 use crate::ir::{ExpectedError, StringInterner};
 use ori_diagnostic::span_utils;
 use ori_ir::canon::PatternProblem;
-use ori_types::TypeCheckError;
+use ori_types::{Pool, TypeCheckError};
 
 /// Result of matching errors against expectations.
 #[derive(Debug)]
@@ -38,6 +38,7 @@ pub fn match_errors(
     expected: &[ExpectedError],
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> MatchResult {
     let mut expectation_matched = vec![false; expected.len()];
     let mut error_matched = vec![false; actual.len()];
@@ -45,7 +46,7 @@ pub fn match_errors(
     // For each expectation, try to find a matching error
     for (exp_idx, exp) in expected.iter().enumerate() {
         for (err_idx, err) in actual.iter().enumerate() {
-            if !error_matched[err_idx] && matches_expected(err, exp, source, interner) {
+            if !error_matched[err_idx] && matches_expected(err, exp, source, interner, pool) {
                 expectation_matched[exp_idx] = true;
                 error_matched[err_idx] = true;
                 break;
@@ -77,11 +78,14 @@ pub fn matches_expected(
     expected: &ExpectedError,
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> bool {
-    // Check message substring if specified
+    // Check message substring if specified.
+    // Render via the Pool-aware `format_with` so `#compile_fail` reasons can match
+    // the real type name; the Pool-less `message()` falls back to `<type>`.
     if let Some(msg_name) = expected.message {
         let msg_substr = interner.lookup(msg_name);
-        if !actual.message().contains(msg_substr) {
+        if !actual.format_with(pool, interner).contains(msg_substr) {
             return false;
         }
     }
@@ -138,14 +142,22 @@ pub fn format_expected(expected: &ExpectedError, interner: &StringInterner) -> S
 }
 
 /// Format an actual error for display in error messages.
-pub fn format_actual(actual: &TypeCheckError, source: &str) -> String {
+///
+/// Renders via the Pool-aware `format_with` so the displayed type names are real,
+/// not the `<type>` placeholder the Pool-less `message()` falls back to.
+pub fn format_actual(
+    actual: &TypeCheckError,
+    source: &str,
+    pool: &Pool,
+    interner: &StringInterner,
+) -> String {
     let (line, col) = span_utils::offset_to_line_col(source, actual.span().start);
     format!(
         "[{}] at {}:{}: {}",
         actual.code().as_str(),
         line,
         col,
-        actual.message()
+        actual.format_with(pool, interner)
     )
 }
 
@@ -245,6 +257,7 @@ pub fn match_all_errors(
     expected: &[ExpectedError],
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> MatchResult {
     let mut expectation_matched = vec![false; expected.len()];
     let mut type_error_matched = vec![false; type_errors.len()];
@@ -256,7 +269,7 @@ pub fn match_all_errors(
 
         // Try type errors
         for (err_idx, err) in type_errors.iter().enumerate() {
-            if !type_error_matched[err_idx] && matches_expected(err, exp, source, interner) {
+            if !type_error_matched[err_idx] && matches_expected(err, exp, source, interner, pool) {
                 expectation_matched[exp_idx] = true;
                 type_error_matched[err_idx] = true;
                 found = true;

@@ -1509,6 +1509,7 @@ fn callee_contract_locality_widens_arg() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1593,6 +1594,7 @@ fn callee_contract_function_local_preserves_arg() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1800,6 +1802,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1886,6 +1889,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1967,6 +1971,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2048,6 +2053,7 @@ fn owned_param_ignores_callee_may_share() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2285,6 +2291,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
+                borrowed_cow_consumed: false,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2819,6 +2826,7 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
+            borrowed_cow_consumed: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2898,6 +2906,7 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
             return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
+            borrowed_cow_consumed: false,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -4132,6 +4141,7 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
+            borrowed_cow_consumed: false,
         }],
         return_info,
         effects: EffectSummary::default(),

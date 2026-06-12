@@ -208,8 +208,8 @@ fn check_def_impl_method(
                 &FxHashSet::default(),
             );
 
-            // §08.3b.1 — normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar` per. def-impl methods have
+            // Normalize `Tag::Var(Generalized)` leaves to
+            // `Tag::BoundVar`. def-impl methods have
             // no top-level scheme_var_ids; only inner let-polymorphism
             // generalization contributes via pending_generalized_vars.
             engine.normalize_body_generalized_to_bound_var(

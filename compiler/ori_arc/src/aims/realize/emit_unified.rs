@@ -871,7 +871,7 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
-    lower_and_diagnose_burden_path(func, pool, interner, same_alloc_reps);
+    lower_and_diagnose_burden_path(func, pool, interner, contracts, same_alloc_reps);
 }
 
 /// Probe-tail Phase 7: mechanically lower the surviving burden ops to real RC
@@ -884,6 +884,7 @@ fn lower_and_diagnose_burden_path(
     func: &mut ArcFunction,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) {
     // Cure B (Decision 10): the conversion-source lineages (`m.keys()` /
@@ -898,6 +899,7 @@ fn lower_and_diagnose_burden_path(
         func,
         same_alloc_reps,
         interner,
+        contracts,
         &conversion_source_reps,
     );
     lower_burden_ops_to_rc(func, pool, &elidable_fresh_incs);
@@ -7310,6 +7312,7 @@ fn compute_elidable_fresh_self_alloc_incs(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
     // Conversion-source lineage reps (`m.keys()`/`s.split()`/`@to_list` SOURCES,
     // computed by the caller where `pool` is available) — the Cure B (Decision 10)
     // phi-threading eligibility extension: these loop-carried conversion sources
@@ -7322,7 +7325,8 @@ fn compute_elidable_fresh_self_alloc_incs(
     // for any FRESH self-alloc in such a lineage is LOAD-BEARING (keep it): the
     // COW helper reads the operand's runtime refcount, and the fresh inc raises
     // it to ≥ 2 so the helper COPIES instead of mutating the shared value.
-    let cow_mutated_reps = compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner);
+    let cow_mutated_reps =
+        compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner, contracts);
     let list_take_name = for_yield_result_finalizer_name(interner);
     // Per-lineage alloc-aware static net = `Σ self-alloc(+1) + Σ BurdenInc −
     // Σ BurdenDec*` over the SSA-alias lineage (M3). Counting the allocation's
@@ -7337,6 +7341,49 @@ fn compute_elidable_fresh_self_alloc_incs(
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
 
+    // DUP-FUNDED lineages (RL-1 owned-call-arg duplication cure): a lineage
+    // carrying >= 1 kept genuine-duplication alias inc (owned-call-arg family
+    // per `compute_genuine_dup_call_arg_aliases`). For such a lineage:
+    //  - the per-path net DEBITS every owned hand-off of a lineage member
+    //    (-1 each: owned call args, aggregate-store args, `Set.value`,
+    //    `Return`) so the N kept duplication incs read as FUNDED transfers,
+    //    never surplus — adjusted net == 1 identifies the fresh-site inc as
+    //    the one redundant source over the hand-off ledger;
+    //  - the COW gate is refined per-site: every RC-READING consume of a
+    //    lineage member is either FUNDED by a kept duplication inc (the
+    //    consumed member is a kept dup alias — its own inc raises rc >= 2 at
+    //    the site, so the COW helper copies) or TERMINAL (no lineage use
+    //    forward-reachable after the site — in-place mutation of the last
+    //    reference is sound), in which case the lineage-wide cow flag does
+    //    not bar the elision.
+    // Zero-duplication lineages take neither branch — byte-identical nets and
+    // verdicts. Spec: Annex E §AIMS RL-1 (`RL1_duplication_balanced`) + RL-2.
+    let call_arg_dups =
+        crate::lower::burden_lower::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+    let dup_funded_reps: FxHashSet<ArcVarId> = call_arg_dups.iter().map(|&v| rep_of(v)).collect();
+    let (debited_net, cow_cleared_reps) = if dup_funded_reps.is_empty() {
+        (FxHashMap::default(), FxHashSet::default())
+    } else {
+        (
+            compute_dup_funded_debited_net(
+                func,
+                same_alloc_reps,
+                interner,
+                contracts,
+                &dup_funded_reps,
+                list_take_name,
+            ),
+            compute_dup_funded_cow_cleared_reps(
+                func,
+                same_alloc_reps,
+                interner,
+                contracts,
+                &dup_funded_reps,
+                &call_arg_dups,
+            ),
+        )
+    };
+
     let mut elidable: FxHashSet<ArcVarId> = FxHashSet::default();
     // Elision verdict for one fresh-self-alloc result `dst`: elide its surplus
     // fresh-site inc ONLY when the lineage net == 1 AND the lineage never flows
@@ -7344,11 +7391,19 @@ fn compute_elidable_fresh_self_alloc_incs(
     // alloc-aware balance to 0; any other net means the fresh inc is load-bearing
     // (move-alias dec, unbalanced dup) — keep it (eliding would net −1 =
     // double-free). Shared by the block-body and `Invoke`-terminator fresh-alloc
-    // scans below — one verdict home for both call forms. Spec: Annex E §AIMS RL-1.
+    // scans below — one verdict home for both call forms. Dup-funded lineages
+    // consume the hand-off-debited net + the per-site refined cow clearance.
+    // Spec: Annex E §AIMS RL-1.
     let decide = |dst: ArcVarId, elidable: &mut FxHashSet<ArcVarId>| {
         let rep = rep_of(dst);
-        let cow = cow_mutated_reps.contains(&rep);
-        let net = lineage_net.get(&rep).copied().unwrap_or(0);
+        let dup_funded = dup_funded_reps.contains(&rep);
+        let cow =
+            cow_mutated_reps.contains(&rep) && !(dup_funded && cow_cleared_reps.contains(&rep));
+        let net = if dup_funded {
+            debited_net.get(&rep).copied().unwrap_or(0)
+        } else {
+            lineage_net.get(&rep).copied().unwrap_or(0)
+        };
         let verdict = !cow && net == 1;
         if tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
             tracing::trace!(
@@ -7358,6 +7413,7 @@ fn compute_elidable_fresh_self_alloc_incs(
                 rep = rep.raw(),
                 lineage_net = net,
                 cow_mutated = cow,
+                dup_funded,
                 elidable = verdict,
                 "fresh-self-alloc inc-elision decision"
             );
@@ -7472,7 +7528,6 @@ pub(super) fn compute_lineage_alloc_aware_net(
     // phi-threaded attribution (alongside `ori_list_take` for_yield results).
     conversion_source_reps: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, i64> {
-    use crate::aims::verify::burden_delta::compute_burden_entry_nets;
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let preds = crate::graph::compute_predecessors(func);
     let list_take_name = for_yield_result_finalizer_name(interner);
@@ -7567,55 +7622,468 @@ pub(super) fn compute_lineage_alloc_aware_net(
         };
         let (delta, alloc_in_block) =
             compute_lineage_block_deltas(func, interner, list_take_name, &belongs);
-        let nets = compute_burden_entry_nets(func, &preds, &delta);
-        if !nets.disagree_blocks.is_empty() {
-            // Merge disagreement on this lineage → conservatively NOT elidable
-            // (omit from the map; the elision gate's `!= 1` check then keeps it).
-            continue;
-        }
-        // Forward-reachable set from the lineage's allocation blocks. A terminal
-        // block NOT reachable from any alloc block (an unwind `Resume` landing
-        // pad reached BEFORE the value was allocated — e.g. a for_yield result
-        // born post-loop, unreachable from a mid-loop body's unwind edge) is NOT
-        // a release path for this lineage: its net reflects "value never existed
-        // here" (0), not a balance verdict. Counting it as a divergent terminal
-        // would spuriously reject a per-normal-path-balanced lineage. RL-2
-        // release accounting applies only where the value is live.
-        let alloc_blocks: Vec<usize> = (0..func.blocks.len())
-            .filter(|&b| alloc_in_block[b])
-            .collect();
-        let alloc_reachable = forward_reachable_from(func, &alloc_blocks);
-        // Agreed terminal net across terminal blocks REACHABLE from the alloc.
-        let mut terminal_net: Option<i64> = None;
-        for (b, block) in func.blocks.iter().enumerate() {
-            let Some(eb) = nets.entry_net[b] else {
-                continue;
-            };
-            if !alloc_reachable.contains(&b) {
-                continue;
-            }
-            if !matches!(
-                block.terminator,
-                ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
-            ) {
-                continue;
-            }
-            let exit = eb + delta[b];
-            match terminal_net {
-                None => terminal_net = Some(exit),
-                // Divergent terminal nets across paths → not elidable.
-                Some(t) if t != exit => {
-                    terminal_net = None;
-                    break;
-                }
-                Some(_) => {}
-            }
-        }
-        if let Some(n) = terminal_net {
+        if let Some(n) = agreed_alloc_reachable_terminal_net(func, &preds, &delta, &alloc_in_block)
+        {
             result.insert(rep, n);
         }
     }
     result
+}
+
+/// Agreed per-path terminal net for ONE lineage's per-block `delta`, restricted
+/// to terminal blocks forward-REACHABLE from the lineage's allocation blocks.
+///
+/// `None` on merge disagreement OR divergent terminal nets across paths
+/// (conservatively NOT elidable). A terminal block NOT reachable from any alloc
+/// block (an unwind `Resume` landing pad reached BEFORE the value was allocated
+/// — e.g. a `for_yield` result born post-loop, unreachable from a mid-loop body's
+/// unwind edge) is NOT a release path for the lineage: its net reflects "value
+/// never existed here" (0), not a balance verdict — counting it as a divergent
+/// terminal would spuriously reject a per-normal-path-balanced lineage. RL-2
+/// release accounting applies only where the value is live. Shared by the
+/// unthreaded/phi-threaded lineage net AND the dup-funded debited net — one
+/// terminal-net verdict home.
+fn agreed_alloc_reachable_terminal_net(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    delta: &[i64],
+    alloc_in_block: &[bool],
+) -> Option<i64> {
+    agreed_terminal_net_over(func, preds, delta, alloc_in_block, false)
+}
+
+/// [`agreed_alloc_reachable_terminal_net`] core with a terminal-kind switch:
+/// `return_only = true` restricts agreement to `Return` terminals — the
+/// dup-funded debited net consumes that mode (an `Invoke`'s owned hand-off
+/// debit sits in the call's own block, so a `Resume` landing pad entered
+/// mid-lineage reads a partial ledger; the panic path's residue is the
+/// pre-existing unwind accounting, not a verdict on the fresh inc).
+fn agreed_terminal_net_over(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    delta: &[i64],
+    alloc_in_block: &[bool],
+    return_only: bool,
+) -> Option<i64> {
+    use crate::aims::verify::burden_delta::compute_burden_entry_nets;
+    let nets = compute_burden_entry_nets(func, preds, delta);
+    if !nets.disagree_blocks.is_empty() {
+        return None;
+    }
+    let alloc_blocks: Vec<usize> = (0..func.blocks.len())
+        .filter(|&b| alloc_in_block[b])
+        .collect();
+    let alloc_reachable = forward_reachable_from(func, &alloc_blocks);
+    let mut terminal_net: Option<i64> = None;
+    for (b, block) in func.blocks.iter().enumerate() {
+        let Some(eb) = nets.entry_net[b] else {
+            continue;
+        };
+        if !alloc_reachable.contains(&b) {
+            continue;
+        }
+        let is_terminal = if return_only {
+            matches!(block.terminator, ArcTerminator::Return { .. })
+        } else {
+            matches!(
+                block.terminator,
+                ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
+            )
+        };
+        if !is_terminal {
+            continue;
+        }
+        let exit = eb + delta[b];
+        match terminal_net {
+            None => terminal_net = Some(exit),
+            Some(t) if t != exit => return None,
+            Some(_) => {}
+        }
+    }
+    terminal_net
+}
+
+/// Per-block owned hand-off debit sites of ONE lineage (selected by `belongs`):
+/// `-1` per lineage-member reference consumed at an ownership-transferring
+/// position — owned call args (`Apply` / `ApplyIndirect` structural;
+/// `Invoke` / `InvokeIndirect` terminator structural; PLUS contract-proven
+/// `ParamContract.access == Owned` for named callees whose Phase-5 call-site
+/// annotation is still the borrowed default), aggregate-store args
+/// (`Construct` / `Reuse` / `CollectionReuse` owned positions), `Set.value`,
+/// list-concat `PrimOp Binary(Add)` `RcPointer` operands, `Return.value`,
+/// and FORWARD `Jump` args (a forward Jump hand-off exports the reference
+/// into a block-param lineage — `same_alloc_reps` excludes the phi edge by
+/// design, so the threaded continuation's accounting owns the release; the
+/// for-loop source threading `Jump bbH(m, ..)` is the canonical shape).
+/// BACK-EDGE Jump args (target dominates source) are NOT debited — the
+/// per-iteration re-thread would make loop-block deltas non-convergent
+/// (merge disagreement), and the back-edge arg is the loop's own param
+/// rename, not an export.
+/// `Invoke` hand-offs attribute to the call's own block (the callee consumes
+/// the reference on both the normal and unwind paths).
+fn compute_lineage_handoff_debits(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+    belongs: &impl Fn(ArcVarId) -> bool,
+) -> Vec<i64> {
+    let dom = crate::graph::DominatorTree::build(func);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let contract_owned = |callee: Name, pos: usize| -> bool {
+        crate::lower::burden_lower::contract_consuming_arg_position(
+            contracts, &builtins, interner, callee, pos,
+        )
+    };
+    let mut debits: Vec<i64> = vec![0; func.blocks.len()];
+    for (b, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            for (pos, &var) in instr.used_vars().iter().enumerate() {
+                if !belongs(var) {
+                    continue;
+                }
+                let owned = instr.is_owned_position(pos)
+                    || matches!(
+                        instr,
+                        ArcInstr::Apply { func: callee, .. } if contract_owned(*callee, pos)
+                    );
+                if owned {
+                    debits[b] -= 1;
+                }
+            }
+            if let ArcInstr::Set { value, .. } = instr {
+                if belongs(*value) {
+                    debits[b] -= 1;
+                }
+            }
+            if let ArcInstr::Let {
+                value: ArcValue::PrimOp { op, args },
+                ..
+            } = instr
+            {
+                if matches!(op, PrimOp::Binary(ori_ir::BinaryOp::Add)) {
+                    for &arg in args {
+                        if belongs(arg) && matches!(func.var_repr(arg), Some(ValueRepr::RcPointer))
+                        {
+                            debits[b] -= 1;
+                        }
+                    }
+                }
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Return { value } => {
+                if belongs(*value) {
+                    debits[b] -= 1;
+                }
+            }
+            ArcTerminator::Jump { target, args } => {
+                let src_id = crate::ir::ArcBlockId::new(u32::try_from(b).unwrap_or(u32::MAX));
+                // Forward edge only (back-edge: target dominates source).
+                if !dom.dominates(*target, src_id) {
+                    for &arg in args {
+                        if belongs(arg) {
+                            debits[b] -= 1;
+                        }
+                    }
+                }
+            }
+            ArcTerminator::Invoke {
+                func: callee, args, ..
+            } => {
+                let term = &block.terminator;
+                for (pos, &var) in term.used_vars().iter().enumerate() {
+                    if belongs(var)
+                        && (term.is_owned_position(pos)
+                            || args.get(pos).is_some_and(|&a| a == var)
+                                && contract_owned(*callee, pos))
+                    {
+                        debits[b] -= 1;
+                    }
+                }
+            }
+            ArcTerminator::InvokeIndirect { .. } => {
+                let term = &block.terminator;
+                for (pos, &var) in term.used_vars().iter().enumerate() {
+                    if belongs(var) && term.is_owned_position(pos) {
+                        debits[b] -= 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    debits
+}
+
+/// Per-rep hand-off-DEBITED alloc-aware terminal net for the DUP-FUNDED
+/// lineages (reps carrying >= 1 kept owned-call-arg duplication inc).
+///
+/// Net = `Σ alloc(+1) + Σ BurdenInc − Σ whole-var BurdenDec − Σ owned
+/// hand-offs` per path. With every hand-off debited, a fully-funded lineage
+/// (each duplication inc paired to its consumer's hand-off, the original
+/// reference paired to its terminal hand-off / explicit release) nets 0; the
+/// one redundant source over that ledger — the fresh-site inc — shows as
+/// net == 1 and is elided by the caller's verdict. Restricted to the passed
+/// reps; every other lineage keeps the undebited `compute_lineage_alloc_aware_net`
+/// (zero-duplication lineages byte-identical). Spec: Annex E §AIMS RL-1 + RL-2.
+fn compute_dup_funded_debited_net(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    dup_funded_reps: &FxHashSet<ArcVarId>,
+    list_take_name: ori_ir::Name,
+) -> FxHashMap<ArcVarId, i64> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let preds = crate::graph::compute_predecessors(func);
+    let mut result: FxHashMap<ArcVarId, i64> = FxHashMap::default();
+    for &rep in dup_funded_reps {
+        let belongs = |var: ArcVarId| rep_of(var) == rep;
+        let (mut delta, alloc_in_block) =
+            compute_lineage_block_deltas(func, interner, list_take_name, &belongs);
+        let debits = compute_lineage_handoff_debits(func, contracts, interner, &belongs);
+        for (d, debit) in delta.iter_mut().zip(debits) {
+            *d += debit;
+        }
+        if let Some(n) = agreed_terminal_net_over(func, &preds, &delta, &alloc_in_block, true) {
+            result.insert(rep, n);
+        }
+    }
+    result
+}
+
+/// DUP-FUNDED reps whose every RC-READING consume site is COW-SAFE without the
+/// fresh-site keep-alive inc: the consumed lineage member is a kept
+/// owned-call-arg duplication alias (its OWN preceding inc raises the runtime
+/// rc >= 2 at the site while the source's original reference stays live — the
+/// COW helper copies), OR the site is the lineage's TERMINAL consume (no
+/// lineage-member use forward-reachable after it — in-place mutation of the
+/// last reference is sound). Aggregate-store args (`Construct` / `Reuse` /
+/// `CollectionReuse` / `Set.value`) read no refcount and never block. A rep in
+/// the returned set takes the fresh-inc elision verdict despite its
+/// lineage-wide `cow_mutated_reps` flag. Spec: Annex E §AIMS RL-1.
+fn compute_dup_funded_cow_cleared_reps(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    dup_funded_reps: &FxHashSet<ArcVarId>,
+    call_arg_dups: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let member_uses = collect_dup_funded_member_uses(func, same_alloc_reps, dup_funded_reps);
+    let funded = close_funded_over_move_chain(func, call_arg_dups);
+    let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    let mut blocked: FxHashSet<ArcVarId> = FxHashSet::default();
+    // A non-funded RC-READING consume of a lineage member blocks its rep
+    // unless the site is terminal for the lineage.
+    for (var, block_idx, site_idx) in collect_rc_reading_consume_sites(func, interner, contracts) {
+        let rep = rep_of(var);
+        if !dup_funded_reps.contains(&rep) || funded.contains(&var) {
+            continue;
+        }
+        let Some(uses) = member_uses.get(&rep) else {
+            continue;
+        };
+        let reachable = reachable_cache
+            .entry(block_idx)
+            .or_insert_with(|| compute_successor_reachable(func, block_idx));
+        let used_after = uses
+            .iter()
+            .any(|&(ub, ui)| (ub == block_idx && ui > site_idx) || reachable.contains(&ub));
+        if used_after {
+            blocked.insert(rep);
+        }
+    }
+    dup_funded_reps
+        .iter()
+        .copied()
+        .filter(|rep| !blocked.contains(rep))
+        .collect()
+}
+
+/// Every RC-READING consume site `(var, block, site_idx)` in `func`: owned
+/// call-arg positions (structural or contract-consuming), list-concat `Add`
+/// `RcPointer` operands, and may-COW user-call args (mirrors
+/// `compute_cow_mutated_lineage_reps`'s conservative interprocedural class).
+/// `iter` / `__`-protocol consumes are NOT rc-READING mutation sites: the
+/// iterator machinery releases the buffer (RL-2 iter-consume transfer) but
+/// never COW-mutates it in place — the fresh inc is not their guard.
+/// Terminator sites carry `usize::MAX` as their own index so the terminator's
+/// OWN recorded use never counts as a use after itself.
+fn collect_rc_reading_consume_sites(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> Vec<(ArcVarId, usize, usize)> {
+    let is_rcptr = |v: ArcVarId| {
+        matches!(
+            func.var_repr(v),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    let list_take_name = for_yield_result_finalizer_name(interner);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let contract_owned = |callee: Name, pos: usize| -> bool {
+        crate::lower::burden_lower::contract_consuming_arg_position(
+            contracts, &builtins, interner, callee, pos,
+        )
+    };
+    let callee_may_cow = |callee: Name, pos: usize| -> bool {
+        callee_may_cow_arg(contracts, &builtins, interner, list_take_name, callee, pos)
+    };
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    let non_mutating_callee = |callee: Name| -> bool {
+        callee == iter_name
+            || interner
+                .try_lookup(callee)
+                .is_none_or(|n| n.starts_with("__"))
+    };
+    let mut sites: Vec<(ArcVarId, usize, usize)> = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            match instr {
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => {
+                    if non_mutating_callee(*callee) {
+                        continue;
+                    }
+                    for (pos, &arg) in args.iter().enumerate() {
+                        let rc_reading = is_rcptr(arg)
+                            && (instr.is_owned_position(pos)
+                                || contract_owned(*callee, pos)
+                                || callee_may_cow(*callee, pos));
+                        if rc_reading {
+                            sites.push((arg, block_idx, instr_idx));
+                        }
+                    }
+                }
+                ArcInstr::ApplyIndirect { .. } => {
+                    for (pos, &var) in instr.used_vars().iter().enumerate() {
+                        if instr.is_owned_position(pos) && is_rcptr(var) {
+                            sites.push((var, block_idx, instr_idx));
+                        }
+                    }
+                }
+                ArcInstr::Let {
+                    value:
+                        ArcValue::PrimOp {
+                            op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                            args,
+                        },
+                    ..
+                } => {
+                    for &arg in args {
+                        if is_rcptr(arg) {
+                            sites.push((arg, block_idx, instr_idx));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let term_idx = usize::MAX;
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                func: callee, args, ..
+            } if !non_mutating_callee(*callee) => {
+                let term = &block.terminator;
+                for (pos, &arg) in args.iter().enumerate() {
+                    let rc_reading = is_rcptr(arg)
+                        && (term.is_owned_position(pos)
+                            || contract_owned(*callee, pos)
+                            || callee_may_cow(*callee, pos));
+                    if rc_reading {
+                        sites.push((arg, block_idx, term_idx));
+                    }
+                }
+            }
+            ArcTerminator::InvokeIndirect { .. } => {
+                let term = &block.terminator;
+                for (pos, &var) in term.used_vars().iter().enumerate() {
+                    if term.is_owned_position(pos) && is_rcptr(var) {
+                        sites.push((var, block_idx, term_idx));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    sites
+}
+
+/// Funded membership closed over the single-use move chain: the admitted
+/// kept-dup alias may reach its consume through Let hops (`%4 = %2;
+/// %6 = %4; insert(%6 [own])`) — the hop carries the SAME funded reference.
+fn close_funded_over_move_chain(
+    func: &ArcFunction,
+    call_arg_dups: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut funded: FxHashSet<ArcVarId> = call_arg_dups.clone();
+    let (alias_next, _) = crate::lower::burden_lower::collect_move_edges_and_store_consumes(func);
+    let mut frontier: Vec<ArcVarId> = funded.iter().copied().collect();
+    while let Some(v) = frontier.pop() {
+        if let Some(&next) = alias_next.get(&v) {
+            if funded.insert(next) {
+                frontier.push(next);
+            }
+        }
+    }
+    funded
+}
+
+/// Per-rep member use sites (body `(block, instr)`; terminator `(block,
+/// usize::MAX)`) for the dup-funded cow clearance's terminal-consume
+/// reachability check.
+fn collect_dup_funded_member_uses(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    dup_funded_reps: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, Vec<(usize, usize)>> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let mut member_uses: FxHashMap<ArcVarId, Vec<(usize, usize)>> = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            for &v in &instr.used_vars() {
+                let r = rep_of(v);
+                if dup_funded_reps.contains(&r) {
+                    member_uses
+                        .entry(r)
+                        .or_default()
+                        .push((block_idx, instr_idx));
+                }
+            }
+        }
+        for v in block.terminator.used_vars() {
+            let r = rep_of(v);
+            if dup_funded_reps.contains(&r) {
+                member_uses
+                    .entry(r)
+                    .or_default()
+                    .push((block_idx, usize::MAX));
+            }
+        }
+    }
+    member_uses
+}
+
+/// Forward-reachable block set from `start`'s SUCCESSORS (`start` itself only
+/// when a cycle re-reaches it) — the terminal-consume reachability used by the
+/// dup-funded cow clearance (mirrors the Phase-5 discriminator).
+fn compute_successor_reachable(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
+    let starts: Vec<usize> = func
+        .blocks
+        .get(start)
+        .map(|b| {
+            crate::graph::successor_block_ids(&b.terminator)
+                .into_iter()
+                .map(crate::ir::ArcBlockId::index)
+                .collect()
+        })
+        .unwrap_or_default();
+    forward_reachable_from(func, &starts)
 }
 
 /// Whether a `for_yield` `ori_list_take` RESULT (the lineage rep `result_rep`) is
@@ -8253,6 +8721,47 @@ pub(super) fn fresh_rc_alloc_dst(
         .or_else(|| fresh_collection_source_apply_dst(instr, func, interner))
 }
 
+/// Per-position may-COW verdict for a named-callee call arg — the SSOT
+/// predicate shared by [`compute_cow_mutated_lineage_reps`] and
+/// [`collect_rc_reading_consume_sites`]. `true` iff the callee MAY COW/share
+/// the arg at `pos` (the caller's fresh inc is load-bearing per RL-1
+/// `!incElidable`). NOT may-COW:
+/// - `ori_list_take` (the `for_yield` finalizer — moves the buffer out, never
+///   reads its rc);
+/// - `__`-prefixed protocol builtins (compiler-interceptable, known read-only
+///   ownership per Spec: Annex E §AIMS Protocol Builtins);
+/// - KNOWN builtins (compiler-known ownership — COW-mutators take the
+///   receiver `[own]`, caught by the owned-position check);
+/// - a user callee whose contract proves the param a pure borrow-read
+///   (`access == Borrowed && borrowed_read_only` — the param's lineage never
+///   reaches an owned/COW/iter-consume position on any path, transitively
+///   forward-safe per the IC-3 AND-join), so no COW point inside the callee
+///   reads the caller's runtime refcount.
+///
+/// Everything else — unknown contract, missing param entry, unresolvable
+/// `Name` — stays conservatively may-COW (when in doubt, fund). Spec: Annex E
+/// §AIMS RL-1 + RL-2.
+fn callee_may_cow_arg(
+    contracts: &FxHashMap<Name, MemoryContract>,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+    interner: &ori_ir::StringInterner,
+    list_take_name: Name,
+    callee: Name,
+    pos: usize,
+) -> bool {
+    let is_protocol_builtin = interner
+        .try_lookup(callee)
+        .is_some_and(|n| n.starts_with("__"));
+    if callee == list_take_name || is_protocol_builtin || builtins.is_builtin(callee) {
+        return false;
+    }
+    let proven_borrow_read_only = contracts
+        .get(&callee)
+        .and_then(|c| c.params.get(pos))
+        .is_some_and(|p| p.access == AccessClass::Borrowed && p.borrowed_read_only);
+    !proven_borrow_read_only
+}
+
 /// Same-alloc lineage reps whose value is consumed at a COW-mutation operand —
 /// a runtime site that reads the operand's refcount to choose copy-vs-mutate.
 /// Three site kinds:
@@ -8263,20 +8772,23 @@ pub(super) fn fresh_rc_alloc_dst(
 /// - a `Let { PrimOp { Binary, args } }` with an `RcPtr` operand (collection
 ///   `+`/concat — `ori_list_concat_cow` / `ori_map_*_cow` read `ori_rc_is_unique`
 ///   on the operand to choose buffer-takeover vs copy);
-/// - an `RcPtr` arg passed to any NON-protocol-builtin `Apply` / `Invoke` (a
-///   user function / stdlib method `Invoke @<name>` whose `<name>` is not
-///   `__`-prefixed). Such a callee may COW-mutate a collection param
-///   INTERPROCEDURALLY (e.g. `@check` doing `list.push(...)` on a borrowed
-///   param), reading the CALLER's runtime refcount through the call boundary;
-///   eliding the caller's fresh inc drops the value to RC = 1 at the callee's
-///   COW point → mutate-in-place corrupts the caller's still-live holder (the
-///   `arc_borrowed_param_cow_push_use_after` shape). The borrowed-param contract
-///   does NOT surface that internal COW (the param is borrowed-readonly at the
-///   ABI boundary yet the callee still reads rc), so a contract check cannot
-///   prove non-COW — conservatively keep the fresh inc for any non-builtin call
-///   argument. Protocol builtins (`__`-prefixed `Apply` — `__index` etc.) are
-///   compiler-interceptable with known read-only ownership (Spec: Annex E §AIMS Protocol
-///   Builtins) and stay elidable.
+/// - an `RcPtr` arg passed to a may-COW NON-protocol-builtin `Apply` / `Invoke`
+///   position (a user function / stdlib method `Invoke @<name>` whose `<name>`
+///   is not `__`-prefixed), per [`callee_may_cow_arg`]. Such a callee may
+///   COW-mutate a collection param INTERPROCEDURALLY (e.g. `@check` doing
+///   `list.push(...)` on a borrowed param), reading the CALLER's runtime
+///   refcount through the call boundary; eliding the caller's fresh inc drops
+///   the value to RC = 1 at the callee's COW point → mutate-in-place corrupts
+///   the caller's still-live holder (the `arc_borrowed_param_cow_push_use_after`
+///   shape). The `access` dimension alone cannot prove non-COW (a COW-mutated
+///   receiver param stays `Borrowed` at the ABI boundary yet the callee still
+///   reads rc); the affirmative `ParamContract.borrowed_read_only` fact DOES —
+///   the param's lineage never reaches an owned/COW/iter-consume position on
+///   any path (IC-3 AND-join, transitively forward-safe), so such a position is
+///   NOT may-COW. Unknown contracts stay conservatively may-COW (when in doubt,
+///   fund). Protocol builtins (`__`-prefixed `Apply` — `__index` etc.) are
+///   compiler-interceptable with known read-only ownership (Spec: Annex E §AIMS
+///   Protocol Builtins) and stay elidable.
 ///
 /// SSOT COW-awareness signal: the fresh keep-alive inc on a rep in this set is
 /// load-bearing (RL-1 `!incElidable` on a duplicating/COW use — it raises the
@@ -8289,6 +8801,7 @@ pub(super) fn compute_cow_mutated_lineage_reps(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashSet<ArcVarId> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let is_rcptr = |v: ArcVarId| {
@@ -8297,24 +8810,15 @@ pub(super) fn compute_cow_mutated_lineage_reps(
             Some(ValueRepr::RcPointer | ValueRepr::FatValue)
         )
     };
-    // True iff a callee MAY COW/share an RcPtr arg. A callee
+    // Per-position may-COW verdict (the [`callee_may_cow_arg`] SSOT): a callee
     // that internally COW-mutates a collection param reads the caller's runtime
     // refcount across the call boundary, so the caller's fresh inc is
-    // load-bearing. Protocol builtins (`__`-prefixed `Apply` — `__index`,
-    // `__iter_next`, etc.) are compiler-interceptable with known read-only
-    // ownership (Spec: Annex E §AIMS Protocol Builtins); a fresh value flowing ONLY into
-    // those is safely elidable. EVERY other call (a user function / stdlib
-    // method `Invoke`/`Apply` by `Name`) is conservatively COW-risk —
-    // INTERPROCEDURALLY, the callee may COW-mutate a collection param internally
-    // (e.g. `@check` doing `list.push(...)` on a borrowed param) whose runtime
-    // refcount is the CALLER's; the borrowed-param contract does NOT surface
-    // that internal COW (the param is borrowed-readonly at the ABI boundary yet
-    // the callee still reads rc), so the contract cannot prove non-COW. Keep the
-    // fresh inc for any non-builtin call argument — sound over-approximation;
-    // RL-1 "not elidable on a duplicating/COW use" governs. `ori_list_take` (the
-    // for_yield finalizer) is exempt: it MOVES the scratch buffer out (consume-
-    // and-finalize), never reads the buffer's rc to COW it (`ori_rt/src/list/
-    // mod.rs:269`), so the scratch source flowing into it is not a COW operand.
+    // load-bearing. A user-callee position is COW-risk UNLESS its contract
+    // proves the param a pure borrow-read (`borrowed_read_only` — never an
+    // owned/COW/iter-consume position on any path); unknown contracts stay
+    // conservatively may-COW. `ori_list_take` (the for_yield finalizer) is
+    // exempt: it MOVES the scratch buffer out (consume-and-finalize), never
+    // reads the buffer's rc to COW it (`ori_rt/src/list/mod.rs:269`).
     let list_take_name = for_yield_result_finalizer_name(interner);
     // A KNOWN builtin method has compiler-known ownership: its COW-mutators
     // (`push`/`set`/`insert`/`remove`/`sort`/`reverse`) take the receiver at an
@@ -8327,14 +8831,8 @@ pub(super) fn compute_cow_mutated_lineage_reps(
     // (`.collect()` borrow-read by `@contains`/`@len` then dead). Spec: Annex E
     // §AIMS RL-1.
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
-    let callee_may_cow = |callee: Name| -> bool {
-        // A `Name` not resolvable in this interner has no known protocol-builtin
-        // identity (`try_lookup` -> None); treat it conservatively as a non-`__`
-        // user call so the fresh inc is KEPT (sound RL-1 over-approximation).
-        let is_protocol_builtin = interner
-            .try_lookup(callee)
-            .is_some_and(|n| n.starts_with("__"));
-        callee != list_take_name && !is_protocol_builtin && !builtins.is_builtin(callee)
+    let callee_may_cow = |callee: Name, pos: usize| -> bool {
+        callee_may_cow_arg(contracts, &builtins, interner, list_take_name, callee, pos)
     };
     // Two consume classes, distinguished by RC certainty:
     // - `consumed_owned`: a GENUINE in-loop CONSUME — an owned-position
@@ -8374,8 +8872,8 @@ pub(super) fn compute_cow_mutated_lineage_reps(
                 func: callee, args, ..
             } = instr
             {
-                for &arg in args {
-                    if is_rcptr(arg) && callee_may_cow(*callee) {
+                for (pos, &arg) in args.iter().enumerate() {
+                    if is_rcptr(arg) && callee_may_cow(*callee, pos) {
                         consumed_maycow.push(arg);
                     }
                 }
@@ -8418,8 +8916,8 @@ pub(super) fn compute_cow_mutated_lineage_reps(
             func: callee, args, ..
         } = &block.terminator
         {
-            for &arg in args {
-                if is_rcptr(arg) && callee_may_cow(*callee) {
+            for (pos, &arg) in args.iter().enumerate() {
+                if is_rcptr(arg) && callee_may_cow(*callee, pos) {
                     consumed_maycow.push(arg);
                 }
             }

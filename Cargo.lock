@@ -1011,6 +1011,7 @@ name = "oric"
 version = "2026.4.26-alpha.1"
 dependencies = [
  "criterion",
+ "libc",
  "notify",
  "ori_arc",
  "ori_canon",

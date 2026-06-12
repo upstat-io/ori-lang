@@ -108,6 +108,18 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // container's drop is the matched release. SSOT:
     // `compute_borrowed_store_dup_args`.
     pub(super) borrowed_store_dup_args: &'a FxHashSet<ArcVarId>,
+    // RL-1 genuine-duplication OWNED-CALL-ARG aliases (`Let { Var(src) }`
+    // dup-aliases consumed at an owned call-arg position while `src` stays
+    // live). Their alias-site `BurdenInc` is the fork's funded reference —
+    // the consumer's release (COW copy-source dec / callee owned-param
+    // release) is the matched release, so:
+    //   - the inc is NOT tallied into `inc_counts` (escaping the
+    //     `emit_terminator_burden_decs` symmetric same-block cancellation);
+    //   - no last-use `BurdenDec` is emitted for the alias (suppressed in
+    //     `emit_last_use_decs` + the terminator last-use path).
+    // SSOT: `compute_genuine_dup_call_arg_aliases`. Spec: Annex E §AIMS
+    // RL-1 (`RL1_duplication_balanced`) + RL-2 (`RL2_transfer_kinds_no_dec`).
+    pub(super) call_arg_dup_aliases: &'a FxHashSet<ArcVarId>,
 }
 
 /// Drive the unified single-forward-pass per-block emission. For each
@@ -205,8 +217,14 @@ pub(super) fn emit_burden_ops_for_blocks(
             let before = new_body.len();
             emit_instr_burdens(&mut new_body, instr, &ctx);
             // Tally every BurdenInc the instruction emitted into this block.
+            // A genuine-duplication call-arg alias's inc is NOT tallied — its
+            // matched release is the consumer's, so the symmetric terminator
+            // cancellation must not see it (RL-1 `RL1_duplication_balanced`).
             for emitted in &new_body[before..] {
                 if let ArcInstr::BurdenInc { var } = emitted {
+                    if analysis.call_arg_dup_aliases.contains(var) {
+                        continue;
+                    }
                     *inc_counts.entry(*var).or_insert(0) += 1;
                 }
             }
@@ -662,11 +680,16 @@ fn emit_last_use_decs(
                 .analysis
                 .transfer_through_return_param_vars
                 .contains(&var);
+        // RL-1 genuine-duplication call-arg alias: its last use is the owned
+        // call-arg consume (body `Apply`) — the consumer's release is the
+        // matched release for the kept alias-site inc, so no scope-exit dec
+        // here on EITHER path (`RL2_transfer_kinds_no_dec`).
         if instr_transfer_suppressed
             || ctx.analysis.transfer_via_move_alias.contains(&var)
             || transfer_through_return_param_suppressed
             || ctx.analysis.full_move_vars.contains(&var)
             || ctx.analysis.list_concat_transfer_vars.contains(&var)
+            || ctx.analysis.call_arg_dup_aliases.contains(&var)
         {
             continue;
         }
@@ -930,6 +953,16 @@ fn emit_terminator_burden_decs(
                 continue;
             }
             if analysis.transfer_via_move_alias.contains(&var) {
+                continue;
+            }
+            // RL-1 genuine-duplication call-arg alias consumed at THIS
+            // terminator (a contract-Owned user-callee arg whose Phase-5
+            // `arg_ownership` annotation is still the borrowed default, so it
+            // is not in `terminator_transfer_vars`): the consumer's
+            // owned-param release is the matched release for the kept
+            // alias-site inc — a terminator dec here would cancel it
+            // (`RL2_transfer_kinds_no_dec`).
+            if analysis.call_arg_dup_aliases.contains(&var) {
                 continue;
             }
             // RL-2 callee transfer-source-dec strip: a param flowing to Return

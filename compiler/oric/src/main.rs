@@ -121,7 +121,10 @@ fn real_main() {
             let mut config = TestRunnerConfig::default();
 
             for arg in args.iter().skip(2) {
-                if let Some(filter) = arg.strip_prefix("--filter=") {
+                if arg == "--help" || arg == "-h" {
+                    print_test_usage();
+                    return;
+                } else if let Some(filter) = arg.strip_prefix("--filter=") {
                     config.filter = Some(filter.to_string());
                 } else if arg == "--verbose" || arg == "-v" {
                     config.verbose = true;
@@ -139,7 +142,19 @@ fn real_main() {
                     // Internal flag (hidden from help): subprocess-isolation
                     // worker mode — run in-process, emit the line protocol.
                     config.worker_protocol = true;
-                } else if !arg.starts_with('-') {
+                } else if let Some(names) = arg.strip_prefix("--__skip-unchanged=") {
+                    // Internal flag (hidden from help): parent-computed
+                    // incremental skip decisions forwarded to a worker.
+                    config.skip_unchanged = names
+                        .split(',')
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                } else if arg.starts_with('-') {
+                    eprintln!("error: unknown flag '{arg}' for `ori test`");
+                    eprintln!("Run `ori test --help` for usage.");
+                    std::process::exit(2);
+                } else {
                     paths.push(arg.clone());
                 }
             }
@@ -367,12 +382,7 @@ fn print_usage() {
     println!("Check/Watch options:");
     println!("  --test-enforcement=<level>  Test enforcement: off (default), warn, error");
     println!();
-    println!("Test options:");
-    println!("  --filter=<pattern>  Only run tests matching pattern");
-    println!("  --verbose, -v       Show detailed output");
-    println!("  --no-parallel       Run tests sequentially");
-    println!("  --backend=<name>    Use backend: interpreter (default), llvm");
-    println!("  --incremental       Skip tests for unchanged functions");
+    print_test_options();
     println!();
     println!("Format options:");
     println!("  --check             Check if files are formatted (exit 1 if not)");
@@ -402,4 +412,26 @@ fn print_usage() {
     println!("  ori fmt                         # Format all files");
     println!("  ori fmt --check                 # Check formatting (for CI)");
     println!("  ori --explain E2001             # Explain type mismatch");
+}
+
+/// Print usage for the `test` subcommand (`ori test --help`).
+fn print_test_usage() {
+    println!("Usage: ori test [paths...] [options]");
+    println!();
+    println!("Run Ori spec tests in the given paths (default: current directory).");
+    println!();
+    print_test_options();
+}
+
+/// Print the `test` subcommand's option list (shared by `ori help` and
+/// `ori test --help`).
+fn print_test_options() {
+    println!("Test options:");
+    println!("  --filter=<pattern>  Only run tests matching pattern");
+    println!("  --verbose, -v       Show detailed output");
+    println!("  --no-parallel       Run tests sequentially");
+    println!("  --coverage          Report which functions have tests");
+    println!("  --backend=<name>    Use backend: interpreter (default), llvm");
+    println!("  --incremental       Skip tests for unchanged functions");
+    println!("  --help, -h          Show this help");
 }

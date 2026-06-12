@@ -79,8 +79,8 @@ pub fn re_intern_type(
 /// state (preserving `Unbound.rank/name`, `Generalized.name`, `Rigid.name`, and
 /// recursing through `Link.target`).
 ///
-/// This prevents the cross-module pool-merge var-id collision documented at the
-/// §08.1.R root cause: imported `var_ids` cannot alias `target.var_states` slots
+/// This prevents the cross-module pool-merge var-id collision:
+/// imported `var_ids` cannot alias `target.var_states` slots
 /// belonging to the host module.
 #[allow(
     clippy::implicit_hasher,
@@ -457,8 +457,8 @@ fn get_or_allocate_var_id(
 /// `var_remap` during the recursive body walk.
 ///
 /// A scheme whose body references a `var_id` not in its binder list (or vice
-/// versa) is malformed; the plan's §08.2 cells (e2, e5) pin this coherence
-/// invariant.
+/// versa) is malformed; the scheme matrix cells (e2, e5) in
+/// `pool/re_intern/tests.rs` pin this coherence invariant.
 fn re_intern_scheme(
     source: &Pool,
     idx: Idx,
@@ -498,7 +498,7 @@ fn re_intern_var_leaf(
 /// Rebuild `target.var_states[dst_var_id]` variant-aware from
 /// `source.var_states[src_var_id]`.
 ///
-/// Per the plan §08.1.5 step 6 and `types.md §SC-1`:
+/// Rebuild rules (scheme-coherence invariant SC-1):
 /// - `Unbound { id, rank, name }` → `Unbound { id: dst_var_id, rank, name }`
 ///   (`id` is pool-local — must be the NEW destination id, not the source's).
 /// - `Generalized { id, name }` → `Generalized { id: dst_var_id, name }`

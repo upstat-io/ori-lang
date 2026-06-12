@@ -10,17 +10,24 @@
 //! identifiers and never contain spaces):
 //!
 //! ```text
-//! @@ori-test plan <name>
-//! @@ori-test start <name>
-//! @@ori-test result <name> pass <nanos>
-//! @@ori-test result <name> fail <nanos> <escaped-detail>
-//! @@ori-test result <name> skip <nanos> <escaped-detail>
-//! @@ori-test result <name> skip-unchanged <nanos>
-//! @@ori-test result <name> llvm-compile-fail <nanos> <escaped-detail>
-//! @@ori-test file-error <escaped-message>
-//! @@ori-test llvm-compile-error
-//! @@ori-test done
+//! @@ori-test:<token> plan <name>
+//! @@ori-test:<token> start <name>
+//! @@ori-test:<token> result <name> pass <nanos>
+//! @@ori-test:<token> result <name> fail <nanos> <escaped-detail>
+//! @@ori-test:<token> result <name> skip <nanos> <escaped-detail>
+//! @@ori-test:<token> result <name> skip-unchanged <nanos>
+//! @@ori-test:<token> result <name> llvm-compile-fail <nanos> <escaped-detail>
+//! @@ori-test:<token> file-error <escaped-message>
+//! @@ori-test:<token> llvm-compile-error
+//! @@ori-test:<token> done
 //! ```
+//!
+//! `<token>` is a per-spawn unguessable nonce the parent generates and hands
+//! to the worker via the `ORI_TEST_PROTOCOL_TOKEN` env var. Test programs
+//! share the worker's stdout (`print()` writes to it), so the token is the
+//! forgery guard: a line whose token is absent or mismatched is NOT a
+//! protocol event and passes through as plain output. The worker refuses to
+//! run without the token.
 //!
 //! Free-text payloads escape `\`, newline, and carriage return so every event
 //! stays on one line. Non-protocol lines (test program output) pass through.
@@ -30,8 +37,8 @@ use std::time::Duration;
 
 use super::result::TestOutcome;
 
-/// Marker prefix identifying a protocol line.
-pub const PROTOCOL_PREFIX: &str = "@@ori-test ";
+/// Marker opening a protocol line; followed by `:<token> ` (see module docs).
+pub const PROTOCOL_MARKER: &str = "@@ori-test";
 
 /// One parsed worker-protocol event.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -103,37 +110,32 @@ fn emit_line(line: &str) {
 }
 
 /// Emit a `plan` record for a test that will produce a result.
-pub fn emit_plan(name: &str) {
-    emit_line(&format!("{PROTOCOL_PREFIX}plan {name}"));
+pub fn emit_plan(token: &str, name: &str) {
+    emit_line(&format!("{PROTOCOL_MARKER}:{token} plan {name}"));
 }
 
 /// Emit a `start` record immediately before a test executes.
-pub fn emit_start(name: &str) {
-    emit_line(&format!("{PROTOCOL_PREFIX}start {name}"));
+pub fn emit_start(token: &str, name: &str) {
+    emit_line(&format!("{PROTOCOL_MARKER}:{token} start {name}"));
 }
 
 /// Emit a `result` record for a completed test.
-pub fn emit_result(name: &str, outcome: &TestOutcome, duration: Duration) {
+pub fn emit_result(token: &str, name: &str, outcome: &TestOutcome, duration: Duration) {
     let nanos = u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
+    let prefix = format!("{PROTOCOL_MARKER}:{token} ");
     let line = match outcome {
-        TestOutcome::Passed => format!("{PROTOCOL_PREFIX}result {name} pass {nanos}"),
+        TestOutcome::Passed => format!("{prefix}result {name} pass {nanos}"),
         TestOutcome::Failed(detail) => {
-            format!(
-                "{PROTOCOL_PREFIX}result {name} fail {nanos} {}",
-                escape(detail)
-            )
+            format!("{prefix}result {name} fail {nanos} {}", escape(detail))
         }
         TestOutcome::Skipped(reason) => {
-            format!(
-                "{PROTOCOL_PREFIX}result {name} skip {nanos} {}",
-                escape(reason)
-            )
+            format!("{prefix}result {name} skip {nanos} {}", escape(reason))
         }
         TestOutcome::SkippedUnchanged => {
-            format!("{PROTOCOL_PREFIX}result {name} skip-unchanged {nanos}")
+            format!("{prefix}result {name} skip-unchanged {nanos}")
         }
         TestOutcome::LlvmCompileFail(detail) => format!(
-            "{PROTOCOL_PREFIX}result {name} llvm-compile-fail {nanos} {}",
+            "{prefix}result {name} llvm-compile-fail {nanos} {}",
             escape(detail)
         ),
     };
@@ -141,27 +143,39 @@ pub fn emit_result(name: &str, outcome: &TestOutcome, duration: Duration) {
 }
 
 /// Emit a file-level error message.
-pub fn emit_file_error(message: &str) {
-    emit_line(&format!("{PROTOCOL_PREFIX}file-error {}", escape(message)));
+pub fn emit_file_error(token: &str, message: &str) {
+    emit_line(&format!(
+        "{PROTOCOL_MARKER}:{token} file-error {}",
+        escape(message)
+    ));
 }
 
 /// Emit the LLVM-compile-error file flag.
-pub fn emit_llvm_compile_error() {
-    emit_line(&format!("{PROTOCOL_PREFIX}llvm-compile-error"));
+pub fn emit_llvm_compile_error(token: &str) {
+    emit_line(&format!("{PROTOCOL_MARKER}:{token} llvm-compile-error"));
 }
 
 /// Emit the normal-completion record.
-pub fn emit_done() {
-    emit_line(&format!("{PROTOCOL_PREFIX}done"));
+pub fn emit_done(token: &str) {
+    emit_line(&format!("{PROTOCOL_MARKER}:{token} done"));
 }
 
 /// Parse one line into a protocol event.
 ///
-/// Returns `None` for non-protocol lines AND for malformed protocol-prefixed
-/// lines; the caller passes both through as ordinary output.
-pub fn parse_line(line: &str) -> Option<WorkerEvent> {
-    let rest = line.strip_prefix(PROTOCOL_PREFIX.trim_end())?;
-    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+/// A line parses ONLY when it starts with `@@ori-test:<token> ` carrying the
+/// expected per-spawn token (forgery guard — test `print()` shares the
+/// worker's stdout). Returns `None` for non-protocol lines, for
+/// protocol-shaped lines with an absent/mismatched token, and for malformed
+/// protocol-prefixed lines; the caller passes all of them through as
+/// ordinary output. An empty expected token never matches.
+pub fn parse_line(line: &str, token: &str) -> Option<WorkerEvent> {
+    if token.is_empty() {
+        return None;
+    }
+    let rest = line.strip_prefix(PROTOCOL_MARKER)?;
+    let rest = rest.strip_prefix(':')?;
+    let rest = rest.strip_prefix(token)?;
+    let rest = rest.strip_prefix(' ')?;
     let (kind, tail) = rest.split_once(' ').unwrap_or((rest, ""));
     match kind {
         "plan" => parse_single_name(tail).map(|name| WorkerEvent::Plan { name }),

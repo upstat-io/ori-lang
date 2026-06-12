@@ -32,8 +32,8 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
     reason = "always called with FxHashMap internally"
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    // Fast path: no variables OR bound vars OR rigid vars to substitute. §08.3b
-    // widened the gate to include HAS_BOUND_VAR — scheme bodies post-migration
+    // Fast path: no variables OR bound vars OR rigid vars to substitute. The
+    // gate includes HAS_BOUND_VAR — scheme bodies post-migration
     // contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and HAS_VAR=false.
     // HAS_RIGID_VAR is included so a `var_subst` carrying impl-level rigid
     // var_ids (built by `build_impl_rigid_var_subst`) substitutes `Tag::RigidVar`
@@ -90,7 +90,7 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
 /// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
 /// routinely hits such orphans and relies on this no-op fall-through.
 ///
-/// Post-§08.3b, scheme bodies themselves carry `Tag::BoundVar` leaves
+/// Post-migration, scheme bodies themselves carry `Tag::BoundVar` leaves
 /// (see `substitute_bound_var`); the only legitimate `Tag::Var(Generalized)`
 /// pool entries are the orphan inference residues just described.
 fn substitute_var(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
@@ -693,7 +693,7 @@ impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Id
 ///   `TypeFlags::HAS_VAR | HAS_BOUND_VAR` is set, substitute via `var_subst`
 ///   and record when the result differs from the source. This covers
 ///   `sig`/`expr_types` positions carrying generic `Tag::Var` leaves from
-///   pre-generalize inference AND post-§08.3b.1 normalization-rewritten
+///   pre-generalize inference AND normalization-rewritten
 ///   `Tag::BoundVar` leaves.
 ///
 /// Pass 2 — scheme-var `BoundVar` pre-intern:

@@ -378,25 +378,22 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     );
 }
 
-// §08.3b.1 TDD cells (H, I, K). Pin the post-§08.3b migration contract:
+// TDD cells (H, I, K). Pin the post-generalization-migration contract:
 // after generalization, every `Tag::Var(VarState::Generalized)` leaf in
 // `InferOutput.expr_types` and every top-level polymorphic function's
 // `FunctionSig.param_types` / `return_type` MUST have been rewritten to
-// `Tag::BoundVar(var_id)` per. These cells currently
-// FAIL (RED) — the end-of-body-group normalization pass that re-points
-// those storage locations at the already-rewritten scheme-body Idxs
-// does not yet exist. See
-//
-// §08.3b.1 TDD matrix (cells H / I / K).
+// `Tag::BoundVar(var_id)`. These cells are RED until the
+// end-of-body-group normalization pass that re-points those storage
+// locations at the already-rewritten scheme-body Idxs exists.
 
 /// Cell H — `expr_types` port (positive pin for §SC-1 target shape).
 ///
 /// Program `@f () -> int = { let $id = x -> x; id(42) }` generalizes
-/// `$id` to `∀a. a -> a`. `§08.3b` rewrites the scheme body to
+/// `$id` to `∀a. a -> a`. Generalization rewrites the scheme body to
 /// `Tag::Function([BoundVar(0)], BoundVar(0))`, but the lambda's body
 /// sub-expression `x` still has an `expr_types[lambda_body_expr] =
 /// Tag::Var(Generalized)` entry because the rewrite never re-points
-/// `expr_types`. The §08.3b.1 normalization pass MUST walk
+/// `expr_types`. The normalization pass MUST walk
 /// `expr_types` and substitute the pre-generalize `Tag::Var` leaves
 /// with `Tag::BoundVar` matching the scheme's declared var ids.
 ///
@@ -417,7 +414,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
 
     // Scan every `expr_types` entry for a surviving `Tag::Var(Generalized)`.
     // Every position referencing a generalized scheme var MUST have been
-    // re-pointed at a `Tag::BoundVar` Idx by the §08.3b.1 pass.
+    // re-pointed at a `Tag::BoundVar` Idx by the normalization pass.
     let mut generalized_positions: Vec<(usize, Idx)> = Vec::new();
     for (expr_idx, ty) in result.typed.expr_types.iter().enumerate() {
         scan_for_generalized_var_leaves(&pool, *ty, &mut |leaf| {
@@ -428,7 +425,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
     assert!(
         generalized_positions.is_empty(),
         ": no `expr_types` entry may carry a Tag::Var(Generalized) \
-         leaf post-typeck — the §08.3b.1 normalization pass must substitute every \
+         leaf post-typeck — the normalization pass must substitute every \
          scheme-var leaf with Tag::BoundVar matching the enclosing scheme's \
          declared var ids. Offending positions: {generalized_positions:?}"
     );
@@ -442,7 +439,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
 /// return. Generalization rewrites the scheme body but never updates the
 /// exported `FunctionSig.param_types` / `return_type`; those Idxs still
 /// point at the original `Tag::Var` leaves whose `var_state` was mutated
-/// to `Generalized` in place. The §08.3b.1 normalization pass MUST
+/// to `Generalized` in place. The normalization pass MUST
 /// re-point both positions at `Tag::BoundVar` Idxs.
 ///
 /// This test resolves `param_types[0]` and `return_type` via
@@ -515,7 +512,8 @@ fn function_sig_port_top_level_polymorphic_function() {
 /// Cell K — validator strip (positive pin / regression guard).
 ///
 /// Program `@f () -> int = { let $id = x -> x; id(42) }` typechecks with
-/// ZERO `E2005` diagnostics both before AND after §08.3b.1 lands — but
+/// ZERO `E2005` diagnostics both before AND after the normalization
+/// port lands — but
 /// the mechanism differs:
 ///
 /// - **Today (pre-port)**: `validate_body_types` exempts
@@ -523,7 +521,7 @@ fn function_sig_port_top_level_polymorphic_function() {
 ///   exemption arm in `validators/mod.rs::collect_first_unbound_var`.
 ///   The generalized vars reach the validator unchanged and are silently
 ///   skipped.
-/// - **After §08.3b.1 port + strip**: the `expr_types` normalization pass
+/// - **After the port + strip**: the `expr_types` normalization pass
 ///   re-points every `Tag::Var(Generalized)` leaf at a `Tag::BoundVar`,
 ///   then the validator's `Generalized` exemption arm is stripped. The
 ///   validator walks the same positions and short-circuits at the
@@ -531,7 +529,7 @@ fn function_sig_port_top_level_polymorphic_function() {
 ///
 /// This cell pins the invariant that BOTH mechanisms keep this
 /// well-formed polymorphic let-binding program diagnostic-free. If the
-/// §08.3b.1 strip+port ever regresses the rewrite coverage (e.g., the
+/// strip+port ever regresses the rewrite coverage (e.g., the
 /// port pass misses an `expr_types` leaf), this test flips RED because
 /// the surviving `Generalized` var reaches the stripped validator and
 /// fires `E2005`. Today the test is GREEN because the current exemption
@@ -550,7 +548,7 @@ fn validator_strip_polylambda_typechecks_no_e2005() {
     assert_eq!(
         ambiguous_count, 0,
         "cell K: `let $id = x -> x; id(42)` must typecheck with zero E2005 \
-         diagnostics regardless of which §08.3b.1 mechanism (Generalized \
+         diagnostics regardless of which mechanism (Generalized \
          exemption OR BoundVar rewrite) is active. All errors: {:?}",
         result.typed.errors
     );

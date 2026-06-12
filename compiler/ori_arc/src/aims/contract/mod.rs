@@ -421,6 +421,24 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — caller keeps its exclusion, no release).
     pub borrowed_read_only: bool,
+
+    /// RL-1 + RL-2 borrowed-COW-consume fact: the Borrowed param's lineage is
+    /// consumed at a COW-MUTATOR owned position (builtin consuming receiver /
+    /// consuming second arg, or transitively a callee param carrying this
+    /// fact) AS the lineage's LAST use in the body. The callee's COW-inc edge
+    /// release then nets -1 on the caller's allocation (the realization
+    /// convention treats the call as an effective consume), so the CALLER
+    /// funds one reference per call site — the owned-call-arg duplication-inc
+    /// admission (`compute_genuine_dup_call_arg_aliases`) consumes this fact.
+    /// An aggregate-STORE of the borrowed param (`Inner { items: xs }`) does
+    /// NOT set it (the borrowed-store dup inc + container drop net 0); a
+    /// live-past COW consume does NOT set it (the callee's edge release
+    /// declines, net 0).
+    ///
+    /// IC-3 join: OR (a consuming path obligates the caller's funding).
+    ///
+    /// Default: `false` (conservative — no funding obligation claimed).
+    pub borrowed_cow_consumed: bool,
 }
 
 impl ParamContract {
@@ -457,6 +475,10 @@ impl ParamContract {
         // AND-join bottom is `false` for the conservative contract — an unknown
         // callee is assumed to consume the param, so the carve-out never fires.
         borrowed_read_only: false,
+        // Conservative default: no funding obligation claimed — the
+        // owned-call-arg duplication admission never fires on an unknown
+        // callee.
+        borrowed_cow_consumed: false,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -495,6 +517,9 @@ impl ParamContract {
         // at an owned position. `extract_contract` overrides per-param from the
         // body scan; OPTIMISTIC is the fixpoint seed only.
         borrowed_read_only: true,
+        // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
+        // (OR) promotes when a path's COW-consume-at-death fact fires.
+        borrowed_cow_consumed: false,
     };
 
     /// Componentwise join toward conservative.
@@ -530,6 +555,9 @@ impl ParamContract {
             // AND (conservative direction): the read-only guarantee holds only if
             // it holds on EVERY joined path — any owned-position use clears it.
             borrowed_read_only: self.borrowed_read_only && other.borrowed_read_only,
+            // OR (conservative direction): a consuming path obligates the
+            // caller's funding.
+            borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
         }
     }
 }

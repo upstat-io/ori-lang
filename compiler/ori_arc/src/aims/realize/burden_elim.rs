@@ -302,7 +302,16 @@ fn eliminate_whole_function(
     );
 
     let balances = classify_burden_ops(func, state_map, predicate_stack_rc_disabled, &mut remove);
-    let alias_dsts = collect_pair_atomic_alias_dsts(func);
+    let mut alias_dsts = collect_pair_atomic_alias_dsts(func);
+    // RL-1 owned-call-arg duplication aliases are pair-atomic regardless of
+    // root kind: their kept alias-site inc is inc-ONLY (the dec was
+    // transfer-suppressed at Phase 5 — the consumer's release is the matched
+    // release), so a DP-3 split would strip the fork's funded reference and
+    // re-introduce the under-inc double-free. SSOT:
+    // `compute_genuine_dup_call_arg_aliases`. Spec: Annex E §AIMS RL-1.
+    alias_dsts.extend(
+        crate::lower::burden_lower::compute_genuine_dup_call_arg_aliases(func, contracts, interner),
+    );
     mark_whole_var_removals(
         &balances,
         &rebalanced_vars,
@@ -664,8 +673,12 @@ fn mark_lineage_rebalance_removals(
     // `mark_whole_var_removals`) is COW-aware (`inc_elidable_at_realization` /
     // `compute_elidable_fresh_self_alloc_incs`) and correctly KEEPS the inc. SSOT
     // detector reused — never duplicated. Spec: Annex E §AIMS RL-1.
-    let cow_mutated_reps =
-        super::emit_unified::compute_cow_mutated_lineage_reps(func, same_alloc_reps, interner);
+    let cow_mutated_reps = super::emit_unified::compute_cow_mutated_lineage_reps(
+        func,
+        same_alloc_reps,
+        interner,
+        contracts,
+    );
 
     for (rep, ops) in &reps {
         // A forwarder-tainted rep is un-excluded ONLY when it BOTH is a proven

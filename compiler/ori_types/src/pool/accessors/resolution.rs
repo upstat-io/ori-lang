@@ -127,9 +127,9 @@ impl Pool {
     ///
     /// Stops at (a) the first non-`Tag::Var` item, (b) a malformed `var_id`
     /// outside `var_states`, or (c) the depth limit. Returns the resolved
-    /// leaf. Bounds-check on `var_id` is retained after §08.3b retired the
-    /// Generalized-leak path (scheme bodies now hold `Tag::BoundVar` per
-    /// `types.md §SC-1`), because genuinely malformed inputs — e.g.,
+    /// leaf. Bounds-check on `var_id` is retained even though the
+    /// Generalized-leak path is retired (scheme bodies now hold
+    /// `Tag::BoundVar` per invariant SC-1), because genuinely malformed inputs — e.g.,
     /// cross-pool `var_id` collisions caught by the pool re-intern path —
     /// can still reach this accessor.
     fn chase_var_links(&self, idx: Idx) -> Idx {

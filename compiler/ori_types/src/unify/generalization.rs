@@ -57,8 +57,8 @@ impl UnifyEngine<'_> {
             }
         }
 
-        // §08.3b — Canonicalize scheme body to `Tag::BoundVar` leaves per
-        //. The body returned by upstream inference contains
+        // Canonicalize the scheme body to `Tag::BoundVar` leaves.
+        // The body returned by upstream inference contains
         // `Tag::Var` leaves whose var_states were just mutated to
         // `VarState::Generalized` above; rewrite them to `Tag::BoundVar` with
         // `data = var_id` so the scheme body matches the target representation
@@ -142,8 +142,8 @@ impl UnifyEngine<'_> {
 ///
 /// Called once per `generalize()` invocation, between `var_states` mutation
 /// and scheme construction. The substitution applies because
-/// `substitute_var` matches by `var_id` directly — the post-§08.3b
-/// `substitute_var` no longer carries a Generalized-state fallback (orphan
+/// `substitute_var` matches by `var_id` directly and no longer carries a
+/// Generalized-state fallback (orphan
 /// `Tag::Var(Generalized)` entries simply fall through to return `ty`
 /// unchanged).
 fn rewrite_generalized_to_bound_var(pool: &mut Pool, body: Idx, scheme_var_ids: &[u32]) -> Idx {

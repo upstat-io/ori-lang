@@ -252,6 +252,33 @@ flags! {
     /// Usage: `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 ori build file.ori`
     ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING
 
+    /// Restore the symmetric-cancellation treatment for a `Let { Var }`
+    /// dup-alias consumed at an OWNED call-arg position while its source stays
+    /// live (default: the alias keeps its RL-1 duplication inc — each
+    /// owned-call-arg fork of a shared collection lineage is funded by its own
+    /// surviving inc whose matched release is the consumer's; without it the
+    /// lineage gets ONE net inc regardless of fork count, the COW uniqueness
+    /// check sees rc 1 early and mutates an aliased buffer in place).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5 admission +
+    /// cancellation escape), the Phase-6 pair-atomic elision, and the Phase-7
+    /// lineage-net machinery. Bisects a multi-fork COW-lineage double-free /
+    /// silent wrong value to the kept duplication inc.
+    /// Usage: `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1 ori build file.ori`
+    ORI_DISABLE_OWNED_CALL_ARG_DUP_INC
+
+    /// Skip the FINAL-READ release designation for multi-read elements of a
+    /// caller-owned call-result aggregate (default: the lineage's
+    /// execution-final read alias carries the element's single last-use
+    /// release — a returned tuple's element read more than once otherwise
+    /// keeps only net-0 keep-alive pairs and leaks one element per multi-read
+    /// lineage).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// returned-tuple element leak / double-free to the designated release.
+    /// Usage: `ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE
+
     /// Restore the RL-1 inc-suppression for a `Let { Var }` alias of an Owned
     /// transfer-through-return param that is iter-consumed (default: the
     /// iter-consumed alias keeps its duplication inc — the iterator frees the
@@ -611,6 +638,29 @@ flags! {
     /// and its in-flight test counted FAILED (timeout). Default: 120.
     /// Usage: `ORI_TEST_WORKER_TIMEOUT_SECS=30 ori test --backend=llvm tests/`
     ORI_TEST_WORKER_TIMEOUT_SECS
+
+    /// Path of the on-disk cache file for `ori test --incremental`.
+    ///
+    /// When set, the parent test runner loads the per-function body-hash
+    /// snapshots from this file at startup and saves them after each run, so
+    /// unchanged-test skipping works across CLI invocations (without it, the
+    /// cache is in-memory only and lives for the runner's lifetime). The
+    /// parent owns the file exclusively; LLVM worker subprocesses never read
+    /// or write it. A missing or unreadable file is an empty cache.
+    /// Usage: `ORI_TEST_INCREMENTAL_CACHE=.ori-test-cache ori test --incremental tests/`
+    ORI_TEST_INCREMENTAL_CACHE
+
+    /// Per-spawn worker-protocol nonce for `ori test --backend=llvm`
+    /// subprocess isolation. Internal — set by the parent runner, not users.
+    ///
+    /// The parent generates a fresh unguessable token for each worker spawn;
+    /// the worker stamps every protocol line with it and refuses `--__worker`
+    /// mode without it. Protocol-shaped stdout lines whose token is absent or
+    /// mismatched pass through as plain output, so test programs cannot forge
+    /// protocol records (test `print()` shares the worker's stdout). The
+    /// worker scrubs the variable from its own environment before any test
+    /// code runs, so JIT'd code (and anything it spawns) never sees it.
+    ORI_TEST_PROTOCOL_TOKEN
 
     // === Existing Flags (migrated) ===
 
