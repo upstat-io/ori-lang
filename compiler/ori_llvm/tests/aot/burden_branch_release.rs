@@ -23,15 +23,18 @@
 //! (`compute_branch_exclusive_edge_releases`, toggle
 //! `ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE=1`) cures the if/else
 //! branch-exclusive cells (owned-push-arg, map-literal store, the primary
-//! struct-store pin in `burden_store_dup.rs`). GREEN clamps: the post-merge
-//! borrow-read cells — reading the source after the merge makes the store a
-//! genuine funded duplication; the edge release declines there (the read
-//! keeps observing the birth reference). RESIDUAL (BUG-04-179): the
-//! match/Switch and loop shapes thread the lineage through `Jump` args into
-//! a DEAD merge block-param (`Jump bbM(.., %base)` with the `[int]` param
-//! used nowhere) that no RL-5 dead-param release covers for collection
-//! `Construct` roots — those cells stay ignored-with-reason below. Every
-//! cell is interpreter-verified. Spec: Annex E §AIMS RL-1 + RL-2 + RL-4.
+//! struct-store pin in `burden_store_dup.rs`) and supplies the dead-on-edge
+//! birth release for fully-dead no-use arms; the Switch/match cells are
+//! cured by the `lower_match` merge-param pruning + the construct-fed RL-5
+//! ALT-CONSUMED mode (`burden_match_release.rs` toggle pins). GREEN clamps:
+//! the post-merge borrow-read cells — reading the source after the merge
+//! makes the store a genuine funded duplication; the edge release declines
+//! there (the read keeps observing the birth reference). RESIDUAL
+//! (BUG-04-180): the loop shape threads the lineage through loop
+//! block-params into a dead loop-exit param whose feeding rep fractures
+//! from the Construct root — that cell stays ignored-with-reason below.
+//! Every cell is interpreter-verified. Spec: Annex E §AIMS RL-1 + RL-2 +
+//! RL-4 + RL-5.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -105,15 +108,12 @@ fn test_branch_exclusive_map_literal_store_no_leak() {
 }
 
 /// Match 2-arm BOTH-paths-store cell: every arm consumes the fresh local
-/// at an owned store, so the per-path ledger should balance with NO edge
+/// at an owned store, so the per-path ledger balances with NO edge
 /// release owed (the if/else both-consume sibling in `burden_dup_inc.rs`
-/// is green). Leaks on BOTH calls (2 leaks, exit 2) — the Switch lowering
-/// threads `%base` through each arm's `Jump` into a DEAD merge block-param
-/// (`bb1(%7: int, %8: [int])`, `%8` used nowhere) with no RL-5 release;
-/// the per-edge partition is not the root here. Interpreter prints
-/// a=3 b=13.
+/// is the Branch twin). The merge-param pruning removes the dead
+/// block-param `base` used to ride into; the funded stores balance the
+/// rest. Interpreter prints a=3 b=13.
 #[test]
-#[ignore = "BUG-04-179: Switch-lowered match threads the stored fresh local into a dead merge block-param via Jump args; no RL-5 release for collection Constructs"]
 fn test_match_two_arm_both_paths_store_no_leak() {
     assert_cell_output(
         r#"
@@ -147,13 +147,11 @@ type Holder = { kept: [int] }
 }
 
 /// Match 3-arm exclusive-store cell: arm 0 stores, arm 1 borrows, arm 2
-/// never uses the local. EVERY call leaks (3 leaks, exit 2) — including
-/// the STORING arm, which the if/else shape balances: the Switch lowering
-/// threads `%base` through every arm's `Jump` into a dead merge
-/// block-param, the same BUG-04-179 root as the 2-arm cell.
-/// Interpreter prints a=3 b=13 c=42.
+/// never uses the local. Post-pruning the arms carry their own releases:
+/// the storing arm's funded store, the borrow arm's last-use dec + edge
+/// release, and the no-use arm's dead-on-edge pair (birth dec + edge
+/// release). Interpreter prints a=3 b=13 c=42.
 #[test]
-#[ignore = "BUG-04-179: Switch-lowered match threads the stored fresh local into a dead merge block-param via Jump args; no RL-5 release for collection Constructs"]
 fn test_match_three_arm_exclusive_store_no_leak() {
     assert_cell_output(
         r#"
@@ -195,7 +193,7 @@ type Holder = { kept: [int] }
 /// per-edge partition gap; the edge release correctly declines both edges
 /// (Jump-arg consumes forward of each). Interpreter prints a=6 b=13.
 #[test]
-#[ignore = "BUG-04-179: loop lowering threads the stored fresh local through loop params into a dead merge block-param via Jump args; same dead-param root as the Switch cells"]
+#[ignore = "BUG-04-180: loop lowering threads the loop-invariant heap local through loop block-params into a dead merge/exit block-param the RL-5 dead-param scans cannot resolve (rep fractures across the Jump-arg hop)"]
 fn test_loop_inside_branch_per_iteration_store_no_leak() {
     assert_cell_output(
         r#"
@@ -306,17 +304,12 @@ type Holder = { kept: [int] }
 // ----- Switch/Branch lowering-boundary cell -----
 
 /// User-defined 2-variant-enum match, branch-exclusive store: the exact
-/// lowering boundary between the GREEN bool if/else pin (Branch — cured by
-/// the per-edge release) and the RED 2-arm `match` cell (Switch). Recorded
-/// honestly: ANY `match` — including a bool scrutinee and a 2-variant enum
-/// — lowers to `Switch` and threads `%base` through each arm's `Jump` into
-/// a DEAD merge block-param (`bb1(%7: int, %8: [int])`, verified via
-/// `ORI_DUMP_AFTER_BURDEN=1`), so this cell leaks on BOTH calls (2 leaks,
-/// exit 2; identical with the edge release toggled off). The boundary is
-/// `if/else` (Branch) vs `match` (Switch), NOT bool vs enum. Interpreter
-/// prints a=3 b=13.
+/// lowering boundary between the bool if/else pin (Branch — cured by the
+/// per-edge release) and the 2-arm `match` cells (Switch — cured by the
+/// merge-param pruning). ANY `match` — including a bool scrutinee and a
+/// 2-variant enum — lowers to `Switch`; the boundary is `if/else` (Branch)
+/// vs `match` (Switch), NOT bool vs enum. Interpreter prints a=3 b=13.
 #[test]
-#[ignore = "BUG-04-179: 2-variant-enum match lowers to Switch and threads the stored fresh local into a dead merge block-param via Jump args; same root as the bool-match cells"]
 fn test_enum_two_variant_match_exclusive_store_no_leak() {
     assert_cell_output(
         r#"

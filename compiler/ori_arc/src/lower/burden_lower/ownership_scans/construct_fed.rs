@@ -299,6 +299,40 @@ pub(in crate::lower::burden_lower) fn compute_construct_fed_dead_param_lineage(
     }
 }
 
+/// True iff any lineage member is used (instr or terminator operand) in the
+/// merge block or any block forward-reachable from it. The dead-param dec
+/// frees the allocation at merge entry; a forward read of a member would
+/// observe freed memory — the ALT-CONSUMED no-forward-use gate. Predecessor
+/// Jump-arg uses (the handoff itself) are NOT forward of the merge; a cycle
+/// re-reaching a predecessor IS (conservative decline on loop shapes).
+fn lineage_used_at_or_past_merge(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    merge_block_idx: usize,
+) -> bool {
+    let mut blocks = super::successor_reachable_blocks(func, merge_block_idx);
+    blocks.insert(merge_block_idx);
+    for &b in &blocks {
+        let Some(block) = func.blocks.get(b) else {
+            continue;
+        };
+        for instr in &block.body {
+            if instr.used_vars().iter().any(|v| members.contains(v)) {
+                return true;
+            }
+        }
+        if block
+            .terminator
+            .used_vars()
+            .iter()
+            .any(|v| members.contains(v))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// The lineage members of every NESTED heap-aggregate `Construct` transitively
 /// owned (via owning `Construct`-args + `Let { Var }` aliases) by the admitted
 /// sum-aggregate `released_rep`, whose own rep ALSO feeds a dead block-param in

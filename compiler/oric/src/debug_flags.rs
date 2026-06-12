@@ -219,6 +219,36 @@ flags! {
     /// Usage: `ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE=1 ori build file.ori`
     ORI_DISABLE_FRESH_COLLECTION_DEAD_PARAM_RELEASE
 
+    /// Decline the ALT-CONSUMED mode of the construct-fed dead-param scan:
+    /// a lineage with a NON-forwarder owned-transfer consumer reverts to the
+    /// unconditional gate-(d) decline even when every consume is a FUNDED
+    /// duplication site.
+    ///
+    /// Default (unset): a fresh sum-aggregate / collection `Construct` lineage
+    /// whose every owned consume is funded (each consume carries its own kept
+    /// inc matched by the consumer's release) gets ONE RL-5 dead-at-entry
+    /// release at the dead merge block-param — the Jump-transferred birth
+    /// reference's sole release (releases-only; the funded machinery is
+    /// untouched). Consumed in `ori_arc::lower::burden_lower`. Bisects a
+    /// dead-merge-param leak / double-free to the alt-consumed release vs the
+    /// rest of the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE
+
+    /// Disable the `lower_match` merge-param divergence pruning: every
+    /// in-scope mutable binding is threaded into the match merge block-params
+    /// unconditionally (the pre-cure arrangement), manufacturing DEAD merge
+    /// params for unchanged bindings.
+    ///
+    /// Default (unset): `lower_match` pre-traverses the arm bodies + decision
+    /// -tree guards and threads ONLY bindings an `Assign` could rebind — the
+    /// same divergence semantics `merge_mutable_vars` applies to `if/else`.
+    /// Consumed in `ori_arc::lower::control_flow`. Bisects a dead-merge-param
+    /// leak / wrong-post-merge-value to the pruning vs the RL-5 dead-param
+    /// release machinery.
+    /// Usage: `ORI_DISABLE_MATCH_PARAM_PRUNING=1 ori build file.ori`
+    ORI_DISABLE_MATCH_PARAM_PRUNING
+
     /// Disable the Phase-5 RL-2 scope-exit release for a transfer-through-return
     /// forwarder result whose monomorphized result-type burden is empty.
     ///
@@ -408,6 +438,26 @@ flags! {
     /// rest of the Phase-5 walk. Spec: Annex E §AIMS RL-2 + RL-4.
     /// Usage: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1 ori build file.ori`
     ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE
+
+    /// Restore the inline last-use dec for a SOLE-CARRIER borrowed-`Invoke`
+    /// alias (`compute_sole_carrier_borrowed_invoke_aliases` returns empty):
+    /// the lineage's single release lands BEFORE the borrowed terminator that
+    /// reads it (use-after-free / double-free when the callee aliases the value
+    /// into its result).
+    ///
+    /// Default (unset): a `Let { Var(src) }` dst that carries its lineage's
+    /// only release while its sole use is a borrowed arg of a may-unwind
+    /// `Invoke` terminator is removed from `owned_vars_needing_rc` (suppressing
+    /// the early inline dec) and CLAIMED for the Category-2 `deadAtSucc`
+    /// per-edge release, so each executing path releases exactly once AFTER the
+    /// call completes.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// borrowed-call-arg early-release to the edge-claim vs the rest of the
+    /// Phase-5 walk. Spec: Annex E §AIMS RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM=1 ori build file.ori`
+    ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM
 
     /// Bypass the Phase-6.99 transfer-anchor credit-net repair on the
     /// result-side lineage of a `transfers_through_return ∧ Owned ∧ Direct`

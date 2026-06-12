@@ -258,7 +258,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
             suppressed_lineage_vars: FxHashSet::default(),
         }
     } else {
-        compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc)
+        compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc, interner)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
     // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
@@ -307,13 +307,37 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // root + vetted borrow-read-only closure + borrowed-Invoke-arg + execution
     // -final-site + pairwise-disjoint gates bound the over-fire surface). Spec:
     // Annex E §AIMS RL-2 + RL-4.
-    let (borrowed_invoke_releases, claimed_no_sink_vars) = apply_borrowed_invoke_collection_lineage(
+    let (borrowed_invoke_releases, mut claimed_no_sink_vars) =
+        apply_borrowed_invoke_collection_lineage(
+            func,
+            &mut owned_vars_needing_rc,
+            &construct_fed_dead_param.suppressed_lineage_vars,
+            &fresh_sum_claimed,
+            contracts,
+        );
+    // RL-2 + RL-4 sole-carrier borrowed-`Invoke` aliases (settled-set scan —
+    // runs AFTER every lineage suppression so "sole carrier" is evaluated
+    // against the final per-value ledger): an alias whose SOLE use is a
+    // borrowed may-unwind `Invoke` arg while its src is read nowhere else
+    // carries the lineage's ONLY release — and the base walk would place it
+    // INLINE before the borrowed terminator (early release: use-after-free /
+    // double-free when the callee aliases the value into its result, the
+    // `wrap_ok(m: m)` mint shape). Remove the alias from the owned set
+    // (suppressing the early dec) and CLAIM it for the Category-2 `deadAtSucc`
+    // per-edge release: the alias is dead at every successor of its carrier
+    // `Invoke`, so each executing path releases exactly once AFTER the call
+    // (the claim sets `burden_emitted` post-emission so Cat-2's
+    // `release_with_burden_edge` admits the paired dec). SSOT + gates:
+    // `compute_sole_carrier_borrowed_invoke_aliases`. Spec: Annex E §AIMS
+    // RL-2 + RL-4.
+    let sole_carrier_claims = ownership_scans::compute_sole_carrier_borrowed_invoke_aliases(
         func,
-        &mut owned_vars_needing_rc,
-        &construct_fed_dead_param.suppressed_lineage_vars,
-        &fresh_sum_claimed,
+        &owned_vars_needing_rc,
         contracts,
+        interner,
     );
+    owned_vars_needing_rc.retain(|v| !sole_carrier_claims.contains(v));
+    claimed_no_sink_vars.extend(sole_carrier_claims.iter().copied());
     // RL-2 forwarder-result release: a transfer-through-return forwarder RESULT whose
     // monomorphized result-type burden is EMPTY (`burden_carries_rc == false`) is never
     // collected into `owned_vars_needing_rc`, so its lineage gets neither a FRESH inc nor

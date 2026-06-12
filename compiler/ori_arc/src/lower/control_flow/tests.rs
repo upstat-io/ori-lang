@@ -1127,3 +1127,272 @@ fn type_store_size_all_unit_enum_in_aggregate() {
         "(Dir, int) = 16 bytes"
     );
 }
+
+// Match merge-param divergence pruning (Cure B for the dead-merge-param leak)
+
+/// Shared scaffold for the merge-param pruning pins: lowers
+/// `{ let base = "s"(mutable); match true { true -> <arm0>, _ -> <arm1> } }`
+/// against a hand-built bool decision tree and returns the lowered function.
+fn lower_bool_match_with_mutable_binding(
+    build_arm0: impl FnOnce(&mut CanArena, Name) -> ori_ir::canon::CanId,
+    tree_of: impl FnOnce(&mut CanArena, Name) -> ori_ir::canon::DecisionTree,
+) -> crate::ir::ArcFunction {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut arena = CanArena::with_capacity(200);
+
+    let base_name = interner.intern("base");
+    let init = arena.push(CanNode::new(
+        CanExpr::Str(base_name),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::STR.raw()),
+    ));
+    let pat = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: base_name,
+        mutable: Mutability::Mutable,
+    });
+    let let_base = arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern: pat,
+            init,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(0, 10),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let arm0 = build_arm0(&mut arena, base_name);
+    let arm1 = arena.push(CanNode::new(
+        CanExpr::Int(2),
+        Span::new(30, 31),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let arms = arena.push_expr_list(&[arm0, arm1]);
+
+    let scrutinee = arena.push(CanNode::new(
+        CanExpr::Bool(true),
+        Span::new(12, 16),
+        TypeId::from_raw(Idx::BOOL.raw()),
+    ));
+
+    let tree = tree_of(&mut arena, base_name);
+    let mut decision_trees = ori_ir::canon::DecisionTreePool::default();
+    let tree_id = decision_trees.push(tree);
+    let _ = arm0;
+
+    let match_expr = arena.push(CanNode::new(
+        CanExpr::Match {
+            scrutinee,
+            decision_tree: tree_id,
+            arms,
+        },
+        Span::new(12, 40),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let stmts = arena.push_expr_list(&[let_base]);
+    let body = arena.push(CanNode::new(
+        CanExpr::Block {
+            stmts,
+            result: match_expr,
+        },
+        Span::new(0, 41),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees,
+        root: body,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        mono_dispatch_map_can: vec![],
+    };
+
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::INT,
+        body,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert_jump_args_match_params(&func);
+    func
+}
+
+/// Plain two-leaf bool tree (no guards).
+fn bool_leaf_tree(_arena: &mut CanArena, _base: Name) -> ori_ir::canon::DecisionTree {
+    ori_ir::canon::DecisionTree::Switch {
+        path: vec![],
+        test_kind: ori_ir::canon::TestKind::BoolEq,
+        edges: vec![(
+            ori_ir::canon::TestValue::Bool(true),
+            ori_ir::canon::DecisionTree::Leaf {
+                arm_index: 0,
+                bindings: vec![],
+            },
+        )],
+        default: Some(Box::new(ori_ir::canon::DecisionTree::Leaf {
+            arm_index: 1,
+            bindings: vec![],
+        })),
+    }
+}
+
+#[test]
+fn match_unchanged_mutable_binding_prunes_merge_param() {
+    // No arm assigns `base` → its merge param is pruned; the merge block
+    // carries ONLY the result param (no dead block-param for the unchanged
+    // binding to leak through per RL-4/RL-5).
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, _| {
+            arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(20, 21),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        bool_leaf_tree,
+    );
+    let max_params = func.blocks.iter().map(|b| b.params.len()).max();
+    assert_eq!(
+        max_params,
+        Some(1),
+        "merge carries only the result param — unchanged `base` is pruned; blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn match_assigned_mutable_binding_keeps_merge_param() {
+    // Arm 0 reassigns `base` → the binding genuinely diverges and its merge
+    // param MUST survive the pruning (the real phi `merge_mutable_vars`
+    // would keep on the if/else shape).
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, base_name| {
+            let target = arena.push(CanNode::new(
+                CanExpr::Ident(base_name),
+                Span::new(20, 24),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let value = arena.push(CanNode::new(
+                CanExpr::Str(base_name),
+                Span::new(25, 26),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let assign = arena.push(CanNode::new(
+                CanExpr::Assign { target, value },
+                Span::new(20, 26),
+                TypeId::from_raw(Idx::UNIT.raw()),
+            ));
+            let stmts = arena.push_expr_list(&[assign]);
+            let result = arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(27, 28),
+                TypeId::from_raw(Idx::INT.raw()),
+            ));
+            arena.push(CanNode::new(
+                CanExpr::Block { stmts, result },
+                Span::new(20, 28),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        bool_leaf_tree,
+    );
+    assert!(
+        func.blocks.iter().any(|b| b.params.len() == 2),
+        "a reassigned binding keeps its merge param (result + base phi); blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn match_guard_assignment_keeps_merge_param() {
+    // The reassignment lives in a decision-tree GUARD expression, not an arm
+    // body — the pre-traversal must walk tree guards too.
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, _| {
+            arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(20, 21),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        |arena, base_name| {
+            // Guard: `{ base = "s"; true }` — an Assign reachable only
+            // through the tree's guard expression.
+            let target = arena.push(CanNode::new(
+                CanExpr::Ident(base_name),
+                Span::new(17, 18),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let value = arena.push(CanNode::new(
+                CanExpr::Str(base_name),
+                Span::new(18, 19),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let assign = arena.push(CanNode::new(
+                CanExpr::Assign { target, value },
+                Span::new(17, 19),
+                TypeId::from_raw(Idx::UNIT.raw()),
+            ));
+            let stmts = arena.push_expr_list(&[assign]);
+            let guard_result = arena.push(CanNode::new(
+                CanExpr::Bool(true),
+                Span::new(19, 20),
+                TypeId::from_raw(Idx::BOOL.raw()),
+            ));
+            let guard = arena.push(CanNode::new(
+                CanExpr::Block {
+                    stmts,
+                    result: guard_result,
+                },
+                Span::new(17, 20),
+                TypeId::from_raw(Idx::BOOL.raw()),
+            ));
+            ori_ir::canon::DecisionTree::Switch {
+                path: vec![],
+                test_kind: ori_ir::canon::TestKind::BoolEq,
+                edges: vec![(
+                    ori_ir::canon::TestValue::Bool(true),
+                    ori_ir::canon::DecisionTree::Guard {
+                        arm_index: 0,
+                        bindings: vec![],
+                        guard,
+                        on_fail: Box::new(ori_ir::canon::DecisionTree::Leaf {
+                            arm_index: 1,
+                            bindings: vec![],
+                        }),
+                    },
+                )],
+                default: Some(Box::new(ori_ir::canon::DecisionTree::Leaf {
+                    arm_index: 1,
+                    bindings: vec![],
+                })),
+            }
+        },
+    );
+    assert!(
+        func.blocks.iter().any(|b| b.params.len() == 2),
+        "a guard-side reassignment keeps the merge param; blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
+    );
+}

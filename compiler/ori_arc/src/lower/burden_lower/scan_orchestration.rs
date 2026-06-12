@@ -41,6 +41,24 @@ use super::{
     DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, TTR_ITER_CONSUME_DUP_INC_DISABLED,
 };
 
+/// Merge `source`'s per-key `ArcVarId` release lists into `target`, skipping a
+/// var already present under its key. Shared by the branch-exclusive funded
+/// release merge and the dead-edge birth release merge. Spec: Annex E §AIMS
+/// RL-4 + RL-5.
+fn merge_release_vars<K: Eq + std::hash::Hash>(
+    target: &mut FxHashMap<K, Vec<ArcVarId>>,
+    source: FxHashMap<K, Vec<ArcVarId>>,
+) {
+    for (key, vars) in source {
+        let entry = target.entry(key).or_default();
+        for var in vars {
+            if !entry.contains(&var) {
+                entry.push(var);
+            }
+        }
+    }
+}
+
 /// Walk `func` and emit `BurdenInc` / `BurdenDec` ops per SSA variable from
 /// `BurdenSpec` lookups, filtered to owned positions via `DerivedOwnership`.
 ///
@@ -577,14 +595,20 @@ pub(crate) fn emit_burden_ops<'a>(
         &genuine_dup_call_arg_aliases,
         contracts,
     );
-    for (pos, vars) in branch_exclusive_releases {
-        let entry = forwarder_result_releases.entry(pos).or_default();
-        for var in vars {
-            if !entry.contains(&var) {
-                entry.push(var);
-            }
-        }
-    }
+    merge_release_vars(
+        &mut forwarder_result_releases,
+        branch_exclusive_releases.releases,
+    );
+    // RL-4 dead-on-edge birth release for fully-dead non-consuming edges: a
+    // NO-USE admitted target has TWO outstanding references (birth + kept
+    // funding inc) and no RL-2 last-use anchor, so it owes a SECOND dec —
+    // emitted through the block-entry dead-param release surface (a distinct
+    // surface from the funded-duplicate release above, so the pair lands as
+    // two decs at the same entry). Spec: Annex E §AIMS RL-4 + RL-2.
+    merge_release_vars(
+        &mut dead_forwarder_param_releases,
+        branch_exclusive_releases.dead_edge_birth_releases,
+    );
 
     let analysis = BurdenAnalysisCtx {
         owned_vars_needing_rc: &owned_vars_needing_rc,

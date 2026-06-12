@@ -9039,6 +9039,7 @@ fn branch_exclusive_releases_for(
         &FxHashSet::default(),
         &FxHashMap::default(),
     )
+    .releases
 }
 
 /// The pinned `@store_one` shape: root %0 constructed pre-branch, stored
@@ -9092,6 +9093,58 @@ fn branch_exclusive_store_no_use_arm_releases_at_block_entry() {
          releases = {releases:?}"
     );
     assert_eq!(releases.len(), 1, "the consuming edge emits nothing extra");
+}
+
+#[test]
+fn branch_exclusive_no_use_arm_owes_dead_edge_birth_release() {
+    // A fully-dead no-use arm carries TWO outstanding references (birth +
+    // kept funding inc) and no RL-2 last-use anchor — the edge owes the
+    // dead-edge birth dec BESIDE the funded-duplicate release.
+    let func = func_with_blocks(
+        6,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(1, vec![alias_of(2, 0), store_of(4, 2)], ret(5)),
+            block(2, Vec::new(), ret(5)),
+        ],
+    );
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+    let out = super::ownership_scans::compute_branch_exclusive_edge_releases(
+        &func,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+    );
+    assert_eq!(
+        out.dead_edge_birth_releases.get(&2),
+        Some(&vec![ArcVarId::new(0)]),
+        "the no-use edge owes the RL-4 birth dec: {:?}",
+        out.dead_edge_birth_releases
+    );
+}
+
+#[test]
+fn branch_exclusive_borrow_arm_owes_no_dead_edge_birth_release() {
+    // A non-consuming arm WITH a borrow read carries its own RL-2 last-use
+    // dec for the birth reference — only the funded-duplicate release is owed.
+    let func = branch_exclusive_store_func();
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+    let out = super::ownership_scans::compute_branch_exclusive_edge_releases(
+        &func,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+    );
+    assert!(
+        out.dead_edge_birth_releases.is_empty(),
+        "a borrow-read arm never gains the birth dec (its last-use dec owns \
+         the birth reference): {:?}",
+        out.dead_edge_birth_releases
+    );
 }
 
 #[test]

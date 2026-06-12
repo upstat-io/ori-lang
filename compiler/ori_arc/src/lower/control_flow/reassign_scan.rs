@@ -39,6 +39,12 @@ pub(super) fn match_param_pruning_disabled() -> bool {
 /// decision-tree guard expressions, including nested matches' guards) could
 /// rebind. Mutable bindings OUTSIDE the returned set cannot diverge in any
 /// arm and are pruned from the merge block-params.
+#[expect(
+    clippy::too_many_lines,
+    reason = "single exhaustive CanExpr child-collection dispatch: one arm per \
+              variant pushing child ids onto the worklist; splitting the match \
+              fragments a cohesive traversal"
+)]
 pub(super) fn collect_reassigned_mutable_names(
     arena: &CanArena,
     canon: &CanonResult,
@@ -87,7 +93,7 @@ pub(super) fn collect_reassigned_mutable_names(
                 stack.push(right);
             }
             CanExpr::Unary { operand, .. } => stack.push(operand),
-            CanExpr::Cast { expr, .. } => stack.push(expr),
+            CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => stack.push(expr),
             CanExpr::Call { func, args } => {
                 stack.push(func);
                 stack.extend(arena.get_expr_list(args).iter().copied());
@@ -177,7 +183,6 @@ pub(super) fn collect_reassigned_mutable_names(
                     stack.push(prop.value);
                 }
             }
-            CanExpr::FormatWith { expr, .. } => stack.push(expr),
         }
     }
     reassigned

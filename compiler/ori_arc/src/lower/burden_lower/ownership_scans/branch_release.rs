@@ -34,6 +34,23 @@ static BRANCH_EXCLUSIVE_EDGE_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(||
     std::env::var("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE").as_deref() == Ok("1")
 });
 
+/// Output of [`compute_branch_exclusive_edge_releases`]: the per-edge
+/// funded-duplicate releases plus the NO-USE dead-edge birth releases.
+pub(in crate::lower::burden_lower) struct BranchExclusiveReleases {
+    /// One additive `BurdenDec(root)` per admitted non-consuming edge — the
+    /// matched release of the pre-branch funding inc on that path.
+    pub releases: FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>>,
+    /// Admitted targets where the lineage has ZERO uses in the forward region:
+    /// the allocation is fully dead crossing the edge with TWO outstanding
+    /// references (birth + kept funding inc) and no future consumer, so the
+    /// edge ALSO owes the RL-4 dead-on-edge birth dec (block-entry placement,
+    /// merged into the dead-param release surface) beside the funded-duplicate
+    /// release above. A path WITH a use carries its own RL-2 last-use dec for
+    /// the birth reference; the no-use path has no anchor for it.
+    /// Spec: Annex E §AIMS RL-4 + RL-2.
+    pub dead_edge_birth_releases: FxHashMap<usize, Vec<ArcVarId>>,
+}
+
 /// Per-root lineage facts consumed by the per-edge admission: the same-alloc
 /// member set (root + transitive `Let { Var }` aliases), the borrow-view set
 /// (transitive `Project` dsts), every member/view USE site, and the consume
@@ -119,9 +136,13 @@ pub(in crate::lower::burden_lower) fn compute_branch_exclusive_edge_releases(
     full_move_vars: &FxHashSet<ArcVarId>,
     funded_call_arg_aliases: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
-) -> FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>> {
+) -> BranchExclusiveReleases {
+    let mut out = BranchExclusiveReleases {
+        releases: FxHashMap::default(),
+        dead_edge_birth_releases: FxHashMap::default(),
+    };
     if *BRANCH_EXCLUSIVE_EDGE_RELEASE_DISABLED {
-        return FxHashMap::default();
+        return out;
     }
     let roots = collect_candidate_roots(
         func,
@@ -130,7 +151,7 @@ pub(in crate::lower::burden_lower) fn compute_branch_exclusive_edge_releases(
         full_move_vars,
     );
     if roots.is_empty() {
-        return FxHashMap::default();
+        return out;
     }
     let funded_store = compute_funded_store_dup_aliases(func, contracts);
     let def_block = collect_def_blocks(func);
@@ -151,7 +172,6 @@ pub(in crate::lower::burden_lower) fn compute_branch_exclusive_edge_releases(
             .clone()
     };
 
-    let mut out: FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>> = FxHashMap::default();
     for root in roots {
         // Per-iteration roots are out of the per-edge model: re-reaching the
         // definition re-defines the binding (the duplication scans' CUT).
@@ -186,16 +206,25 @@ pub(in crate::lower::burden_lower) fn compute_branch_exclusive_edge_releases(
                 if target >= n || !seen_targets.insert(target) || pred_count[target] != 1 {
                     continue;
                 }
-                let Some(pos) =
+                let Some((pos, no_use)) =
                     admit_edge(func, root, &facts, d_idx, target, &pred_count, &mut |b| {
                         reach(b, &mut reach_cache)
                     })
                 else {
                     continue;
                 };
-                let entry = out.entry(pos).or_default();
+                let entry = out.releases.entry(pos).or_default();
                 if !entry.contains(&root) {
                     entry.push(root);
+                }
+                // Fully-dead edge: the lineage has no use in the target's
+                // forward region, so the birth reference has no RL-2 last-use
+                // anchor on this path — the edge owes its dec too.
+                if no_use {
+                    let birth = out.dead_edge_birth_releases.entry(target).or_default();
+                    if !birth.contains(&root) {
+                        birth.push(root);
+                    }
                 }
             }
         }
@@ -350,8 +379,9 @@ fn terminator_consumes(term: &ArcTerminator, pos: usize) -> bool {
 }
 
 /// Evaluate the per-edge admission gates for `D → target` and return the
-/// release position, or `None` to decline (the leak persists — never a
-/// double-free).
+/// release position plus a NO-USE marker (true iff the lineage has zero uses
+/// in the target's forward region — the dead-edge birth-release case), or
+/// `None` to decline (the leak persists — never a double-free).
 fn admit_edge(
     func: &ArcFunction,
     root: ArcVarId,
@@ -360,7 +390,7 @@ fn admit_edge(
     target: usize,
     pred_count: &[u32],
     reach: &mut dyn FnMut(usize) -> FxHashSet<usize>,
-) -> Option<(usize, ForwarderReleasePos)> {
+) -> Option<((usize, ForwarderReleasePos), bool)> {
     // A target that cannot complete normally (the impossible `Switch` default
     // arm's `Unreachable`, an unwind handler's `Resume`) never executes a
     // release — the dying unwind / unreachable edges are owned by the edge
@@ -406,7 +436,7 @@ fn admit_edge(
         .map(|&(_, pos)| pos)
         .max();
     match last_use_in_target {
-        None => Some((target, ForwarderReleasePos::BlockEntry)),
+        None => Some(((target, ForwarderReleasePos::BlockEntry), true)),
         Some(usize::MAX) => {
             // Final read is a BORROWED terminator-`Invoke` arg (owned args are
             // consumes — already declined). Release at the single-pred normal
@@ -421,8 +451,8 @@ fn admit_edge(
             if succ >= pred_count.len() || pred_count[succ] != 1 {
                 return None;
             }
-            Some((succ, ForwarderReleasePos::BlockEntry))
+            Some(((succ, ForwarderReleasePos::BlockEntry), false))
         }
-        Some(idx) => Some((target, ForwarderReleasePos::AfterInstr(idx))),
+        Some(idx) => Some(((target, ForwarderReleasePos::AfterInstr(idx)), false)),
     }
 }
