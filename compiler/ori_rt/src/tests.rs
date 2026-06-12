@@ -4532,6 +4532,19 @@ fn rc_underflow_aborts_process() {
         !result.status.success(),
         "child process should have aborted on underflow, but exited successfully"
     );
+
+    // On unix, the underflow path uses `abort()` so supervising processes
+    // observe a uniform killed-by-SIGABRT status (WIFSIGNALED, signal 6).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            result.status.signal(),
+            Some(6),
+            "underflow abort must terminate via SIGABRT, got {:?}",
+            result.status
+        );
+    }
 }
 
 /// Helper test only run as a subprocess by `rc_underflow_aborts_process`.

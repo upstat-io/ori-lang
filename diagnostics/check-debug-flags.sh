@@ -9,15 +9,18 @@
 #   --no-color     Disable color output
 #   -h, --help     Show this help
 #
-# Checks:
+# Checks (all derived from debug_flags.rs + compiler/ — self-contained to this repo):
 #   1. Every ORI_* flag defined in debug_flags.rs is used somewhere in the codebase
 #   2. Every raw std::env::var("ORI_*") or std::env::var_os("ORI_*") check
 #      references a flag in debug_flags.rs
 #      (excludes runtime-only flags in ori_rt, non-diagnostic flags, and test guards)
-#   3. CLAUDE.md documents all diagnostic env vars
 #
-# Reports: stale flags (defined but unused), orphan checks (used but undefined),
-# undocumented flags (defined but not in CLAUDE.md).
+# Reports: stale flags (defined but unused), orphan checks (used but undefined).
+#
+# Flag->docs consistency (every flag documented in CLAUDE.md / .claude/rules/) is
+# enforced by the wrapper repo's pre-commit, NOT here: those docs are not present
+# in a standalone / public checkout, and a public-repo script must not reference
+# them. See scripts/check-flag-docs.sh in the wrapper.
 #
 # Exit codes:
 #   0 = all checks pass
@@ -28,11 +31,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# CLAUDE.md and .claude/ live one directory above this repo.
-PROJECT_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 
 DEBUG_FLAGS="$ROOT_DIR/compiler/oric/src/debug_flags.rs"
-CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 
 # --- Defaults ---
 USE_COLOR=auto
@@ -72,11 +72,6 @@ fi
 # --- Verify required files exist ---
 if [[ ! -f "$DEBUG_FLAGS" ]]; then
     echo "Error: debug_flags.rs not found at $DEBUG_FLAGS" >&2
-    exit 2
-fi
-
-if [[ ! -f "$CLAUDE_MD" ]]; then
-    echo "Error: CLAUDE.md not found at $CLAUDE_MD" >&2
     exit 2
 fi
 
@@ -206,60 +201,17 @@ if [[ $orphan_count -eq 0 ]]; then
     printf "  ${C_GREEN}OK${C_NC} — no orphan env var checks\n"
 fi
 
-# --- Step 5: Check documentation ---
-#
-# CLAUDE.md is the index; .claude/rules/*.md is the detail layer CLAUDE.md
-# delegates to (e.g., compiler.md §Tracing, llvm.md env-var table). A flag
-# counts as documented when ANY of:
-#   (1) its exact name appears in CLAUDE.md, OR
-#   (2) its exact name appears in any .claude/rules/*.md file, OR
-#   (3) a wildcard `<prefix>*` pattern in CLAUDE.md covers the flag —
-#       matches the concise-index pattern (e.g. `ORI_DUMP_AFTER_*`
-#       covers ORI_DUMP_AFTER_PARSE / TYPECK / ARC / LLVM).
-printf "\n${C_BOLD}4. Documentation (CLAUDE.md + .claude/rules/):${C_NC}\n"
-undoc_count=0
-
-RULES_DIR="$PROJECT_ROOT/.claude/rules"
-
-# Extract wildcard prefixes (ORI_XXX_*) from CLAUDE.md once so the
-# per-flag loop is O(flags × prefixes) instead of repeatedly grepping.
-CLAUDE_WILDCARDS=()
-while IFS= read -r w; do
-    [[ -n "$w" ]] && CLAUDE_WILDCARDS+=("${w%\*}")
-done < <(grep -oE '\bORI_[A-Z0-9_]+\*' "$CLAUDE_MD" | sort -u)
-
-for flag in "${DEFINED_FLAGS[@]}"; do
-    documented=0
-
-    if grep -q "$flag" "$CLAUDE_MD"; then
-        documented=1
-    elif [[ -d "$RULES_DIR" ]] \
-         && grep -rql "$flag" "$RULES_DIR" --include='*.md' > /dev/null 2>&1; then
-        documented=1
-    else
-        for prefix in "${CLAUDE_WILDCARDS[@]}"; do
-            if [[ -n "$prefix" && "$flag" == "$prefix"* ]]; then
-                documented=1
-                break
-            fi
-        done
-    fi
-
-    if [[ $documented -eq 0 ]]; then
-        printf "  ${C_YELLOW}UNDOC${C_NC}: %s — not in CLAUDE.md or .claude/rules/*.md\n" "$flag"
-        undoc_count=$((undoc_count + 1))
-        issues=$((issues + 1))
-    fi
-done
-
-if [[ $undoc_count -eq 0 ]]; then
-    printf "  ${C_GREEN}OK${C_NC} — all flags documented\n"
-fi
+# --- Documentation check (flag -> CLAUDE.md / .claude/rules/) ---
+# Re-homed to wrapper-owned tooling: a public-repo script must NOT reach into
+# the private wrapper's CLAUDE.md / .claude/rules/ (those are not present in a
+# standalone / public CI checkout, and referencing them is a wrapper-leakage
+# violation). The flag->docs consistency check lives in the wrapper pre-commit;
+# see scripts/check-flag-docs.sh + lefthook.yml in the wrapper repo.
 
 # --- Summary ---
 printf "\n${C_BOLD}Summary:${C_NC}\n"
 printf "  Defined flags: %d\n" "${#DEFINED_FLAGS[@]}"
-printf "  Stale: %d | Orphan: %d | Undocumented: %d\n" "$stale_count" "$orphan_count" "$undoc_count"
+printf "  Stale: %d | Orphan: %d\n" "$stale_count" "$orphan_count"
 
 if [[ $issues -eq 0 ]]; then
     printf "\n${C_GREEN}${C_BOLD}All checks passed.${C_NC}\n"

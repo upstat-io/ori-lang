@@ -206,3 +206,85 @@ type Tri = A(n: int) | B(n: int) | C;
     assert_eq(actual: generic_unwrap_or(opt: None, fallback: 3), expected: 3);
     ()
 }
+
+// =============================================================================
+// GUARD-POSITION negative pins — per pattern shape (matrix completion)
+// =============================================================================
+
+// --- tuple binding, guard position ---
+#compile_fail("unknown identifier")
+@test_tuple_guard_leak tests @_tgl () -> void = {
+    let p: (int, int) = (1, 2);
+    let _ = match p {
+        (1, b) -> 0,
+        _ if b > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_tgl () -> bool = true;
+
+// --- list rest binding, guard position ---
+#compile_fail("unknown identifier")
+@test_list_guard_leak tests @_lgl () -> void = {
+    let xs: [int] = [1, 2, 3];
+    let _ = match xs {
+        [h, ..t] -> 0,
+        [] if h > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_lgl () -> bool = true;
+
+// --- struct shorthand binding, guard position ---
+#compile_fail("unknown identifier")
+@test_struct_shorthand_guard_leak tests @_ssgl () -> void = {
+    let b: Box = Box { x: 1 };
+    let _ = match b {
+        { x: 1 } -> 0,
+        _ if x > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ssgl () -> bool = true;
+
+// --- at-pattern binding, guard position ---
+#compile_fail("unknown identifier")
+@test_at_guard_leak tests @_agl () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt {
+        y @ Some(_) -> 0,
+        None if is_some(option: y) -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_agl () -> bool = true;
+
+// --- nested binding in variant, guard position ---
+#compile_fail("unknown identifier")
+@test_nested_guard_leak tests @_ngl () -> void = {
+    let p: Option<(int, int)> = Some((1, 2));
+    let _ = match p {
+        Some((a, b)) -> 0,
+        _ if a > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ngl () -> bool = true;
+
+// --- or-pattern binding, guard position ---
+#compile_fail("unknown identifier")
+@test_or_guard_leak tests @_ogl () -> void = {
+    let r: Result<int, int> = Ok(1);
+    let _ = match r {
+        Ok(n) | Err(n) -> 0,
+        _ if n > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ogl () -> bool = true;

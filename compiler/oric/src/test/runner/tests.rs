@@ -100,3 +100,22 @@ fn test_runner_filter() {
     let name_str = summary.results[0].name_str(runner.interner());
     assert!(name_str.contains("foo"));
 }
+
+/// `panic_message` extracts String and &str payloads and falls back to a
+/// stable label for non-string payloads (the `catch_unwind` failure detail
+/// rendered for tests that panic inside the evaluator or LLVM compilation).
+#[test]
+fn test_panic_message_extracts_string_and_str_payloads() {
+    let string_payload =
+        std::panic::catch_unwind(|| std::panic::panic_any("owned".to_string())).unwrap_err();
+    assert_eq!(panic_message(string_payload.as_ref()), "owned");
+
+    let str_payload = std::panic::catch_unwind(|| std::panic::panic_any("borrowed")).unwrap_err();
+    assert_eq!(panic_message(str_payload.as_ref()), "borrowed");
+
+    let other_payload = std::panic::catch_unwind(|| std::panic::panic_any(42_u32)).unwrap_err();
+    assert_eq!(
+        panic_message(other_payload.as_ref()),
+        "panic with non-string payload"
+    );
+}

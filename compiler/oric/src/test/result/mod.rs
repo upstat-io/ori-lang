@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Outcome of a single test.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TestOutcome {
     /// Test passed successfully.
     Passed,
@@ -16,7 +16,8 @@ pub enum TestOutcome {
     /// Test skipped because all targets are unchanged since last run.
     SkippedUnchanged,
     /// Test could not run because LLVM compilation of its file failed.
-    /// Not counted as a real failure — tracked separately.
+    /// Counted as a real failure; `llvm_compile_fail` counters track the
+    /// reason breakdown as a subset of `failed`.
     LlvmCompileFail(String),
 }
 
@@ -117,7 +118,7 @@ pub struct FileSummary {
     pub skipped: usize,
     /// Number of tests skipped because targets unchanged.
     pub skipped_unchanged: usize,
-    /// Number of tests blocked by LLVM compilation failure.
+    /// Number of tests blocked by LLVM compilation failure (subset of `failed`).
     pub llvm_compile_fail: usize,
     /// Total time to run all tests in file.
     pub duration: Duration,
@@ -141,7 +142,12 @@ impl FileSummary {
             TestOutcome::Failed(_) => self.failed += 1,
             TestOutcome::Skipped(_) => self.skipped += 1,
             TestOutcome::SkippedUnchanged => self.skipped_unchanged += 1,
-            TestOutcome::LlvmCompileFail(_) => self.llvm_compile_fail += 1,
+            TestOutcome::LlvmCompileFail(_) => {
+                // A test that cannot compile via LLVM is a failed test; the
+                // dedicated counter tracks the reason breakdown.
+                self.failed += 1;
+                self.llvm_compile_fail += 1;
+            }
         }
         self.duration += result.duration;
         self.results.push(result);
@@ -155,9 +161,10 @@ impl FileSummary {
         self.passed + self.failed + self.skipped
     }
 
-    /// Returns true if there are real failures (excludes LLVM compile failures).
+    /// Returns true if any test failed (including LLVM compile failures) or
+    /// the file had parse/type/LLVM errors.
     pub fn has_failures(&self) -> bool {
-        self.failed > 0 || (!self.errors.is_empty() && !self.llvm_compile_error)
+        self.failed > 0 || !self.errors.is_empty()
     }
 }
 
@@ -174,7 +181,7 @@ pub struct TestSummary {
     pub skipped: usize,
     /// Total tests skipped because targets unchanged.
     pub skipped_unchanged: usize,
-    /// Total tests blocked by LLVM compilation failure.
+    /// Total tests blocked by LLVM compilation failure (subset of `failed`).
     pub llvm_compile_fail: usize,
     /// Number of files with type/parse errors (real failures).
     pub error_files: usize,
@@ -210,11 +217,13 @@ impl TestSummary {
         self.passed + self.failed + self.skipped
     }
 
-    /// Returns true if any real test failure or real file error occurred.
+    /// Returns true if any test failure or file error occurred.
     ///
+    /// LLVM compile failures count (`llvm_compile_fail` is a subset of
+    /// `failed`; `llvm_compile_fail_files` covers error-only files).
     /// Expected failures (XFAIL) do not count as failures.
     pub fn has_failures(&self) -> bool {
-        self.failed > 0 || self.error_files > 0
+        self.failed > 0 || self.error_files > 0 || self.llvm_compile_fail_files > 0
     }
 
     /// Returns true if any file had real (non-expected) errors.
@@ -224,11 +233,7 @@ impl TestSummary {
 
     /// Get exit code: 0 = all pass, 1 = failures (tests or type errors), 2 = no tests found.
     pub fn exit_code(&self) -> i32 {
-        if self.total() == 0
-            && self.error_files == 0
-            && self.llvm_compile_fail == 0
-            && self.llvm_compile_fail_files == 0
-        {
+        if self.total() == 0 && self.error_files == 0 && self.llvm_compile_fail_files == 0 {
             2
         } else {
             i32::from(self.has_failures())

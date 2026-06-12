@@ -163,6 +163,30 @@ static GENUINE_DUP_PAIR_COUPLING_DISABLED: LazyLock<bool> =
 static TTR_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL=1` restores the single-block
+/// `last_use_points == 1` over-approximation in the dup'd terminal-move gate
+/// ([`ownership_scans::compute_transfer_via_move_alias`]). Default (unset): a
+/// dup'd CROSS-BLOCK move source whose `Let { Var }` alias is its proven global
+/// final use (successor-reachability final-use proof; loop back-edge re-use
+/// declines) joins the transfer fixpoint, cancelling the pending last-use
+/// release when the alias hands off at an owned position (Construct arg /
+/// `[own]` call arg / Return) per `AimsProof.Realization::
+/// RL2_transfer_kinds_no_dec`. With the toggle set, the post-Construct release
+/// returns (double-free on the dup-inc'd pair-return lineage — the
+/// `(base, fork)` COW shape). Bisection surface: isolates a pair-return
+/// double-free / leak to the relaxed gate vs the rest of the Phase-5 walk.
+/// Spec: Annex E §AIMS RL-2.
+static CROSS_BLOCK_FINAL_USE_CANCEL_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL`
+/// toggle — consumed by the move-alias transfer scan
+/// (`ownership_scans::move_alias`).
+pub(in crate::lower::burden_lower) fn cross_block_final_use_cancel_disabled() -> bool {
+    *CROSS_BLOCK_FINAL_USE_CANCEL_DISABLED
+}
+
 /// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
 /// consumed by Phase 5 here and by the Phase-6 per-var elision
 /// (`aims::realize::burden_elim`) so both halves of the pair-coupling cure flip

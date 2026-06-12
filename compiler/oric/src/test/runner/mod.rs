@@ -8,9 +8,16 @@ mod arc_lowering;
 mod imported_mono;
 #[cfg(feature = "llvm")]
 mod llvm_backend;
+#[cfg(feature = "llvm")]
+mod subprocess;
 mod test_execution;
+#[cfg(feature = "llvm")]
+mod worker;
 
-use std::path::Path;
+#[cfg(feature = "llvm")]
+pub use worker::run_worker;
+
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
@@ -22,9 +29,21 @@ use crate::ir::TestDef;
 use crate::query::{parsed, typed, typed_pool};
 
 use super::change_detection::{FunctionChangeMap, TestRunCache, TestTargetIndex};
-use super::discovery::{discover_tests_in, TestFile};
+use super::discovery::{discover_tests_in_all, TestFile};
+use super::protocol;
 use super::result::TestOutcome;
 use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
+
+/// Extract a human-readable message from a `catch_unwind` payload.
+pub(super) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else {
+        "panic with non-string payload".to_string()
+    }
+}
 
 /// Backend for test execution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,6 +74,10 @@ pub struct TestRunnerConfig {
     pub backend: Backend,
     /// Enable incremental test execution (skip tests whose targets are unchanged).
     pub incremental: bool,
+    /// Worker mode: run in-process and stream the per-test line protocol
+    /// (`test::protocol`) to stdout. Set by the hidden `--__worker` flag the
+    /// parent runner passes when isolating LLVM test files in subprocesses.
+    pub worker_protocol: bool,
 }
 
 impl Default for TestRunnerConfig {
@@ -66,6 +89,7 @@ impl Default for TestRunnerConfig {
             coverage: false,
             backend: Backend::Interpreter,
             incremental: false,
+            worker_protocol: false,
         }
     }
 }
@@ -113,7 +137,23 @@ impl TestRunner {
 
     /// Run all tests in a path (file or directory).
     pub fn run(&self, path: &Path) -> TestSummary {
-        let test_files = discover_tests_in(path);
+        self.run_paths(std::slice::from_ref(&path.to_path_buf()))
+    }
+
+    /// Run all tests across multiple paths (files and/or directories),
+    /// deduplicated, in one combined summary.
+    pub fn run_paths(&self, paths: &[PathBuf]) -> TestSummary {
+        let test_files = discover_tests_in_all(paths);
+
+        // LLVM backend: per-file subprocess isolation. A crashing test
+        // (SIGSEGV in JIT'd code, runtime abort) kills only that file's
+        // worker; the parent classifies the death, counts the in-flight test
+        // as failed, and continues with the next file. Worker mode itself
+        // (`worker_protocol`) runs the file in-process below.
+        #[cfg(feature = "llvm")]
+        if self.config.backend == Backend::LLVM && !self.config.worker_protocol {
+            return self.run_llvm_isolated(&test_files);
+        }
 
         // LLVM backend must run sequentially due to context creation contention.
         // LLVM's Context::create() has global lock contention - when rayon spawns
@@ -125,6 +165,22 @@ impl TestRunner {
         } else {
             self.run_sequential(&test_files)
         }
+    }
+
+    /// Run LLVM-backend tests with one worker subprocess per test file.
+    #[cfg(feature = "llvm")]
+    fn run_llvm_isolated(&self, files: &[TestFile]) -> TestSummary {
+        let mut summary = TestSummary::new();
+        let start = Instant::now();
+
+        for file in files {
+            let file_summary =
+                subprocess::run_file_isolated(&file.path, &self.interner, &self.config);
+            summary.add_file(file_summary);
+        }
+
+        summary.duration = start.elapsed();
+        summary
     }
 
     /// Run tests sequentially.
@@ -210,6 +266,62 @@ impl TestRunner {
     /// Run all tests in a single file (instance method for convenience).
     fn run_file(&self, path: &Path) -> FileSummary {
         Self::run_file_with_interner(path, &self.interner, &self.config, &self.cache)
+    }
+
+    /// Whether a test passes the configured name filter (substring match).
+    pub(super) fn test_passes_filter(
+        test: &TestDef,
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) -> bool {
+        config
+            .filter
+            .as_ref()
+            .is_none_or(|f| interner.lookup(test.name).contains(f.as_str()))
+    }
+
+    /// Worker protocol: announce every filter-passing test up front so the
+    /// parent can account for tests lost to a mid-file worker crash.
+    /// No-op outside worker mode.
+    fn protocol_plan<'t>(
+        tests: impl Iterator<Item = &'t TestDef>,
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) {
+        if !config.worker_protocol {
+            return;
+        }
+        for test in tests {
+            if Self::test_passes_filter(test, config, interner) {
+                protocol::emit_plan(interner.lookup(test.name));
+            }
+        }
+    }
+
+    /// Worker protocol: emit a `start` record. No-op outside worker mode.
+    pub(super) fn protocol_start(
+        name: crate::ir::Name,
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) {
+        if config.worker_protocol {
+            protocol::emit_start(interner.lookup(name));
+        }
+    }
+
+    /// Worker protocol: emit a `result` record. No-op outside worker mode.
+    pub(super) fn protocol_result(
+        result: &TestResult,
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) {
+        if config.worker_protocol {
+            protocol::emit_result(
+                interner.lookup(result.name),
+                &result.outcome,
+                result.duration,
+            );
+        }
     }
 
     /// Run all tests in a single file with a shared interner.
@@ -326,6 +438,15 @@ impl TestRunner {
             .iter()
             .partition(|t| t.is_compile_fail());
 
+        Self::protocol_plan(
+            compile_fail_tests
+                .iter()
+                .chain(regular_tests.iter())
+                .copied(),
+            config,
+            interner,
+        );
+
         // Effect-driven prioritization: effectful tests first, pure tests last.
         // Effectful tests are more likely to detect real regressions because they
         // exercise I/O paths and external interactions. Pure tests are deterministic
@@ -336,13 +457,10 @@ impl TestRunner {
 
         // Run compile_fail tests first (they don't need load_module)
         for test in &compile_fail_tests {
-            // Apply filter if set
-            if let Some(ref filter_str) = config.filter {
-                let test_name = interner.lookup(test.name);
-                if !test_name.contains(filter_str.as_str()) {
-                    continue;
-                }
+            if !Self::test_passes_filter(test, config, interner) {
+                continue;
             }
+            Self::protocol_start(test.name, config, interner);
 
             let inner_result = Self::run_compile_fail_test(
                 test,
@@ -358,6 +476,7 @@ impl TestRunner {
                 inner_result
             };
 
+            Self::protocol_result(&result, config, interner);
             summary.add_result(result);
         }
 
@@ -390,23 +509,25 @@ impl TestRunner {
             let is_llvm = matches!(config.backend, Backend::LLVM);
 
             for test in &regular_tests {
-                if is_llvm {
-                    summary.add_result(TestResult {
+                let result = if is_llvm {
+                    TestResult {
                         name: test.name,
                         targets: test.targets.clone(),
                         outcome: TestOutcome::LlvmCompileFail(
                             "blocked by type errors in file".to_string(),
                         ),
                         duration: Duration::ZERO,
-                    });
+                    }
                 } else {
-                    summary.add_result(TestResult::failed(
+                    TestResult::failed(
                         test.name,
                         test.targets.clone(),
                         "blocked by type errors in file".to_string(),
                         Duration::ZERO,
-                    ));
-                }
+                    )
+                };
+                Self::protocol_result(&result, config, interner);
+                summary.add_result(result);
             }
             for error in non_compile_fail_errors {
                 summary.add_error(error.message());
@@ -441,25 +562,24 @@ impl TestRunner {
 
                 // Run each regular test
                 for test in &regular_tests {
-                    // Apply filter if set
-                    if let Some(ref filter_str) = config.filter {
-                        let test_name = interner.lookup(test.name);
-                        if !test_name.contains(filter_str.as_str()) {
-                            continue;
-                        }
+                    if !Self::test_passes_filter(test, config, interner) {
+                        continue;
                     }
 
                     // Incremental: skip tests whose targets are unchanged.
                     if skippable.contains(&test.name) {
-                        summary.add_result(TestResult {
+                        let result = TestResult {
                             name: test.name,
                             targets: test.targets.clone(),
                             outcome: TestOutcome::SkippedUnchanged,
                             duration: Duration::ZERO,
-                        });
+                        };
+                        Self::protocol_result(&result, config, interner);
+                        summary.add_result(result);
                         continue;
                     }
 
+                    Self::protocol_start(test.name, config, interner);
                     let inner_result = Self::run_single_test(&mut evaluator, test, interner);
 
                     // If #[fail] is present, wrap the result
@@ -469,6 +589,7 @@ impl TestRunner {
                         inner_result
                     };
 
+                    Self::protocol_result(&result, config, interner);
                     summary.add_result(result);
                 }
             }
@@ -510,7 +631,13 @@ impl Default for TestRunner {
 impl TestRunner {
     /// Generate a coverage report for a path.
     pub fn coverage_report(&self, path: &Path) -> CoverageReport {
-        let test_files = discover_tests_in(path);
+        self.coverage_report_paths(std::slice::from_ref(&path.to_path_buf()))
+    }
+
+    /// Generate a combined coverage report across multiple paths,
+    /// deduplicated per `discover_tests_in_all`.
+    pub fn coverage_report_paths(&self, paths: &[PathBuf]) -> CoverageReport {
+        let test_files = discover_tests_in_all(paths);
         let mut report = CoverageReport::new();
 
         for file in &test_files {

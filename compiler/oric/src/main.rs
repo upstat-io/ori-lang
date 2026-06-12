@@ -116,8 +116,8 @@ fn real_main() {
             }
         }
         "test" => {
-            // Parse args: path is optional, flags can come before or after
-            let mut path: Option<String> = None;
+            // Parse args: paths are optional, flags can come before or after
+            let mut paths: Vec<String> = Vec::new();
             let mut config = TestRunnerConfig::default();
 
             for arg in args.iter().skip(2) {
@@ -135,14 +135,20 @@ fn real_main() {
                     config.backend = oric::test::Backend::Interpreter;
                 } else if arg == "--incremental" {
                     config.incremental = true;
-                } else if !arg.starts_with('-') && path.is_none() {
-                    path = Some(arg.clone());
+                } else if arg == "--__worker" {
+                    // Internal flag (hidden from help): subprocess-isolation
+                    // worker mode — run in-process, emit the line protocol.
+                    config.worker_protocol = true;
+                } else if !arg.starts_with('-') {
+                    paths.push(arg.clone());
                 }
             }
 
-            // Use provided path or current directory
-            let path = path.unwrap_or_else(|| ".".to_string());
-            let exit_code = run_tests(&path, &config);
+            // Use provided paths or current directory
+            if paths.is_empty() {
+                paths.push(".".to_string());
+            }
+            let exit_code = run_tests(&paths, &config);
             if exit_code != 0 {
                 std::process::exit(exit_code);
             }
@@ -329,7 +335,7 @@ fn print_usage() {
     println!("Commands:");
     println!("  run <file.ori>       Run/evaluate an Ori program");
     println!("  build <file.ori>     Compile to native executable (AOT)");
-    println!("  test [path]          Run tests (default: current directory)");
+    println!("  test [paths...]      Run tests (default: current directory)");
     println!("  check <file.ori>     Type check a file (no execution)");
     println!("  watch <file.ori>     Watch and re-check on changes");
     println!("  fmt [paths...]       Format Ori source files");

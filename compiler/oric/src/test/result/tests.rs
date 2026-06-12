@@ -56,8 +56,11 @@ fn test_summary_exit_code() {
     assert_eq!(summary2.exit_code(), 1); // File errors = failure
 }
 
+/// A test that cannot compile via LLVM is a failed test: it joins `failed`,
+/// `has_failures()`, and the non-zero exit code (with `llvm_compile_fail`
+/// tracking the reason breakdown as a subset).
 #[test]
-fn test_llvm_compile_fail_not_counted_as_failure() {
+fn test_llvm_compile_fail_counts_as_failed_test() {
     let interner = test_interner();
     let test1 = interner.intern("test1");
 
@@ -70,33 +73,45 @@ fn test_llvm_compile_fail_not_counted_as_failure() {
     });
 
     assert_eq!(file.llvm_compile_fail, 1);
-    assert_eq!(file.failed, 0);
-    assert!(!file.has_failures());
+    assert_eq!(file.failed, 1);
+    assert!(file.has_failures());
+
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+    assert_eq!(summary.llvm_compile_fail, 1);
+    assert_eq!(summary.failed, 1);
+    assert!(summary.has_failures());
+    assert_eq!(summary.exit_code(), 1);
 }
 
+/// A file whose LLVM compilation errored (errors recorded, no results) still
+/// drives `has_failures()` and a non-zero exit code.
 #[test]
-fn test_llvm_compile_error_not_counted_as_failure() {
+fn test_llvm_compile_error_file_counts_as_failure() {
     let mut file = FileSummary::new(PathBuf::from("error.ori"));
     file.add_error("LLVM compilation failed".into());
     file.llvm_compile_error = true;
 
-    assert!(!file.has_failures());
+    assert!(file.has_failures());
 
     let mut summary = TestSummary::new();
     summary.add_file(file);
     assert_eq!(summary.llvm_compile_fail_files, 1);
     assert_eq!(summary.error_files, 0);
-    assert!(!summary.has_failures());
+    assert!(summary.has_failures());
+    assert_eq!(summary.exit_code(), 1);
 }
 
+/// Negative pin against the old accounting: a run whose only problems are
+/// LLVM compile failures must NOT exit 0.
 #[test]
-fn test_summary_llvm_compile_fail_only_is_not_failure() {
+fn test_summary_llvm_compile_fail_only_exits_nonzero() {
     let mut summary = TestSummary::new();
+    summary.failed = 10;
     summary.llvm_compile_fail = 10;
     summary.llvm_compile_fail_files = 5;
-    // No real tests passed, but llvm_compile_fail counts mean tests exist
-    assert!(!summary.has_failures());
-    assert_eq!(summary.exit_code(), 0);
+    assert!(summary.has_failures());
+    assert_eq!(summary.exit_code(), 1);
 }
 
 #[test]
@@ -104,9 +119,21 @@ fn test_summary_llvm_compile_fail_with_real_failures() {
     let mut summary = TestSummary::new();
     summary.passed = 100;
     summary.llvm_compile_fail = 10;
-    summary.failed = 1; // One real failure
+    summary.failed = 11; // 10 compile-fail tests + 1 assertion failure
     assert!(summary.has_failures());
     assert_eq!(summary.exit_code(), 1);
+}
+
+/// `exit_code() == 2` (no tests found) is reserved for genuinely-empty runs;
+/// compile-error-only files report failure (1), not "no tests".
+#[test]
+fn test_exit_code_no_tests_vs_compile_error_files() {
+    let summary = TestSummary::new();
+    assert_eq!(summary.exit_code(), 2);
+
+    let mut summary2 = TestSummary::new();
+    summary2.llvm_compile_fail_files = 1;
+    assert_eq!(summary2.exit_code(), 1);
 }
 
 #[test]

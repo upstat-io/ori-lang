@@ -62,6 +62,24 @@ fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
     }
 }
 
+/// Discover tests across multiple files / directories.
+///
+/// Chains `discover_tests_in` over `paths` in argument order, deduplicating
+/// files that appear more than once (repeated file args, or a file nested
+/// under an earlier directory arg). First occurrence wins.
+pub fn discover_tests_in_all(paths: &[PathBuf]) -> Vec<TestFile> {
+    let mut seen: rustc_hash::FxHashSet<PathBuf> = rustc_hash::FxHashSet::default();
+    let mut files = Vec::new();
+    for path in paths {
+        for file in discover_tests_in(path) {
+            if seen.insert(file.path.clone()) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+
 /// Discover tests in a specific file or directory.
 ///
 /// If `path` is a file, returns just that file.

@@ -463,15 +463,22 @@ impl ArcInstr {
     /// - `Construct`, `PartialApply`: all args (`0..args.len()`)
     /// - `Apply`: args where `arg_ownership[pos] == Owned` (respects borrow inference)
     /// - `ApplyIndirect`: args only (`1..=args.len()`); closure (pos 0) is borrowed
+    /// - `Reuse`, `CollectionReuse`: args only (`1..=args.len()`); the token /
+    ///   `old_var` at pos 0 is a consumed handle, not an owned RC position
     /// - Everything else: no owned positions (read-only uses)
     pub fn is_owned_position(&self, pos: usize) -> bool {
         match self {
             ArcInstr::Construct { args, .. } | ArcInstr::PartialApply { args, .. } => {
                 pos < args.len()
             }
+            // Reuse: token at position 0 is a consumed scalar reuse token (not
+            //   owned); positions 1..=args.len() are owned (stored into the
+            //   reused allocation — an RL-2 transfer, like Construct args).
             // CollectionReuse: old_var at position 0 is consumed (not owned);
             //   positions 1..=args.len() are owned (stored into buffer).
-            ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
+            ArcInstr::Reuse { args, .. } | ArcInstr::CollectionReuse { args, .. } => {
+                pos >= 1 && pos <= args.len()
+            }
             // ApplyIndirect: used_vars() returns [closure, ...args].
             // pos=0 is closure (always borrowed). pos 1..=args.len() are
             // user args. arg_ownership parallels args, so

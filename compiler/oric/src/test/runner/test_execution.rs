@@ -277,13 +277,25 @@ impl TestRunner {
                 start.elapsed(),
             );
         };
-        let result = evaluator.eval_can(can_id);
+        // Harness contract: a Rust panic inside evaluation is a FAILED test,
+        // never a dead runner — catch it and continue with the next test.
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| evaluator.eval_can(can_id)));
         match result {
-            Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
-            Err(e) => TestResult::failed(
+            Ok(Ok(_)) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
+            Ok(Err(e)) => TestResult::failed(
                 test.name,
                 test.targets.clone(),
                 e.into_eval_error().message,
+                start.elapsed(),
+            ),
+            Err(payload) => TestResult::failed(
+                test.name,
+                test.targets.clone(),
+                format!(
+                    "test panicked (evaluator): {}",
+                    super::panic_message(payload.as_ref())
+                ),
                 start.elapsed(),
             ),
         }

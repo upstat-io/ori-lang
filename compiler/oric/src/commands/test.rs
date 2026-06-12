@@ -3,28 +3,38 @@
 use oric::ir::StringInterner;
 use oric::test::{CoverageReport, FileSummary, TestRunner, TestRunnerConfig, TestSummary};
 use oric::TestOutcome;
-use std::path::Path;
+use std::path::PathBuf;
 
-/// Run tests at the given path with the provided configuration.
+/// Run tests across the given paths with the provided configuration.
 /// Returns the exit code (0 for success, non-zero for failure).
-pub fn run_tests(path: &str, config: &TestRunnerConfig) -> i32 {
-    let path = Path::new(path);
+pub fn run_tests(paths: &[String], config: &TestRunnerConfig) -> i32 {
+    let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
 
-    if !path.exists() {
-        eprintln!("Path not found: {}", path.display());
+    let missing: Vec<&PathBuf> = paths.iter().filter(|p| !p.exists()).collect();
+    if !missing.is_empty() {
+        for path in missing {
+            eprintln!("Path not found: {}", path.display());
+        }
         return 1;
+    }
+
+    // Worker mode (spawned by the parent runner for per-file LLVM isolation):
+    // run in-process, stream the line protocol, print no human summary.
+    #[cfg(feature = "llvm")]
+    if config.worker_protocol {
+        return oric::test::run_worker(&paths, config);
     }
 
     let runner = TestRunner::with_config(config.clone());
 
     // Generate coverage report if requested
     if config.coverage {
-        let report = runner.coverage_report(path);
+        let report = runner.coverage_report_paths(&paths);
         print_coverage_report(&report, runner.interner());
         return i32::from(!report.is_complete());
     }
 
-    let summary = runner.run(path);
+    let summary = runner.run_paths(&paths);
 
     // Print results
     print_test_summary(&summary, runner.interner(), config.verbose);
@@ -93,7 +103,7 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
         }
 
         if !file.errors.is_empty() {
-            print_file_errors(file, interner, verbose);
+            print_file_errors(file, interner);
             continue;
         }
 
@@ -104,11 +114,7 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
 }
 
 /// Print errors for a file that had parse/type/LLVM compilation failures.
-fn print_file_errors(file: &FileSummary, interner: &StringInterner, verbose: bool) {
-    if file.llvm_compile_error && !verbose {
-        return;
-    }
-
+fn print_file_errors(file: &FileSummary, interner: &StringInterner) {
     println!("\n{}", file.path.display());
     if file.llvm_compile_error {
         for error in &file.errors {
@@ -119,12 +125,12 @@ fn print_file_errors(file: &FileSummary, interner: &StringInterner, verbose: boo
             .iter()
             .filter(|r| r.outcome.is_llvm_compile_fail())
             .count();
-        println!("  ({blocked} tests blocked)");
+        println!("  ({blocked} tests failed: blocked by LLVM compilation error)");
     } else {
         for result in &file.results {
-            if result.outcome.is_failed() {
+            if let TestOutcome::Failed(msg) = &result.outcome {
                 let name = result.name_str(interner);
-                println!("  FAIL: {name} - blocked by type errors");
+                println!("  FAIL: {name} - {msg}");
             }
         }
         for error in &file.errors {

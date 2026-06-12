@@ -35,11 +35,10 @@ pub use set_rc::*;
 
 use debug::{rc_trace_dec, rc_trace_inc};
 
-/// Exit code for fatal RC errors (underflow, double-free, drop panic).
-/// 128 + 6 mirrors the POSIX convention for SIGABRT (signal 6).
-/// We use `exit()` instead of `abort()` because `abort()` raises SIGABRT
-/// which can hang when signal handlers interfere with process termination.
-const SIGABRT_EXIT_CODE: i32 = 128 + 6;
+// Fatal RC errors (underflow, double-free, misalignment, drop panic)
+// terminate via `std::process::abort()` so a supervising process observes a
+// uniform killed-by-SIGABRT status (`WIFSIGNALED`) it can classify; test
+// harnesses also accept the legacy 128+6 exit class from older binaries.
 
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic;
@@ -184,7 +183,7 @@ pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
         }
     }
 
-    std::process::exit(SIGABRT_EXIT_CODE);
+    std::process::abort();
 }
 
 /// Abort on misaligned pointer passed to RC operation.
@@ -211,7 +210,7 @@ fn rc_misaligned_abort(data_ptr: *mut u8, func: &str) -> ! {
         }
     }
 
-    std::process::exit(SIGABRT_EXIT_CODE);
+    std::process::abort();
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
@@ -519,7 +518,7 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
     }));
     if result.is_err() {
         eprintln!("ori: drop function panicked — terminating (drop must not unwind)");
-        std::process::exit(SIGABRT_EXIT_CODE);
+        std::process::abort();
     }
 }
 
@@ -540,7 +539,7 @@ pub extern "C" fn ori_drop_double_panic_abort() -> ! {
         "ori: nested panic during drop cleanup — terminating \
          (drop-trait-proposal.md §Drop and panic: double-panic abort)"
     );
-    std::process::exit(SIGABRT_EXIT_CODE);
+    std::process::abort();
 }
 
 thread_local! {

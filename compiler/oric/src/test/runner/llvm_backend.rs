@@ -61,14 +61,7 @@ impl TestRunner {
         // Filter regular tests before compilation
         let filtered_tests: Vec<_> = regular_tests
             .iter()
-            .filter(|test| {
-                if let Some(ref filter_str) = config.filter {
-                    let test_name = interner.lookup(test.name);
-                    test_name.contains(filter_str.as_str())
-                } else {
-                    true
-                }
-            })
+            .filter(|test| Self::test_passes_filter(test, config, interner))
             .copied()
             .collect();
 
@@ -396,46 +389,35 @@ impl TestRunner {
                 // Record the compilation error for display
                 summary.add_error(e.message.clone());
                 summary.llvm_compile_error = true;
-                // Create LlvmCompileFail results for each test — these are
-                // tracked separately and don't count as real failures.
-                for test in &filtered_tests {
-                    summary.add_result(TestResult {
-                        name: test.name,
-                        targets: test.targets.clone(),
-                        outcome: TestOutcome::LlvmCompileFail(format!(
-                            "LLVM compilation failed: {}",
-                            e.message
-                        )),
-                        duration: Duration::ZERO,
-                    });
-                }
+                // Each blocked test counts FAILED, with the LlvmCompileFail
+                // outcome carrying the reason.
+                Self::add_compile_fail_results(
+                    summary,
+                    &filtered_tests,
+                    &format!("LLVM compilation failed: {}", e.message),
+                    interner,
+                    config,
+                );
                 return;
             }
             Err(panic_info) => {
-                let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
-                    s.clone()
-                } else if let Some(s) = panic_info.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else {
-                    "LLVM compilation panicked".to_string()
-                };
+                let msg = super::panic_message(panic_info.as_ref());
                 summary.add_error(format!("LLVM backend error: {msg}"));
                 summary.llvm_compile_error = true;
-                // Create LlvmCompileFail results for each test.
-                for test in &filtered_tests {
-                    summary.add_result(TestResult {
-                        name: test.name,
-                        targets: test.targets.clone(),
-                        outcome: TestOutcome::LlvmCompileFail(format!("LLVM backend error: {msg}")),
-                        duration: Duration::ZERO,
-                    });
-                }
+                Self::add_compile_fail_results(
+                    summary,
+                    &filtered_tests,
+                    &format!("LLVM backend error: {msg}"),
+                    interner,
+                    config,
+                );
                 return;
             }
         };
 
         // Run each test from the compiled module (no recompilation!)
         for test in &filtered_tests {
+            Self::protocol_start(test.name, config, interner);
             let inner_result = Self::run_single_test_from_compiled(&compiled, test, interner);
 
             let result = if let Some(expected_failure) = test.fail_expected {
@@ -444,6 +426,28 @@ impl TestRunner {
                 inner_result
             };
 
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
+    }
+
+    /// Record an `LlvmCompileFail` result (counted as failed) for every test
+    /// blocked by a per-file LLVM compilation error.
+    fn add_compile_fail_results(
+        summary: &mut FileSummary,
+        tests: &[&crate::ir::TestDef],
+        reason: &str,
+        interner: &crate::ir::StringInterner,
+        config: &TestRunnerConfig,
+    ) {
+        for test in tests {
+            let result = TestResult {
+                name: test.name,
+                targets: test.targets.clone(),
+                outcome: TestOutcome::LlvmCompileFail(reason.to_string()),
+                duration: Duration::ZERO,
+            };
+            Self::protocol_result(&result, config, interner);
             summary.add_result(result);
         }
     }

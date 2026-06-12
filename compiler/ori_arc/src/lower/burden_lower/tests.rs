@@ -7800,3 +7800,308 @@ fn dead_forwarder_param_release_skipped_for_scalar_repr_param() {
          releases = {releases:?}"
     );
 }
+
+// Cross-block final-use cancellation gate (`compute_transfer_via_move_alias`)
+//
+// Verdict pins on the dup'd-source successor-reachability final-use proof per
+// AIMS RL-2 (`RL2_transfer_kinds_no_dec`): a dup'd cross-block move source is
+// cancelled iff its `Let { Var }` alias is the proven global final use AND the
+// alias genuinely transfers out at an owned position. Decline pins cover the
+// later-in-block use, the forward-successor use, the loop back-edge re-use,
+// and the non-transfer terminal alias (fixpoint-only: no owned-RC-dst seed).
+
+/// Drive the move-alias transfer scan with the same inputs the Phase-5 driver
+/// assembles (per-block last-use detection + function-wide use counts +
+/// terminator transfer seeds). `owned` lists vars whose burden carries RC.
+fn run_move_alias_scan(func: &ArcFunction, owned: &[u32]) -> FxHashSet<ArcVarId> {
+    let mut ctx = BurdenLowerCtx::new(func);
+    super::ownership_scans::detect_last_uses(&mut ctx, func);
+    let (use_counts, _) = super::ownership_scans::compute_use_counts_and_dup_aliases(
+        func,
+        &mut FxHashSet::default(),
+        &FxHashSet::default(),
+    );
+    let terminator_transfer = super::terminator::compute_terminator_transfer_per_block(func, &[]);
+    let owned: FxHashSet<ArcVarId> = owned.iter().map(|&v| ArcVarId::new(v)).collect();
+    super::ownership_scans::compute_transfer_via_move_alias(
+        func,
+        &terminator_transfer,
+        &use_counts,
+        ctx.last_use_points(),
+        &owned,
+        &[],
+    )
+}
+
+/// bb0: `%0` fresh str + a non-terminal use (`%1 = Apply f(%0)` with the given
+/// ownership — `Owned` models the consuming COW-receiver hand-off, `Borrowed`
+/// the non-consuming read), Jump bb1. bb1 body per `bb1_body`; bb1 terminator
+/// per `bb1_term`. Optional bb2 for successor-use shapes. `%0` is the dup'd
+/// source (2+ uses).
+fn cross_block_dup_source_func_with(
+    bb0_use_ownership: ArgOwnership,
+    bb1_body: Vec<ArcInstr>,
+    bb1_term: ArcTerminator,
+    bb2: Option<(Vec<ArcInstr>, ArcTerminator)>,
+) -> ArcFunction {
+    let bb0_use = ArcInstr::Apply {
+        dst: ArcVarId::new(1),
+        ty: Idx::INT,
+        func: Name::from_raw(100),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![bb0_use_ownership],
+        mono_instance_id: None,
+    };
+    let mut blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(LitValue::String(Name::from_raw(1))),
+                },
+                bb0_use,
+            ],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(1),
+                args: Vec::new(),
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: Vec::new(),
+            body: bb1_body,
+            terminator: bb1_term,
+        },
+    ];
+    if let Some((body, terminator)) = bb2 {
+        blocks.push(ArcBlock {
+            id: ArcBlockId::new(2),
+            params: Vec::new(),
+            body,
+            terminator,
+        });
+    }
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::INT, Idx::STR, Idx::STR, Idx::INT],
+        blocks,
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+/// Owned-consuming bb0 use (the mk2 `insert` receiver shape).
+fn cross_block_dup_source_func(
+    bb1_body: Vec<ArcInstr>,
+    bb1_term: ArcTerminator,
+    bb2: Option<(Vec<ArcInstr>, ArcTerminator)>,
+) -> ArcFunction {
+    cross_block_dup_source_func_with(ArgOwnership::Owned, bb1_body, bb1_term, bb2)
+}
+
+fn alias_let() -> ArcInstr {
+    ArcInstr::Let {
+        dst: ArcVarId::new(2),
+        ty: Idx::STR,
+        value: ArcValue::Var(ArcVarId::new(0)),
+    }
+}
+
+fn tuple_construct_of_alias() -> ArcInstr {
+    ArcInstr::Construct {
+        dst: ArcVarId::new(3),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(2)],
+    }
+}
+
+#[test]
+fn move_alias_cross_block_final_use_into_construct_cancels_source_release() {
+    // bb1: `%2 = %0` (the global final use of `%0`); `%3 = Construct
+    // Tuple(%2)` (owned-position transfer); Return %3. The fixpoint reaches
+    // `%0` through the hand-off edge: its pending release is cancelled
+    // (RL-2 ConstructArg transfer — `RL2_transfer_kinds_no_dec`).
+    let func = cross_block_dup_source_func(
+        vec![alias_let(), tuple_construct_of_alias()],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+        None,
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        transferred.contains(&ArcVarId::new(0)),
+        "dup'd cross-block source whose final-use alias is Construct-consumed \
+         MUST be transfer-cancelled; transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_alias_with_later_in_block_use_keeps_source_release() {
+    // bb1: `%2 = %0`; `%4 = Apply len(%0 [borrow])` AFTER the alias — the
+    // alias is NOT the in-block last use of `%0`, so the proof's in-block
+    // finality clause declines and the source keeps its release.
+    let later_borrow = ArcInstr::Apply {
+        dst: ArcVarId::new(4),
+        ty: Idx::INT,
+        func: Name::from_raw(100),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    };
+    let func = cross_block_dup_source_func(
+        vec![alias_let(), later_borrow, tuple_construct_of_alias()],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+        None,
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "source read AFTER the alias in the same block MUST keep its release; \
+         transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_alias_with_successor_use_keeps_source_release() {
+    // bb1: `%2 = %0`; Construct(%2); Jump bb2. bb2 reads `%0` — a use in a
+    // forward-successor block: the cross-block finality clause declines.
+    let bb2_borrow = ArcInstr::Apply {
+        dst: ArcVarId::new(4),
+        ty: Idx::INT,
+        func: Name::from_raw(100),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    };
+    let func = cross_block_dup_source_func(
+        vec![alias_let(), tuple_construct_of_alias()],
+        ArcTerminator::Jump {
+            target: ArcBlockId::new(2),
+            args: Vec::new(),
+        },
+        Some((
+            vec![bb2_borrow],
+            ArcTerminator::Return {
+                value: ArcVarId::new(4),
+            },
+        )),
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "source used in a successor block MUST keep its release; \
+         transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_alias_in_loop_back_edge_keeps_source_release() {
+    // bb1 jumps back to ITSELF: the reachability walk re-reaches bb1 through
+    // the back edge, so the alias's own block carries a (next-iteration) use
+    // of `%0` — a back-edge re-use is a later use of the same lineage and the
+    // cancellation MUST decline (the next iteration still consumes the
+    // reference).
+    let func = cross_block_dup_source_func(
+        vec![alias_let(), tuple_construct_of_alias()],
+        ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: Vec::new(),
+        },
+        None,
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "loop back-edge re-use MUST decline the cancellation; \
+         transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_final_use_without_transfer_keeps_source_release() {
+    // bb1: `%2 = %0` IS the global final use, but `%2`'s own last use is a
+    // borrow-read (no owned-position transfer anywhere downstream). The
+    // hand-off edge is FIXPOINT-ONLY — without a genuine transfer of the
+    // alias, the source keeps its release even though `%2` is owned-RC (the
+    // owned-RC-dst seed does NOT apply to relaxed cross-block edges).
+    let alias_borrow = ArcInstr::Apply {
+        dst: ArcVarId::new(4),
+        ty: Idx::INT,
+        func: Name::from_raw(100),
+        args: vec![ArcVarId::new(2)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    };
+    let func = cross_block_dup_source_func(
+        vec![alias_let(), alias_borrow],
+        ArcTerminator::Return {
+            value: ArcVarId::new(4),
+        },
+        None,
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "non-transfer terminal alias MUST NOT cancel the source's release; \
+         transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_param_source_keeps_release_marker() {
+    // A function PARAM source is excluded from the relaxed cross-block gate:
+    // its last-use dec marker is load-bearing on the default coexistence path
+    // (it drives `populate_class_covered` so the predicate stack's own real
+    // dec stays suppressed); the param-transfers-through-return case is owned
+    // by the contract-driven `transfer_through_return_param_vars` strip.
+    let mut func = cross_block_dup_source_func(
+        vec![alias_let(), tuple_construct_of_alias()],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+        None,
+    );
+    // Rebind %0 as an Owned param: drop its defining Let, declare the param.
+    func.blocks[0].body.remove(0);
+    func.params = vec![ArcParam {
+        var: ArcVarId::new(0),
+        ty: Idx::STR,
+        ownership: Ownership::Owned,
+    }];
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "param source MUST NOT join the relaxed cross-block cancellation; \
+         transferred = {transferred:?}"
+    );
+}
+
+#[test]
+fn move_alias_cross_block_with_borrowed_non_terminal_use_keeps_source_release() {
+    // The bb0 non-terminal use is a BORROW (`%1 = Apply f(%0 [borrow])`) — it
+    // consumes no reference, so the dup'd extra reference's only release IS
+    // the terminal dec. Cancellation MUST decline even though the terminal
+    // alias transfers (the slice-then-push shape: `let s = list.slice(0, 2);
+    // let list = list.push(4); (s, list)`).
+    let func = cross_block_dup_source_func_with(
+        ArgOwnership::Borrowed,
+        vec![alias_let(), tuple_construct_of_alias()],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+        None,
+    );
+    let transferred = run_move_alias_scan(&func, &[0, 2, 3]);
+    assert!(
+        !transferred.contains(&ArcVarId::new(0)),
+        "a non-consuming non-terminal use MUST keep the source's terminal \
+         release; transferred = {transferred:?}"
+    );
+}

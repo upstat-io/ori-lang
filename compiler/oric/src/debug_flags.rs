@@ -264,6 +264,19 @@ flags! {
     /// Usage: `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC
 
+    /// Restore the single-block over-approximation in the dup'd terminal-move
+    /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
+    /// is its proven global final use — successor-reachability proof, loop
+    /// back-edge re-use declines — joins the transfer fixpoint, cancelling the
+    /// pending last-use release on a proven owned-position hand-off; without
+    /// the cancellation the post-Construct release double-frees the dup-inc'd
+    /// pair-return lineage).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// pair-return double-free / leak to the relaxed gate.
+    /// Usage: `ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL=1 ori build file.ori`
+    ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL
+
     /// Suppress the Phase-5 RL-1 duplication inc for a borrowed-param-rooted
     /// value consumed at an aggregate-store position (default: the inc is
     /// emitted — the store duplicates the caller's retained reference; the
@@ -590,6 +603,14 @@ flags! {
     /// `"0"`, `"false"`, `"true"` are all treated as disabled.
     /// Usage: `ORI_BLESS=1 cargo test -p ori_arc -- aims_snapshot`
     ORI_BLESS
+
+    /// Per-file wall-clock budget (in seconds) for `ori test --backend=llvm`
+    /// worker subprocesses.
+    ///
+    /// A worker still alive at the budget is killed by the runner's watchdog
+    /// and its in-flight test counted FAILED (timeout). Default: 120.
+    /// Usage: `ORI_TEST_WORKER_TIMEOUT_SECS=30 ori test --backend=llvm tests/`
+    ORI_TEST_WORKER_TIMEOUT_SECS
 
     // === Existing Flags (migrated) ===
 

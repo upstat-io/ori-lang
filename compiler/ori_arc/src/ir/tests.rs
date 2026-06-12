@@ -1542,3 +1542,36 @@ fn is_owned_position_invoke_empty_defaults_owned() {
     };
     assert!(term.is_owned_position(0), "empty ownership → default Owned");
 }
+
+#[test]
+fn is_owned_position_reuse_args_owned_token_not() {
+    // Reuse: used_vars() = [token, ...args]. The token at pos 0 is a consumed
+    // scalar reuse token (not an owned RC position); args at 1..=args.len()
+    // are stored into the reused allocation — RL-2 transfers, mirroring
+    // Construct args and CollectionReuse args.
+    let instr = ArcInstr::Reuse {
+        token: ArcVarId::new(10),
+        dst: ArcVarId::new(11),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+    };
+    assert!(!instr.is_owned_position(0), "token (pos 0) is not owned");
+    assert!(instr.is_owned_position(1), "first stored arg is owned");
+    assert!(instr.is_owned_position(2), "second stored arg is owned");
+    assert!(!instr.is_owned_position(3), "out of bounds is not owned");
+}
+
+#[test]
+fn is_owned_position_collection_reuse_args_owned_old_var_not() {
+    let instr = ArcInstr::CollectionReuse {
+        old_var: ArcVarId::new(10),
+        dst: ArcVarId::new(11),
+        ty: Idx::STR,
+        ctor: CtorKind::ListLiteral,
+        args: vec![ArcVarId::new(0)],
+    };
+    assert!(!instr.is_owned_position(0), "old_var (pos 0) is not owned");
+    assert!(instr.is_owned_position(1), "stored arg is owned");
+    assert!(!instr.is_owned_position(2), "out of bounds is not owned");
+}

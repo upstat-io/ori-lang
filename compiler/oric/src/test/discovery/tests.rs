@@ -65,3 +65,55 @@ fn test_discover_single_file() {
     let files = discover_tests_in(&path);
     assert_eq!(files.len(), 1);
 }
+
+#[test]
+fn test_discover_in_all_multiple_files_preserves_order() {
+    let dir = tempdir().unwrap();
+    File::create(dir.path().join("b.ori")).unwrap();
+    File::create(dir.path().join("a.ori")).unwrap();
+
+    let paths = vec![dir.path().join("b.ori"), dir.path().join("a.ori")];
+    let files = discover_tests_in_all(&paths);
+    assert_eq!(files.len(), 2);
+    assert!(files[0].path.ends_with("b.ori"));
+    assert!(files[1].path.ends_with("a.ori"));
+}
+
+#[test]
+fn test_discover_in_all_dedups_repeated_file() {
+    let dir = tempdir().unwrap();
+    File::create(dir.path().join("a.ori")).unwrap();
+
+    let p = dir.path().join("a.ori");
+    let files = discover_tests_in_all(&[p.clone(), p]);
+    assert_eq!(files.len(), 1);
+}
+
+#[test]
+fn test_discover_in_all_dedups_file_nested_under_dir_arg() {
+    let dir = tempdir().unwrap();
+    File::create(dir.path().join("a.ori")).unwrap();
+
+    let paths = vec![dir.path().to_path_buf(), dir.path().join("a.ori")];
+    let files = discover_tests_in_all(&paths);
+    assert_eq!(files.len(), 1);
+}
+
+#[test]
+fn test_discover_in_all_mixes_file_and_dir() {
+    let dir = tempdir().unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    File::create(dir.path().join("solo.ori")).unwrap();
+    File::create(sub.join("nested.ori")).unwrap();
+
+    let paths = vec![dir.path().join("solo.ori"), sub];
+    let files = discover_tests_in_all(&paths);
+    assert_eq!(files.len(), 2);
+}
+
+#[test]
+fn test_discover_in_all_empty_input_yields_empty() {
+    let files = discover_tests_in_all(&[]);
+    assert!(files.is_empty());
+}

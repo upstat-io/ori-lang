@@ -7,7 +7,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
-use super::instr_transfer_vars;
+use super::{instr_transfer_vars, successor_reachable_blocks};
 
 /// Compute the move-alias transfer-suppression set per AIMS RL-2.
 ///
@@ -61,37 +61,25 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
 ) -> FxHashSet<ArcVarId> {
     // Global-last-use lookup: a var with exactly ONE `last_use_points` entry is
     // used in exactly one block, and that entry is its global last use. A var
-    // used in >= 2 blocks has >= 2 entries (one per block) — its terminal use is
-    // not statically pin-pointed here, so it is NOT eligible for terminal-move
-    // suppression (conservative: keep its dec, never over-suppress cross-block).
+    // used in >= 2 blocks has >= 2 entries (one per block) — its terminal use
+    // is proven instead by the successor-reachability final-use proof
+    // (`is_cross_block_final_use`), which admits the FIXPOINT-ONLY hand-off
+    // edges below.
     let mut last_use_entry_count: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut last_use_pos: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
+    let mut block_last_use: FxHashMap<(ArcVarId, usize), usize> = FxHashMap::default();
+    let mut use_blocks: FxHashMap<ArcVarId, Vec<usize>> = FxHashMap::default();
     for &(var, b, i) in last_use_points {
         *last_use_entry_count.entry(var).or_default() += 1;
         last_use_pos.insert(var, (b, i));
+        block_last_use.insert((var, b), i);
+        use_blocks.entry(var).or_default().push(b);
     }
-    let is_global_last_use = |src: &ArcVarId, b: usize, i: usize| -> bool {
+    let is_single_block_last_use = |src: &ArcVarId, b: usize, i: usize| -> bool {
         last_use_entry_count.get(src).copied().unwrap_or(0) == 1
             && last_use_pos.get(src) == Some(&(b, i))
     };
-    // Sources with at least one DEAD `Let { Var }` duplicate alias (`%d = %src`,
-    // `%d` never used). The dead alias's reference is released by the source's
-    // terminal dec (RL-2 `ScopeExit`); suppressing it would leak.
-    let mut src_has_dead_alias: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if use_counts.get(dst).copied().unwrap_or(0) == 0 {
-                    src_has_dead_alias.insert(*src);
-                }
-            }
-        }
-    }
+    let src_has_dead_alias = collect_dead_alias_sources(func, use_counts);
 
     let mut transferred: FxHashSet<ArcVarId> = FxHashSet::default();
     // Seed: terminator-transferred vars.
@@ -105,10 +93,29 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
         }
     }
     // Move-alias edges `dst -> src`. A use-once source is the unchanged pure-move
-    // case. A dup'd source qualifies ONLY at its TERMINAL `Let { Var }` use AND
+    // case. A dup'd source qualifies at its TERMINAL `Let { Var }` use AND
     // only when it has NO dead duplicate alias (a dead alias's reference is
     // discharged by the kept terminal dec, not by a downstream consumer).
+    // Terminality is proven two ways:
+    // - single-block source: its sole `last_use_points` entry is this site
+    //   (`move_edges` — the legacy admitted set, seed + fixpoint);
+    // - cross-block LOCAL source: the successor-reachability final-use proof
+    //   (`handoff_edges` — FIXPOINT-ONLY conditional edges: the source is
+    //   cancelled iff its terminal alias dst GENUINELY transfers out at an
+    //   owned position per AIMS RL-2, AND every NON-terminal use of the source
+    //   also discharges a duplicate reference — an owned-position consume, or
+    //   a `Let { Var }` alias whose own lineage transfers. A non-consuming
+    //   non-terminal use (borrow read, slice view) leaves a duplicate
+    //   reference whose only release IS the terminal dec, so cancellation
+    //   declines. Function PARAMS are excluded: a param's last-use dec marker
+    //   is load-bearing on the default coexistence path (`emit_last_use_decs`
+    //   keeps it so `populate_class_covered` suppresses the predicate stack's
+    //   own real dec); the param-transfers-through-return case is owned by the
+    //   contract-driven `transfer_through_return_param_vars` strip instead.
+    let param_vars: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let mut move_edges: Vec<(ArcVarId, ArcVarId)> = Vec::new();
+    let mut handoff_edges: Vec<HandoffEdge> = Vec::new();
+    let mut reach_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::Let {
@@ -117,12 +124,35 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
                 ..
             } = instr
             {
-                let use_once = use_counts.get(src).copied().unwrap_or(0) == 1;
-                let dup_terminal_move = use_counts.get(src).copied().unwrap_or(0) >= 2
-                    && is_global_last_use(src, block_idx, instr_idx)
-                    && !src_has_dead_alias.contains(src);
+                let count = use_counts.get(src).copied().unwrap_or(0);
+                let dup_no_dead_alias = count >= 2 && !src_has_dead_alias.contains(src);
+                let use_once = count == 1;
+                let dup_terminal_move =
+                    dup_no_dead_alias && is_single_block_last_use(src, block_idx, instr_idx);
                 if use_once || dup_terminal_move {
                     move_edges.push((*dst, *src));
+                } else if dup_no_dead_alias
+                    && !param_vars.contains(src)
+                    && !super::super::cross_block_final_use_cancel_disabled()
+                    && is_cross_block_final_use(
+                        func,
+                        &block_last_use,
+                        &use_blocks,
+                        &mut reach_cache,
+                        *src,
+                        block_idx,
+                        instr_idx,
+                    )
+                {
+                    if let Some(required) =
+                        non_terminal_uses_all_discharge(func, *src, block_idx, instr_idx)
+                    {
+                        handoff_edges.push(HandoffEdge {
+                            dst: *dst,
+                            src: *src,
+                            required,
+                        });
+                    }
                 }
             }
         }
@@ -146,7 +176,12 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
             transferred.insert(src);
         }
     }
-    // Fixpoint: a move source transfers out when its dst transfers out.
+    // Fixpoint: a move source transfers out when its dst transfers out. The
+    // cross-block hand-off edges join here (and ONLY here): the relaxed gate's
+    // cancellation fires solely on a proven downstream owned-position transfer
+    // of the terminal alias AND of every non-terminal alias lineage — never on
+    // the owned-RC-dst seed above. Both edge kinds are monotone over
+    // `transferred`, so the combined fixpoint terminates.
     let mut changed = true;
     while changed {
         changed = false;
@@ -155,6 +190,137 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
                 changed = true;
             }
         }
+        for edge in &handoff_edges {
+            if transferred.contains(&edge.dst)
+                && edge.required.iter().all(|d| transferred.contains(d))
+                && transferred.insert(edge.src)
+            {
+                changed = true;
+            }
+        }
     }
     transferred
+}
+
+/// Sources with at least one DEAD `Let { Var }` duplicate alias (`%d = %src`,
+/// `%d` never used). The dead alias's reference is released by the source's
+/// terminal dec (RL-2 `ScopeExit`); suppressing it would leak.
+fn collect_dead_alias_sources(
+    func: &ArcFunction,
+    use_counts: &FxHashMap<ArcVarId, u32>,
+) -> FxHashSet<ArcVarId> {
+    let mut src_has_dead_alias: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if use_counts.get(dst).copied().unwrap_or(0) == 0 {
+                    src_has_dead_alias.insert(*src);
+                }
+            }
+        }
+    }
+    src_has_dead_alias
+}
+
+/// Conditional cross-block hand-off edge: `src`'s terminal `Let { Var }` alias
+/// is `dst`; cancellation fires in the fixpoint only when `dst` AND every
+/// `required` non-terminal alias dst transfer out.
+struct HandoffEdge {
+    dst: ArcVarId,
+    src: ArcVarId,
+    required: Vec<ArcVarId>,
+}
+
+/// Classify every NON-terminal use of `src` (every use site except the
+/// terminal `Let { Var }` at `(terminal_block, terminal_idx)`) per AIMS RL-2:
+///
+/// - owned-position consume (`instr_transfer_vars`: Construct / Reuse /
+///   `CollectionReuse` / owned Apply arg / `Set.value` / list-concat operand,
+///   or an owned terminator position) — discharges its duplicate reference at
+///   the consume; nothing further required.
+/// - `Let { Var }` alias — discharges only when the alias's own lineage
+///   transfers out; the alias dst joins the returned `required` set and is
+///   resolved in the fixpoint.
+/// - anything else (borrow read, `Project`, `IsShared`, slice view, `Set`
+///   base, borrowed terminator arg) — does NOT consume a reference; the
+///   terminal dec is that duplicate's only release, so cancellation DECLINES
+///   (`None`).
+fn non_terminal_uses_all_discharge(
+    func: &ArcFunction,
+    src: ArcVarId,
+    terminal_block: usize,
+    terminal_idx: usize,
+) -> Option<Vec<ArcVarId>> {
+    let mut required: Vec<ArcVarId> = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if block_idx == terminal_block && instr_idx == terminal_idx {
+                continue;
+            }
+            if !instr.used_vars().contains(&src) {
+                continue;
+            }
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(s),
+                ..
+            } = instr
+            {
+                if *s == src {
+                    required.push(*dst);
+                    continue;
+                }
+            }
+            if let ArcInstr::Set { base, .. } = instr {
+                if *base == src {
+                    return None;
+                }
+            }
+            if instr_transfer_vars(instr, func).contains(&src) {
+                continue;
+            }
+            return None;
+        }
+        let term_uses = block.terminator.used_vars();
+        for (pos, &var) in term_uses.iter().enumerate() {
+            if var == src && !block.terminator.is_owned_position(pos) {
+                return None;
+            }
+        }
+    }
+    Some(required)
+}
+
+/// Successor-reachability final-use proof for a dup'd CROSS-BLOCK move source
+/// per AIMS RL-2: the `Let { Var(src) }` at `(b, i)` is `src`'s global final
+/// use iff (a) it is `src`'s last use within block `b` (a terminator use of
+/// `src` registers at the sentinel index and fails this), and (b) no block
+/// reachable from `b`'s successors uses `src`. The walk follows EVERY CFG
+/// edge, so a block re-reached through a loop back-edge — including `b`
+/// itself — is in the set: a back-edge re-use is a later use of the same
+/// lineage and DECLINES the proof (the next iteration still consumes the
+/// reference). Reachability sets are memoized per block in `reach_cache`.
+fn is_cross_block_final_use(
+    func: &ArcFunction,
+    block_last_use: &FxHashMap<(ArcVarId, usize), usize>,
+    use_blocks: &FxHashMap<ArcVarId, Vec<usize>>,
+    reach_cache: &mut FxHashMap<usize, FxHashSet<usize>>,
+    src: ArcVarId,
+    b: usize,
+    i: usize,
+) -> bool {
+    if block_last_use.get(&(src, b)) != Some(&i) {
+        return false;
+    }
+    let reach = reach_cache
+        .entry(b)
+        .or_insert_with(|| successor_reachable_blocks(func, b));
+    use_blocks
+        .get(&src)
+        .is_none_or(|blocks| blocks.iter().all(|ub| !reach.contains(ub)))
 }
