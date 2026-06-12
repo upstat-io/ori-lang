@@ -234,7 +234,7 @@ pub(in crate::lower::burden_lower) fn compute_dead_owned_param_branch_releases(
 /// from the dead-param release on the `pred -> target` edge. Conservative: any var at any
 /// owned terminator position is treated as transferred (never under-excludes a genuine
 /// handoff).
-fn transferred_to_block(
+pub(super) fn transferred_to_block(
     term: &ArcTerminator,
     target: crate::ir::ArcBlockId,
 ) -> FxHashSet<ArcVarId> {

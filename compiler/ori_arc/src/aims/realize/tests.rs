@@ -1822,3 +1822,345 @@ fn decide_borrowing_project_independent_per_branch() {
     assert_eq!(decide(&branch_a).rc, RcDecision::None);
     assert_eq!(decide(&branch_b).rc, RcDecision::None);
 }
+
+// Store-family hand-off rep admission + forward-Jump export rep admission +
+// execution-final read-alias carrier
+// (`emit_unified::compute_store_handoff_reps` /
+// `emit_unified::compute_forward_jump_export_reps` /
+// `emit_unified::compute_store_family_final_read_carriers`)
+
+mod store_family {
+    use ori_ir::Name;
+    use ori_types::Idx;
+    use rustc_hash::{FxHashMap, FxHashSet};
+
+    use crate::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind,
+        ValueRepr,
+    };
+
+    use super::super::emit_unified::{
+        compute_forward_jump_export_reps, compute_store_family_final_read_carriers,
+        compute_store_handoff_reps,
+    };
+
+    fn alias_of(dst: u32, src: u32) -> ArcInstr {
+        ArcInstr::Let {
+            dst: ArcVarId::new(dst),
+            ty: Idx::STR,
+            value: ArcValue::Var(ArcVarId::new(src)),
+        }
+    }
+
+    fn store_of(dst: u32, arg: u32) -> ArcInstr {
+        ArcInstr::Construct {
+            dst: ArcVarId::new(dst),
+            ty: Idx::STR,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(arg)],
+        }
+    }
+
+    fn binc(var: u32) -> ArcInstr {
+        ArcInstr::BurdenInc {
+            var: ArcVarId::new(var),
+        }
+    }
+
+    fn bdec(var: u32) -> ArcInstr {
+        ArcInstr::BurdenDec {
+            var: ArcVarId::new(var),
+        }
+    }
+
+    /// Borrowed read of `var` (a protocol `Apply` with a borrowed arg).
+    fn borrow_read_of(dst: u32, var: u32) -> ArcInstr {
+        ArcInstr::Apply {
+            dst: ArcVarId::new(dst),
+            ty: Idx::INT,
+            func: Name::from_raw(9),
+            args: vec![ArcVarId::new(var)],
+            arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+            mono_instance_id: None,
+        }
+    }
+
+    fn one_block_func(n_vars: u32, reprs: Vec<ValueRepr>, body: Vec<ArcInstr>) -> ArcFunction {
+        ArcFunction {
+            var_types: (0..n_vars).map(|i| Idx::from_raw(i + 1)).collect(),
+            var_reprs: reprs,
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body,
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(0),
+                },
+            }],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        }
+    }
+
+    /// `same_alloc_reps` mapping each alias var to its lineage root.
+    fn reps_to_root(aliases: &[u32], root: u32) -> FxHashMap<ArcVarId, ArcVarId> {
+        aliases
+            .iter()
+            .map(|&a| (ArcVarId::new(a), ArcVarId::new(root)))
+            .collect()
+    }
+
+    #[test]
+    fn store_handoff_reps_admit_rc_pointer_store_arg() {
+        let func = one_block_func(
+            3,
+            vec![ValueRepr::RcPointer; 3],
+            vec![alias_of(1, 0), store_of(2, 1)],
+        );
+        let reps = compute_store_handoff_reps(&func, &reps_to_root(&[1], 0));
+        assert!(
+            reps.contains(&ArcVarId::new(0)),
+            "an RcPointer store arg admits its lineage rep; reps = {reps:?}"
+        );
+    }
+
+    #[test]
+    fn store_handoff_reps_decline_rc_free_store_arg() {
+        // The RC-free decline: a Scalar-repr store arg carries no refcount —
+        // funding/debiting it would model releases that never happen.
+        let func = one_block_func(
+            3,
+            vec![ValueRepr::Scalar; 3],
+            vec![alias_of(1, 0), store_of(2, 1)],
+        );
+        let reps = compute_store_handoff_reps(&func, &reps_to_root(&[1], 0));
+        assert!(
+            reps.is_empty(),
+            "a Scalar store arg never admits a rep: {reps:?}"
+        );
+    }
+
+    /// Two-block fixture: entry aliases the root and forward-Jumps the alias
+    /// to block 1 (which does NOT dominate the entry).
+    fn forward_jump_func(reprs: Vec<ValueRepr>) -> ArcFunction {
+        ArcFunction {
+            var_types: (0..3).map(|i| Idx::from_raw(i + 1)).collect(),
+            var_reprs: reprs,
+            blocks: vec![
+                ArcBlock {
+                    id: ArcBlockId::new(0),
+                    params: Vec::new(),
+                    body: vec![alias_of(1, 0)],
+                    terminator: ArcTerminator::Jump {
+                        target: ArcBlockId::new(1),
+                        args: vec![ArcVarId::new(1)],
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(1),
+                    params: vec![(ArcVarId::new(2), Idx::STR)],
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Return {
+                        value: ArcVarId::new(2),
+                    },
+                },
+            ],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        }
+    }
+
+    #[test]
+    fn forward_jump_export_reps_admit_rc_pointer_forward_arg() {
+        let func = forward_jump_func(vec![ValueRepr::RcPointer; 3]);
+        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[1], 0));
+        assert!(
+            reps.contains(&ArcVarId::new(0)),
+            "an RcPointer forward-Jump arg admits its lineage rep; reps = {reps:?}"
+        );
+    }
+
+    #[test]
+    fn forward_jump_export_reps_decline_rc_free_forward_arg() {
+        // The RC-free decline: a Scalar-repr Jump arg carries no refcount —
+        // its export funds no downstream release.
+        let func = forward_jump_func(vec![ValueRepr::Scalar; 3]);
+        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[1], 0));
+        assert!(
+            reps.is_empty(),
+            "a Scalar Jump arg never admits a rep: {reps:?}"
+        );
+    }
+
+    #[test]
+    fn forward_jump_export_reps_decline_back_edge_arg() {
+        // Loop shape: 0 (entry) -> 1 (header) -> {2 (body), 3 (exit)};
+        // block 2 Jumps the RC alias BACK to the header it is dominated by —
+        // a back-edge arg is the loop's own param rename, not an export.
+        let func = ArcFunction {
+            var_types: (0..3).map(|i| Idx::from_raw(i + 1)).collect(),
+            var_reprs: vec![ValueRepr::RcPointer; 3],
+            blocks: vec![
+                ArcBlock {
+                    id: ArcBlockId::new(0),
+                    params: Vec::new(),
+                    body: vec![alias_of(2, 0)],
+                    terminator: ArcTerminator::Jump {
+                        target: ArcBlockId::new(1),
+                        args: Vec::new(),
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(1),
+                    params: Vec::new(),
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Branch {
+                        cond: ArcVarId::new(1),
+                        then_block: ArcBlockId::new(2),
+                        else_block: ArcBlockId::new(3),
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(2),
+                    params: Vec::new(),
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Jump {
+                        target: ArcBlockId::new(1),
+                        args: vec![ArcVarId::new(2)],
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(3),
+                    params: Vec::new(),
+                    body: Vec::new(),
+                    terminator: ArcTerminator::Return {
+                        value: ArcVarId::new(0),
+                    },
+                },
+            ],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        };
+        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[2], 0));
+        assert!(
+            reps.is_empty(),
+            "a back-edge Jump arg never admits a rep: {reps:?}"
+        );
+    }
+
+    #[test]
+    fn final_read_carrier_designates_unique_execution_final_pair_alias() {
+        // The two-store shape's tail: store alias %1 (inc-only, funded) +
+        // execution-final read alias %3 carrying the keep-alive inc+dec pair.
+        let mut func = one_block_func(
+            5,
+            vec![ValueRepr::RcPointer; 5],
+            vec![
+                binc(0),
+                alias_of(1, 0),
+                binc(1),
+                store_of(2, 1),
+                alias_of(3, 0),
+                binc(3),
+                borrow_read_of(4, 3),
+                bdec(3),
+            ],
+        );
+        // Return the scalar read result — returning the root would be a
+        // lineage use AFTER the carrier's final read (a decline fence).
+        func.blocks[0].terminator = ArcTerminator::Return {
+            value: ArcVarId::new(4),
+        };
+        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+        let carriers =
+            compute_store_family_final_read_carriers(&func, &reps_to_root(&[1, 3], 0), &reps);
+        assert_eq!(
+            carriers.get(&ArcVarId::new(0)),
+            Some(&ArcVarId::new(3)),
+            "the execution-final pair alias is the lineage's release carrier; {carriers:?}"
+        );
+    }
+
+    #[test]
+    fn final_read_carrier_declines_moved_pair_alias() {
+        // A pair alias consumed at an OWNED position (a pre-consume terminator
+        // pair) is a transfer arrangement, never the keep-alive carrier —
+        // eliding its inc would under-fund the consume.
+        let func = one_block_func(
+            5,
+            vec![ValueRepr::RcPointer; 5],
+            vec![
+                binc(0),
+                alias_of(3, 0),
+                binc(3),
+                bdec(3),
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(4),
+                    ty: Idx::INT,
+                    func: Name::from_raw(9),
+                    args: vec![ArcVarId::new(3)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+        );
+        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+        let carriers =
+            compute_store_family_final_read_carriers(&func, &reps_to_root(&[3], 0), &reps);
+        assert!(
+            carriers.is_empty(),
+            "an owned-consumed pair alias never carries the release: {carriers:?}"
+        );
+    }
+
+    #[test]
+    fn final_read_carrier_declines_multiple_per_arm_finals() {
+        // Two pair aliases whose last reads sit on mutually-exclusive branch
+        // arms — no UNIQUE execution-final carrier exists; decline.
+        let func = ArcFunction {
+            var_types: (0..7).map(|i| Idx::from_raw(i + 1)).collect(),
+            var_reprs: vec![ValueRepr::RcPointer; 7],
+            blocks: vec![
+                ArcBlock {
+                    id: ArcBlockId::new(0),
+                    params: Vec::new(),
+                    body: vec![binc(0), alias_of(2, 0), binc(2), alias_of(3, 0), binc(3)],
+                    terminator: ArcTerminator::Branch {
+                        cond: ArcVarId::new(1),
+                        then_block: ArcBlockId::new(1),
+                        else_block: ArcBlockId::new(2),
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(1),
+                    params: Vec::new(),
+                    body: vec![borrow_read_of(5, 2), bdec(2)],
+                    terminator: ArcTerminator::Return {
+                        value: ArcVarId::new(5),
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(2),
+                    params: Vec::new(),
+                    body: vec![borrow_read_of(6, 3), bdec(3)],
+                    terminator: ArcTerminator::Return {
+                        value: ArcVarId::new(6),
+                    },
+                },
+            ],
+            entry: ArcBlockId::new(0),
+            name: Name::from_raw(0),
+            ..ArcFunction::default()
+        };
+        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+        let carriers =
+            compute_store_family_final_read_carriers(&func, &reps_to_root(&[2, 3], 0), &reps);
+        assert!(
+            carriers.is_empty(),
+            "per-arm finals yield no unique carrier: {carriers:?}"
+        );
+    }
+}

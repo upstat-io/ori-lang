@@ -99,16 +99,33 @@ pub(super) fn register_derived_impl(
     // 6. Build method signatures for the derived trait
     let methods = build_derived_methods(checker, trait_kind, self_type, type_decl.span);
 
-    // 7. Create and register the impl entry (derived impls are always concrete)
+    // 7. Create and register the impl entry. A generic `#derive(Eq) type Pair<T>`
+    //    is conditional: it implements the trait only when each type argument
+    //    satisfies the same trait (derive-implied `impl<T: Eq> Pair<T>: Eq`).
+    //    Record that bound per type parameter so the operator-presence gate
+    //    rejects an unsatisfied instantiation; a generic conditional impl is
+    //    Constrained, a non-generic one stays Concrete.
+    let type_param_bounds: Vec<Vec<Name>> = type_params.iter().map(|_| vec![trait_name]).collect();
+    debug_assert_eq!(
+        type_params.len(),
+        type_param_bounds.len(),
+        "type_param_bounds must be index-aligned with type_params"
+    );
+    let specificity = if type_params.is_empty() {
+        ImplSpecificity::Concrete
+    } else {
+        ImplSpecificity::Constrained
+    };
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         trait_type_args: Vec::new(),
         self_type,
         type_params,
+        type_param_bounds,
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: Vec::new(),
-        specificity: ImplSpecificity::Concrete,
+        specificity,
         span: type_decl.span,
     };
 

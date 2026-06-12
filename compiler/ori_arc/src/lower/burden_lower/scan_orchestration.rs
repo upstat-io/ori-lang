@@ -25,12 +25,12 @@ use super::moved_fields::{
 };
 use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
-    compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
-    compute_genuine_dup_move_aliases, compute_live_out_owned,
-    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
-    compute_transfer_through_return_results, compute_transfer_via_move_alias,
-    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases, instr_transfer_vars,
-    list_concat_consumed_operands,
+    compute_branch_exclusive_edge_releases, compute_dead_forwarder_block_param_releases,
+    compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
+    compute_live_out_owned, compute_rebuild_lineage_dead_param_releases,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
+    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -115,7 +115,7 @@ pub(crate) fn emit_burden_ops<'a>(
         owned_vars_needing_rc,
         borrowed_aliases,
         forwarder_identity_transparent_aliases,
-        forwarder_result_releases,
+        mut forwarder_result_releases,
         construct_fed_dead_param,
         last_uses_at,
         claimed_no_sink_vars,
@@ -555,6 +555,33 @@ pub(crate) fn emit_burden_ops<'a>(
         for p in params {
             if !entry.contains(&p) {
                 entry.push(p);
+            }
+        }
+    }
+
+    // RL-4 branch-exclusive terminal-move edge release: a FRESH local
+    // `Construct` lineage consumed at an owned position on a strict subset of
+    // branch paths leaves the pre-branch funding inc unmatched on each
+    // non-consuming sibling path (+1 per call). One ADDITIVE `BurdenDec(root)`
+    // lands after the path's final lineage read on each admitted edge, merged
+    // into the same placed-release surface as the forwarder-result releases
+    // (contains-gated — never two releases of one root at one position).
+    // Toggle `ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE=1` (the compute fn
+    // owns it). SSOT: `compute_branch_exclusive_edge_releases`. Spec: Annex E
+    // §AIMS RL-4 + RL-1 + RL-2.
+    let branch_exclusive_releases = compute_branch_exclusive_edge_releases(
+        func,
+        &owned_vars_needing_rc,
+        &inc_suppressed_vars,
+        &full_move_vars,
+        &genuine_dup_call_arg_aliases,
+        contracts,
+    );
+    for (pos, vars) in branch_exclusive_releases {
+        let entry = forwarder_result_releases.entry(pos).or_default();
+        for var in vars {
+            if !entry.contains(&var) {
+                entry.push(var);
             }
         }
     }

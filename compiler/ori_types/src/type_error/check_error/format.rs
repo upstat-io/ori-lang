@@ -422,40 +422,10 @@ impl TypeCheckError {
                     format_name(*name)
                 )
             }
-            TypeErrorKind::RefutablePattern { reason } => {
-                use crate::infer::{NestedPathStep, RefutableReason};
-                match reason {
-                    RefutableReason::ListLength { required, has_rest } => {
-                        if *required == 0 && !has_rest {
-                            "refutable pattern in let-binding: this empty-list pattern matches only the empty list".to_string()
-                        } else {
-                            let tail = if *has_rest { "at least " } else { "exactly " };
-                            format!(
-                                "refutable pattern in let-binding: this list pattern requires {tail}{required} elements, but [T] has no compile-time length"
-                            )
-                        }
-                    }
-                    RefutableReason::NestedRefutable { path, inner } => {
-                        let path_str = path.iter()
-                            .map(|step| match step {
-                                NestedPathStep::TupleIndex(i) => format!("element {i}"),
-                                NestedPathStep::StructField(f) => format!("field `{}`", format_name(*f)),
-                            })
-                            .collect::<Vec<_>>()
-                            .join(".");
-                        let inner_msg = match inner.as_ref() {
-                            RefutableReason::ListLength { required, has_rest } => {
-                                let tail = if *has_rest { "at least " } else { "exactly " };
-                                format!("requires {tail}{required} elements")
-                            }
-                            RefutableReason::NestedRefutable { .. } => {
-                                "refutable sub-pattern".to_string()
-                            }
-                        };
-                        format!("at {path_str}: {inner_msg}")
-                    }
-                }
-            }
+            // RefutablePattern carries no pool-dependent rich formatting; delegate
+            // to the SSOT renderer (`message()`) so the rich path cannot drift from
+            // the spec-conformant text (per .claude/rules/types.md §DI message SSOT).
+            TypeErrorKind::RefutablePattern { .. } => self.message(),
             TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
                 format!(
                     "`break` with a value is not allowed in {}: this loop form has type `void`",

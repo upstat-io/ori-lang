@@ -25,6 +25,22 @@ pub(super) fn collect_generic_params(
         .collect()
 }
 
+/// Collect each type parameter's inline trait bounds (`impl<T: Eq + Clone>`),
+/// index-aligned with `collect_generic_params` (same `!is_const` filter and
+/// declaration order). One inner `Vec<Name>` of bound trait names per type
+/// parameter; an empty inner vec marks an unbounded parameter.
+pub(super) fn collect_generic_param_bounds(
+    arena: &ExprArena,
+    generics: ori_ir::GenericParamRange,
+) -> Vec<Vec<Name>> {
+    arena
+        .get_generic_params(generics)
+        .iter()
+        .filter(|param| !param.is_const)
+        .map(|param| param.bounds.iter().map(ori_ir::TraitBound::name).collect())
+        .collect()
+}
+
 /// Resolve a struct/enum field type to an Idx during registration.
 ///
 /// Delegates to `resolve_parsed_type_simple` — generic type arguments are not

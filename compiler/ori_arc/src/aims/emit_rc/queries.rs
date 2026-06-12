@@ -7,12 +7,24 @@ use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
+#[cfg(test)]
+mod tests;
+
 /// Collect all variables whose underlying object had an `RcInc` emitted.
 ///
 /// Returns a set containing:
 /// - Every variable `v` that has an `RcInc { var: v }` instruction
-/// - Every variable `d` defined as `Let { dst: d, value: Var(s) }` where
-///   `s` is in the set (transitive through alias chains)
+/// - Every variable on a `Let { dst, value: Var(src) }` alias edge whose
+///   OTHER end is in the set — BOTH directions, transitive through alias
+///   chains. `dst` and `src` name the SAME allocation, so an inc on either
+///   bumps the shared object's physical refcount: forward (src incremented →
+///   dst incremented) covers reads through later aliases; backward (dst
+///   incremented → src incremented, re-distributed to every sibling by the
+///   forward pass) covers a kept duplication-alias inc (the RL-1 funded
+///   call-arg / store families keep the inc on the ALIAS while the root and
+///   its other aliases stay live — classifying those as un-incremented would
+///   promote a later COW site to `StaticUnique` and mutate the physically
+///   shared buffer in place)
 /// - Every block parameter that receives an incremented variable through
 ///   a `Jump { target, args }` terminator (phi-edge propagation)
 /// - Every Select operand (`true_val` / `false_val`) when the `dst` is
@@ -92,9 +104,11 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
         }
     }
 
-    // Propagate: for each alias edge dst → src, if src is incremented,
-    // dst is also incremented (shares the same object).
-    // Fixed-point loop handles chains like %11 = %8 = %6 (where %6 has RcInc).
+    // Propagate: for each alias edge dst → src, if EITHER end is incremented,
+    // the other is too (both name the same object; see the fn doc's
+    // bidirectional rationale). Fixed-point loop handles chains like
+    // %11 = %8 = %6 (where %6 has RcInc) and sibling fan-outs
+    // %5 = %3, %8 = %3 (where %5 has the kept duplication inc).
     //
     // Select propagation (BUG-04-090 E-mat): for each Select instruction
     // `dst = Select cond ? true_val: false_val`, if `dst` is incremented,
@@ -105,15 +119,16 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
         let mut changed = false;
         for (i, alias) in alias_edges.iter().enumerate() {
             if let Some(src) = alias {
-                if incremented.contains(src) {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "ARC IR var counts fit in u32"
-                    )]
-                    let dst = ArcVarId::new(i as u32);
-                    if incremented.insert(dst) {
-                        changed = true;
-                    }
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "ARC IR var counts fit in u32"
+                )]
+                let dst = ArcVarId::new(i as u32);
+                if incremented.contains(src) && incremented.insert(dst) {
+                    changed = true;
+                }
+                if incremented.contains(&dst) && incremented.insert(*src) {
+                    changed = true;
                 }
             }
         }

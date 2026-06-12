@@ -9,8 +9,9 @@ use ori_ir::{ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_resolution::{
-    build_method_generic_metadata, build_where_constraint, collect_generic_params,
-    resolve_parsed_type_simple, resolve_type_with_method_generics, resolve_type_with_self,
+    build_method_generic_metadata, build_where_constraint, collect_generic_param_bounds,
+    collect_generic_params, resolve_parsed_type_simple, resolve_type_with_method_generics,
+    resolve_type_with_self,
 };
 use crate::check::bodies::allocate_impl_rigid_var_map;
 use crate::registry::burden::UserBurdenSpec;
@@ -50,42 +51,18 @@ fn register_impl(
     // 1. Collect generic parameters
     let arena = checker.arena();
     let type_params = collect_generic_params(arena, impl_def.generics);
+    let type_param_bounds = collect_generic_param_bounds(arena, impl_def.generics);
+    debug_assert_eq!(
+        type_params.len(),
+        type_param_bounds.len(),
+        "type_param_bounds must be index-aligned with type_params"
+    );
 
     // 2. Resolve self type
     let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
 
-    // 3. Resolve trait (if trait impl)
-    //
-    // Parser invariant: a `trait_path: Some(_)` impl block carries at least one path
-    // segment — empty trait paths are unrepresentable in surface syntax (`impl T: { }`
-    // does not parse). An empty `path` here would indicate a parser-level invariant
-    // breach upstream, not a recoverable shape; debug builds surface the violation
-    // while release builds fall back to a synthetic "<unknown>" name so the rest of
-    // registration can continue producing diagnostics rather than panicking.
-    let trait_idx = impl_def.trait_path.as_ref().map(|path| {
-        let trait_name = path.last().copied().unwrap_or_else(|| {
-            debug_assert!(
-                false,
-                "register_impl received Some(trait_path) with empty path segments — \
-                 parser invariant violated for impl_def.span={:?}",
-                impl_def.span
-            );
-            checker.interner().intern("<unknown>")
-        });
-        checker.pool_mut().named(trait_name)
-    });
-
-    // 3b. Resolve trait type arguments (e.g., `<int, str>` in `impl T: Index<int, str>`)
-    let trait_type_args: Vec<Idx> = {
-        let arg_ids = arena.get_parsed_type_list(impl_def.trait_type_args);
-        arg_ids
-            .iter()
-            .map(|&arg_id| {
-                let parsed = arena.get_parsed_type(arg_id);
-                resolve_parsed_type_simple(checker, parsed, arena)
-            })
-            .collect()
-    };
+    // 3. Resolve trait reference (if trait impl): trait name + type arguments.
+    let (trait_idx, trait_type_args) = resolve_impl_trait_ref(checker, impl_def);
 
     // 4. Process explicitly defined methods.
     //
@@ -172,10 +149,12 @@ fn register_impl(
         }
     }
 
-    // 8. Compute specificity
+    // 8. Compute specificity. A non-empty inline bound (`impl<T: Eq>`) makes the
+    //    impl Constrained exactly as a trailing `where` clause does.
+    let has_inline_bound = type_param_bounds.iter().any(|b| !b.is_empty());
     let specificity = if type_params.is_empty() {
         ImplSpecificity::Concrete
-    } else if !where_clause.is_empty() {
+    } else if !where_clause.is_empty() || has_inline_bound {
         ImplSpecificity::Constrained
     } else {
         ImplSpecificity::Generic
@@ -187,6 +166,7 @@ fn register_impl(
         trait_type_args,
         self_type,
         type_params,
+        type_param_bounds,
         methods,
         assoc_types,
         where_clause,
@@ -210,6 +190,47 @@ fn register_impl(
     //     §Auto-derive`; population happens at this `register_impl`
     //     site, NOT `register_derived_impl`.
     populate_drop_burden_if_applicable(checker, impl_def, self_type, trait_idx);
+}
+
+/// Resolve a trait impl's trait reference: the trait's pool `Idx` (None for
+/// inherent impls) plus its resolved type arguments (e.g., `<int, str>` in
+/// `impl T: Index<int, str>`).
+///
+/// Parser invariant: a `trait_path: Some(_)` impl block carries at least one
+/// path segment (`impl T: { }` does not parse). An empty `path` indicates a
+/// parser-level invariant breach upstream; debug builds surface the violation
+/// while release builds fall back to a synthetic "<unknown>" name so the rest
+/// of registration continues producing diagnostics rather than panicking.
+fn resolve_impl_trait_ref(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+) -> (Option<Idx>, Vec<Idx>) {
+    let arena = checker.arena();
+    let trait_idx = impl_def.trait_path.as_ref().map(|path| {
+        let trait_name = path.last().copied().unwrap_or_else(|| {
+            debug_assert!(
+                false,
+                "register_impl received Some(trait_path) with empty path segments — \
+                 parser invariant violated for impl_def.span={:?}",
+                impl_def.span
+            );
+            checker.interner().intern("<unknown>")
+        });
+        checker.pool_mut().named(trait_name)
+    });
+
+    let trait_type_args: Vec<Idx> = {
+        let arg_ids = arena.get_parsed_type_list(impl_def.trait_type_args);
+        arg_ids
+            .iter()
+            .map(|&arg_id| {
+                let parsed = arena.get_parsed_type(arg_id);
+                resolve_parsed_type_simple(checker, parsed, arena)
+            })
+            .collect()
+    };
+
+    (trait_idx, trait_type_args)
 }
 
 /// When `impl_def` is a `Drop` impl on `self_type`, populate

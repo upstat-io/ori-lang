@@ -1,0 +1,112 @@
+// Spec: operator-rules.md "Equality" `T:Eq |- e1 == e2` + "Ordering" `T:Comparable |- e1 < e2`.
+// A generic conditional impl `impl<T: Eq> Pair<T>: Eq` makes `Pair<U>` implement `Eq`
+// ONLY when `U: Eq`. The operator gate must reject `==` / `<` on an instantiation whose
+// impl bound is unsatisfied (E2020), not accept it by matching the impl head alone.
+// Covers both bound surfaces (derive-implied inline AND trailing `where T: Eq`) and
+// nested generics, for both Eq and Comparable.
+
+use std.testing { assert }
+
+// Types
+
+type NoEq = { x: int }                              // no Eq, no Comparable
+type NoCmp = { x: int }                             // no Comparable (and no Eq)
+
+#derive(Eq, Comparable)
+type Pair<T> = { a: T, b: T }                       // derive-implied conditional impls
+
+#derive(Eq)
+type Box<T> = { v: T }                              // nested-generic carrier
+
+// Trailing-`where` bound surface (manual impls) — exercises ImplEntry.where_clause,
+// distinct from the derive-implied surface.
+type WPair<T> = { a: T, b: T }
+impl<T> WPair<T>: Eq where T: Eq {
+    @eq (self, other: WPair<T>) -> bool = self.a == other.a && self.b == other.b;
+}
+impl<T> WPair<T>: Comparable where T: Comparable {
+    @compare (self, other: WPair<T>) -> Ordering =
+        compare(left: self.a, right: other.a).then(other: compare(left: self.b, right: other.b));
+}
+
+// Positive pins: satisfied bound -> `==` / `<` accepted (no regression)
+
+@test_pair_int_eq tests @pair_int_eq () -> void = {
+    assert(cond: pair_int_eq())
+}
+@pair_int_eq () -> bool = {
+    Pair { a: 1, b: 2 } == Pair { a: 1, b: 2 }
+}
+
+@test_pair_int_ord tests @pair_int_ord () -> void = {
+    assert(cond: pair_int_ord())
+}
+@pair_int_ord () -> bool = {
+    Pair { a: 1, b: 2 } < Pair { a: 1, b: 3 }
+}
+
+@test_nested_box_pair_int_eq tests @nested_box_pair_int_eq () -> void = {
+    assert(cond: nested_box_pair_int_eq())
+}
+@nested_box_pair_int_eq () -> bool = {
+    Pair { a: Box { v: 1 }, b: Box { v: 2 } } == Pair { a: Box { v: 1 }, b: Box { v: 2 } }
+}
+
+@test_wpair_int_eq tests @wpair_int_eq () -> void = {
+    assert(cond: wpair_int_eq())
+}
+@wpair_int_eq () -> bool = {
+    WPair { a: 1, b: 2 } == WPair { a: 1, b: 2 }
+}
+
+@test_wpair_int_ord tests @wpair_int_ord () -> void = {
+    assert(cond: wpair_int_ord())
+}
+@wpair_int_ord () -> bool = {
+    WPair { a: 1, b: 2 } < WPair { a: 1, b: 3 }
+}
+
+// Negative pins: unsatisfied bound -> rejected at typeck (E2020).
+// These bodies compile TODAY (the defect); after the fix they are rejected.
+
+// Eq, derive-implied, unsatisfied (T = NoEq, NoEq is not Eq).
+#compile_fail("Eq")
+@test_pair_noeq_eq_rejected tests @pair_noeq_eq_rejected () -> void = {
+    let $r = Pair { a: NoEq { x: 1 }, b: NoEq { x: 2 } } == Pair { a: NoEq { x: 1 }, b: NoEq { x: 2 } };
+    assert(cond: r)
+}
+
+// Comparable, derive-implied, unsatisfied (T = NoCmp, NoCmp is not Comparable).
+#compile_fail("Comparable")
+@test_pair_nocmp_ord_rejected tests @pair_nocmp_ord_rejected () -> void = {
+    let $r = Pair { a: NoCmp { x: 1 }, b: NoCmp { x: 2 } } < Pair { a: NoCmp { x: 1 }, b: NoCmp { x: 2 } };
+    assert(cond: r)
+}
+
+// Eq, single-field generic carrier, unsatisfied.
+#compile_fail("Eq")
+@test_box_noeq_eq_rejected tests @box_noeq_eq_rejected () -> void = {
+    let $r = Box { v: NoEq { x: 1 } } == Box { v: NoEq { x: 1 } };
+    assert(cond: r)
+}
+
+// Eq, NESTED generic unsatisfied (bound arg is itself a generic `Box<NoEq>`).
+#compile_fail("Eq")
+@test_pair_box_noeq_eq_rejected tests @pair_box_noeq_eq_rejected () -> void = {
+    let $r = Pair { a: Box { v: NoEq { x: 1 } }, b: Box { v: NoEq { x: 2 } } } == Pair { a: Box { v: NoEq { x: 1 } }, b: Box { v: NoEq { x: 2 } } };
+    assert(cond: r)
+}
+
+// Eq, trailing-`where` bound surface, unsatisfied (covers ImplEntry.where_clause path).
+#compile_fail("Eq")
+@test_wpair_noeq_eq_rejected tests @wpair_noeq_eq_rejected () -> void = {
+    let $r = WPair { a: NoEq { x: 1 }, b: NoEq { x: 2 } } == WPair { a: NoEq { x: 1 }, b: NoEq { x: 2 } };
+    assert(cond: r)
+}
+
+// Comparable, trailing-`where` bound surface, unsatisfied.
+#compile_fail("Comparable")
+@test_wpair_nocmp_ord_rejected tests @wpair_nocmp_ord_rejected () -> void = {
+    let $r = WPair { a: NoCmp { x: 1 }, b: NoCmp { x: 2 } } < WPair { a: NoCmp { x: 1 }, b: NoCmp { x: 2 } };
+    assert(cond: r)
+}

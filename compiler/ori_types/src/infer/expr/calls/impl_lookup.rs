@@ -108,7 +108,7 @@ pub(super) struct ImplMethodSig {
 /// `Tag::Applied(Name, [args])` and `Tag::Named(Name)` carry a nominal head
 /// name extractable in O(1). Other tags (primitives, function types, vars)
 /// have no nominal base — the base-name fallback path is inapplicable.
-fn pool_base_name(pool: &Pool, ty: Idx) -> Option<Name> {
+pub(crate) fn pool_base_name(pool: &Pool, ty: Idx) -> Option<Name> {
     match pool.tag(ty) {
         Tag::Applied => Some(pool.applied_name(ty)),
         Tag::Named => Some(pool.named_name(ty)),
@@ -131,7 +131,7 @@ fn pool_base_name(pool: &Pool, ty: Idx) -> Option<Name> {
 /// Engine half of the dispatch path per `typeck.md §EN-2` (engine owns
 /// inference state) and `types.md §RG-2` (registry stays a
 /// frozen-after-registration data store).
-fn match_self_type(
+pub(crate) fn match_self_type(
     pool: &Pool,
     pattern: Idx,
     target: Idx,

@@ -30,7 +30,7 @@ type AddrBook = {
 }
 
 // =============================================================================
-// Path prefix for nested struct: "at field `addrs`"
+// Path prefix for nested struct: "at struct field"
 // =============================================================================
 
 #compile_fail(code: "E2001", message: "at struct field")

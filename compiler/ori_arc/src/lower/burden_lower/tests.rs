@@ -8507,6 +8507,250 @@ fn call_arg_dup_scan_admits_loop_invariant_source_with_post_loop_use() {
     );
 }
 
+// Funded store-family duplication set (`compute_funded_store_dup_aliases`)
+
+#[test]
+fn funded_store_dup_admits_alias_with_src_used_in_successor() {
+    let func = dup_alias_src_used_in_successor_func();
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.contains(&ArcVarId::new(1)),
+        "bb0 store alias of a source read in a reachable successor is funded; funded = {funded:?}"
+    );
+    assert!(
+        !funded.contains(&ArcVarId::new(2)),
+        "the source's terminal store alias is a move, never funded"
+    );
+}
+
+#[test]
+fn funded_store_dup_admits_alias_with_later_same_block_source_use() {
+    // The direct two-store shape: `%1 = %0; Construct(%1); %2 = %0;
+    // Construct(%2)` — the first alias has a later same-block source use.
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        store_of(3, 1),
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.contains(&ArcVarId::new(1)),
+        "first store alias is funded (source live past it); funded = {funded:?}"
+    );
+    assert!(
+        !funded.contains(&ArcVarId::new(2)),
+        "second store alias is the terminal move"
+    );
+}
+
+#[test]
+fn funded_store_dup_admits_set_value_endpoint() {
+    // `%1 = %0; Set base.f = %1; %2 = %0; Construct(%2)` — the Set.value
+    // consume is an aggregate-store endpoint per the Phase-5 SSOT.
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        ArcInstr::Set {
+            base: ArcVarId::new(3),
+            field: 0,
+            value: ArcVarId::new(1),
+        },
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.contains(&ArcVarId::new(1)),
+        "a Set.value consume of a still-live source is a funded store duplication"
+    );
+}
+
+#[test]
+fn funded_store_dup_declines_branch_exclusive_aliases() {
+    // Each branch store-aliases the source then returns — per-path terminal
+    // moves, no duplication (the BUG-04-176 boundary: NO kept inc by design).
+    let func = ArcFunction {
+        var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![alias_of(2, 0), store_of(4, 2)],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: vec![alias_of(3, 0), store_of(5, 3)],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(5),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.is_empty(),
+        "branch-exclusive store aliases are per-path terminal moves: {funded:?}"
+    );
+}
+
+#[test]
+fn funded_store_dup_declines_call_arg_chain() {
+    // The first alias moves into an OWNED call arg — the call-arg family has
+    // its own funded machinery; the store SSOT never admits Apply/Invoke
+    // consumers (over-admitting re-creates the +1-per-loop over-fire).
+    let mut func = func_with_n_vars(5);
+    func.blocks[0].body = vec![
+        alias_of(1, 0),
+        ArcInstr::Apply {
+            dst: ArcVarId::new(3),
+            ty: Idx::INT,
+            func: Name::from_raw(7),
+            args: vec![ArcVarId::new(1)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
+        },
+        alias_of(2, 0),
+        store_of(4, 2),
+    ];
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        !funded.contains(&ArcVarId::new(1)),
+        "a call-arg consumer chain never enters the store family"
+    );
+}
+
+#[test]
+fn funded_store_dup_declines_terminal_single_store() {
+    // Sole alias, sole store, no other source use — the store consumes the
+    // source's original reference (RL-2 transfer, no duplication).
+    let mut func = func_with_n_vars(4);
+    func.blocks[0].body = vec![alias_of(1, 0), store_of(3, 1)];
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.is_empty(),
+        "a terminal single store is a move, never funded: {funded:?}"
+    );
+}
+
+#[test]
+fn funded_store_dup_declines_per_iteration_terminal_store_via_def_cut() {
+    // The source is DEFINED in the loop block (per-iteration fresh construct)
+    // with an earlier-in-block read; the back-edge re-reach belongs to the
+    // NEXT binding instance, so the definition cut declines (per-iteration
+    // TERMINAL store — funding it would leak +1 per iteration). Contrast the
+    // loop-invariant admission below.
+    let func = ArcFunction {
+        var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    store_of(0, 5),
+                    alias_of(3, 0),
+                    alias_of(2, 0),
+                    store_of(4, 2),
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(0),
+                    else_block: ArcBlockId::new(1),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        !funded.contains(&ArcVarId::new(2)),
+        "a per-iteration-defined source's back-edge re-reach is the NEXT binding — declined"
+    );
+}
+
+#[test]
+fn funded_store_dup_admits_loop_invariant_source_stored_per_iteration() {
+    // The loop-outside/store-inside subshape: source defined BEFORE the loop,
+    // store-aliased INSIDE it each iteration — every iteration's store is a
+    // genuine duplication (the source survives into the next iteration).
+    let func = ArcFunction {
+        var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![store_of(0, 5)],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![alias_of(2, 0), store_of(4, 2), alias_of(3, 0)],
+                terminator: ArcTerminator::Branch {
+                    cond: ArcVarId::new(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(4),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let funded =
+        super::ownership_scans::compute_funded_store_dup_aliases(&func, &FxHashMap::default());
+    assert!(
+        funded.contains(&ArcVarId::new(2)),
+        "a loop-invariant source stored per iteration funds each store; funded = {funded:?}"
+    );
+}
+
 // Funded owned-call-arg duplication set (`compute_funded_call_arg_dup_aliases`)
 
 #[test]

@@ -29,25 +29,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
-
-/// Compile + run `source`; assert clean exit (0) and exact one-line stdout.
-///
-/// Catches all three failure shapes: compile failure (-1), crash /
-/// double-free / leak (non-zero exit incl. signal codes), and silent wrong
-/// value (stdout mismatch).
-fn assert_cell_output(source: &str, test_name: &str, expected_stdout: &str) {
-    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
-    assert_eq!(
-        exit_code, 0,
-        "{test_name}: expected clean exit, got {exit_code}\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(
-        stdout.trim(),
-        expected_stdout,
-        "{test_name}: wrong value on stdout\nstderr:\n{stderr}"
-    );
-}
+use crate::util::{assert_aot_success, assert_cell_output};
 
 // ----- Straight-line, builtin COW receivers (owned Invoke args) -----
 

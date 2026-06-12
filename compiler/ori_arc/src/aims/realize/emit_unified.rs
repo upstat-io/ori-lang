@@ -7362,7 +7362,50 @@ fn compute_elidable_fresh_self_alloc_incs(
     // verdicts. Spec: Annex E §AIMS RL-1 (`RL1_duplication_balanced`) + RL-2.
     let call_arg_dups =
         crate::lower::burden_lower::compute_funded_call_arg_dup_aliases(func, contracts, interner);
-    let dup_funded_reps: FxHashSet<ArcVarId> = call_arg_dups.iter().map(|&v| rep_of(v)).collect();
+    // STORE-FAMILY funded lineages (RL-1 store-family duplication cure): the
+    // fresh-local aggregate-STORE twin of the call-arg family. TWO layers:
+    //  - the funded ALIAS set (`compute_funded_store_dup_aliases` — kept
+    //    store-site dup incs) joins the cow-clearance funding closure: a
+    //    consumed member backed by its own kept inc holds rc >= 2 at the
+    //    consume site, so the COW helper copies;
+    //  - the store-LINEAGE rep admission (`compute_store_handoff_reps` — any
+    //    fresh-rooted lineage with >= 1 aggregate-store hand-off of an RC
+    //    member) takes the hand-off-DEBITED net, pricing each store consume
+    //    -1 (the container drop is the downstream release). The kept dup incs
+    //    then read as FUNDED transfers; the surplus over that ledger is the
+    //    fresh-site keep-alive (net == 1) or the fresh-site keep-alive PLUS
+    //    the execution-final read alias's keep-alive pair inc (net == 2, the
+    //    multi-store + post-store-read shape — the carrier designation below).
+    // Spec: Annex E §AIMS RL-1 (`RL1_duplication_balanced`) + RL-2.
+    let (store_dups, store_lineage_reps) =
+        if crate::lower::burden_lower::store_family_funding_disabled() {
+            (FxHashSet::default(), FxHashSet::default())
+        } else {
+            (
+                crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts),
+                compute_store_handoff_reps(func, same_alloc_reps),
+            )
+        };
+    let mut dup_funded_reps: FxHashSet<ArcVarId> =
+        call_arg_dups.iter().map(|&v| rep_of(v)).collect();
+    dup_funded_reps.extend(store_lineage_reps.iter().copied());
+    // FORWARD-Jump-exported lineages take the debited net too: a forward Jump
+    // arg exports the reference into a block-param lineage (`same_alloc_reps`
+    // excludes the phi edge by design — the threaded continuation owns the
+    // release), so the UNDEBITED net reads the export's funding inc as a +1
+    // surplus and elides it, leaving the paired dec to free the buffer BEFORE
+    // the Jump (the loop-entry `let s = [0]; for .. { s = .. }` double-free).
+    // The debited net prices the export -1 (`compute_lineage_handoff_debits`
+    // forward-Jump arm), restoring the balanced verdict. Per-rep admission
+    // only; no carrier designation. Spec: Annex E §AIMS RL-2 + RL-4.
+    if !crate::lower::burden_lower::store_family_funding_disabled() {
+        dup_funded_reps.extend(compute_forward_jump_export_reps(func, same_alloc_reps));
+    }
+    let funded_dup_aliases: FxHashSet<ArcVarId> = call_arg_dups
+        .iter()
+        .chain(store_dups.iter())
+        .copied()
+        .collect();
     let (debited_net, cow_cleared_reps) = if dup_funded_reps.is_empty() {
         (FxHashMap::default(), FxHashSet::default())
     } else {
@@ -7381,10 +7424,14 @@ fn compute_elidable_fresh_self_alloc_incs(
                 interner,
                 contracts,
                 &dup_funded_reps,
-                &call_arg_dups,
+                &funded_dup_aliases,
             ),
         )
     };
+    // RL-2 execution-final read-alias release carriers for the store-family
+    // lineages (per-rep; only consulted at debited net == 2).
+    let store_carriers =
+        compute_store_family_final_read_carriers(func, same_alloc_reps, &store_lineage_reps);
 
     let mut elidable: FxHashSet<ArcVarId> = FxHashSet::default();
     // Elision verdict for one fresh-self-alloc result `dst`: elide its surplus
@@ -7407,6 +7454,17 @@ fn compute_elidable_fresh_self_alloc_incs(
             lineage_net.get(&rep).copied().unwrap_or(0)
         };
         let verdict = !cow && net == 1;
+        // Store-family net == 2: the fresh-site keep-alive AND the
+        // execution-final read alias's keep-alive pair inc are the two surplus
+        // supplies — elide the fresh inc AND designate the final read alias as
+        // the lineage's RL-2 release carrier (its inc is suppressed; its
+        // last-use dec, placed after the final read, becomes the base's single
+        // release). Only a UNIQUE execution-final carrier qualifies
+        // (`compute_store_family_final_read_carriers` declines loop re-reach /
+        // per-arm finals). Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
+        let carrier = (!cow && net == 2 && store_lineage_reps.contains(&rep))
+            .then(|| store_carriers.get(&rep).copied())
+            .flatten();
         if tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
             tracing::trace!(
                 target: "ori_arc::aims::realize",
@@ -7416,12 +7474,16 @@ fn compute_elidable_fresh_self_alloc_incs(
                 lineage_net = net,
                 cow_mutated = cow,
                 dup_funded,
-                elidable = verdict,
+                release_carrier = carrier.map(ArcVarId::raw),
+                elidable = verdict || carrier.is_some(),
                 "fresh-self-alloc inc-elision decision"
             );
         }
         if verdict {
             elidable.insert(dst);
+        } else if let Some(c) = carrier {
+            elidable.insert(dst);
+            elidable.insert(c);
         }
     };
     for block in &func.blocks {
@@ -7856,25 +7918,27 @@ fn compute_dup_funded_debited_net(
 
 /// DUP-FUNDED reps whose every RC-READING consume site is COW-SAFE without the
 /// fresh-site keep-alive inc: the consumed lineage member is a kept
-/// owned-call-arg duplication alias (its OWN preceding inc raises the runtime
-/// rc >= 2 at the site while the source's original reference stays live — the
-/// COW helper copies), OR the site is the lineage's TERMINAL consume (no
-/// lineage-member use forward-reachable after it — in-place mutation of the
-/// last reference is sound). Aggregate-store args (`Construct` / `Reuse` /
-/// `CollectionReuse` / `Set.value`) read no refcount and never block. A rep in
-/// the returned set takes the fresh-inc elision verdict despite its
-/// lineage-wide `cow_mutated_reps` flag. Spec: Annex E §AIMS RL-1.
+/// duplication alias (owned-call-arg OR store family — its OWN preceding inc
+/// raises the runtime rc >= 2 at the site while the source's original
+/// reference stays live — the COW helper copies), OR the site is the
+/// lineage's TERMINAL consume (no lineage-member use forward-reachable after
+/// it — in-place mutation of the last reference is sound). Aggregate-store
+/// args (`Construct` / `Reuse` / `CollectionReuse` / `Set.value`) read no
+/// refcount and never block. A rep in the returned set takes the fresh-inc
+/// elision verdict despite its lineage-wide `cow_mutated_reps` flag.
+/// `funded_dup_aliases` is the UNION of the two funded families. Spec:
+/// Annex E §AIMS RL-1.
 fn compute_dup_funded_cow_cleared_reps(
     func: &ArcFunction,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
     dup_funded_reps: &FxHashSet<ArcVarId>,
-    call_arg_dups: &FxHashSet<ArcVarId>,
+    funded_dup_aliases: &FxHashSet<ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let member_uses = collect_dup_funded_member_uses(func, same_alloc_reps, dup_funded_reps);
-    let funded = close_funded_over_move_chain(func, call_arg_dups);
+    let funded = close_funded_over_move_chain(func, funded_dup_aliases);
     let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
     let mut blocked: FxHashSet<ArcVarId> = FxHashSet::default();
     // A non-funded RC-READING consume of a lineage member blocks its rep
@@ -7902,6 +7966,243 @@ fn compute_dup_funded_cow_cleared_reps(
         .copied()
         .filter(|rep| !blocked.contains(rep))
         .collect()
+}
+
+/// Same-alloc lineage reps with >= 1 aggregate-STORE hand-off of an RC member:
+/// a `Construct` / `Reuse` / `CollectionReuse` arg or a `Set.value` whose repr
+/// is `RcPointer` / `FatValue`. The Phase-7 admission for the store-family
+/// hand-off-DEBITED net (`compute_dup_funded_debited_net` prices each store
+/// consume -1 — the container's drop is the downstream release), covering the
+/// fresh-local lineages whose surplus fresh-site keep-alive the undebited net
+/// cannot see (the store's matched release is another var's drop glue).
+/// Per-rep admission only; the net == 1 / net == 2 + carrier verdicts plus the
+/// COW clearance bound the elision. Spec: Annex E §AIMS RL-1 + RL-2.
+pub(super) fn compute_store_handoff_reps(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let is_rcptr = |v: ArcVarId| {
+        matches!(
+            func.var_repr(v),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let store_args: &[ArcVarId] = match instr {
+                ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. }
+                | ArcInstr::CollectionReuse { args, .. } => args,
+                ArcInstr::Set { value, .. } => std::slice::from_ref(value),
+                _ => &[],
+            };
+            for &a in store_args {
+                if is_rcptr(a) {
+                    reps.insert(rep_of(a));
+                }
+            }
+        }
+    }
+    reps
+}
+
+/// Same-alloc lineage reps with >= 1 FORWARD-Jump arg export of an RC member
+/// (target does NOT dominate the source block — back-edge args are the loop's
+/// own param rename, not an export; mirrors the
+/// `compute_lineage_handoff_debits` forward-Jump arm). Admission for the
+/// hand-off-DEBITED net in [`compute_elidable_fresh_self_alloc_incs`]: the
+/// export's downstream release lives in the phi-excluded block-param lineage,
+/// so the undebited net mis-reads the export's funding inc as surplus.
+/// Spec: Annex E §AIMS RL-2 + RL-4.
+pub(super) fn compute_forward_jump_export_reps(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let is_rcptr = |v: ArcVarId| {
+        matches!(
+            func.var_repr(v),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    let dom = crate::graph::DominatorTree::build(func);
+    let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let src_id = crate::ir::ArcBlockId::new(u32::try_from(b).unwrap_or(u32::MAX));
+            if !dom.dominates(*target, src_id) {
+                for &arg in args {
+                    if is_rcptr(arg) {
+                        reps.insert(rep_of(arg));
+                    }
+                }
+            }
+        }
+    }
+    reps
+}
+
+/// Execution-final read-alias RELEASE CARRIER per store-family lineage rep
+/// (RL-2 `RL2_release_exactly_once`): the UNIQUE `Let { Var }` read alias
+/// carrying a surviving keep-alive `BurdenInc` + `BurdenDec` pair whose last
+/// use no lineage-member use follows (same-block-later OR successor-reachable
+/// — a loop re-reach declines; per-arm finals yield multiple candidates and
+/// decline). Consumed by the net == 2 verdict in
+/// [`compute_elidable_fresh_self_alloc_incs`]: the carrier's inc is elided
+/// with the fresh-site inc, leaving its last-use dec — placed after the final
+/// read — as the lineage's single surviving release.
+///
+/// Decline fences (each leaves the rep carrier-less — no elision fires):
+/// - a candidate consumed at ANY moved position (owned call arg /
+///   aggregate-store arg / `Set.value` / `Jump` arg / `Return`) is NOT a read
+///   alias — its ops are funding/transfer arrangements, never the keep-alive
+///   pair (eliding the inc of a pre-consume pair under-funds the consume);
+/// - zero candidates (no surviving pair) or multiple execution-final
+///   candidates (per-arm finals) — conservative.
+///
+/// Mirrors the designation algorithm of
+/// `compute_call_result_element_final_read_releases` on the post-elimination
+/// op-carrying IR. Spec: Annex E §AIMS RL-1 + RL-2.
+pub(super) fn compute_store_family_final_read_carriers(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    store_reps: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    if store_reps.is_empty() {
+        return FxHashMap::default();
+    }
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let census = collect_store_family_census(func, &rep_of, store_reps);
+    let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    let mut carriers: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for &rep in store_reps {
+        let Some(sites_of_rep) = census.lineage_sites.get(&rep) else {
+            continue;
+        };
+        let mut finals: Vec<ArcVarId> = Vec::new();
+        for (&v, sites) in &census.use_sites {
+            if rep_of(v) != rep
+                || !census.alias_dsts.contains(&v)
+                || census.moved_vars.contains(&v)
+                || census.inc_count.get(&v).copied().unwrap_or(0) != 1
+                || census.dec_count.get(&v).copied().unwrap_or(0) == 0
+            {
+                continue;
+            }
+            let Some(&(lb, li)) = sites.last() else {
+                continue;
+            };
+            let reachable = reachable_cache
+                .entry(lb)
+                .or_insert_with(|| compute_successor_reachable(func, lb));
+            let used_after = sites_of_rep
+                .iter()
+                .any(|&(ub, ui)| (ub == lb && ui > li) || reachable.contains(&ub));
+            if !used_after {
+                finals.push(v);
+            }
+        }
+        if let [one] = finals.as_slice() {
+            carriers.insert(rep, *one);
+        }
+    }
+    carriers
+}
+
+/// One-walk census over the post-elimination IR for the carrier designation:
+/// surviving whole-var burden-op counts, `Let { Var }` alias dsts, MOVED vars
+/// (owned positions / `Set.value` / `Jump` args / `Return`), and the per-var +
+/// per-rep use sites (burden ops are accounting markers, not uses; terminator
+/// sites carry `usize::MAX`).
+#[derive(Default)]
+struct StoreFamilyCensus {
+    inc_count: FxHashMap<ArcVarId, u32>,
+    dec_count: FxHashMap<ArcVarId, u32>,
+    alias_dsts: FxHashSet<ArcVarId>,
+    moved_vars: FxHashSet<ArcVarId>,
+    use_sites: FxHashMap<ArcVarId, Vec<(usize, usize)>>,
+    lineage_sites: FxHashMap<ArcVarId, Vec<(usize, usize)>>,
+}
+
+fn collect_store_family_census(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    store_reps: &FxHashSet<ArcVarId>,
+) -> StoreFamilyCensus {
+    let mut census = StoreFamilyCensus::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    *census.inc_count.entry(*var).or_default() += 1;
+                    continue;
+                }
+                ArcInstr::BurdenDec { var }
+                | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var } => {
+                    *census.dec_count.entry(*var).or_default() += 1;
+                    continue;
+                }
+                ArcInstr::BurdenDecField { .. } => continue,
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(_),
+                    ..
+                } => {
+                    census.alias_dsts.insert(*dst);
+                }
+                ArcInstr::Set { value, .. } => {
+                    census.moved_vars.insert(*value);
+                }
+                _ => {}
+            }
+            for (pos, &v) in instr.used_vars().iter().enumerate() {
+                if instr.is_owned_position(pos) {
+                    census.moved_vars.insert(v);
+                }
+                let r = rep_of(v);
+                if store_reps.contains(&r) {
+                    census
+                        .use_sites
+                        .entry(v)
+                        .or_default()
+                        .push((block_idx, instr_idx));
+                    census
+                        .lineage_sites
+                        .entry(r)
+                        .or_default()
+                        .push((block_idx, instr_idx));
+                }
+            }
+        }
+        let term = &block.terminator;
+        for (pos, &v) in term.used_vars().iter().enumerate() {
+            if term.is_owned_position(pos)
+                || matches!(
+                    term,
+                    ArcTerminator::Return { .. } | ArcTerminator::Jump { .. }
+                )
+            {
+                census.moved_vars.insert(v);
+            }
+            let r = rep_of(v);
+            if store_reps.contains(&r) {
+                census
+                    .use_sites
+                    .entry(v)
+                    .or_default()
+                    .push((block_idx, usize::MAX));
+                census
+                    .lineage_sites
+                    .entry(r)
+                    .or_default()
+                    .push((block_idx, usize::MAX));
+            }
+        }
+    }
+    census
 }
 
 /// Every RC-READING consume site `(var, block, site_idx)` in `func`: owned

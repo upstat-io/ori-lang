@@ -212,6 +212,16 @@ pub struct ImplEntry {
     /// Generic type parameters on this impl.
     pub type_params: Vec<Name>,
 
+    /// Trait bounds per type parameter, index-aligned with `type_params`
+    /// (mirrors `FunctionSig.type_param_bounds`). Captures the inline
+    /// `impl<T: Eq>` bound and the derive-implied conditional bound that the
+    /// trailing `where_clause` surface does not carry. Empty inner vec = an
+    /// unbounded parameter. The operator-presence gate validates these against
+    /// the instantiation so an unsatisfied generic impl does not count as
+    /// implementing the trait.
+    /// Spec: operator-rules.md "Equality"/"Ordering" — operands shall implement the trait.
+    pub type_param_bounds: Vec<Vec<Name>>,
+
     /// Method implementations.
     pub methods: FxHashMap<Name, ImplMethodDef>,
 

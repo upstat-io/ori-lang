@@ -16,6 +16,11 @@ pub(crate) use method_call::{infer_method_call, infer_method_call_named};
 pub(crate) use monomorphization::register_concrete_applied_resolutions;
 pub(crate) use monomorphization::{compose_builtin_burdens_for_resolved_types, compose_for_idx};
 
+// Consumed by the operator-presence gate (`operators::dispatch`) for
+// generic-impl instantiation-bound validation.
+pub(crate) use impl_lookup::{match_self_type, pool_base_name};
+pub(crate) use traits::type_satisfies_trait as type_satisfies_named_trait;
+
 // Re-export for tests (accessed via `super::calls::type_satisfies_trait` etc.)
 #[cfg(test)]
 pub(crate) use infinite_iterator::find_infinite_source;

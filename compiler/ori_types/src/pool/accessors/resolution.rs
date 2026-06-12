@@ -132,7 +132,7 @@ impl Pool {
     /// `Tag::BoundVar` per invariant SC-1), because genuinely malformed inputs — e.g.,
     /// cross-pool `var_id` collisions caught by the pool re-intern path —
     /// can still reach this accessor.
-    fn chase_var_links(&self, idx: Idx) -> Idx {
+    pub(crate) fn chase_var_links(&self, idx: Idx) -> Idx {
         let mut current = idx;
         for _ in 0..16 {
             if current.raw() as usize >= self.items.len() {

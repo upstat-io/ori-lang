@@ -10,6 +10,7 @@
 
 mod borrowed;
 mod borrowed_invoke_lineage;
+mod branch_release;
 mod call_arg_dup;
 mod construct_fed;
 mod dead_param;
@@ -20,6 +21,7 @@ mod live_extract;
 mod live_extract_site;
 mod live_out;
 mod move_alias;
+mod store_dup;
 mod union_find;
 mod walk;
 
@@ -30,6 +32,7 @@ pub(super) use borrowed::{
 pub(super) use borrowed_invoke_lineage::{
     borrowed_invoke_lineage_release_disabled, compute_borrowed_invoke_collection_lineage,
 };
+pub(super) use branch_release::compute_branch_exclusive_edge_releases;
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
 // Test-only re-export: the RAW classification is consumed by the `tests`
 // sibling; production consumers take the FUNDED set.
@@ -58,6 +61,7 @@ pub(crate) use forwarder_release::ForwarderReleasePos;
 pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use move_alias::compute_transfer_via_move_alias;
+pub(crate) use store_dup::{compute_funded_store_dup_aliases, store_family_funding_disabled};
 pub(super) use walk::{
     collect_owned_burdens, compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
     group_last_uses_filtered,
@@ -143,6 +147,64 @@ pub(crate) fn list_concat_consumed_operands(
         }
     }
     consumed
+}
+
+/// Per-var defining block: instruction dsts + block params. The
+/// forward-reachability discriminator of the duplication scans CUTS at the
+/// source's defining block — re-reaching the definition via a back-edge
+/// re-DEFINES the binding, so the re-reached "use" belongs to the NEW binding,
+/// not the consumed allocation. Shared by the call-arg and store duplication
+/// scans (`call_arg_dup`, `store_dup`).
+fn collect_def_blocks(func: &ArcFunction) -> rustc_hash::FxHashMap<ArcVarId, usize> {
+    let mut def_block: rustc_hash::FxHashMap<ArcVarId, usize> = rustc_hash::FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for &(param, _) in &block.params {
+            def_block.insert(param, block_idx);
+        }
+        for instr in &block.body {
+            if let Some(dst) = instr.defined_var() {
+                def_block.insert(dst, block_idx);
+            }
+        }
+    }
+    def_block
+}
+
+/// Forward-reachable block set from `start`'s SUCCESSORS, NOT expanding
+/// through `cut` (the source's defining block): blocks beyond a re-definition
+/// belong to the NEXT binding instance. `cut` itself may appear in the set
+/// (callers exclude its use sites separately). Shared by the call-arg and
+/// store duplication scans.
+fn successor_reachable_blocks_with_cut(
+    func: &ArcFunction,
+    start: usize,
+    cut: Option<usize>,
+) -> FxHashSet<usize> {
+    let mut visited: FxHashSet<usize> = FxHashSet::default();
+    let mut stack: Vec<usize> = func
+        .blocks
+        .get(start)
+        .map(|b| {
+            crate::graph::successor_block_ids(&b.terminator)
+                .into_iter()
+                .map(crate::ir::ArcBlockId::index)
+                .collect()
+        })
+        .unwrap_or_default();
+    while let Some(b) = stack.pop() {
+        if !visited.insert(b) {
+            continue;
+        }
+        if cut == Some(b) {
+            continue;
+        }
+        if let Some(block) = func.blocks.get(b) {
+            for s in crate::graph::successor_block_ids(&block.terminator) {
+                stack.push(s.index());
+            }
+        }
+    }
+    visited
 }
 
 /// Forward-reachable block set from `start`'s SUCCESSORS (`start` itself is

@@ -267,6 +267,23 @@ flags! {
     /// Usage: `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_OWNED_CALL_ARG_DUP_INC
 
+    /// Revert the RL-1 store-family duplication funding on FRESH-local
+    /// lineages (default: the funded store-site dup incs of a fresh local
+    /// used past an aggregate store are pair-atomic in the Phase-6 elision —
+    /// each container holds a funded reference whose matched release is its
+    /// drop — and the Phase-7 lineage net prices store / forward-Jump
+    /// hand-offs so the surplus fresh-site keep-alive elides, designating the
+    /// execution-final read alias as the lineage's single release carrier;
+    /// without it the multi-store lineage under-incs and double-frees, or
+    /// over-incs and leaks).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (the funded SSOT), the
+    /// Phase-6 pair-atomic elision, and the Phase-7 lineage-net machinery.
+    /// Bisects a fresh-local multi-store double-free / store-lineage leak to
+    /// the funded store treatment.
+    /// Usage: `ORI_DISABLE_STORE_FAMILY_FUNDING=1 ori build file.ori`
+    ORI_DISABLE_STORE_FAMILY_FUNDING
+
     /// Skip the FINAL-READ release designation for multi-read elements of a
     /// caller-owned call-result aggregate (default: the lineage's
     /// execution-final read alias carries the element's single last-use

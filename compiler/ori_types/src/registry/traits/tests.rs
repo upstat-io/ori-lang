@@ -108,6 +108,7 @@ fn register_and_lookup_impl() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -160,6 +161,7 @@ fn inherent_impl() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -220,6 +222,7 @@ fn method_lookup_priority() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: inherent_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -248,6 +251,7 @@ fn method_lookup_priority() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: trait_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -290,6 +294,7 @@ fn coherence_check() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -501,12 +506,10 @@ fn collected_methods_deduplication() {
     assert_eq!(bar_entry.1, b_idx);
 }
 
-// ===========================================================================
 // §10.1.1 bound-chain dispatch TDD matrix — find_trait_method_via_bound_chain
 // Regression matrix for the §10.1 Tag::RigidVar bound-chain walk (shipped
 // a20bc41b1 + 131c771ea). Receiver × bound × method observable behavior:
 // NotFound / Found / Ambiguous + visited-set dedup + supertrait flattening.
-// ===========================================================================
 
 fn mk_trait_method(name: Name, sig: u32) -> TraitMethodDef {
     TraitMethodDef {

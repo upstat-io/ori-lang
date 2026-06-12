@@ -314,6 +314,16 @@ fn eliminate_whole_function(
     alias_dsts.extend(
         crate::lower::burden_lower::compute_funded_call_arg_dup_aliases(func, contracts, interner),
     );
+    // RL-1 store-family duplication aliases (the fresh-local used-past-store
+    // family): same inc-ONLY pair-atomicity as the owned-call-arg family —
+    // the kept store-site dup inc's matched release is the CONTAINER's drop
+    // (`RL1_duplication_balanced`), so a DP-3 split would strip the funded
+    // reference and re-introduce the multi-store under-inc double-free. The
+    // FUNDED set excludes raw members whose alias-site inc Phase 5 never kept.
+    // Per-alias dsts, NEVER the root. SSOT: `compute_funded_store_dup_aliases`.
+    // Spec: Annex E §AIMS RL-1.
+    alias_dsts
+        .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
     mark_whole_var_removals(
         &balances,
         &rebalanced_vars,

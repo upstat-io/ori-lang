@@ -14,7 +14,7 @@ use crate::aims::lattice::dimensions::AccessClass;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
 use super::dup_inc::{collect_use_sites, is_burden_op};
-use super::successor_reachable_blocks;
+use super::{collect_def_blocks, successor_reachable_blocks, successor_reachable_blocks_with_cut};
 
 /// `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1` restores the symmetric-cancellation
 /// treatment for a `Let { Var(src) }` dup-alias consumed at an OWNED call-arg
@@ -230,26 +230,15 @@ pub(in crate::lower::burden_lower) fn compute_genuine_dup_call_arg_aliases(
         }
         false
     };
-    // Per-var defining block: instruction dsts + block params. The
-    // forward-reachability discriminator CUTS at the source's defining block —
-    // re-reaching the definition via a back-edge re-DEFINES the binding (a
-    // loop-variant reassignment `xs = xs.push(i)` threads the CONSUME RESULT
-    // into the next iteration's block-param; the re-reached "use" belongs to
-    // the NEW binding, not the consumed allocation). A loop-INVARIANT source
-    // (defined OUTSIDE the cycle, e.g. `base` forked per iteration by
-    // `base.set(0, i)`) is unaffected — its defining block is never re-reached
-    // from the alias's successors, so in-loop and post-loop uses still admit.
-    let mut def_block: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for &(param, _) in &block.params {
-            def_block.insert(param, block_idx);
-        }
-        for instr in &block.body {
-            if let Some(dst) = instr.defined_var() {
-                def_block.insert(dst, block_idx);
-            }
-        }
-    }
+    // Source-definition CUT (a loop-variant reassignment `xs = xs.push(i)`
+    // threads the CONSUME RESULT into the next iteration's block-param; the
+    // re-reached "use" belongs to the NEW binding, not the consumed
+    // allocation). A loop-INVARIANT source (defined OUTSIDE the cycle, e.g.
+    // `base` forked per iteration by `base.set(0, i)`) is unaffected — its
+    // defining block is never re-reached from the alias's successors, so
+    // in-loop and post-loop uses still admit. Shared helpers: `collect_def_blocks`
+    // + `successor_reachable_blocks_with_cut` (`ownership_scans` hub).
+    let def_block = collect_def_blocks(func);
     let mut reachable_cache: FxHashMap<(usize, Option<usize>), FxHashSet<usize>> =
         FxHashMap::default();
     let mut genuine: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -350,42 +339,6 @@ pub(crate) fn compute_funded_call_arg_dup_aliases(
     }
     funded.retain(|v| !project_sources.contains(v));
     funded
-}
-
-/// Forward-reachable block set from `start`'s SUCCESSORS, NOT expanding
-/// through `cut` (the source's defining block): blocks beyond a re-definition
-/// belong to the NEXT binding instance. `cut` itself may appear in the set
-/// (callers exclude its use sites separately).
-fn successor_reachable_blocks_with_cut(
-    func: &ArcFunction,
-    start: usize,
-    cut: Option<usize>,
-) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = func
-        .blocks
-        .get(start)
-        .map(|b| {
-            crate::graph::successor_block_ids(&b.terminator)
-                .into_iter()
-                .map(crate::ir::ArcBlockId::index)
-                .collect()
-        })
-        .unwrap_or_default();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
-        }
-        if cut == Some(b) {
-            continue;
-        }
-        if let Some(block) = func.blocks.get(b) {
-            for s in crate::graph::successor_block_ids(&block.terminator) {
-                stack.push(s.index());
-            }
-        }
-    }
-    visited
 }
 
 /// FINAL-READ release designation for multi-read elements of a caller-owned

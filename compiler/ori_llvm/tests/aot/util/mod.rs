@@ -17,10 +17,10 @@ mod wasm;
 // Re-export everything for transparent access via `crate::util::*`
 pub use binary::{ir_capture_binary, ori_binary, stdlib_path};
 pub use compile::{
-    assert_aot_success, assert_multifile_aot_success, assert_no_signal_crash, assert_panic_exit,
-    compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args,
-    compile_and_run_with_args, compile_and_run_with_build_env, compile_and_run_with_env,
-    compile_multifile_and_run_capture,
+    assert_aot_success, assert_cell_output, assert_multifile_aot_success, assert_no_signal_crash,
+    assert_panic_exit, compile_and_run, compile_and_run_capture,
+    compile_and_run_valgrind_with_args, compile_and_run_with_args, compile_and_run_with_build_env,
+    compile_and_run_with_env, compile_multifile_and_run_capture,
 };
 pub use ir_capture::{
     compile_and_capture_ir, compile_to_llvm_ir, count_bridge_blocks, count_dead_phis,
