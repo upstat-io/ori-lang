@@ -48,9 +48,20 @@ static SOLE_CARRIER_BORROWED_INVOKE_CLAIM_DISABLED: LazyLock<bool> = LazyLock::n
 ///   carrier call; a forward-live src owns later reads (and the funded
 ///   duplication families require `src >= 2` uses — disjoint by construction);
 /// - src is NOT a function param (param scope-exit accounting is its own
-///   surface). A sole-use src's own burden ops are a self-canceling
-///   fresh-inc/last-use-dec pair at the alias site (net 0), so the claimed
-///   dst remains the lineage's single effective release.
+///   surface);
+/// - src is DIRECTLY the dst of a USER-call `Invoke` / `InvokeIndirect`
+///   terminator AND is itself still in `owned_vars_needing_rc`. Only that
+///   shape guarantees src's own burden ops are a self-canceling
+///   fresh-inc/last-use-dec pair at the alias site (net 0), leaving the
+///   claimed dst the lineage's single effective release. Every other src
+///   carries the lineage's release ITSELF — a `Project` src is a borrow-view
+///   whose alias dec is the element's designated release (RL-2 final-read
+///   release); a block-param src inherited its RC obligation through the
+///   Jump transfer (RL-4 exemption); a builtin `Apply` / `Invoke` result
+///   (`@__index` element copy, `@concat` buffer) and a `Let { Var }`
+///   chain hop carry a bare last-use dec with no funding inc. Claiming an
+///   alias of those relocates the bare dec INLINE before the borrowed
+///   terminator (use-after-free) or drops the only release (leak).
 pub(in crate::lower::burden_lower) fn compute_sole_carrier_borrowed_invoke_aliases(
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
@@ -110,6 +121,7 @@ pub(in crate::lower::burden_lower) fn compute_sole_carrier_borrowed_invoke_alias
         }
     }
     let params: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    let user_invoke_results = collect_user_invoke_result_dsts(func, &builtins);
     let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -131,6 +143,10 @@ pub(in crate::lower::burden_lower) fn compute_sole_carrier_borrowed_invoke_alias
                         use_counts.get(src).copied().unwrap_or(0) == 1,
                     ),
                     ("src-not-param", !params.contains(src)),
+                    (
+                        "src-user-invoke-result",
+                        user_invoke_results.contains(src) && owned_vars_needing_rc.contains(src),
+                    ),
                 ];
                 if let Some((gate, _)) = gates.iter().find(|(_, ok)| !ok) {
                     if owned_vars_needing_rc.contains(dst) && borrowed_args.contains(dst) {
@@ -155,6 +171,33 @@ pub(in crate::lower::burden_lower) fn compute_sole_carrier_borrowed_invoke_alias
         }
     }
     out
+}
+
+/// USER-call Invoke / `InvokeIndirect` terminator dsts — the sole src shape
+/// whose burden ops self-cancel (the sole-carrier gate table's
+/// src-user-invoke-result row). Builtin Invoke results are excluded: their
+/// single dec is the lineage's release. Spec: Annex E §AIMS RL-2 + RL-4.
+fn collect_user_invoke_result_dsts(
+    func: &ArcFunction,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+) -> FxHashSet<ArcVarId> {
+    let mut user_invoke_results: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        match &block.terminator {
+            crate::ir::ArcTerminator::Invoke {
+                dst, func: callee, ..
+            } => {
+                if !builtins.is_builtin(*callee) {
+                    user_invoke_results.insert(*dst);
+                }
+            }
+            crate::ir::ArcTerminator::InvokeIndirect { dst, .. } => {
+                user_invoke_results.insert(*dst);
+            }
+            _ => {}
+        }
+    }
+    user_invoke_results
 }
 
 /// Vars consumed at a BORROWED arg position of any `Invoke` / `InvokeIndirect`

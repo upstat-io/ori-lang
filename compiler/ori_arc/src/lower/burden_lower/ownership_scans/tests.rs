@@ -426,7 +426,7 @@ fn sole_carrier_borrowed_invoke_alias_claimed() {
                 ArcTerminator::Invoke {
                     dst: ArcVarId::new(0),
                     ty: Idx::STR,
-                    func: Name::from_raw(7),
+                    func: Name::from_raw(48007),
                     args: Vec::new(),
                     arg_ownership: Vec::new(),
                     mono_instance_id: None,
@@ -441,7 +441,73 @@ fn sole_carrier_borrowed_invoke_alias_claimed() {
                 ArcTerminator::Invoke {
                     dst: ArcVarId::new(3),
                     ty: Idx::STR,
-                    func: Name::from_raw(8),
+                    func: Name::from_raw(48008),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+            block(
+                3,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            ),
+        ],
+        4,
+    );
+    // Both the alias AND its user-Invoke-result src are owned at scan time —
+    // the src's self-canceling fresh-inc/last-use-dec pair is the admission
+    // premise.
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(0), ArcVarId::new(2)].into_iter().collect();
+    let claims = super::compute_sole_carrier_borrowed_invoke_aliases(
+        &func,
+        &owned,
+        &FxHashMap::default(),
+        &StringInterner::new(),
+    );
+    assert_eq!(
+        claims.into_iter().collect::<Vec<_>>(),
+        vec![ArcVarId::new(2)],
+        "the sole-carrier alias is claimed for the edge release"
+    );
+}
+
+#[test]
+fn sole_carrier_claim_declines_unowned_source() {
+    // Same shape as the claimed pin, but the src is NOT in the owned set —
+    // another lineage family already suppressed its ops, so no
+    // self-canceling pair backs the claim premise; decline.
+    let func = func_of(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: Name::from_raw(48007),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![alias_of(2, 0)],
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(48008),
                     args: vec![ArcVarId::new(2)],
                     arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
                     mono_instance_id: None,
@@ -468,10 +534,73 @@ fn sole_carrier_borrowed_invoke_alias_claimed() {
         &FxHashMap::default(),
         &StringInterner::new(),
     );
-    assert_eq!(
-        claims.into_iter().collect::<Vec<_>>(),
-        vec![ArcVarId::new(2)],
-        "the sole-carrier alias is claimed for the edge release"
+    assert!(
+        claims.is_empty(),
+        "an unowned src has no self-canceling pair; decline: {claims:?}"
+    );
+}
+
+#[test]
+fn sole_carrier_claim_declines_let_chain_hop_source() {
+    // bb0: %0 = Invoke @callee() normal bb1; bb1: %4 = %0; %2 = %4;
+    // Invoke @len(%2 [borrow]) — src %4 is a Let-chain hop, NOT directly the
+    // Invoke result; the hop carries the lineage's bare last-use dec
+    // (no funding inc), so claiming its alias relocates the release
+    // before the borrowed read. Decline.
+    let func = func_of(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: Name::from_raw(7),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![alias_of(4, 0), alias_of(2, 4)],
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(8),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+            block(
+                3,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            ),
+        ],
+        5,
+    );
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(2), ArcVarId::new(4)].into_iter().collect();
+    let claims = super::compute_sole_carrier_borrowed_invoke_aliases(
+        &func,
+        &owned,
+        &FxHashMap::default(),
+        &StringInterner::new(),
+    );
+    assert!(
+        claims.is_empty(),
+        "a Let-chain-hop src carries the bare release; decline: {claims:?}"
     );
 }
 
@@ -533,5 +662,142 @@ fn sole_carrier_claim_declines_forward_live_source() {
     assert!(
         claims.is_empty(),
         "a forward-live source declines the claim: {claims:?}"
+    );
+}
+
+#[test]
+fn sole_carrier_claim_declines_projection_rooted_source() {
+    // bb0: %0 = Invoke @callee() normal bb1; bb1: %1 = Project %0.0;
+    // %2 = %1; Invoke @len(%2 [borrow]) — the src is a borrow-view of a
+    // caller-owned aggregate element; the alias's inline dec IS the
+    // element's designated release (RL-2 final-read release). Claiming it
+    // drops the lineage's only release (leak). Spec: Annex E §AIMS RL-2.
+    let func = func_of(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: Name::from_raw(7),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![
+                    ArcInstr::Project {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::STR,
+                        value: ArcVarId::new(0),
+                        field: 0,
+                    },
+                    alias_of(2, 1),
+                ],
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(8),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(3),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+            block(
+                3,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            ),
+        ],
+        4,
+    );
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(2)].into_iter().collect();
+    let claims = super::compute_sole_carrier_borrowed_invoke_aliases(
+        &func,
+        &owned,
+        &FxHashMap::default(),
+        &StringInterner::new(),
+    );
+    assert!(
+        claims.is_empty(),
+        "a projection-rooted source declines the claim: {claims:?}"
+    );
+}
+
+#[test]
+fn sole_carrier_claim_declines_block_param_rooted_source() {
+    // bb0: %4 = Invoke @callee() normal bb1; bb1: Jump bb2(%4);
+    // bb2(%0): %2 = %0; Invoke @len(%2 [borrow]) — the src is a block
+    // param that INHERITED its RC obligation through the Jump transfer
+    // (RL-4 exemption); the alias's dec may be the param's release.
+    // Claiming it drops the obligation (leak). Spec: Annex E §AIMS RL-4.
+    let func = func_of(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(4),
+                    ty: Idx::STR,
+                    func: Name::from_raw(7),
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(3),
+                },
+            ),
+            block(1, Vec::new(), Vec::new(), jump(2, vec![4])),
+            block(
+                2,
+                vec![(ArcVarId::new(0), Idx::STR)],
+                vec![alias_of(2, 0)],
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(8),
+                    args: vec![ArcVarId::new(2)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(4),
+                    unwind: ArcBlockId::new(3),
+                },
+            ),
+            block(3, Vec::new(), Vec::new(), ArcTerminator::Resume),
+            block(
+                4,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Return {
+                    value: ArcVarId::new(3),
+                },
+            ),
+        ],
+        5,
+    );
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(2)].into_iter().collect();
+    let claims = super::compute_sole_carrier_borrowed_invoke_aliases(
+        &func,
+        &owned,
+        &FxHashMap::default(),
+        &StringInterner::new(),
+    );
+    assert!(
+        claims.is_empty(),
+        "a block-param-rooted source declines the claim: {claims:?}"
     );
 }
