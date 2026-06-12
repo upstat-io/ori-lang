@@ -412,7 +412,23 @@ pub(super) fn compute_alt_consumer_reps(
     contracts: &FxHashMap<Name, MemoryContract>,
     uf: &mut ForwarderUnionFind,
 ) -> FxHashSet<ArcVarId> {
-    let mut alt: FxHashSet<ArcVarId> = FxHashSet::default();
+    compute_alt_consumer_vars(func, contracts, uf)
+        .into_keys()
+        .collect()
+}
+
+/// Per-rep ALTERNATE-consumer map: `rep → [vars consumed at a NON-forwarder
+/// owned transfer position]`. The key set is exactly
+/// [`compute_alt_consumer_reps`]; the values feed the construct-fed
+/// ALT-CONSUMED admission (every consume must be a FUNDED duplication site
+/// per the `compute_funded_*_dup_aliases` SSOTs). Spec: Annex E §AIMS RL-1 +
+/// RL-2 + RL-5.
+pub(super) fn compute_alt_consumer_vars(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    uf: &mut ForwarderUnionFind,
+) -> FxHashMap<ArcVarId, Vec<ArcVarId>> {
+    let mut alt: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
             if instr_is_forwarder_call(instr, contracts) {
@@ -420,7 +436,7 @@ pub(super) fn compute_alt_consumer_reps(
             }
             for v in instr_owned_position_transfer_vars(instr) {
                 let r = uf.find(v);
-                alt.insert(r);
+                alt.entry(r).or_default().push(v);
             }
         }
         if let ArcTerminator::Invoke {
@@ -434,7 +450,7 @@ pub(super) fn compute_alt_consumer_reps(
                 for (pos, &v) in block.terminator.used_vars().iter().enumerate() {
                     if block.terminator.is_owned_position(pos) {
                         let r = uf.find(v);
-                        alt.insert(r);
+                        alt.entry(r).or_default().push(v);
                     }
                 }
             }

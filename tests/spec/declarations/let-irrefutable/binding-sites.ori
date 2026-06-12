@@ -26,18 +26,21 @@ use std.testing { assert_eq }
 }
 
 // =============================================================================
-// Try-block let — deferred (see BUG-02-024)
+// Try-block let (fifth binding site)
 // =============================================================================
 //
-// Try-block bare let with a refutable pattern triggers a typeck panic at
-// infer/expr/mod.rs:124 (INVALID ExprId reaching infer_expr_inner) when
-// the try block has no `?` operations and no tail expression. The wiring
-// at sequences.rs (infer_try_stmt) is correct; the panic is in try-block
-// result-expr handling for the bare-let-no-question form. For-loop and
-// match-arm-body sites (bisected isolated) work cleanly with minimal
-// bodies. Block-let, expr-let, for-loop, match-arm-body all exercise
-// the predicate + factory + diagnostic surface; try-let coverage moves
-// with BUG-02-024.
+// Regression: a tail-less try block (no trailing tail expression)
+// set its block `result` to ExprId::INVALID (u32::MAX); infer_try_seq indexed
+// it unconditionally and panicked. ANY tail-less try panicked — the refutable
+// inner pattern was incidental. A tail-less `try { let [$a,$b] = items }` must
+// reach the refutable-list-pattern check and emit E2001. Broader tail-less try
+// coverage lives in tests/spec/patterns/try-tailless*.ori.
+
+#compile_fail(code: "E2001")
+@test_try_block_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let _ = try { let [$x, $y] = items }
+}
 
 // =============================================================================
 // For-loop binding

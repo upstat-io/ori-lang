@@ -27,7 +27,11 @@ impl Lowerer<'_> {
         match seq {
             ori_ir::FunctionSeq::Try { stmts, result, .. } => {
                 let lowered_stmts = self.lower_try_stmts(stmts);
-                let result = self.lower_expr(result);
+                // Tail-less try block: `result == ExprId::INVALID`. Use the
+                // optional-child helper (as `lower_block` does) so the block
+                // lowers to `CanExpr::Block { result: CanId::INVALID }` rather
+                // than indexing the sentinel into the source arena.
+                let result = self.lower_optional(result);
                 self.push(
                     CanExpr::Block {
                         stmts: lowered_stmts,

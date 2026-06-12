@@ -57,7 +57,7 @@ pub(crate) fn infer_function_seq(
 /// Like run, but auto-unwraps Result/Option types in let bindings.
 /// The entire expression returns a Result or Option wrapping the result.
 ///
-/// BD-2 propagation (typeck.md §BD-2): when `expected` resolves to a
+/// BD-2 propagation: when `expected` resolves to a
 /// concrete `Result<T, E>`, the result expression is checked against
 /// `Check(T)` and the propagating let-binding error type is reconciled
 /// against `E`. For non-Result expectations (`NoExpectation`, fresh Var,
@@ -104,14 +104,30 @@ pub(crate) fn infer_try_seq(
     }
 
     let final_ty = if let Some((outer_result, inner_ok_ty, inner_err_ty)) = propagation {
+        // Tail-less try block: `result == ExprId::INVALID` (the `collect_block_stmts`
+        // contract); the block value type is `void`. Guard like `infer_block` —
+        // reconcile UNIT against the expected `Ok` payload, never index the INVALID
+        // sentinel into the arena. Spec: Clause 16 (try), Clause 11 (block value).
         let result_expected = Expected::from_context(inner_ok_ty, span, ContextKind::TryExpression);
-        let _ = check_expr(engine, arena, result, &result_expected, span);
+        if result.is_present() {
+            let _ = check_expr(engine, arena, result, &result_expected, span);
+        } else {
+            // No tail expr: reconcile the block's `void` value against the expected
+            // `Ok` payload (accumulates E2001 on mismatch) instead of indexing the
+            // INVALID sentinel. `check_type` reports; `unify_types` would be silent.
+            let _ = engine.check_type(Idx::UNIT, &result_expected, span);
+        }
         if let Some(et) = error_ty {
             let _ = engine.unify_types(et, inner_err_ty);
         }
         outer_result
     } else {
-        let result_ty = infer_expr(engine, arena, result);
+        // Tail-less try block: no result expr to infer; the block value is `void`.
+        let result_ty = if result.is_present() {
+            infer_expr(engine, arena, result)
+        } else {
+            Idx::UNIT
+        };
         let resolved = engine.resolve(result_ty);
         let tag = engine.pool().tag(resolved);
         match (tag, error_ty) {

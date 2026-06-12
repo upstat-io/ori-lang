@@ -17,6 +17,7 @@ mod for_loops;
 mod for_yield;
 mod for_yield_option;
 mod loops;
+mod reassign_scan;
 mod type_layout;
 pub use type_layout::pool_type_store_size;
 
@@ -456,16 +457,38 @@ impl ArcLowerer<'_> {
             "match: enter"
         );
 
+        // O(1) Arc clone instead of deep-cloning the recursive tree structure.
+        let tree = self.canon.decision_trees.get_shared(tree_id);
+
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
         // Save pre-match scope and add merge block params for mutable
-        // variables. Each arm resets to this scope before lowering, and
-        // passes its final mutable variable values as jump arguments —
-        // same SSA merge pattern that `lower_if` uses.
+        // variables an arm could REASSIGN. Each arm resets to this scope
+        // before lowering, and passes its final mutable variable values as
+        // jump arguments — same SSA merge pattern that `lower_if` uses.
+        // Unlike `lower_if` (which filters post-hoc via `merge_mutable_vars`),
+        // the merge signature is needed BEFORE arms lower, so the divergence
+        // filter runs as a pre-traversal of the arm bodies + tree guards:
+        // bindings no `Assign` could rebind are pruned (an unchanged binding
+        // threaded into the merge becomes a DEAD param whose Jump-transferred
+        // reference leaks per RL-4/RL-5). Toggle
+        // `ORI_DISABLE_MATCH_PARAM_PRUNING=1` restores unconditional threading.
         let pre_scope = self.scope.clone();
+        let reassigned = if reassign_scan::match_param_pruning_disabled() {
+            None
+        } else {
+            Some(reassign_scan::collect_reassigned_mutable_names(
+                self.arena, self.canon, &arm_ids, &tree,
+            ))
+        };
         let mut mutable_var_merge: Vec<(Name, ArcVarId)> = Vec::new();
         for (name, var) in pre_scope.mutable_bindings() {
+            if let Some(reassigned) = &reassigned {
+                if !reassigned.contains(&name) {
+                    continue;
+                }
+            }
             let var_ty = self.builder.var_type_or_unit(var);
             let merge_var = self.builder.add_block_param(merge_block, var_ty);
             mutable_var_merge.push((name, merge_var));
@@ -476,9 +499,6 @@ impl ArcLowerer<'_> {
             mutable_vars = mutable_var_names.len(),
             "match: mutable var merge setup"
         );
-
-        // O(1) Arc clone instead of deep-cloning the recursive tree structure.
-        let tree = self.canon.decision_trees.get_shared(tree_id);
 
         let scrut_ty = self.builder.var_type(scrut_var);
         let mut ctx = crate::decision_tree::emit::EmitContext::new(

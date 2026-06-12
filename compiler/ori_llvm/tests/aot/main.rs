@@ -12,6 +12,7 @@ pub mod borrow_independence;
 pub mod borrowed_invoke_leak;
 pub mod burden_branch_release;
 pub mod burden_dup_inc;
+pub mod burden_match_release;
 pub mod burden_store_dup;
 pub mod cli;
 pub mod closure_drop;

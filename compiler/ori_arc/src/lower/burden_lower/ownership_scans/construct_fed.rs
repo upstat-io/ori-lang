@@ -3,6 +3,8 @@
 //! suppression, the nested-construct transitive lineages, and their
 //! escape / borrow-view vetting gates. Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
 
+use std::sync::LazyLock;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
@@ -10,10 +12,23 @@ use ori_ir::Name;
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
+use super::call_arg_dup::compute_funded_call_arg_dup_aliases;
 use super::dead_param::dead_param_single_feeding_rep;
-use super::forwarder::{compute_alt_consumer_reps, rep_call_site_count};
+use super::forwarder::{compute_alt_consumer_vars, rep_call_site_count};
 use super::function_used_vars;
+use super::store_dup::compute_funded_store_dup_aliases;
 use super::union_find::ForwarderUnionFind;
+
+/// `ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE=1` declines the ALT-CONSUMED
+/// mode of the construct-fed dead-param scan: a lineage with a NON-forwarder
+/// owned-transfer consumer reverts to the unconditional gate-(d) decline (the
+/// pre-cure arrangement), leaking the Jump-transferred birth reference at the
+/// dead merge param when every lineage consume is FUNDED. Bisection surface:
+/// isolates a dead-merge-param leak / double-free to the alt-consumed release
+/// vs the rest of the Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2 + RL-5.
+static ALT_CONSUMED_DEAD_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
+});
 
 /// Result of [`compute_construct_fed_dead_param_lineage`]: the dead-block-param
 /// releases (Part A) + the lineage vars to suppress (Part B).
@@ -68,10 +83,26 @@ pub(in crate::lower::burden_lower) struct ConstructFedDeadParamLineage {
 ///   (c) Dead merge/return param: the param is `Cardinality = Absent` (used
 ///       nowhere) and every feeding `Jump` edge resolves to the ONE rep
 ///       (`dead_param_single_feeding_rep`).
-///   (d) No alternate release: the rep has no member used at a NON-forwarder
-///       owned transfer position (`compute_alt_consumer_reps`). When an arm
-///       consumed the lineage at an owned call/Construct/Set the per-var path
-///       owns that release and the dead-param dec would double it.
+///   (d) No alternate release — OR the ALT-CONSUMED mode admits: the rep has
+///       no member used at a NON-forwarder owned transfer position
+///       (`compute_alt_consumer_vars`). When an arm consumed the lineage at an
+///       owned call/Construct/Set the per-var path owns THAT release and the
+///       dead-param dec would double it — UNLESS every such consume is a
+///       FUNDED duplication site (member of the `compute_funded_store_dup_aliases`
+///       / `compute_funded_call_arg_dup_aliases` SSOTs: each funded consume
+///       carries its OWN kept inc whose matched release is the container drop
+///       / consumer), exactly one rep feeds the dead param, no lineage member
+///       is used at or forward of the merge block, and no LIVE sibling param
+///       of the same block is fed by the same rep. Then the Jump-transferred
+///       birth reference is still unmatched (the funded incs balance the
+///       consumes, never the birth ref) and the dead param owes its RL-5 dec.
+///       The ALT-CONSUMED emission is RELEASES-ONLY: the funded-duplication
+///       machinery stays intact (`suppressed_lineage_vars` gains nothing —
+///       suppressing a funded store inc would double-free the container's
+///       drop). Root-kind gate (a) applies UNCHANGED in this mode: a struct
+///       `Construct` (partial-move territory) stays declined. Toggle
+///       `ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE=1` restores the
+///       unconditional decline.
 ///
 /// SAFE for the both-paths-fail shape (verified `ORI_DISABLE_BURDEN_OPS=1`
 /// emits zero Option release): the predicate stack emits no normal-path release
@@ -82,10 +113,14 @@ pub(in crate::lower::burden_lower) fn compute_construct_fed_dead_param_lineage(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    interner: &ori_ir::StringInterner,
 ) -> ConstructFedDeadParamLineage {
     let mut uf = ForwarderUnionFind::build(func, contracts);
     let used = function_used_vars(func);
-    let alt_consumer_reps = compute_alt_consumer_reps(func, contracts, &mut uf);
+    let alt_consumer_vars = compute_alt_consumer_vars(func, contracts, &mut uf);
+    // FUNDED duplication sites (store-family + owned-call-arg SSOTs), computed
+    // lazily — only an ALT-CONSUMED candidate pays for the scans.
+    let mut funded_sites: Option<FxHashSet<ArcVarId>> = None;
 
     let mut releases: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
     let mut suppressed_lineage_vars: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -109,7 +144,8 @@ pub(in crate::lower::burden_lower) fn compute_construct_fed_dead_param_lineage(
         let block_dead_reps: FxHashSet<ArcVarId> =
             dead_params.iter().map(|&(_, rep)| rep).collect();
         for (param_var, rep) in dead_params {
-            if alt_consumer_reps.contains(&rep) {
+            let alt_consumed = alt_consumer_vars.contains_key(&rep);
+            if alt_consumed && *ALT_CONSUMED_DEAD_PARAM_RELEASE_DISABLED {
                 continue;
             }
             // Disjointness gate: a FORWARDER-identity rep is owned by
@@ -155,6 +191,55 @@ pub(in crate::lower::burden_lower) fn compute_construct_fed_dead_param_lineage(
             // Gate (b): heap element — at least one class member carries RC.
             let members = uf.class_members(rep);
             if !members.iter().any(|m| owned_vars_needing_rc.contains(m)) {
+                continue;
+            }
+            if alt_consumed {
+                // ALT-CONSUMED mode (gate (d) admission by FUNDED-consume
+                // proof): every NON-forwarder owned-transfer consume of the
+                // lineage must be a FUNDED duplication site — its kept inc is
+                // matched by the consumer's release, so the Jump-transferred
+                // birth reference remains the dead param's unmatched RL-5
+                // obligation. One unfunded consume = the birth reference was
+                // transferred INTO that consumer; releasing the dead param
+                // would double-free → decline (the leak persists, never a
+                // double-free).
+                let funded = funded_sites.get_or_insert_with(|| {
+                    let mut f = compute_funded_store_dup_aliases(func, contracts);
+                    f.extend(compute_funded_call_arg_dup_aliases(
+                        func, contracts, interner,
+                    ));
+                    f
+                });
+                let all_consumes_funded = alt_consumer_vars
+                    .get(&rep)
+                    .is_some_and(|consumes| consumes.iter().all(|v| funded.contains(v)));
+                if !all_consumes_funded {
+                    continue;
+                }
+                // No forward use: a lineage member read at or past the merge
+                // still observes the allocation the dead-param dec would free.
+                if lineage_used_at_or_past_merge(func, &members, block_idx) {
+                    continue;
+                }
+                // No LIVE same-rep sibling param: a live sibling fed by the
+                // same rep keeps observing the allocation past the merge — its
+                // own release path owns it (`dead_param_single_feeding_rep` is
+                // the gate-free position resolver; param liveness is checked
+                // here).
+                let live_same_rep_sibling = block.params.iter().any(|&(p, _)| {
+                    p != param_var
+                        && used.contains(&p)
+                        && dead_param_single_feeding_rep(func, &mut uf, block_idx, p) == Some(rep)
+                });
+                if live_same_rep_sibling {
+                    continue;
+                }
+                // RELEASES-ONLY: one RL-5 dec at the dead param; the funded
+                // duplication machinery (incs + container-drop releases) stays
+                // untouched — `suppressed_lineage_vars` gains nothing.
+                if seen_reps.insert(rep) {
+                    releases.entry(block_idx).or_default().push(param_var);
+                }
                 continue;
             }
             if seen_reps.insert(rep) {
