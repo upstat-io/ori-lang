@@ -85,6 +85,7 @@ pub mod struct_self_rebuild;
 mod struct_self_rebuild_cross_block;
 pub mod structs;
 pub mod tagless_enum;
+pub mod template_str_chain;
 pub mod traits;
 pub mod trmc;
 pub mod tuples;

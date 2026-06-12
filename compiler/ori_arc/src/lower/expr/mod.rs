@@ -460,6 +460,16 @@ impl ArcLowerer<'_> {
         span: Span,
     ) -> ArcVarId {
         let arg = self.lower_expr(operand);
+
+        // A divergent operand (`break` / `continue` in operand position — e.g.
+        // the `!cond` desugar of `while (break) do ...`) terminates the current
+        // block before the unary op can be emitted; the op's result is
+        // unreachable. Return the (unit) operand var without emitting a dead
+        // PrimOp into a terminated block. Mirrors the `lower_if` condition guard.
+        if self.builder.is_terminated() {
+            return arg;
+        }
+
         self.builder.emit_let(
             ty,
             ArcValue::PrimOp {
