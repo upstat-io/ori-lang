@@ -235,6 +235,16 @@ flags! {
     /// Usage: `ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1 ori build file.ori`
     ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE
 
+    /// Disable the Phase-5 RL-4 per-edge release for a FRESH local `Construct`
+    /// lineage consumed at an owned position on a strict subset of branch
+    /// paths (the branch-exclusive terminal-move shape — the non-consuming
+    /// sibling path otherwise leaks the pre-branch funding inc).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Bisects a branch-exclusive
+    /// terminal-move leak to that emission vs the rest of the Phase-5 walk.
+    /// Usage: `ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE
+
     /// Restore the RL-1 duplication classification for `Let { Var(src) }`
     /// aliases of a forwarder-identity source (default: alias is transparent).
     ///

@@ -281,6 +281,12 @@ fn collect_lineage_facts(
     };
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
+            // Burden-op markers are TF-N/A metadata, not uses — skipped so the
+            // scan stays in lock-step pre- and post-emission (the wiring point
+            // is pre-emission; unit fixtures may carry ops).
+            if super::dup_inc::is_burden_op(instr) {
+                continue;
+            }
             let transfers = instr_transfer_vars(instr, func);
             for &var in &instr.used_vars() {
                 let is_member = members.contains(&var);
@@ -355,6 +361,16 @@ fn admit_edge(
     pred_count: &[u32],
     reach: &mut dyn FnMut(usize) -> FxHashSet<usize>,
 ) -> Option<(usize, ForwarderReleasePos)> {
+    // A target that cannot complete normally (the impossible `Switch` default
+    // arm's `Unreachable`, an unwind handler's `Resume`) never executes a
+    // release — the dying unwind / unreachable edges are owned by the edge
+    // cleanup, not this scan.
+    if matches!(
+        func.blocks[target].terminator,
+        ArcTerminator::Unreachable | ArcTerminator::Resume
+    ) {
+        return None;
+    }
     let mut region = reach(target);
     region.insert(target);
     // No consume of the lineage anywhere forward of this edge.

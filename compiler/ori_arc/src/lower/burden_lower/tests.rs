@@ -8973,3 +8973,351 @@ fn final_read_release_declines_non_unique_call_result() {
          releases = {releases:?}"
     );
 }
+
+// ===== RL-4 branch-exclusive terminal-move edge release =====
+// (`ownership_scans::compute_branch_exclusive_edge_releases`)
+
+use super::ownership_scans::ForwarderReleasePos;
+
+/// FRESH local `Construct` root (empty args — the lineage birth site).
+fn fresh_root(dst: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: Vec::new(),
+    }
+}
+
+fn branch_block(cond: u32, then_b: u32, else_b: u32) -> ArcTerminator {
+    ArcTerminator::Branch {
+        cond: ArcVarId::new(cond),
+        then_block: ArcBlockId::new(then_b),
+        else_block: ArcBlockId::new(else_b),
+    }
+}
+
+fn block(id: u32, body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
+    ArcBlock {
+        id: ArcBlockId::new(id),
+        params: Vec::new(),
+        body,
+        terminator,
+    }
+}
+
+fn ret(value: u32) -> ArcTerminator {
+    ArcTerminator::Return {
+        value: ArcVarId::new(value),
+    }
+}
+
+fn func_with_blocks(n_vars: u32, blocks: Vec<ArcBlock>) -> ArcFunction {
+    ArcFunction {
+        var_types: (0..n_vars).map(|i| Idx::from_raw(i + 1)).collect(),
+        blocks,
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    }
+}
+
+/// Run the scan with the default gate inputs: root %0 owned, nothing
+/// suppressed / full-moved / funded, empty contracts.
+fn branch_exclusive_releases_for(
+    func: &ArcFunction,
+    inc_suppressed: &[u32],
+) -> FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>> {
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+    let suppressed: FxHashSet<ArcVarId> =
+        inc_suppressed.iter().map(|&v| ArcVarId::new(v)).collect();
+    super::ownership_scans::compute_branch_exclusive_edge_releases(
+        func,
+        &owned,
+        &suppressed,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+    )
+}
+
+/// The pinned `@store_one` shape: root %0 constructed pre-branch, stored
+/// (terminal move) on the then-arm only, borrow-aliased on the else-arm.
+fn branch_exclusive_store_func() -> ArcFunction {
+    func_with_blocks(
+        7,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            // then: alias + terminal store — the consuming path.
+            block(1, vec![alias_of(2, 0), store_of(4, 2)], ret(5)),
+            // else: borrow alias only — the non-consuming path.
+            block(2, vec![alias_of(3, 0)], ret(6)),
+        ],
+    )
+}
+
+#[test]
+fn branch_exclusive_store_releases_root_after_final_borrow_read() {
+    let func = branch_exclusive_store_func();
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert_eq!(
+        releases.len(),
+        1,
+        "exactly the non-consuming else edge is admitted; releases = {releases:?}"
+    );
+    assert_eq!(
+        releases.get(&(2, ForwarderReleasePos::AfterInstr(0))),
+        Some(&vec![ArcVarId::new(0)]),
+        "the root's release lands AFTER the else-arm's final lineage read \
+         (the alias at instr 0); releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_store_no_use_arm_releases_at_block_entry() {
+    let func = func_with_blocks(
+        6,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(1, vec![alias_of(2, 0), store_of(4, 2)], ret(5)),
+            // else: no lineage use at all — release at block entry.
+            block(2, Vec::new(), ret(5)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert_eq!(
+        releases.get(&(2, ForwarderReleasePos::BlockEntry)),
+        Some(&vec![ArcVarId::new(0)]),
+        "a no-use arm releases the funded duplicate at its entry; \
+         releases = {releases:?}"
+    );
+    assert_eq!(releases.len(), 1, "the consuming edge emits nothing extra");
+}
+
+#[test]
+fn branch_exclusive_declines_both_paths_consume() {
+    // Both arms terminally store — per-path ledgers balance; the
+    // both-paths-consume green clamp (`burden_dup_inc.rs` sibling).
+    let func = func_with_blocks(
+        7,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(1, vec![alias_of(2, 0), store_of(4, 2)], ret(5)),
+            block(2, vec![alias_of(3, 0), store_of(6, 3)], ret(5)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert!(
+        releases.is_empty(),
+        "both paths consume the funding — no edge release owed; \
+         releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_declines_multi_pred_target() {
+    // The store arm falls through INTO the borrow arm: the candidate has two
+    // predecessors, so block-entry placement is not the edge release.
+    let func = func_with_blocks(
+        7,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(
+                1,
+                vec![alias_of(2, 0), store_of(4, 2)],
+                ArcTerminator::Jump {
+                    target: ArcBlockId::new(2),
+                    args: Vec::new(),
+                },
+            ),
+            block(2, vec![alias_of(3, 0)], ret(5)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert!(
+        releases.is_empty(),
+        "a multi-pred target declines (a block-entry dec would fire on the \
+         consuming path too); releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_declines_loop_funded_per_iteration_store() {
+    // Loop-inside-branch: the then-region stores the loop-INVARIANT root per
+    // iteration (the source survives into the next iteration via the
+    // back-edge, so the store alias is FUNDED — `store_dup` admits it), and
+    // the else-arm borrows. No UNFUNDED consume exists, so the scan declines
+    // globally (the residual is the dead-block-param threading root, not the
+    // per-edge partition).
+    let func = func_with_blocks(
+        9,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 4)),
+            // loop header
+            block(1, Vec::new(), branch_block(2, 2, 3)),
+            // loop body: per-iteration funded store, back-edge to header.
+            block(
+                2,
+                vec![alias_of(3, 0), store_of(5, 3)],
+                ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            ),
+            // loop exit
+            block(3, Vec::new(), ret(6)),
+            // else arm: borrow alias.
+            block(4, vec![alias_of(7, 0)], ret(8)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert!(
+        releases.is_empty(),
+        "funded per-iteration stores leave no unfunded consume — the scan \
+         declines every edge; releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_declines_edge_reachable_from_consume() {
+    // Terminal store inside a loop body (single static use of the root — NOT
+    // funded): the loop-EXIT edge is reachable FROM the consume block, so it
+    // shares its runtime path with the consume — mutual exclusion declines it.
+    // The sibling else-arm (never on the consuming path) is admitted.
+    let func = func_with_blocks(
+        9,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 4)),
+            // loop header
+            block(1, Vec::new(), branch_block(2, 2, 3)),
+            // loop body: TERMINAL store (root used nowhere else on this path).
+            block(
+                2,
+                vec![alias_of(3, 0), store_of(5, 3)],
+                ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            ),
+            // loop exit — reachable from the consume block: DECLINED.
+            block(3, Vec::new(), ret(6)),
+            // else arm: no lineage use — admitted at entry.
+            block(4, Vec::new(), ret(8)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert_eq!(
+        releases.get(&(4, ForwarderReleasePos::BlockEntry)),
+        Some(&vec![ArcVarId::new(0)]),
+        "the branch-exclusive else edge is admitted; releases = {releases:?}"
+    );
+    assert!(
+        !releases.contains_key(&(3, ForwarderReleasePos::BlockEntry)),
+        "the loop-exit edge shares its runtime path with the in-loop consume \
+         — a release there double-frees; releases = {releases:?}"
+    );
+    assert_eq!(releases.len(), 1, "exactly one admitted edge");
+}
+
+#[test]
+fn branch_exclusive_declines_borrowed_only_lineage() {
+    // No consume anywhere — the funding has no pending job on any path; the
+    // surplus is Phase-6/7 elision territory, not a per-edge release.
+    let func = func_with_blocks(
+        6,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(1, vec![alias_of(2, 0)], ret(4)),
+            block(2, vec![alias_of(3, 0)], ret(5)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert!(
+        releases.is_empty(),
+        "a borrow-only lineage owes no edge release; releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_declines_when_fresh_inc_suppressed() {
+    // The funded duplicate does not exist when the FRESH-site inc was
+    // suppressed — releasing would free the birth reference.
+    let func = branch_exclusive_store_func();
+    let releases = branch_exclusive_releases_for(&func, &[0]);
+    assert!(
+        releases.is_empty(),
+        "no kept funding inc → no duplicate to release; releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_declines_post_merge_read() {
+    // Post-merge borrow-read: the lineage is read in the SHARED merge block,
+    // flipping the store to a genuine funded duplication (the GREEN clamp) —
+    // the confinement gate declines both edges.
+    let func = func_with_blocks(
+        8,
+        vec![
+            block(0, vec![fresh_root(0)], branch_block(1, 1, 2)),
+            block(
+                1,
+                vec![alias_of(2, 0), store_of(4, 2)],
+                ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: Vec::new(),
+                },
+            ),
+            block(
+                2,
+                vec![alias_of(3, 0)],
+                ArcTerminator::Jump {
+                    target: ArcBlockId::new(3),
+                    args: Vec::new(),
+                },
+            ),
+            // merge: post-merge borrow-read of the root.
+            block(3, vec![alias_of(6, 0)], ret(7)),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert!(
+        releases.is_empty(),
+        "a post-merge read keeps the birth reference live past the branch — \
+         the edge release must not fire; releases = {releases:?}"
+    );
+}
+
+#[test]
+fn branch_exclusive_switch_unreachable_default_arm_gets_no_release() {
+    // Switch with an impossible default arm: the borrow arm is admitted; the
+    // `Unreachable` default arm never executes a release.
+    let func = func_with_blocks(
+        8,
+        vec![
+            block(
+                0,
+                vec![fresh_root(0)],
+                ArcTerminator::Switch {
+                    scrutinee: ArcVarId::new(1),
+                    cases: vec![(0, ArcBlockId::new(1)), (1, ArcBlockId::new(2))],
+                    default: ArcBlockId::new(3),
+                },
+            ),
+            block(1, vec![alias_of(2, 0), store_of(4, 2)], ret(5)),
+            block(2, vec![alias_of(6, 0)], ret(7)),
+            block(3, Vec::new(), ArcTerminator::Unreachable),
+        ],
+    );
+    let releases = branch_exclusive_releases_for(&func, &[]);
+    assert_eq!(
+        releases.get(&(2, ForwarderReleasePos::AfterInstr(0))),
+        Some(&vec![ArcVarId::new(0)]),
+        "the borrow arm is admitted per-arm; releases = {releases:?}"
+    );
+    assert!(
+        !releases.keys().any(|&(b, _)| b == 3),
+        "the Unreachable default arm never executes — no release placed; \
+         releases = {releases:?}"
+    );
+    assert_eq!(releases.len(), 1, "exactly one admitted arm");
+}
