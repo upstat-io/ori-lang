@@ -307,10 +307,12 @@ fn eliminate_whole_function(
     // root kind: their kept alias-site inc is inc-ONLY (the dec was
     // transfer-suppressed at Phase 5 — the consumer's release is the matched
     // release), so a DP-3 split would strip the fork's funded reference and
-    // re-introduce the under-inc double-free. SSOT:
-    // `compute_genuine_dup_call_arg_aliases`. Spec: Annex E §AIMS RL-1.
+    // re-introduce the under-inc double-free. The FUNDED set excludes raw
+    // members whose alias-site inc Phase 5 never kept (no inc → nothing to
+    // guard; treating them as funded drifts accounting from emission). SSOT:
+    // `compute_funded_call_arg_dup_aliases`. Spec: Annex E §AIMS RL-1.
     alias_dsts.extend(
-        crate::lower::burden_lower::compute_genuine_dup_call_arg_aliases(func, contracts, interner),
+        crate::lower::burden_lower::compute_funded_call_arg_dup_aliases(func, contracts, interner),
     );
     mark_whole_var_removals(
         &balances,

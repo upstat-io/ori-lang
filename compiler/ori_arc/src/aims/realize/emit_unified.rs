@@ -7343,7 +7343,9 @@ fn compute_elidable_fresh_self_alloc_incs(
 
     // DUP-FUNDED lineages (RL-1 owned-call-arg duplication cure): a lineage
     // carrying >= 1 kept genuine-duplication alias inc (owned-call-arg family
-    // per `compute_genuine_dup_call_arg_aliases`). For such a lineage:
+    // per `compute_funded_call_arg_dup_aliases` — the FUNDED set, so a raw
+    // member whose alias-site inc Phase 5 never kept is excluded from the
+    // debit/clearance machinery). For such a lineage:
     //  - the per-path net DEBITS every owned hand-off of a lineage member
     //    (-1 each: owned call args, aggregate-store args, `Set.value`,
     //    `Return`) so the N kept duplication incs read as FUNDED transfers,
@@ -7359,7 +7361,7 @@ fn compute_elidable_fresh_self_alloc_incs(
     // Zero-duplication lineages take neither branch — byte-identical nets and
     // verdicts. Spec: Annex E §AIMS RL-1 (`RL1_duplication_balanced`) + RL-2.
     let call_arg_dups =
-        crate::lower::burden_lower::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+        crate::lower::burden_lower::compute_funded_call_arg_dup_aliases(func, contracts, interner);
     let dup_funded_reps: FxHashSet<ArcVarId> = call_arg_dups.iter().map(|&v| rep_of(v)).collect();
     let (debited_net, cow_cleared_reps) = if dup_funded_reps.is_empty() {
         (FxHashMap::default(), FxHashSet::default())

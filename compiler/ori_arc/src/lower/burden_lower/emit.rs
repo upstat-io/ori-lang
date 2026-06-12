@@ -117,7 +117,7 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     //     `emit_terminator_burden_decs` symmetric same-block cancellation);
     //   - no last-use `BurdenDec` is emitted for the alias (suppressed in
     //     `emit_last_use_decs` + the terminator last-use path).
-    // SSOT: `compute_genuine_dup_call_arg_aliases`. Spec: Annex E §AIMS
+    // SSOT: `compute_funded_call_arg_dup_aliases`. Spec: Annex E §AIMS
     // RL-1 (`RL1_duplication_balanced`) + RL-2 (`RL2_transfer_kinds_no_dec`).
     pub(super) call_arg_dup_aliases: &'a FxHashSet<ArcVarId>,
 }

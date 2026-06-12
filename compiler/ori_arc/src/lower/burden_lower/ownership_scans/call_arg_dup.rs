@@ -179,12 +179,12 @@ fn collect_owned_call_arg_consumes(
 /// endpoint differs. The iter-consume / protocol-builtin fences live in the
 /// endpoint collection.
 ///
-/// Standalone-callable (recomputes its inputs from `func`): the Phase-6
-/// pair-atomic collector (`aims::realize::burden_elim`) and the Phase-7
-/// lineage-net machinery (`aims::realize::emit_unified`) consume the same set
-/// — ONE SSOT for the owned-call-arg duplication family. Empty when
-/// `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1`.
-pub(crate) fn compute_genuine_dup_call_arg_aliases(
+/// RAW classification only — consumers take the FUNDED set
+/// ([`compute_funded_call_arg_dup_aliases`]), which additionally applies the
+/// Phase-5 emission gates (a raw member outside `dup_alias_dsts` or inside
+/// `full_move_vars` never receives the alias-site inc, so it funds nothing).
+/// Empty when `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1`.
+pub(in crate::lower::burden_lower) fn compute_genuine_dup_call_arg_aliases(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
@@ -286,6 +286,70 @@ pub(crate) fn compute_genuine_dup_call_arg_aliases(
         }
     }
     genuine
+}
+
+/// FUNDED owned-call-arg duplication aliases — the ONE SSOT every consumer of
+/// the owned-call-arg duplication family reads: the RAW classification
+/// ([`compute_genuine_dup_call_arg_aliases`]) filtered to the members whose
+/// alias-site `BurdenInc` is actually KEPT by Phase-5 emission. A raw member
+/// outside the funded set receives NO alias-site inc, so treating it as
+/// dup-funded in the Phase-6 pair-atomicity guard or the Phase-7 lineage-net
+/// accounting debits a reference no inc supplied (emission vs accounting
+/// drift). Two gates, mirroring the Phase-5 emission filter:
+///
+/// - `dup_alias_dsts` membership: forwarder-identity transparent aliases
+///   ([`compute_forwarder_identity_transparent_aliases`]) are skipped at the
+///   duplication classification (`compute_use_counts_and_dup_aliases`) AND
+///   excluded from `owned_vars_needing_rc`, so they carry no alias-site inc.
+///   The raw set's own `use_counts >= 2` admission matches the remaining
+///   `dup_alias_dsts` condition, so the gate reduces to the forwarder
+///   exclusion (same `ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP` toggle).
+/// - `full_move_vars` exclusion: a full-move var's whole-var ops are owned by
+///   the field-projection machinery (`inc_suppressed_vars` coupling). Every
+///   `full_move_vars` member — initial (`compute_full_move_vars` over the
+///   `moved_out_fields` keys), sibling-union-absorbed, or
+///   extract-transfer-widened — is a `Project` SOURCE, so the gate is applied
+///   via the pure project-source superset (recomputable from `func` alone; a
+///   raw member's single-use move chain admits no `Project` use, so the
+///   superset and the exact set agree on this family).
+///
+/// Standalone-callable (recomputes its gates from `func` + `contracts`): the
+/// Phase-5 emission walk (`scan_orchestration` / `scan_helpers`), the Phase-6
+/// pair-atomic collector (`aims::realize::burden_elim`), and the Phase-7
+/// lineage-net machinery (`aims::realize::emit_unified`) all consume this ONE
+/// set. Use counting inside the raw scan skips burden ops, keeping the set in
+/// lock-step pre- and post-emission. Empty when
+/// `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1` (the raw scan owns the toggle).
+pub(crate) fn compute_funded_call_arg_dup_aliases(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let mut funded = compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+    if funded.is_empty() {
+        return funded;
+    }
+    // Gate 1 — dup_alias_dsts: drop forwarder-identity transparent aliases
+    // (they are skipped at the duplication classification, so no alias-site
+    // inc exists for them). Toggle parity with the Phase-5 classification.
+    if !*super::super::FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED {
+        let forwarder_transparent =
+            super::forwarder::compute_forwarder_identity_transparent_aliases(func, contracts);
+        funded.retain(|v| !forwarder_transparent.contains(v));
+    }
+    // Gate 2 — full_move_vars, via the pure project-source superset: every
+    // full-move member is a `Project` source (see fn doc), so excluding the
+    // superset excludes the exact set on this family.
+    let mut project_sources: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { value, .. } = instr {
+                project_sources.insert(*value);
+            }
+        }
+    }
+    funded.retain(|v| !project_sources.contains(v));
+    funded
 }
 
 /// Forward-reachable block set from `start`'s SUCCESSORS, NOT expanding

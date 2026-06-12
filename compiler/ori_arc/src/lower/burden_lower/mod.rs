@@ -32,7 +32,7 @@ pub(crate) use ctx::BurdenLowerCtx;
 
 pub(crate) use cow_aliases::{compute_borrowed_alias_vars, compute_cow_inc_borrowed_aliases};
 pub(crate) use ownership_scans::{
-    collect_move_edges_and_store_consumes, compute_genuine_dup_call_arg_aliases,
+    collect_move_edges_and_store_consumes, compute_funded_call_arg_dup_aliases,
     contract_consuming_arg_position, list_concat_consumed_operands,
 };
 // Re-exported into `burden_lower` scope so sibling submodules (`emit`,

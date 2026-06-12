@@ -31,8 +31,12 @@ pub(super) use borrowed_invoke_lineage::{
     borrowed_invoke_lineage_release_disabled, compute_borrowed_invoke_collection_lineage,
 };
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
+// Test-only re-export: the RAW classification is consumed by the `tests`
+// sibling; production consumers take the FUNDED set.
+#[cfg(test)]
+pub(super) use call_arg_dup::compute_genuine_dup_call_arg_aliases;
 pub(crate) use call_arg_dup::{
-    compute_genuine_dup_call_arg_aliases, contract_consuming_arg_position,
+    compute_funded_call_arg_dup_aliases, contract_consuming_arg_position,
 };
 pub(super) use construct_fed::{
     compute_construct_fed_dead_param_lineage, ConstructFedDeadParamLineage,

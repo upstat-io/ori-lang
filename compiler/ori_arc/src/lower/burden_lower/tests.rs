@@ -8507,6 +8507,84 @@ fn call_arg_dup_scan_admits_loop_invariant_source_with_post_loop_use() {
     );
 }
 
+// Funded owned-call-arg duplication set (`compute_funded_call_arg_dup_aliases`)
+
+#[test]
+fn funded_call_arg_dup_set_excludes_forwarder_transparent_raw_member() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+    let interner = ori_ir::StringInterner::new();
+    let self_name = interner.intern("self_forwarder");
+    let callee = interner.intern("user_consumer");
+    // `@self_forwarder(%0 owned-ttr) = { %1 = %0; callee(%1 [borrow]); Return %0 }`
+    // — the RAW scan admits %1 via the contract-Owned position (the borrowed
+    // call-site annotation keeps the forwarder vetting's structural
+    // owned-position decline from firing), yet %1 is forwarder-identity
+    // TRANSPARENT: Phase 5 skips its dup classification and emits NO
+    // alias-site inc. The FUNDED set MUST exclude it, else the Phase-6/7
+    // accounting consumers debit a reference no inc supplied.
+    let mut func = func_with_n_vars(4);
+    func.name = self_name;
+    func.params = vec![ArcParam {
+        var: ArcVarId::new(0),
+        ty: Idx::STR,
+        ownership: Ownership::Owned,
+    }];
+    func.blocks[0].body = vec![alias_of(1, 0), borrowed_apply_of(3, callee, 1)];
+    func.blocks[0].terminator = ArcTerminator::Return {
+        value: ArcVarId::new(0),
+    };
+    let mut callee_param = ParamContract::CONSERVATIVE;
+    callee_param.access = crate::aims::lattice::AccessClass::Owned;
+    let callee_contract = MemoryContract {
+        params: vec![callee_param],
+        ..MemoryContract::conservative(1)
+    };
+    let mut own_param = ParamContract::CONSERVATIVE;
+    own_param.transfers_through_return = true;
+    let own_contract = MemoryContract {
+        params: vec![own_param],
+        ..MemoryContract::conservative(1)
+    };
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> =
+        [(callee, callee_contract), (self_name, own_contract)]
+            .into_iter()
+            .collect();
+    let raw =
+        super::ownership_scans::compute_genuine_dup_call_arg_aliases(&func, &contracts, &interner);
+    assert!(
+        raw.contains(&ArcVarId::new(1)),
+        "RAW scan admits the contract-Owned call-arg alias of the ttr param; raw = {raw:?}"
+    );
+    let funded =
+        super::ownership_scans::compute_funded_call_arg_dup_aliases(&func, &contracts, &interner);
+    assert!(
+        !funded.contains(&ArcVarId::new(1)),
+        "FUNDED set excludes the forwarder-transparent alias — Phase 5 kept no \
+         alias-site inc for it; funded = {funded:?}"
+    );
+}
+
+#[test]
+fn funded_call_arg_dup_set_keeps_plain_genuine_duplication() {
+    let interner = ori_ir::StringInterner::new();
+    let callee = interner.intern("user_fork");
+    let func = call_arg_dup_func(callee);
+    let funded = super::ownership_scans::compute_funded_call_arg_dup_aliases(
+        &func,
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        funded.contains(&ArcVarId::new(1)),
+        "an unfiltered genuine duplication stays funded — the gates only strip \
+         members Phase 5 never funded"
+    );
+    assert!(
+        !funded.contains(&ArcVarId::new(2)),
+        "the source's terminal move stays out (raw exclusion carries through)"
+    );
+}
+
 // Call-result-aggregate element FINAL-READ release designation
 // (`compute_call_result_element_final_read_releases`)
 

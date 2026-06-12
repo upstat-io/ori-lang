@@ -165,10 +165,10 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // contract proves OWNED (the Phase-5 `arg_ownership` annotation is still
     // the pre-`realize_rc_reuse` borrowed default) is a genuine duplication,
     // NOT a borrow-view — it keeps its membership so the alias-site
-    // `BurdenInc` is emitted (`compute_genuine_dup_call_arg_aliases` SSOT;
+    // `BurdenInc` is emitted (`compute_funded_call_arg_dup_aliases` SSOT;
     // the consumer's owned-param release is the matched release).
     let call_arg_dup_aliases =
-        ownership_scans::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
+        ownership_scans::compute_funded_call_arg_dup_aliases(func, contracts, interner);
     borrowed_arg_aliases.retain(|v| !call_arg_dup_aliases.contains(v));
     owned_vars_needing_rc.retain(|v| !borrowed_arg_aliases.contains(v));
     // RL-2 / TF-4: a `Project` dst used only at borrow positions is a borrow-view

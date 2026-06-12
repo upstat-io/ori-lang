@@ -299,15 +299,14 @@ pub(crate) fn emit_burden_ops<'a>(
     // callee's owned-param release), so it skips BOTH inc-suppression scans
     // below AND escapes the `emit_terminator_burden_decs` symmetric same-block
     // cancellation (the `inc_counts` tally gate in `emit_burden_ops_for_blocks`).
-    // Filtered to the Phase-5 emission gates (a dst outside `dup_alias_dsts`
-    // never gets the alias-site inc; a `full_move_vars` member's whole-var ops
-    // are owned by the field-projection machinery). Empty when
-    // `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1` (the compute fn owns the toggle).
-    // Spec: Annex E §AIMS RL-1 + RL-2.
-    let mut genuine_dup_call_arg_aliases =
-        super::compute_genuine_dup_call_arg_aliases(func, contracts, interner);
-    genuine_dup_call_arg_aliases
-        .retain(|v| dup_alias_dsts.contains(v) && !full_move_vars.contains(v));
+    // The FUNDED set already carries the Phase-5 emission gates (a dst outside
+    // `dup_alias_dsts` never gets the alias-site inc; a `full_move_vars`
+    // member's whole-var ops are owned by the field-projection machinery) —
+    // ONE SSOT shared with the Phase-6 pair-atomic collector and the Phase-7
+    // lineage-net machinery. Empty when `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1`
+    // (the compute fn owns the toggle). Spec: Annex E §AIMS RL-1 + RL-2.
+    let genuine_dup_call_arg_aliases =
+        super::compute_funded_call_arg_dup_aliases(func, contracts, interner);
 
     // RL-2 final-read release carriers: suppress the dup-alias keep-alive inc
     // so the designated alias carries ONLY its last-use `BurdenDec` — the
