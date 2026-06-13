@@ -85,6 +85,22 @@ use std.testing { assert_eq }
     assert_eq(actual: concat_option(), expected: [Some(1), None, Some(2)])
 }
 
+// Custom struct with an RC-pointer field — exercises the element-level
+// inc/dec (elem_dec_fn) path for a user struct that transitively owns a buffer.
+
+#derive(Eq, Clone)
+type Holder = { tag: str, items: [int] }
+
+@concat_struct () -> [Holder] = {
+    let $a = [Holder { tag: "a", items: [1, 2] }];
+    let $b = [Holder { tag: "b", items: [3] }];
+    a.concat(other: b)
+}
+
+@test_concat_struct tests @concat_struct () -> void = {
+    assert_eq(actual: concat_struct(), expected: [Holder { tag: "a", items: [1, 2] }, Holder { tag: "b", items: [3] }])
+}
+
 // =============================================================================
 // Arrangement dimension
 // =============================================================================
@@ -218,7 +234,7 @@ use std.testing { assert_eq }
 
 // =============================================================================
 // Loop back-edge — concat reassigning a mutable accumulator across iterations.
-// The loop back-edge is the #1 ARC-bug source (per tests.md §ARC Testing).
+// The loop back-edge is the #1 ARC-bug source for list operations.
 // Ordered LAST: pre-fix the mis-directed dec corrupts the reused heap and
 // SIGSEGVs on the JIT path — a stronger manifestation of the same cap mis-load.
 // =============================================================================
