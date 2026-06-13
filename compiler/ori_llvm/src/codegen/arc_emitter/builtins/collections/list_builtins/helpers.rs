@@ -34,6 +34,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
     ) -> (ValueId, ValueId, ValueId) {
+        // FastISel-safe field extraction for the 24-byte fat pointer is handled
+        // centrally in IrBuilder::extract_value (AB-5) under JIT.
         let data_ptr = self
             .builder
             .extract_value(receiver, FIELD_DATA, "list.data")

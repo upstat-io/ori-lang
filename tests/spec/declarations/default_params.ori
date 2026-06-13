@@ -1,0 +1,110 @@
+// Spec: ori-syntax.md §Declarations — default parameter values `(x: int = 10)`;
+// roadmap 15B.2 Default Parameter Values end-to-end verification.
+// BUG-04-190 TDD matrix: canon default-fill must populate omitted defaults for
+// POSITIONAL / zero-arg calls (ExprKind::Call), not only named calls (CallNamed),
+// so the AOT/LLVM backend matches the interpreter. Matrix: return-ABI
+// {int scalar, str sret, [int] heap} x omit-style {positional, zero-arg, named, provided}.
+
+use std.testing { assert_eq }
+
+// --- int (scalar return) ---
+
+@f_int (a: int, b: int = 5) -> int = a + b;
+
+// POSITIONAL omit (trigger): f_int(1) omits b -> ExprKind::Call, default must fill to 5.
+@test_pos_omit_int tests @pos_omit_int () -> void = {
+    assert_eq(actual: pos_omit_int(), expected: 6)
+}
+@pos_omit_int () -> int = f_int(1);
+
+@g_int (a: int = 3) -> int = a;
+
+// ZERO-ARG omit: g_int() omits the sole default -> ExprKind::Call, fills to 3.
+@test_zero_omit_int tests @zero_omit_int () -> void = {
+    assert_eq(actual: zero_omit_int(), expected: 3)
+}
+@zero_omit_int () -> int = g_int();
+
+// NAMED omit (regression pin — passes pre-fix): f_int(a: 1) omits b via CallNamed.
+@test_named_omit_int tests @named_omit_int () -> void = {
+    assert_eq(actual: named_omit_int(), expected: 6)
+}
+@named_omit_int () -> int = f_int(a: 1);
+
+// PROVIDED (regression pin): both args positional, no default used.
+@test_provided_int tests @provided_int () -> void = {
+    assert_eq(actual: provided_int(), expected: 30)
+}
+@provided_int () -> int = f_int(10, 20);
+
+// --- str (sret / fat-pointer return) ---
+
+@greet (name: str = "World") -> str = `Hello, {name}!`;
+
+// ZERO-ARG omit, str return (original repro).
+@test_zero_omit_str tests @zero_omit_str () -> void = {
+    assert_eq(actual: zero_omit_str(), expected: "Hello, World!")
+}
+@zero_omit_str () -> str = greet();
+
+@f_str (x: int, name: str = "World") -> str = name;
+
+// POSITIONAL omit, str return: f_str(1) omits name -> Call, fills "World".
+@test_pos_omit_str tests @pos_omit_str () -> void = {
+    assert_eq(actual: pos_omit_str(), expected: "World")
+}
+@pos_omit_str () -> str = f_str(1);
+
+// NAMED omit str (regression pin).
+@test_named_omit_str tests @named_omit_str () -> void = {
+    assert_eq(actual: named_omit_str(), expected: "World")
+}
+@named_omit_str () -> str = f_str(x: 1);
+
+// PROVIDED str (regression pin).
+@test_provided_str tests @provided_str () -> void = {
+    assert_eq(actual: provided_str(), expected: "Ori")
+}
+@provided_str () -> str = f_str(1, "Ori");
+
+// --- [int] (heap return) ---
+
+@f_list (n: int, tail: [int] = [9, 9]) -> [int] = tail;
+
+// POSITIONAL omit, heap return: f_list(1) omits tail -> Call, fills [9, 9].
+@test_pos_omit_list tests @pos_omit_list () -> void = {
+    assert_eq(actual: pos_omit_list(), expected: [9, 9])
+}
+@pos_omit_list () -> [int] = f_list(1);
+
+// PROVIDED list (regression pin).
+@test_provided_list tests @provided_list () -> void = {
+    assert_eq(actual: provided_list(), expected: [1, 2])
+}
+@provided_list () -> [int] = f_list(0, [1, 2]);
+
+// --- Option<int> return (pulled in from deferred per Plan-TPR codex-F2) ---
+
+@f_opt (n: int, o: Option<int> = Some(7)) -> Option<int> = o;
+
+// POSITIONAL omit, Option return: f_opt(1) omits o -> Some(7).
+// Scalar oracle (.unwrap_or) avoids assert_eq-on-Option, which trips the
+// independent BUG-04-191 (debug-mono on composite assert) on LLVM.
+@test_pos_omit_opt tests @pos_omit_opt () -> void = {
+    assert_eq(actual: pos_omit_opt(), expected: 7)
+}
+@pos_omit_opt () -> int = f_opt(1).unwrap_or(0);
+
+// --- struct return (pulled in from deferred per Plan-TPR codex-F2) ---
+
+#derive(Eq)
+type Pt = { x: int };
+
+@f_struct (n: int, p: Pt = Pt { x: 9 }) -> Pt = p;
+
+// POSITIONAL omit, struct return: f_struct(1) omits p -> Pt { x: 9 }.
+// Scalar oracle (.x field) avoids assert_eq-on-struct (BUG-04-191).
+@test_pos_omit_struct tests @pos_omit_struct () -> void = {
+    assert_eq(actual: pos_omit_struct(), expected: 9)
+}
+@pos_omit_struct () -> int = f_struct(1).x;

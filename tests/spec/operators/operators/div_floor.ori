@@ -1,0 +1,20 @@
+// Spec: operator-rules.md § FloorDiv (`div`); ori-syntax.md § Operators (level 4, multiplicative)
+// `div` is floor division: rounds toward negative infinity, distinct from `/` truncation.
+
+use std.testing { assert_eq }
+
+@test_div_floor_positive tests @div_floor_positive () -> void = {
+    assert_eq(actual: div_floor_positive(), expected: 3)
+}
+
+@div_floor_positive () -> int = {
+    7 div 2
+}
+
+@test_div_floor_negative tests @div_floor_negative () -> void = {
+    assert_eq(actual: div_floor_negative(), expected: -4)
+}
+
+@div_floor_negative () -> int = {
+    -7 div 2
+}

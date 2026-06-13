@@ -1,0 +1,12 @@
+// Spec: operator-rules.md § Precedence; ori-syntax.md § Operators (level 5 `+` over level 6 `<<`)
+// Additive binds tighter than shift: `1 + 2 << 3` parses as `(1 + 2) << 3` = 3 << 3 = 24.
+
+use std.testing { assert_eq }
+
+@test_add_over_shift tests @add_over_shift () -> void = {
+    assert_eq(actual: add_over_shift(), expected: 24)
+}
+
+@add_over_shift () -> int = {
+    1 + 2 << 3
+}

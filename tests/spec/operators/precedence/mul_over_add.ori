@@ -1,0 +1,12 @@
+// Spec: operator-rules.md § Precedence; ori-syntax.md § Operators (level 4 `*` over level 5 `+`)
+// Multiplicative binds tighter than additive: `2 + 3 * 4` parses as `2 + (3 * 4)`.
+
+use std.testing { assert_eq }
+
+@test_mul_over_add tests @mul_over_add () -> void = {
+    assert_eq(actual: mul_over_add(), expected: 14)
+}
+
+@mul_over_add () -> int = {
+    2 + 3 * 4
+}

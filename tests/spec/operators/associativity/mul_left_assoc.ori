@@ -1,0 +1,12 @@
+// Spec: operator-rules.md § Associativity; ori-syntax.md § Operators (multiplicative left-associative)
+// `8 / 4 / 2` parses left-associatively as `(8 / 4) / 2` = 2 / 2 = 1.
+
+use std.testing { assert_eq }
+
+@test_mul_left_assoc tests @mul_left_assoc () -> void = {
+    assert_eq(actual: mul_left_assoc(), expected: 1)
+}
+
+@mul_left_assoc () -> int = {
+    8 / 4 / 2
+}

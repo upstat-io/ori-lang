@@ -1,0 +1,54 @@
+// Spec: ori-syntax.md §Declarations — default parameter values on METHODS.
+// BUG-04-190 method-call facet: a method default-param OMITTED at the call site
+// must fill, symmetric to free functions. Method default-omit currently fails
+// EARLIER than the free-function case — at typeck (E2004 arity) not codegen —
+// because method-call arity-checking + canon lower_method_call fill are wired
+// only for the named-method path (desugar_method_call_named), not positional
+// MethodCall (lower_method_call). Provided (named OR positional) works today;
+// only omission is broken. These positive cells are RED on BOTH backends pre-fix
+// (typeck rejects b.get()), GREEN on both post-fix.
+
+use std.testing { assert_eq }
+
+type Box = { v: int };
+
+impl Box {
+    @get (self, d: int = 7) -> int = self.v + d;
+    @label (self, name: str = "boxed") -> str = name;
+}
+
+// METHOD default-omit (the bug): b.get() omits d -> must fill to 7 -> 1+7=8.
+@test_method_default_omit tests @method_default_omit () -> void = {
+    assert_eq(actual: method_default_omit(), expected: 8)
+}
+@method_default_omit () -> int = {
+    let $b = Box { v: 1 };
+    b.get()
+}
+
+// METHOD default-omit, str return (sret): b.label() omits name -> "boxed".
+@test_method_default_omit_str tests @method_default_omit_str () -> void = {
+    assert_eq(actual: method_default_omit_str(), expected: "boxed")
+}
+@method_default_omit_str () -> str = {
+    let $b = Box { v: 1 };
+    b.label()
+}
+
+// METHOD default PROVIDED named (regression pin — works today).
+@test_method_default_named tests @method_default_named () -> void = {
+    assert_eq(actual: method_default_named(), expected: 5)
+}
+@method_default_named () -> int = {
+    let $b = Box { v: 1 };
+    b.get(d: 4)
+}
+
+// METHOD default PROVIDED positional (regression pin — works today).
+@test_method_default_positional tests @method_default_positional () -> void = {
+    assert_eq(actual: method_default_positional(), expected: 5)
+}
+@method_default_positional () -> int = {
+    let $b = Box { v: 1 };
+    b.get(4)
+}

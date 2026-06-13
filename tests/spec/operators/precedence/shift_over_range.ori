@@ -1,0 +1,13 @@
+// Spec: operator-rules.md § Precedence; ori-syntax.md § Operators (level 6 `<<` over level 7 `..`)
+// Shift binds tighter than range: `0..1 << 2` parses as `0..(1 << 2)` = 0..4 (length 4).
+
+use std.testing { assert_eq }
+
+@test_shift_over_range tests @shift_over_range () -> void = {
+    assert_eq(actual: shift_over_range(), expected: 4)
+}
+
+@shift_over_range () -> int = {
+    let $r = for x in 0..1 << 2 yield x;
+    r.length()
+}

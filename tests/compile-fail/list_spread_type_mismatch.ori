@@ -1,0 +1,10 @@
+// Test that a list spread of a non-list expression is rejected.
+// Spec: 14-expressions.md § Spread Operator — a spread element `...e` in a
+// list literal requires `e: [T]` matching the container element type.
+
+#[compile_fail("type mismatch")]
+@test_list_spread_type_mismatch tests _ () -> void = {
+    let $x = 5;
+    let $bad = [...x];
+    ()
+}

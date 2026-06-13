@@ -1,0 +1,12 @@
+// Spec: operator-rules.md § Associativity; ori-syntax.md § Operators (additive left-associative)
+// `10 - 3 - 2` parses left-associatively as `(10 - 3) - 2` = 7 - 2 = 5.
+
+use std.testing { assert_eq }
+
+@test_add_left_assoc tests @add_left_assoc () -> void = {
+    assert_eq(actual: add_left_assoc(), expected: 5)
+}
+
+@add_left_assoc () -> int = {
+    10 - 3 - 2
+}
