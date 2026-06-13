@@ -71,10 +71,10 @@ impl<'a> Cursor<'a> {
     /// Panics if `pos` is greater than the token count.
     pub fn set_position(&mut self, pos: usize) {
         debug_assert!(
-            pos <= self.tokens.len(),
+            pos < self.tokens.len(),
             "cursor position {} out of bounds (max {})",
             pos,
-            self.tokens.len()
+            self.tokens.len() - 1
         );
         self.pos = pos;
     }
@@ -372,10 +372,11 @@ impl<'a> Cursor<'a> {
     ///
     /// # Safety invariant
     ///
-    /// The lexer always appends an EOF token, and grammar rules always check
-    /// the current token kind before calling `advance()`. This means the parser
-    /// can never advance past the last token. The unconditional increment avoids
-    /// a branch on every token consumption.
+    /// The lexer always appends an EOF token, so `pos` saturates at the EOF
+    /// index: advancing at EOF is idempotent and keeps `pos` in
+    /// `0..tokens.len()`. Every same-offset accessor (`current_tag`,
+    /// `current_token`, the `flags[pos]` readers) relies on this invariant
+    /// rather than bounds-checking each read.
     #[inline]
     pub fn advance(&mut self) -> &Token {
         let current = self.pos;
@@ -391,7 +392,12 @@ impl<'a> Cursor<'a> {
             span_end = token.span.end,
             "advance"
         );
-        self.pos += 1;
+        // Sticky EOF: never advance past the EOF sentinel (the last token), so
+        // `pos` stays in `0..tokens.len()` for every accessor. The lexer always
+        // appends EOF, so `tokens.len() >= 1` and the `- 1` cannot underflow.
+        if self.pos < self.tokens.len() - 1 {
+            self.pos += 1;
+        }
         token
     }
 

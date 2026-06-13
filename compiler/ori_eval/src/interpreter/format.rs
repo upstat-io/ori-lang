@@ -224,9 +224,7 @@ fn format_float(f: f64, spec: &ParsedFormatSpec) -> String {
             if let Some(prec) = spec.precision {
                 format!("{pct:.prec$}%")
             } else {
-                // No precision: strip trailing zeros
-                let s = format!("{pct}");
-                format!("{s}%")
+                format!("{pct}%")
             }
         }
         _ => {
@@ -334,7 +332,7 @@ fn format_sign(is_negative: bool, spec: &ParsedFormatSpec) -> &'static str {
 fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> String {
     let e = if uppercase { 'E' } else { 'e' };
 
-    // SAFETY-OF-MATH: never run exponent math on a non-finite value. format_float
+    // Why: never run exponent math on a non-finite value. format_float
     // does not special-case NaN/Inf before dispatch (is_sign_negative only
     // suppresses the sign flag), so guard here. Rust Display gives "NaN"/"inf".
     if !f.is_finite() {

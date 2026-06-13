@@ -1,4 +1,4 @@
-// Spec: §3.16 Formattable Trait — Format type validation
+// Spec: 09-properties-of-types.md §9.7 Format Types — format type validation
 // The radix format types `x`/`X`/`b`/`o` are valid only for int (E2035);
 // applying any to a non-int value (str, float) is a compile error.
 

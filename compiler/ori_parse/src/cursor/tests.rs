@@ -487,3 +487,114 @@ fn keyword_as_name_covers_canonical_subset() {
         cursor.advance();
     }
 }
+
+/// Regression: parser-cursor advance-past-EOF — `advance()` past the EOF sentinel drove `pos`
+/// out of bounds, and `current_tag()` then indexed `tags[pos]` unchecked,
+/// panicking with `index out of bounds` on adversarial (fuzzer) input.
+/// Semantic pin: advancing AT EOF is idempotent (the sticky-EOF invariant).
+#[test]
+fn test_advance_at_eof_is_idempotent() {
+    let ctx = TestCtx::new("type T = int");
+    let mut cursor = ctx.cursor();
+    while !cursor.is_at_end() {
+        cursor.advance();
+    }
+    assert!(cursor.is_at_end(), "cursor should reach the EOF sentinel");
+    let eof_pos = cursor.position();
+    // Advancing at EOF must NOT move past the sentinel.
+    cursor.advance();
+    assert_eq!(
+        cursor.position(),
+        eof_pos,
+        "advance() at EOF must be idempotent — pos stays pinned at the EOF index"
+    );
+    assert!(
+        cursor.is_at_end(),
+        "cursor must remain at EOF after advancing at EOF"
+    );
+}
+
+/// Regression: parser-cursor advance-past-EOF — negative pin. After advancing at EOF,
+/// `current_tag()` must return `TAG_EOF`, never an out-of-bounds read. In a
+/// release build (`debug_assert` stripped) the old code panicked here; this
+/// pins that the sticky-EOF invariant keeps `pos` in range for every accessor.
+#[test]
+fn test_current_tag_after_advance_at_eof_stays_eof_no_oob() {
+    let ctx = TestCtx::new("@f () -> int = 1");
+    let mut cursor = ctx.cursor();
+    while !cursor.is_at_end() {
+        cursor.advance();
+    }
+    // Advancing at EOF must keep pos in bounds; the old code ran pos past
+    // tags.len() and current_tag() indexed out of bounds.
+    cursor.advance();
+    assert_eq!(
+        cursor.current_tag(),
+        TokenKind::TAG_EOF,
+        "current_tag() at EOF must return TAG_EOF, never an out-of-bounds read"
+    );
+}
+
+/// Regression: parser-cursor advance-past-EOF — positive control clamping the fix from above.
+/// Sticky EOF must NOT change normal advancing: a pre-EOF advance still
+/// increments pos by exactly one.
+#[test]
+fn test_advance_before_eof_still_increments() {
+    let ctx = TestCtx::new("type T = int");
+    let mut cursor = ctx.cursor();
+    assert!(
+        !cursor.is_at_end(),
+        "fixture must have a non-EOF first token"
+    );
+    let p0 = cursor.position();
+    cursor.advance();
+    assert_eq!(
+        cursor.position(),
+        p0 + 1,
+        "advance() before EOF must increment pos by exactly one"
+    );
+}
+
+/// Regression: parser-cursor advance-past-EOF — the `flags` parallel array shares the same
+/// pos-indexed exposure as `tags` (`current_flags()` etc. index
+/// `flags[self.pos]` unchecked). After advancing at EOF, `current_flags()`
+/// must stay in bounds, never index out of bounds. Pins that the sticky-EOF
+/// invariant covers EVERY pos-indexed parallel array, not just `tags`.
+#[test]
+fn test_current_flags_after_advance_at_eof_no_oob() {
+    let ctx = TestCtx::new("type T = int");
+    let mut cursor = ctx.cursor();
+    while !cursor.is_at_end() {
+        cursor.advance();
+    }
+    cursor.advance(); // at EOF — must stay pinned, not run pos past flags.len()
+                      // Before the fix this indexed flags[pos] out of bounds and panicked.
+    let _ = cursor.current_flags();
+    assert!(
+        cursor.is_at_end(),
+        "current_flags() at EOF must stay in bounds (sticky EOF); pos must remain at the EOF index"
+    );
+}
+
+/// Regression: parser-cursor advance-past-EOF — no-underflow invariant. The
+/// sticky-EOF fix computes `tokens.len() - 1`; this pins that the lexer always
+/// appends an EOF token so the token list is never empty (`len >= 1`), so the
+/// subtraction cannot underflow even on empty source, and advancing on an
+/// EOF-only list stays pinned.
+#[test]
+fn test_empty_source_has_eof_token_no_underflow() {
+    let ctx = TestCtx::new("");
+    let mut cursor = ctx.cursor();
+    assert!(
+        cursor.is_at_end(),
+        "empty source must start at the EOF token"
+    );
+    assert_eq!(cursor.current_tag(), TokenKind::TAG_EOF);
+    let eof_pos = cursor.position();
+    cursor.advance();
+    assert_eq!(
+        cursor.position(),
+        eof_pos,
+        "advance() on an EOF-only list must stay pinned (no underflow of tokens.len() - 1)"
+    );
+}

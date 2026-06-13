@@ -366,7 +366,7 @@ fn format_percent(abs_f: f64, precision: Option<usize>) -> String {
 fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> String {
     let e = if uppercase { 'E' } else { 'e' };
 
-    // SAFETY-OF-MATH: never run exponent math on a non-finite value. format_float
+    // Why: never run exponent math on a non-finite value. format_float
     // does not special-case NaN/Inf before dispatch (is_sign_negative only
     // suppresses the sign flag), so guard here. Rust Display gives "NaN"/"inf".
     if !f.is_finite() {
