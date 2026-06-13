@@ -1,0 +1,66 @@
+// Spec: 09-expressions.md § Template Literals (common escapes)
+// grammar.ebnf line 107: template strings support `\\` `\n` `\t` `\r` `\0`
+// (plus `\`` and `{{`/`}}`, covered in sibling files). Each escape in a template
+// literal produces the same character it does in a regular string.
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Newline `\n`
+// =============================================================================
+
+@esc_newline () -> str = `line1\nline2`;
+
+@test_esc_newline tests @esc_newline () -> void = {
+    assert_eq(actual: esc_newline(), expected: "line1\nline2")
+}
+
+// =============================================================================
+// Tab `\t`
+// =============================================================================
+
+@esc_tab () -> str = `a\tb`;
+
+@test_esc_tab tests @esc_tab () -> void = {
+    assert_eq(actual: esc_tab(), expected: "a\tb")
+}
+
+// =============================================================================
+// Carriage return `\r`
+// =============================================================================
+
+@esc_cr () -> str = `a\rb`;
+
+@test_esc_cr tests @esc_cr () -> void = {
+    assert_eq(actual: esc_cr(), expected: "a\rb")
+}
+
+// =============================================================================
+// Backslash `\\`
+// =============================================================================
+
+@esc_backslash () -> str = `a\\b`;
+
+@test_esc_backslash tests @esc_backslash () -> void = {
+    assert_eq(actual: esc_backslash(), expected: "a\\b")
+}
+
+// =============================================================================
+// Null `\0`
+// =============================================================================
+
+@esc_null () -> str = `a\0b`;
+
+@test_esc_null tests @esc_null () -> void = {
+    assert_eq(actual: esc_null(), expected: "a\0b")
+}
+
+// =============================================================================
+// Mixed escapes in one template, alongside an interpolation
+// =============================================================================
+
+@esc_mixed (x: int) -> str = `tab:\tval:{x}\nend`;
+
+@test_esc_mixed tests @esc_mixed () -> void = {
+    assert_eq(actual: esc_mixed(x: 9), expected: "tab:\tval:9\nend")
+}

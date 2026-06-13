@@ -31,8 +31,8 @@ use std.testing { assert_eq }
 // =============================================================================
 
 @test_float_scientific tests @float_scientific () -> void = {
-    assert_eq(actual: `{1500.0:e}`, expected: "1.5e3");
-    assert_eq(actual: `{0.005:e}`, expected: "5e-3")
+    assert_eq(actual: `{1500.0:e}`, expected: "1.5e+03");
+    assert_eq(actual: `{0.005:e}`, expected: "5e-03")
 }
 
 @float_scientific () -> str = `{1500.0:e}`;

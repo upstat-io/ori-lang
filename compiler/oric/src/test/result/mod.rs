@@ -126,6 +126,11 @@ pub struct FileSummary {
     pub errors: Vec<String>,
     /// Whether this file's errors are from LLVM compilation failure (not a real test failure).
     pub llvm_compile_error: bool,
+    /// Whether the worker spawn failed because the runner binary was replaced or
+    /// lost mid-run (a concurrent rebuild). Signals the per-file loop to abort
+    /// the whole run with ONE diagnostic instead of cascading N per-file spawn
+    /// failures.
+    pub binary_replaced: bool,
 }
 
 impl FileSummary {

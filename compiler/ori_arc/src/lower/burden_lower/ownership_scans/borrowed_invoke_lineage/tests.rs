@@ -3,7 +3,7 @@
 //! consume, no-borrowed-invoke), death-point selection, and the toggle skip.
 
 use super::death_point::{
-    choose_dead_param_release_site, choose_death_point, choose_no_sink_carrier,
+    choose_dead_param_release_site, choose_death_point, choose_no_sink_carrier, DeathPointModes,
 };
 use super::*;
 use crate::ir::{
@@ -215,6 +215,7 @@ fn enum_variant_root_no_sink_admitted_and_claimed() {
         &FxHashSet::default(),
         &FxHashSet::default(),
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.contains(&vv(0))
@@ -265,6 +266,7 @@ fn struct_root_not_a_candidate() {
         &FxHashSet::default(),
         &FxHashSet::default(),
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.is_empty()
@@ -311,7 +313,18 @@ fn live_project_extract_declines_no_sink() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), false),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: false,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "a live Project-extract of a member declines no-sink (extract live-across \
          the carrier release edge would double-free)",
@@ -357,7 +370,18 @@ fn live_project_of_project_chain_declines_no_sink() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), false),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: false,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "a live Project-of-Project grand-extract declines no-sink (the chain \
          views the same allocation tree)",
@@ -467,6 +491,7 @@ fn lineage_admitted_and_release_placed_at_dead_param() {
         &claimed,
         &live_extract,
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.contains(&vv(0))
@@ -498,6 +523,7 @@ fn construct_fed_claimed_root_declines() {
         &claimed,
         &live_extract,
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.is_empty() && out.releases.is_empty(),
@@ -527,6 +553,7 @@ fn live_extract_claimed_member_declines_whole_closure() {
         &claimed,
         &live_extract,
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.is_empty() && out.releases.is_empty(),
@@ -681,6 +708,7 @@ fn no_sink_lineage_suppresses_and_claims_carrier() {
         &claimed,
         &live_extract,
         &FxHashMap::default(),
+        &ori_ir::StringInterner::new(),
     );
     assert!(
         out.suppressed_lineage_vars.contains(&vv(0))
@@ -796,12 +824,34 @@ fn choose_death_point_dispatch_no_sink_fallback_and_gate() {
     let members = vet_or_panic(&f, vv(0));
     let used: FxHashSet<ArcVarId> = members.clone();
 
-    match choose_death_point(&f, &members, &used, true, vv(0), false) {
+    match choose_death_point(
+        &f,
+        &members,
+        &used,
+        vv(0),
+        DeathPointModes {
+            no_sink: true,
+            loop_exit: false,
+            carrier_succ: false,
+        },
+        &ori_ir::StringInterner::new(),
+    ) {
         Some(DeathPoint::NoSink { claim }) => assert_eq!(claim, vv(1)),
         other => panic!("expected the no-sink carrier claim, got {other:?}"),
     }
     assert_eq!(
-        choose_death_point(&f, &members, &used, false, vv(0), false),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: false,
+                loop_exit: false,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "result-root lineages (allow_no_sink=false) take NO death point",
     );
@@ -872,7 +922,18 @@ fn loop_invariant_borrowed_lineage_takes_loop_exit_release() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), true),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: true,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         Some(DeathPoint::LoopExit {
             site_block: 5,
             site_pos: ForwarderReleasePos::BlockEntry,
@@ -889,7 +950,18 @@ fn loop_exit_mode_disabled_flag_declines() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), false),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: false,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "with allow_loop_exit off the loop-borrowed shape takes NO death point",
     );
@@ -932,7 +1004,18 @@ fn per_iteration_fresh_root_declines_loop_exit() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), true),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: true,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "a per-iteration fresh root declines loop-exit placement (l3)",
     );
@@ -981,7 +1064,18 @@ fn post_loop_member_read_declines_loop_exit() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), true),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: true,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "a post-loop member read declines loop-exit placement (read outside \
          the cycle would UAF after the exit-entry release)",
@@ -1031,8 +1125,385 @@ fn two_exit_loop_declines_loop_exit() {
     let members = vet_or_panic(&f, vv(0));
     let used = function_used_vars(&f);
     assert_eq!(
-        choose_death_point(&f, &members, &used, true, vv(0), true),
+        choose_death_point(
+            &f,
+            &members,
+            &used,
+            vv(0),
+            DeathPointModes {
+                no_sink: true,
+                loop_exit: true,
+                carrier_succ: false,
+            },
+            &ori_ir::StringInterner::new(),
+        ),
         None,
         "a two-exit loop declines loop-exit placement (l4 fork)",
+    );
+}
+
+// ----- Third root family: self-allocating-builtin Invoke results (carrier-succ) -----
+
+/// A may-unwind `Invoke` whose callee `Name` + per-arg ownership are caller-chosen
+/// (the builtin-family fixtures need a REAL interned builtin name).
+fn named_invoke(dst: u32, callee: Name, args: Vec<u32>, normal: u32, unwind: u32) -> ArcTerminator {
+    let arg_ownership = vec![ArgOwnership::Borrowed; args.len()];
+    ArcTerminator::Invoke {
+        dst: vv(dst),
+        ty: Idx::STR,
+        func: callee,
+        args: args.into_iter().map(vv).collect(),
+        arg_ownership,
+        normal: ArcBlockId::new(normal),
+        unwind: ArcBlockId::new(unwind),
+        mono_instance_id: None,
+    }
+}
+
+/// The template-chain link fixture: `%0 = Invoke @concat()` (root birth), `%1 =
+/// Invoke @to_str()` (intervening may-unwind — `%0` live across), `%2 = Invoke
+/// @concat(%0 [borrow], %1 [borrow])` (the consuming carrier), `Return %3`.
+/// Heap reprs on the str results; `%3` stays Scalar.
+fn template_chain_link_func(interner: &ori_ir::StringInterner) -> ArcFunction {
+    let concat = interner.intern("concat");
+    let to_str = interner.intern("to_str");
+    let mut f = func(
+        4,
+        vec![
+            block(0, vec![], named_invoke(0, concat, vec![], 1, 4)),
+            block(1, vec![], named_invoke(1, to_str, vec![], 2, 4)),
+            block(2, vec![], named_invoke(2, concat, vec![0, 1], 3, 4)),
+            block(3, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(4, vec![], ArcTerminator::Resume),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    f.var_reprs[2] = ValueRepr::FatValue;
+    f
+}
+
+/// POSITIVE: the concat-link root `%0` (live across the `@to_str` Invoke,
+/// consumed at the later borrowed `@concat`) is admitted in CARRIER-SUCC mode —
+/// suppressed lineage + exactly ONE release at the consuming Invoke's
+/// NORMAL-successor entry (bb3).
+#[test]
+fn builtin_invoke_result_live_across_to_str_takes_carrier_succ_release() {
+    let interner = ori_ir::StringInterner::new();
+    let f = template_chain_link_func(&interner);
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        out.suppressed_lineage_vars.contains(&vv(0)),
+        "the concat-result root %0 is suppressed (no inline pre-call dec, no fresh-site inc)",
+    );
+    assert_eq!(
+        out.releases
+            .get(&(3, ForwarderReleasePos::BlockEntry))
+            .map(Vec::as_slice),
+        Some([vv(0)].as_slice()),
+        "EXACTLY ONE release placed at the consuming Invoke's normal-successor entry (bb3)",
+    );
+}
+
+/// DECLINE: the consuming Invoke's result is heap-repr'd and its callee is NOT
+/// a known self-allocating builtin (an unknown user callee could return a
+/// same-allocation VIEW of the borrowed member — `@slice`/`@substring` shape);
+/// a release at the successor would free the buffer the view still holds.
+#[test]
+fn builtin_invoke_result_declines_unknown_heap_result_consumer() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let user_fn = interner.intern("user_view");
+    let mut f = func(
+        4,
+        vec![
+            block(0, vec![], named_invoke(0, concat, vec![], 1, 4)),
+            block(1, vec![], named_invoke(1, concat, vec![], 2, 4)),
+            block(2, vec![], named_invoke(2, user_fn, vec![0, 1], 3, 4)),
+            block(3, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(4, vec![], ArcTerminator::Resume),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    f.var_reprs[2] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        !out.suppressed_lineage_vars.contains(&vv(0)) && out.releases.is_empty(),
+        "a heap-result consumer with an unknown callee declines the carrier-succ mode",
+    );
+}
+
+/// DECLINE: a member is read in the carrier's normal successor itself — the
+/// entry release would precede the read (use-after-free).
+#[test]
+fn builtin_invoke_result_declines_member_read_at_release_site() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let mut f = func(
+        4,
+        vec![
+            block(0, vec![], named_invoke(0, concat, vec![], 1, 4)),
+            block(1, vec![], named_invoke(1, concat, vec![0], 2, 4)),
+            block(
+                2,
+                vec![ArcInstr::Apply {
+                    dst: vv(3),
+                    ty: Idx::INT,
+                    func: Name::from_raw(77),
+                    args: vec![vv(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                }],
+                ArcTerminator::Return { value: vv(3) },
+            ),
+            block(4, vec![], ArcTerminator::Resume),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        !out.suppressed_lineage_vars.contains(&vv(0)) && out.releases.is_empty(),
+        "a member read at the release site declines the carrier-succ mode",
+    );
+}
+
+/// DECLINE: the carrier's normal successor has a second predecessor — the
+/// release would fire on a path that never passed the borrowed read.
+#[test]
+fn builtin_invoke_result_declines_multi_pred_release_site() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let mut f = func(
+        4,
+        vec![
+            block(
+                0,
+                vec![ArcInstr::Let {
+                    dst: vv(3),
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                ArcTerminator::Branch {
+                    cond: vv(3),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], named_invoke(0, concat, vec![], 5, 4)),
+            block(2, vec![], jump(3, vec![])),
+            block(3, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(4, vec![], ArcTerminator::Resume),
+            // bb5: the carrier — its normal successor bb3 is ALSO jumped to by bb2.
+            block(5, vec![], named_invoke(1, concat, vec![0], 3, 4)),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        !out.suppressed_lineage_vars.contains(&vv(0)) && out.releases.is_empty(),
+        "a multi-predecessor release site declines the carrier-succ mode",
+    );
+}
+
+/// POSITIVE: a per-iteration root inside a loop body — every re-reach of the
+/// release site passes the root's defining `Invoke` (re-birth), so each
+/// iteration's release pairs with that iteration's fresh allocation.
+#[test]
+fn builtin_invoke_result_per_iteration_loop_root_admitted() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let mut f = func(
+        4,
+        vec![
+            block(0, vec![], jump(1, vec![])),
+            // bb1: root re-birth each iteration.
+            block(1, vec![], named_invoke(0, concat, vec![], 2, 5)),
+            // bb2: the consuming carrier.
+            block(2, vec![], named_invoke(1, concat, vec![0], 3, 5)),
+            // bb3 (release site): loop back-edge THROUGH the re-birth bb1.
+            block(
+                3,
+                vec![ArcInstr::Let {
+                    dst: vv(3),
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                ArcTerminator::Branch {
+                    cond: vv(3),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(4),
+                },
+            ),
+            block(4, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(5, vec![], ArcTerminator::Resume),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        out.suppressed_lineage_vars.contains(&vv(0)),
+        "the per-iteration loop root is suppressed",
+    );
+    assert_eq!(
+        out.releases
+            .get(&(3, ForwarderReleasePos::BlockEntry))
+            .map(Vec::as_slice),
+        Some([vv(0)].as_slice()),
+        "the per-iteration release lands at the carrier's normal successor inside the loop",
+    );
+}
+
+/// DECLINE: a loop-INVARIANT root (defined before the loop) consumed by an
+/// in-loop carrier — the release site is re-reached WITHOUT passing the
+/// root's re-birth, so a second iteration would release the already-released
+/// allocation (double-free).
+#[test]
+fn builtin_invoke_result_declines_loop_invariant_root_in_loop_carrier() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let mut f = func(
+        4,
+        vec![
+            // bb0: root born ONCE, before the loop.
+            block(0, vec![], named_invoke(0, concat, vec![], 1, 5)),
+            // bb1: in-loop consuming carrier.
+            block(1, vec![], named_invoke(1, concat, vec![0], 2, 5)),
+            // bb2 (release site): back-edge re-reaches bb1 + bb2 WITHOUT bb0.
+            block(
+                2,
+                vec![ArcInstr::Let {
+                    dst: vv(3),
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                ArcTerminator::Branch {
+                    cond: vv(3),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(3),
+                },
+            ),
+            block(3, vec![], ArcTerminator::Return { value: vv(3) }),
+            block(5, vec![], ArcTerminator::Resume),
+        ],
+    );
+    // Block ids must be dense for index math: rebuild ids 0..=4 with Resume last.
+    f.blocks[4].id = ArcBlockId::new(4);
+    let fix_unwind = |t: &mut ArcTerminator| {
+        if let ArcTerminator::Invoke { unwind, .. } = t {
+            *unwind = ArcBlockId::new(4);
+        }
+    };
+    fix_unwind(&mut f.blocks[0].terminator);
+    fix_unwind(&mut f.blocks[1].terminator);
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    let out = compute_borrowed_invoke_collection_lineage(
+        &f,
+        &owned,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &FxHashMap::default(),
+        &interner,
+    );
+    assert!(
+        !out.suppressed_lineage_vars.contains(&vv(0)) && out.releases.is_empty(),
+        "a loop-invariant root with an in-loop carrier declines (release re-reached without re-birth)",
+    );
+}
+
+/// Root-collector pins: a heap-repr self-allocating-builtin Invoke result in
+/// the owned set is a root; a Scalar-repr result and an unknown callee decline.
+#[test]
+fn collect_builtin_invoke_result_roots_repr_and_callee_gates() {
+    let interner = ori_ir::StringInterner::new();
+    let concat = interner.intern("concat");
+    let user_fn = interner.intern("not_a_builtin");
+    let mut f = func(
+        3,
+        vec![
+            block(0, vec![], named_invoke(0, concat, vec![], 1, 3)),
+            block(1, vec![], named_invoke(1, user_fn, vec![], 2, 3)),
+            block(2, vec![], ArcTerminator::Return { value: vv(2) }),
+            block(3, vec![], ArcTerminator::Resume),
+        ],
+    );
+    f.var_reprs[0] = ValueRepr::FatValue;
+    f.var_reprs[1] = ValueRepr::FatValue;
+    let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
+    owned.insert(vv(0));
+    owned.insert(vv(1));
+    let roots = collect_fresh_builtin_invoke_result_roots(&f, &owned, &interner);
+    assert!(
+        roots.contains(&vv(0)) && !roots.contains(&vv(1)),
+        "the concat result is a root; the unknown-callee result is not",
+    );
+    // Scalar-repr gate: the same concat result with a Scalar repr declines.
+    f.var_reprs[0] = ValueRepr::Scalar;
+    let roots = collect_fresh_builtin_invoke_result_roots(&f, &owned, &interner);
+    assert!(
+        roots.is_empty(),
+        "a Scalar-repr result is never a root (no RC header to release)",
+    );
+}
+
+/// `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE` accessor: unset in the test env
+/// -> the third root family is active. (Behavioral toggle parity is pinned at
+/// the AOT level: the template-chain cells abort/leak again under the toggle.)
+#[test]
+fn builtin_invoke_result_lineage_toggle_unset_is_active() {
+    assert!(
+        !builtin_invoke_result_lineage_disabled(),
+        "the toggle is unset in the test env -> the builtin-result family is active",
     );
 }

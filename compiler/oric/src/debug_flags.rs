@@ -632,6 +632,21 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE
 
+    /// Decline the SELF-ALLOCATING-BUILTIN `Invoke`-result root family of the
+    /// Phase-5 borrowed-`Invoke` lineage treatment (the CARRIER-SUCC mode): a
+    /// fresh builtin result (`@concat` template-chain link, heap `@to_str` /
+    /// `@debug`, `@split` / `@keys`) consumed at a later borrowed-`Invoke` arg
+    /// reverts to the base walk's split inc/dec pair (the template-literal
+    /// str-concat chain use-after-free / per-template leak). The
+    /// collection-`Construct` + contract-result families stay active.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a template
+    /// str-chain use-after-free / leak to the third root family vs the rest of
+    /// the Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE=1 ori build file.ori`
+    ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

@@ -106,6 +106,38 @@ pub(super) fn collect_borrowed_call_result_roots(
     (roots, fresh)
 }
 
+/// Candidate BUILTIN-RESULT roots (the third root family): a terminator
+/// `Invoke` whose callee is a known SELF-ALLOCATING builtin returning a fresh
+/// rc=1 heap buffer (`@concat` template-chain links, heap-producing `@to_str` /
+/// `@debug`, `@split` / `@keys` conversions, COW-method results — the
+/// [`crate::aims::realize::fresh_rc_alloc_dst_terminator`] SSOT classification,
+/// which excludes the sharing views `@slice` / `@substring`). The result is a
+/// fresh allocation whose Phase-5 fresh-site inc / inline last-use dec pair
+/// splits across blocks when the result is live across a later may-unwind
+/// `Invoke` (the next interpolation's `@to_str`) — the Phase-7 position-blind
+/// fresh-inc elision then strips the inc keeping the pre-call dec, freeing the
+/// buffer BEFORE the borrowed `@concat` reads it (debug `copy_nonoverlapping`
+/// abort / release silent use-after-free). The lineage treatment suppresses the
+/// pair and places ONE release at the consuming `Invoke`'s normal-successor
+/// entry (the CARRIER-SUCC death-point mode). Spec: Annex E §AIMS RL-1 + RL-2.
+pub(super) fn collect_fresh_builtin_invoke_result_roots(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let mut roots: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        if let Some((dst, _normal)) =
+            crate::aims::realize::fresh_rc_alloc_dst_terminator(&block.terminator, func, interner)
+        {
+            if owned_vars_needing_rc.contains(&dst) {
+                roots.insert(dst);
+            }
+        }
+    }
+    roots
+}
+
 /// Gate (c): true iff any closure member is used at a BORROWED (non-owned) arg
 /// position of an `Invoke` / `InvokeIndirect` terminator — the carrier whose
 /// inline-before-terminator `BurdenDec` is the use-after-free.

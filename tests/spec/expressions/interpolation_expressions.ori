@@ -1,0 +1,67 @@
+// Spec: 09-expressions.md § Template Literals (full expression grammar in {})
+// Interpolation `{expr}` accepts the FULL expression grammar, not just bare
+// identifiers/literals: function calls, method calls, field access, comparisons,
+// and precedence-bearing arithmetic. Each interpolated expression must be Printable.
+// (Basic identifier / binary / if interpolation lives in template_literals.ori.)
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Function call inside interpolation
+// =============================================================================
+
+@double (n: int) -> int = n * 2;
+
+@interp_fn_call (x: int) -> str = `count: {double(n: x)}`;
+
+@test_interp_fn_call tests @interp_fn_call () -> void = {
+    assert_eq(actual: interp_fn_call(x: 4), expected: "count: 8")
+}
+
+// =============================================================================
+// Method call inside interpolation
+// =============================================================================
+
+@interp_method_call (s: str) -> str = `loud: {s.to_uppercase()}`;
+
+@test_interp_method_call tests @interp_method_call () -> void = {
+    assert_eq(actual: interp_method_call(s: "hi"), expected: "loud: HI")
+}
+
+// =============================================================================
+// Field access inside interpolation
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+@interp_field_access (p: Point) -> str = `x is {p.x}`;
+
+@test_interp_field_access tests @interp_field_access () -> void = {
+    assert_eq(actual: interp_field_access(p: Point { x: 7, y: 9 }), expected: "x is 7")
+}
+
+// =============================================================================
+// Comparison expression (bool result) inside interpolation
+// =============================================================================
+
+@interp_comparison (a: int, b: int) -> str = `greater: {a > b}`;
+
+@test_interp_comparison tests @interp_comparison () -> void = {
+    assert_eq(actual: interp_comparison(a: 5, b: 3), expected: "greater: true")
+}
+
+// =============================================================================
+// Precedence-bearing arithmetic: bare vs parenthesized
+// =============================================================================
+
+@interp_precedence (a: int, b: int, c: int) -> str = `{a * b + c}`;
+
+@test_interp_precedence tests @interp_precedence () -> void = {
+    assert_eq(actual: interp_precedence(a: 2, b: 3, c: 1), expected: "7")
+}
+
+@interp_parens (a: int, b: int, c: int) -> str = `{(a + b) * c}`;
+
+@test_interp_parens tests @interp_parens () -> void = {
+    assert_eq(actual: interp_parens(a: 2, b: 3, c: 4), expected: "20")
+}

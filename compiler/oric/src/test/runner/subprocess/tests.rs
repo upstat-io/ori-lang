@@ -14,6 +14,9 @@ use std::time::Duration;
 
 use super::super::super::result::TestOutcome;
 use super::run_worker_command;
+// Exe-snapshot + spawn-failure classification (TDD — these symbols land with
+// the snapshot cure).
+use super::snapshot::{classify_spawn_failure, snapshot_exe, snapshot_exe_copy, SpawnFailure};
 use crate::ir::StringInterner;
 
 /// Generous budget for fake workers that exit on their own.
@@ -707,5 +710,152 @@ fn test_consume_stdout_read_error_records_file_level_note() {
                 && e.contains("synthetic read failure")),
         "a stdout read error must record a file-level note, never silently truncate: {:?}",
         summary.errors
+    );
+}
+
+// Exe-snapshot resilience to concurrent binary replacement.
+//
+// `run_file_isolated` re-exec's `current_exe()` per file; a concurrent
+// `cargo build` replacing the binary inode mid-run makes every later spawn
+// ENOENT, cascading to one failure per remaining file. The cure snapshots the
+// exe once at runner start (a stable inode immune to the replacement) and
+// collapses a snapshot-spawn ENOENT into ONE abort instead of N per-file
+// errors. These pins fail until the snapshot machinery lands.
+
+#[test]
+fn test_exe_snapshot_survives_source_replacement() {
+    // Semantic pin: the snapshot is a stable inode immune to the source path
+    // being replaced by a concurrent rebuild (the root cause of the cascade).
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+    let src = dir.path().join("ori-fake-exe");
+    std::fs::write(&src, b"ORIGINAL").unwrap_or_else(|e| panic!("write src: {e}"));
+    let snap = snapshot_exe(&src).unwrap_or_else(|e| panic!("snapshot succeeds: {e}"));
+    // Simulate a concurrent `cargo build`: replace the source path's inode.
+    std::fs::remove_file(&src).unwrap_or_else(|e| panic!("remove src: {e}"));
+    std::fs::write(&src, b"REPLACED-AND-LONGER").unwrap_or_else(|e| panic!("rewrite src: {e}"));
+    // The snapshot still resolves to the ORIGINAL bytes.
+    assert!(
+        snap.path().exists(),
+        "snapshot must survive source replacement"
+    );
+    assert_eq!(
+        std::fs::read(snap.path()).unwrap_or_else(|e| panic!("read snap: {e}")),
+        b"ORIGINAL"
+    );
+}
+
+#[test]
+fn test_exe_snapshot_cleans_temp_on_drop() {
+    // Negative pin: no temp leak — the snapshot temp is removed on Drop.
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+    let src = dir.path().join("ori-fake-exe");
+    std::fs::write(&src, b"X").unwrap_or_else(|e| panic!("write src: {e}"));
+    let snap_path = {
+        let snap = snapshot_exe(&src).unwrap_or_else(|e| panic!("snapshot: {e}"));
+        snap.path().to_path_buf()
+    };
+    assert!(!snap_path.exists(), "snapshot temp must be removed on Drop");
+}
+
+#[test]
+fn test_exe_snapshot_copy_fallback_produces_readable_snapshot() {
+    // Cross-filesystem fallback: when a hard-link is unavailable a copy still
+    // produces a stable snapshot carrying the source bytes, surviving source
+    // removal.
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+    let src = dir.path().join("ori-fake-exe");
+    std::fs::write(&src, b"COPYME").unwrap_or_else(|e| panic!("write src: {e}"));
+    let snap = snapshot_exe_copy(&src).unwrap_or_else(|e| panic!("copy snapshot: {e}"));
+    std::fs::remove_file(&src).unwrap_or_else(|e| panic!("remove src: {e}"));
+    assert!(
+        snap.path().exists(),
+        "copied snapshot must survive source removal"
+    );
+    assert_eq!(
+        std::fs::read(snap.path()).unwrap_or_else(|e| panic!("read snap: {e}")),
+        b"COPYME"
+    );
+}
+
+#[test]
+fn test_exe_snapshot_copy_fallback_cleans_temp_on_drop() {
+    // Negative pin: the COPY-path snapshot temp is ALSO removed on Drop —
+    // proves snapshot_exe_copy returns the same Drop-owning guard type as the
+    // hard-link path, not a leak-prone copy variant.
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+    let src = dir.path().join("ori-fake-exe");
+    std::fs::write(&src, b"X").unwrap_or_else(|e| panic!("write src: {e}"));
+    let snap_path = {
+        let snap = snapshot_exe_copy(&src).unwrap_or_else(|e| panic!("copy snapshot: {e}"));
+        snap.path().to_path_buf()
+    };
+    assert!(
+        !snap_path.exists(),
+        "copy-path snapshot temp must be removed on Drop"
+    );
+}
+
+#[test]
+fn test_classify_spawn_failure_notfound_is_binary_replaced() {
+    // Semantic pin: a NotFound spawn error classifies as BinaryReplaced so the
+    // runner collapses the cascade into ONE abort, not N per-file errors.
+    let enoent = std::io::Error::from(std::io::ErrorKind::NotFound);
+    assert!(
+        matches!(
+            classify_spawn_failure(&enoent),
+            SpawnFailure::BinaryReplaced
+        ),
+        "NotFound spawn error must classify as BinaryReplaced"
+    );
+    let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert!(
+        matches!(classify_spawn_failure(&denied), SpawnFailure::Other),
+        "non-NotFound errors must classify as Other"
+    );
+}
+
+#[test]
+fn test_run_file_isolated_flags_binary_replaced_when_exe_missing() {
+    // Run-level collapse signal: when the worker binary (here a snapshot path
+    // that does not exist) is gone, `run_file_isolated` flags `binary_replaced`
+    // so the `run_llvm_isolated` loop aborts the run with ONE diagnostic instead
+    // of cascading N per-file spawn failures. This is the signal the loop breaks
+    // on — the run-level realization of the 1738->0 collapse.
+    let interner = StringInterner::new();
+    let config = super::super::TestRunnerConfig::default();
+    let missing = std::path::Path::new("/nonexistent/ori-test-worker-binary");
+    let summary = super::run_file_isolated(
+        Path::new("fake.ori"),
+        &interner,
+        &config,
+        &[],
+        Some(missing),
+    );
+    assert!(
+        summary.binary_replaced,
+        "a missing worker binary must flag binary_replaced to collapse the cascade: {:?}",
+        summary.errors
+    );
+}
+
+#[test]
+fn test_worker_mode_does_not_snapshot() {
+    use super::super::{TestRunner, TestRunnerConfig};
+    // Negative pin: a worker (`worker_protocol = true`) never spawns sub-workers,
+    // so it MUST NOT snapshot the exe.
+    let worker = TestRunner::with_config(TestRunnerConfig {
+        worker_protocol: true,
+        ..TestRunnerConfig::default()
+    });
+    assert!(
+        !worker.snapshot_is_active(),
+        "worker mode must not snapshot the exe"
+    );
+    // Positive clamp: a parent runner DOES snapshot so per-file spawns survive a
+    // concurrent rebuild replacing the binary inode.
+    let parent = TestRunner::with_config(TestRunnerConfig::default());
+    assert!(
+        parent.snapshot_is_active(),
+        "a parent runner must snapshot the exe"
     );
 }

@@ -141,6 +141,12 @@ pub struct TestRunner {
     interner: crate::ir::SharedInterner,
     /// Cross-run cache for incremental test execution. Thread-safe for parallel runs.
     cache: parking_lot::Mutex<TestRunCache>,
+    /// Run-start snapshot of the runner binary (a stable inode immune to a
+    /// concurrent rebuild replacing it mid-run). `None` in worker mode (a worker
+    /// never spawns sub-workers) and when snapshotting failed at start (the
+    /// per-file path then falls back to `current_exe()`). Held for the whole
+    /// run so its `Drop` cleanup fires only at run end.
+    snapshot: Option<subprocess::snapshot::ExeSnapshot>,
 }
 
 impl TestRunner {
@@ -161,10 +167,23 @@ impl TestRunner {
             Some(path) => TestRunCache::load_from(&path, &interner),
             None => TestRunCache::new(),
         };
+        // Snapshot the runner binary once at parent-runner start so per-file
+        // worker spawns survive a concurrent rebuild replacing the binary inode.
+        // A worker (`worker_protocol`) never spawns sub-workers, so it never
+        // snapshots. A snapshot failure degrades gracefully: `run_file_isolated`
+        // falls back to `current_exe()` per file (the pre-snapshot behavior).
+        let snapshot = if config.worker_protocol {
+            None
+        } else {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| subprocess::snapshot::snapshot_exe(&exe).ok())
+        };
         TestRunner {
             config,
             interner,
             cache: parking_lot::Mutex::new(cache),
+            snapshot,
         }
     }
 
@@ -186,6 +205,13 @@ impl TestRunner {
     /// Use this to convert `Name` to `&str` when displaying test results.
     pub fn interner(&self) -> &crate::ir::StringInterner {
         &self.interner
+    }
+
+    /// Whether this runner holds a binary snapshot (parent runners snapshot;
+    /// workers never do). Test-only accessor for the worker-mode snapshot pin.
+    #[cfg(test)]
+    pub(in crate::test::runner) fn snapshot_is_active(&self) -> bool {
+        self.snapshot.is_some()
     }
 
     /// Run all tests in a path (file or directory).
@@ -240,6 +266,11 @@ impl TestRunner {
         let mut summary = TestSummary::new();
         let start = Instant::now();
 
+        let snapshot_path = self
+            .snapshot
+            .as_ref()
+            .map(subprocess::snapshot::ExeSnapshot::path);
+
         for file in files {
             let skip_plan = if self.config.incremental {
                 incremental::plan_file_skips(&file.path, &self.interner, &self.config, &self.cache)
@@ -248,16 +279,32 @@ impl TestRunner {
                     skip_names: Vec::new(),
                 }
             };
-            let file_summary = match skip_plan {
+            let mut file_summary = match skip_plan {
                 incremental::SkipPlan::Synthesized(synthesized) => synthesized,
                 incremental::SkipPlan::Spawn { skip_names } => subprocess::run_file_isolated(
                     &file.path,
                     &self.interner,
                     &self.config,
                     &skip_names,
+                    snapshot_path,
                 ),
             };
+            // Collapse the worker-binary-replaced cascade: when the binary was
+            // replaced or lost mid-run (even the snapshot is gone), attach ONE
+            // clear diagnostic and abort the run instead of spawning every
+            // remaining file and recording N per-file `failed to spawn` errors.
+            let binary_replaced = file_summary.binary_replaced;
+            if binary_replaced {
+                file_summary.add_error(
+                    "test binary was replaced or lost during the run \
+                     (concurrent rebuild?) — rerun"
+                        .to_string(),
+                );
+            }
             summary.add_file(file_summary);
+            if binary_replaced {
+                break;
+            }
         }
 
         summary.duration = start.elapsed();

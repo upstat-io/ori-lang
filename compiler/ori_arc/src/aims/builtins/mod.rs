@@ -160,6 +160,23 @@ fn seed_internal_runtime_contracts(
         });
     }
 
+    // ori_print(s: Borrowed READ-ONLY) — a pure stdout read of the string's
+    // bytes (`ori_rt::io::ori_print`): never touches the RC header, never
+    // COW-mutates, never retains. The `borrowed_read_only` claim keeps the
+    // may-COW conservative over-approximation (`callee_may_cow_arg`) from
+    // flagging a fresh str borrowed by `print` as COW-mutated — which would
+    // block the Phase-7 surplus fresh-inc elision and leak one allocation per
+    // printed heap template string. Spec: Annex E §AIMS RL-1.
+    let ori_print = interner.intern("ori_print");
+    sigs.entry(ori_print).or_insert_with(|| MemoryContract {
+        params: vec![PARAM_BORROWED_READ_ONLY],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    });
+
     // ori_list_slice_drop returns a seamless slice (negative cap, interior data
     // pointer) sharing the parent buffer's RC. Without an explicit MaybeShared
     // contract, backward demand narrows uniqueness to Unique, drop_hints flag
@@ -381,6 +398,16 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     // `extract_contract`, which reads Apply-arg POSITIONS directly, not this seed.
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
+};
+
+/// Borrowed parameter PROVEN read-only: the runtime function reads the value's
+/// bytes and never touches its RC header, never COW-mutates, never retains
+/// (`ori_print`). The `borrowed_read_only: true` claim is consulted by
+/// `callee_may_cow_arg`; seed it ONLY for runtime functions whose `ori_rt`
+/// implementation provably performs no RC operation on the param.
+const PARAM_BORROWED_READ_ONLY: ParamContract = ParamContract {
+    borrowed_read_only: true,
+    ..PARAM_BORROWED
 };
 
 /// Owned parameter consumed exactly once (linear).

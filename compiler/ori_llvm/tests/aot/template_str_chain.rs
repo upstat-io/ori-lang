@@ -225,3 +225,139 @@ fn test_template_adjacent_interps_sso_prefix_literal_tail_no_leak() {
         "79vvvvvvvvvvvvvvvvvvvvvv",
     );
 }
+
+// ----- Interaction cells (template chain x surrounding feature) -----
+
+/// Template x LIST-FORK: a COW push fork (`base.push(4)`) precedes a heap
+/// 2-interpolation template reading both fork lengths. The list-fork lineage
+/// (owned-call-arg duplication family) and the str-concat lineage
+/// (builtin-`Invoke`-result family) coexist in one body; each nets 0.
+#[test]
+fn test_template_with_list_fork_no_uaf_no_leak() {
+    assert_cell_output(
+        r#"
+@main () -> void = {
+    let base = [1, 2, 3];
+    let f1 = base.push(4);
+    let a = f1.len();
+    let b = base.len();
+    print(msg: `list fork lengths qqqqq {a} and {b}`)
+}
+"#,
+        "template_with_list_fork",
+        "list fork lengths qqqqq 4 and 3",
+    );
+}
+
+/// Template x MATCH-ARM: the heap template chain is built inside a `match`
+/// arm and the final string flows through the arm's `Jump`-arg to the merge
+/// block-param read by `print`. The in-arm intermediates take the
+/// carrier-normal-successor release; the merged final string's surplus
+/// fresh-site inc elides on the alloc-aware net.
+#[test]
+fn test_template_in_match_arm_no_uaf_no_leak() {
+    assert_cell_output(
+        r#"
+@main () -> void = {
+    let o = Some(21);
+    let msg = match o {
+        Some(v) -> `matched value qqqqqqqqqqqqq {v} of {v}`,
+        None -> "none",
+    };
+    print(msg: msg)
+}
+"#,
+        "template_in_match_arm",
+        "matched value qqqqqqqqqqqqq 21 of 21",
+    );
+}
+
+/// Template x LOOP: a fresh heap 2-interpolation template chain per loop
+/// iteration. The per-iteration concat intermediates take the
+/// carrier-normal-successor release (every re-reach of the release site
+/// passes the root's re-birth — each iteration's release pairs with that
+/// iteration's fresh allocation), so the live-across use-after-free is cured
+/// (stdout correct, no abort). LEAKS today (exit 2, 2 allocations per
+/// iteration; was 3 per iteration pre-cure) on two DIFFERENT roots outside
+/// this fix's family: (a) the in-loop heap str LITERAL lineage
+/// (`Let { Literal::String }` — no `Construct`/builtin-`Invoke` definer, so
+/// the lineage family declines it by design) whose kept fresh inc is never
+/// balanced, and (b) the per-iteration FINAL template string consumed by the
+/// body `Apply @ori_print`, whose surplus fresh-site inc elision is blocked
+/// by loop-carried per-path merge disagreement in the alloc-aware net (the
+/// phi-threaded attribution covers conversion sources only). Failing clamp:
+/// flips GREEN when those roots are cured.
+#[test]
+#[ignore = "BUG-04-184: loop-body str-literal lineage leak (Let Literal::String root inside the loop + loop merge-disagreement elision) — distinct root from the builtin-Invoke-result family cured here"]
+fn test_template_in_loop_body_no_uaf_no_leak() {
+    assert_cell_output(
+        r#"
+@main () -> void = {
+    for i in 1..=3 do {
+        print(msg: `loop iteration qqqqqqqqqqqqq {i} of {i * 10}`)
+    }
+}
+"#,
+        "template_in_loop_body",
+        "loop iteration qqqqqqqqqqqqq 1 of 10\nloop iteration qqqqqqqqqqqqq 2 of 20\nloop iteration qqqqqqqqqqqqq 3 of 30",
+    );
+}
+
+/// Template IN CALLEE RETURN: the heap template chain is built in a callee
+/// and the final string is RETURNED (the lineage vet declines `Return` —
+/// transfer out), then printed by the caller. The callee's intermediates
+/// take the carrier-normal-successor release; the returned string's release
+/// is the caller's result lineage.
+#[test]
+fn test_template_in_callee_return_no_uaf_no_leak() {
+    assert_cell_output(
+        r#"
+@fmt (a: int, b: int) -> str = `callee formatted qqqqqqqqq {a} plus {b}`;
+
+@main () -> void = {
+    print(msg: fmt(a: 3, b: 5))
+}
+"#,
+        "template_in_callee_return",
+        "callee formatted qqqqqqqqq 3 plus 5",
+    );
+}
+
+/// Template x CATCH/UNWIND: heap template chains on both the normal path
+/// (caught `Ok` from a callee whose `expect` succeeds) and the panic path
+/// (the `Err` arm's own template after a caught `expect` panic). The
+/// callee-side intermediates take the carrier-normal-successor release with
+/// LIVE unwind edges (the dying-edge releases stay with the Category-2
+/// `deadAtSucc` conjunct). LEAKS today (exit 2, 1 allocation; was 3
+/// pre-cure) on a DIFFERENT root outside this fix's family: the callee's
+/// RETURNED final template string (the lineage vet declines `Return` —
+/// transfer out; the caller-side released-by-result machinery misses the
+/// caught-call result shape). Failing clamp: flips GREEN when that root is
+/// cured.
+#[test]
+#[ignore = "BUG-04-185: callee-returned template string leaks across the catch unwind boundary — distinct root from the builtin-Invoke-result family cured here"]
+fn test_template_across_catch_unwind_no_uaf_no_leak() {
+    assert_cell_output(
+        r#"
+@describe (o: Option<int>) -> str = {
+    let v = o.expect(msg: "missing value");
+    `described value qqqqqqqqqqqq {v} twice {v * 2}`
+}
+
+@main () -> void = {
+    let ok = catch(expr: describe(o: Some(8)));
+    let bad = catch(expr: describe(o: None));
+    match ok {
+        Ok(s) -> print(msg: s),
+        Err(e) -> print(msg: `unexpected err qqqqqqqqqqqqqq {1} x {2}`),
+    };
+    match bad {
+        Ok(s) -> print(msg: s),
+        Err(e) -> print(msg: `caught panic path qqqqqqqqqq {3} y {4}`),
+    }
+}
+"#,
+        "template_across_catch_unwind",
+        "described value qqqqqqqqqqqq 8 twice 16\ncaught panic path qqqqqqqqqq 3 y 4",
+    );
+}

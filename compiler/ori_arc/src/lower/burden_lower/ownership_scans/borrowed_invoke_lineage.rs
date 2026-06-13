@@ -23,10 +23,11 @@ use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcVarId};
 
 use super::{function_used_vars, ForwarderReleasePos};
-use death_point::{choose_death_point, DeathPoint};
+use death_point::{choose_death_point, DeathPoint, DeathPointModes};
 use roots::{
     closure_has_borrowed_invoke_arg, closure_member_iter_consumed_at_invoke,
-    collect_borrowed_call_result_roots, collect_fresh_construct_roots,
+    collect_borrowed_call_result_roots, collect_fresh_builtin_invoke_result_roots,
+    collect_fresh_construct_roots,
 };
 use vet::same_alloc_closure_vetted;
 
@@ -140,6 +141,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
     claimed_by_live_extract: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> BorrowedInvokeCollectionLineage {
     let mut out = BorrowedInvokeCollectionLineage {
         suppressed_lineage_vars: FxHashSet::default(),
@@ -147,7 +149,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
         claimed_no_sink_vars: FxHashSet::default(),
     };
     let used = function_used_vars(func);
-    // Two root families share the dead-param death-point treatment:
+    // Three root families share the death-point treatment:
     //  - FRESH collection-`Construct` buffers borrowed into a may-unwind
     //    `Invoke` (`__index` / a user borrowed-receiver call) — the RECEIVER
     //    lineage.
@@ -156,12 +158,27 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     //    borrow-read-only then reaching a dead block-param. Its FRESH-site inc
     //    is spurious (the callee already transferred +1); suppressing the
     //    lineage strips it and the dead-param release frees the callee's +1.
+    //  - SELF-ALLOCATING-BUILTIN `Invoke`-terminator RESULTS (`@concat`
+    //    template-chain links, heap `@to_str` / `@debug`, `@split` / `@keys`)
+    //    later consumed at a borrowed-`Invoke` arg — the CARRIER-SUCC family
+    //    whose sole release lands at the consuming `Invoke`'s normal-successor
+    //    entry ([`collect_fresh_builtin_invoke_result_roots`]).
     let collection_roots = collect_fresh_construct_roots(func, owned_vars_needing_rc);
     let (result_root_vec, fresh_result_roots) =
         collect_borrowed_call_result_roots(func, owned_vars_needing_rc, contracts);
     let result_roots: FxHashSet<ArcVarId> = result_root_vec.iter().copied().collect();
+    let builtin_result_roots: FxHashSet<ArcVarId> = if builtin_invoke_result_lineage_disabled() {
+        FxHashSet::default()
+    } else {
+        collect_fresh_builtin_invoke_result_roots(func, owned_vars_needing_rc, interner)
+    };
     let mut roots: Vec<ArcVarId> = collection_roots;
     roots.extend(result_root_vec);
+    for &root in &builtin_result_roots {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
     if roots.is_empty() {
         return out;
     }
@@ -179,8 +196,10 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
             claimed_by_live_extract,
             &result_roots,
             &fresh_result_roots,
+            &builtin_result_roots,
             &claimed_roots,
             contracts,
+            interner,
         ) {
             claimed_roots.extend(cand.members.iter().copied());
             candidates.push(cand);
@@ -208,51 +227,80 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
             );
             continue;
         }
-        out.suppressed_lineage_vars
-            .extend(cand.members.iter().copied());
-        match cand.death {
-            DeathPoint::DeadParam {
-                site_block,
-                site_pos,
-                dec_var,
-            } => {
-                out.releases
-                    .entry((site_block, site_pos))
-                    .or_default()
-                    .push(dec_var);
-            }
-            DeathPoint::NoSink { claim } => {
-                tracing::trace!(
-                    target: "ori_arc::aims::realize",
-                    fn_name = ?func.name,
-                    root = cand.root.index(),
-                    claim = claim.index(),
-                    mode = "no-sink",
-                    "borrowed-invoke collection lineage admitted (edge-death claim)"
-                );
-                out.claimed_no_sink_vars.insert(claim);
-            }
-            DeathPoint::LoopExit {
-                site_block,
-                site_pos,
-                dec_var,
-            } => {
-                tracing::trace!(
-                    target: "ori_arc::aims::realize",
-                    fn_name = ?func.name,
-                    root = cand.root.index(),
-                    site_block,
-                    mode = "loop-exit",
-                    "borrowed-invoke collection lineage admitted (loop-exit release)"
-                );
-                out.releases
-                    .entry((site_block, site_pos))
-                    .or_default()
-                    .push(dec_var);
-            }
-        }
+        record_admitted_candidate(&mut out, func, &cand);
     }
     out
+}
+
+/// Record one gate-(f)-surviving candidate into the treatment output: extend
+/// the suppressed-lineage set and route its death point to the placed-release
+/// map (dead-param / carrier-succ / loop-exit) or the no-sink claim set.
+fn record_admitted_candidate(
+    out: &mut BorrowedInvokeCollectionLineage,
+    func: &ArcFunction,
+    cand: &Candidate,
+) {
+    out.suppressed_lineage_vars
+        .extend(cand.members.iter().copied());
+    match cand.death {
+        DeathPoint::DeadParam {
+            site_block,
+            site_pos,
+            dec_var,
+        } => {
+            out.releases
+                .entry((site_block, site_pos))
+                .or_default()
+                .push(dec_var);
+        }
+        DeathPoint::NoSink { claim } => {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                root = cand.root.index(),
+                claim = claim.index(),
+                mode = "no-sink",
+                "borrowed-invoke collection lineage admitted (edge-death claim)"
+            );
+            out.claimed_no_sink_vars.insert(claim);
+        }
+        DeathPoint::CarrierSucc {
+            site_block,
+            site_pos,
+            dec_var,
+        } => {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                root = cand.root.index(),
+                site_block,
+                mode = "carrier-succ",
+                "borrowed-invoke collection lineage admitted (carrier normal-successor release)"
+            );
+            out.releases
+                .entry((site_block, site_pos))
+                .or_default()
+                .push(dec_var);
+        }
+        DeathPoint::LoopExit {
+            site_block,
+            site_pos,
+            dec_var,
+        } => {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                root = cand.root.index(),
+                site_block,
+                mode = "loop-exit",
+                "borrowed-invoke collection lineage admitted (loop-exit release)"
+            );
+            out.releases
+                .entry((site_block, site_pos))
+                .or_default()
+                .push(dec_var);
+        }
+    }
 }
 
 /// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
@@ -274,8 +322,10 @@ fn try_build_candidate(
     claimed_by_live_extract: &FxHashSet<ArcVarId>,
     result_roots: &FxHashSet<ArcVarId>,
     fresh_result_roots: &FxHashSet<ArcVarId>,
+    builtin_result_roots: &FxHashSet<ArcVarId>,
     claimed_roots: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> Option<Candidate> {
     let decline = |gate: &str| {
         tracing::trace!(
@@ -350,11 +400,29 @@ fn try_build_candidate(
     // anyway) and stays with the dead-param / no-sink modes.
     let allow_loop_exit =
         !result_roots.contains(&root) && !loop_borrowed_lineage_exit_release_disabled();
-    let death = choose_death_point(func, &members, used, allow_no_sink, root, allow_loop_exit)
-        .or_else(|| {
-            decline("e:death-point");
-            None
-        })?;
+    // CARRIER-SUCC mode is restricted to the SELF-ALLOCATING-BUILTIN result
+    // family: the root is structurally a fresh rc=1 buffer the runtime
+    // allocated (never a view, never a caller-aliased transfer), so the single
+    // placed release at the consuming `Invoke`'s normal-successor entry frees
+    // exactly the allocation's own +1. Collection / contract-result roots stay
+    // with the dead-param / no-sink / loop-exit modes.
+    let allow_carrier_succ = builtin_result_roots.contains(&root);
+    let death = choose_death_point(
+        func,
+        &members,
+        used,
+        root,
+        DeathPointModes {
+            no_sink: allow_no_sink,
+            loop_exit: allow_loop_exit,
+            carrier_succ: allow_carrier_succ,
+        },
+        interner,
+    )
+    .or_else(|| {
+        decline("e:death-point");
+        None
+    })?;
     Some(Candidate {
         root,
         members,
@@ -369,6 +437,20 @@ pub(in crate::lower::burden_lower) fn borrowed_invoke_lineage_release_disabled()
     use std::sync::LazyLock;
     static DISABLED: LazyLock<bool> = LazyLock::new(|| {
         std::env::var("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE").as_deref() == Ok("1")
+    });
+    *DISABLED
+}
+
+/// `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE=1` declines the SELF-ALLOCATING-
+/// BUILTIN `Invoke`-result root family only (the third family: `@concat`
+/// template-chain links, heap `@to_str` / `@debug`, `@split` / `@keys` results
+/// consumed at a borrowed-`Invoke` arg, released via the CARRIER-SUCC mode at
+/// the consuming `Invoke`'s normal-successor entry); the collection-`Construct`
+/// + contract-result families stay active. Read once at first access.
+pub(in crate::lower::burden_lower) fn builtin_invoke_result_lineage_disabled() -> bool {
+    use std::sync::LazyLock;
+    static DISABLED: LazyLock<bool> = LazyLock::new(|| {
+        std::env::var("ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE").as_deref() == Ok("1")
     });
     *DISABLED
 }

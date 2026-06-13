@@ -1,0 +1,35 @@
+// Spec: 09-expressions.md § Template Literals (backtick escape)
+// grammar.ebnf line 107: `\`` -> literal backtick inside a template literal.
+// The escape lets a template string contain its own delimiter.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Single escaped backtick `\`` -> `
+// =============================================================================
+
+@backtick_single () -> str = `\``;
+
+@test_backtick_single tests @backtick_single () -> void = {
+    assert_eq(actual: backtick_single(), expected: "`")
+}
+
+// =============================================================================
+// Escaped backtick embedded in text: `a\`b` -> a`b
+// =============================================================================
+
+@backtick_in_text () -> str = `a\`b`;
+
+@test_backtick_in_text tests @backtick_in_text () -> void = {
+    assert_eq(actual: backtick_in_text(), expected: "a`b")
+}
+
+// =============================================================================
+// Escaped backticks around a real interpolation: `\`{x}\`` -> `<value>`
+// =============================================================================
+
+@backtick_wraps_interp (x: int) -> str = `\`{x}\``;
+
+@test_backtick_wraps_interp tests @backtick_wraps_interp () -> void = {
+    assert_eq(actual: backtick_wraps_interp(x: 5), expected: "`5`")
+}

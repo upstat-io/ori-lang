@@ -761,6 +761,27 @@ if [[ $EMIT_JSON -eq 0 ]] && [[ $RUST_LLVM_EXIT -ne 0 || $AOT_EXIT -ne 0 || $ORI
 fi
 
 # --- Emit JSON if requested ---
+# JSON-escape a string for a summary failure object. Strip the rare invisible
+# C0 + DEL controls (no diagnostic value), then escape backslash, double-quote,
+# and the meaningful controls tab/newline/CR per RFC 8259 §7. Uses bash
+# parameter expansion: a bash variable holds embedded tab/newline/CR directly,
+# so the escaping has no awk-FS / awk-stdin or line-oriented-sed pitfall (a
+# naive `sed s/\n/.../` cannot match a newline in pattern space; awk in a pipe
+# inside a `while read` loop mis-handles the record). Order is load-bearing:
+# backslash escapes FIRST so a later "->\" does not double-escape the inserted
+# backslash. SSOT for both parse_*_failures.
+json_escape_string() {
+    local s
+    # Strip the rare-C0/DEL range (keep tab 0x09 / LF 0x0a / CR 0x0d for escaping).
+    s=$(printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037\177')
+    s="${s//\\/\\\\}"      # backslash -> \\  (FIRST)
+    s="${s//\"/\\\"}"      # double-quote -> \"
+    s="${s//$'\t'/\\t}"    # tab -> \t
+    s="${s//$'\n'/\\n}"    # newline -> \n
+    s="${s//$'\r'/\\r}"    # CR -> \r
+    printf '%s' "$s"
+}
+
 # Parse individual Rust test failures from a cargo test output log.
 # Emits JSON array of failure objects on stdout.
 parse_rust_failures() {
@@ -774,10 +795,7 @@ parse_rust_failures() {
         if [[ "$line" =~ ^test[[:space:]](.*)[[:space:]]\.\.\.[[:space:]]FAILED$ ]]; then
             local test_name="${BASH_REMATCH[1]}"
             local escaped_test_name
-            # JSON escape order: backslashes FIRST, then quotes. Otherwise an
-            # input byte sequence like `\"` (backslash + quote) becomes `\\"`
-            # which JSON parses as escaped-backslash + end-of-string.
-            escaped_test_name=$(printf '%s' "$test_name" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+            escaped_test_name=$(json_escape_string "$test_name")
             local kind="$failure_kind"
             # Try to classify more precisely from surrounding output
             if grep -q "panicked at" "$output_file" 2>/dev/null; then kind="panic"; fi
@@ -803,12 +821,8 @@ parse_ori_failures() {
             local test_name
             test_name=$(echo "$line" | sed 's/.*\[FAIL\] //' | sed 's/FAILED //' | tr -d '\n\r')
             local escaped_test_name escaped_error_msg
-            # JSON escape order: backslashes FIRST, then quotes (see parse_rust_failures
-            # for the rationale — pre-escaped sequences in test messages like `\"x\"`
-            # would otherwise terminate the JSON string mid-value, producing the
-            # "Invalid numeric literal at line N, col M" parse error downstream).
-            escaped_test_name=$(printf '%s' "$test_name" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
-            escaped_error_msg=$(echo "$line" | tr -d '\n\r' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+            escaped_test_name=$(json_escape_string "$test_name")
+            escaped_error_msg=$(json_escape_string "$line")
             entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"ori_spec\", \"suite\": \"$suite_id\", \"failure_kind\": \"assertion_failure\", \"error_message\": \"$escaped_error_msg\" }"$'\n'
         fi
     done < "$output_file"

@@ -314,6 +314,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
             &construct_fed_dead_param.suppressed_lineage_vars,
             &fresh_sum_claimed,
             contracts,
+            interner,
         );
     // RL-2 + RL-4 sole-carrier borrowed-`Invoke` aliases (settled-set scan —
     // runs AFTER every lineage suppression so "sole carrier" is evaluated
@@ -464,6 +465,7 @@ fn apply_borrowed_invoke_collection_lineage(
     claimed_by_construct_fed: &FxHashSet<ArcVarId>,
     claimed_by_live_extract: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> (PlacedReleaseMap, FxHashSet<ArcVarId>) {
     if borrowed_invoke_lineage_release_disabled() {
         return (FxHashMap::default(), FxHashSet::default());
@@ -474,6 +476,7 @@ fn apply_borrowed_invoke_collection_lineage(
         claimed_by_construct_fed,
         claimed_by_live_extract,
         contracts,
+        interner,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     (treatment.releases, treatment.claimed_no_sink_vars)

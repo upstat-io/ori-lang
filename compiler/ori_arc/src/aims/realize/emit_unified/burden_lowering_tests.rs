@@ -444,14 +444,18 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
     // %0 = Construct List()  (fresh self-alloc, +1)
     // burden_inc %0          (paired fresh inc, +1)
     // burden_dec %0          (release, −1)  → alloc-aware net = 1
-    let func = rc_pointer_func(
-        1,
+    // The dec IS the lineage's release, so the function exit must not read the
+    // member (the aliveness guard correctly rejects a read-after-release):
+    // return %1, outside the lineage.
+    let mut func = rc_pointer_func(
+        2,
         vec![
             list_construct(v(0), Vec::new()),
             ArcInstr::BurdenInc { var: v(0) },
             ArcInstr::BurdenDec { var: v(0) },
         ],
     );
+    func.blocks[0].terminator = ArcTerminator::Return { value: v(1) };
     let reps = identity_reps(1);
     let net = compute_lineage_alloc_aware_net(
         &func,
@@ -906,14 +910,17 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
     // burden_dec %0                 (move-alias dec on the result)
     // burden_dec %2
     // alloc-aware net counting alloc = 1 + 3 inc − 3 dec = 1 → elide the fresh inc.
-    let func = rc_pointer_func(
-        3,
+    // The scratch arg %3 and the returned %3 sit OUTSIDE the lineage (the
+    // final dec is the lineage's release; the aliveness guard correctly
+    // rejects a member read after it).
+    let mut func = rc_pointer_func(
+        4,
         vec![
             ArcInstr::Apply {
                 dst: v(0),
                 ty: Idx::from_raw(0),
                 func: take,
-                args: vec![v(1)],
+                args: vec![v(3)],
                 arg_ownership: vec![ArgOwnership::Borrowed],
                 mono_instance_id: None,
             },
@@ -925,6 +932,7 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
             ArcInstr::BurdenDec { var: v(2) },
         ],
     );
+    func.blocks[0].terminator = ArcTerminator::Return { value: v(3) };
     // The two index aliases fold into the result's lineage (move-alias reps).
     let reps: FxHashMap<ArcVarId, ArcVarId> = [(v(0), v(0)), (v(1), v(0)), (v(2), v(0))]
         .into_iter()

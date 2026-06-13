@@ -7377,15 +7377,7 @@ fn compute_elidable_fresh_self_alloc_incs(
     //    the execution-final read alias's keep-alive pair inc (net == 2, the
     //    multi-store + post-store-read shape — the carrier designation below).
     // Spec: Annex E §AIMS RL-1 (`RL1_duplication_balanced`) + RL-2.
-    let (store_dups, store_lineage_reps) =
-        if crate::lower::burden_lower::store_family_funding_disabled() {
-            (FxHashSet::default(), FxHashSet::default())
-        } else {
-            (
-                crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts),
-                compute_store_handoff_reps(func, same_alloc_reps),
-            )
-        };
+    let (store_dups, store_lineage_reps) = store_family_inputs(func, contracts, same_alloc_reps);
     let mut dup_funded_reps: FxHashSet<ArcVarId> =
         call_arg_dups.iter().map(|&v| rep_of(v)).collect();
     dup_funded_reps.extend(store_lineage_reps.iter().copied());
@@ -7562,6 +7554,24 @@ fn compute_lineage_block_deltas(
         }
     }
     (delta, alloc_in_block)
+}
+
+/// The store-family funding inputs for the elision verdict: the funded
+/// store-dup alias set + the store-lineage rep admission set; both empty under
+/// `ORI_DISABLE_STORE_FAMILY_FUNDING=1`.
+fn store_family_inputs(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> (FxHashSet<ArcVarId>, FxHashSet<ArcVarId>) {
+    if crate::lower::burden_lower::store_family_funding_disabled() {
+        (FxHashSet::default(), FxHashSet::default())
+    } else {
+        (
+            crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts),
+            compute_store_handoff_reps(func, same_alloc_reps),
+        )
+    }
 }
 
 /// Per-SSA-alias-lineage alloc-aware PER-PATH terminal net (M3 — the shared
@@ -8971,7 +8981,7 @@ fn is_self_allocating_builtin_callee(callee: Name, interner: &ori_ir::StringInte
 /// unknown closure callee has no self-allocating-builtin identity (conservative;
 /// matches `fresh_collection_source_apply_dst` recognizing only direct `Apply`).
 /// Spec: Annex E §AIMS RL-1.
-pub(super) fn fresh_rc_alloc_dst_terminator(
+pub(crate) fn fresh_rc_alloc_dst_terminator(
     term: &ArcTerminator,
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,

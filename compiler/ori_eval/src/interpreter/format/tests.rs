@@ -198,7 +198,7 @@ fn float_scientific() {
         ..spec()
     };
     let result = format_float(1234.5, &s);
-    assert_eq!(result, "1.2345e3");
+    assert_eq!(result, "1.2345e+03");
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn float_scientific_upper() {
         ..spec()
     };
     let result = format_float(1234.5, &s);
-    assert_eq!(result, "1.2345E3");
+    assert_eq!(result, "1.2345E+03");
 }
 
 #[test]
@@ -325,12 +325,10 @@ fn alignment_width_smaller_than_content() {
 }
 
 // Cross-formatter conformance tests (golden output)
-//
-// These tests define (input, spec_string, expected_output) triples that MUST
-// produce identical results in both `ori_eval` (tree-walking evaluator) and
-// `ori_rt` (AOT runtime). The same triples appear in
-// `ori_rt/src/format/tests.rs` — if either formatter drifts, its golden tests
-// fail.
+
+// INVARIANT: these (input, spec, expected) triples are byte-identical to the ones
+// in `ori_rt/src/format/tests.rs`; either formatter drifting fails its golden
+// tests (the dual-backend parity contract).
 
 /// Helper: parse spec string, format an int, compare against expected.
 fn assert_int_formats_to(n: i64, spec_str: &str, expected: &str) {
@@ -411,9 +409,12 @@ fn golden_float_conformance() {
     // Fixed
     assert_float_formats_to(3.14159, ".2f", "3.14");
     assert_float_formats_to(3.14, "f", "3.140000");
-    // Scientific
-    assert_float_formats_to(1234.5, ".4e", "1.2345e3");
-    assert_float_formats_to(1234.5, ".4E", "1.2345E3");
+    // Scientific — C-printf-%e exponent: explicit sign + zero-padded min-2-digit
+    assert_float_formats_to(1234.5, ".4e", "1.2345e+03");
+    assert_float_formats_to(1234.5, ".4E", "1.2345E+03");
+    assert_float_formats_to(0.0001, ".0e", "1e-04");
+    assert_float_formats_to(9.999, ".0e", "1e+01");
+    assert_float_formats_to(0.0, "e", "0e+00");
     // Percent
     assert_float_formats_to(0.75, ".0%", "75%");
     // Sign

@@ -1,17 +1,12 @@
 //! Conformance tests for the `ori_rt` format spec parser and formatters.
 //!
-//! Two categories of conformance:
-//!
-//! 1. **Parser conformance**: Verifies that `ori_rt::format::parse_format_spec`
-//!    (the AOT runtime parser) produces identical results to
-//!    `ori_ir::format_spec::parse_format_spec` (the compilation-time parser).
-//!
-//! 2. **Formatter conformance (golden output)**: Verifies that `ori_rt`'s
-//!    formatter functions (`format_int`, `format_float`, `fmt_str`) produce
-//!    the same output as `ori_eval`'s formatters for the same (value, spec)
-//!    pairs. Since `ori_rt` can't depend on `ori_eval`, both test files use
-//!    the same golden-output triples — drift in either formatter triggers a
-//!    test failure.
+//! 1. **Parser conformance**: `ori_rt::format::parse_format_spec` (AOT runtime
+//!    parser) produces identical results to `ori_ir::format_spec::parse_format_spec`
+//!    (compilation-time parser).
+//! 2. **Formatter conformance (golden output)**: `ori_rt`'s formatters
+//!    (`format_int`/`format_float`/`fmt_str`) match `ori_eval`'s for the same
+//!    (value, spec) pairs. `ori_rt` can't depend on `ori_eval`, so both test
+//!    files share the same golden triples — drift in either fails a test.
 
 use ori_ir::format_spec as ir;
 
@@ -264,12 +259,10 @@ fn unknown_type_falls_back_to_none() {
 }
 
 // Cross-formatter conformance tests (golden output)
-//
-// These tests define (input, spec_string, expected_output) triples that MUST
-// produce identical results in both `ori_rt` (AOT runtime) and `ori_eval`
-// (tree-walking evaluator). The same triples appear in
-// `ori_eval/src/interpreter/format/tests.rs` — if either formatter drifts,
-// its golden tests fail.
+
+// INVARIANT: these (input, spec, expected) triples are byte-identical to the ones
+// in `ori_eval/src/interpreter/format/tests.rs`; either formatter drifting fails
+// its golden tests (the dual-backend parity contract).
 
 /// Helper: parse spec string, format an int, compare against expected.
 fn assert_int_formats_to(n: i64, spec_str: &str, expected: &str) {
@@ -348,9 +341,12 @@ fn golden_float_conformance() {
     // Fixed
     assert_float_formats_to(3.14159, ".2f", "3.14");
     assert_float_formats_to(3.14, "f", "3.140000");
-    // Scientific
-    assert_float_formats_to(1234.5, ".4e", "1.2345e3");
-    assert_float_formats_to(1234.5, ".4E", "1.2345E3");
+    // Scientific — C-printf-%e exponent: explicit sign + zero-padded min-2-digit
+    assert_float_formats_to(1234.5, ".4e", "1.2345e+03");
+    assert_float_formats_to(1234.5, ".4E", "1.2345E+03");
+    assert_float_formats_to(0.0001, ".0e", "1e-04");
+    assert_float_formats_to(9.999, ".0e", "1e+01");
+    assert_float_formats_to(0.0, "e", "0e+00");
     // Percent
     assert_float_formats_to(0.75, ".0%", "75%");
     // Sign

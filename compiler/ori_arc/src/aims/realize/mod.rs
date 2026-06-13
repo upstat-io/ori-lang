@@ -36,6 +36,7 @@ mod walk_dec;
 
 pub(crate) use burden_elim::eliminate_burden_ops;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
+pub(crate) use emit_unified::fresh_rc_alloc_dst_terminator;
 pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
 
 use ori_ir::Name;

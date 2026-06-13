@@ -11,6 +11,7 @@
 
 mod exit_class;
 mod finalize;
+pub(super) mod snapshot;
 mod stream;
 #[cfg(test)]
 mod test_fixtures;
@@ -26,6 +27,7 @@ use std::time::{Duration, Instant};
 use rustc_hash::FxHashSet;
 
 use self::finalize::finalize_worker_exit;
+use self::snapshot::{classify_spawn_failure, SpawnFailure};
 use self::stream::{
     collect_stderr_ring, read_line_capped, spawn_stderr_drain, CappedLine, LINE_CAP_BYTES,
     LINE_TRUNCATION_MARKER, STDERR_JOIN_TIMEOUT,
@@ -63,16 +65,23 @@ pub(super) fn run_file_isolated(
     interner: &crate::ir::StringInterner,
     config: &TestRunnerConfig,
     skip_names: &[String],
+    snapshot_path: Option<&Path>,
 ) -> FileSummary {
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
-        Err(e) => {
-            let mut summary = FileSummary::new(path.to_path_buf());
-            summary.add_error(format!(
-                "cannot locate the test-runner executable to spawn a worker: {e}"
-            ));
-            return summary;
-        }
+    // Prefer the run-start snapshot (a stable inode immune to a concurrent
+    // rebuild replacing `target/<profile>/ori`); fall back to `current_exe()`
+    // when no snapshot was taken (e.g. snapshotting failed at runner start).
+    let exe = match snapshot_path {
+        Some(p) => p.to_path_buf(),
+        None => match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(e) => {
+                let mut summary = FileSummary::new(path.to_path_buf());
+                summary.add_error(format!(
+                    "cannot locate the test-runner executable to spawn a worker: {e}"
+                ));
+                return summary;
+            }
+        },
     };
 
     let (cmd, token) = build_worker_command(&exe, path, config, skip_names);
@@ -162,6 +171,12 @@ pub(super) fn run_worker_command(
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
+            // A NotFound spawn error means the worker binary was replaced or
+            // lost mid-run; flag it so the per-file loop collapses the cascade
+            // into ONE abort instead of N per-file spawn errors.
+            if classify_spawn_failure(&e) == SpawnFailure::BinaryReplaced {
+                summary.binary_replaced = true;
+            }
             summary.add_error(format!("failed to spawn test worker: {e}"));
             return summary;
         }

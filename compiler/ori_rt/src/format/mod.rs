@@ -61,6 +61,7 @@ pub extern "C" fn ori_format_char(c: i32, spec_ptr: *const u8, spec_len: i64) ->
 
 // Format Spec Parser (self-contained, no ori_ir dependency)
 
+/// A parsed `[[fill]align][sign][#][0][width][.precision][type]` format spec.
 #[derive(Clone, Debug)]
 pub(crate) struct ParsedFormatSpec {
     pub(crate) fill: Option<char>,
@@ -86,6 +87,7 @@ impl ParsedFormatSpec {
     };
 }
 
+/// Width-alignment direction (`<` left, `^` center, `>` right).
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum Align {
     Left,
@@ -93,6 +95,7 @@ pub(crate) enum Align {
     Right,
 }
 
+/// Sign-display mode (`+` plus, `-` minus, ` ` space).
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum Sign {
     Plus,
@@ -100,6 +103,7 @@ pub(crate) enum Sign {
     Space,
 }
 
+/// Format-type code selecting the numeric rendering (`b`/`o`/`x`/`X`/`e`/`E`/`f`/`%`).
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum FormatType {
     Binary,
@@ -359,39 +363,61 @@ fn format_percent(abs_f: f64, precision: Option<usize>) -> String {
     }
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "log10 exponent fits in i32 for any finite f64"
-)]
 fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> String {
     let e = if uppercase { 'E' } else { 'e' };
+
+    // SAFETY-OF-MATH: never run exponent math on a non-finite value. format_float
+    // does not special-case NaN/Inf before dispatch (is_sign_negative only
+    // suppresses the sign flag), so guard here. Rust Display gives "NaN"/"inf".
+    if !f.is_finite() {
+        return format!("{f}");
+    }
 
     if f == 0.0 {
         return if let Some(prec) = precision {
             if prec > 0 {
                 let zeros: String = "0".repeat(prec);
-                format!("0.{zeros}{e}0")
+                format!("0.{zeros}{e}+00")
             } else {
-                format!("0{e}0")
+                format!("0{e}+00")
             }
         } else {
-            format!("0{e}0")
+            format!("0{e}+00")
         };
     }
 
-    let exp = f.abs().log10().floor() as i32;
-    let mantissa = f / 10f64.powi(exp);
-
-    let mantissa_str = if let Some(prec) = precision {
-        format!("{mantissa:.prec$}")
-    } else {
-        let s = format!("{mantissa:.15}");
-        let trimmed = s.trim_end_matches('0');
-        let trimmed = trimmed.trim_end_matches('.');
-        trimmed.to_string()
+    // Rust's own scientific formatter normalizes the mantissa into [1,10),
+    // rounds correctly, performs the decade-carry, and handles subnormals and
+    // f64 extremes. f is already f.abs() per the dispatch; sign is the caller's.
+    let rust_sci = match precision {
+        Some(prec) => format!("{f:.prec$e}"),
+        None => format!("{f:e}"),
     };
 
-    format!("{mantissa_str}{e}{exp}")
+    // INVARIANT: Rust's {:e} emits "<mantissa>e<exp>" with <exp> a valid i32 for every
+    // finite f (non-finite is guarded above). unreachable! keeps a broken invariant loud
+    // rather than silently emitting exponent 0.
+    let Some((mantissa_raw, exp_str)) = rust_sci.split_once('e') else {
+        unreachable!("Rust scientific format lacks 'e' separator: {rust_sci}");
+    };
+    let raw_exp: i32 = match exp_str.parse() {
+        Ok(exp) => exp,
+        Err(_) => unreachable!("scientific exponent not a valid i32: {exp_str}"),
+    };
+
+    // No precision: Rust {:e} already gives the shortest round-trip mantissa;
+    // trim any ".0" tail so e.g. "1.0" renders as "1".
+    let mantissa_str = if precision.is_none() && mantissa_raw.contains('.') {
+        mantissa_raw.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        mantissa_raw
+    };
+
+    // Render exponent C-printf-%e style: explicit sign + zero-padded min-2-digit
+    // magnitude (>=3 digits render full width).
+    let sign = if raw_exp >= 0 { '+' } else { '-' };
+    let mag = raw_exp.unsigned_abs();
+    format!("{mantissa_str}{e}{sign}{mag:02}")
 }
 
 // String Formatting

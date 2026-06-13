@@ -1,0 +1,55 @@
+// Spec: 09-properties-of-types.md §Printable + §String Interpolation —
+// an interpolated expression must implement `Printable`; its `to_str` is the
+// rendered value. The non-Printable rejection is pinned by the negative test
+// `tests/compile-fail/interpolation_missing_printable.ori`; this is the positive
+// side: a user-defined `impl T: Printable` and the Printable primitives all
+// interpolate via their `to_str`.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// User-defined Printable type interpolates via its own to_str
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+impl Point: Printable {
+    @to_str (self) -> str = `({self.x}, {self.y})`;
+}
+
+@interp_custom () -> str = {
+    let $p = Point { x: 3, y: 7 };
+    `point={p}`
+}
+
+@test_interp_custom tests @interp_custom () -> void = {
+    assert_eq(actual: interp_custom(), expected: "point=(3, 7)")
+}
+
+// =============================================================================
+// Printable primitives interpolate via their to_str
+// =============================================================================
+
+@interp_int () -> str = `{42}`;
+
+@test_interp_int tests @interp_int () -> void = {
+    assert_eq(actual: interp_int(), expected: "42")
+}
+
+@interp_str () -> str = `[{"hi"}]`;
+
+@test_interp_str tests @interp_str () -> void = {
+    assert_eq(actual: interp_str(), expected: "[hi]")
+}
+
+@interp_bool () -> str = `{true}/{false}`;
+
+@test_interp_bool tests @interp_bool () -> void = {
+    assert_eq(actual: interp_bool(), expected: "true/false")
+}
+
+@interp_char () -> str = `{'Z'}`;
+
+@test_interp_char tests @interp_char () -> void = {
+    assert_eq(actual: interp_char(), expected: "Z")
+}

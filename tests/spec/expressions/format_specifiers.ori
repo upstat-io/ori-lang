@@ -1,0 +1,67 @@
+// Spec: 09-expressions.md § Template Literals (format specifiers)
+// Interpolation accepts an OPTIONAL format specifier after a `:` — `{expr:spec}`.
+// The spec is parsed when present, omitted otherwise, and applied across value
+// types (int / str / float). Per-grammar-element coverage (fill/align/width/
+// precision/type in isolation) lives in format_spec_grammar.ori.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Spec is OPTIONAL — bare `{expr}` formats with defaults
+// =============================================================================
+
+@fmt_optional_absent () -> str = `{42}`;
+
+@test_fmt_optional_absent tests @fmt_optional_absent () -> void = {
+    assert_eq(actual: fmt_optional_absent(), expected: "42")
+}
+
+// =============================================================================
+// Spec present: width + alignment applied, with surrounding text
+// =============================================================================
+
+@fmt_present (x: int) -> str = `before {x:>5} after`;
+
+@test_fmt_present tests @fmt_present () -> void = {
+    assert_eq(actual: fmt_present(x: 42), expected: "before    42 after")
+}
+
+// =============================================================================
+// Spec applied to a str value
+// =============================================================================
+
+@fmt_on_str (s: str) -> str = `[{s:>5}]`;
+
+@test_fmt_on_str tests @fmt_on_str () -> void = {
+    assert_eq(actual: fmt_on_str(s: "hi"), expected: "[   hi]")
+}
+
+// =============================================================================
+// Spec applied to a float value (precision)
+// =============================================================================
+
+@fmt_on_float (f: float) -> str = `{f:.2}`;
+
+@test_fmt_on_float tests @fmt_on_float () -> void = {
+    assert_eq(actual: fmt_on_float(f: 3.14159), expected: "3.14")
+}
+
+// =============================================================================
+// Multiple specified interpolations in one template
+// =============================================================================
+
+@fmt_multiple (a: int, b: int) -> str = `{a:03}-{b:03}`;
+
+@test_fmt_multiple tests @fmt_multiple () -> void = {
+    assert_eq(actual: fmt_multiple(a: 1, b: 2), expected: "001-002")
+}
+
+// =============================================================================
+// Center alignment with bracketing text
+// =============================================================================
+
+@fmt_center (x: int) -> str = `[{x:^5}]`;
+
+@test_fmt_center tests @fmt_center () -> void = {
+    assert_eq(actual: fmt_center(x: 7), expected: "[  7  ]")
+}
