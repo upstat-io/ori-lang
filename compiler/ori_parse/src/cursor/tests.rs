@@ -340,7 +340,7 @@ fn soft_keyword_covers_canonical_subset() {
     }
 }
 
-/// Regression: hygiene-full-2 §06.4b — `expect_member_name()` used to reuse
+/// Regression: `expect_member_name()` used to reuse
 /// `make_expect_ident_error()`, producing "expected identifier" when it should
 /// say "expected member name" (member position also accepts keywords and ints).
 #[expect(
@@ -516,8 +516,8 @@ fn test_advance_at_eof_is_idempotent() {
 
 /// Regression: parser-cursor advance-past-EOF — negative pin. After advancing at EOF,
 /// `current_tag()` must return `TAG_EOF`, never an out-of-bounds read. In a
-/// release build (`debug_assert` stripped) the old code panicked here; this
-/// pins that the sticky-EOF invariant keeps `pos` in range for every accessor.
+/// release build (`debug_assert` stripped) an unchecked `tags[pos]` read would
+/// panic; this pins that the sticky-EOF invariant keeps `pos` in range for every accessor.
 #[test]
 fn test_current_tag_after_advance_at_eof_stays_eof_no_oob() {
     let ctx = TestCtx::new("@f () -> int = 1");
@@ -525,8 +525,8 @@ fn test_current_tag_after_advance_at_eof_stays_eof_no_oob() {
     while !cursor.is_at_end() {
         cursor.advance();
     }
-    // Advancing at EOF must keep pos in bounds; the old code ran pos past
-    // tags.len() and current_tag() indexed out of bounds.
+    // Advancing at EOF must keep pos in bounds so current_tag() reads tags[pos]
+    // within range (sticky EOF pins pos at the EOF index).
     cursor.advance();
     assert_eq!(
         cursor.current_tag(),
@@ -568,7 +568,7 @@ fn test_current_flags_after_advance_at_eof_no_oob() {
         cursor.advance();
     }
     cursor.advance(); // at EOF — must stay pinned, not run pos past flags.len()
-                      // Before the fix this indexed flags[pos] out of bounds and panicked.
+                      // so current_flags() reads flags[pos] within range.
     let _ = cursor.current_flags();
     assert!(
         cursor.is_at_end(),

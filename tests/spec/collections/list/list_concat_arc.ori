@@ -1,4 +1,4 @@
-// list.concat(other:) — ARC correctness matrix (BUG-04-187).
+// list.concat(other:) — ARC correctness matrix.
 //
 // `[T].concat()` is a dual-consuming PrimOp: the runtime owns consuming BOTH
 // the receiver and the argument buffers (ARC realization emits no operand dec).
@@ -12,10 +12,12 @@
 // Matrix dimensions:
 //   element type:  [int] [float] [bool] [str] [[int]] [Option<int>]
 //   uniqueness:    unique receiver (fast path on AOT) | shared receiver (slow path both backends)
-//   arrangement:   pair | chained | empty operand | literal receiver | slice receiver
-// The shared-receiver and real-slice-receiver cells are the CLAMPS: they
-// legitimately take the slow path / set is_slice_cap, so they distinguish the
-// correct fix (cap loads correctly) from a wrong "force fast path always" fix.
+//   arrangement:   pair | chained | empty operand | literal receiver | slice receiver | slice argument
+//   interaction:   loop back-edge | closure capture | error path (`?` in try)
+// The shared-receiver, slice-receiver, and slice-argument cells are the CLAMPS:
+// they legitimately take the slow path / set is_slice_cap on cap1 OR cap2, so
+// they distinguish the correct fix (both caps load correctly) from a wrong
+// "force fast path always" or "harden only the receiver" fix.
 
 use std.testing { assert_eq }
 
@@ -164,4 +166,70 @@ use std.testing { assert_eq }
 
 @test_concat_slice_receiver tests @concat_slice_receiver () -> void = {
     assert_eq(actual: concat_slice_receiver(), expected: [20, 30, 99])
+}
+
+// =============================================================================
+// Slice-argument CLAMP — the `other` operand is a real slice. Symmetric to the
+// slice-receiver clamp: `cap2` extracts through the same extract_list_fields
+// path as `cap1`, so a fix hardening only the receiver leaves cap2 mis-loaded.
+// =============================================================================
+
+@concat_slice_arg () -> [int] = {
+    let $a = [1, 2];
+    let $b = [10, 20, 30, 40];
+    let $s = b.slice(start: 1, end: 3);
+    a.concat(other: s)
+}
+
+@test_concat_slice_arg tests @concat_slice_arg () -> void = {
+    assert_eq(actual: concat_slice_arg(), expected: [1, 2, 20, 30])
+}
+
+// =============================================================================
+// Closure capture — concat inside a lambda that captures a list by value.
+// =============================================================================
+
+@concat_in_closure () -> [int] = {
+    let $base = [1, 2];
+    let $f = (x: [int]) -> base.concat(other: x);
+    f([3, 4])
+}
+
+@test_concat_in_closure tests @concat_in_closure () -> void = {
+    assert_eq(actual: concat_in_closure(), expected: [1, 2, 3, 4])
+}
+
+// =============================================================================
+// Error path — concat on a value obtained via `?` (propagated to the
+// Result-returning function).
+// =============================================================================
+
+@make_tail () -> Result<[int], str> = Ok([3, 4]);
+
+@concat_error_path () -> Result<[int], str> = {
+    let $a = [1, 2];
+    let $b = make_tail()?;
+    Ok(a.concat(other: b))
+}
+
+@test_concat_error_path tests @concat_error_path () -> void = {
+    assert_eq(actual: concat_error_path().unwrap(), expected: [1, 2, 3, 4])
+}
+
+// =============================================================================
+// Loop back-edge — concat reassigning a mutable accumulator across iterations.
+// The loop back-edge is the #1 ARC-bug source (per tests.md §ARC Testing).
+// Ordered LAST: pre-fix the mis-directed dec corrupts the reused heap and
+// SIGSEGVs on the JIT path — a stronger manifestation of the same cap mis-load.
+// =============================================================================
+
+@concat_in_loop () -> [int] = {
+    let $parts = [[1, 2], [3, 4], [5, 6]];
+    let acc: [int] = [];
+    for p in parts do acc = acc.concat(other: p);
+    acc
+}
+
+@test_concat_in_loop tests @concat_in_loop () -> void = {
+    assert_eq(actual: concat_in_loop(), expected: [1, 2, 3, 4, 5, 6])
 }

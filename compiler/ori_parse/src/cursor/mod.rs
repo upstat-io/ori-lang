@@ -68,7 +68,7 @@ impl<'a> Cursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if `pos` is greater than the token count.
+    /// Panics (debug builds) if `pos` is not a valid token index (`pos >= tokens.len()`).
     pub fn set_position(&mut self, pos: usize) {
         debug_assert!(
             pos < self.tokens.len(),
@@ -375,7 +375,7 @@ impl<'a> Cursor<'a> {
     /// The lexer always appends an EOF token, so `pos` saturates at the EOF
     /// index: advancing at EOF is idempotent and keeps `pos` in
     /// `0..tokens.len()`. Every same-offset accessor (`current_tag`,
-    /// `current_token`, the `flags[pos]` readers) relies on this invariant
+    /// `current()`, the `flags[pos]` readers) relies on this invariant
     /// rather than bounds-checking each read.
     #[inline]
     pub fn advance(&mut self) -> &Token {
