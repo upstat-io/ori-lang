@@ -1,5 +1,5 @@
 // Spec: ori-syntax.md §Declarations — default parameter values on METHODS.
-// BUG-04-190 method-call facet: a method default-param OMITTED at the call site
+// Method-call facet: a method default-param OMITTED at the call site
 // must fill, symmetric to free functions. Method default-omit currently fails
 // EARLIER than the free-function case — at typeck (E2004 arity) not codegen —
 // because method-call arity-checking + canon lower_method_call fill are wired
@@ -51,4 +51,61 @@ impl Box {
 @method_default_positional () -> int = {
     let $b = Box { v: 1 };
     b.get(4)
+}
+
+// Name-collision facet: a SECOND type defines a same-named method `get` with a
+// DIFFERENT default. Each receiver must fill ITS OWN default — a name-only impl
+// scan would fill the first-registered impl's default for both receivers. The
+// canon default-fill resolves the impl by the receiver's self type, so:
+//   Crate{w:10}.get() -> fills Crate's default 100 -> 110 (NOT Box's 7)
+//   Box{v:1}.get()    -> fills Box's   default 7   -> 8   (NOT Crate's 100)
+type Crate = { w: int };
+
+impl Crate {
+    @get (self, d: int = 100) -> int = self.w + d;
+}
+
+@test_method_name_collision_crate tests @method_name_collision_crate () -> void = {
+    assert_eq(actual: method_name_collision_crate(), expected: 110)
+}
+@method_name_collision_crate () -> int = {
+    let $c = Crate { w: 10 };
+    c.get()
+}
+
+@test_method_name_collision_box tests @method_name_collision_box () -> void = {
+    assert_eq(actual: method_name_collision_box(), expected: 8)
+}
+@method_name_collision_box () -> int = {
+    let $b = Box { v: 1 };
+    b.get()
+}
+
+// Composite method default: a method param default that is a heap/composite value
+// ([int] list, struct) must be type-checked on the method path so it lowers with a
+// resolved type, not Tag::Error. Scalar oracle (.len / .x) keeps the assertion off
+// composite returns (independent debug-mono defect).
+type Bag = { n: int };
+
+type Pt2 = { x: int };
+
+impl Bag {
+    @tags (self, ts: [int] = [9, 9]) -> int = ts.len() + self.n;
+    @pt (self, p: Pt2 = Pt2 { x: 9 }) -> int = p.x + self.n;
+}
+
+@test_method_list_default tests @method_list_default () -> void = {
+    assert_eq(actual: method_list_default(), expected: 12)
+}
+@method_list_default () -> int = {
+    let $b = Bag { n: 10 };
+    b.tags()
+}
+
+@test_method_struct_default tests @method_struct_default () -> void = {
+    assert_eq(actual: method_struct_default(), expected: 19)
+}
+@method_struct_default () -> int = {
+    let $b = Bag { n: 10 };
+    b.pt()
 }

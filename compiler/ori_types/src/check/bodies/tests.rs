@@ -581,9 +581,7 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
     }
 }
 
-// ============================================================================
 // §09.5 method-call return BD-2 — 5-cell TDD matrix
-// ============================================================================
 //
 // Pins the BD-2 gate that propagates an outer `Check(T)` annotation into a
 // method-call's generic-return slot at typeck time. Without §09.5 the LHS
@@ -712,12 +710,10 @@ fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     );
 }
 
-// ===========================================================================
 // §06.5 unknown-method diagnostic — silent-poison class closure (BUG-02-044 +
 // §10.1 rigid-receiver negative). A genuine NotFound method lookup on a
 // diagnosable receiver must emit a diagnostic, NOT silently poison via
 // Idx::ERROR. (/improve-tooling-adjacent compiler fix 2026-06-07.)
-// ===========================================================================
 
 #[test]
 fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {

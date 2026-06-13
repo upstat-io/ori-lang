@@ -34,6 +34,7 @@ pub(super) fn resolve_impl_signature(
         scheme_var_ids,
         impl_subst,
         impl_type_params,
+        optional_param_count,
     ) = match outcome {
         LookupOutcome::Found {
             sig,
@@ -43,6 +44,7 @@ pub(super) fn resolve_impl_signature(
             scheme_var_ids,
             impl_subst,
             impl_type_params,
+            optional_param_count,
         } => (
             sig,
             has_self,
@@ -51,6 +53,7 @@ pub(super) fn resolve_impl_signature(
             scheme_var_ids,
             impl_subst,
             impl_type_params,
+            optional_param_count,
         ),
         LookupOutcome::Ambiguous(trait_names) => {
             engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
@@ -124,7 +127,14 @@ pub(super) fn resolve_impl_signature(
     let skip = usize::from(has_self);
     let method_params = params[skip..].to_vec();
 
-    if arg_count != method_params.len() {
+    // BUG-04-190: a call may omit up to `optional_param_count` trailing
+    // defaulted params; canon fills them. Valid arity is the inclusive range
+    // [method_params.len() - optional_param_count, method_params.len()].
+    // `optional_param_count == 0` reduces to strict equality (unchanged
+    // behavior for no-default methods). Too-many args, or too-few past the
+    // required floor, still emit E2004.
+    let min_args = method_params.len().saturating_sub(optional_param_count);
+    if arg_count < min_args || arg_count > method_params.len() {
         engine.push_error(TypeCheckError::arity_mismatch(
             span,
             method_params.len(),

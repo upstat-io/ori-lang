@@ -70,7 +70,9 @@ impl Lowerer<'_> {
             src_args.iter().map(|a| (a.name, a.value)).collect();
 
         // Try to resolve the method signature for reordering and default filling.
-        let params = self.resolve_method_params(method);
+        // Pass the source receiver's type so same-named methods on different impls
+        // resolve to their own signature (BUG-04-190 R3-F4).
+        let params = self.resolve_method_params(method, self.typed.expr_type(receiver.index()));
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
@@ -101,7 +103,7 @@ impl Lowerer<'_> {
     /// remaining slots left-to-right. Empty slots are filled by lowering the
     /// parameter's default expression. If `params` is `None`, arguments stay
     /// in source order (fallback for lambdas and error recovery).
-    fn reorder_and_lower_args(
+    pub(crate) fn reorder_and_lower_args(
         &mut self,
         src_args: &[(Option<Name>, ExprId)],
         params: Option<&[(Name, Option<ExprId>)]>,
@@ -157,7 +159,7 @@ impl Lowerer<'_> {
     }
 
     /// Try to resolve parameter info (names + defaults) from a function expression.
-    fn resolve_func_params(
+    pub(crate) fn resolve_func_params(
         &self,
         func_kind: ori_ir::ExprKind,
     ) -> Option<Vec<(Name, Option<ExprId>)>> {
@@ -180,12 +182,41 @@ impl Lowerer<'_> {
     }
 
     /// Try to resolve parameter info (names + defaults) from a method signature.
-    fn resolve_method_params(&self, method: Name) -> Option<Vec<(Name, Option<ExprId>)>> {
-        self.typed
-            .impl_sigs
-            .iter()
-            .find(|(name, _)| *name == method)
+    ///
+    /// `receiver_ty` disambiguates same-named methods across impls: among the impls
+    /// defining `method`, the one whose `self` (param 0) type equals the receiver is
+    /// preferred, so each receiver fills its OWN defaults (BUG-04-190 R3-F4). Falls
+    /// back to the first name-match when the receiver type is unknown or no `self`
+    /// type matches (generic impls, where `self` is a type variable not equal to the
+    /// concrete receiver type — the generic-method default-omit follow-up).
+    pub(crate) fn resolve_method_params(
+        &self,
+        method: Name,
+        receiver_ty: Option<ori_types::Idx>,
+    ) -> Option<Vec<(Name, Option<ExprId>)>> {
+        let self_name = self.interner.intern("self");
+        let by_receiver = receiver_ty.and_then(|recv| {
+            self.typed.impl_sigs.iter().find(|(name, sig)| {
+                *name == method
+                    && sig.param_names.first().copied() == Some(self_name)
+                    && sig.param_types.first().copied() == Some(recv)
+            })
+        });
+        by_receiver
+            .or_else(|| {
+                self.typed
+                    .impl_sigs
+                    .iter()
+                    .find(|(name, _)| *name == method)
+            })
             .map(|(_, sig)| {
+                // A method's `self` receiver is param[0] in the signature, but the
+                // call's positional args exclude it (it is the separate receiver).
+                // Drop the leading `self` so positional alignment + omitted-default
+                // fill in reorder_and_lower_args match the non-self params only —
+                // else a provided positional arg lands in `self`'s slot and the
+                // first real param is wrongly default-filled (BUG-04-190 over-fill).
+                let skip = usize::from(sig.param_names.first().copied() == Some(self_name));
                 sig.param_names
                     .iter()
                     .zip(
@@ -194,6 +225,7 @@ impl Lowerer<'_> {
                             .copied()
                             .chain(std::iter::repeat(None)),
                     )
+                    .skip(skip)
                     .map(|(&name, default)| (name, default))
                     .collect()
             })

@@ -171,6 +171,16 @@ fn check_impl_method(
         param_types.push(ty);
     }
 
+    // BUG-04-190: collect (default expr, param name, declared type) for every
+    // method param carrying a default, so the body-check closure can type-check
+    // each default against its declared type (mirrors functions.rs). Captured
+    // here before `param_types` is borrowed mutably below.
+    let default_checks: Vec<_> = params
+        .iter()
+        .zip(param_types.iter())
+        .filter_map(|(p, &ty)| p.default.map(|d| (d, p.name, ty)))
+        .collect();
+
     // Resolve return type with Self substitution + method-level overlay. `mut`
     // so the defaulting pass can refresh it to `Idx::NEVER` before
     // `build_method_sig` bakes it into the exported sig.
@@ -283,6 +293,29 @@ fn check_impl_method(
             let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
 
             engine.pop_context();
+
+            // BUG-04-190: type-check each method parameter's default expression
+            // against its declared type, mirroring the free-function path in
+            // functions.rs. Canon fills omitted method defaults at the call site;
+            // without resolved type info a composite default (e.g. `[9, 9]`)
+            // lowers with Tag::Error and the LLVM backend rejects it.
+            for &(default_id, param_name, param_ty) in &default_checks {
+                let default_span = arena.get_expr(default_id).span;
+                let default_expected = Expected {
+                    ty: param_ty,
+                    origin: ExpectedOrigin::Annotation {
+                        name: param_name,
+                        span: default_span,
+                    },
+                };
+                let _ = check_expr(
+                    &mut engine,
+                    arena,
+                    default_id,
+                    &default_expected,
+                    default_span,
+                );
+            }
 
             // Mark body inference complete before the defaulting pre-pass runs;
             // defaulting helpers debug-assert this flag (see `check_function`).

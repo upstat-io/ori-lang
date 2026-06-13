@@ -200,6 +200,31 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         };
         let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
 
+        // BUG-04-190: type-check each parameter's default expression against the
+        // param's declared type so the default carries resolved type info. Canon
+        // fills the default at omitting (positional / zero-arg) call sites; without
+        // a recorded type a composite default (e.g. `[9, 9]`) lowers with Tag::Error
+        // and the LLVM backend rejects the list-literal construction.
+        for (i, param) in arena.get_params(func.params).iter().enumerate() {
+            if let (Some(default_id), Some(&param_ty)) = (param.default, sig.param_types.get(i)) {
+                let default_span = arena.get_expr(default_id).span;
+                let default_expected = Expected {
+                    ty: param_ty,
+                    origin: ExpectedOrigin::Annotation {
+                        name: param.name,
+                        span: default_span,
+                    },
+                };
+                let _ = check_expr(
+                    &mut engine,
+                    arena,
+                    default_id,
+                    &default_expected,
+                    default_span,
+                );
+            }
+        }
+
         // Spec: 10-patterns.md § Function-Level Contracts.
         // post() contracts: void-return rejection (E2046). Runs after body
         // inference so sig.return_type is fully resolved.

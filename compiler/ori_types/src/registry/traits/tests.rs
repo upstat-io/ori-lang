@@ -99,6 +99,7 @@ fn register_and_lookup_impl() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -152,6 +153,7 @@ fn inherent_impl() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -213,6 +215,7 @@ fn method_lookup_priority() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -242,6 +245,7 @@ fn method_lookup_priority() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );

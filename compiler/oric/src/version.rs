@@ -1,61 +1,97 @@
 //! Version string the `ori` binary reports.
 //!
 //! Single source of truth for the banner shown by `ori version` and `ori help`.
-//! `BUILD_NUMBER` (repo root) is the canonical source for the release version and
-//! stage. Release builds report it verbatim. Dev builds recompute the date to the
-//! local build day so a stale committed `BUILD_NUMBER` does not surface a
-//! months-old date during development.
-
-use std::time::{SystemTime, UNIX_EPOCH};
+//! `BUILD_NUMBER` (repo root) is the canonical release version and stage;
+//! release builds report it verbatim. Dev builds report the build identity
+//! stamped at compile time by `build.rs` — commit short SHA, dirty flag, and
+//! commit date — so a binary's age is visible from `ori version` rather than
+//! masked behind a run-time clock or a stale committed date.
 
 /// The committed build number, `YYYY.MM.DD.N-STAGE` (stage optional).
 const BUILD_NUMBER: &str = include_str!("../../../BUILD_NUMBER");
 
-const SECONDS_PER_DAY: i64 = 86_400;
+/// Build identity stamped by `build.rs` at compile time.
+const GIT_SHA: &str = env!("ORI_GIT_SHA");
+/// `"1"` when the build worktree had uncommitted changes, else `"0"`.
+const GIT_DIRTY: &str = env!("ORI_GIT_DIRTY");
+/// HEAD commit date `YYYY-MM-DD`, or empty when git was unavailable at build.
+const BUILD_DATE: &str = env!("ORI_BUILD_DATE");
 
-/// A proleptic-Gregorian calendar date.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CivilDate {
-    year: i64,
-    month: i64,
-    day: i64,
-}
+/// Sentinel `GIT_SHA` value when git was unavailable at build time.
+const SHA_UNKNOWN: &str = "unknown";
 
 /// The version string this binary reports in `ori version` and `ori help`.
 ///
-/// Release builds return `BUILD_NUMBER` verbatim. Dev builds replace the date
-/// with the local build day and append `-dev`, keeping the stage from
-/// `BUILD_NUMBER`.
+/// Release builds return `BUILD_NUMBER` verbatim. Dev builds report the
+/// stamped commit date, stage, `-dev`, and a `(sha date[, dirty])` identity.
 // Why: the banner is build identity, not Ori-program behavior — the
 // debug/release divergence here is the banner's purpose, not a codegen-parity gap.
 #[must_use]
 pub fn report_version() -> String {
-    compose_version(BUILD_NUMBER, cfg!(debug_assertions), today_utc())
+    compose_version(
+        BUILD_NUMBER,
+        cfg!(debug_assertions),
+        GIT_SHA,
+        GIT_DIRTY == "1",
+        BUILD_DATE,
+    )
 }
 
-/// Assemble the reported version from a build number, dev flag, and current date.
+/// Assemble the reported version from a build number, dev flag, and the
+/// compile-time build stamp.
 ///
 /// `dev == false` returns the trimmed build number verbatim (release / CI path).
-/// `dev == true` recomputes the date to `today` and marks the result `-dev`.
-fn compose_version(build_number: &str, dev: bool, today: CivilDate) -> String {
+/// `dev == true` reports the stamped build identity.
+fn compose_version(
+    build_number: &str,
+    dev: bool,
+    sha: &str,
+    dirty: bool,
+    build_date: &str,
+) -> String {
     let build_number = build_number.trim();
     if dev {
-        dev_version(build_number, today)
+        dev_version(build_number, sha, dirty, build_date)
     } else {
         build_number.to_string()
     }
 }
 
-/// Compose a dev-build version: today's date, stage from `build_number`, `-dev`.
+/// Compose a dev-build version from the compile-time stamp.
 ///
-/// `2026.04.17.1-alpha` + 2026-06-01 -> `2026.06.01.0-alpha-dev`.
-/// `2026.04.17.1`       + 2026-06-01 -> `2026.06.01.0-dev`.
-fn dev_version(build_number: &str, today: CivilDate) -> String {
-    let date = format!("{:04}.{:02}.{:02}", today.year, today.month, today.day);
-    match stage_of(build_number) {
-        Some(stage) => format!("{date}.0-{stage}-dev"),
-        None => format!("{date}.0-dev"),
+/// `2026.06.13-alpha-dev (b45f5cc76 2026-06-13, dirty)` — stage from
+/// `build_number`, date + sha from the stamp. Falls back to the `build_number`
+/// date when the stamp carries no commit date, and drops the `(sha …)` clause
+/// when git was unavailable at build time.
+fn dev_version(build_number: &str, sha: &str, dirty: bool, build_date: &str) -> String {
+    let date_iso = if build_date.is_empty() {
+        build_number_date(build_number)
+    } else {
+        build_date.to_string()
+    };
+    let date_dotted = date_iso.replace('-', ".");
+
+    let core = match stage_of(build_number) {
+        Some(stage) => format!("{date_dotted}-{stage}-dev"),
+        None => format!("{date_dotted}-dev"),
+    };
+
+    if sha == SHA_UNKNOWN {
+        return core;
     }
+
+    let dirty_suffix = if dirty { ", dirty" } else { "" };
+    format!("{core} ({sha} {date_iso}{dirty_suffix})")
+}
+
+/// The `YYYY-MM-DD` date prefix of a build number (`2026.04.17.1-alpha` ->
+/// `2026-04-17`). Used as the dev-banner date when no commit date was stamped.
+fn build_number_date(build_number: &str) -> String {
+    let mut parts = build_number.split('.');
+    let year = parts.next().unwrap_or("0000");
+    let month = parts.next().unwrap_or("00");
+    let day = parts.next().unwrap_or("00");
+    format!("{year}-{month}-{day}")
 }
 
 /// The release-stage suffix (`alpha` / `beta` / `rc`) of a build number, if any.
@@ -67,39 +103,6 @@ fn stage_of(build_number: &str) -> Option<&str> {
         .split_once('-')
         .map(|(_, stage)| stage)
         .filter(|stage| !stage.is_empty())
-}
-
-/// Today's date in UTC, from the system clock.
-fn today_utc() -> CivilDate {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let secs = i64::try_from(secs).unwrap_or(i64::MAX);
-    civil_from_days(secs.div_euclid(SECONDS_PER_DAY))
-}
-
-/// Convert a count of days since 1970-01-01 to a civil date.
-///
-/// Howard Hinnant's `civil_from_days` (public domain). Valid across the full i64
-/// day range, including negative (pre-epoch) counts.
-fn civil_from_days(z: i64) -> CivilDate {
-    // Shift the epoch to 0000-03-01 so the leap day lands at the end of the
-    // 400-year era, simplifying the day-of-era arithmetic below.
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
-    let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
-    CivilDate {
-        year: if month <= 2 { year + 1 } else { year },
-        month,
-        day,
-    }
 }
 
 #[cfg(test)]

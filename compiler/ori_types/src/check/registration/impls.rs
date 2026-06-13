@@ -463,6 +463,9 @@ fn inherit_default_methods(
                 scheme_var_ids: Vec::new(),
                 generic_param_metadata: Vec::new(),
                 where_clause_metadata: Vec::new(),
+                // Inherited trait-default method copy: strict arity (trait
+                // default-param carry-through is a follow-up per R3-F3).
+                optional_param_count: 0,
                 span,
             });
         }
@@ -716,6 +719,15 @@ fn build_impl_method(
         checker.pool_mut().scheme(&scheme_var_ids, fn_type)
     };
 
+    // BUG-04-190: non-`self` params WITH a default value. The relaxed call-site
+    // arity check (resolve_impl_signature) permits omitting that many trailing
+    // params; canon fills them.
+    let optional_param_count = params
+        .iter()
+        .skip(usize::from(has_self))
+        .filter(|p| p.default.is_some())
+        .count();
+
     ImplMethodDef {
         name: method.name,
         signature,
@@ -724,6 +736,7 @@ fn build_impl_method(
         scheme_var_ids,
         generic_param_metadata,
         where_clause_metadata,
+        optional_param_count,
         span: method.span,
     }
 }

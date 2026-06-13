@@ -55,6 +55,9 @@ pub(super) enum LookupOutcome {
         /// monomorphization recording (it pins both "inherent" and the order
         /// for `impl_args`).
         impl_type_params: Vec<Name>,
+        /// Count of non-`self` params WITH a default value (BUG-04-190).
+        /// Drives the relaxed call-site arity check; `0` = strict equality.
+        optional_param_count: usize,
     },
     Ambiguous(Vec<ori_ir::Name>),
     NotFound,
@@ -335,6 +338,7 @@ pub(super) fn lookup_impl_method(
                 // Exact-`Idx` primary lookup matches non-generic impls; no
                 // receiver-side binders to record.
                 impl_type_params: Vec::new(),
+                optional_param_count: m.optional_param_count,
             };
         }
         MethodLookupResult::Ambiguous { candidates } => {
@@ -363,7 +367,12 @@ pub(super) fn lookup_impl_method(
                 scheme_var_ids,
                 impl_subst,
                 impl_type_params,
-            }
+                // Generic-impl base-name-match path: strict arity for now.
+                // Threading the matched def's optional_param_count through
+                // FallbackResult is a bounded follow-up (BUG-04-190); the
+                // inherent (primary-lookup) path is fully covered.
+                optional_param_count: 0,
+            };
         }
         FallbackResult::Ambiguous(trait_names) => return LookupOutcome::Ambiguous(trait_names),
         FallbackResult::None => {}
@@ -443,6 +452,9 @@ pub(super) fn lookup_impl_method(
                     // RigidVar / Var receiver — not a concrete instantiation;
                     // no receiver-side binders to record.
                     impl_type_params: Vec::new(),
+                    // Bound-chain dispatch: strict arity (trait-method default
+                    // carry-through is a bounded follow-up per BUG-04-190).
+                    optional_param_count: 0,
                 }
             }
             BoundChainLookup::Ambiguous { candidates } => {

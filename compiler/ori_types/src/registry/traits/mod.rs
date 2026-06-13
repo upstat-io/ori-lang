@@ -281,6 +281,13 @@ pub struct ImplMethodDef {
     /// Empty when the method has no where clause.
     pub where_clause_metadata: Vec<WhereConstraint>,
 
+    /// Count of non-`self` parameters WITH a default value (BUG-04-190).
+    /// A call is arity-valid when `arg_count` is in
+    /// `[total_non_self - optional_param_count, total_non_self]`; omitted
+    /// trailing defaults are filled in canon. `0` = all params required
+    /// (the natural value for derived / no-default methods → strict arity).
+    pub optional_param_count: usize,
+
     /// Source location.
     pub span: Span,
 }

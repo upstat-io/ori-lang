@@ -1,57 +1,6 @@
 //! Tests for the reported version string.
-//!
-//! Epoch-day fixtures verified against Python's `datetime` (days since
-//! 1970-01-01): 2026-06-01 = 20605, leap 2024-02-29 = 19782, pre-epoch
-//! 1969-12-31 = -1.
 
 use super::*;
-
-fn date(year: i64, month: i64, day: i64) -> CivilDate {
-    CivilDate { year, month, day }
-}
-
-// civil_from_days — calendar conversion across boundaries.
-
-/// Epoch day 0 maps to 1970-01-01.
-#[test]
-fn civil_from_days_at_epoch_returns_epoch_date() {
-    assert_eq!(civil_from_days(0), date(1970, 1, 1));
-}
-
-/// A mid-range positive count (day 20605) maps to its calendar date 2026-06-01.
-#[test]
-fn civil_from_days_positive_count_returns_calendar_date() {
-    assert_eq!(civil_from_days(20_605), date(2026, 6, 1));
-}
-
-/// Day 19782 lands on the leap day 2024-02-29.
-#[test]
-fn civil_from_days_on_leap_day_returns_feb_29() {
-    assert_eq!(civil_from_days(19_782), date(2024, 2, 29));
-}
-
-/// The day after the leap day (19783) advances to 2024-03-01.
-#[test]
-fn civil_from_days_after_leap_day_returns_march_first() {
-    assert_eq!(civil_from_days(19_783), date(2024, 3, 1));
-}
-
-/// Day 10956 lands on the year boundary 1999-12-31.
-#[test]
-fn civil_from_days_at_year_end_returns_dec_31() {
-    assert_eq!(civil_from_days(10_956), date(1999, 12, 31));
-}
-
-/// Day 10957 crosses the century boundary to 2000-01-01.
-#[test]
-fn civil_from_days_at_century_rollover_returns_jan_first() {
-    assert_eq!(civil_from_days(10_957), date(2000, 1, 1));
-}
-
-#[test]
-fn civil_from_days_for_negative_count_returns_pre_epoch_date() {
-    assert_eq!(civil_from_days(-1), date(1969, 12, 31));
-}
 
 // stage_of — extracting the release stage from a build number.
 
@@ -80,29 +29,71 @@ fn stage_of_empty_suffix_returns_none() {
     assert_eq!(stage_of("2026.04.17.1-"), None);
 }
 
-// dev_version — composing the dev banner.
+// build_number_date — date prefix extraction for the no-stamp fallback.
 
 #[test]
-fn dev_version_with_stage_uses_today_and_marks_dev() {
+fn build_number_date_with_stage_returns_iso_prefix() {
+    assert_eq!(build_number_date("2026.04.17.1-alpha"), "2026-04-17");
+}
+
+#[test]
+fn build_number_date_stable_returns_iso_prefix() {
+    assert_eq!(build_number_date("2026.04.17.3"), "2026-04-17");
+}
+
+// dev_version — composing the dev banner from the compile-time stamp.
+
+#[test]
+fn dev_version_with_stage_clean_carries_sha_and_date() {
     assert_eq!(
-        dev_version("2026.04.17.1-alpha", date(2026, 6, 1)),
-        "2026.06.01.0-alpha-dev"
+        dev_version("2026.04.17.1-alpha", "b45f5cc76", false, "2026-06-13"),
+        "2026.06.13-alpha-dev (b45f5cc76 2026-06-13)"
+    );
+}
+
+#[test]
+fn dev_version_with_stage_dirty_appends_dirty_marker() {
+    assert_eq!(
+        dev_version("2026.04.17.1-alpha", "b45f5cc76", true, "2026-06-13"),
+        "2026.06.13-alpha-dev (b45f5cc76 2026-06-13, dirty)"
     );
 }
 
 #[test]
 fn dev_version_stable_build_marks_dev_without_stage() {
     assert_eq!(
-        dev_version("2026.04.17.1", date(2026, 6, 1)),
-        "2026.06.01.0-dev"
+        dev_version("2026.04.17.1", "b45f5cc76", false, "2026-06-13"),
+        "2026.06.13-dev (b45f5cc76 2026-06-13)"
     );
 }
 
 #[test]
-fn dev_version_zero_pads_single_digit_month_and_day() {
+fn dev_version_uses_stamped_date_not_build_number_date() {
+    // Semantic pin: the banner reflects the BUILD stamp, not the committed
+    // BUILD_NUMBER date — the whole point of the build-time stamp.
+    let banner = dev_version("2026.04.17.1-alpha", "b45f5cc76", false, "2026-06-13");
+    assert!(
+        banner.starts_with("2026.06.13"),
+        "dev banner must use the stamped build date, not the build-number date: {banner}"
+    );
+}
+
+#[test]
+fn dev_version_without_git_falls_back_to_build_number_date() {
+    // Negative path: git unavailable at build time -> empty stamp date and the
+    // SHA sentinel. Banner degrades to the build-number date, no (sha …) clause.
     assert_eq!(
-        dev_version("2026.04.17.1-alpha", date(2026, 3, 5)),
-        "2026.03.05.0-alpha-dev"
+        dev_version("2026.04.17.1-alpha", "unknown", false, ""),
+        "2026.04.17-alpha-dev"
+    );
+}
+
+#[test]
+fn dev_version_unknown_sha_omits_identity_clause() {
+    let banner = dev_version("2026.04.17.1-alpha", "unknown", true, "2026-06-13");
+    assert!(
+        !banner.contains('('),
+        "no identity clause when the sha is unknown: {banner}"
     );
 }
 
@@ -111,7 +102,7 @@ fn dev_version_zero_pads_single_digit_month_and_day() {
 #[test]
 fn compose_version_release_returns_build_number_verbatim() {
     assert_eq!(
-        compose_version("2026.04.17.1-alpha", false, date(2026, 6, 1)),
+        compose_version("2026.04.17.1-alpha", false, "b45f5cc76", true, "2026-06-13"),
         "2026.04.17.1-alpha"
     );
 }
@@ -119,14 +110,20 @@ fn compose_version_release_returns_build_number_verbatim() {
 #[test]
 fn compose_version_release_trims_trailing_whitespace() {
     assert_eq!(
-        compose_version("2026.04.17.1-alpha\n", false, date(2026, 6, 1)),
+        compose_version(
+            "2026.04.17.1-alpha\n",
+            false,
+            "b45f5cc76",
+            false,
+            "2026-06-13"
+        ),
         "2026.04.17.1-alpha"
     );
 }
 
 #[test]
 fn compose_version_release_never_marks_dev() {
-    let release = compose_version("2026.04.17.1-alpha", false, date(2026, 6, 1));
+    let release = compose_version("2026.04.17.1-alpha", false, "b45f5cc76", true, "2026-06-13");
     assert!(
         !release.contains("-dev"),
         "release banner must not be marked dev: {release}"
@@ -134,36 +131,56 @@ fn compose_version_release_never_marks_dev() {
 }
 
 #[test]
-fn compose_version_dev_recomputes_date_and_marks_dev() {
-    assert_eq!(
-        compose_version("2026.04.17.1-alpha", true, date(2026, 6, 1)),
-        "2026.06.01.0-alpha-dev"
+fn compose_version_release_omits_sha_identity_clause() {
+    // Negative pin: the dev-only build identity must not leak into release.
+    let release = compose_version("2026.04.17.1-alpha", false, "b45f5cc76", true, "2026-06-13");
+    assert!(
+        !release.contains("b45f5cc76"),
+        "release banner must not carry the dev sha clause: {release}"
     );
 }
 
 #[test]
-fn compose_version_dev_ignores_stale_build_date() {
-    let dev = compose_version("2020.01.01.9-alpha", true, date(2026, 6, 1));
+fn compose_version_dev_marks_dev_and_carries_sha() {
+    let dev = compose_version("2026.04.17.1-alpha", true, "b45f5cc76", false, "2026-06-13");
+    assert_eq!(dev, "2026.06.13-alpha-dev (b45f5cc76 2026-06-13)");
+}
+
+#[test]
+fn compose_version_dev_honors_stamped_date_over_build_number() {
+    // Semantic pin (inverts the old run-date behavior): a stale BUILD_NUMBER
+    // does not override the stamped build date.
+    let dev = compose_version("2020.01.01.9-alpha", true, "b45f5cc76", false, "2026-06-13");
+    assert!(
+        dev.starts_with("2026.06.13"),
+        "dev banner must use the stamped date, not the stale build number: {dev}"
+    );
     assert!(
         !dev.starts_with("2020"),
-        "dev banner must use today's date, not the stale build date: {dev}"
+        "stale build-number date must not leak into the dev banner: {dev}"
     );
-    assert!(dev.starts_with("2026.06.01"), "got: {dev}");
 }
 
-// report_version — banner matches the build profile (debug vs release).
+// report_version — production entry point (the real `ori version` path),
+// driving the compile-time env stamp, not an injected seam.
 
 #[test]
-fn report_version_matches_build_profile() {
+fn report_version_matches_build_profile_and_carries_stamp() {
     let reported = report_version();
     if cfg!(debug_assertions) {
         assert!(
-            reported.ends_with("-dev"),
+            reported.contains("-dev"),
             "debug build must report a dev banner: {reported}"
         );
+        if GIT_SHA != SHA_UNKNOWN {
+            assert!(
+                reported.contains(GIT_SHA),
+                "dev banner must carry the stamped commit sha: {reported}"
+            );
+        }
     } else {
         assert!(
-            !reported.ends_with("-dev"),
+            !reported.contains("-dev"),
             "release build must report the build number verbatim: {reported}"
         );
         assert_eq!(reported, BUILD_NUMBER.trim());
