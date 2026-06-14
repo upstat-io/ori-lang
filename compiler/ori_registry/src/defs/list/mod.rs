@@ -116,6 +116,7 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("sum",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("take",        &INT_PARAM,            SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("take_while",  &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
+    MethodDef::compound("to_str",      &[],                   STR,       Some("Printable"),  Ownership::Borrow, false),
     MethodDef::compound("unique",      &[],                   SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("updated",     &INDEX_ELEMENT_PARAMS, SELF,      Some("IndexSet"),   Ownership::Borrow, false),
     MethodDef::compound("window",      &INT_PARAM,            FRESH,     None,               Ownership::Borrow, false),

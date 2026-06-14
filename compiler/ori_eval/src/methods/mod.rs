@@ -125,6 +125,25 @@ fn dispatch_tuple_method(
     }
 }
 
+/// Whether `v` is a compound `Printable` whose `to_str` renders via
+/// `display_value()` (no per-type `to_str` in the dispatchers below).
+/// Primitives, str, Error, Ordering, Duration, Size implement their own
+/// `to_str` and are excluded so they keep it.
+fn is_compound_printable(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Some(_)
+            | Value::None
+            | Value::Ok(_)
+            | Value::Err(_)
+            | Value::List(_)
+            | Value::Tuple(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Variant { .. }
+    )
+}
+
 /// Dispatch a built-in method call using pre-interned `Name` comparison.
 ///
 /// This is the production entry point for built-in method calls. Uses
@@ -139,6 +158,18 @@ pub(crate) fn dispatch_builtin_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
+    // Printable `to_str` for compound types (Option/Result/List/Tuple/Map/Set/
+    // Variant). The registry marks these `Printable` (spec §9.7.5), but the
+    // per-type dispatchers below only implement primitive `to_str`. The blanket
+    // `impl<T: Printable> T: Formattable` desugar (`ori_canon`) routes
+    // non-primitive `{x:spec}` through `to_str()`, so this must produce the
+    // spec rendering (`"Some(42)"`, `"(1, 2, 3)"`, `"[1, 2, 3]"`) matching the
+    // LLVM backend's `emit_element_to_str` for dual-execution parity. Primitive
+    // receivers keep their own `to_str` (they fall through this guard).
+    if method == ctx.names.to_str && is_compound_printable(&receiver) {
+        helpers::require_args("to_str", 0, args.len())?;
+        return Ok(Value::string(receiver.display_value()));
+    }
     match &receiver {
         Value::Int(_) => numeric::dispatch_int_method(receiver, method, args, ctx),
         Value::Float(_) => numeric::dispatch_float_method(receiver, method, args, ctx),

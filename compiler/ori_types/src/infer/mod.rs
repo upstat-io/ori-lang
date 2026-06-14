@@ -191,6 +191,18 @@ pub struct InferEngine<'pool> {
     /// that sub-step lands.
     mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
 
+    /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
+    ///
+    /// Populated by `record_assign_desugar()` during `infer_assign_target`
+    /// (one entry per index/field assignment). Each entry pairs the
+    /// `AssignTarget` node's AST `ExprId` with its resolved per-level types.
+    /// Extracted via `take_assign_desugars()` and forwarded to
+    /// [`crate::TypedModule::assign_desugar_map`]. `ori_canon` consumes the
+    /// map to synthesize the pure-reassignment form so AIMS never sees a
+    /// `CanExpr::Assign { target: Index/Field }`. Keys are module-wide AST
+    /// `ExprId`s; no body-local re-anchoring needed.
+    assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
+
     /// Deferred monomorphization calls (generic calling generic).
     ///
     /// Populated by `record_deferred_mono_call()` when a generic function calls
@@ -301,6 +313,7 @@ impl<'pool> InferEngine<'pool> {
             method_rigid_bounds: FxHashMap::default(),
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
+            assign_desugars: Vec::new(),
             deferred_mono_calls: Vec::new(),
             composed_burdens: Vec::new(),
             current_function: None,

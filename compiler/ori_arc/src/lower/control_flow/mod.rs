@@ -398,6 +398,17 @@ impl ArcLowerer<'_> {
                         new_var = new_var.raw(),
                         "assign: rebind mutable"
                     );
+                    // Record the binding's scope-rebind death point. `old_var`
+                    // is the prior value the rebind orphans; `new_var` is the
+                    // value the binding now holds. The burden Phase-5
+                    // reassign-release scan emits the gated `BurdenDec(old_var)`
+                    // at this rebind (Spec: Annex E §AIMS RL-2). When `old_var`
+                    // equals the RHS value (a self-move with no new SSA), the
+                    // pair is `(rhs, new_var)`; the scan's gate suppresses the
+                    // release for genuinely-transferred values.
+                    if let Some(old) = old_var {
+                        self.builder.reassign_deaths.push((old, new_var));
+                    }
                     self.scope.bind_mutable(name, new_var);
                 } else {
                     tracing::warn!(

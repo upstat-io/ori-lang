@@ -45,13 +45,13 @@ use std.testing { assert_eq }
 // =============================================================================
 
 @test_list_index_assign_preserves_others tests @list_index_assign_preserves_others () -> void = {
-    assert_eq(actual: list_index_assign_preserves_others(), expected: 6)
+    assert_eq(actual: list_index_assign_preserves_others(), expected: 4)
 }
 
 @list_index_assign_preserves_others () -> int = {
     let xs = [1, 2, 3];
     xs[1] = 9;
-    // xs == [1, 9, 3]; first + last unchanged
+    // xs == [1, 9, 3]; first + last unchanged: 1 + 3 == 4
     xs[0] + xs[2]
 }
 

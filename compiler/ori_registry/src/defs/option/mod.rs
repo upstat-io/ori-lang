@@ -127,6 +127,14 @@ static OPTION_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
+    MethodDef::compound(
+        "to_str",
+        &[],
+        STR,
+        Some("Printable"),
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound("unwrap", &[], ELEM, None, Ownership::Borrow, false),
     MethodDef::compound(
         "unwrap_or",

@@ -17,6 +17,7 @@ declare_builtins! { emitter, ctx;
     ("Option", "unwrap_or") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "expect") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "debug") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "to_str") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "clone") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     // Option — monadic/closure methods
     ("Option", "map") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
@@ -42,7 +43,8 @@ declare_builtins! { emitter, ctx;
     ("Result", "unwrap_or") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, true),
+    ("Result", "to_str") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, false),
     ("Result", "ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),

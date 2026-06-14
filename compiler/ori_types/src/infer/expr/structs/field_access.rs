@@ -103,7 +103,7 @@ pub(crate) fn infer_field(
 ///
 /// Only reports errors when the struct is known but the field doesn't exist —
 /// a case where we can give a definitive, useful error message.
-fn infer_struct_field(
+pub(crate) fn infer_struct_field(
     engine: &mut InferEngine<'_>,
     type_name: Name,
     type_args: Option<Vec<Idx>>,

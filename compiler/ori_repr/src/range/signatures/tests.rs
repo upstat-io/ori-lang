@@ -55,6 +55,7 @@ fn build_simple_func(
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -267,6 +268,7 @@ fn build_branching_caller(
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -565,6 +567,7 @@ fn self_recursive_converges_or_widens() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -843,6 +846,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -933,6 +937,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1102,6 +1107,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1579,6 +1585,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1767,6 +1774,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1898,6 +1906,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }
@@ -1980,6 +1989,7 @@ fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFu
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     }
 }

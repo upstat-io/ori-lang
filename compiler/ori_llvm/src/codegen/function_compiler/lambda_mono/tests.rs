@@ -40,6 +40,7 @@ fn make_func_with_reprs(
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }

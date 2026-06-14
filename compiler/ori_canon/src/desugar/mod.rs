@@ -15,7 +15,9 @@
 //!
 //! See `eval_v2` Section 02.3 for the full desugaring specification.
 
+mod assign_target;
 mod calls;
+mod format;
 mod spread;
 
 use ori_ir::canon::CanExpr;
@@ -54,18 +56,14 @@ impl Lowerer<'_> {
             let expr = self.lower_expr(expr_id);
             let expr_ty = self.arena.ty(expr);
 
-            // If a format spec is present, use FormatWith (even for strings —
-            // they may need width/alignment/precision).
-            // Otherwise, wrap non-string expressions in .to_str().
+            // If a format spec is present, desugar the interpolation:
+            //   - primitive expr_ty → `FormatWith` (the `ori_format_*` fast path)
+            //   - non-primitive with explicit `Formattable` impl → user `format()`
+            //   - non-primitive Printable-only → `to_str()` + str `FormatWith`
+            // Spec: 14-expressions.md:1262 + 09-properties-of-types.md:231.
+            // Otherwise (no spec), wrap non-string expressions in `.to_str()`.
             let str_expr = if format_spec != Name::EMPTY {
-                self.push(
-                    CanExpr::FormatWith {
-                        expr,
-                        spec: format_spec,
-                    },
-                    span,
-                    TypeId::STR,
-                )
+                self.desugar_format_with(expr, expr_ty, format_spec, span)
             } else if expr_ty == TypeId::STR {
                 expr
             } else {

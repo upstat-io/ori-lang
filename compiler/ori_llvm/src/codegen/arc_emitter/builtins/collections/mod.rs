@@ -294,7 +294,14 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "debug") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_debug(ctx.arg_vals[0], *element)
+            emitter.emit_list_debug(ctx.arg_vals[0], *element, true)
+        } else {
+            None
+        }
+    },
+    ("list", "to_str") => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_debug(ctx.arg_vals[0], *element, false)
         } else {
             None
         }
@@ -309,7 +316,14 @@ declare_builtins! { emitter, ctx;
     // map
     ("map", "debug") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value)
+            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value, true)
+        } else {
+            None
+        }
+    },
+    ("map", "to_str") => {
+        if let TypeInfo::Map { key, value } = ctx.type_info {
+            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value, false)
         } else {
             None
         }
@@ -406,7 +420,14 @@ declare_builtins! { emitter, ctx;
     // Set
     ("Set", "debug") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_set_debug(ctx.arg_vals[0], *element)
+            emitter.emit_set_debug(ctx.arg_vals[0], *element, true)
+        } else {
+            None
+        }
+    },
+    ("Set", "to_str") => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_set_debug(ctx.arg_vals[0], *element, false)
         } else {
             None
         }

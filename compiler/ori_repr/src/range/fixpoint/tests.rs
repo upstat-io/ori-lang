@@ -146,6 +146,7 @@ fn fixpoint_budget_exceeded() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -190,6 +191,7 @@ fn fixpoint_constant_let() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -281,6 +283,7 @@ fn fixpoint_return_range_join() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -381,6 +384,7 @@ fn fixpoint_block_param_merging() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -481,6 +485,7 @@ fn fixpoint_branch_refines_non_param_variable() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -562,6 +567,7 @@ fn fixpoint_switch_refines_non_param_variable() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -633,6 +639,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -732,6 +739,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -840,6 +848,7 @@ fn fixpoint_switch_default_gets_complement() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -957,6 +966,7 @@ fn build_multi_pred_switch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
     (func, v_y)
@@ -1079,6 +1089,7 @@ fn build_bounded_loop_func(limit: i64) -> (ori_arc::ir::ArcFunction, ArcVarId) {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1220,6 +1231,7 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
     (func, v_y)
@@ -1445,6 +1457,7 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1539,6 +1552,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1624,6 +1638,7 @@ fn fixpoint_invoke_defines_dst_variable() {
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 
@@ -1842,6 +1857,7 @@ fn build_real_loop_func(
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
+        reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
     };
 

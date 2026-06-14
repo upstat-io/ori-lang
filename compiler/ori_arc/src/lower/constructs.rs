@@ -334,12 +334,17 @@ impl ArcLowerer<'_> {
             Some(span),
         );
 
+        // Non-primitive FormatWith is desugared in ori_canon (user `format()`
+        // dispatch or `to_str()` re-route), so only the 5 primitive arms reach
+        // here. The catch-all unreachable keeps a missed canon path loud rather
+        // than silently miscompiling a struct pointer to `ori_format_int`.
         let runtime_fn = match inner_ty {
+            Idx::INT => "ori_format_int",
             Idx::FLOAT => "ori_format_float",
             Idx::BOOL => "ori_format_bool",
             Idx::CHAR => "ori_format_char",
             Idx::STR => "ori_format_str",
-            _ => "ori_format_int",
+            _ => unreachable!("non-primitive FormatWith desugared in ori_canon"),
         };
 
         let fn_name = self.interner.intern(runtime_fn);

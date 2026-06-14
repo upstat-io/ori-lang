@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn map_method_count() {
-    assert_eq!(MAP.methods.len(), 19);
+    assert_eq!(MAP.methods.len(), 20);
 }
 
 #[test]

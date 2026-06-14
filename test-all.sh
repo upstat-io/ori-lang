@@ -90,6 +90,19 @@ AOT_OUTPUT=$(mktemp)
 WASM_OUTPUT=$(mktemp)
 ORI_INTERP_OUTPUT=$(mktemp)
 ORI_LLVM_OUTPUT=$(mktemp)
+# Machine-readable runner JSON (`ori test --format json`) per backend, written
+# to disc-backed files (single run per backend; the console summary + failure
+# detail are reconstructed from these via diagnostics/parse_test_json.py — no
+# second runner invocation). $ORI_*_OUTPUT capture the runner's stderr so a
+# crash diagnostic survives even when stdout carries no parseable JSON.
+ORI_INTERP_JSON="$(dirname "$0")/build/ori-interp-results.json"
+ORI_LLVM_JSON="$(dirname "$0")/build/ori-llvm-results.json"
+PARSE_TEST_JSON="$(dirname "$0")/diagnostics/parse_test_json.py"
+
+# Stale runner-JSON from a prior run would mask a current build-failure (the
+# -f guard at parse time would parse last run's results). Remove up front so a
+# present file always means THIS run produced it.
+rm -f "$ORI_INTERP_JSON" "$ORI_LLVM_JSON"
 
 # Cleanup temp files on exit
 cleanup() {
@@ -106,9 +119,6 @@ AOT_EXIT=0
 WASM_EXIT=0
 ORI_INTERP_EXIT=0
 ORI_LLVM_EXIT=0
-# Walking-skeleton JSON-spine probe (throwaway scaffold; a later durable
-# all-suites JSON-consumption path replaces it).
-WALKING_SKELETON_JSON_EXIT=0
 
 # --- Verification gates (enabled by default) ---
 # ARC IR verification: checks RC balance, drop placement after AIMS pipeline.
@@ -117,39 +127,6 @@ export ORI_VERIFY_ARC=1
 # LLVM pass verification: verifies IR well-formedness after every optimization pass.
 # Measured overhead: ~20% wall time (54s vs ~45s baseline), within 150s budget.
 export ORI_VERIFY_EACH=1
-
-# --- JSON-spine probe (THROWAWAY SCAFFOLD) ---
-# Proves the JSON spine end-to-end on ONE suite: the runner emits a structured
-# object behind --format=json carrying aggregate counts plus a per-file/per-test
-# payload (runner-emit), this harness consumes its top-level `passed` via python3
-# json.load rather than a bash text scrape (harness-consume), asserts the parsed
-# count equals the text-leg count (parity), and writes the object to a disc-backed
-# artifact (record). A later durable all-suites JSON-consumption path retires
-# this scaffold.
-WALKING_SKELETON_JSON_SUITE="tests/spec/test_coalesce_copy.ori"
-WALKING_SKELETON_JSON_RECORD="$(dirname "$0")/build/walking-skeleton-json-probe.json"
-walking_skeleton_json_probe() {
-    local bin="./target/debug/ori"
-    [ -x "$bin" ] || { echo "walking-skeleton json probe: ori binary missing"; return 1; }
-    [ -e "$WALKING_SKELETON_JSON_SUITE" ] || { echo "walking-skeleton json probe: suite $WALKING_SKELETON_JSON_SUITE missing"; return 1; }
-    local json json_passed text_passed
-    json=$("$bin" test --format=json "$WALKING_SKELETON_JSON_SUITE" 2>/dev/null)
-    # Harness-consume leg: parse via python3 json.load (NOT a bash text scrape).
-    json_passed=$(printf '%s' "$json" | python3 -c "import json,sys; print(json.load(sys.stdin)['passed'])" 2>/dev/null) \
-        || { echo "walking-skeleton json probe: json.load failed on: $json"; return 1; }
-    # Text leg: the legacy scrape, retained only for the parity comparison.
-    text_passed=$("$bin" test "$WALKING_SKELETON_JSON_SUITE" 2>/dev/null \
-        | grep -oE "[0-9]+ passed" | head -1 | grep -oE "[0-9]+")
-    if [ "$json_passed" != "$text_passed" ]; then
-        echo "walking-skeleton json probe: PARITY MISMATCH (json=$json_passed text=$text_passed)"
-        return 1
-    fi
-    # Record leg: one number reaches a disc-backed artifact.
-    mkdir -p "$(dirname "$WALKING_SKELETON_JSON_RECORD")"
-    printf '%s\n' "$json" > "$WALKING_SKELETON_JSON_RECORD"
-    echo "walking-skeleton json probe: OK (passed=$json_passed, parity with text leg, recorded to $WALKING_SKELETON_JSON_RECORD)"
-    return 0
-}
 
 # --- Test runner functions ---
 
@@ -282,8 +259,13 @@ run_ori_interpreter() {
     echo "=== Running Ori language tests (interpreter) ==="
     # Use pre-built binary directly to avoid cargo lock contention.
     # target/debug/ori exists after workspace tests compile oric.
-    if ./target/debug/ori test --verbose tests/ > "$ORI_INTERP_OUTPUT" 2>&1; then
-        grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_INTERP_OUTPUT" | tail -1 | sed 's/^/  /'
+    # ONE invocation: machine-readable JSON to a file, stderr to the capture.
+    # The console summary is reconstructed from the JSON (no second text run).
+    mkdir -p "$(dirname "$ORI_INTERP_JSON")"
+    ./target/debug/ori test --format json tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
+    local exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        python3 "$PARSE_TEST_JSON" --summary-line "$ORI_INTERP_JSON" | sed 's/^/  /'
         return 0
     else
         echo "  ✗ Ori interpreter tests FAILED"
@@ -299,15 +281,21 @@ run_ori_llvm() {
         MINGW*|MSYS*|CYGWIN*|*NT*)
             echo "  (skipped on Windows — JIT recovery not supported; AOT tests cover LLVM codegen)"
             echo "skipped" > "$ORI_LLVM_OUTPUT"
+            # Write a valid empty-summary JSON so parse_ori_results reads zeros
+            # cleanly (a missing/empty file would trip the parse-error fallback).
+            mkdir -p "$(dirname "$ORI_LLVM_JSON")"
+            printf '%s\n' '{"files":[],"passed":0,"failed":0,"skipped":0,"skipped_unchanged":0,"llvm_compile_fail":0,"error_files":0,"llvm_compile_fail_files":0,"duration_ns":0}' > "$ORI_LLVM_JSON"
             return 0
             ;;
     esac
     # Assumes LLVM release build (target/release/ori + libori_rt.a) was done in a prior phase.
-    # Capture both stdout and stderr
-    ./target/release/ori test --verbose --backend=llvm tests/ > "$ORI_LLVM_OUTPUT" 2>&1
+    # ONE invocation: machine-readable JSON to a file, stderr to the capture
+    # (so a crash diagnostic survives when stdout carries no parseable JSON).
+    mkdir -p "$(dirname "$ORI_LLVM_JSON")"
+    ./target/release/ori test --format json --backend=llvm tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
-        grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_LLVM_OUTPUT" | tail -1 | sed 's/^/  /'
+        python3 "$PARSE_TEST_JSON" --summary-line "$ORI_LLVM_JSON" | sed 's/^/  /'
         return 0
     elif [ $exit_code -gt 128 ]; then
         # Process was killed by signal (128 + signal number)
@@ -341,12 +329,23 @@ parse_rust_results() {
     eval "${prefix}_IGNORED=$ignored"
 }
 
+# Populate ${prefix}_{PASSED,FAILED,SKIPPED,LCFAIL,CRASHED} from the runner's
+# `--format json` object via diagnostics/parse_test_json.py. The text scrape of
+# the human summary line is retired; the helper json.loads the same pinned
+# schema the runner serializes.
+#
+# Parse-error fallback (per the JSON parse-error contract): a non-zero helper
+# exit (malformed JSON: crash, stderr leakage, partial output) sets the counts
+# to a HARD-failure sentinel (FAILED=1, never bare-empty which breaks `$(( ))`)
+# AND propagates to ${prefix}_EXIT so ANY_CORE_FAILED catches it. NEVER a silent
+# default-zero — default-zero is what masked the malformed-output bug.
 parse_ori_results() {
-    local output_file=$1
+    local json_file=$1
     local prefix=$2
     local exit_code=$3  # Pass exit code to detect crashes
 
-    # Check for crash (signal-terminated process)
+    # Check for crash (signal-terminated process) — keys on exit code, not
+    # output text; unchanged by the JSON migration.
     if [ "${exit_code:-0}" -gt 128 ]; then
         eval "${prefix}_PASSED=0"
         eval "${prefix}_FAILED=0"
@@ -356,18 +355,24 @@ parse_ori_results() {
         return
     fi
 
-    local line=$(grep -E "[0-9]+ passed, [0-9]+ failed" "$output_file" 2>/dev/null | tail -1)
-    local nums=($(echo "$line" | grep -oE '[0-9]+'))
+    local counts
+    if ! counts=$(python3 "$PARSE_TEST_JSON" --counts "$json_file" 2>/dev/null); then
+        # Malformed runner JSON: mark a hard suite failure and force the run red.
+        echo "  ✗ ${prefix}: runner emitted invalid JSON (parse-error) — failing the suite" >&2
+        eval "${prefix}_PASSED=0"
+        eval "${prefix}_FAILED=1"
+        eval "${prefix}_SKIPPED=0"
+        eval "${prefix}_LCFAIL=0"
+        eval "${prefix}_CRASHED=0"
+        eval "${prefix}_EXIT=1"
+        return
+    fi
 
-    eval "${prefix}_PASSED=${nums[0]:-0}"
-    eval "${prefix}_FAILED=${nums[1]:-0}"
-    eval "${prefix}_SKIPPED=${nums[2]:-0}"
-    eval "${prefix}_CRASHED=0"
-
-    # Extract LLVM compile fail count (appears as "N llvm compile fail" in summary)
-    # Use grep -o for macOS compatibility (no -P needed)
-    local lcfail=$(echo "$line" | grep -o '[0-9]* llvm compile fail' | grep -o '[0-9]*')
-    eval "${prefix}_LCFAIL=${lcfail:-0}"
+    # Helper emits KEY=value lines (PASSED/FAILED/SKIPPED/LCFAIL/CRASHED).
+    local key value
+    while IFS='=' read -r key value; do
+        [ -n "$key" ] && eval "${prefix}_${key}=${value}"
+    done <<< "$counts"
 }
 
 # SSOT for a suite's status. Derives from exit code AND parsed counts so a
@@ -617,9 +622,12 @@ if [[ $VERBOSE -eq 1 ]]; then
     cat "$WASM_OUTPUT"
     echo ""
     echo "--- Ori interpreter tests ---"
+    # Display-only; non-fatal under set -e (parse-error fallback owns marking).
+    { [ -f "$ORI_INTERP_JSON" ] && python3 "$PARSE_TEST_JSON" --fail-lines "$ORI_INTERP_JSON" 2>/dev/null; } || true
     cat "$ORI_INTERP_OUTPUT"
     echo ""
     echo "--- Ori LLVM tests ---"
+    { [ -f "$ORI_LLVM_JSON" ] && python3 "$PARSE_TEST_JSON" --fail-lines "$ORI_LLVM_JSON" 2>/dev/null; } || true
     cat "$ORI_LLVM_OUTPUT"
 else
     # Show output only for failed tests
@@ -651,11 +659,18 @@ else
     if [[ $ORI_INTERP_EXIT -ne 0 ]]; then
         echo ""
         echo -e "${RED}--- Ori interpreter test failures ---${NC}"
+        # Per-failure detail reconstructed from the runner JSON; stderr (crash
+        # diagnostics) appended after. Display-only: a malformed-JSON helper exit
+        # must NOT abort the run under set -e — the parse-error fallback in
+        # parse_ori_results (below) owns detection + suite marking + emit_json.
+        { [ -f "$ORI_INTERP_JSON" ] && python3 "$PARSE_TEST_JSON" --fail-lines "$ORI_INTERP_JSON" 2>/dev/null; } || true
         cat "$ORI_INTERP_OUTPUT"
     fi
     if [[ $ORI_LLVM_EXIT -ne 0 ]]; then
         echo ""
         echo -e "${RED}--- Ori LLVM test failures ---${NC}"
+        # Display-only; non-fatal under set -e (parse-error fallback owns marking).
+        { [ -f "$ORI_LLVM_JSON" ] && python3 "$PARSE_TEST_JSON" --fail-lines "$ORI_LLVM_JSON" 2>/dev/null; } || true
         cat "$ORI_LLVM_OUTPUT"
     fi
 fi
@@ -666,13 +681,14 @@ parse_rust_results "$RUST_RT_OUTPUT" "RUST_RT"
 parse_rust_results "$RUST_LLVM_OUTPUT" "RUST_LLVM"
 parse_rust_results "$AOT_OUTPUT" "AOT"
 parse_rust_results "$DOCTEST_OUTPUT" "DOCTEST"
-parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP" "$ORI_INTERP_EXIT"
-parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
-
-# Walking-skeleton JSON-spine probe: runs after the debug binary is built
-# (the interpreter suite above relies on ./target/debug/ori). A parity
-# mismatch or a json.load failure fails the run via ANY_CORE_FAILED below.
-walking_skeleton_json_probe || WALKING_SKELETON_JSON_EXIT=$?
+parse_ori_results "$ORI_INTERP_JSON" "ORI_INTERP" "$ORI_INTERP_EXIT"
+# LLVM JSON exists only when run_ori_llvm ran (or Windows-skip wrote an empty
+# summary). When the LLVM release build failed, run_ori_llvm is never dispatched
+# and ORI_LLVM_EXIT is already 1 (rendered "BUILD FAILED"); skip parsing so a
+# legitimately-absent file does not trip the parse-error fallback.
+if [ -f "$ORI_LLVM_JSON" ]; then
+    parse_ori_results "$ORI_LLVM_JSON" "ORI_LLVM" "$ORI_LLVM_EXIT"
+fi
 
 # Count AOT tests that failed specifically due to memory leaks.
 # assert_aot_success panics with "leaked memory" when exit code is 2.
@@ -802,72 +818,39 @@ if [[ $EMIT_JSON -eq 0 ]] && [[ $RUST_LLVM_EXIT -ne 0 || $AOT_EXIT -ne 0 || $ORI
 fi
 
 # --- Emit JSON if requested ---
-# JSON-escape a string for a summary failure object. Strip the rare invisible
-# C0 + DEL controls (no diagnostic value), then escape backslash, double-quote,
-# and the meaningful controls tab/newline/CR per RFC 8259 §7. Uses bash
-# parameter expansion: a bash variable holds embedded tab/newline/CR directly,
-# so the escaping has no awk-FS / awk-stdin or line-oriented-sed pitfall (a
-# naive `sed s/\n/.../` cannot match a newline in pattern space; awk in a pipe
-# inside a `while read` loop mis-handles the record). Order is load-bearing:
-# backslash escapes FIRST so a later "->\" does not double-escape the inserted
-# backslash. SSOT for both parse_*_failures.
-json_escape_string() {
-    local s
-    # Strip the rare-C0/DEL range (keep tab 0x09 / LF 0x0a / CR 0x0d for escaping).
-    s=$(printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037\177')
-    s="${s//\\/\\\\}"      # backslash -> \\  (FIRST)
-    s="${s//\"/\\\"}"      # double-quote -> \"
-    s="${s//$'\t'/\\t}"    # tab -> \t
-    s="${s//$'\n'/\\n}"    # newline -> \n
-    s="${s//$'\r'/\\r}"    # CR -> \r
-    printf '%s' "$s"
-}
-
-# Parse individual Rust test failures from a cargo test output log.
-# Emits JSON array of failure objects on stdout.
-parse_rust_failures() {
-    local output_file="$1"
-    local suite_id="$2"
-    local failure_kind="$3"  # default failure kind
-    [ ! -f "$output_file" ] && { echo '[]'; return; }
-    local entries=""
-    while IFS= read -r line; do
-        # Match: "test <name> ... FAILED"
-        if [[ "$line" =~ ^test[[:space:]](.*)[[:space:]]\.\.\.[[:space:]]FAILED$ ]]; then
-            local test_name="${BASH_REMATCH[1]}"
-            local escaped_test_name
-            escaped_test_name=$(json_escape_string "$test_name")
-            local kind="$failure_kind"
-            # Try to classify more precisely from surrounding output
-            if grep -q "panicked at" "$output_file" 2>/dev/null; then kind="panic"; fi
-            local escaped_kind
-            escaped_kind=$(printf '%s' "$kind")
-            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"rust\", \"suite\": \"$suite_id\", \"failure_kind\": \"$escaped_kind\", \"error_message\": \"test $escaped_test_name ... FAILED\" }"$'\n'
-        fi
-    done < "$output_file"
-    # Emit as JSON array
-    echo "$entries" | grep -v '^$' | sed '$!s/$/,/' | (echo '['; cat; echo '  ]') 2>/dev/null || echo '[]'
-}
-
-# Parse Ori test failures from an ori test runner output log.
-# Emits JSON array of failure objects on stdout.
-parse_ori_failures() {
+# Rust (cargo/libtest) failures: scrape `test <name> ... FAILED` lines from the
+# cargo text log via diagnostics/parse_test_json.py --rust-failures. The helper
+# is the single JSON-emission home (json.dumps escapes control chars by
+# construction), so the harness carries no hand-rolled bash string escaper.
+# Emits a single-line JSON array on stdout. cargo/libtest output is NOT the Ori
+# runner JSON; it keeps its text scrape per the migration boundary.
+rust_failures_json() {
     local output_file="$1"
     local suite_id="$2"
     [ ! -f "$output_file" ] && { echo '[]'; return; }
-    local entries=""
-    while IFS= read -r line; do
-        # Match: lines containing "FAIL" (Ori test runner output)
-        if [[ "$line" =~ FAIL ]]; then
-            local test_name
-            test_name=$(echo "$line" | sed 's/.*\[FAIL\] //' | sed 's/FAILED //' | tr -d '\n\r')
-            local escaped_test_name escaped_error_msg
-            escaped_test_name=$(json_escape_string "$test_name")
-            escaped_error_msg=$(json_escape_string "$line")
-            entries+="    { \"test_id\": \"$escaped_test_name\", \"test_id_kind\": \"ori_spec\", \"suite\": \"$suite_id\", \"failure_kind\": \"assertion_failure\", \"error_message\": \"$escaped_error_msg\" }"$'\n'
-        fi
-    done < "$output_file"
-    echo "$entries" | grep -v '^$' | sed '$!s/$/,/' | (echo '['; cat; echo '  ]') 2>/dev/null || echo '[]'
+    python3 "$PARSE_TEST_JSON" --rust-failures --suite "$suite_id" "$output_file" 2>/dev/null \
+        || echo '[]'
+}
+
+# Ori failures: read the runner's --format json per-test payload via
+# diagnostics/parse_test_json.py --failures-json. Supersedes the bash escaper
+# entirely (the runner serde-escapes failure messages; json.dumps re-escapes on
+# emit). Emits a single-line JSON array on stdout.
+ori_failures_json() {
+    local json_file="$1"
+    local suite_id="$2"
+    [ ! -f "$json_file" ] && { echo '[]'; return; }
+    python3 "$PARSE_TEST_JSON" --failures-json --suite "$suite_id" "$json_file" 2>/dev/null \
+        || echo '[]'
+}
+
+# Strip the surrounding [ ] of a single-line JSON array, yielding its inner
+# objects (or empty for `[]`). The helper emits compact single-line arrays.
+json_array_inner() {
+    local arr="$1"
+    arr="${arr#\[}"
+    arr="${arr%\]}"
+    printf '%s' "$arr"
 }
 
 emit_json() {
@@ -879,30 +862,28 @@ emit_json() {
 
     # Parse individual failures from each suite log
     local rust_failures ori_interp_failures ori_llvm_failures rt_failures rust_llvm_failures aot_failures
-    rust_failures=$(parse_rust_failures "$RUST_OUTPUT" "rust_workspace" "panic")
-    rt_failures=$(parse_rust_failures "$RUST_RT_OUTPUT" "rust_rt" "panic")
-    rust_llvm_failures=$(parse_rust_failures "$RUST_LLVM_OUTPUT" "rust_llvm" "panic")
+    rust_failures=$(rust_failures_json "$RUST_OUTPUT" "rust_workspace")
+    rt_failures=$(rust_failures_json "$RUST_RT_OUTPUT" "rust_rt")
+    rust_llvm_failures=$(rust_failures_json "$RUST_LLVM_OUTPUT" "rust_llvm")
     local doctest_failures
-    doctest_failures=$(parse_rust_failures "$DOCTEST_OUTPUT" "rust_doctest" "panic")
-    aot_failures=$(parse_rust_failures "$AOT_OUTPUT" "aot" "panic")
-    ori_interp_failures=$(parse_ori_failures "$ORI_INTERP_OUTPUT" "ori_interp")
-    ori_llvm_failures=$(parse_ori_failures "$ORI_LLVM_OUTPUT" "ori_llvm")
+    doctest_failures=$(rust_failures_json "$DOCTEST_OUTPUT" "rust_doctest")
+    aot_failures=$(rust_failures_json "$AOT_OUTPUT" "aot")
+    ori_interp_failures=$(ori_failures_json "$ORI_INTERP_JSON" "ori_interp")
+    ori_llvm_failures=$(ori_failures_json "$ORI_LLVM_JSON" "ori_llvm")
 
-    # Combine all failures
-    # Build combined failures array by stripping outer brackets and concatenating
-    local all_failures=""
+    # Combine all failures: strip each array's outer [ ], join the inner objects
+    # with commas. Each helper emits a compact single-line JSON array.
+    local all_failures="" inner
     for failures in "$rust_failures" "$rt_failures" "$rust_llvm_failures" "$aot_failures" "$ori_interp_failures" "$ori_llvm_failures"; do
-        local inner
-        inner=$(echo "$failures" | sed '1d;$d' | grep -v '^$' || true)
+        inner=$(json_array_inner "$failures")
         if [ -n "$inner" ]; then
             if [ -n "$all_failures" ]; then
-                all_failures+=",$inner"$'\n'
+                all_failures+=",$inner"
             else
-                all_failures="$inner"$'\n'
+                all_failures="$inner"
             fi
         fi
     done
-    all_failures=${all_failures%,$'\n'}
 
     # Helper: emit a suite entry for per_suite (includes stable id + display_name).
     # $8 is the suite exit code: a nonzero exit with no parsed failures means the
@@ -974,7 +955,7 @@ emit_json() {
 # no parseable results), counts toward ANY_CORE_FAILED and fails the run. A
 # build failure or crash is never a silent green; the divergence where local
 # read green while CI read red came from suites reporting 0/0 "passed".
-ANY_CORE_FAILED=$((RUST_EXIT + DOCTEST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT + WALKING_SKELETON_JSON_EXIT))
+ANY_CORE_FAILED=$((RUST_EXIT + DOCTEST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT))
 ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
 
 if [ -n "$ERRORED_SUITES" ]; then

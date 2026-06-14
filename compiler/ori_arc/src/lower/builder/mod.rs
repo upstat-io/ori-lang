@@ -70,6 +70,10 @@ pub(crate) struct ArcIrBuilder {
     /// target instead of `Resume`. Used by `catch(expr:)` lowering to
     /// redirect panics to a shared catch handler block.
     pub(super) catch_unwind_target: Option<ArcBlockId>,
+    /// Mutable-`Ident` reassignment death points `(old_var, new_var)` recorded
+    /// by `lower_assign`. Threaded into `ArcFunction::reassign_deaths` by
+    /// [`finish`](Self::finish) for the burden Phase-5 reassign-release scan.
+    pub(super) reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
 }
 
 impl Default for ArcIrBuilder {
@@ -88,6 +92,7 @@ impl ArcIrBuilder {
             next_var: 0,
             var_types: Vec::new(),
             catch_unwind_target: None,
+            reassign_deaths: Vec::new(),
         }
     }
 
@@ -435,6 +440,7 @@ impl ArcIrBuilder {
             drop_hints: crate::uniqueness::DropHints::default(),
             tail_calls: Vec::new(),
             burden_emitted: Vec::new(),
+            reassign_deaths: self.reassign_deaths,
         }
     }
 }

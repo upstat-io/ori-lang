@@ -27,10 +27,11 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_rebuild_lineage_dead_param_releases,
-    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
+    compute_live_out_owned, compute_reassign_rebind_releases,
+    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
+    compute_transfer_through_return_results, compute_transfer_via_move_alias,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases, instr_transfer_vars,
+    list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -455,6 +456,29 @@ pub(crate) fn emit_burden_ops<'a>(
             inc_suppressed_vars.insert(var);
         }
     }
+
+    // RL-2 mutable-`Ident` reassignment release: a rebind `x = e`
+    // orphans the binding's prior value; when that value carries a KEPT
+    // FRESH-site inc (`∉ inc_suppressed_vars`, `∉ full_move_vars`) whose terminal
+    // scope-exit dec was SUPPRESSED (`∈ transfer_via_move_alias`) — the
+    // self-referential `xs = xs.updated(.., xs[i] + c)` shape where the
+    // dup-terminal-move alias is a borrow-read that transfers nothing — the
+    // value leaks (+1). Emit EXACTLY ONE `BurdenDec(old_var)` at the rebind
+    // (after `new_var`'s defining `Let`), merged into the same placed-release
+    // surface as the forwarder-result releases (contains-gated — never two
+    // releases of one binding value at one rebind). A genuinely-transferred /
+    // branch-consumed binding value fails the kept-inc gate and is left to the
+    // existing transfer / branch machinery. Toggle
+    // `ORI_DISABLE_REASSIGN_REBIND_RELEASE=1` (the scan owns it). SSOT:
+    // `compute_reassign_rebind_releases`. Spec: Annex E §AIMS RL-2.
+    let reassign_rebind_releases = compute_reassign_rebind_releases(
+        func,
+        &owned_vars_needing_rc,
+        &transfer_via_move_alias,
+        &inc_suppressed_vars,
+        &full_move_vars,
+    );
+    merge_release_vars(&mut forwarder_result_releases, reassign_rebind_releases);
 
     // RL-4 live-out suppression set (`Spec: Annex E §AIMS RL-4`): a per-block
     // last-use `BurdenDec` is a genuine release only when the var is dead at

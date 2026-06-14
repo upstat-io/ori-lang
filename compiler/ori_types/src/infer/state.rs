@@ -96,6 +96,24 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.mono_instances)
     }
 
+    // Assignment-Target Desugar Recording
+
+    /// Record the type-directed desugar plan for an `AssignTarget` chain.
+    ///
+    /// `key` is the module-wide AST `ExprId` of the `AssignTarget` node;
+    /// `level_types` are the resolved receiver-read types per chain level
+    /// (length `steps + 1`). Consumed downstream by `ori_canon` to synthesize
+    /// the pure-reassignment form.
+    pub fn record_assign_desugar(&mut self, key: ExprId, level_types: Vec<Idx>) {
+        self.assign_desugars
+            .push((key, crate::AssignDesugar { level_types }));
+    }
+
+    /// Take assignment-target desugar plans, leaving an empty vector.
+    pub fn take_assign_desugars(&mut self) -> Vec<(ExprId, crate::AssignDesugar)> {
+        std::mem::take(&mut self.assign_desugars)
+    }
+
     /// Take mono dispatch pre-dedup entries, leaving an empty vector.
     pub fn take_mono_dispatch_pre_dedup(&mut self) -> Vec<(ExprId, MonoInstanceId)> {
         std::mem::take(&mut self.mono_dispatch_pre_dedup)

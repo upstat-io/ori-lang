@@ -308,6 +308,15 @@ pub(crate) struct Lowerer<'a> {
     /// `finish` sorts by `CanId.raw()` for binary-search lookup downstream.
     pub(crate) mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
 
+    /// Active index-temp overrides for an in-flight index/field-assignment
+    /// desugar. Maps a source index `ExprId` to the `CanId` of the synthetic
+    /// `let $__assign_idx_N` temporary that hoisted it. While non-empty,
+    /// `lower_expr` returns the mapped temp instead of re-lowering the index —
+    /// guaranteeing a side-effecting index (`arr[f()] += 1`) evaluates exactly
+    /// once across the read-copy and write-copy the parser's compound-assign
+    /// desugar shares. Cleared after the assignment's value + chain are built.
+    pub(crate) index_temp_overrides: rustc_hash::FxHashMap<ExprId, CanId>,
+
     // Pre-interned method names for desugaring.
     // Accessed by: lower, desugar
     pub(crate) name_to_str: Name,
@@ -321,6 +330,14 @@ pub(crate) struct Lowerer<'a> {
     // Pre-interned names for collection specialization.
     pub(crate) name_collect: Name,
     pub(crate) name_collect_set: Name,
+
+    // Pre-interned method name for the index/field-assignment desugar
+    // (`x[i] = v` → `x = x.updated(key: i, value: v)`).
+    pub(crate) name_updated: Name,
+
+    // Pre-interned names for non-primitive `{expr:spec}` desugaring.
+    // `Formattable.format` MethodCall + synthesized `FormatSpec` struct.
+    pub(crate) fmt: FormatDesugarNames,
 }
 
 impl<'a> Lowerer<'a> {
@@ -350,6 +367,7 @@ impl<'a> Lowerer<'a> {
             decision_trees: DecisionTreePool::new(),
             problems: Vec::new(),
             mono_dispatch_map_can: Vec::new(),
+            index_temp_overrides: rustc_hash::FxHashMap::default(),
             name_to_str: interner.intern("to_str"),
             name_concat: interner.intern("concat"),
             name_merge: interner.intern("merge"),
@@ -358,6 +376,8 @@ impl<'a> Lowerer<'a> {
             name_collect: interner.intern("collect"),
             name_collect_set: interner
                 .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name()),
+            name_updated: interner.intern("updated"),
+            fmt: FormatDesugarNames::new(interner),
         }
     }
 
@@ -423,6 +443,72 @@ impl<'a> Lowerer<'a> {
             self.lower_expr(id)
         } else {
             CanId::INVALID
+        }
+    }
+}
+
+/// Pre-interned names for synthesizing the `Formattable.format(self:, spec:)`
+/// `MethodCall` and its `FormatSpec` struct argument during non-primitive
+/// `{expr:spec}` desugaring (`desugar/format.rs`).
+///
+/// Field names + variant names mirror `ori_eval`'s `FormatNames`
+/// (`interpreter/interned_names.rs`) so the synthesized `CanExpr::Struct`
+/// constructs the identical `FormatSpec` shape `build_format_spec_value`
+/// produces — keeping interpreter and LLVM dispatch in parity.
+pub(crate) struct FormatDesugarNames {
+    pub(crate) format: Name,
+    pub(crate) format_spec: Name,
+    // FormatSpec fields (struct field names).
+    pub(crate) fill: Name,
+    pub(crate) align: Name,
+    pub(crate) sign: Name,
+    pub(crate) width: Name,
+    pub(crate) precision: Name,
+    pub(crate) format_type: Name,
+    // Alignment variants.
+    pub(crate) left: Name,
+    pub(crate) center: Name,
+    pub(crate) right: Name,
+    // Sign variants.
+    pub(crate) plus: Name,
+    pub(crate) minus: Name,
+    pub(crate) space: Name,
+    // FormatType variants.
+    pub(crate) binary: Name,
+    pub(crate) octal: Name,
+    pub(crate) hex: Name,
+    pub(crate) hex_upper: Name,
+    pub(crate) exp: Name,
+    pub(crate) exp_upper: Name,
+    pub(crate) fixed: Name,
+    pub(crate) percent: Name,
+}
+
+impl FormatDesugarNames {
+    fn new(interner: &ori_ir::StringInterner) -> Self {
+        Self {
+            format: interner.intern("format"),
+            format_spec: interner.intern("FormatSpec"),
+            fill: interner.intern("fill"),
+            align: interner.intern("align"),
+            sign: interner.intern("sign"),
+            width: interner.intern("width"),
+            precision: interner.intern("precision"),
+            format_type: interner.intern("format_type"),
+            left: interner.intern("Left"),
+            center: interner.intern("Center"),
+            right: interner.intern("Right"),
+            plus: interner.intern("Plus"),
+            minus: interner.intern("Minus"),
+            space: interner.intern("Space"),
+            binary: interner.intern("Binary"),
+            octal: interner.intern("Octal"),
+            hex: interner.intern("Hex"),
+            hex_upper: interner.intern("HexUpper"),
+            exp: interner.intern("Exp"),
+            exp_upper: interner.intern("ExpUpper"),
+            fixed: interner.intern("Fixed"),
+            percent: interner.intern("Percent"),
         }
     }
 }

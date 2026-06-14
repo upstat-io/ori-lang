@@ -2,7 +2,9 @@
 
 mod field_access;
 
-pub(crate) use field_access::{infer_field, infer_index, lookup_struct_field_types};
+pub(crate) use field_access::{
+    infer_field, infer_index, infer_struct_field, lookup_struct_field_types,
+};
 
 use ori_ir::{ExprArena, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};

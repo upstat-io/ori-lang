@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn option_method_count() {
-    assert_eq!(OPTION.methods.len(), 18);
+    assert_eq!(OPTION.methods.len(), 19);
 }
 
 #[test]

@@ -53,6 +53,14 @@ static TUPLE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
     MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "to_str",
+        &[],
+        STR,
+        Some("Printable"),
+        Ownership::Borrow,
+        false,
+    ),
 ];
 
 pub static TUPLE: TypeDef = TypeDef {

@@ -36,12 +36,20 @@ type NamedPoint = { x: int, y: int }
 
 // =============================================================================
 // Parameter root — parameters are not mutable (slips past today: is_mutable None)
+// Wrapped in a lambda so the harness counts it as a test case; lambda params
+// bind via env.bind() -> None, the same root-mutability gap as fn parameters.
+// Pins "parameter" (not "immutable") so the module-wide matcher does not match
+// the $-root / loop-var "immutable binding" errors — w-ba458f55 emits a
+// root-kind-specific message naming the parameter.
 // =============================================================================
 
-#[compile_fail("immutable")]
-@param_root_index_assign (p: [int]) -> int = {
-    p[0] = 9;
-    p[0]
+#[compile_fail("parameter")]
+@param_root_index_assign tests _ () -> void = {
+    let mutate = (p: [int]) -> {
+        p[0] = 9;
+        p[0]
+    };
+    let $first = mutate([1, 2, 3]);
 }
 
 // =============================================================================

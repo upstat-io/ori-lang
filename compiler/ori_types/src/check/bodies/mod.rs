@@ -87,6 +87,11 @@ pub(super) struct BodyOutputs {
     /// `var_id`s are merged into the `validate_body_types` exempt set so they do
     /// not surface a spurious E2005. Empty for bodies without `uses` capabilities.
     pub capability_exempt_var_ids: Vec<u32>,
+    /// Type-directed desugar plans for `ExprKind::AssignTarget` chains in this
+    /// body. Keys are module-wide AST `ExprId`s; `accumulate_assign_desugars`
+    /// extends the checker's accumulator without re-anchoring. Consumed by
+    /// `ori_canon` via [`crate::TypedModule::assign_desugar_map`].
+    pub assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
 }
 
 /// Shared post-inference spine for every body-checking pass (§03.1, §03.2,
@@ -115,6 +120,7 @@ pub(super) fn finalize_body_and_export(
         deferred_mono_calls,
         composed_burdens,
         capability_exempt_var_ids,
+        assign_desugars,
     } = outputs;
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
@@ -162,6 +168,7 @@ pub(super) fn finalize_body_and_export(
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
+    checker.accumulate_assign_desugars(assign_desugars);
 
     // Flush composed burdens into the TypeRegistry. Each entry was
     // accumulated by the body's `InferEngine::record_composed_burden`

@@ -331,7 +331,7 @@ impl Lowerer<'_> {
     }
 
     /// Look up struct field names in order from the type registry.
-    fn resolve_struct_fields(&self, name: Name) -> Option<Vec<Name>> {
+    pub(crate) fn resolve_struct_fields(&self, name: Name) -> Option<Vec<Name>> {
         let type_entry = self.typed.type_def(name)?;
         match &type_entry.kind {
             ori_types::TypeKind::Struct(def) => Some(def.fields.iter().map(|f| f.name).collect()),

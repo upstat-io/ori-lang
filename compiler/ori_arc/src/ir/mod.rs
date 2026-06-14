@@ -483,6 +483,20 @@ pub struct ArcFunction {
     /// realization. Skipped during cache serialization — derived data.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
+    /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs
+    /// recorded by `lower_assign` when `x = e` rebinds a mutable binding.
+    /// `old_var` is the binding's pre-reassignment value (orphaned by the SSA
+    /// rebind); `new_var` is the value `x` now holds (the `Let { dst: new_var,
+    /// value: Var(rhs) }`). The burden Phase-5 reassign-release scan
+    /// (`compute_reassign_rebind_releases`) consumes these to emit the
+    /// scope-rebind `BurdenDec(old_var)` per `Spec: Annex E §AIMS RL-2` (the
+    /// binding's prior value reaches its scope-death at the rebind).
+    ///
+    /// Lowering-recorded structural facts (def-use shape), not derived from
+    /// analysis. Skipped during cache serialization alongside the other
+    /// lowering-time vecs.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
 }
 
 /// Flatten an ARC function cache into a single Vec (parents + lambdas).

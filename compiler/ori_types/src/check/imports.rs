@@ -85,6 +85,15 @@ impl ModuleChecker<'_> {
         self.deferred_mono_calls.extend(calls);
     }
 
+    /// Accumulate `AssignTarget` desugar plans from an inference engine pass.
+    ///
+    /// Keys are module-wide AST `ExprId`s (one arena per module), so entries
+    /// extend without re-anchoring — unlike `accumulate_mono_session`, which
+    /// offsets body-local `MonoInstanceId` indices.
+    pub fn accumulate_assign_desugars(&mut self, desugars: Vec<(ExprId, crate::AssignDesugar)>) {
+        self.assign_desugars.extend(desugars);
+    }
+
     /// Flush composed `UserBurdenSpec` entries from one body-pass session
     /// into the `TypeRegistry`.
     ///

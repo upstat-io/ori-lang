@@ -151,6 +151,14 @@ static MAP_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound(
+        "to_str",
+        &[],
+        STR,
+        Some("Printable"),
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
         "update",
         &UPDATE_PARAMS,
         SELF,

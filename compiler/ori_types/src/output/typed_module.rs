@@ -44,6 +44,59 @@ pub struct ExportedTypeMetadata {
     pub is_public: bool,
 }
 
+/// Type-directed desugar plan for one `ExprKind::AssignTarget` chain.
+///
+/// `ori_types` resolves the type produced at each level of the chain
+/// (`root`, `root` + step 0, `root` + steps 0..1, ...) during
+/// `infer_assign_target`; `ori_canon` consumes the plan to synthesize the
+/// pure-reassignment form (`root = root.updated(...)` / `{ ...root, f: v }`)
+/// in its own `CanArena`. The arena is borrowed immutably during type
+/// checking, so the synthesized nodes are minted in `ori_canon`, where the
+/// mutable arena lives — `ori_types` records only the resolved types the
+/// synthesis needs, keeping the type-direction decision in the type checker
+/// while AIMS sees only the pure reassignment.
+///
+/// `level_types[k]` is the resolved type of the receiver-read after applying
+/// the first `k` access steps: `level_types[0]` is `root`'s type,
+/// `level_types[k]` is the type of reading `root.step0...step(k-1)`. The
+/// vector has `steps.len() + 1` entries.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AssignDesugar {
+    /// Resolved receiver-read type at each chain level (length `steps + 1`).
+    pub level_types: Vec<Idx>,
+}
+
+/// Pool `Idx` values for the builtin `FormatSpec` struct and its `Option<_>`
+/// field types, captured at type-check time.
+///
+/// `ori_canon` consumes these to type the synthesized `FormatSpec` struct
+/// node + its field-value nodes when desugaring a non-primitive `{expr:spec}`
+/// interpolation that dispatches a user `Formattable.format(self:, spec:)`.
+/// Without precise field types the LLVM backend cannot compute the struct
+/// layout. `register_format_spec_type` registers these in every module's pool,
+/// so this is always populated after a successful check.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FormatSpecTypes {
+    /// The `FormatSpec` struct type.
+    pub spec: Idx,
+    /// `Option<char>` — the `fill` field type.
+    pub opt_char: Idx,
+    /// `Option<Alignment>` — the `align` field type.
+    pub opt_alignment: Idx,
+    /// `Option<Sign>` — the `sign` field type.
+    pub opt_sign: Idx,
+    /// `Option<int>` — the `width` and `precision` field types.
+    pub opt_int: Idx,
+    /// `Option<FormatType>` — the `format_type` field type.
+    pub opt_format_type: Idx,
+    /// The `Alignment` enum type (variant-`Ident` node type).
+    pub alignment: Idx,
+    /// The `Sign` enum type (variant-`Ident` node type).
+    pub sign: Idx,
+    /// The `FormatType` enum type (variant-`Ident` node type).
+    pub format_type: Idx,
+}
+
 /// Type-checked module.
 ///
 /// Contains all type information computed by the inference engine.
@@ -153,6 +206,26 @@ pub struct TypedModule {
     /// callee is instantiated with concrete arguments at the call site.
     pub mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>,
 
+    /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
+    ///
+    /// Each entry maps the AST `ExprId` of an `AssignTarget` node to its
+    /// [`AssignDesugar`] plan (the resolved receiver-read type at every chain
+    /// level). `ori_canon` reads this side-table while lowering each
+    /// `ExprKind::AssignTarget`, synthesizing the pure-reassignment form
+    /// (`root = root.updated(...)` / `root = { ...root, f: v }`) so AIMS never
+    /// sees a `CanExpr::Assign { target: Index/Field }`.
+    ///
+    /// Stored as `Vec<(ExprId, AssignDesugar)>` sorted by `ExprId` (NOT
+    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot satisfy
+    /// them. Mirrors `pattern_resolutions` / `mono_dispatch_map`. Lookup is
+    /// binary search via [`Self::resolve_assign_desugar`]. Keys are
+    /// module-wide AST `ExprId`s (the arena is one-per-module), so body-pass
+    /// accumulation extends without re-anchoring.
+    ///
+    /// Empty when no index/field assignment appears in the module.
+    pub assign_desugar_map: Vec<(ExprId, AssignDesugar)>,
+
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
     /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
@@ -190,6 +263,24 @@ pub struct TypedModule {
     /// by `Idx` for Salsa-deterministic output.
     /// Spec: Annex E §AIMS.
     pub collection_burdens: Vec<(Idx, UserBurdenSpec)>,
+
+    /// Self-type `Idx` values carrying an explicit `impl T: Formattable`.
+    ///
+    /// The blanket `impl<T: Printable> T: Formattable` is NOT registered, so
+    /// this set contains ONLY types with a user-written `Formattable` impl.
+    /// `ori_canon` queries `has_formattable_impl` while desugaring a
+    /// non-primitive `{expr:spec}` interpolation to decide between a
+    /// `Formattable.format(self:, spec:)` `MethodCall` (explicit impl present)
+    /// and a `to_str()` + `FormatWith` re-route (Printable-only).
+    /// Sorted ascending for binary-search lookup.
+    /// Spec: 14-expressions.md:1262 + 09-properties-of-types.md:231.
+    pub formattable_impl_types: Vec<Idx>,
+
+    /// Pool idxs for the builtin `FormatSpec` struct + its `Option<_>` field
+    /// types, for typing the synthesized `FormatSpec` struct in `ori_canon`.
+    /// `None` only in synthetic/empty modules where builtin registration ran
+    /// without a pool (isolated tests); a real check always populates it.
+    pub format_spec_types: Option<FormatSpecTypes>,
 }
 
 impl TypedModule {
@@ -211,10 +302,13 @@ impl TypedModule {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_map: Vec::new(),
+            assign_desugar_map: Vec::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
             collection_burdens: Vec::new(),
+            formattable_impl_types: Vec::new(),
+            format_spec_types: None,
         }
     }
 
@@ -266,5 +360,27 @@ impl TypedModule {
             .binary_search_by_key(&key, |(k, _)| *k)
             .ok()
             .map(|idx| &self.pattern_resolutions[idx].1)
+    }
+
+    /// Look up the type-directed desugar plan for an `AssignTarget` `ExprId`.
+    ///
+    /// Returns `Some(&AssignDesugar)` if the type checker recorded a plan for
+    /// this `AssignTarget` node, `None` otherwise. Uses O(log n) binary search
+    /// on the sorted `assign_desugar_map`.
+    pub fn resolve_assign_desugar(&self, key: ExprId) -> Option<&AssignDesugar> {
+        self.assign_desugar_map
+            .binary_search_by_key(&key.raw(), |(eid, _)| eid.raw())
+            .ok()
+            .map(|idx| &self.assign_desugar_map[idx].1)
+    }
+
+    /// Whether `ty` carries an explicit `impl T: Formattable`.
+    ///
+    /// Returns `false` for the blanket-Printable case (no registered impl).
+    /// Uses O(log n) binary search on the sorted `formattable_impl_types` vec.
+    pub fn has_formattable_impl(&self, ty: Idx) -> bool {
+        self.formattable_impl_types
+            .binary_search_by_key(&ty.raw(), |i| i.raw())
+            .is_ok()
     }
 }

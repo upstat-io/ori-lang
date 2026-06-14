@@ -54,7 +54,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Escape control characters in a string without adding quotes.
     ///
     /// Used for map key formatting in `Map.debug()` — matches the
-    /// interpreter's `escape_debug_str` behavior.
+    /// interpreter's `escape_debug_str` behavior (control-char escaping,
+    /// no surrounding quotes).
     pub(super) fn emit_escape_control(&mut self, s: ValueId) -> Option<ValueId> {
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let s_ptr = self
@@ -66,22 +67,91 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[s_ptr], str_ty, "esc.ctrl")
     }
 
-    /// Emit `to_str` for an element of any supported type.
+    /// Emit `to_str` (Printable) for an element of any supported type.
     ///
-    /// Handles primitives (int, float, bool, char, Duration, Size) and str.
-    /// Returns None for complex types (structs, enums) -- caller should
-    /// fall through to the unresolved function path.
+    /// Mirrors [`emit_element_debug`](Self::emit_element_debug) exactly, but
+    /// applies Printable (not Debug) leaf semantics: strings are returned raw
+    /// (not quoted/escaped), chars render as the raw codepoint (not single-
+    /// quoted), and compound types recurse with `is_debug = false`.
+    ///
+    /// Returns a placeholder for truly unsupported types (closures) after
+    /// failing the derived-`to_str` lookup.
     pub(super) fn emit_element_to_str(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
         let type_info = self.type_info.get(ty);
         match &type_info {
+            // Primitives: Printable == raw to_str (char renders raw, not quoted)
             TypeInfo::Int
             | TypeInfo::Duration
             | TypeInfo::Size
             | TypeInfo::Float
             | TypeInfo::Bool
             | TypeInfo::Char => self.emit_to_str(val, &type_info),
+
+            // Str: Printable returns the raw string (no quotes, no escaping)
             TypeInfo::Str => Some(val),
-            _ => None,
+
+            // Byte: decimal via int path (matches emit_element_debug Byte arm)
+            TypeInfo::Byte => {
+                let i64_ty = self
+                    .builder
+                    .register_type(self.builder.scx().type_i64().into());
+                let as_i64 = self.builder.sext(val, i64_ty, "tstr.byte.sext");
+                self.emit_to_str(as_i64, &TypeInfo::Int)
+            }
+
+            // Option: recursive Printable
+            TypeInfo::Option { inner } => {
+                let inner = *inner;
+                let tag = self.builder.extract_value(val, 0, "tstr.opt.tag")?;
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
+                let payload = self.builder.extract_value(val, 1, "tstr.opt.payload")?;
+                self.emit_option_debug_branch(is_some, payload, inner, false)
+            }
+
+            // Result: recursive Printable
+            TypeInfo::Result {
+                ok: ok_ty,
+                err: err_ty,
+            } => {
+                let ok_ty = *ok_ty;
+                let err_ty = *err_ty;
+                self.emit_nested_result_render(val, ty, ok_ty, err_ty, false)
+            }
+
+            // List: element-wise Printable loop
+            TypeInfo::List { element } => {
+                let element = *element;
+                self.emit_list_debug(val, element, false)
+            }
+
+            // Tuple: field-wise Printable
+            TypeInfo::Tuple { elements } => {
+                let elements = elements.clone();
+                self.emit_tuple_debug(val, &elements, false)
+            }
+
+            // Map: entry-wise Printable as `{key: value, ...}`
+            TypeInfo::Map { key, value } => {
+                let key = *key;
+                let value = *value;
+                self.emit_map_debug(val, ty, key, value, false)
+            }
+
+            // Set: element-wise Printable as `Set {elem, ...}`
+            TypeInfo::Set { element } => {
+                let element = *element;
+                self.emit_set_debug(val, element, false)
+            }
+
+            // Generic dispatch: look up the type's compiled .to_str() method
+            // (user structs/enums with #derive(Printable)). Falls back to a
+            // placeholder for types with no compiled to_str.
+            _ => self
+                .emit_derived_to_str_call(val, ty)
+                .or_else(|| self.emit_literal_ori_str("<?>")),
         }
     }
 
@@ -153,32 +223,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             } => {
                 let ok_ty = *ok_ty;
                 let err_ty = *err_ty;
-                self.emit_nested_result_debug(val, ty, ok_ty, err_ty)
+                self.emit_nested_result_render(val, ty, ok_ty, err_ty, true)
             }
 
             // List: element-wise Debug loop
             TypeInfo::List { element } => {
                 let element = *element;
-                self.emit_list_debug(val, element)
+                self.emit_list_debug(val, element, true)
             }
 
             // Tuple: field-wise Debug
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
-                self.emit_tuple_debug(val, &elements)
+                self.emit_tuple_debug(val, &elements, true)
             }
 
             // Map: entry-wise Debug as `{key: value, ...}`
             TypeInfo::Map { key, value } => {
                 let key = *key;
                 let value = *value;
-                self.emit_map_debug(val, ty, key, value)
+                self.emit_map_debug(val, ty, key, value, true)
             }
 
             // Set: element-wise Debug as `Set {elem, ...}`
             TypeInfo::Set { element } => {
                 let element = *element;
-                self.emit_set_debug(val, element)
+                self.emit_set_debug(val, element, true)
             }
 
             // Generic dispatch: look up the type's compiled .debug() method.
@@ -242,10 +312,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    /// Emit `Result.debug()`.
+    /// Emit `Result.debug()` / `Result.to_str()`.
     ///
-    /// - `Ok(v)` -> `"Ok(" + v.debug() + ")"`
-    /// - `Err(e)` -> `"Err(" + e.debug() + ")"`
+    /// - `Ok(v)` -> `"Ok(" + v.debug()|v.to_str() + ")"`
+    /// - `Err(e)` -> `"Err(" + e.debug()|e.to_str() + ")"`
+    ///
+    /// `is_debug` selects Debug vs Printable rendering of the active payload.
     ///
     /// IMPORTANT: Payload extraction and formatting MUST happen inside the
     /// respective branch blocks, not before the branch. The inactive variant's
@@ -254,6 +326,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         arg_vals: &[ValueId],
         receiver_ty: Idx,
+        is_debug: bool,
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
         let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
@@ -281,7 +354,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Ok block: extract ACTIVE payload, format "Ok(" + ok_str + ")"
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
+        let ok_str = if is_debug {
+            self.emit_element_debug(ok_payload, ok_ty)?
+        } else {
+            self.emit_element_to_str(ok_payload, ok_ty)?
+        };
         let ok_prefix = self.emit_literal_ori_str("Ok(")?;
         let ok_suffix = self.emit_literal_ori_str(")")?;
         let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
@@ -293,7 +370,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Err block: extract ACTIVE payload, format "Err(" + err_str + ")"
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = self.emit_element_debug(err_payload, err_ty)?;
+        let err_str = if is_debug {
+            self.emit_element_debug(err_payload, err_ty)?
+        } else {
+            self.emit_element_to_str(err_payload, err_ty)?
+        };
         let err_prefix = self.emit_literal_ori_str("Err(")?;
         let err_suffix = self.emit_literal_ori_str(")")?;
         let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
@@ -311,19 +392,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    /// Emit `Result.debug()` for a nested Result inside `emit_element_debug`.
+    /// Emit `Result.debug()` / `Result.to_str()` for a nested Result inside
+    /// `emit_element_debug` / `emit_element_to_str`.
     ///
     /// Variant of `emit_result_debug` that takes pre-resolved type indices
-    /// instead of reading from `arg_vals`.
+    /// instead of reading from `arg_vals`. `is_debug` selects Debug vs
+    /// Printable rendering of the active payload.
     ///
     /// IMPORTANT: Payload extraction happens inside branches, not before —
     /// inactive variant storage may contain garbage pointers.
-    fn emit_nested_result_debug(
+    fn emit_nested_result_render(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,
         ok_ty: Idx,
         err_ty: Idx,
+        is_debug: bool,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(receiver, 0, "rdbg.n.tag")?;
         let ok_const = self
@@ -346,7 +430,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Ok branch — only format the ACTIVE Ok payload
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
+        let ok_str = if is_debug {
+            self.emit_element_debug(ok_payload, ok_ty)?
+        } else {
+            self.emit_element_to_str(ok_payload, ok_ty)?
+        };
         let ok_prefix = self.emit_literal_ori_str("Ok(")?;
         let ok_suffix = self.emit_literal_ori_str(")")?;
         let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
@@ -358,7 +446,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Err branch — only format the ACTIVE Err payload
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = self.emit_element_debug(err_payload, err_ty)?;
+        let err_str = if is_debug {
+            self.emit_element_debug(err_payload, err_ty)?
+        } else {
+            self.emit_element_to_str(err_payload, err_ty)?
+        };
         let err_prefix = self.emit_literal_ori_str("Err(")?;
         let err_suffix = self.emit_literal_ori_str(")")?;
         let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
@@ -375,11 +467,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    /// Emit `[T].debug()` -- element-wise loop producing `"[e1, e2, ...]"`.
+    /// Emit `[T].debug()` / `[T].to_str()` -- element-wise loop producing
+    /// `"[e1, e2, ...]"`. `is_debug` selects Debug vs Printable element render;
+    /// the bracket/separator literals are identical for both.
     ///
     /// Layout: `{i64 len, i64 cap, ptr data}`.
     /// For empty lists, returns `"[]"` immediately.
-    pub(super) fn emit_list_debug(&mut self, list: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    pub(super) fn emit_list_debug(
+        &mut self,
+        list: ValueId,
+        elem_ty: Idx,
+        is_debug: bool,
+    ) -> Option<ValueId> {
         let len = self.builder.extract_value(list, FIELD_LEN, "ldbg.len")?;
         let data = self.builder.extract_value(list, FIELD_DATA, "ldbg.data")?;
 
@@ -412,7 +511,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr0 = self.builder.gep(elem_llvm_ty, data, &[zero], "ldbg.ep0");
         let elem0 = self.builder.load(elem_llvm_ty, ptr0, "ldbg.e0");
         let elem0 = self.sext_narrowed_int_element(elem0, elem_ty, "ldbg.e0.sext");
-        let elem0_str = self.emit_element_debug(elem0, elem_ty)?;
+        let elem0_str = if is_debug {
+            self.emit_element_debug(elem0, elem_ty)?
+        } else {
+            self.emit_element_to_str(elem0, elem_ty)?
+        };
         let acc_init = self.emit_str_concat(open, elem0_str)?;
         self.dec_intermediate_str(elem0_str);
         let needs_loop = self.builder.icmp_sgt(len, one, "ldbg.needs_loop");
@@ -437,7 +540,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr_i = self.builder.gep(elem_llvm_ty, data, &[idx_phi], "ldbg.epi");
         let elem_i = self.builder.load(elem_llvm_ty, ptr_i, "ldbg.ei");
         let elem_i = self.sext_narrowed_int_element(elem_i, elem_ty, "ldbg.ei.sext");
-        let elem_i_str = self.emit_element_debug(elem_i, elem_ty)?;
+        let elem_i_str = if is_debug {
+            self.emit_element_debug(elem_i, elem_ty)?
+        } else {
+            self.emit_element_to_str(elem_i, elem_ty)?
+        };
         let new_acc = self.emit_str_concat(with_sep, elem_i_str)?;
         self.dec_intermediate_str(with_sep);
         self.dec_intermediate_str(elem_i_str);
@@ -472,8 +579,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(final_phi)
     }
 
-    /// Emit `(A, B, ...).debug()` -- field-wise formatting as `"(a, b, ...)"`.
-    fn emit_tuple_debug(&mut self, tuple: ValueId, elements: &[Idx]) -> Option<ValueId> {
+    /// Emit `(A, B, ...).debug()` / `.to_str()` -- field-wise formatting as
+    /// `"(a, b, ...)"`. `is_debug` selects Debug vs Printable per-field render;
+    /// the parens/separator literals are identical for both.
+    pub(super) fn emit_tuple_debug(
+        &mut self,
+        tuple: ValueId,
+        elements: &[Idx],
+        is_debug: bool,
+    ) -> Option<ValueId> {
         if elements.is_empty() {
             return self.emit_literal_ori_str("()");
         }
@@ -489,7 +603,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let field = self
                 .builder
                 .extract_value(tuple, i as u32, &format!("tdbg.f{i}"))?;
-            let field_str = self.emit_element_debug(field, elem_ty)?;
+            let field_str = if is_debug {
+                self.emit_element_debug(field, elem_ty)?
+            } else {
+                self.emit_element_to_str(field, elem_ty)?
+            };
             let new_acc = self.emit_str_concat(acc, field_str)?;
             self.dec_intermediate_str(acc);
             self.dec_intermediate_str(field_str);
@@ -528,6 +646,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.call_with_sret(func_id, &passed_args, str_ty, "dbg.derived")
             }
             _ => self.emit_rt_call(func_id, &passed_args, "dbg.derived"),
+        }
+    }
+
+    /// Call a compiled `.to_str()` (Printable) method for a type via method
+    /// dispatch. Printable analog of [`emit_derived_debug_call`].
+    ///
+    /// Looks up the type's `to_str` function in `method_functions`, applies
+    /// ABI parameter passing (Indirect for large structs), and handles the
+    /// sret return (`to_str` returns `str` which is 24 bytes -> sret).
+    /// Returns `None` if no compiled `to_str` method exists for the type.
+    pub(super) fn emit_derived_to_str_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let interned_to_str = self.interner.intern("to_str");
+        let (func_id, abi) = {
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_to_str))?;
+            (*fid, abi.clone())
+        };
+
+        let raw_args = [val];
+        let passed_args = self.apply_param_passing(&raw_args, None, &abi.params);
+
+        // to_str returns str (24 bytes), which uses sret return convention.
+        match &abi.return_abi.passing {
+            crate::codegen::abi::ReturnPassing::Sret { .. } => {
+                let str_ty = self.resolve_type(Idx::STR);
+                self.call_with_sret(func_id, &passed_args, str_ty, "tstr.derived")
+            }
+            _ => self.emit_rt_call(func_id, &passed_args, "tstr.derived"),
         }
     }
 }

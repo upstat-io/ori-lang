@@ -21,7 +21,7 @@ pub use mono::{
 };
 pub use result::TypeCheckResult;
 pub use sig::{ConstParamInfo, EffectClass, FnWhereClause, FunctionSig};
-pub use typed_module::{ExportedTypeMetadata, TypedModule};
+pub use typed_module::{AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, TypedModule};
 
 // Test-support imports: the sibling `tests.rs` uses `use super::*;` and relies
 // on these symbols being in scope through this module.

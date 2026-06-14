@@ -36,6 +36,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         map_ty: Idx,
         key_ty: Idx,
         val_ty: Idx,
+        is_debug: bool,
     ) -> Option<ValueId> {
         let len = self.builder.extract_value(map, FIELD_LEN, "mdbg.len")?;
         let zero = self.builder.const_i64(0);
@@ -59,7 +60,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Non-empty: format all entries with loop.
         self.builder.position_at_end(body_bb);
         let (result, close_bb_end) =
-            self.emit_map_debug_entries(map, map_ty, key_ty, val_ty, str_ty, zero, func)?;
+            self.emit_map_debug_entries(map, map_ty, key_ty, val_ty, str_ty, zero, func, is_debug)?;
         self.builder.br(done_bb);
 
         // Done: phi between empty and formatted
@@ -88,6 +89,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         str_ty: LLVMTypeId,
         zero: ValueId,
         func: crate::codegen::value_id::FunctionId,
+        is_debug: bool,
     ) -> Option<(ValueId, crate::codegen::value_id::BlockId)> {
         let key_list = self.emit_map_keys(map, key_ty, map_ty)?;
         let val_list = self.emit_map_values(map, key_ty, val_ty, map_ty)?;
@@ -127,6 +129,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             key_narrowed,
             val_narrowed,
             open,
+            is_debug,
         )?;
 
         let needs_loop = self.builder.icmp_sgt(entry_count, one, "mdbg.more");
@@ -164,6 +167,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             key_narrowed,
             val_narrowed,
             with_sep,
+            is_debug,
         )?;
         self.dec_intermediate_str(with_sep);
         let next_idx = self.builder.add(idx_phi, one, "mdbg.next");
@@ -213,6 +217,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_narrowed: bool,
         val_narrowed: bool,
         prefix: ValueId,
+        is_debug: bool,
     ) -> Option<ValueId> {
         let key_ptr = self.builder.gep(key_llvm_ty, key_data, &[idx], "mdbg.kp");
         let key = self.builder.load(key_llvm_ty, key_ptr, "mdbg.k");
@@ -229,31 +234,41 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             val
         };
 
-        // Keys: Printable (to_str) with Debug fallback for complex key types
-        let raw_key_str = self
-            .emit_element_to_str(key, key_ty)
-            .or_else(|| self.emit_element_debug(key, key_ty))?;
-        // Escape control characters in key strings for readable debug output.
-        // Matches the interpreter's `escape_debug_str()` behavior in map debug.
+        // Keys: rendered UNQUOTED in both Debug and Printable modes (`{x: 1}`),
+        // matching the interpreter's map-key rendering. `emit_element_to_str`
+        // produces the raw Printable form (the borrowed Str for a str key, the
+        // decimal for an int key, etc.); the result is then control-escaped
+        // (no surrounding quotes) via `emit_escape_control`, mirroring the
+        // interpreter's `escape_debug_str`. Map VALUES (below) keep full Debug
+        // semantics, so str values stay quoted.
+        let raw_key_str = self.emit_element_to_str(key, key_ty)?;
         let key_str = self.emit_escape_control(raw_key_str)?;
-        // Only dec raw_key_str when it was freshly allocated by emit_to_str.
-        // For Str keys, emit_element_to_str returns the original borrowed value
-        // (not a new allocation), so decrementing would double-free.
-        let key_type_info = self.type_info.get(key_ty);
-        if !matches!(key_type_info, TypeInfo::Str) {
+        // `emit_escape_control` always allocates a fresh str, so `key_str` is
+        // always safe to dec. For a Str key, `emit_element_to_str` returns the
+        // borrowed Str (not a fresh allocation) — decrementing it would
+        // double-free; only dec `raw_key_str` when it was freshly allocated.
+        if !matches!(self.type_info.get(key_ty), TypeInfo::Str) {
             self.dec_intermediate_str(raw_key_str);
         }
         let colon = self.emit_literal_ori_str(": ")?;
-        // Values: Debug semantics
-        let val_str = self.emit_element_debug(val, val_ty)?;
+        // Values: Debug or Printable semantics per is_debug.
+        let val_str = if is_debug {
+            self.emit_element_debug(val, val_ty)?
+        } else {
+            self.emit_element_to_str(val, val_ty)?
+        };
+        let val_is_borrowed_str = !is_debug && matches!(self.type_info.get(val_ty), TypeInfo::Str);
 
         let tmp1 = self.emit_str_concat(prefix, key_str)?;
         let tmp2 = self.emit_str_concat(tmp1, colon)?;
         self.dec_intermediate_str(tmp1);
         let result = self.emit_str_concat(tmp2, val_str)?;
         self.dec_intermediate_str(tmp2);
+        // `key_str` is always a fresh `emit_escape_control` allocation.
         self.dec_intermediate_str(key_str);
-        self.dec_intermediate_str(val_str);
+        if !val_is_borrowed_str {
+            self.dec_intermediate_str(val_str);
+        }
 
         Some(result)
     }
@@ -262,7 +277,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Strategy: convert set to list via `ori_set_to_list`, iterate elements,
     /// format each with Debug semantics, then dec temporary list buffer.
-    pub(super) fn emit_set_debug(&mut self, set: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    pub(super) fn emit_set_debug(
+        &mut self,
+        set: ValueId,
+        elem_ty: Idx,
+        is_debug: bool,
+    ) -> Option<ValueId> {
+        // A borrowed Str leaf returned by `emit_element_to_str` is not a fresh
+        // allocation — decrementing it would double-free.
+        let elem_is_borrowed_str =
+            !is_debug && matches!(self.type_info.get(elem_ty), TypeInfo::Str);
         let len = self.builder.extract_value(set, FIELD_LEN, "sdbg.len")?;
         let zero = self.builder.const_i64(0);
         let is_empty = self.builder.icmp_eq(len, zero, "sdbg.empty");
@@ -299,9 +323,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let open = self.emit_literal_ori_str("Set {")?;
         let ptr0 = self.builder.gep(elem_llvm_ty, data, &[zero], "sdbg.ep0");
         let elem0 = self.builder.load(elem_llvm_ty, ptr0, "sdbg.e0");
-        let elem0_str = self.emit_element_debug(elem0, elem_ty)?;
+        let elem0_str = if is_debug {
+            self.emit_element_debug(elem0, elem_ty)?
+        } else {
+            self.emit_element_to_str(elem0, elem_ty)?
+        };
         let acc_init = self.emit_str_concat(open, elem0_str)?;
-        self.dec_intermediate_str(elem0_str);
+        if !elem_is_borrowed_str {
+            self.dec_intermediate_str(elem0_str);
+        }
 
         let needs_loop = self.builder.icmp_sgt(entry_count, one, "sdbg.more");
         let first_bb_end = self.builder.current_block().unwrap();
@@ -329,10 +359,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(acc_phi);
         let ptr_i = self.builder.gep(elem_llvm_ty, data, &[idx_phi], "sdbg.epi");
         let elem_i = self.builder.load(elem_llvm_ty, ptr_i, "sdbg.ei");
-        let elem_i_str = self.emit_element_debug(elem_i, elem_ty)?;
+        let elem_i_str = if is_debug {
+            self.emit_element_debug(elem_i, elem_ty)?
+        } else {
+            self.emit_element_to_str(elem_i, elem_ty)?
+        };
         let new_acc = self.emit_str_concat(with_sep, elem_i_str)?;
         self.dec_intermediate_str(with_sep);
-        self.dec_intermediate_str(elem_i_str);
+        if !elem_is_borrowed_str {
+            self.dec_intermediate_str(elem_i_str);
+        }
         let next_idx = self.builder.add(idx_phi, one, "sdbg.next");
         let body_end = self.builder.current_block().unwrap();
         self.builder.br(loop_hdr);

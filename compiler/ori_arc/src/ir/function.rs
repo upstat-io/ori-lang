@@ -38,6 +38,7 @@ impl Default for ArcFunction {
             drop_hints: crate::uniqueness::DropHints::default(),
             tail_calls: Vec::new(),
             burden_emitted: Vec::new(),
+            reassign_deaths: Vec::new(),
         }
     }
 }

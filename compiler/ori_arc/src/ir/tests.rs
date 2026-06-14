@@ -432,6 +432,7 @@ fn arc_function_var_type_single() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
 }
@@ -476,6 +477,7 @@ fn arc_function_var_type_multiple() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
     assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
@@ -1060,6 +1062,7 @@ fn fresh_var_sequential_ids() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     let v1 = func.fresh_var(Idx::STR);
@@ -1108,6 +1111,7 @@ fn test_arc_ir_roundtrip() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
@@ -1306,6 +1310,7 @@ fn next_block_id_and_push() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     assert_eq!(func.next_block_id(), ArcBlockId::new(1));

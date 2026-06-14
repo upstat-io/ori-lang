@@ -148,6 +148,22 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("tuple", "debug") => {
+        if let TypeInfo::Tuple { elements } = ctx.type_info {
+            let elements = elements.clone();
+            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, true)
+        } else {
+            None
+        }
+    },
+    ("tuple", "to_str") => {
+        if let TypeInfo::Tuple { elements } = ctx.type_info {
+            let elements = elements.clone();
+            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, false)
+        } else {
+            None
+        }
+    },
 }
 
 use ori_types::Idx;

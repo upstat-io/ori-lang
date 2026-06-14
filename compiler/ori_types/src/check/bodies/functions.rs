@@ -113,6 +113,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         mono_dispatch_pre_dedup,
         deferred_mono_calls,
         composed_burdens,
+        assign_desugars,
     ) = checker.with_function_scope(fn_type, capabilities, |c| {
         // Get arena reference (lifetime 'a, not tied to c borrow)
         let arena = c.arena();
@@ -278,6 +279,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             engine.take_mono_dispatch_pre_dedup(),
             engine.take_deferred_mono_calls(),
             engine.take_composed_burdens(),
+            engine.take_assign_desugars(),
         )
     });
 
@@ -297,6 +299,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             deferred_mono_calls,
             composed_burdens,
             capability_exempt_var_ids: capability_var_ids,
+            assign_desugars,
         },
     );
 
@@ -402,6 +405,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mono_dispatch_pre_dedup = engine.take_mono_dispatch_pre_dedup();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
     let composed_burdens = engine.take_composed_burdens();
+    let assign_desugars = engine.take_assign_desugars();
 
     // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
     super::finalize_body_and_export(
@@ -419,6 +423,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             deferred_mono_calls,
             composed_burdens,
             capability_exempt_var_ids: Vec::new(),
+            assign_desugars,
         },
     );
 

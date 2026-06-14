@@ -623,6 +623,7 @@ fn collect_deduplicates_types() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -680,6 +681,7 @@ fn collect_multiple_types() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -733,6 +735,7 @@ fn collect_skips_scalar_rc_dec() {
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);

@@ -123,6 +123,14 @@ static RESULT_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound(
+        "to_str",
+        &[],
+        STR,
+        Some("Printable"),
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
         "trace",
         &[],
         STR,

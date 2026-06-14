@@ -272,7 +272,9 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             span,
         ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
-        ExprKind::AssignTarget { root, steps } => infer_assign_target(engine, arena, *root, *steps),
+        ExprKind::AssignTarget { root, steps } => {
+            infer_assign_target(engine, arena, expr_id, *root, *steps)
+        }
 
         // Capabilities
         ExprKind::WithCapability {

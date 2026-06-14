@@ -77,7 +77,7 @@ use ori_patterns::{
     recursion_limit_exceeded, ControlAction, EvalError, EvalResult, PatternExecutor,
 };
 
-pub(crate) use interned_names::{FormatNames, OpNames, PrintNames, PropNames, TypeNames};
+pub(crate) use interned_names::{OpNames, PrintNames, PropNames, TypeNames};
 
 /// Whether this interpreter owns a scoped environment that should be popped on drop.
 ///
@@ -125,8 +125,6 @@ pub struct Interpreter<'a> {
     pub(crate) prop_names: PropNames,
     /// Pre-interned operator trait method names for user-defined operator dispatch.
     pub(crate) op_names: OpNames,
-    /// Pre-interned format-related names for `FormatSpec` value construction.
-    pub(crate) format_names: FormatNames,
     /// Pre-interned builtin method names for `Name`-based dispatch.
     /// Avoids de-interning in `dispatch_builtin_method` on every call.
     pub(crate) builtin_method_names: crate::methods::BuiltinMethodNames,
@@ -440,7 +438,6 @@ impl<'a> Interpreter<'a> {
             print_names: self.print_names,
             prop_names: self.prop_names,
             op_names: self.op_names,
-            format_names: self.format_names,
             builtin_method_names: self.builtin_method_names,
             source_file_path: self.source_file_path.clone(),
             source_text: self.source_text.clone(),

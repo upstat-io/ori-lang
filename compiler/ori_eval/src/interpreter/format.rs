@@ -3,27 +3,30 @@
 //! Handles `CanExpr::FormatWith { expr, spec }` by evaluating the expression,
 //! parsing the format spec, and applying type-specific formatting.
 //!
+//! Only primitive values reach here — `ori_canon` desugars every non-primitive
+//! `{expr:spec}` interpolation to a user `format()` `MethodCall` or a `to_str()`
+//! + str-FormatWith re-route.
+//!
 //! Supports:
 //! - Integer formatting: decimal, binary, octal, hex, sign, alternate, zero-pad
 //! - Float formatting: default, scientific, fixed-point, percentage, precision
 //! - String formatting: precision truncation, width, alignment
-//! - Blanket: Printable values with width/alignment via `to_str()` fallback
 
 use ori_ir::canon::CanId;
 use ori_ir::format_spec::{parse_format_spec, Align, FormatType, ParsedFormatSpec, Sign};
 use ori_ir::Name;
-use ori_patterns::{EvalError, EvalResult, StructValue, Value};
-use rustc_hash::FxHashMap;
+use ori_patterns::{EvalError, EvalResult, Value};
 
-use super::{FormatNames, Interpreter};
+use super::Interpreter;
 
 impl Interpreter<'_> {
     /// Evaluate a `FormatWith` expression: format `expr` using `spec`.
     ///
-    /// Dispatch order:
-    /// 1. Built-in types (int, float, str, bool, char) — fast path, no struct construction
-    /// 2. User types with `Formattable` impl — construct `FormatSpec` value, call `format()`
-    /// 3. Fallback — `display_value()` + alignment (blanket impl behavior)
+    /// Only the five primitive types (int, float, str, bool, char) reach here.
+    /// `ori_canon` desugars every non-primitive `{expr:spec}` to a user
+    /// `format()` `MethodCall` (explicit Formattable) or a `to_str()` + str
+    /// `FormatWith` re-route (blanket Printable), so a non-primitive value here
+    /// is an `ori_canon` bug.
     pub(super) fn eval_format_with(
         &mut self,
         can_id: CanId,
@@ -41,8 +44,12 @@ impl Interpreter<'_> {
             )
         })?;
 
+        // Only primitive FormatWith reaches the interpreter: ori_canon desugars
+        // every non-primitive `{expr:spec}` to either a user `format()`
+        // MethodCall or a `to_str()` + str-FormatWith re-route. The catch-all
+        // unreachable keeps a missed canon path loud rather than silently
+        // falling back to `display_value()`.
         let result = match &value {
-            // Fast path: built-in type formatting
             Value::Int(n) => format_int(n.raw(), &parsed),
             Value::Float(f) => format_float(*f, &parsed),
             Value::Str(s) => format_str(s, &parsed),
@@ -51,103 +58,15 @@ impl Interpreter<'_> {
                 format_str(s, &parsed)
             }
             Value::Char(c) => format_str(&c.to_string(), &parsed),
-            // User types: check for Formattable impl, then blanket fallback
-            _ => {
-                let fmt = self.format_names;
-                let type_name = self.get_value_type_name(&value);
-                let has_user_impl = self
-                    .user_method_registry
-                    .read()
-                    .has_method(type_name, fmt.format);
-
-                if has_user_impl {
-                    let spec_value = build_format_spec_value(&parsed, &fmt);
-                    let result = self.eval_method_call(value, fmt.format, vec![spec_value])?;
-                    return Ok(result);
-                }
-
-                // Blanket fallback: display_value() + alignment
-                let base = value.display_value();
-                apply_alignment(&base, &parsed)
+            other => {
+                unreachable!(
+                    "non-primitive FormatWith reached interpreter (desugared in ori_canon): {other:?}"
+                )
             }
         };
 
         Ok(Value::string(result))
     }
-}
-
-/// Build a `Value::Struct(FormatSpec{...})` from a parsed format spec.
-///
-/// Converts the Rust-side `ParsedFormatSpec` to an Ori-side `FormatSpec` struct value
-/// for passing to user-defined `Formattable::format()` implementations.
-///
-/// Uses pre-interned `FormatNames` to avoid repeated hash lookups on every call.
-fn build_format_spec_value(parsed: &ParsedFormatSpec, names: &FormatNames) -> Value {
-    let fill_val = match parsed.fill {
-        Some(c) => Value::some(Value::Char(c)),
-        None => Value::None,
-    };
-
-    let align_val = match parsed.align {
-        Some(align) => {
-            let variant = match align {
-                Align::Left => names.left,
-                Align::Center => names.center,
-                Align::Right => names.right,
-            };
-            Value::some(Value::variant(names.alignment, variant, vec![]))
-        }
-        None => Value::None,
-    };
-
-    let sign_val = match parsed.sign {
-        Some(sign) => {
-            let variant = match sign {
-                Sign::Plus => names.plus,
-                Sign::Minus => names.minus,
-                Sign::Space => names.space,
-            };
-            Value::some(Value::variant(names.sign_type, variant, vec![]))
-        }
-        None => Value::None,
-    };
-
-    let width_val = match parsed.width {
-        Some(w) => Value::some(Value::int(i64::try_from(w).unwrap_or(i64::MAX))),
-        None => Value::None,
-    };
-
-    let precision_val = match parsed.precision {
-        Some(p) => Value::some(Value::int(i64::try_from(p).unwrap_or(i64::MAX))),
-        None => Value::None,
-    };
-
-    let format_type_val = match parsed.format_type {
-        Some(ft) => {
-            let variant = match ft {
-                FormatType::Binary => names.binary,
-                FormatType::Octal => names.octal,
-                FormatType::Hex => names.hex,
-                FormatType::HexUpper => names.hex_upper,
-                FormatType::Exp => names.exp,
-                FormatType::ExpUpper => names.exp_upper,
-                FormatType::Fixed => names.fixed,
-                FormatType::Percent => names.percent,
-            };
-            Value::some(Value::variant(names.ft_type, variant, vec![]))
-        }
-        None => Value::None,
-    };
-
-    let mut fields = FxHashMap::default();
-    fields.insert(names.fill, fill_val);
-    fields.insert(names.align, align_val);
-    fields.insert(names.sign, sign_val);
-    fields.insert(names.width, width_val);
-    fields.insert(names.precision, precision_val);
-    fields.insert(names.format_type, format_type_val);
-
-    Value::Struct(StructValue::new(names.format_spec, fields))
 }
 
 /// Format an integer value according to the spec.

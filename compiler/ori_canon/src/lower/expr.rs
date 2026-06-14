@@ -24,6 +24,17 @@ impl Lowerer<'_> {
         reason = "exhaustive ExprKind → CanExpr lowering dispatch"
     )]
     pub(crate) fn lower_expr(&mut self, id: ExprId) -> CanId {
+        // Index/field-assignment hoisting: while an assignment desugar is in
+        // flight, a source index `ExprId` resolves to its hoisted temporary
+        // (`let $__assign_idx_N`) instead of being re-lowered, so a
+        // side-effecting index (`arr[f()] += 1`) runs `f()` exactly once
+        // across the parser-shared read-copy and write-copy.
+        if !self.index_temp_overrides.is_empty() {
+            if let Some(&temp) = self.index_temp_overrides.get(&id) {
+                return temp;
+            }
+        }
+
         let kind = *self.src.expr_kind(id);
         let span = self.src.expr_span(id);
         let ty = self.expr_type(id);
@@ -145,6 +156,19 @@ impl Lowerer<'_> {
                 self.push(CanExpr::Index { receiver, index }, span, ty)
             }
             ExprKind::Assign { target, value } => {
+                // Type-directed index/field-assignment desugar: when `target`
+                // is an `AssignTarget` the type checker planned, rewrite to the
+                // pure-reassignment form (`root = root.updated(...)` /
+                // `{ ...root, f: v }`) so AIMS never sees a
+                // `CanExpr::Assign { target: Index/Field }`. The plan carries
+                // the resolved per-level types (the type checker's
+                // type-direction decision); synthesis happens here because the
+                // source arena is immutable during type checking.
+                if let ExprKind::AssignTarget { root, steps } = *self.src.expr_kind(target) {
+                    if self.typed.resolve_assign_desugar(target).is_some() {
+                        return self.desugar_assign_target(target, root, steps, value, span, ty);
+                    }
+                }
                 let target = self.lower_expr(target);
                 let value = self.lower_expr(value);
                 self.push(CanExpr::Assign { target, value }, span, ty)
