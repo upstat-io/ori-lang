@@ -277,7 +277,7 @@ run_ori_interpreter() {
     # ONE invocation: machine-readable JSON to a file, stderr to the capture.
     # The console summary is reconstructed from the JSON (no second text run).
     mkdir -p "$(dirname "$ORI_INTERP_JSON")"
-    ./target/debug/ori test --format json tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
+    ./target/debug/ori test --format json $INCREMENTAL_FLAG tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_INTERP_JSON" | sed 's/^/  /'
@@ -307,7 +307,7 @@ run_ori_llvm() {
     # ONE invocation: machine-readable JSON to a file, stderr to the capture
     # (so a crash diagnostic survives when stdout carries no parseable JSON).
     mkdir -p "$(dirname "$ORI_LLVM_JSON")"
-    ./target/release/ori test --format json --backend=llvm tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
+    ./target/release/ori test --format json --backend=llvm $INCREMENTAL_FLAG tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_LLVM_JSON" | sed 's/^/  /'
@@ -514,6 +514,18 @@ if command -v cargo-nextest >/dev/null 2>&1; then
     echo "=== Test runner: cargo-nextest active (Rust legs) ==="
 else
     echo "=== Test runner: cargo-nextest absent — cargo test legs ==="
+fi
+
+# Incremental spec-test skip: pass --incremental to the Ori spec-test runner so
+# it skips targets unchanged since the last run (the runner already supports
+# config.incremental for both the interpreter and LLVM legs). ORI_TEST_FORCE_FULL=1
+# empties the flag to force a full run (every target executes).
+INCREMENTAL_FLAG="--incremental"
+if [ -n "${ORI_TEST_FORCE_FULL:-}" ]; then
+    INCREMENTAL_FLAG=""
+    echo "=== Incremental: ORI_TEST_FORCE_FULL set — full run (no --incremental) ==="
+else
+    echo "=== Incremental: --incremental active (unchanged targets skipped) ==="
 fi
 echo ""
 
