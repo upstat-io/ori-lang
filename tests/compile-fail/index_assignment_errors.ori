@@ -1,0 +1,85 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12)
+// Negative pins for index/field-assignment validation (proposal §Type Checking
+// Rules + §Error Cases). Each asserts a COMPILE-time rejection. TDD-first: the
+// not-yet-validated cases (parameter root, str-no-IndexSet, no-field, value /
+// key mismatch) FAIL today (no compile error — they slip to the eval guard) and
+// reject after section-03's validation work item (w-ba458f55) lands. The
+// immutable-$-root + loop-var-root cases already reject today (is_mutable ==
+// Some(false)) and are regression guards.
+//
+// `$` is a binding modifier — referenced as `x`, not `$x` (per assign_to_immutable.ori).
+// Substrings are tightened to exact E-codes when allocated in w-ba458f55.
+
+type NamedPoint = { x: int, y: int }
+
+// =============================================================================
+// Immutable ($) root — reassignment through index rejected (already today)
+// =============================================================================
+
+#[compile_fail("immutable")]
+@immutable_root_index_assign tests _ () -> void = {
+    let $xs = [1, 2, 3];
+    xs[0] = 9
+}
+
+// =============================================================================
+// Loop-variable root — loop var is immutable (already today)
+// =============================================================================
+
+#[compile_fail("immutable")]
+@loop_var_root_index_assign tests _ () -> void = {
+    let grid = [[1, 2], [3, 4]];
+    for row in grid do {
+        row[0] = 9;
+    }
+}
+
+// =============================================================================
+// Parameter root — parameters are not mutable (slips past today: is_mutable None)
+// =============================================================================
+
+#[compile_fail("immutable")]
+@param_root_index_assign (p: [int]) -> int = {
+    p[0] = 9;
+    p[0]
+}
+
+// =============================================================================
+// str does not implement IndexSet — index assignment rejected
+// =============================================================================
+
+#[compile_fail("index assignment")]
+@str_no_indexset tests _ () -> void = {
+    let s = "abc";
+    s[0] = "x"
+}
+
+// =============================================================================
+// Unknown field — field must exist on the struct type
+// =============================================================================
+
+#[compile_fail("field")]
+@no_such_field tests _ () -> void = {
+    let p = NamedPoint { x: 1, y: 2 };
+    p.z = 9
+}
+
+// =============================================================================
+// Value type mismatch — RHS must be assignable to the element type
+// =============================================================================
+
+#[compile_fail("mismatch")]
+@value_type_mismatch tests _ () -> void = {
+    let xs = [1, 2, 3];
+    xs[0] = "not an int"
+}
+
+// =============================================================================
+// Key type mismatch — index expression must match the collection's key type
+// =============================================================================
+
+#[compile_fail("mismatch")]
+@key_type_mismatch tests _ () -> void = {
+    let m = {"a": 1};
+    m[5] = 2
+}
