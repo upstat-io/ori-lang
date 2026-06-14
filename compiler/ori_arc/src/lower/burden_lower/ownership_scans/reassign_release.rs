@@ -1,42 +1,35 @@
 //! RL-2 mutable-`Ident` reassignment release scan.
 //!
-//! A mutable rebind `x = e` orphans the binding's prior value at the rebind.
-//! When the prior value is a multi-used heap allocation (a fresh `Construct`
-//! or call result read by >= 2 `Let { Var }` aliases — e.g. the index-assign
-//! desugar `xs = xs.updated(key: i, value: xs[i] + c)`), the burden walk emits
-//! the value's FRESH-site `BurdenInc` (the keep-alive across the multiple
-//! reads) but SUPPRESSES its terminal scope-exit `BurdenDec`: the last
-//! `Let { Var }` use is a dup-terminal-move whose alias is a borrow-read that
-//! transfers nothing, so `compute_transfer_via_move_alias` marks the source
-//! transferred even though no consumer discharges the binding's own reference.
-//! The kept inc with the suppressed dec nets +1 — the binding's prior value
-//! leaks (`ORI_DUMP_AFTER_ARC` shows the `Construct`'s `RcInc` with no matching
-//! `RcDec`).
+//! Spec: Annex E §AIMS RL-2 (`LastReadBeforeScopeExit` / `ScopeExit`
+//! non-transfer death at the rebind).
 //!
-//! This scan re-instates the release the suppression dropped: for each
-//! `(old_var, new_var)` reassignment death recorded by `lower_assign`, place
-//! EXACTLY ONE `BurdenDec(old_var)` immediately after `new_var`'s defining
-//! `Let { dst: new_var, value: Var(rhs) }` (the rebind point — every RHS use of
-//! `old_var` has completed there, so the release is UAF-safe). Per `Spec:
-//! Annex E §AIMS RL-2` (the binding's prior value reaches its
-//! `LastReadBeforeScopeExit` / `ScopeExit` non-transfer death at the rebind).
+//! # Leak signature
+//! - A rebind `x = e` orphans the binding's prior value (`xs = xs.updated(key: i,
+//!   value: xs[i] + c)` self-referential shape).
+//! - The walk keeps the FRESH-site `BurdenInc` (multi-read keep-alive) but
+//!   suppresses the terminal scope-exit `BurdenDec` — the dup-terminal-move alias
+//!   is a borrow-read that transfers nothing, yet marks the source transferred.
+//! - Kept inc + suppressed dec nets +1 (`ORI_DUMP_AFTER_ARC`: `RcInc` w/o `RcDec`).
 //!
-//! Gate (the leak signature, all from already-computed facts; never a
-//! double-free on a genuinely-transferred value):
-//!   1. `old_var ∈ owned_vars_needing_rc` — a heap RC value.
-//!   2. `old_var ∈ transfer_via_move_alias` — its terminal scope-exit dec was
-//!      SUPPRESSED (the move-alias transfer claim that did not discharge).
-//!   3. `old_var ∉ inc_suppressed_vars` — its FRESH-site inc was KEPT (a
-//!      genuinely-moved value (use-once) has its inc suppressed symmetrically,
-//!      so kept-inc + suppressed-dec is exactly the net +1 leak).
-//!   4. `old_var ∉ full_move_vars` — its whole owned-field set was not moved
-//!      (a full field-grain move owns its own releases).
+//! # Fix
+//! - Per `(old_var, new_var)` death from `lower_assign`, place EXACTLY ONE
+//!   `BurdenDec(old_var)` after `new_var`'s defining `Let { value: Var(rhs) }` —
+//!   every RHS use of `old_var` has completed there, so the release is UAF-safe.
 //!
-//! A value whose ownership genuinely transferred out of the binding (the
-//! `x = [c, ...x]` Construct-spread move, the `x = if c then x else y` per-edge
-//! transfer) carries NO kept FRESH-site inc for the binding's own reference
-//! (it is use-once / branch-consumed), so gate (3) declines and no release is
-//! emitted — the existing transfer / branch machinery already balances it.
+//! # 5-condition gate (all already-computed facts; never double-frees a transfer)
+//! - `var_reprs[old_var] == RcPointer` — whole-value heap RC (Gate-0; an
+//!   `Aggregate` field-move-out owns its own field-grain release).
+//! - `old_var ∈ owned_vars_needing_rc` — owned RC value.
+//! - `old_var ∈ transfer_via_move_alias` — terminal dec was suppressed.
+//! - `old_var ∉ inc_suppressed_vars` — FRESH-site inc was kept (a genuine
+//!   use-once move suppresses the inc symmetrically; kept-inc + suppressed-dec
+//!   is exactly the +1 leak).
+//! - `old_var ∉ full_move_vars` — whole owned-field set not moved.
+//!
+//! # Non-firing
+//! - A genuine transfer (`x = [c, ...x]` Construct-spread; `x = if c then x else
+//!   y` per-edge) carries no kept FRESH-site inc, so the inc-suppressed gate
+//!   declines — the existing transfer / branch machinery already balances it.
 
 use rustc_hash::FxHashSet;
 

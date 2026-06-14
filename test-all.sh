@@ -435,6 +435,35 @@ else
 fi
 echo ""
 
+# Build cache: wrap every cargo build below with sccache when it is on PATH, so
+# the debug + release rebuilds reuse cached object files. Guarded on `command -v
+# sccache`: absent -> RUSTC_WRAPPER stays unset and builds proceed unwrapped
+# (graceful degrade, never a failure). Exported once here so both the parallel
+# and serial build branches inherit it.
+if command -v sccache >/dev/null 2>&1; then
+    export RUSTC_WRAPPER=sccache
+    # sccache cannot cache incrementally-compiled crates; debug builds default to
+    # CARGO_INCREMENTAL=1, so without this the wrapper caches nothing (compile
+    # requests executed = 0). Disabling cargo incremental lets sccache cache + hit.
+    export CARGO_INCREMENTAL=0
+    echo "=== Build cache: sccache active (RUSTC_WRAPPER=sccache, CARGO_INCREMENTAL=0) ==="
+else
+    echo "=== Build cache: sccache absent — builds proceed unwrapped ==="
+fi
+
+# Fast linker (mold) for THIS runner's cargo builds only — scoped to test-all.sh
+# (the section's mission target) rather than a global .cargo/config.toml so it
+# never changes how unrelated cargo invocations link. Guarded on `command -v
+# mold`: -fuse-ld=mold ERRORS at link if mold is absent (not a silent fallback),
+# so the flag is added ONLY when mold is detected; absent -> default linker.
+if command -v mold >/dev/null 2>&1; then
+    export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-fuse-ld=mold"
+    echo "=== Fast linker: mold active (-fuse-ld=mold) ==="
+else
+    echo "=== Fast linker: mold absent — default linker ==="
+fi
+echo ""
+
 if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""

@@ -145,6 +145,14 @@ flags! {
     /// Usage: `ORI_DISABLE_BURDEN_ELIM=1 ori build file.ori`
     ORI_DISABLE_BURDEN_ELIM
 
+    /// Disable the Phase-5 RL-2 mutable-rebind release scan.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower::ownership_scans::reassign_release`.
+    /// When set, the gated `BurdenDec(old_var)` at a self-referential rebind is
+    /// not emitted (bisects a reassignment leak / double-free to this scan).
+    /// Usage: `ORI_DISABLE_REASSIGN_REBIND_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_REASSIGN_REBIND_RELEASE
+
     /// Dump each function's ARC IR to stderr immediately after Step 4b
     /// `emit_burden_ops`, before any realization.
     ///
