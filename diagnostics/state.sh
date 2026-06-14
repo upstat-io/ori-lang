@@ -30,6 +30,9 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_FILE="${ORI_STATE_FILE:-$ROOT_DIR/.claude/state/known-state.json}"
 STATE_DIR="$(dirname "$STATE_FILE")"
 BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
+# Append-only test-all metrics ledger (data file; written by the metrics-ledger
+# runtime, read here for display). Env override for isolated testing.
+LEDGER_FILE="${ORI_LEDGER_FILE:-$ROOT_DIR/build/test-all-ledger.json}"
 
 # ---- Defaults ----------------------------------------------------------------
 OUTPUT=human    # show default; machine consumers pass --json
@@ -64,6 +67,9 @@ Subcommands:
                         per line as: <file>:<line>\t<kind>\t<tracking_bug>\t<reason>
                         --json outputs as a JSON array of entry objects.
                         --untracked-only filters to entries with tracking_bug=null.
+  ledger                Latest test-all metrics-ledger run: per-metric delta
+                        (raw current-minus-previous vs the prior run).
+                        --json outputs the latest run's delta block (or null).
   baseline <action>     Pinned pre-work snapshots keyed by bug-id or section,
                         stored in baselines.json. Capture up front (before work);
                         compare at close to separate pre-existing failures from
@@ -271,6 +277,16 @@ cmd_show() {
         echo "DRIFT:             $disp_untracked annotation(s) lack BUG-XX-NNN tracking. Run:"
         echo "                     state.sh dispositions --untracked-only"
     fi
+
+    if [[ -f "$LEDGER_FILE" ]]; then
+        local ledger_runs
+        ledger_runs=$(jq -r '.runs | length' "$LEDGER_FILE" 2>/dev/null || echo 0)
+        if [[ "$ledger_runs" != "0" && "$ledger_runs" != "null" ]]; then
+            echo ""
+            echo "=== Metrics Ledger (test-all) ==="
+            cmd_ledger
+        fi
+    fi
 }
 
 # ---- Subcommand: check -------------------------------------------------------
@@ -394,6 +410,35 @@ cmd_dispositions() {
         jq "$filter" "$STATE_FILE"
     else
         jq -r "$filter | .[] | \"\(.file):\(.line)\t\(.kind)\t\(.tracking_bug // \"<UNTRACKED>\")\t\(.reason)\"" "$STATE_FILE"
+    fi
+}
+
+# ---- Subcommand: ledger ------------------------------------------------------
+# Emit the latest test-all metrics-ledger run's delta block (raw current-minus-
+# previous vs the prior run). Reads the ledger data file written by the
+# metrics-ledger runtime; graceful-degrade when absent (no runs yet).
+cmd_ledger() {
+    if [[ ! -f "$LEDGER_FILE" ]]; then
+        if [[ "$OUTPUT" == "json" ]]; then
+            echo 'null'
+        else
+            echo "Metrics ledger:    (no ledger yet — run the metrics-ledger ingest)"
+        fi
+        return 0
+    fi
+    require_jq
+    local latest='.runs[-1] | {run_id, vs_run_id, overall, metrics, deltas}'
+    if [[ "$OUTPUT" == "json" ]]; then
+        jq "$latest" "$LEDGER_FILE"
+    else
+        local empty
+        empty=$(jq -r '.runs | length' "$LEDGER_FILE" 2>/dev/null || echo 0)
+        if [[ "$empty" == "0" ]]; then
+            echo "Metrics ledger:    (empty — no runs recorded)"
+            return 0
+        fi
+        jq -r '.runs[-1] | "Latest run:        \(.run_id) (vs \(.vs_run_id // "none"))",
+            "Delta:             passed:\(.deltas.passed) failed:\(.deltas.failed) skipped:\(.deltas.skipped) lcfail:\(.deltas.lcfail) aot_leaks:\(.deltas.aot_leaks)"' "$LEDGER_FILE"
     fi
 }
 
@@ -1197,7 +1242,7 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || die "--by requires a value"
             UPDATED_BY="$2"; shift 2 ;;
         --*) die "unknown flag: $1" ;;
-        show|check|refresh|known-failing|dispositions)
+        show|check|refresh|known-failing|dispositions|ledger)
             [[ -z "$SUBCMD" ]] || die "multiple subcommands: $SUBCMD and $1"
             SUBCMD="$1"; shift ;;
         *)
@@ -1216,6 +1261,7 @@ case "$SUBCMD" in
     refresh) cmd_refresh ;;
     known-failing) cmd_known_failing ;;
     dispositions) cmd_dispositions ;;
+    ledger) cmd_ledger ;;
     baseline) cmd_baseline ;;
     "") usage; exit 3 ;;
     *) die "unknown subcommand: $SUBCMD" ;;

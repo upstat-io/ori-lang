@@ -1,0 +1,6 @@
+// Negative pin: BUG-04-159 — shift overflow with NO catch in scope MUST still
+// abort. Clamps the emit_checked_shift → emit_panic_block carrier boundary.
+@main () -> int = {
+    let x = 1 << 64;
+    x
+}

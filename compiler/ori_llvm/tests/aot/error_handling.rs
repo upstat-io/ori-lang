@@ -702,8 +702,8 @@ fn test_catch_two_index_oob_shared_merge() {
 // ─── BUG-04-159: same-frame catch of checked-op implicit panics (AOT) ───
 // Regression family: emit_panic_block emitted a plain call + unreachable (no
 // invoke), so the unwind from ori_panic_cstr escaped the in-frame catch
-// landing pad. catch(...) must catch div-zero / mod-zero / overflow / shift.
-// (Also closes BUG-04-087 and BUG-07-038 — duplicates of the same defect.)
+// landing pad. catch(...) must catch div-zero / mod-zero / overflow / shift /
+// neg. (Also closes BUG-04-087 — a duplicate of the same defect.)
 
 #[test]
 fn test_catch_div_by_zero_inline_returns_err() {
@@ -737,6 +737,14 @@ fn test_catch_shift_overflow_inline_returns_err() {
     );
 }
 
+#[test]
+fn test_catch_neg_overflow_inline_returns_err() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/catch_neg_overflow.ori"),
+        "catch_neg_overflow_inline",
+    );
+}
+
 // Negative pin: div-by-zero with NO catch in scope MUST still abort — the
 // fix adds an unwind edge ONLY when a catch target is in scope.
 #[test]
@@ -745,6 +753,37 @@ fn test_uncaught_div_by_zero_still_aborts() {
         "fixtures/error_handling/uncaught_div_zero_aborts.ori"
     ));
     assert_panic_exit(exit_code, "uncaught_div_zero_still_aborts", &stderr);
+}
+
+// Negative pin: integer overflow with NO catch in scope MUST still abort —
+// clamps the emit_checked_binop inline-panic site (structurally distinct from
+// the emit_panic_block carrier).
+#[test]
+fn test_uncaught_int_overflow_still_aborts() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_int_overflow_aborts.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught_int_overflow_still_aborts", &stderr);
+}
+
+// Negative pin: shift overflow with NO catch in scope MUST still abort —
+// clamps the emit_checked_shift → emit_panic_block carrier boundary.
+#[test]
+fn test_uncaught_shift_overflow_still_aborts() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_shift_overflow_aborts.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught_shift_overflow_still_aborts", &stderr);
+}
+
+// Negative pin: negation overflow (-INT_MIN) with NO catch in scope MUST still
+// abort — clamps the emit_unary_op neg dispatch-site boundary.
+#[test]
+fn test_uncaught_neg_overflow_still_aborts() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_neg_overflow_aborts.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught_neg_overflow_still_aborts", &stderr);
 }
 
 // Over-fire guard: a value live AFTER a caught checked-op panic must not be

@@ -51,8 +51,14 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_PARSE_ERROR = 3
 
-# libtest failure line: `test <name> ... FAILED`.
+# cargo libtest failure line: `test <name> ... FAILED`.
 _RUST_FAIL_RE = re.compile(r"^test\s+(?P<name>.*?)\s+\.\.\.\s+FAILED$")
+# cargo-nextest failure line: `<indent>FAIL [   0.038s] (7487/7887) <crate> <test::path>`.
+# The `(n/total)` progress index is present in streamed runs, absent in some
+# modes; the time field varies (`0.038s` / `1.2s ` / `12.34s`). Both optional.
+_NEXTEST_FAIL_RE = re.compile(
+    r"^\s*FAIL \[[^\]]*\]\s+(?:\(\d+/\d+\)\s+)?(?P<crate>\S+)\s+(?P<name>\S+)\s*$"
+)
 
 
 def _load(path):
@@ -165,21 +171,45 @@ def _emit_failures_json(obj, suite):
 
 
 def _rust_failure_entries(text, suite, failure_kind):
-    """Yield a failure object per `test <name> ... FAILED` line in a cargo log.
-    libtest text — NOT the Ori runner JSON. The single JSON-emission home keeps
-    the bash harness free of a hand-rolled string escaper."""
+    """Yield a failure object per failed Rust test in a cargo OR nextest log.
+
+    Matches both runner formats so failure-name attribution survives the
+    cargo-test -> cargo-nextest runner switch (per .claude/rules/compiler-ops.md):
+    - cargo libtest:  `test <name> ... FAILED`
+    - cargo-nextest:  `<indent>FAIL [ <time> ] (<n>/<total>) <crate> <test::path>`
+    A test_id is emitted at most once even if both forms appear (dedup by id).
+    """
     kind = "panic" if "panicked at" in text else failure_kind
     entries = []
+    seen = set()
     for line in text.splitlines():
-        match = _RUST_FAIL_RE.match(line)
-        if match:
-            name = match.group("name")
+        cargo = _RUST_FAIL_RE.match(line)
+        if cargo:
+            name = cargo.group("name")
+            if name in seen:
+                continue
+            seen.add(name)
             entries.append({
                 "test_id": name,
                 "test_id_kind": "rust",
                 "suite": suite,
                 "failure_kind": kind,
                 "error_message": f"test {name} ... FAILED",
+            })
+            continue
+        nextest = _NEXTEST_FAIL_RE.match(line)
+        if nextest:
+            crate = nextest.group("crate")
+            name = nextest.group("name")
+            if name in seen:
+                continue
+            seen.add(name)
+            entries.append({
+                "test_id": name,
+                "test_id_kind": "rust",
+                "suite": suite,
+                "failure_kind": kind,
+                "error_message": f"FAIL {crate} {name} (nextest)",
             })
     return entries
 

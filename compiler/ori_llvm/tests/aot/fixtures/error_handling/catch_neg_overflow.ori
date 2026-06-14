@@ -1,0 +1,8 @@
+// Regression: BUG-04-159 — same-frame catch of negation-overflow implicit
+// panic (-INT_MIN). checked_neg routes through emit_checked_binop, dispatched
+// at emit_unary_op (the SECOND threading site).
+@main () -> int = {
+    let m = -9223372036854775807 - 1;
+    let result = catch(expr: -m);
+    if result.is_err() then 0 else 1
+}
