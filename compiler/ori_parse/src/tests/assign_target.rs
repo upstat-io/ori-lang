@@ -45,7 +45,7 @@ fn expect_assign_target(result: &ParseOutput) -> (ExprId, Vec<AccessStep>) {
 // --- Positive shapes: 14 shipped operators over single-step LHS ---
 
 /// All 14 shipped assignment operators (`=` plus the 13 shipped compound ops;
-/// `**=` is excluded per BUG-01-024). Each is exercised on an `x[i]` LHS.
+/// `**=` is excluded — the `**` power operator is spec-defined but unshipped). Each is exercised on an `x[i]` LHS.
 const SHIPPED_ASSIGN_OPS: &[&str] = &[
     "=", "+=", "-=", "*=", "/=", "%=", "@=", "&=", "|=", "^=", "<<=", ">>=", "&&=", "||=",
 ];

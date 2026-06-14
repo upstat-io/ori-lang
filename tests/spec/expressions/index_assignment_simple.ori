@@ -1,0 +1,72 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.2
+//
+// Runtime semantics of list index assignment: `xs[i] = v` desugars (in the type
+// checker) to `xs = xs.updated(key: i, value: v)`. These are POSITIVE pins for
+// the implemented feature — they FAIL today (the evaluator raises E6080
+// "index assignment is not supported" / ARC raises E4003) and go green once the
+// type-directed desugar (plans/index-assignment section-03) lands.
+//
+// `**=` is intentionally absent — blocked on the unshipped `**` power operator
+// (BUG-01-019).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Literal index
+// =============================================================================
+
+@test_list_index_assign_literal tests @list_index_assign_literal () -> void = {
+    assert_eq(actual: list_index_assign_literal(), expected: 9)
+}
+
+@list_index_assign_literal () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] = 9;
+    xs[0]
+}
+
+// =============================================================================
+// Variable index
+// =============================================================================
+
+@test_list_index_assign_variable tests @list_index_assign_variable () -> void = {
+    assert_eq(actual: list_index_assign_variable(), expected: 42)
+}
+
+@list_index_assign_variable () -> int = {
+    let xs = [1, 2, 3];
+    let $i = 2;
+    xs[i] = 42;
+    xs[i]
+}
+
+// =============================================================================
+// Assignment does not disturb other elements (COW correctness)
+// =============================================================================
+
+@test_list_index_assign_preserves_others tests @list_index_assign_preserves_others () -> void = {
+    assert_eq(actual: list_index_assign_preserves_others(), expected: 6)
+}
+
+@list_index_assign_preserves_others () -> int = {
+    let xs = [1, 2, 3];
+    xs[1] = 9;
+    // xs == [1, 9, 3]; first + last unchanged
+    xs[0] + xs[2]
+}
+
+// =============================================================================
+// Repeated assignment to the same index
+// =============================================================================
+
+@test_list_index_assign_repeated tests @list_index_assign_repeated () -> void = {
+    assert_eq(actual: list_index_assign_repeated(), expected: 30)
+}
+
+@list_index_assign_repeated () -> int = {
+    let xs = [0, 0, 0];
+    xs[1] = 10;
+    xs[1] = 20;
+    xs[1] = 30;
+    xs[1]
+}

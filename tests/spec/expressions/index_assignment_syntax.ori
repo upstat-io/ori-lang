@@ -12,8 +12,8 @@
 // #compile_fail, so those negatives are pinned in the ori_parse Rust matrix
 // (`compiler/ori_parse/src/tests/assign_target.rs`), not here.
 //
-// `**=` compound-assignment coverage is blocked on BUG-01-024 (the `**` power
-// operator + `**=` token are unshipped).
+// `**=` compound-assignment coverage is blocked on the unshipped `**` power
+// operator + `**=` token (spec-defined, target-only).
 
 use std.testing { assert_eq }
 

@@ -122,7 +122,7 @@ impl Parser<'_> {
 
         // Check for compound assignment (+=, -=, *=, /=, %=, @=, &=, |=, ^=, <<=, &&=, ||=)
         // Desugars: `x op= y` → `x = x op y`.
-        // `**=` is excluded: the `**` power operator + `**=` token are unshipped (BUG-01-024).
+        // `**=` is excluded: the `**` power operator + `**=` token are spec-defined but unshipped (target-only).
         if let Some(op) = self.compound_assign_op() {
             return self.desugar_compound_assign(left, op, 1);
         }

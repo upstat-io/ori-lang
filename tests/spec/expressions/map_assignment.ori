@@ -1,0 +1,50 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.2
+//
+// Map key assignment: `m[k] = v` desugars to `m = m.updated(key: k, value: v)`
+// (IndexSet impl for `{K: V}`). Map index READ returns `Option<V>`, so a
+// successful assignment is observed as `Some(v)`. POSITIVE pins; FAIL today
+// (feature unimplemented), green after the section-03 desugar lands.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Insert a new key
+// =============================================================================
+
+@test_map_assign_new_key tests @map_assign_new_key () -> void = {
+    assert_eq(actual: map_assign_new_key(), expected: Some(7))
+}
+
+@map_assign_new_key () -> Option<int> = {
+    let m = {"a": 1};
+    m["b"] = 7;
+    m["b"]
+}
+
+// =============================================================================
+// Overwrite an existing key
+// =============================================================================
+
+@test_map_assign_overwrite tests @map_assign_overwrite () -> void = {
+    assert_eq(actual: map_assign_overwrite(), expected: Some(99))
+}
+
+@map_assign_overwrite () -> Option<int> = {
+    let m = {"a": 1, "b": 2};
+    m["a"] = 99;
+    m["a"]
+}
+
+// =============================================================================
+// Assignment preserves the other entries
+// =============================================================================
+
+@test_map_assign_preserves_others tests @map_assign_preserves_others () -> void = {
+    assert_eq(actual: map_assign_preserves_others(), expected: Some(2))
+}
+
+@map_assign_preserves_others () -> Option<int> = {
+    let m = {"a": 1, "b": 2};
+    m["a"] = 5;
+    m["b"]
+}

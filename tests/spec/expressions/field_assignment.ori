@@ -1,0 +1,53 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.1
+//
+// Struct field assignment: `s.f = v` desugars to `s = { ...s, f: v }`. No trait
+// needed; field must exist on the struct type. POSITIVE pins; FAIL today
+// (feature unimplemented), green after the section-03 desugar lands.
+
+use std.testing { assert_eq }
+
+type Counter = { value: int }
+
+type Point = { x: int, y: int }
+
+// =============================================================================
+// Single field
+// =============================================================================
+
+@test_field_assign_single tests @field_assign_single () -> void = {
+    assert_eq(actual: field_assign_single(), expected: 5)
+}
+
+@field_assign_single () -> int = {
+    let c = Counter { value: 0 };
+    c.value = 5;
+    c.value
+}
+
+// =============================================================================
+// One field assignment leaves the sibling field untouched
+// =============================================================================
+
+@test_field_assign_preserves_sibling tests @field_assign_preserves_sibling () -> void = {
+    assert_eq(actual: field_assign_preserves_sibling(), expected: 3)
+}
+
+@field_assign_preserves_sibling () -> int = {
+    let p = Point { x: 3, y: 4 };
+    p.y = 10;
+    p.x
+}
+
+// =============================================================================
+// Reassigning the changed field reads back the new value
+// =============================================================================
+
+@test_field_assign_reads_new tests @field_assign_reads_new () -> void = {
+    assert_eq(actual: field_assign_reads_new(), expected: 10)
+}
+
+@field_assign_reads_new () -> int = {
+    let p = Point { x: 3, y: 4 };
+    p.y = 10;
+    p.y
+}
