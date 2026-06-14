@@ -45,8 +45,8 @@ use collections::{
 };
 use compounds::{duration_width, size_width};
 use control::{
-    assign_width, block_width, break_width, continue_width, field_width, for_width, if_width,
-    index_width, while_width, with_capability_width,
+    assign_target_width, assign_width, block_width, break_width, continue_width, field_width,
+    for_width, if_width, index_width, while_width, with_capability_width,
 };
 use helpers::{accumulate_widths, COMMA_SEPARATOR_WIDTH};
 use literals::{bool_width, char_width, float_width, int_width, string_width};
@@ -293,6 +293,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
 
             // Assignment and capability - delegated to control module
             ExprKind::Assign { target, value } => assign_width(self, *target, *value),
+            ExprKind::AssignTarget { root, steps } => assign_target_width(self, *root, *steps),
             ExprKind::WithCapability {
                 capability,
                 provider,

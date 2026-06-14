@@ -4,10 +4,10 @@
 //! (expression lists, map entries, fields, call args, patterns, etc.).
 
 use crate::ast::{
-    CallArg, CallArgRange, FieldInit, FieldInitRange, GenericParam, GenericParamRange, ListElement,
-    ListElementRange, MapElement, MapElementRange, MapEntry, MapEntryRange, MatchArm, NamedExpr,
-    NamedExprRange, Param, ParamRange, Stmt, StructLitField, StructLitFieldRange,
-    TemplatePartRange,
+    AccessStep, AccessStepRange, CallArg, CallArgRange, FieldInit, FieldInitRange, GenericParam,
+    GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
+    MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, Stmt, StructLitField,
+    StructLitFieldRange, TemplatePartRange,
 };
 use crate::{
     ArmRange, ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange,
@@ -478,6 +478,33 @@ impl ExprArena {
         &self.template_parts[start..end]
     }
 
+    // -- Access Step Ranges --
+
+    /// Allocate access steps for an assignment-target chain, return range.
+    pub fn alloc_access_steps(
+        &mut self,
+        steps: impl IntoIterator<Item = AccessStep>,
+    ) -> AccessStepRange {
+        let start = to_u32(self.access_steps.len(), "access steps");
+        self.access_steps.extend(steps);
+        debug_assert!(
+            self.access_steps.len() >= start as usize,
+            "arena corruption: access_steps length {} < start {}",
+            self.access_steps.len(),
+            start
+        );
+        let len = to_u16(self.access_steps.len() - start as usize, "access step list");
+        AccessStepRange::new(start, len)
+    }
+
+    /// Get access steps by range.
+    #[inline]
+    pub fn get_access_steps(&self, range: AccessStepRange) -> &[AccessStep] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.access_steps[start..end]
+    }
+
     // -- Direct Append API --
     //
     // These method triples allow callers to push items directly into arena
@@ -604,5 +631,15 @@ impl ExprArena {
         push_stmt,
         finish_stmts,
         "statement list"
+    );
+
+    define_direct_append!(
+        access_steps,
+        AccessStep,
+        AccessStepRange,
+        start_access_steps,
+        push_access_step,
+        finish_access_steps,
+        "access step list"
     );
 }

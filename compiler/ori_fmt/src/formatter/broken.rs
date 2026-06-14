@@ -483,6 +483,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             | ExprKind::Try(_)
             | ExprKind::Cast { .. }
             | ExprKind::Assign { .. }
+            | ExprKind::AssignTarget { .. }
             | ExprKind::Loop { .. }
             | ExprKind::Range { .. }
             | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),

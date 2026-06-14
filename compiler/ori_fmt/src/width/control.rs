@@ -7,7 +7,9 @@
 //! - Blocks: `{ stmts; result }`
 
 use super::{for_binding_pattern_width, WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{BindingPatternId, ExprId, ExprKind, Name, StmtRange, StringLookup};
+use ori_ir::{
+    AccessStep, AccessStepRange, BindingPatternId, ExprId, ExprKind, Name, StmtRange, StringLookup,
+};
 
 /// Check if an expression needs parentheses when used as a receiver.
 fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receiver: ExprId) -> bool {
@@ -195,6 +197,36 @@ pub(super) fn assign_width<I: StringLookup>(
     }
     // target + " = " + value
     target_w + 3 + value_w
+}
+
+/// Calculate width of an assignment-target chain (`root` plus access steps).
+/// Each `.field` step adds `1 + name_len`; each `[index]` step adds `1 + index_w + 1`.
+pub(super) fn assign_target_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    root: ExprId,
+    steps: AccessStepRange,
+) -> usize {
+    let root_w = calc.width(root);
+    if root_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+    let mut total = root_w;
+    let step_list: Vec<AccessStep> = calc.arena.get_access_steps(steps).to_vec();
+    for step in step_list {
+        match step {
+            AccessStep::Field(field) => {
+                total += 1 + calc.interner.lookup(field).len();
+            }
+            AccessStep::Index(index) => {
+                let index_w = calc.width(index);
+                if index_w == ALWAYS_STACKED {
+                    return ALWAYS_STACKED;
+                }
+                total += 1 + index_w + 1;
+            }
+        }
+    }
+    total
 }
 
 /// Calculate width of `receiver.field` access.

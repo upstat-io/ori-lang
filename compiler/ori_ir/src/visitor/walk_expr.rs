@@ -1,9 +1,22 @@
 //! Expression walker — exhaustive child traversal for `ExprKind`.
 
-use crate::ast::{Expr, ExprKind};
-use crate::ExprArena;
+use crate::ast::{AccessStep, Expr, ExprKind};
+use crate::{AccessStepRange, ExprArena};
 
 use super::Visitor;
+
+/// Walk the child expressions of an assignment-target access-step chain.
+fn walk_access_steps<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    steps: AccessStepRange,
+    arena: &'ast ExprArena,
+) {
+    for step in arena.get_access_steps(steps) {
+        if let AccessStep::Index(index) = step {
+            visitor.visit_expr_id(*index, arena);
+        }
+    }
+}
 
 /// Walk an expression's children.
 #[expect(
@@ -77,6 +90,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Assign { target, value } => {
             visitor.visit_expr_id(*target, arena);
             visitor.visit_expr_id(*value, arena);
+        }
+        ExprKind::AssignTarget { root, steps } => {
+            visitor.visit_expr_id(*root, arena);
+            walk_access_steps(visitor, *steps, arena);
         }
 
         // Field access

@@ -15,6 +15,41 @@ fn test_expr_kind_hash() {
 }
 
 #[test]
+fn test_access_step_and_expr_kind_are_copy() {
+    // AssignTarget must keep ExprKind `Copy`: a `Vec<AccessStep>` payload would
+    // break Copy and blow the 24-byte budget; the flattened AccessStepRange is
+    // the only sound carrier.
+    fn assert_copy<T: Copy>() {}
+    assert_copy::<AccessStep>();
+    assert_copy::<crate::AccessStepRange>();
+    assert_copy::<ExprKind>();
+    assert_copy::<Expr>();
+}
+
+#[test]
+fn test_expr_kind_size_unchanged() {
+    // The static_assert_size! block in expr.rs enforces this at compile time;
+    // this test pins it as an explicit, greppable regression guard.
+    assert_eq!(std::mem::size_of::<ExprKind>(), 24);
+    assert_eq!(std::mem::size_of::<Expr>(), 32);
+}
+
+#[test]
+fn test_assign_target_debug_renders_root_and_steps() {
+    use crate::AccessStepRange;
+    use crate::ExprId;
+    let kind = ExprKind::AssignTarget {
+        root: ExprId::new(3),
+        steps: AccessStepRange::new(1, 2),
+    };
+    let rendered = format!("{kind:?}");
+    assert!(
+        rendered.starts_with("AssignTarget("),
+        "unexpected debug: {rendered}"
+    );
+}
+
+#[test]
 fn test_binary_op() {
     let op = BinaryOp::Add;
     assert_eq!(op, BinaryOp::Add);

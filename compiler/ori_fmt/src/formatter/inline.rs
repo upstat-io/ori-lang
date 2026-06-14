@@ -399,6 +399,22 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(" = ");
                 self.emit_inline(*value);
             }
+            ExprKind::AssignTarget { root, steps } => {
+                self.emit_receiver_inline(*root);
+                for step in self.arena.get_access_steps(*steps) {
+                    match step {
+                        ori_ir::AccessStep::Field(field) => {
+                            self.ctx.emit(".");
+                            self.ctx.emit(self.interner.lookup(*field));
+                        }
+                        ori_ir::AccessStep::Index(index) => {
+                            self.ctx.emit("[");
+                            self.emit_inline(*index);
+                            self.ctx.emit("]");
+                        }
+                    }
+                }
+            }
 
             // Capability
             ExprKind::WithCapability {

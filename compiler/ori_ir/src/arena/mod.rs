@@ -22,8 +22,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::ast::{
-    CallArg, Expr, ExprKind, FieldInit, GenericParam, ListElement, MapElement, MapEntry, MatchArm,
-    NamedExpr, Param, Stmt, StructLitField,
+    AccessStep, CallArg, Expr, ExprKind, FieldInit, GenericParam, ListElement, MapElement,
+    MapEntry, MatchArm, NamedExpr, Param, Stmt, StructLitField,
 };
 use super::{
     BindingPatternId, ExprId, FunctionExpId, FunctionSeqId, MatchPatternId, ParsedType,
@@ -153,6 +153,9 @@ pub struct ExprArena {
 
     /// Template interpolation parts for template literals.
     template_parts: Vec<TemplatePart>,
+
+    /// Access steps for assignment-target chains (`ExprKind::AssignTarget`).
+    access_steps: Vec<AccessStep>,
 }
 
 impl ExprArena {
@@ -188,6 +191,7 @@ impl ExprArena {
             function_seqs: Vec::with_capacity(estimated_exprs / 32),
             function_exps: Vec::with_capacity(estimated_exprs / 32),
             template_parts: Vec::with_capacity(estimated_exprs / 32),
+            access_steps: Vec::with_capacity(estimated_exprs / 32),
         }
     }
 
@@ -391,6 +395,7 @@ impl ExprArena {
         self.function_seqs.clear();
         self.function_exps.clear();
         self.template_parts.clear();
+        self.access_steps.clear();
     }
 
     /// Check if arena is empty.
@@ -423,6 +428,7 @@ impl PartialEq for ExprArena {
             && self.function_seqs == other.function_seqs
             && self.function_exps == other.function_exps
             && self.template_parts == other.template_parts
+            && self.access_steps == other.access_steps
     }
 }
 
@@ -452,6 +458,7 @@ impl Hash for ExprArena {
         self.function_seqs.hash(state);
         self.function_exps.hash(state);
         self.template_parts.hash(state);
+        self.access_steps.hash(state);
     }
 }
 

@@ -80,6 +80,9 @@ pub mod visitor;
 
 pub use arena::{ExprArena, SharedArena};
 pub use ast::{
+    // Assignment-target access steps
+    AccessStep,
+    AccessStepRange,
     ArmRange,
     BinaryOp,
     BindingPattern,

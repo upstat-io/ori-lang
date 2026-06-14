@@ -452,6 +452,22 @@ pub(super) fn dump_expr(
             dump_expr(out, *value, arena, interner, depth + 1);
             return;
         }
+        ExprKind::AssignTarget { root, steps } => {
+            writeln!(out, "{indent}AssignTarget").unwrap();
+            dump_expr(out, *root, arena, interner, depth + 1);
+            for step in arena.get_access_steps(*steps) {
+                match step {
+                    ori_ir::AccessStep::Field(field) => {
+                        let field_name = interner.lookup(*field);
+                        writeln!(out, "{indent}  .{field_name}").unwrap();
+                    }
+                    ori_ir::AccessStep::Index(index) => {
+                        dump_expr(out, *index, arena, interner, depth + 1);
+                    }
+                }
+            }
+            return;
+        }
 
         // Capabilities
         ExprKind::WithCapability {

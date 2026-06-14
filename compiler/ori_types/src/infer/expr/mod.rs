@@ -86,7 +86,9 @@ pub(super) use methods::resolve_builtin_method;
 // source visibility — re-exporting at the same level lets `calls/method_call.rs`
 // reach it via `super::super::range_method_requires_iteration`.
 pub(in crate::infer::expr) use methods::range_method_requires_iteration;
-pub(super) use operators::{infer_assign, infer_binary, infer_cast, infer_unary};
+pub(super) use operators::{
+    infer_assign, infer_assign_target, infer_binary, infer_cast, infer_unary,
+};
 #[cfg(test)]
 pub(super) use sequences::infer_try_stmt;
 pub(super) use sequences::{bind_pattern, infer_function_exp, infer_function_seq};
@@ -270,6 +272,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             span,
         ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
+        ExprKind::AssignTarget { root, steps } => infer_assign_target(engine, arena, *root, *steps),
 
         // Capabilities
         ExprKind::WithCapability {

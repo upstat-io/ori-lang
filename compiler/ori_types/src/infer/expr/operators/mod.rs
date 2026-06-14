@@ -6,7 +6,7 @@ mod conversion;
 mod dispatch;
 mod unary;
 
-pub(crate) use assignment::infer_assign;
+pub(crate) use assignment::{infer_assign, infer_assign_target};
 pub(crate) use binary::infer_binary;
 pub(crate) use conversion::infer_cast;
 #[cfg(test)]

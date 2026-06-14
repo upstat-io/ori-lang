@@ -80,6 +80,7 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E1013, include_str!("E1013.md")),
     (ErrorCode::E1014, include_str!("E1014.md")),
     (ErrorCode::E1015, include_str!("E1015.md")),
+    (ErrorCode::E1020, include_str!("E1020.md")),
     // Type errors (E2xxx)
     (ErrorCode::E2001, include_str!("E2001.md")),
     (ErrorCode::E2002, include_str!("E2002.md")),

@@ -24,14 +24,15 @@ mod ranges;
 mod stmt;
 
 // Re-export core expression types
-pub use expr::{Expr, ExprKind, TemplatePart};
+pub use expr::{AccessStep, Expr, ExprKind, TemplatePart};
 pub use operators::{BinaryOp, UnaryOp};
 pub use stmt::{Stmt, StmtKind};
 
 // Re-export all range types
 pub use ranges::{
-    ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange, MapElementRange,
-    MapEntryRange, NamedExprRange, ParamRange, StructLitFieldRange, TemplatePartRange,
+    AccessStepRange, ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange,
+    MapElementRange, MapEntryRange, NamedExprRange, ParamRange, StructLitFieldRange,
+    TemplatePartRange,
 };
 
 // Re-export collection types

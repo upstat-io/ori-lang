@@ -109,6 +109,7 @@ define_error_codes! {
     E1017, "Missing `=` in typed lambda";
     E1018, "Untyped parameter in typed lambda";
     E1019, "Trait impl must be written `impl Type: Trait`";
+    E1020, "Invalid assignment target";
 
     // Type Errors (E2xxx)
     E2001, "Type mismatch";

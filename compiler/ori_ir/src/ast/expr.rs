@@ -19,8 +19,8 @@ use std::hash::{Hash, Hasher};
 
 use super::operators::{BinaryOp, UnaryOp};
 use super::ranges::{
-    ArmRange, CallArgRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange,
-    StructLitFieldRange, TemplatePartRange,
+    AccessStepRange, ArmRange, CallArgRange, FieldInitRange, ListElementRange, MapElementRange,
+    MapEntryRange, StructLitFieldRange, TemplatePartRange,
 };
 use crate::token::{DurationUnit, SizeUnit};
 use crate::{
@@ -79,6 +79,22 @@ pub struct TemplatePart {
     pub format_spec: Name,
     /// Text segment after this interpolation (from `TemplateMiddle`/`TemplateTail`).
     pub text_after: Name,
+}
+
+/// A single access step in an assignment target's chain.
+///
+/// `state.items[i] = x` decomposes a root (`state`) plus an ordered chain of
+/// steps (`.items`, `[i]`). Steps are arena-allocated and referenced by an
+/// [`AccessStepRange`] so [`ExprKind`] stays `Copy` and within its byte budget.
+///
+/// # Salsa Compatibility
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum AccessStep {
+    /// Index step: `[expr]`.
+    Index(ExprId),
+    /// Field step: `.name`.
+    Field(Name),
 }
 
 /// Expression variants.
@@ -330,6 +346,18 @@ pub enum ExprKind {
     /// Assignment: target = value
     Assign { target: ExprId, value: ExprId },
 
+    /// Assignment target as a root plus an ordered access-step chain.
+    ///
+    /// Models the left side of `state.items[i] = x` as `root` (`state`) plus
+    /// `steps` (`.items`, `[i]`). The type-directed desugar (a later phase)
+    /// eliminates this node; until then it mirrors the index/field-assignment
+    /// path. `steps` is an arena range, never a `Vec`, to keep `ExprKind` `Copy`
+    /// and within its byte budget.
+    AssignTarget {
+        root: ExprId,
+        steps: AccessStepRange,
+    },
+
     /// Capability provision: with Http = `RealHttp` { ... } in body
     WithCapability {
         /// The capability name (e.g., Http)
@@ -494,6 +522,9 @@ impl fmt::Debug for ExprKind {
                 write!(f, "Cast({expr:?} {op} {ty:?})")
             }
             ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
+            ExprKind::AssignTarget { root, steps } => {
+                write!(f, "AssignTarget({root:?}, {steps:?})")
+            }
             ExprKind::WithCapability {
                 capability,
                 provider,

@@ -1,0 +1,82 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12)
+//
+// Index/field assignment (`x[i] = v`, `x.f = v`) parses to an AssignTarget
+// chain. The runtime feature is NOT yet implemented: the evaluator raises the
+// clean "index assignment is not supported" / "field assignment is not yet
+// implemented" error. These #fail pins lock that current surface; runtime
+// support (functional-update desugar) lands in a later section.
+//
+// Invalid-assignment-target rejection (E1020 — `f()[0] = x`, `(a+b)[0] = x`,
+// `a?.b = x`, `a.m() = x`, `a.m()[0] = x`, `(a as T).f = x`) is a PARSE error.
+// The test harness cannot attribute a module-level parse error to a per-function
+// #compile_fail, so those negatives are pinned in the ori_parse Rust matrix
+// (`compiler/ori_parse/src/tests/assign_target.rs`), not here.
+//
+// `**=` compound-assignment coverage is blocked on BUG-01-024 (the `**` power
+// operator + `**=` token are unshipped).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Index assignment — list element
+// =============================================================================
+
+#fail("index assignment")
+@test_index_assign_not_supported tests @index_assign () -> void = {
+    assert_eq(actual: index_assign(), expected: 9)
+}
+
+@index_assign () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] = 9;
+    xs[0]
+}
+
+// =============================================================================
+// Index compound assignment — desugars to read + binary + write
+// =============================================================================
+
+#fail("index assignment")
+@test_index_compound_assign_not_supported tests @index_compound () -> void = {
+    assert_eq(actual: index_compound(), expected: 3)
+}
+
+@index_compound () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] += 2;
+    xs[0]
+}
+
+// =============================================================================
+// Field assignment — struct field
+// =============================================================================
+
+type Counter = { value: int }
+
+#fail("field assignment")
+@test_field_assign_not_supported tests @field_assign () -> void = {
+    assert_eq(actual: field_assign(), expected: 5)
+}
+
+@field_assign () -> int = {
+    let c = Counter { value: 0 };
+    c.value = 5;
+    c.value
+}
+
+// =============================================================================
+// Multi-step chain — field then index
+// =============================================================================
+
+type Bag = { items: [int] }
+
+#fail("index assignment")
+@test_field_index_chain_not_supported tests @field_index_chain () -> void = {
+    assert_eq(actual: field_index_chain(), expected: 7)
+}
+
+@field_index_chain () -> int = {
+    let b = Bag { items: [1, 2, 3] };
+    b.items[0] = 7;
+    b.items[0]
+}
