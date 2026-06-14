@@ -698,3 +698,61 @@ fn test_catch_two_index_oob_shared_merge() {
         "two catches into one merge, split-edge release, no double-free:\n{stderr}"
     );
 }
+
+// ─── BUG-04-159: same-frame catch of checked-op implicit panics (AOT) ───
+// Regression family: emit_panic_block emitted a plain call + unreachable (no
+// invoke), so the unwind from ori_panic_cstr escaped the in-frame catch
+// landing pad. catch(...) must catch div-zero / mod-zero / overflow / shift.
+// (Also closes BUG-04-087 and BUG-07-038 — duplicates of the same defect.)
+
+#[test]
+fn test_catch_div_by_zero_inline_returns_err() {
+    assert_aot_success(
+        include_str!("fixtures/spec/aot_catch_div_by_zero.ori"),
+        "catch_div_by_zero_inline",
+    );
+}
+
+#[test]
+fn test_catch_mod_by_zero_inline_returns_err() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/catch_mod_by_zero.ori"),
+        "catch_mod_by_zero_inline",
+    );
+}
+
+#[test]
+fn test_catch_int_overflow_inline_returns_err() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/catch_int_overflow.ori"),
+        "catch_int_overflow_inline",
+    );
+}
+
+#[test]
+fn test_catch_shift_overflow_inline_returns_err() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/catch_shift_overflow.ori"),
+        "catch_shift_overflow_inline",
+    );
+}
+
+// Negative pin: div-by-zero with NO catch in scope MUST still abort — the
+// fix adds an unwind edge ONLY when a catch target is in scope.
+#[test]
+fn test_uncaught_div_by_zero_still_aborts() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/uncaught_div_zero_aborts.ori"
+    ));
+    assert_panic_exit(exit_code, "uncaught_div_zero_still_aborts", &stderr);
+}
+
+// Over-fire guard: a value live AFTER a caught checked-op panic must not be
+// released on the unwind edge (mirrors BUG-04-153 receiver-live guard).
+#[test]
+fn test_catch_div_by_zero_receiver_live_after_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/catch_div_zero_receiver_live_after.ori"),
+        "catch_div_zero_receiver_live_after",
+    );
+}

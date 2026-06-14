@@ -158,12 +158,27 @@ cargo_race_retry() {
     return 1
 }
 
+# Run one Rust test leg: cargo-nextest when active (binaries pre-built --no-run
+# in Phase 1, so this plain run does not recompile; cargo -p/--lib/--test
+# selectors are accepted directly), else the cargo_race_retry cargo-test
+# fallback. $1 = output file; remaining args = the shared leg selector. Output
+# captured to $1 for parse_rust_results (nextest + cargo branches per format).
+rust_test_leg() {
+    local out="$1"; shift
+    if [ -n "$NEXTEST_ACTIVE" ]; then
+        # --no-fail-fast: full-suite run (no early abort), matching the cargo path.
+        cargo nextest run --no-fail-fast "$@" > "$out" 2>&1
+    else
+        cargo_race_retry "$out" test "$@"
+    fi
+}
+
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
     # --lib --bins --tests excludes doctests: doctests compile under rustdoc at
     # RUN time (not prebuildable by `--no-run`), so they live in
     # run_rust_doctests as the lone compiling invocation of the parallel phase.
-    if cargo_race_retry "$RUST_OUTPUT" test --workspace --exclude ori_llvm --lib --bins --tests; then
+    if rust_test_leg "$RUST_OUTPUT" --workspace --exclude ori_llvm --lib --bins --tests; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
@@ -189,7 +204,7 @@ run_rust_doctests() {
 
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
-    if cargo_race_retry "$RUST_RT_OUTPUT" test -p ori_rt; then
+    if rust_test_leg "$RUST_RT_OUTPUT" -p ori_rt; then
         echo "  ✓ Runtime library tests passed"
         return 0
     else
@@ -202,7 +217,7 @@ run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
     # Lib binary is pre-built in Phase 1 (run-only here). ori_llvm doctests
     # run inside run_rust_doctests' single workspace --doc invocation.
-    if cargo_race_retry "$RUST_LLVM_OUTPUT" test -p ori_llvm --lib; then
+    if rust_test_leg "$RUST_LLVM_OUTPUT" -p ori_llvm --lib; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
     else
@@ -213,7 +228,7 @@ run_rust_llvm() {
 
 run_aot() {
     echo "=== Running AOT integration tests ==="
-    if cargo_race_retry "$AOT_OUTPUT" test -p ori_llvm --test aot; then
+    if rust_test_leg "$AOT_OUTPUT" -p ori_llvm --test aot; then
         echo "  ✓ AOT integration tests passed"
         return 0
     else
@@ -319,10 +334,33 @@ run_ori_llvm() {
 parse_rust_results() {
     local output_file=$1
     local prefix=$2
+    local passed failed ignored
 
-    local passed=$(grep -E "^test result:" "$output_file" 2>/dev/null | grep -oE '[0-9]+ passed' | awk '{sum += $1} END {print sum+0}')
-    local failed=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) failed.*/\1/' | awk '{sum += $1} END {print sum+0}')
-    local ignored=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) ignored.*/\1/' | awk '{sum += $1} END {print sum+0}')
+    if grep -qE "Summary \[" "$output_file" 2>/dev/null; then
+        # cargo-nextest aggregate summary line, e.g.
+        #   Summary [   0.090s] 296 tests run: 296 passed, 0 skipped
+        #   Summary [   1.2s ] 100 tests run: 95 passed, 3 failed, 2 skipped
+        # nextest uses "skipped" (not "ignored"); map skipped -> IGNORED to feed
+        # the same ${prefix}_IGNORED consumer.
+        local summary
+        summary=$(grep -E "Summary \[" "$output_file" 2>/dev/null | tail -1)
+        passed=$(echo "$summary" | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' | head -1)
+        failed=$(echo "$summary" | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' | head -1)
+        ignored=$(echo "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' | head -1)
+        passed=${passed:-0}; failed=${failed:-0}; ignored=${ignored:-0}
+    elif [ -n "$NEXTEST_ACTIVE" ] && ! grep -qE "^test result:" "$output_file" 2>/dev/null; then
+        # nextest was active but produced NEITHER a Summary line NOR a cargo
+        # `test result:` line — the output is unparseable (crash / build error /
+        # partial). Per the parse-error contract this is a HARD suite failure,
+        # NEVER a silent zero that masks dropped tests.
+        echo "  ✗ ${prefix}: nextest produced no parseable summary (parse-error) — failing the suite" >&2
+        passed=0; failed=1; ignored=0
+    else
+        # plain `cargo test` human summary: "test result: ok. N passed; M failed; K ignored; ..."
+        passed=$(grep -E "^test result:" "$output_file" 2>/dev/null | grep -oE '[0-9]+ passed' | awk '{sum += $1} END {print sum+0}')
+        failed=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) failed.*/\1/' | awk '{sum += $1} END {print sum+0}')
+        ignored=$(grep -E "^test result:" "$output_file" 2>/dev/null | sed 's/.*; \([0-9]*\) ignored.*/\1/' | awk '{sum += $1} END {print sum+0}')
+    fi
 
     eval "${prefix}_PASSED=$passed"
     eval "${prefix}_FAILED=$failed"
@@ -462,6 +500,21 @@ if command -v mold >/dev/null 2>&1; then
 else
     echo "=== Fast linker: mold absent — default linker ==="
 fi
+
+# Test runner: route the Rust legs through cargo-nextest (intra-binary
+# process-per-test scheduling) when it is on PATH, else fall back to plain
+# `cargo test` via cargo_race_retry. Guarded on `command -v cargo-nextest`;
+# absent -> NEXTEST_ACTIVE empty -> every leg uses the cargo_race_retry path
+# unchanged. Phase 1 pre-builds the nextest binaries with `--no-run` so the
+# Phase-2 run legs do not recompile (preserving the race-free pre-build/run
+# split); doctests always stay on `cargo test --doc` (nextest cannot run them).
+NEXTEST_ACTIVE=""
+if command -v cargo-nextest >/dev/null 2>&1; then
+    NEXTEST_ACTIVE=1
+    echo "=== Test runner: cargo-nextest active (Rust legs) ==="
+else
+    echo "=== Test runner: cargo-nextest absent — cargo test legs ==="
+fi
 echo ""
 
 if [[ $PARALLEL -eq 1 ]]; then
@@ -484,6 +537,17 @@ if [[ $PARALLEL -eq 1 ]]; then
     else
         echo -e "  ${RED}✗ Debug test-binary pre-build FAILED${NC}"
         cat "$PRECOMPILE_OUTPUT"
+    fi
+    # nextest builds its OWN test harness binaries (distinct from cargo test's),
+    # so when active they must ALSO be pre-built serially here — a Phase-2 plain
+    # `cargo nextest run` would otherwise compile and reintroduce the rmeta race.
+    if [ -n "$NEXTEST_ACTIVE" ]; then
+        if cargo nextest run --no-run --workspace --lib --bins --tests > "$PRECOMPILE_OUTPUT" 2>&1; then
+            echo "  ✓ nextest test binaries pre-built"
+        else
+            echo -e "  ${RED}✗ nextest test-binary pre-build FAILED${NC}"
+            cat "$PRECOMPILE_OUTPUT"
+        fi
     fi
     rm -f "$PRECOMPILE_OUTPUT"
 

@@ -1,0 +1,7 @@
+// Negative pin: BUG-04-159 — div-by-zero with NO catch in scope MUST still
+// abort (escape to the runtime top-level handler). The fix only adds an
+// unwind edge when a catch target is in scope; this case must be unchanged.
+@main () -> int = {
+    let x = 1 / 0;
+    x
+}
