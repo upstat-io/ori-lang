@@ -154,9 +154,7 @@ impl Parser<'_> {
     /// independent AST nodes. For complex lvalue targets (e.g., `arr[f()] += 1`),
     /// the desugared form evaluates the target expression twice — once for the
     /// read and once for the write. This matches Python's augmented assignment
-    /// behavior. When mutable collections/indexing are added, this should be
-    /// revisited with a dedicated `CompoundAssign` AST node that evaluators
-    /// handle atomically.
+    /// behavior.
     fn desugar_compound_assign(
         &mut self,
         target: ExprId,
