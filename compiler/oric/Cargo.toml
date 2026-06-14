@@ -49,6 +49,11 @@ ori_repr = { path = "../ori_repr", optional = true }
 parking_lot.workspace = true
 rustc-hash.workspace = true
 
+# Machine-readable test output (`ori test --format json`): serde escapes
+# arbitrary failure-message control chars by construction; hand-rendering does not.
+serde.workspace = true
+serde_json = "1"
+
 # Parallel test execution
 rayon.workspace = true
 tracing.workspace = true

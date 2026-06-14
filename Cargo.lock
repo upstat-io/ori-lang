@@ -1034,6 +1034,8 @@ dependencies = [
  "rayon",
  "rustc-hash",
  "salsa",
+ "serde",
+ "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",

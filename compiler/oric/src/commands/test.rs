@@ -38,11 +38,8 @@ pub fn run_tests(paths: &[String], config: &TestRunnerConfig) -> i32 {
 
     let summary = runner.run_paths(&paths);
 
-    // Print results in the requested format. JSON emits the minimal
-    // machine-readable summary; Text (default) prints the human summary
-    // unchanged.
     match config.format {
-        OutputFormat::Json => println!("{}", summary.render_json()),
+        OutputFormat::Json => println!("{}", summary.render_json(runner.interner())),
         OutputFormat::Text => print_test_summary(&summary, runner.interner(), config.verbose),
     }
 

@@ -68,7 +68,8 @@ pub enum OutputFormat {
     /// Human-readable text summary (default).
     #[default]
     Text,
-    /// Machine-readable JSON object carrying `passed`/`failed`/`skipped`.
+    /// Machine-readable JSON object carrying the full summary: aggregate
+    /// counts plus a `files` array of per-file/per-test results and durations.
     Json,
 }
 
@@ -106,7 +107,7 @@ pub struct TestRunnerConfig {
     /// cache — a worker never consults a cache of its own.
     pub skip_unchanged: Vec<String>,
     /// Summary output format. `Text` (default) prints the human-readable
-    /// summary; `Json` emits a minimal `{passed, failed, skipped}` object.
+    /// summary; `Json` emits the full machine-readable summary object.
     pub format: OutputFormat,
 }
 

@@ -118,13 +118,14 @@ export ORI_VERIFY_ARC=1
 # Measured overhead: ~20% wall time (54s vs ~45s baseline), within 150s budget.
 export ORI_VERIFY_EACH=1
 
-# --- Walking-skeleton JSON-spine probe (THROWAWAY SCAFFOLD) ---
+# --- JSON-spine probe (THROWAWAY SCAFFOLD) ---
 # Proves the JSON spine end-to-end on ONE suite: the runner emits a structured
-# {passed,failed,skipped} object behind --format=json (runner-emit), this
-# harness consumes it via python3 json.load rather than a bash text scrape
-# (harness-consume), asserts the parsed count equals the text-leg count
-# (parity), and writes the object to a disc-backed artifact (record). A
-# later durable all-suites JSON-consumption path retires this scaffold.
+# object behind --format=json carrying aggregate counts plus a per-file/per-test
+# payload (runner-emit), this harness consumes its top-level `passed` via python3
+# json.load rather than a bash text scrape (harness-consume), asserts the parsed
+# count equals the text-leg count (parity), and writes the object to a disc-backed
+# artifact (record). A later durable all-suites JSON-consumption path retires
+# this scaffold.
 WALKING_SKELETON_JSON_SUITE="tests/spec/test_coalesce_copy.ori"
 WALKING_SKELETON_JSON_RECORD="$(dirname "$0")/build/walking-skeleton-json-probe.json"
 walking_skeleton_json_probe() {
@@ -933,6 +934,7 @@ emit_json() {
     {
         echo "{"
         echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+        echo "  \"head_sha\": \"$(git -C "$(dirname "$0")" rev-parse HEAD 2>/dev/null || echo unknown)\","
         echo "  \"overall\": \"$overall\","
         echo "  \"failures\": ["
         if [ -n "$all_failures" ]; then

@@ -1,11 +1,13 @@
 //! Test result types.
 
+use serde::{Serialize, Serializer};
+
 use crate::ir::{Name, StringInterner};
 use std::path::PathBuf;
 use std::time::Duration;
 
 /// Outcome of a single test.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum TestOutcome {
     /// Test passed successfully.
     Passed,
@@ -262,16 +264,110 @@ impl TestSummary {
         }
     }
 
-    /// Render the minimal machine-readable summary as a JSON object carrying
-    /// `passed`, `failed`, and `skipped` counts. Hand-rendered (not serde):
-    /// the three values are `usize`, so no string escaping is possible. The
-    /// full structured surface (per-file, per-test, durations) is a separate
-    /// concern; this is the walking-skeleton vertical slice.
-    pub fn render_json(&self) -> String {
-        format!(
-            "{{\"passed\":{},\"failed\":{},\"skipped\":{}}}",
-            self.passed, self.failed, self.skipped
-        )
+    /// Render the full machine-readable summary as a JSON object: aggregate
+    /// counts plus a `files` array carrying every per-file summary, each with
+    /// its per-test results (resolved test/target names, outcome variant,
+    /// `duration_ns`). `serde_json` escapes arbitrary failure-message control
+    /// chars by construction. Interned `Name`s are resolved to strings via
+    /// `interner` so the JSON carries names, never opaque integer indices.
+    pub fn render_json(&self, interner: &StringInterner) -> String {
+        let dto = TestSummaryJson {
+            files: self.files.iter().map(|f| f.to_json(interner)).collect(),
+            passed: self.passed,
+            failed: self.failed,
+            skipped: self.skipped,
+            skipped_unchanged: self.skipped_unchanged,
+            llvm_compile_fail: self.llvm_compile_fail,
+            error_files: self.error_files,
+            llvm_compile_fail_files: self.llvm_compile_fail_files,
+            duration: self.duration,
+        };
+        // INVARIANT: serializing a pure-data DTO (primitives, &str, and a
+        // serialize_u64 duration shim — no map keys, no fallible serializer)
+        // cannot fail. A failure here is a programming error, not a runtime
+        // condition, so never emit a lossy fallback object.
+        serde_json::to_string(&dto)
+            .unwrap_or_else(|e| unreachable!("test summary JSON serialization is infallible: {e}"))
+    }
+}
+
+/// Serialize a `Duration` as integer nanoseconds (u64). The JSON schema pins
+/// the unit: every duration field is named `duration_ns` and carries a count
+/// of nanoseconds, so consumers parse one stable integer unit.
+fn serialize_duration_ns<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    let ns = u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+    s.serialize_u64(ns)
+}
+
+/// JSON view of a single test result. Interned `Name`s are resolved to their
+/// string form before emission so the payload never leaks integer indices.
+#[derive(Serialize)]
+struct TestResultJson<'a> {
+    name: &'a str,
+    targets: Vec<&'a str>,
+    outcome: &'a TestOutcome,
+    #[serde(rename = "duration_ns", serialize_with = "serialize_duration_ns")]
+    duration: Duration,
+}
+
+/// JSON view of a per-file summary, carrying its per-test results.
+#[derive(Serialize)]
+struct FileSummaryJson<'a> {
+    path: String,
+    results: Vec<TestResultJson<'a>>,
+    passed: usize,
+    failed: usize,
+    skipped: usize,
+    skipped_unchanged: usize,
+    llvm_compile_fail: usize,
+    #[serde(rename = "duration_ns", serialize_with = "serialize_duration_ns")]
+    duration: Duration,
+    errors: &'a [String],
+    llvm_compile_error: bool,
+}
+
+/// JSON view of the overall summary: aggregate counts plus every per-file view.
+#[derive(Serialize)]
+struct TestSummaryJson<'a> {
+    files: Vec<FileSummaryJson<'a>>,
+    passed: usize,
+    failed: usize,
+    skipped: usize,
+    skipped_unchanged: usize,
+    llvm_compile_fail: usize,
+    error_files: usize,
+    llvm_compile_fail_files: usize,
+    #[serde(rename = "duration_ns", serialize_with = "serialize_duration_ns")]
+    duration: Duration,
+}
+
+impl TestResult {
+    /// Build the JSON view, resolving `name` and `targets` through `interner`.
+    fn to_json<'a>(&'a self, interner: &'a StringInterner) -> TestResultJson<'a> {
+        TestResultJson {
+            name: interner.lookup(self.name),
+            targets: self.targets.iter().map(|t| interner.lookup(*t)).collect(),
+            outcome: &self.outcome,
+            duration: self.duration,
+        }
+    }
+}
+
+impl FileSummary {
+    /// Build the JSON view, resolving every result's interned names.
+    fn to_json<'a>(&'a self, interner: &'a StringInterner) -> FileSummaryJson<'a> {
+        FileSummaryJson {
+            path: self.path.display().to_string(),
+            results: self.results.iter().map(|r| r.to_json(interner)).collect(),
+            passed: self.passed,
+            failed: self.failed,
+            skipped: self.skipped,
+            skipped_unchanged: self.skipped_unchanged,
+            llvm_compile_fail: self.llvm_compile_fail,
+            duration: self.duration,
+            errors: &self.errors,
+            llvm_compile_error: self.llvm_compile_error,
+        }
     }
 }
 

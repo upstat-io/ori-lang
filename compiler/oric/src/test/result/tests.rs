@@ -223,49 +223,194 @@ fn test_coverage_report() {
     );
 }
 
-/// Semantic pin: `render_json` emits exactly the minimal walking-skeleton
-/// object — `passed`/`failed`/`skipped` keys with the summary's counts, in a
-/// shape `json.load` accepts.
+/// Semantic pin: `render_json` emits the FULL payload — aggregate counts plus a
+/// `files` array carrying each per-file summary's per-test `results` — and the
+/// output parses as JSON.
 #[test]
-fn test_render_json_emits_passed_failed_skipped() {
-    let mut summary = TestSummary::new();
-    summary.passed = 12;
-    summary.failed = 3;
-    summary.skipped = 5;
+fn test_render_json_emits_full_payload_with_per_file_results() {
+    let interner = test_interner();
+    let t1 = interner.intern("alpha_test");
+    let t2 = interner.intern("beta_test");
 
-    assert_eq!(
-        summary.render_json(),
-        "{\"passed\":12,\"failed\":3,\"skipped\":5}"
+    let mut file = FileSummary::new(PathBuf::from("suite.ori"));
+    file.add_result(TestResult::passed(t1, vec![], Duration::from_millis(10)));
+    file.add_result(TestResult::failed(
+        t2,
+        vec![],
+        "boom".into(),
+        Duration::from_millis(5),
+    ));
+
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("render_json must emit valid JSON: {e}; json={json}"));
+
+    assert_eq!(v["passed"], 1);
+    assert_eq!(v["failed"], 1);
+    let files = v["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("files must be an array; json={json}"));
+    assert_eq!(files.len(), 1);
+    let results = files[0]["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be an array; json={json}"));
+    assert_eq!(results.len(), 2);
+}
+
+/// `render_json` resolves interned `Name`s to their string form — `name` and
+/// `targets` carry test/function names, never the opaque integer indices a
+/// naive `#[derive(Serialize)]` on `TestResult` would emit.
+#[test]
+fn test_render_json_resolves_interned_names_to_strings() {
+    let interner = test_interner();
+    let name = interner.intern("my_named_test");
+    let target = interner.intern("my_target_fn");
+
+    let mut file = FileSummary::new(PathBuf::from("names.ori"));
+    file.add_result(TestResult::passed(name, vec![target], Duration::ZERO));
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("valid JSON required: {e}; json={json}"));
+    let result = &v["files"][0]["results"][0];
+    assert_eq!(result["name"], "my_named_test");
+    assert_eq!(result["targets"][0], "my_target_fn");
+    // Negative: the name field is a string, never a bare integer index.
+    assert!(
+        result["name"].is_string(),
+        "name must be a string, json={json}"
     );
 }
 
-/// Negative pin: the skeleton object is MINIMAL — it carries exactly the three
-/// keys, never `skipped_unchanged` / `error_files` / per-file detail (that is
-/// a later full-output-format surface, not the skeleton's).
+/// Every `TestOutcome` variant and the error-file count survive into the JSON.
 #[test]
-fn test_render_json_excludes_non_skeleton_fields() {
-    let mut summary = TestSummary::new();
-    summary.passed = 1;
-    summary.skipped_unchanged = 9;
-    summary.llvm_compile_fail = 4;
-    summary.error_files = 2;
+fn test_render_json_carries_all_outcome_variants_and_error_count() {
+    let interner = test_interner();
+    let p = interner.intern("p");
+    let f = interner.intern("f");
+    let s = interner.intern("s");
+    let su = interner.intern("su");
+    let lcf = interner.intern("lcf");
 
-    let json = summary.render_json();
-    assert!(!json.contains("skipped_unchanged"), "json={json}");
-    assert!(!json.contains("error_files"), "json={json}");
-    assert!(!json.contains("llvm_compile_fail"), "json={json}");
-    assert!(!json.contains("files"), "json={json}");
-    // Exactly three keys.
-    assert_eq!(json.matches(':').count(), 3, "json={json}");
+    let mut file = FileSummary::new(PathBuf::from("variants.ori"));
+    file.add_result(TestResult::passed(p, vec![], Duration::ZERO));
+    file.add_result(TestResult::failed(
+        f,
+        vec![],
+        "f-msg".into(),
+        Duration::ZERO,
+    ));
+    file.add_result(TestResult::skipped(s, vec![], "s-msg".into()));
+    file.add_result(TestResult {
+        name: su,
+        targets: vec![],
+        outcome: TestOutcome::SkippedUnchanged,
+        duration: Duration::ZERO,
+    });
+    file.add_result(TestResult {
+        name: lcf,
+        targets: vec![],
+        outcome: TestOutcome::LlvmCompileFail("lcf-msg".into()),
+        duration: Duration::ZERO,
+    });
+
+    // An error-only file drives error_files.
+    let mut errfile = FileSummary::new(PathBuf::from("err.ori"));
+    errfile.add_error("parse error".into());
+
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+    summary.add_file(errfile);
+
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("valid JSON required: {e}; json={json}"));
+    assert_eq!(v["error_files"], 1);
+    for variant in [
+        "Passed",
+        "Failed",
+        "Skipped",
+        "SkippedUnchanged",
+        "LlvmCompileFail",
+    ] {
+        assert!(
+            json.contains(variant),
+            "outcome variant {variant} missing; json={json}"
+        );
+    }
 }
 
-/// A zero summary still renders a well-formed object (all-zero counts), never
-/// an empty string or a partial object.
+/// Adversarial: a failure message packed with control characters — tabs,
+/// newlines, backslashes, double-quotes, and non-ASCII unicode — serializes to
+/// JSON that round-trips through a parser, and the parsed message equals the
+/// original. serde escaping is what makes this hold; a hand-rendered payload
+/// would produce invalid JSON that a downstream consumer could not parse.
 #[test]
-fn test_render_json_zero_summary_is_well_formed() {
-    let summary = TestSummary::new();
+fn test_render_json_escapes_control_chars_in_failure_message() {
+    let interner = test_interner();
+    let t = interner.intern("adversarial");
+    let nasty = "tab\there\nnewline \"quoted\" back\\slash unicode\u{2192}\u{3bb}";
+
+    let mut file = FileSummary::new(PathBuf::from("nasty.ori"));
+    file.add_result(TestResult::failed(t, vec![], nasty.into(), Duration::ZERO));
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap_or_else(|e| {
+        panic!("control chars must round-trip as valid JSON: {e}; json={json}")
+    });
+
+    let parsed_msg = v["files"][0]["results"][0]["outcome"]["Failed"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Failed message must be a string; json={json}"));
     assert_eq!(
-        summary.render_json(),
-        "{\"passed\":0,\"failed\":0,\"skipped\":0}"
+        parsed_msg, nasty,
+        "message must survive escape + parse unchanged"
+    );
+}
+
+/// `duration_ns` is a numeric nanosecond count — the pinned schema unit.
+#[test]
+fn test_render_json_duration_is_numeric_nanoseconds() {
+    let interner = test_interner();
+    let t = interner.intern("timed");
+    let mut file = FileSummary::new(PathBuf::from("timed.ori"));
+    file.add_result(TestResult::passed(t, vec![], Duration::from_nanos(1500)));
+    let mut summary = TestSummary::new();
+    summary.add_file(file);
+
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("valid JSON required: {e}; json={json}"));
+    assert!(
+        v["duration_ns"].is_u64(),
+        "summary duration_ns must be u64; json={json}"
+    );
+    assert_eq!(v["files"][0]["results"][0]["duration_ns"], 1500);
+}
+
+/// A zero summary renders a well-formed full object — empty `files` array,
+/// all-zero counts — never an empty string or a partial object.
+#[test]
+fn test_render_json_zero_summary_is_well_formed_full_object() {
+    let interner = test_interner();
+    let summary = TestSummary::new();
+    let json = summary.render_json(&interner);
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("zero summary must be valid JSON: {e}; json={json}"));
+    assert_eq!(v["passed"], 0);
+    assert_eq!(v["failed"], 0);
+    let files = v["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("files must be an array; json={json}"));
+    assert!(
+        files.is_empty(),
+        "files must be an empty array; json={json}"
     );
 }
