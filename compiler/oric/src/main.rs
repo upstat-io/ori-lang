@@ -119,8 +119,26 @@ fn real_main() {
             // Parse args: paths are optional, flags can come before or after
             let mut paths: Vec<String> = Vec::new();
             let mut config = TestRunnerConfig::default();
+            // Set when `--format` was seen as a bare flag; the next arg is its
+            // value (space form `--format json`, alongside `--format=json`).
+            let mut expect_format_value = false;
 
             for arg in args.iter().skip(2) {
+                if expect_format_value {
+                    expect_format_value = false;
+                    match arg.as_str() {
+                        "json" => config.format = oric::test::OutputFormat::Json,
+                        "text" => config.format = oric::test::OutputFormat::Text,
+                        other => {
+                            eprintln!(
+                                "error: invalid --format value '{other}' (expected json|text)"
+                            );
+                            eprintln!("Run `ori test --help` for usage.");
+                            std::process::exit(2);
+                        }
+                    }
+                    continue;
+                }
                 if arg == "--help" || arg == "-h" {
                     print_test_usage();
                     return;
@@ -138,6 +156,13 @@ fn real_main() {
                     config.backend = oric::test::Backend::Interpreter;
                 } else if arg == "--incremental" {
                     config.incremental = true;
+                } else if arg == "--format=json" {
+                    config.format = oric::test::OutputFormat::Json;
+                } else if arg == "--format=text" {
+                    config.format = oric::test::OutputFormat::Text;
+                } else if arg == "--format" {
+                    // Space form: the value (`json`/`text`) is the next arg.
+                    expect_format_value = true;
                 } else if arg == "--__worker" {
                     // Internal flag (hidden from help): subprocess-isolation
                     // worker mode — run in-process, emit the line protocol.
@@ -157,6 +182,11 @@ fn real_main() {
                 } else {
                     paths.push(arg.clone());
                 }
+            }
+            if expect_format_value {
+                eprintln!("error: --format requires a value (json|text)");
+                eprintln!("Run `ori test --help` for usage.");
+                std::process::exit(2);
             }
 
             // Use provided paths or current directory
@@ -433,5 +463,6 @@ fn print_test_options() {
     println!("  --coverage          Report which functions have tests");
     println!("  --backend=<name>    Use backend: interpreter (default), llvm");
     println!("  --incremental       Skip tests for unchanged functions");
+    println!("  --format <name>     Summary format: text (default), json (also --format=<name>)");
     println!("  --help, -h          Show this help");
 }

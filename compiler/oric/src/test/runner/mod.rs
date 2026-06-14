@@ -62,6 +62,16 @@ pub enum Backend {
     LLVM,
 }
 
+/// Output format for the test-result summary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Human-readable text summary (default).
+    #[default]
+    Text,
+    /// Machine-readable JSON object carrying `passed`/`failed`/`skipped`.
+    Json,
+}
+
 /// Configuration for the test runner.
 #[derive(Clone, Debug)]
 #[expect(
@@ -95,6 +105,9 @@ pub struct TestRunnerConfig {
     /// `SkippedUnchanged` without running it. The parent owns the incremental
     /// cache — a worker never consults a cache of its own.
     pub skip_unchanged: Vec<String>,
+    /// Summary output format. `Text` (default) prints the human-readable
+    /// summary; `Json` emits a minimal `{passed, failed, skipped}` object.
+    pub format: OutputFormat,
 }
 
 impl Default for TestRunnerConfig {
@@ -109,6 +122,7 @@ impl Default for TestRunnerConfig {
             worker_protocol: false,
             protocol_token: None,
             skip_unchanged: Vec::new(),
+            format: OutputFormat::Text,
         }
     }
 }

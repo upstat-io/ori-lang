@@ -22,22 +22,27 @@ pub enum TestOutcome {
 }
 
 impl TestOutcome {
+    /// Whether this outcome is `Passed`.
     pub fn is_passed(&self) -> bool {
         matches!(self, TestOutcome::Passed)
     }
 
+    /// Whether this outcome is `Failed`.
     pub fn is_failed(&self) -> bool {
         matches!(self, TestOutcome::Failed(_))
     }
 
+    /// Whether this outcome is `Skipped` (explicit skip with a reason).
     pub fn is_skipped(&self) -> bool {
         matches!(self, TestOutcome::Skipped(_))
     }
 
+    /// Whether this outcome is `SkippedUnchanged` (incremental no-change skip).
     pub fn is_skipped_unchanged(&self) -> bool {
         matches!(self, TestOutcome::SkippedUnchanged)
     }
 
+    /// Whether this outcome is `LlvmCompileFail` (LLVM compilation failure).
     pub fn is_llvm_compile_fail(&self) -> bool {
         matches!(self, TestOutcome::LlvmCompileFail(_))
     }
@@ -134,6 +139,7 @@ pub struct FileSummary {
 }
 
 impl FileSummary {
+    /// Construct an empty summary for the file at `path`.
     pub fn new(path: PathBuf) -> Self {
         FileSummary {
             path,
@@ -141,6 +147,7 @@ impl FileSummary {
         }
     }
 
+    /// Record a test result, incrementing the matching outcome counter.
     pub fn add_result(&mut self, result: TestResult) {
         match &result.outcome {
             TestOutcome::Passed => self.passed += 1,
@@ -158,6 +165,7 @@ impl FileSummary {
         self.results.push(result);
     }
 
+    /// Record a file-level error (parse / type / LLVM compilation failure).
     pub fn add_error(&mut self, error: String) {
         self.errors.push(error);
     }
@@ -199,10 +207,12 @@ pub struct TestSummary {
 }
 
 impl TestSummary {
+    /// Construct an empty summary with all counters zeroed.
     pub fn new() -> Self {
         TestSummary::default()
     }
 
+    /// Fold a per-file summary into the aggregate counts.
     pub fn add_file(&mut self, summary: FileSummary) {
         self.passed += summary.passed;
         self.failed += summary.failed;
@@ -251,6 +261,18 @@ impl TestSummary {
             i32::from(self.has_failures())
         }
     }
+
+    /// Render the minimal machine-readable summary as a JSON object carrying
+    /// `passed`, `failed`, and `skipped` counts. Hand-rendered (not serde):
+    /// the three values are `usize`, so no string escaping is possible. The
+    /// full structured surface (per-file, per-test, durations) is a separate
+    /// concern; this is the walking-skeleton vertical slice.
+    pub fn render_json(&self) -> String {
+        format!(
+            "{{\"passed\":{},\"failed\":{},\"skipped\":{}}}",
+            self.passed, self.failed, self.skipped
+        )
+    }
 }
 
 /// Coverage information for a single function.
@@ -286,6 +308,7 @@ pub struct CoverageReport {
 }
 
 impl CoverageReport {
+    /// Construct an empty coverage report.
     pub fn new() -> Self {
         CoverageReport::default()
     }

@@ -1,7 +1,9 @@
 //! The `test` command: discover and run Ori spec tests, report results.
 
 use oric::ir::StringInterner;
-use oric::test::{CoverageReport, FileSummary, TestRunner, TestRunnerConfig, TestSummary};
+use oric::test::{
+    CoverageReport, FileSummary, OutputFormat, TestRunner, TestRunnerConfig, TestSummary,
+};
 use oric::TestOutcome;
 use std::path::PathBuf;
 
@@ -36,8 +38,13 @@ pub fn run_tests(paths: &[String], config: &TestRunnerConfig) -> i32 {
 
     let summary = runner.run_paths(&paths);
 
-    // Print results
-    print_test_summary(&summary, runner.interner(), config.verbose);
+    // Print results in the requested format. JSON emits the minimal
+    // machine-readable summary; Text (default) prints the human summary
+    // unchanged.
+    match config.format {
+        OutputFormat::Json => println!("{}", summary.render_json()),
+        OutputFormat::Text => print_test_summary(&summary, runner.interner(), config.verbose),
+    }
 
     summary.exit_code()
 }

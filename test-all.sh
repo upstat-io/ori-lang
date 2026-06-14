@@ -106,6 +106,9 @@ AOT_EXIT=0
 WASM_EXIT=0
 ORI_INTERP_EXIT=0
 ORI_LLVM_EXIT=0
+# Walking-skeleton JSON-spine probe (throwaway scaffold; a later durable
+# all-suites JSON-consumption path replaces it).
+WALKING_SKELETON_JSON_EXIT=0
 
 # --- Verification gates (enabled by default) ---
 # ARC IR verification: checks RC balance, drop placement after AIMS pipeline.
@@ -114,6 +117,38 @@ export ORI_VERIFY_ARC=1
 # LLVM pass verification: verifies IR well-formedness after every optimization pass.
 # Measured overhead: ~20% wall time (54s vs ~45s baseline), within 150s budget.
 export ORI_VERIFY_EACH=1
+
+# --- Walking-skeleton JSON-spine probe (THROWAWAY SCAFFOLD) ---
+# Proves the JSON spine end-to-end on ONE suite: the runner emits a structured
+# {passed,failed,skipped} object behind --format=json (runner-emit), this
+# harness consumes it via python3 json.load rather than a bash text scrape
+# (harness-consume), asserts the parsed count equals the text-leg count
+# (parity), and writes the object to a disc-backed artifact (record). A
+# later durable all-suites JSON-consumption path retires this scaffold.
+WALKING_SKELETON_JSON_SUITE="tests/spec/test_coalesce_copy.ori"
+WALKING_SKELETON_JSON_RECORD="$(dirname "$0")/build/walking-skeleton-json-probe.json"
+walking_skeleton_json_probe() {
+    local bin="./target/debug/ori"
+    [ -x "$bin" ] || { echo "walking-skeleton json probe: ori binary missing"; return 1; }
+    [ -e "$WALKING_SKELETON_JSON_SUITE" ] || { echo "walking-skeleton json probe: suite $WALKING_SKELETON_JSON_SUITE missing"; return 1; }
+    local json json_passed text_passed
+    json=$("$bin" test --format=json "$WALKING_SKELETON_JSON_SUITE" 2>/dev/null)
+    # Harness-consume leg: parse via python3 json.load (NOT a bash text scrape).
+    json_passed=$(printf '%s' "$json" | python3 -c "import json,sys; print(json.load(sys.stdin)['passed'])" 2>/dev/null) \
+        || { echo "walking-skeleton json probe: json.load failed on: $json"; return 1; }
+    # Text leg: the legacy scrape, retained only for the parity comparison.
+    text_passed=$("$bin" test "$WALKING_SKELETON_JSON_SUITE" 2>/dev/null \
+        | grep -oE "[0-9]+ passed" | head -1 | grep -oE "[0-9]+")
+    if [ "$json_passed" != "$text_passed" ]; then
+        echo "walking-skeleton json probe: PARITY MISMATCH (json=$json_passed text=$text_passed)"
+        return 1
+    fi
+    # Record leg: one number reaches a disc-backed artifact.
+    mkdir -p "$(dirname "$WALKING_SKELETON_JSON_RECORD")"
+    printf '%s\n' "$json" > "$WALKING_SKELETON_JSON_RECORD"
+    echo "walking-skeleton json probe: OK (passed=$json_passed, parity with text leg, recorded to $WALKING_SKELETON_JSON_RECORD)"
+    return 0
+}
 
 # --- Test runner functions ---
 
@@ -219,8 +254,8 @@ run_wasm_build() {
     #   - `compiler/ori_llvm/tests/aot/cli.rs` — `ori build --target=...`
     #   - `compiler/ori_llvm/tests/aot/cross.rs` — `from_triple` round-trips
     # If you change Ori's WASM/WASI codegen or target parsing, those suites
-    # are what cover you — not this check. See BUG-04-045 history for the
-    # category of regression that this label could mask if misread.
+    # are what cover you — not this check. See the regression history for the
+    # category that this label could mask if misread.
     echo "=== Checking external playground WASM build ==="
     if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
         echo "  (skipped - wasm32-unknown-unknown rustc target not installed)"
@@ -633,6 +668,11 @@ parse_rust_results "$DOCTEST_OUTPUT" "DOCTEST"
 parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP" "$ORI_INTERP_EXIT"
 parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 
+# Walking-skeleton JSON-spine probe: runs after the debug binary is built
+# (the interpreter suite above relies on ./target/debug/ori). A parity
+# mismatch or a json.load failure fails the run via ANY_CORE_FAILED below.
+walking_skeleton_json_probe || WALKING_SKELETON_JSON_EXIT=$?
+
 # Count AOT tests that failed specifically due to memory leaks.
 # assert_aot_success panics with "leaked memory" when exit code is 2.
 AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || true)
@@ -926,13 +966,13 @@ emit_json() {
 
 
 # Final status
-# ONLY the ORI_LLVM_EXIT spec-backend SIGSEGV (ORI_LLVM_CRASHED, tracked in
-# BUG-04-030) is exempted from the red verdict — and only when every other
+# ONLY the ORI_LLVM_EXIT spec-backend SIGSEGV (ORI_LLVM_CRASHED, a known
+# tracked crash) is exempted from the red verdict — and only when every other
 # suite is clean. Every other suite, INCLUDING one that errored (built/ran with
 # no parseable results), counts toward ANY_CORE_FAILED and fails the run. A
 # build failure or crash is never a silent green; the divergence where local
 # read green while CI read red came from suites reporting 0/0 "passed".
-ANY_CORE_FAILED=$((RUST_EXIT + DOCTEST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT))
+ANY_CORE_FAILED=$((RUST_EXIT + DOCTEST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT + WALKING_SKELETON_JSON_EXIT))
 ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
 
 if [ -n "$ERRORED_SUITES" ]; then
@@ -969,7 +1009,7 @@ if [[ $EMIT_JSON -eq 0 ]] \
         DISP_UNTRACKED=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_untracked // 0')
         if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
             echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED — DRIFT${NC}"
-            echo "  Per .claude/rules/test-disposition.md: every #[ignore]/#skip needs BUG-XX-NNN in reason text."
+            echo "  Every #[ignore]/#skip needs a tracking-bug ID in its reason text."
             echo "  List the offenders:"
             echo "    diagnostics/state.sh dispositions --untracked-only"
             echo ""
@@ -988,7 +1028,7 @@ if [ "$ANY_FAILED" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}=== All tests passed ===${NC}"
     exit 0
 elif [ "$ANY_CORE_FAILED" -eq 0 ] && [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
-    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All other suites passed — LLVM backend spec tests CRASHED (known: BUG-04-030, not fixed) ===${NC}"
+    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All other suites passed — LLVM backend spec tests CRASHED (known issue, not fixed) ===${NC}"
     echo -e "${YELLOW:-\033[0;33m}    This is the ONE tracked exemption. Every other suite, including errored ones, fails the run.${NC}"
     exit 0
 else

@@ -222,3 +222,50 @@ fn test_coverage_report() {
         vec!["func2"]
     );
 }
+
+/// Semantic pin: `render_json` emits exactly the minimal walking-skeleton
+/// object — `passed`/`failed`/`skipped` keys with the summary's counts, in a
+/// shape `json.load` accepts.
+#[test]
+fn test_render_json_emits_passed_failed_skipped() {
+    let mut summary = TestSummary::new();
+    summary.passed = 12;
+    summary.failed = 3;
+    summary.skipped = 5;
+
+    assert_eq!(
+        summary.render_json(),
+        "{\"passed\":12,\"failed\":3,\"skipped\":5}"
+    );
+}
+
+/// Negative pin: the skeleton object is MINIMAL — it carries exactly the three
+/// keys, never `skipped_unchanged` / `error_files` / per-file detail (that is
+/// a later full-output-format surface, not the skeleton's).
+#[test]
+fn test_render_json_excludes_non_skeleton_fields() {
+    let mut summary = TestSummary::new();
+    summary.passed = 1;
+    summary.skipped_unchanged = 9;
+    summary.llvm_compile_fail = 4;
+    summary.error_files = 2;
+
+    let json = summary.render_json();
+    assert!(!json.contains("skipped_unchanged"), "json={json}");
+    assert!(!json.contains("error_files"), "json={json}");
+    assert!(!json.contains("llvm_compile_fail"), "json={json}");
+    assert!(!json.contains("files"), "json={json}");
+    // Exactly three keys.
+    assert_eq!(json.matches(':').count(), 3, "json={json}");
+}
+
+/// A zero summary still renders a well-formed object (all-zero counts), never
+/// an empty string or a partial object.
+#[test]
+fn test_render_json_zero_summary_is_well_formed() {
+    let summary = TestSummary::new();
+    assert_eq!(
+        summary.render_json(),
+        "{\"passed\":0,\"failed\":0,\"skipped\":0}"
+    );
+}

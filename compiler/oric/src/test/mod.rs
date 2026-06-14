@@ -23,4 +23,4 @@ pub use result::{
 };
 #[cfg(feature = "llvm")]
 pub use runner::run_worker;
-pub use runner::{run_test_file, run_tests, Backend, TestRunner, TestRunnerConfig};
+pub use runner::{run_test_file, run_tests, Backend, OutputFormat, TestRunner, TestRunnerConfig};
