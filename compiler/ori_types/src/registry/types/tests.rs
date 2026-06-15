@@ -809,3 +809,97 @@ fn burden_side_table_does_not_shadow_nominal_type_entry() {
         .expect("nominal struct burden resolves via TypeEntry, not side-table");
     assert_eq!(spec.owned_fields.len(), 1, "struct's one owned heap field");
 }
+
+// from_typed_exports reconstruction round-trip.
+//
+// finish_with_pool CONSUMES the live registry (into_entries drains the nominal
+// TypeEntry set; drain_collection_burdens drains the monomorphized-collection
+// side-table), so codegen rebuilds the burden-resolution surface from those two
+// exports via from_typed_exports(entries, collection_burdens). These pins drive
+// the reconstruction directly: a burden carried on a nominal TypeEntry and a
+// burden in the collection_burdens side-table each survive the round-trip and
+// resolve via burden(idx) (the side-table case exercising the .or_else fallback).
+
+#[test]
+fn from_typed_exports_round_trips_nominal_type_entry_burden() {
+    let pool = Pool::new();
+    let mut source = TypeRegistry::new();
+    let name = test_name("PersonExport");
+    let idx = Idx::from_raw(400);
+    let fields = vec![heap_str_field("name"), scalar_int_field("age")];
+    let burden = compute_struct_burden(&fields, &pool);
+    source.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden,
+    );
+    // Drain the nominal entries exactly as finish_with_pool does.
+    let entries = source.into_entries();
+
+    // Reconstruct from the drained exports (no collection-burden side-table).
+    let rebuilt = TypeRegistry::from_typed_exports(entries, vec![]);
+    let spec = rebuilt
+        .burden(idx)
+        .expect("nominal TypeEntry burden must survive from_typed_exports round-trip");
+    assert_eq!(
+        spec.owned_fields.len(),
+        1,
+        "str field round-trips as owned-heap"
+    );
+    assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
+    assert!(spec.self_heap_alloc);
+
+    // Genuine-pin clamp: a reconstruction NOT given the nominal entry resolves
+    // None — the positive assertion above is driven by the `entries` argument, so
+    // it FAILS if from_typed_exports dropped that argument.
+    let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
+    assert!(
+        empty.burden(idx).is_none(),
+        "burden resolution must be fed by the entries argument, not ambient state"
+    );
+}
+
+#[test]
+fn from_typed_exports_round_trips_collection_burden_side_table() {
+    let pool = Pool::new();
+    let mut source = TypeRegistry::new();
+    // A monomorphized [str] instance has no TypeEntry — its burden lands in the
+    // collection_burdens side-table.
+    let list_idx = Idx::from_raw(401);
+    let spec = list_burden(Idx::STR, &pool, &source);
+    source.register_user_burden(list_idx, spec);
+    // Drain the side-table exactly as finish_with_pool does.
+    let collection_burdens = source.drain_collection_burdens();
+    assert_eq!(
+        collection_burdens.len(),
+        1,
+        "one [str] side-table entry drained"
+    );
+
+    // Reconstruct from the drained side-table (no nominal entries).
+    let rebuilt = TypeRegistry::from_typed_exports(vec![], collection_burdens);
+    let resolved = rebuilt
+        .burden(list_idx)
+        .expect("collection-burden side-table entry must survive from_typed_exports round-trip");
+    assert!(resolved.self_heap_alloc, "[str] buffer is heap-allocated");
+    assert_eq!(
+        resolved.element_burden,
+        Some(Idx::STR),
+        "[str] per-element burden round-trips via the side-table .or_else path"
+    );
+
+    // Genuine-pin clamp: a reconstruction NOT given the side-table resolves None —
+    // the positive resolution above exercises the .or_else(collection_burdens)
+    // path, so it FAILS if from_typed_exports dropped that argument.
+    let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
+    assert!(
+        empty.burden(list_idx).is_none(),
+        "side-table resolution must be fed by the collection_burdens argument"
+    );
+}

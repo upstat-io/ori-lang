@@ -279,6 +279,107 @@ fn probe_default_path_unaffected_str() {
     );
 }
 
+// Per-shape default-path coverage for the residual-risk shapes.
+//
+// The codegen seam now threads a reconstructed (populated) `TypeRegistry` into
+// `run_arc_pipeline` so the burden walker resolves `[T]` / `{K:V}` / `Set<T>` /
+// closure-env specs. With the predicate-stack flag UNSET (default path) burden
+// ops are codegen no-ops, so the populated registry MUST NOT perturb default-path
+// emission: each shape that the collection / closure burden lookup now resolves
+// runs leak-free on the default path. Symmetry companion to
+// `probe_default_path_unaffected_str` (str) + the burden-path-only probes above.
+
+/// Compile `source` on the DEFAULT path (predicate-stack RC emitter ON; burden
+/// ops are codegen no-ops when the flag is unset) and run under leak checking.
+/// Asserts exit 0 with no leak / double-free — pins that the reconstructed
+/// populated registry leaves default-path emission unaffected for the covered
+/// residual-risk collection / closure / non-collection-heap shape.
+fn assert_default_path_leak_free(source: &str, label: &str) {
+    let (exit, stdout, stderr) = compile_and_run_with_build_env(source, &[]);
+    assert!(
+        exit == 0,
+        "[{label}] default-path run exited {exit}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("FATAL")
+            && !stderr.contains("already-freed")
+            && !stderr.to_lowercase().contains("leak"),
+        "[{label}] default-path run reported a leak / double-free\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn probe_default_path_unaffected_list_int() {
+    // `[int]` collection buffer — burden lookup resolves the CollectionBuffer
+    // spec; default-path emission must stay leak-free.
+    let src = r#"
+@sum_list (xs: [int]) -> int = {
+    let total = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+    total
+}
+
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let s = sum_list(xs: xs);
+    print(msg: `{s}`);
+    0
+}
+"#;
+    assert_default_path_leak_free(src, "default_path_unaffected_list_int");
+}
+
+#[test]
+fn probe_default_path_unaffected_map_str_int() {
+    // `{str: int}` collection buffer — burden lookup resolves the map spec
+    // (heap-str keys + scalar values); default-path emission must stay leak-free.
+    let src = r#"
+@count_keys (m: {str: int}) -> int = m.length();
+
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3};
+    let n = count_keys(m: m);
+    print(msg: `{n}`);
+    0
+}
+"#;
+    assert_default_path_leak_free(src, "default_path_unaffected_map_str_int");
+}
+
+#[test]
+fn probe_default_path_unaffected_set_int() {
+    // `Set<int>` collection buffer — burden lookup resolves the set spec;
+    // default-path emission must stay leak-free.
+    let src = r#"
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3, 2, 1].iter().collect();
+    let n = s.len();
+    print(msg: `{n}`);
+    0
+}
+"#;
+    assert_default_path_leak_free(src, "default_path_unaffected_set_int");
+}
+
+#[test]
+fn probe_default_path_unaffected_closure_env() {
+    // Closure-env captured heap str — burden lookup resolves the capture spec via
+    // the same registry path; default-path emission must stay leak-free.
+    let src = r#"
+@make_greeter (name: str) -> () -> str = {
+    let greet = () -> `hello {name}`;
+    greet
+}
+
+@main () -> int = {
+    let g = make_greeter(name: "world");
+    let msg = g();
+    print(msg: msg);
+    0
+}
+"#;
+    assert_default_path_leak_free(src, "default_path_unaffected_closure_env");
+}
+
 // Step-B' dead-collection-source freeing (iterator-conversion shapes)
 //
 // A `m.keys()` / `m.values()` / `s.split()` / `set.to_list()` BORROWS its source
