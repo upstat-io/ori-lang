@@ -442,14 +442,22 @@ impl ArcLowerer<'_> {
 
         let lhs = self.lower_expr(left);
         let rhs = self.lower_expr(right);
-        self.builder.emit_let(
+        let dst = self.builder.emit_let(
             ty,
             ArcValue::PrimOp {
                 op: PrimOp::Binary(op),
                 args: vec![lhs, rhs],
             },
             Some(span),
-        )
+        );
+        // Integer Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero,
+        // overflow, or out-of-range shift count; Add / Sub / Mul panic on
+        // overflow (Spec: Clause 14.3). On the integer LLVM path these lower
+        // to a checked op that may unwind. Float ops never panic.
+        if is_checked_binop(op) && self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Int {
+            self.builder.note_checked_op(dst);
+        }
+        dst
     }
 
     fn lower_unary(
@@ -470,15 +478,39 @@ impl ArcLowerer<'_> {
             return arg;
         }
 
-        self.builder.emit_let(
+        let dst = self.builder.emit_let(
             ty,
             ArcValue::PrimOp {
                 op: PrimOp::Unary(op),
                 args: vec![arg],
             },
             Some(span),
-        )
+        );
+        // Integer negation panics on `-i64::MIN` overflow (Spec: Clause 14.3);
+        // on the integer LLVM path it lowers to `checked_neg` which may unwind.
+        if op == ori_ir::UnaryOp::Neg && self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Int {
+            self.builder.note_checked_op(dst);
+        }
+        dst
     }
+}
+
+/// Whether a binary op lowers to a may-panic checked integer op
+/// (Spec: Clause 14.3). Comparison / bitwise / logical ops never panic;
+/// `Coalesce` / `And` / `Or` are lowered to control flow before reaching here.
+fn is_checked_binop(op: ori_ir::BinaryOp) -> bool {
+    use ori_ir::BinaryOp;
+    matches!(
+        op,
+        BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::FloorDiv
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+    )
 }
 
 // Tests

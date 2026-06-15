@@ -249,6 +249,7 @@ fn compute_var_reprs_matches_types() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -287,6 +288,7 @@ fn compute_var_reprs_empty_function() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -462,6 +464,7 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);

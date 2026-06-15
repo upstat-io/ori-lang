@@ -29,7 +29,7 @@ pub(super) enum CseOperand {
     Ssa(ValueId),
 }
 
-impl IrBuilder<'_, '_> {
+impl<'ctx> IrBuilder<'_, 'ctx> {
     /// Normalize a `ValueId` to a `CseOperand` for cache keying.
     ///
     /// If the value is a compile-time integer constant, returns
@@ -195,13 +195,11 @@ impl IrBuilder<'_, '_> {
             .build_conditional_branch(ovf_flag, panic_bb, continue_bb)
             .expect("overflow branch");
 
-        // 6. Panic block: call ori_panic_cstr with message, then unreachable.
-        //    Uses the IrBuilder wrapper for string deduplication.
-        self.builder.position_at_end(panic_bb);
-        let msg_id = self.build_global_string_ptr(panic_msg, "ovf.msg");
-        let panic_fn_id = self.runtime_fn("ori_panic_cstr");
-        self.call(panic_fn_id, &[msg_id], "");
-        self.builder.build_unreachable().expect("unreachable");
+        // 6. Panic block: route through the single emit_panic_block carrier so
+        //    add/sub/mul/neg overflow panics flow through the same invoke-when-
+        //    caught path as div/mod/shift (BUG-04-159 — one carrier, no inline
+        //    ori_panic_cstr duplication).
+        self.emit_panic_block(panic_bb, panic_msg, "ovf.msg");
 
         // 7. Position at continue block and return the result.
         self.builder.position_at_end(continue_bb);
@@ -233,22 +231,52 @@ impl IrBuilder<'_, '_> {
         self.emit_checked_div_rem(lhs, rhs, name, false)
     }
 
-    /// Emit a panic block: call `ori_panic_cstr(msg)` + `unreachable`.
+    /// Emit a panic block: panic via `ori_panic_cstr(msg)`, then terminate.
     ///
-    /// Positions the builder at the given block, emits the panic call, and
-    /// adds an `unreachable` terminator. Does NOT reposition the builder
-    /// after — caller must position at the next block.
+    /// THE single `ori_panic_cstr` carrier for every checked-op panic site
+    /// (BUG-04-159 collapsed the prior inline `emit_checked_binop` site into
+    /// this one). Positions the builder at `block`, emits the panic, and adds a
+    /// terminator. Does NOT reposition the builder after — caller positions at
+    /// the next block.
+    ///
+    /// When a same-frame catch landing pad is in scope
+    /// (`self.builder.catch_unwind_target` is `Some`), the panic is emitted as
+    /// `invoke @ori_panic_cstr → [normal: a fresh unreachable block, unwind:
+    /// catch landing pad]` so the in-frame `catch(expr:)` recovers the panic
+    /// instead of aborting. Otherwise it stays `call` + `unreachable` — the
+    /// uncaught path that bubbles to the runtime top-level handler.
     fn emit_panic_block(
         &mut self,
-        block: inkwell::basic_block::BasicBlock<'_>,
+        block: inkwell::basic_block::BasicBlock<'ctx>,
         msg: &str,
         label: &str,
     ) {
         self.builder.position_at_end(block);
         let msg_id = self.build_global_string_ptr(msg, label);
         let panic_fn_id = self.runtime_fn("ori_panic_cstr");
-        self.call(panic_fn_id, &[msg_id], "");
-        self.builder.build_unreachable().expect("unreachable");
+
+        if let Some(catch_target) = self.catch_unwind_target {
+            // Caught path: invoke so the unwind reaches the catch landing pad.
+            // The normal dest is a fresh unreachable block — ori_panic_cstr
+            // never returns, but `invoke` requires a normal successor.
+            let func_id = self.current_function.expect("no current function");
+            let func_llvm = self.arena.get_function(func_id);
+            let normal_bb = self
+                .scx
+                .llcx
+                .append_basic_block(func_llvm, &format!("{label}.unreachable"));
+            let normal_id = self.arena.push_block(normal_bb);
+            // `invoke` builds at the current insertion point (already positioned
+            // at `block`). Returns None for void `ori_panic_cstr` — ignored.
+            self.invoke(panic_fn_id, &[msg_id], normal_id, catch_target, "");
+            self.builder.position_at_end(normal_bb);
+            self.builder.build_unreachable().expect("unreachable");
+        } else {
+            // Uncaught path: plain call + unreachable (bubbles to the runtime
+            // top-level handler / abort).
+            self.call(panic_fn_id, &[msg_id], "");
+            self.builder.build_unreachable().expect("unreachable");
+        }
     }
 
     /// Shared implementation for checked div/rem.

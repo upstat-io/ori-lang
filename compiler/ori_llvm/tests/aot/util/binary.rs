@@ -20,6 +20,14 @@ pub(super) fn workspace_root() -> PathBuf {
         .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf)
 }
 
+/// Resolve the cargo build directory, honoring `CARGO_TARGET_DIR` so a run that
+/// isolates its build (e.g. a per-session `target/<id>`) finds its own `ori`
+/// binary rather than the shared `target/`. Defaults to `<workspace>/target`.
+pub(super) fn cargo_target_dir() -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| workspace_root().join("target"), PathBuf::from)
+}
+
 /// Get the path to the standard library (`library/` in workspace root).
 pub fn stdlib_path() -> PathBuf {
     workspace_root().join("library")
@@ -380,7 +388,7 @@ fn staged_artifacts_dir(release: bool) -> &'static Path {
         let profile = if release { "release" } else { "debug" };
         let stage =
             std::env::temp_dir().join(format!("ori-aot-stage-{}-{profile}", std::process::id()));
-        let profile_dir = workspace_root().join("target").join(profile);
+        let profile_dir = cargo_target_dir().join(profile);
         let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
         let (lib, asan_lib) = if cfg!(windows) {
             ("ori_rt.lib", "ori_rt_asan.lib")

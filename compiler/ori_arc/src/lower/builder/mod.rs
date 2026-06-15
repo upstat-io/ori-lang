@@ -74,6 +74,12 @@ pub(crate) struct ArcIrBuilder {
     /// by `lower_assign`. Threaded into `ArcFunction::reassign_deaths` by
     /// [`finish`](Self::finish) for the burden Phase-5 reassign-release scan.
     pub(super) reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
+    /// `(checked-op result var, catch handler block)` pairs for inline
+    /// checked-op `PrimOp`s lowered inside a `catch(expr:)` body. Threaded into
+    /// `ArcFunction::catch_scoped_checked_ops` by [`finish`](Self::finish); see
+    /// that field for the full emission-side contract. `note_checked_op` appends
+    /// when a `catch_unwind_target` is active (pairing with that target).
+    pub(super) catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
 }
 
 impl Default for ArcIrBuilder {
@@ -93,6 +99,7 @@ impl ArcIrBuilder {
             var_types: Vec::new(),
             catch_unwind_target: None,
             reassign_deaths: Vec::new(),
+            catch_scoped_checked_ops: Vec::new(),
         }
     }
 
@@ -441,6 +448,7 @@ impl ArcIrBuilder {
             tail_calls: Vec::new(),
             burden_emitted: Vec::new(),
             reassign_deaths: self.reassign_deaths,
+            catch_scoped_checked_ops: self.catch_scoped_checked_ops,
         }
     }
 }

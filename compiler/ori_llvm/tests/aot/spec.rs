@@ -961,7 +961,6 @@ fn test_aot_catch_panic() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: AOT gap — inline panic in catch; invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_div_by_zero() {
     assert_aot_success(
         include_str!("fixtures/spec/aot_catch_div_by_zero.ori"),

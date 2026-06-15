@@ -18,9 +18,20 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
         return;
     }
 
-    // DFS reachability from entry.
+    // DFS reachability from entry, PLUS every same-frame catch handler. An
+    // inline checked-op never references its catch handler via an `Invoke`
+    // unwind edge, so the handler block (which holds `ori_catch_recover` → Err
+    // → Jump(merge)) is unreachable from entry and would be dead-eliminated.
+    // Seeding the DFS from each distinct handler keeps it (and its recover/
+    // merge chain) live so the LLVM emitter can materialize its landing pad.
     let mut reachable = vec![false; num_blocks];
     let mut stack = vec![func.entry.index()];
+    for &(_, handler) in &func.catch_scoped_checked_ops {
+        let hi = handler.index();
+        if hi < num_blocks {
+            stack.push(hi);
+        }
+    }
     while let Some(idx) = stack.pop() {
         if idx >= num_blocks || reachable[idx] {
             continue;
@@ -88,6 +99,12 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
     func.blocks = new_blocks;
     func.spans = new_spans;
     func.entry = remap_to_block_id(remap[func.entry.index()]);
+    // Remap same-frame catch handler block ids. Each handler is reachable (the
+    // DFS seeds from it above), so its remap entry is `Some` — `remap_to_block_id`
+    // never panics here.
+    for (_, handler) in &mut func.catch_scoped_checked_ops {
+        *handler = remap_to_block_id(remap[handler.index()]);
+    }
     func.cow_annotations.remap_block_indices(&remap);
 }
 

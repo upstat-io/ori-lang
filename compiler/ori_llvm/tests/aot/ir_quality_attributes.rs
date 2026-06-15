@@ -158,6 +158,39 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
 
+/// Regression: BUG-04-159 — a same-frame `catch(expr: 1 / 0)` makes the
+/// enclosing function may-unwind. The checked div-by-zero panic is emitted as
+/// `invoke @ori_panic_cstr` to a catch landing pad, so `_ori_main` MUST NOT be
+/// marked `nounwind` and MUST carry a `landingpad` + the panic `invoke`. The
+/// exit-code cells cannot observe the nounwind attribute / IR shape — this pins
+/// the landing pad surviving to codegen (no nounwind-strips-landingpad regress).
+#[test]
+fn test_checked_op_catch_fn_not_nounwind() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind.ori"
+    ));
+
+    // The function carrying the catch must not be nounwind (it may unwind via
+    // the checked-op invoke).
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    // The catch landing pad survived to codegen.
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    // The checked div-by-zero panic is an `invoke` (caught), not a plain `call`
+    // + `unreachable` (which would escape the catch and abort).
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
 // nounwind propagation through builtin methods and protocols
 
 /// Function calling builtin method (str.length) via Invoke terminator gets nounwind.

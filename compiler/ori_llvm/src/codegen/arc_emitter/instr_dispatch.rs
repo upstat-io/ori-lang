@@ -415,7 +415,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let llvm_size = self.element_store_size(elem_ty);
                     self.builder.const_i64(llvm_size as i64)
                 } else {
-                    self.emit_value(value, *ty, func)
+                    // BUG-04-159: scope the catch-unwind target PER-DISPATCH.
+                    // A checked-op inside a same-frame catch routes its panic to
+                    // the catch landing pad; a checked-op outside (or any other
+                    // value) keeps the plain abort path. Set before / clear
+                    // after so only THIS checked op is affected.
+                    let catch_pad = self.same_frame_catch_landing_pads.get(dst).copied();
+                    if catch_pad.is_some() {
+                        self.builder.set_catch_unwind_target(catch_pad);
+                    }
+                    let v = self.emit_value(value, *ty, func);
+                    if catch_pad.is_some() {
+                        self.builder.set_catch_unwind_target(None);
+                    }
+                    v
                 };
                 // Only narrow computation results (PrimOps),
                 // not copies (Var) or literals (Literal). Narrowing copies

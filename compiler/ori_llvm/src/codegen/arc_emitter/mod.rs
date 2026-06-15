@@ -250,6 +250,15 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// around `try_emit_builtin_method`; Itanium-only (`None` inside SEH
     /// funclet pads).
     pub(super) intercepted_unwind: Option<crate::codegen::value_id::BlockId>,
+    /// Maps each same-frame catch-scoped inline checked-op result `ArcVarId`
+    /// (from `ArcFunction::catch_scoped_checked_ops`) to the LLVM landing-pad
+    /// `BlockId` materialized for its catch handler. Populated in
+    /// `emit_function` after the handler blocks are created; consulted in
+    /// `emit_instr` to thread `IrBuilder::catch_unwind_target` PER-DISPATCH
+    /// around each catch-scoped checked op (BUG-04-159). Empty when the function
+    /// has no same-frame checked-op catch.
+    pub(super) same_frame_catch_landing_pads:
+        FxHashMap<ArcVarId, crate::codegen::value_id::BlockId>,
     /// Variables rooted at borrowed parameters (or Let-aliases thereof).
     /// When storing an inline enum value to a boxed field, sub-pointers
     /// must be incremented if the source is borrowed-rooted (the caller
@@ -377,6 +386,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_instr_idx: 0,
             current_funclet_pad: None,
             intercepted_unwind: None,
+            same_frame_catch_landing_pads: FxHashMap::default(),
             borrowed_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
             pointer_only_params: FxHashSet::default(),

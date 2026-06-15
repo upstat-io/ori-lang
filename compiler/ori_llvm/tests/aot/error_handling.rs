@@ -699,7 +699,7 @@ fn test_catch_two_index_oob_shared_merge() {
     );
 }
 
-// ─── BUG-04-159: same-frame catch of checked-op implicit panics (AOT) ───
+// BUG-04-159: same-frame catch of checked-op implicit panics (AOT).
 // Regression family: emit_panic_block emitted a plain call + unreachable (no
 // invoke), so the unwind from ori_panic_cstr escaped the in-frame catch
 // landing pad. catch(...) must catch div-zero / mod-zero / overflow / shift /
@@ -794,4 +794,17 @@ fn test_catch_div_by_zero_receiver_live_after_no_leak() {
         include_str!("fixtures/error_handling/catch_div_zero_receiver_live_after.ori"),
         "catch_div_zero_receiver_live_after",
     );
+}
+
+// Scoping pin: a caught `1 / 0` followed by a SUBSEQUENT uncaught `5 / 0` in the
+// same @main. The uncaught div must keep the plain abort path — proves the
+// catch-unwind target is scoped per-dispatch, not leaked function-wide.
+// Pre-fix this also aborts (first div uncatchable); discriminating value is
+// post-fix: the first div is caught and the SECOND must still abort.
+#[test]
+fn test_catch_then_uncaught_div_same_fn_aborts() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_then_uncaught_div_same_fn.ori"
+    ));
+    assert_panic_exit(exit_code, "catch_then_uncaught_div_same_fn_aborts", &stderr);
 }

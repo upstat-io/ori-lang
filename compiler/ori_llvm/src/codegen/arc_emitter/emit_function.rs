@@ -61,8 +61,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Invoke terminators calling known-nounwind functions are downgraded
         // to `call` + `br`, so their unwind blocks become dead code.
         let unwind_result = self.detect_dead_unwind_blocks(func);
-        let dead_unwind = unwind_result.dead;
-        let unwind_blocks = unwind_result.live;
+        let mut dead_unwind = unwind_result.dead;
+        let mut unwind_blocks = unwind_result.live;
+
+        // Same-frame catch handlers for inline checked-ops (BUG-04-159) are NOT
+        // found by `detect_dead_unwind_blocks` — it only walks Invoke/
+        // InvokeIndirect terminators, and an inline checked-op references its
+        // handler via no terminator. Force each distinct handler block into the
+        // live unwind set so it (a) gets an LLVM block, (b) gets the catch-all
+        // landing pad prelude in the RPO loop, (c) drives the personality
+        // function (Itanium needs_personality checks `!unwind_blocks.is_empty()`).
+        for &(_, handler) in &func.catch_scoped_checked_ops {
+            let hi = handler.index();
+            if hi < func.blocks.len() {
+                unwind_blocks.insert(hi);
+                dead_unwind.remove(&hi);
+            }
+        }
 
         debug_assert_dead_unwind_unreachable(func, &dead_unwind);
 
@@ -96,6 +111,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             );
         }
         self.block_map = block_map;
+
+        // Map each catch-scoped checked-op result var → the LLVM block of its
+        // catch handler (now guaranteed live above). `emit_instr` reads this to
+        // thread `IrBuilder::catch_unwind_target` per-dispatch around the
+        // checked op so its panic invokes to the handler's landing pad
+        // (BUG-04-159). The catch-all landing-pad prelude is emitted for the
+        // handler block in the RPO loop below (it is in `unwind_blocks` with a
+        // non-Resume terminator → the existing `is_catch` path).
+        self.same_frame_catch_landing_pads.clear();
+        for &(checked_var, handler) in &func.catch_scoped_checked_ops {
+            self.same_frame_catch_landing_pads
+                .insert(checked_var, self.block(handler));
+        }
 
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
@@ -278,7 +306,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // - Cleanup (Resume): `cleanuppad` → RC decs → `cleanupret`
         // - Catch (Jump): NO EH prelude — catch blocks are regular blocks
         //   reached via `ori_try_call` trampoline (see `catch_thunk.rs`)
-        let rpo = super::rpo::compute_block_rpo(func, &dead_unwind);
+        // Seed RPO from each same-frame catch handler — it has no CFG
+        // predecessor (an inline checked-op references it via no terminator), so
+        // entry-only RPO would skip it and never emit its landing-pad prelude.
+        let catch_handler_roots: Vec<usize> = func
+            .catch_scoped_checked_ops
+            .iter()
+            .map(|&(_, handler)| handler.index())
+            .collect();
+        let rpo = super::rpo::compute_block_rpo(func, &dead_unwind, &catch_handler_roots);
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         let errors_before_emission = self.builder.codegen_error_count();
         for &block_idx in &rpo {

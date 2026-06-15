@@ -797,6 +797,7 @@ fn make_arc_func(blocks: Vec<ArcBlock>, var_types: Vec<Idx>) -> ArcFunction {
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 

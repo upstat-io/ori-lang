@@ -59,6 +59,7 @@ pub(crate) fn make_func_named(
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     }
 }
 

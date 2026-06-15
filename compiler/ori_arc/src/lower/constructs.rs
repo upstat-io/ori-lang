@@ -239,7 +239,15 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let merge_param = self.builder.add_block_param(merge_block, result_ty);
 
-        // Set catch target — all Invoke calls inside the body will unwind here
+        // Set catch target — Invoke calls AND inline checked-ops inside the
+        // body unwind here. An `Invoke` wires `catch_handler` via its unwind
+        // edge; an inline checked-op PrimOp instead records its result var →
+        // `catch_handler` (via `note_checked_op` → `catch_scoped_checked_ops`)
+        // so the LLVM emitter materializes a landing pad and routes the
+        // checked-op panic here (`Spec: Annex E §AIMS` cleanup is unaffected;
+        // Spec: Clause 14.3 for the panic conditions). `catch_unwind_target`
+        // is always the innermost enclosing catch, so a nested checked-op maps
+        // to its own (inner) handler.
         let prev_target = self.builder.set_catch_target(catch_handler);
 
         // Lower the body expression (panicking calls become Invoke → catch_handler)

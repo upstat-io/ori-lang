@@ -57,6 +57,7 @@ fn build_simple_func(
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -270,6 +271,7 @@ fn build_branching_caller(
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -569,6 +571,7 @@ fn self_recursive_converges_or_widens() {
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -848,6 +851,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     // G: same structure as F but calls F(x - 1)
@@ -939,6 +943,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     // External caller: main calls F(10)
@@ -1109,6 +1114,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -1587,6 +1593,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1776,6 +1783,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1908,6 +1916,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1991,6 +2000,7 @@ fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFu
         burden_emitted: vec![],
         reassign_deaths: vec![],
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 

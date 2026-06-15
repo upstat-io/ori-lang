@@ -151,6 +151,14 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// encounters undefined variables. Avoids `ValueId::NONE` which panics in
     /// `get_value()` and can crash LLVM C++ via cascading type mismatches.
     pub(crate) poison_value: ValueId,
+    /// Catch landing-pad block for a same-frame `catch(expr:)` containing the
+    /// checked-op currently being emitted. When `Some`, `emit_panic_block`
+    /// emits `invoke @ori_panic_cstr` with this block as the unwind dest (so
+    /// the in-frame catch recovers the panic) instead of `call` + `unreachable`.
+    /// Set/cleared PER-DISPATCH by the ARC emitter around each catch-scoped
+    /// checked op (`Spec: Clause 14.3`). `None` for an uncaught checked op,
+    /// which keeps the plain abort path.
+    pub(super) catch_unwind_target: Option<BlockId>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -208,6 +216,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             global_strings: FxHashMap::default(),
             cse_cache: FxHashMap::default(),
             poison_value,
+            catch_unwind_target: None,
         }
     }
 
@@ -333,6 +342,15 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Get the raw `BasicBlock` for a `BlockId`.
     pub fn raw_block(&self, id: BlockId) -> BasicBlock<'ctx> {
         self.arena.get_block(id)
+    }
+
+    /// Set the same-frame catch landing-pad target consumed by
+    /// `emit_panic_block`. `Some` routes a checked-op panic through `invoke`
+    /// to this block; `None` keeps the plain `call` + `unreachable` abort.
+    /// Set/cleared PER-DISPATCH by the ARC emitter around each catch-scoped
+    /// checked op.
+    pub fn set_catch_unwind_target(&mut self, target: Option<BlockId>) {
+        self.catch_unwind_target = target;
     }
 
     /// Intern a raw `BasicValueEnum` into the arena, returning a `ValueId`.

@@ -81,6 +81,7 @@ fn standalone_reader(name: Name) -> ArcFunction {
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -121,6 +122,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -159,6 +161,7 @@ fn storer_function(name: Name) -> ArcFunction {
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -209,6 +212,7 @@ fn modified_reader(name: Name) -> ArcFunction {
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 

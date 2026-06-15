@@ -1308,3 +1308,22 @@ fn global_string_ptr_unnamed_addr() {
         "deduplicated global strings must have unnamed_addr:\n{ir}"
     );
 }
+
+/// Drift guard: BUG-04-159 — `emit_panic_block` is the SINGLE `ori_panic_cstr`
+/// carrier for every checked-op panic site. Its invoke-when-caught path is what
+/// routes a same-frame checked-op panic to the catch landing pad. A future edit
+/// that reintroduces an inline `ori_panic_cstr` call (as `emit_checked_binop`
+/// once had) would bypass that threading and silently un-catchable that op's
+/// panic again. Assert exactly one `ori_panic_cstr` reference in the source —
+/// the one inside `emit_panic_block`.
+#[test]
+fn checked_ops_has_single_ori_panic_cstr_carrier() {
+    let src = include_str!("checked_ops.rs");
+    let count = src.matches("\"ori_panic_cstr\"").count();
+    assert_eq!(
+        count, 1,
+        "checked_ops.rs must reference \"ori_panic_cstr\" exactly once (inside \
+         emit_panic_block, the single carrier). Found {count} — a reintroduced \
+         inline panic site bypasses the invoke-when-caught threading (BUG-04-159)."
+    );
+}

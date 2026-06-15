@@ -497,6 +497,33 @@ pub struct ArcFunction {
     /// lowering-time vecs.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
+    /// Maps each may-panic inline checked-op `PrimOp` result var (integer
+    /// div / mod / floor-div / shift, or add / sub / mul / neg overflow per
+    /// `Spec: Clause 14.3`) lowered lexically inside a same-frame `catch(expr:)`
+    /// body to that catch's handler block.
+    ///
+    /// An inline checked-op never references the catch handler via an `Invoke`
+    /// unwind edge, so without this the handler would be dead-eliminated and
+    /// the checked-op panic would abort instead of being caught. This map:
+    /// - keeps every distinct handler block live (`compact_blocks` seeds the
+    ///   reachability DFS from each map value);
+    /// - lets the LLVM emitter materialize a landing pad at each handler and
+    ///   route ONLY a mapped checked-op's panic through `invoke` to ITS handler
+    ///   (per-dispatch + per-handler scoping — a subsequent uncaught `1 / 0`,
+    ///   or a checked-op caught by a different nested catch, routes correctly).
+    ///
+    /// `ArcVarId`s are SSA-stable across the pipeline's block-merge / compaction
+    /// (vars are never renumbered), so the keys survive those passes; the
+    /// handler `ArcBlockId` values are remapped by `compact_blocks`. Empty when
+    /// no same-frame catch body carries an inline checked-op (the existing
+    /// `Invoke`-unwind path handles callee-function panics).
+    ///
+    /// Stored as a `Vec` of `(var, handler)` pairs (not a map) so `ArcFunction`
+    /// keeps its `Hash`/`Eq` derives — `FxHashMap` is neither; the Vec also
+    /// preserves deterministic lowering-insertion order. Lowering-derived;
+    /// skipped during cache serialization.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
 }
 
 /// Flatten an ARC function cache into a single Vec (parents + lambdas).

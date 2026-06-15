@@ -41,6 +41,7 @@ fn make_func_with_reprs(
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        catch_scoped_checked_ops: Vec::new(),
         var_rc_strategies: Vec::new(),
     }
 }

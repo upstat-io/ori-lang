@@ -39,6 +39,7 @@ impl Default for ArcFunction {
             tail_calls: Vec::new(),
             burden_emitted: Vec::new(),
             reassign_deaths: Vec::new(),
+            catch_scoped_checked_ops: Vec::new(),
         }
     }
 }

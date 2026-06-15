@@ -624,6 +624,7 @@ fn collect_deduplicates_types() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -682,6 +683,7 @@ fn collect_multiple_types() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -736,6 +738,7 @@ fn collect_skips_scalar_rc_dec() {
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
