@@ -579,6 +579,14 @@ impl Interpreter<'_> {
         } else if method == n.debug {
             require_args("debug", 0, args.len())?;
             Ok(Value::string(debug_value(&Value::Map(map), interner)))
+        // Printable to_str — compound rendering via display_value, mirroring the
+        // dispatch_builtin_method compound-printable blanket. Map routes here
+        // (not through that blanket), so it must carry its own to_str arm; the
+        // non-primitive {x:spec} desugar routes Printable-only receivers through
+        // to_str().
+        } else if method == n.to_str {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(Value::Map(map).display_value()))
         // Additional map methods (cold path — string-based dispatch)
         } else {
             let method_str = interner.lookup(method);
@@ -738,6 +746,12 @@ impl Interpreter<'_> {
         } else if method == n.debug {
             require_args("debug", 0, args.len())?;
             Ok(Value::string(debug_value(&Value::Set(items), interner)))
+        // Printable to_str — compound rendering via display_value, mirroring the
+        // dispatch_builtin_method compound-printable blanket. Set routes here
+        // (not through that blanket), so it must carry its own to_str arm.
+        } else if method == n.to_str {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(Value::Set(items).display_value()))
         } else {
             Err(no_such_method(interner.lookup(method), "Set").into())
         }

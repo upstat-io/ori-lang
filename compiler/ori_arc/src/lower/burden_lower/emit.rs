@@ -287,6 +287,7 @@ pub(super) fn emit_burden_ops_for_blocks(
         );
         block.body = new_body;
     }
+    trace_burden_orphans(func, analysis.owned_vars_needing_rc);
 }
 
 /// Vars used at a BORROWED (non-owned) arg position of an `Invoke` /
@@ -645,65 +646,11 @@ fn emit_last_use_decs(
         return;
     };
     for &var in last_use_vars {
-        // `transfer_vars` = consumed at THIS instruction's owned position. On the
-        // default path the downstream owned-position RcDec (or predicate stack)
-        // discharges the release, so suppress the dec here. Under the probe the
-        // predicate stack is off and a value consumed at an owned position whose
-        // callee BORROWS (no real transfer) must be released by the burden path —
-        // the ApplyIndirect closure-receiver + borrowed-Apply-arg case. Lift only
-        // this instruction-local suppression under the probe.
-        let instr_transfer_suppressed =
-            !ctx.analysis.predicate_stack_rc_disabled && transfer_vars.contains(&var);
-        // `transfer_via_move_alias` = the value genuinely moves downstream through
-        // a Let-Var move-alias chain to a real transfer point; its release is
-        // discharged THERE, not at the move-alias site (else a double dec on the
-        // shared allocation). Suppressed on BOTH paths. `full_move_vars` likewise
-        // (container drop emits the field-grain decs).
-        // List-concat consume (`ori_list_concat_cow` dual-consuming): the helper
-        // dec/frees the operand buffer. Suppress on BOTH paths — the consume IS
-        // the release; a scope-exit `BurdenDec` would double-free the buffer.
-        // RL-2 callee transfer-source-dec strip: a param that transfers through
-        // the return (per the function's own `MemoryContract`) hands its
-        // allocation back to the caller — a callee scope-exit dec double-releases
-        // it (`AimsProof.Realization::RL2_transfer_kinds_no_dec` for the `Return`
-        // `TerminalUse`). PROBE-ONLY: on the default path the `burden_dec` marker
-        // drives `populate_class_covered` to suppress the predicate stack's OWN
-        // real dec on this param (the coexistence handshake's two halves), so
-        // removing it there un-covers the class and the predicate stack emits a
-        // real dec → double-free. Under the probe the burden path is the SOLE
-        // emitter, so the marker IS the real dec and stripping it is the correct
-        // RL-2 transfer. `compute_transfer_via_move_alias` conservatively keeps
-        // the dec for a multi-block-used param; the contract set is the precise
-        // sole-emitter cure.
-        let transfer_through_return_param_suppressed = ctx.analysis.predicate_stack_rc_disabled
-            && ctx
-                .analysis
-                .transfer_through_return_param_vars
-                .contains(&var);
-        // RL-1 genuine-duplication call-arg alias: its last use is the owned
-        // call-arg consume (body `Apply`) — the consumer's release is the
-        // matched release for the kept alias-site inc, so no scope-exit dec
-        // here on EITHER path (`RL2_transfer_kinds_no_dec`).
-        if instr_transfer_suppressed
-            || ctx.analysis.transfer_via_move_alias.contains(&var)
-            || transfer_through_return_param_suppressed
-            || ctx.analysis.full_move_vars.contains(&var)
-            || ctx.analysis.list_concat_transfer_vars.contains(&var)
-            || ctx.analysis.call_arg_dup_aliases.contains(&var)
-        {
+        if let Some(scan) = last_use_dec_suppressor(ctx, var, transfer_vars) {
+            trace_dec_site(ctx.block_idx, ctx.instr_idx, var, ctx.analysis, Some(scan));
             continue;
         }
-        // RL-4: a per-block last-use is a genuine release only when the var is
-        // dead at block exit. Live-out vars are released on the dying CFG edge
-        // (predicate-stack edge cleanup) or at the dead-out block — not here.
-        if ctx
-            .analysis
-            .live_out_per_block
-            .get(ctx.block_idx)
-            .is_some_and(|s| s.contains(&var))
-        {
-            continue;
-        }
+        trace_dec_site(ctx.block_idx, ctx.instr_idx, var, ctx.analysis, None);
         if let Some(skip_fields) = ctx.analysis.partial_move_vars.get(&var) {
             new_body.push(ArcInstr::BurdenDecPartial {
                 var,
@@ -711,6 +658,146 @@ fn emit_last_use_decs(
             });
         } else {
             new_body.push(ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
+/// SSOT for the body last-use `BurdenDec` suppression decision: returns the
+/// name of the scan that suppresses `var`'s scope-exit dec at this instruction,
+/// or `None` when the dec is a genuine release the burden walk emits. Consumed
+/// by `emit_last_use_decs` (suppress-or-emit) AND `trace_dec_site` (suppression
+/// attribution) so the diagnostic can never drift from the actual decision.
+/// Spec: Annex E §AIMS RL-2 / RL-4.
+fn last_use_dec_suppressor(
+    ctx: &BurdenEmitCtx<'_>,
+    var: ArcVarId,
+    transfer_vars: &FxHashSet<ArcVarId>,
+) -> Option<&'static str> {
+    // `transfer_vars` = consumed at THIS instruction's owned position. On the
+    // default path the downstream owned-position RcDec (or predicate stack)
+    // discharges the release, so suppress the dec here. Under the probe the
+    // predicate stack is off and a value consumed at an owned position whose
+    // callee BORROWS (no real transfer) must be released by the burden path —
+    // the ApplyIndirect closure-receiver + borrowed-Apply-arg case. Lift only
+    // this instruction-local suppression under the probe.
+    if !ctx.analysis.predicate_stack_rc_disabled && transfer_vars.contains(&var) {
+        return Some("instr_transfer");
+    }
+    // `transfer_via_move_alias` = the value genuinely moves downstream through
+    // a Let-Var move-alias chain to a real transfer point; its release is
+    // discharged THERE, not at the move-alias site (else a double dec on the
+    // shared allocation). Suppressed on BOTH paths.
+    if ctx.analysis.transfer_via_move_alias.contains(&var) {
+        return Some("transfer_via_move_alias");
+    }
+    // RL-2 callee transfer-source-dec strip: a param that transfers through the
+    // return (per the function's own `MemoryContract`) hands its allocation back
+    // to the caller — a callee scope-exit dec double-releases it
+    // (`AimsProof.Realization::RL2_transfer_kinds_no_dec` for the `Return`
+    // `TerminalUse`). PROBE-ONLY: on the default path the `burden_dec` marker
+    // drives `populate_class_covered` to suppress the predicate stack's OWN real
+    // dec on this param, so removing it there un-covers the class and the
+    // predicate stack emits a real dec → double-free.
+    if ctx.analysis.predicate_stack_rc_disabled
+        && ctx
+            .analysis
+            .transfer_through_return_param_vars
+            .contains(&var)
+    {
+        return Some("transfer_through_return_param");
+    }
+    // `full_move_vars` — container drop emits the field-grain decs.
+    if ctx.analysis.full_move_vars.contains(&var) {
+        return Some("full_move");
+    }
+    // List-concat consume (`ori_list_concat_cow` dual-consuming): the helper
+    // dec/frees the operand buffer. The consume IS the release; a scope-exit
+    // `BurdenDec` would double-free the buffer.
+    if ctx.analysis.list_concat_transfer_vars.contains(&var) {
+        return Some("list_concat_transfer");
+    }
+    // RL-1 genuine-duplication call-arg alias: its last use is the owned
+    // call-arg consume (body `Apply`) — the consumer's release is the matched
+    // release for the kept alias-site inc, so no scope-exit dec here on EITHER
+    // path (`RL2_transfer_kinds_no_dec`).
+    if ctx.analysis.call_arg_dup_aliases.contains(&var) {
+        return Some("call_arg_dup_alias");
+    }
+    // RL-4: a per-block last-use is a genuine release only when the var is dead
+    // at block exit. Live-out vars are released on the dying CFG edge
+    // (predicate-stack edge cleanup) or at the dead-out block — not here.
+    if ctx
+        .analysis
+        .live_out_per_block
+        .get(ctx.block_idx)
+        .is_some_and(|s| s.contains(&var))
+    {
+        return Some("live_out");
+    }
+    None
+}
+
+/// Permanent suppression-attribution probe: records, per owned var at a planned
+/// body last-use dec site, whether the `BurdenDec` was EMITTED (`suppressor =
+/// None`) or which named scan SUPPRESSED it. Pairs with `trace_burden_orphans`
+/// (the function-level net-balance check) to localize an orphaned FRESH-site
+/// `BurdenInc` whose paired scope-exit dec a suppression scan wrongly removed.
+/// Activate via `ORI_LOG=ori_arc::aims::realize=trace`; zero-cost otherwise.
+fn trace_dec_site(
+    block_idx: usize,
+    instr_idx: usize,
+    var: ArcVarId,
+    analysis: &BurdenAnalysisCtx<'_>,
+    suppressor: Option<&'static str>,
+) {
+    if !analysis.owned_vars_needing_rc.contains(&var) {
+        return;
+    }
+    tracing::trace!(
+        target: "ori_arc::aims::realize",
+        block = block_idx,
+        instr = instr_idx,
+        var = var.index(),
+        suppressor = suppressor.unwrap_or("EMITTED"),
+        "burden dec_site suppression attribution"
+    );
+}
+
+/// Permanent orphaned-burden detector: after the full per-block emit walk,
+/// computes the per-var net (`#BurdenInc − #BurdenDec*`) over the realized body
+/// and traces every owned var whose net != 0 — a positive net is an orphaned
+/// FRESH-site `BurdenInc` (leak under sole-emitter Phase-7 lowering), a negative
+/// net an orphaned dec (double-free). Counts every dec flavor
+/// (`BurdenDec` / `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant`) as
+/// a release of its `base`/`var`. Activate via
+/// `ORI_LOG=ori_arc::aims::realize=trace`; zero-cost otherwise.
+fn trace_burden_orphans(func: &ArcFunction, owned_vars_needing_rc: &FxHashSet<ArcVarId>) {
+    if !tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
+        return;
+    }
+    let mut net: FxHashMap<ArcVarId, i64> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var } => *net.entry(*var).or_insert(0) += 1,
+                ArcInstr::BurdenDec { var }
+                | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var, .. } => *net.entry(*var).or_insert(0) -= 1,
+                ArcInstr::BurdenDecField { base, .. } => *net.entry(*base).or_insert(0) -= 1,
+                _ => {}
+            }
+        }
+    }
+    for (var, n) in net {
+        if n != 0 && owned_vars_needing_rc.contains(&var) {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                var = var.index(),
+                net = n,
+                kind = if n > 0 { "ORPHANED_INC" } else { "ORPHANED_DEC" },
+                "burden net-balance orphan"
+            );
         }
     }
 }

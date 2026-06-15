@@ -26,14 +26,15 @@ use super::ownership_scans::{
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
     compute_construct_fed_dead_param_lineage, compute_forwarder_identity_transparent_aliases,
     compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
-    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
+    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
+    group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
     CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED, FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED,
     FORWARDER_RESULT_RELEASE_DISABLED, FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED,
-    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -304,6 +305,22 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // + RL-2 + RL-4.
     let multi_exit_releases =
         apply_multi_exit_borrow_view(func, contracts, &mut owned_vars_needing_rc);
+    // RL-5 dead-at-entry treatment for a FRESH `PartialApply` closure threaded
+    // through a loop and dead at the post-loop block-param: `let f = (n) -> ..;
+    // for i in xs do { .. f(i) .. }`. The fresh closure (TF-7) is loop-carried
+    // via the loop's block-params, BORROW-used inside the body (an
+    // `ApplyIndirect` receiver, or a borrowed `Apply`/`Invoke` call arg), and
+    // DEAD at the post-loop merge param. `RL5_dead_at_entry_cleanup` owes ONE
+    // immediate dec there; the base walk emits none (the borrowed-arg shape
+    // leaks) or a spurious per-iteration borrow-receiver dec (the direct-call
+    // shape double-frees the loop-invariant closure). Removes the whole same-
+    // alloc lineage from `owned_vars_needing_rc` (suppressing the spurious ops)
+    // and places ONE release at the dead post-loop param. Disjoint family
+    // (loop-carried `PartialApply` FatValue roots vs call-result closures /
+    // forwarder results / niche-family sums). SSOT:
+    // `compute_loop_closure_dead_param_lineage`. Spec: Annex E §AIMS RL-5 +
+    // RL-2 + RL-4.
+    let loop_closure_releases = apply_loop_closure_dead_param(func, &mut owned_vars_needing_rc);
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
     // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
@@ -388,6 +405,15 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // Disjoint family (FatValue closure roots vs forwarder results / niche-family
     // sums), so the merge cannot double-release.
     for (site, vars) in multi_exit_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
+    // Merge the loop-closure dead-param releases into the same surface. Disjoint
+    // family (loop-carried PartialApply FatValue roots vs call-result closures /
+    // forwarder results / niche-family sums), so the merge cannot double-release.
+    for (site, vars) in loop_closure_releases {
         forwarder_result_releases
             .entry(site)
             .or_default()
@@ -549,6 +575,25 @@ fn apply_multi_exit_borrow_view(
         return FxHashMap::default();
     }
     let treatment = compute_multi_exit_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
+}
+
+/// Toggle-gated application of the RL-5 loop-closure dead-param treatment
+/// ([`compute_loop_closure_dead_param_lineage`]): computes the vetted loop-
+/// carried `PartialApply` closure lineages, removes them from
+/// `owned_vars_needing_rc` (suppressing the spurious per-iteration ops + net-0
+/// keep-alive pairs), and returns the single placed RL-5 dead-at-entry release
+/// per lineage for the `forwarder_result_releases` merge. Empty when
+/// `ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE=1`.
+fn apply_loop_closure_dead_param(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+) -> PlacedReleaseMap {
+    if *LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment = compute_loop_closure_dead_param_lineage(func, owned_vars_needing_rc);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     treatment.releases
 }

@@ -89,6 +89,7 @@ pub(crate) fn is_map_set_dispatched_for_tag(tag: TypeTag, method: &str) -> bool 
                 | "hash"
                 | "clone"
                 | "debug"
+                | "to_str"
                 | "merge"
                 | "update"
                 | "updated"
@@ -111,6 +112,7 @@ pub(crate) fn is_map_set_dispatched_for_tag(tag: TypeTag, method: &str) -> bool 
                 | "equals"
                 | "hash"
                 | "debug"
+                | "to_str"
         ),
         _ => false,
     }

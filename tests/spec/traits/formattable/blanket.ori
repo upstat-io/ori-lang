@@ -51,4 +51,34 @@ use std.testing { assert_eq }
     `{list:>15}`
 }
 
+// =============================================================================
+// Map Blanket Formatting
+// =============================================================================
+
+@test_map_blanket tests @map_blanket () -> void = {
+    let m = { "a": 1, "b": 2 };
+    assert_eq(actual: `{m:>15}`, expected: "   {a: 1, b: 2}");
+    assert_eq(actual: `{m:.<15}`, expected: "{a: 1, b: 2}...")
+}
+
+@map_blanket () -> str = {
+    let m = { "a": 1 };
+    `{m:>8}`
+}
+
+// =============================================================================
+// Set Blanket Formatting
+// =============================================================================
+
+@test_set_blanket tests @set_blanket () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    assert_eq(actual: `{s:>16}`, expected: "   Set {1, 2, 3}");
+    assert_eq(actual: `{s:*<16}`, expected: "Set {1, 2, 3}***")
+}
+
+@set_blanket () -> str = {
+    let s: Set<int> = [1, 2].iter().collect();
+    `{s:>12}`
+}
+
 @main () -> void = print(msg: "Blanket formatting tests");

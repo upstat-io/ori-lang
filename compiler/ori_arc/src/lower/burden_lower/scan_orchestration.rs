@@ -27,11 +27,11 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_reassign_rebind_releases,
-    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
-    compute_transfer_through_return_results, compute_transfer_via_move_alias,
-    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases, instr_transfer_vars,
-    list_concat_consumed_operands,
+    compute_live_out_owned, compute_readonly_borrow_orphan_inc_suppression,
+    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
+    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -431,6 +431,36 @@ pub(crate) fn emit_burden_ops<'a>(
             inc_suppressed_vars.insert(var);
         }
     }
+
+    // DP-3 read-only-borrow orphan-inc suppression: a fresh `Construct` whose
+    // scope-exit dec is transfer-suppressed (via the owned-RC-dst move-edge seed,
+    // when its terminal `Let { Var }` borrow-alias is itself owned-RC) AND whose
+    // entire same-allocation lineage is consumed ONLY at read-only borrow
+    // positions leaves its FRESH-site inc ORPHANED (the `use_counts <= 1`
+    // inc-suppression above fires only for the pure-move source, not the
+    // multi-borrow lineage). Per DP-3 (`is_rc_inc_elidable`: `Once ∧ Affine`
+    // borrow → duplicate-inc elidable) the inc is unnecessary; suppress it to
+    // restore RL-2 single-release balance. The read-only-borrow-ONLY gate
+    // excludes self-rebuild / store-dup (a lineage member at an owned consume is
+    // in `owned_consumed` → declines, kept inc load-bearing per
+    // `RL1_duplication_balanced`). Spec: Annex E §AIMS DP-3 + RL-1 + RL-2.
+    let mut owned_consumed: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            owned_consumed.extend(instr_transfer_vars(instr, func).iter().copied());
+        }
+    }
+    for set in &terminator_transfer_per_block {
+        owned_consumed.extend(set.iter().copied());
+    }
+    let readonly_borrow_orphan_incs = compute_readonly_borrow_orphan_inc_suppression(
+        func,
+        &transfer_via_move_alias,
+        &owned_vars_needing_rc,
+        &owned_consumed,
+        &dup_alias_dsts,
+    );
+    inc_suppressed_vars.extend(readonly_borrow_orphan_incs.iter().copied());
 
     // Symmetry for borrowed terminator-Invoke args: `invoke_terminator_borrowed_args`
     // (emit.rs) suppresses the terminator-last-use `BurdenDec` for a BORROWED
