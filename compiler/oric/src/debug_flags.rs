@@ -666,6 +666,38 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_BORROWED_LINEAGE_EXIT_RELEASE
 
+    /// Decline the Phase-5 RL-5 dead-at-entry treatment for a FRESH
+    /// `PartialApply` closure threaded through a loop and dead at the post-loop
+    /// block-param. Default (unset): the whole same-alloc closure lineage is
+    /// removed from `owned_vars_needing_rc` and EXACTLY ONE whole-var
+    /// `BurdenDec` is placed at the dead post-loop block-param entry; with the
+    /// toggle set the base walk's emission returns (borrowed-arg HOF shape leaks
+    /// the closure env; direct-call FM shape double-frees the loop-invariant
+    /// closure, exit -134).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// loop-carried-closure leak / double-free to this treatment vs the rest of
+    /// the Phase-5 walk. Spec: Annex E §AIMS RL-5 + RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE
+
+    /// Decline the Phase-5 treatment for a FRESH closure result (`Unique` +
+    /// `preserves_freshness`, non-forwarder) consumed ONLY at `ApplyIndirect`
+    /// borrow-receiver sites across a short-circuit CFG. Default (unset): the
+    /// whole same-alloc closure is removed from `owned_vars_needing_rc`
+    /// (suppressing every dup/keep-alive inc + the spurious pre-use source dec)
+    /// and EXACTLY ONE whole-var release is placed per terminal path (RL-2 dec
+    /// after the execution-final borrow-read on each reading path; RL-4 edge dec
+    /// on each short-circuit-bypass successor entry).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// short-circuit closure-borrow double-free to this treatment vs the per-var
+    /// DP-2/DP-3 split. Spec: Annex E §AIMS RL-1 + RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE
+
     /// Decline the SELF-ALLOCATING-BUILTIN `Invoke`-result root family of the
     /// Phase-5 borrowed-`Invoke` lineage treatment (the CARRIER-SUCC mode): a
     /// fresh builtin result (`@concat` template-chain link, heap `@to_str` /
