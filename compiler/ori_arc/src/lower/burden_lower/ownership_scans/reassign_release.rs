@@ -38,6 +38,101 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, ValueRepr};
 use super::super::PlacedReleaseMap;
 use super::forwarder_release::ForwarderReleasePos;
 
+/// Whether `old_var` (or any member of its forward `Let { Var }` alias closure)
+/// has a LIVE BORROW co-use — a use at a non-owned position that is NOT itself a
+/// transparent `Let { Var }` alias edge of the closure.
+///
+/// Discriminates the two self-rebind shapes that both reach
+/// [`compute_reassign_rebind_releases`]'s 5-condition gate:
+///
+/// - `x = x.updated(key: i, value: x[i] + c)` — `x` feeds the consuming call via
+///   an `[own]` alias AND a co-occurring `[borrow]` index-read alias. The borrow
+///   keeps `x`'s allocation alive past the `[own]` transfer, so the post-call
+///   rebind orphans a retained reference the rebind `BurdenDec` releases (the
+///   leak signature this scan corrects). `true`.
+/// - `x = x.push(v)` — `x` feeds the consuming COW call (`@push(recv [own])`,
+///   which reallocs/relocates the buffer and returns it AS the rebind result)
+///   via a SINGLE `[own]` alias, with NO surviving borrow co-use. `x`'s sole
+///   reference is genuinely transferred into the call; the post-call rebind
+///   `BurdenDec` double-frees the buffer the call already consumed. `false`.
+///
+/// `Let { Var }` alias edges of the closure are EXCLUDED (they are the transparent
+/// aliasing being traversed, not borrow reads); every other non-owned-position
+/// use (a `[borrow]` call arg, `Project`, `IsShared`, `Set` base) counts.
+/// Spec: Annex E §AIMS RL-2 (transfer vs surviving-borrow last use).
+fn old_var_alias_closure_has_borrow_couse(func: &ArcFunction, old_var: ArcVarId) -> bool {
+    // Forward `Let { Var }` alias closure of `old_var` (fixpoint over alias edges).
+    let mut closure: FxHashSet<ArcVarId> = FxHashSet::default();
+    closure.insert(old_var);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if closure.contains(src) && closure.insert(*dst) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            // Skip the transparent alias edges of the closure itself.
+            if let ArcInstr::Let {
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if closure.contains(src) {
+                    continue;
+                }
+            }
+            // RC bookkeeping ops (`BurdenInc`/`BurdenDec`/`RcInc`/`RcDec`) name
+            // their var at a non-owned position but are NOT real reads — a
+            // per-path keep-alive inc/dec on a loop-carried block param is not a
+            // surviving borrow co-use. Skip them.
+            if matches!(
+                instr,
+                ArcInstr::BurdenInc { .. }
+                    | ArcInstr::BurdenDec { .. }
+                    | ArcInstr::RcInc { .. }
+                    | ArcInstr::RcDec { .. }
+            ) {
+                continue;
+            }
+            for (pos, var) in instr.used_vars().into_iter().enumerate() {
+                if closure.contains(&var) && !instr.is_owned_position(pos) {
+                    return true;
+                }
+            }
+        }
+        // A terminator borrow co-use is ONLY an `Invoke`/`InvokeIndirect` arg at
+        // a non-owned position. `Jump`/`Return` args transfer ownership (RL-4
+        // Jump-arg exemption / RL-2 return transfer) — `is_owned_position`
+        // returns false for them, but they are transfers, not surviving borrows.
+        if matches!(
+            block.terminator,
+            crate::ir::ArcTerminator::Invoke { .. }
+                | crate::ir::ArcTerminator::InvokeIndirect { .. }
+        ) {
+            for (pos, var) in block.terminator.used_vars().into_iter().enumerate() {
+                if closure.contains(&var) && !block.terminator.is_owned_position(pos) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// `ORI_DISABLE_REASSIGN_REBIND_RELEASE=1` skips the Phase-5 RL-2 mutable-rebind
 /// release ([`compute_reassign_rebind_releases`]). Default (unset): the gated
 /// `BurdenDec(old_var)` is emitted at the rebind. Bisection surface: isolates a
@@ -88,6 +183,18 @@ pub(in crate::lower::burden_lower) fn compute_reassign_rebind_releases(
             || inc_suppressed_vars.contains(&old_var)
             || full_move_vars.contains(&old_var)
         {
+            continue;
+        }
+        // Gate (6): the leak signature requires a SURVIVING BORROW co-use of
+        // old_var that outlives the `[own]` transfer (the `x[i]` index-read of
+        // `x = x.updated(key: i, value: x[i])`), leaving the orphaned reference
+        // this dec releases. A PURE `[own]`-transfer self-rebind (`x = x.push(v)`:
+        // old_var's sole reference is consumed by the COW call that reallocs the
+        // buffer and returns it AS new_var) has NO surviving borrow — the buffer
+        // IS new_var's allocation, so the rebind dec double-frees what the call
+        // already consumed (the rc_matrix loop-carried-list UAF under
+        // `ORI_DISABLE_PREDICATE_STACK_RC=1`). Spec: Annex E §AIMS RL-2.
+        if !old_var_alias_closure_has_borrow_couse(func, old_var) {
             continue;
         }
 
