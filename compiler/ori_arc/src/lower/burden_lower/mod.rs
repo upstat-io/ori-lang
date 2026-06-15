@@ -90,6 +90,24 @@ static FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|
     std::env::var("ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1` skips the Phase-5 RL-1 / RL-2
+/// / RL-4 multi-exit borrow-view treatment for a FRESH closure (`Apply`/`Invoke`
+/// result, `Unique` + `preserves_freshness`, non-forwarder) consumed ONLY at
+/// `ApplyIndirect` borrow-receiver sites across a short-circuit CFG
+/// ([`compute_multi_exit_borrow_view_lineage`]). Default (unset): the whole
+/// same-alloc closure (root + Let-Var aliases) is removed from
+/// `owned_vars_needing_rc` (suppressing every dup/keep-alive inc + the spurious
+/// pre-use source dec) and EXACTLY ONE whole-var release is placed per terminal
+/// path — an RL-2 dec after the execution-final borrow-read on each READING
+/// path, an RL-4 edge dec on each SHORT-CIRCUIT-BYPASS successor entry.
+/// Bisection surface: isolates the short-circuit closure-borrow double-free to
+/// this treatment vs the per-var DP-2/DP-3 split. Spec: Annex E §AIMS RL-1
+/// (`RL1_duplication_balanced`) + RL-2 (`RL2_release_exactly_once`) + RL-4
+/// (`RL4_edge_dec_decision`).
+static MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
 /// release for a transfer-through-return forwarder RESULT whose monomorphized
 /// result-type burden is empty (`burden_carries_rc == false`), so the result

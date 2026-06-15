@@ -21,6 +21,7 @@ mod live_extract;
 mod live_extract_site;
 mod live_out;
 mod move_alias;
+mod multi_exit_borrow_view;
 mod reassign_release;
 mod store_dup;
 mod union_find;
@@ -66,6 +67,7 @@ pub(crate) use forwarder_release::ForwarderReleasePos;
 pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use move_alias::compute_transfer_via_move_alias;
+pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use reassign_release::compute_reassign_rebind_releases;
 pub(crate) use store_dup::{compute_funded_store_dup_aliases, store_family_funding_disabled};
 pub(super) use walk::{

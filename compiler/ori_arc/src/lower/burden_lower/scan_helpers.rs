@@ -26,13 +26,14 @@ use super::ownership_scans::{
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
     compute_construct_fed_dead_param_lineage, compute_forwarder_identity_transparent_aliases,
     compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
-    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
     CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED, FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED,
     FORWARDER_RESULT_RELEASE_DISABLED, FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED,
+    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -286,6 +287,23 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // provably emits zero ops for this shape (predicate-only probe: bare alloc).
     let (fresh_sum_claimed, fresh_sum_releases) =
         apply_fresh_sum_live_extract(func, contracts, &mut owned_vars_needing_rc, type_registry);
+    // RL-1 + RL-2 + RL-4 multi-exit borrow-view treatment: a FRESH closure
+    // (`Apply`/`Invoke` result, `Unique ∧ preserves_freshness`, non-forwarder)
+    // consumed ONLY at `ApplyIndirect` borrow-receiver sites across a
+    // short-circuit CFG (`gt5(10) && !gt5(3)`) names ONE allocation across its
+    // Let-Var alias closure. The per-var DP-2/DP-3 split frees the first var at
+    // its last *var*-use (the `%dup = %root` alias-bind placed BEFORE the
+    // execution-final `ApplyIndirect` read) — a use-after-free + double-free
+    // (exit -134). The cure removes the whole closure from
+    // `owned_vars_needing_rc` (every dup/keep-alive inc + the spurious pre-use
+    // source dec) and places EXACTLY ONE whole-var release per terminal path
+    // (RL-2 after the final borrow-read on each READING path; RL-4 edge dec at
+    // each SHORT-CIRCUIT-BYPASS successor entry). Runs AFTER the fresh-sum scan
+    // (disjoint family — closure FatValue root vs niche-family Aggregate sum).
+    // SSOT: `compute_multi_exit_borrow_view_lineage`. Spec: Annex E §AIMS RL-1
+    // + RL-2 + RL-4.
+    let multi_exit_releases =
+        apply_multi_exit_borrow_view(func, contracts, &mut owned_vars_needing_rc);
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
     // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
@@ -361,6 +379,15 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // The two families target disjoint lineages (forwarder-identity results vs
     // non-forwarder fresh-sum closures), so the merge cannot double-release.
     for (site, vars) in fresh_sum_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
+    // Merge the multi-exit borrow-view per-path releases into the same surface.
+    // Disjoint family (FatValue closure roots vs forwarder results / niche-family
+    // sums), so the merge cannot double-release.
+    for (site, vars) in multi_exit_releases {
         forwarder_result_releases
             .entry(site)
             .or_default()
@@ -505,6 +532,25 @@ fn apply_fresh_sum_live_extract(
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     (treatment.suppressed_lineage_vars, treatment.releases)
+}
+
+/// Toggle-gated application of the RL-1 + RL-2 + RL-4 multi-exit borrow-view
+/// treatment ([`compute_multi_exit_borrow_view_lineage`]): computes the vetted
+/// same-alloc closures, removes them from `owned_vars_needing_rc` (suppressing
+/// every dup/keep-alive inc + the spurious pre-use source dec), and returns the
+/// placed per-terminal-path releases for the `forwarder_result_releases` merge.
+/// Empty when `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1`.
+fn apply_multi_exit_borrow_view(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+) -> PlacedReleaseMap {
+    if *MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment = compute_multi_exit_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
 }
 
 /// Populate `func.burden_emitted` from the just-emitted burden ops. Walks
