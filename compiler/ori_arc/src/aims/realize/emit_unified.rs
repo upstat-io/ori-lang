@@ -2349,6 +2349,111 @@ fn aggregate_transferred_out(
     false
 }
 
+/// True iff the burden-carrying aggregate `agg_rep` is moved at an OWNED position
+/// into a collection-append (`@push` / `ori_list_push`) whose RECEIVER collection
+/// is ITER-CONSUMED IN-SCOPE and NOT returned — the precise complement of
+/// [`collection_receiver_returned`] for the nested-aggregate shape.
+///
+/// `for p in parts yield Some(p); for opt in opts do ..` pushes the `Some(p)`
+/// aggregate `[own]` into `opts`, which is iter-consumed locally (`@iter [own]` ->
+/// `ori_iter_drop`) and never returned. The aggregate's field-drop therefore runs
+/// IN-SCOPE (via `opts`'s `elem_dec_fn` at the iter-drop), decing the stored
+/// slice-element view's shared backing a SECOND time (the source `parts` buffer's
+/// iter-drop is the first) -> double-free without a keep-alive. This is the
+/// transfer-out subcase where [`aggregate_transferred_out`] is true yet the
+/// field-drop is still in-scope, so the RL-1 keep-alive (`RL1_duplication_balanced`)
+/// is load-bearing. Reuses [`for_yield_result_iter_consumed_not_returned`] for the
+/// receiver's iter-consumed-not-returned proof (AIMS Invariant 5 — no parallel
+/// iter-consume tracker). Returned receivers stay with Phase 6.68b
+/// (`collection_receiver_returned`); genuinely-escaping transfers (user-call
+/// `[own]`, returned aggregate) decline. Spec: Annex E §AIMS RL-1 + RL-2.
+fn aggregate_pushed_into_in_scope_consumed_collection(
+    agg_rep: ArcVarId,
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    // `ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE=1` reverts the Phase 6.68
+    // nested-aggregate-into-in-scope-consumed-collection admission (this fn
+    // returns false): the `for p in parts yield Some(p); for opt in opts do ..`
+    // shape reverts to the under-funded double-free (the stored slice view's
+    // backing is released by BOTH the source `parts` iter-drop and the in-scope
+    // `opts` `elem_dec_fn`). Bisects the nested-aggregate arm vs the rest of
+    // Phase 6.68. Default (unset) keeps the keep-alive. Spec: Annex E §AIMS RL-1.
+    if std::env::var("ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE").as_deref() == Ok("1") {
+        return false;
+    }
+    let push_name = interner.intern("push");
+    let list_push_name = interner.intern("ori_list_push");
+    let list_take_name = for_yield_result_finalizer_name(interner);
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
+    // The `for...yield` finalizer `ori_list_take(scratch)` moves the scratch
+    // buffer into the result `[T]`; the push RECEIVER (the scratch handle) and
+    // the iter-consumed RESULT are linked by this take, not by a jump/Let rep.
+    // Map each take-receiver rep to its take-result rep so the iter-consume proof
+    // runs on the result lineage.
+    let take_result_of = |recv_rep: ArcVarId| -> Option<ArcVarId> {
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } = instr
+                {
+                    if *callee == list_take_name
+                        && args.first().is_some_and(|&a| rep_of(a) == recv_rep)
+                    {
+                        return Some(rep_of(*dst));
+                    }
+                }
+            }
+        }
+        None
+    };
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            let (callee, args, arg_ownership) = match instr {
+                ArcInstr::Apply {
+                    func: callee,
+                    args,
+                    arg_ownership,
+                    ..
+                } => (*callee, args, arg_ownership),
+                _ => continue,
+            };
+            if callee != push_name && callee != list_push_name {
+                continue;
+            }
+            // The aggregate must be a NON-receiver owned arg (the pushed element
+            // payload, position >= 1; position 0 is the receiver collection).
+            let pushed_as_element = args.iter().enumerate().skip(1).any(|(pos, &a)| {
+                rep_of(a) == agg_rep && arg_ownership.get(pos) == Some(&ArgOwnership::Owned)
+            });
+            if !pushed_as_element {
+                continue;
+            }
+            let Some(&recv) = args.first() else {
+                continue;
+            };
+            // The consumed lineage is the take-finalizer RESULT (the moved-out
+            // buffer), falling back to the receiver itself when no take links it.
+            let consumed_rep = take_result_of(rep_of(recv)).unwrap_or_else(|| rep_of(recv));
+            // Iter-consumed in-scope and NOT returned -> the field-drop runs
+            // locally, so the keep-alive is needed. A returned result is Phase
+            // 6.68b's domain (declined here to avoid double-emit).
+            if for_yield_result_iter_consumed_not_returned(func, consumed_rep, rep_of, iter_name) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Phase 6.68 (probe): emit a keep-alive `BurdenInc` on every iter-element-view
 /// stored as a field arg of a burden-carrying aggregate `Construct` / `Reuse`
 /// that is DROPPED IN-SCOPE.
@@ -2416,11 +2521,25 @@ fn emit_slice_element_aggregate_field_keepalive_inc(
             if !is_burden_carrying_aggregate(dst, func, pool) {
                 continue;
             }
-            // The aggregate must be DROPPED IN-SCOPE: a transferred-out aggregate
-            // (yielded/pushed into a collection, returned, consumed into an outer
-            // Construct) has its field-drop run elsewhere, so a keep-alive here
-            // would orphan a +1 -> leak (the over-fire boundary).
-            if aggregate_transferred_out(rep_of(dst), func, &rep_of) {
+            // The aggregate's field-drop must run IN-SCOPE. Two admitting shapes:
+            // (1) dropped directly in-scope (`!aggregate_transferred_out`); OR
+            // (2) pushed `[own]` into a collection that is iter-consumed in-scope
+            //     and NOT returned — the field-drop still runs locally (via the
+            //     receiver collection's `elem_dec_fn` at its iter-drop), so the
+            //     RL-1 keep-alive on the stored slice view is load-bearing
+            //     (`for p in parts yield Some(p); for opt in opts do ..`). A
+            //     returned receiver is Phase 6.68b's domain; a genuinely-escaping
+            //     transfer (returned aggregate, user-call `[own]`) has its
+            //     field-drop run elsewhere, so a keep-alive there orphans a +1 ->
+            //     leak (the over-fire boundary). Spec: Annex E §AIMS RL-1 + RL-2.
+            if aggregate_transferred_out(rep_of(dst), func, &rep_of)
+                && !aggregate_pushed_into_in_scope_consumed_collection(
+                    rep_of(dst),
+                    func,
+                    &rep_of,
+                    interner,
+                )
+            {
                 continue;
             }
             // De-duplicate: a slice value passed in two field positions of one
