@@ -53,19 +53,32 @@ for arg in "$@"; do
     esac
 done
 
-# Serialize whole runs: a second test-all queues instead of interleaving.
-# Concurrent runs rebuild shared target/ artifacts mid-suite and mass-fail the
-# AOT leg with bogus per-test failures. flock --close drops the lock fd before
-# exec'ing children so cargo/ori subprocesses never inherit it; the kernel
-# releases the lock if the holder dies.
-mkdir -p target
+# Per-run build isolation. Concurrent runs that share target/ rebuild each
+# other's artifacts mid-suite and mass-fail the AOT leg with bogus failures, and
+# a run sharing target/ with any other cargo (parallel sessions, reviewers)
+# stalls on cargo's build lock while holding the whole-run lock — hanging every
+# other run behind it. Each run builds in its OWN target/<build-id> so it never
+# contends on a foreign cargo lock; sccache (below) shares the compile cache
+# across these dirs so isolation is not a cold rebuild. The build id defaults to
+# the session id when present (distinct sessions run fully concurrently), else
+# "shared". Same-id runs still serialize on their own per-id lock (prevents the
+# shared-artifact AOT corruption). flock --close drops the lock fd before
+# exec'ing children so subprocesses never inherit it; the kernel releases it if
+# the holder dies.
+TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-${CLAUDE_CODE_SESSION_ID:-shared}}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target/test-all-${TESTALL_BUILD_ID}}"
+TARGET_DIR="$CARGO_TARGET_DIR"
+mkdir -p "$TARGET_DIR" target
+TESTALL_LOCK="target/.test-all-${TESTALL_BUILD_ID}.lock"
 if [ -z "${ORI_TESTALL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
-    if ! flock --nonblock target/.test-all.lock true 2>/dev/null; then
-        echo "waiting for a concurrent test-all run to finish..."
+    if ! flock --nonblock "$TESTALL_LOCK" true 2>/dev/null; then
+        echo "waiting for a concurrent test-all run with build id '$TESTALL_BUILD_ID' to finish..."
     fi
     export ORI_TESTALL_FLOCKED=1
-    exec flock --close target/.test-all.lock "$0" "$@"
+    exec flock --close "$TESTALL_LOCK" "$0" "$@"
 fi
+# Re-exec inherits CARGO_TARGET_DIR via export; recompute the convenience var.
+TARGET_DIR="$CARGO_TARGET_DIR"
 
 # Always log full output to a fixed file (cleared on each run)
 LOG_FILE="test-all.log"
@@ -277,7 +290,7 @@ run_ori_interpreter() {
     # ONE invocation: machine-readable JSON to a file, stderr to the capture.
     # The console summary is reconstructed from the JSON (no second text run).
     mkdir -p "$(dirname "$ORI_INTERP_JSON")"
-    ./target/debug/ori test --format json $INCREMENTAL_FLAG tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
+    "$CARGO_TARGET_DIR"/debug/ori test --format json $INCREMENTAL_FLAG tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_INTERP_JSON" | sed 's/^/  /'
@@ -307,7 +320,7 @@ run_ori_llvm() {
     # ONE invocation: machine-readable JSON to a file, stderr to the capture
     # (so a crash diagnostic survives when stdout carries no parseable JSON).
     mkdir -p "$(dirname "$ORI_LLVM_JSON")"
-    ./target/release/ori test --format json --backend=llvm $INCREMENTAL_FLAG tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
+    "$CARGO_TARGET_DIR"/release/ori test --format json --backend=llvm $INCREMENTAL_FLAG tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_LLVM_JSON" | sed 's/^/  /'
@@ -426,8 +439,8 @@ parse_ori_results() {
 # compiler/ori_llvm/tests/aot/util/binary.rs — the AOT harness writes the
 # same tuple into its stage manifest; the gate below string-compares the two.
 artifact_identity() {
-    stat -c '%d:%i:%Y:%s' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
-        || stat -f '%d:%i:%m:%z' target/debug/ori target/debug/libori_rt.a 2>/dev/null \
+    stat -c '%d:%i:%Y:%s' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
+        || stat -f '%d:%i:%m:%z' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
         || echo "absent"
 }
 

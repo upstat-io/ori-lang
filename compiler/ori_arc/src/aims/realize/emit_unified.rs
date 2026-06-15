@@ -32,6 +32,20 @@ use super::walk;
 static BURDEN_ELIM_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE=1` declines the
+/// dead-at-bypass-entry fallback in `compute_take_project_source_plan`: an
+/// iterator-bearing take-project source enum dead-at-entry on the BYPASS edge of an
+/// OUTER runtime gate (`if flag then <match consumes> else 0`) reverts to the
+/// pre-cure under-release (the bypass path's `+1` iterator leak). The entry-states
+/// loop's emission (source live at the bypass-safe entry) is byte-identical
+/// regardless. Bisection surface: isolates an outer-gated take-project bypass-path
+/// leak to this fallback vs the rest of the take-project source-dec pass. Default
+/// (unset): the dominance-safe dead-at-bypass-entry release is emitted. Spec: Annex
+/// E §AIMS RL-4 + RL-2.
+static TAKE_PROJECT_BYPASS_ENTRY_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE").as_deref() == Ok("1")
+});
+
 /// Per-phase RC-op snapshot for post-walk pass debugging.
 ///
 /// Emits one `tracing::trace!` per block summarising every `RcInc`/`RcDec` by
@@ -5016,7 +5030,96 @@ fn compute_take_project_source_plan(
         }
     }
 
+    // Dead-at-bypass-entry fallback (the OUTER-runtime-gate shape): when the
+    // take-project consume is itself gated behind an outer runtime branch
+    // (`if flag then <match consumes> else 0`), the source enum is dead-at-entry
+    // (AIMS `Cardinality = Absent`) on the BYPASS edge — so it is ABSENT from that
+    // block's entry-state map and the entry-states loop above emits NO release
+    // there. The enum's iterator payload then leaks on every bypass path (its only
+    // release, the consume arm's dec, lives in the unreachable `then` sub-CFG). RL-4
+    // (`RL4_edge_dec_decision`): a value live at the branch's exit but dead at the
+    // bypass successor's entry, not handed off, owes exactly one edge dec at that
+    // successor's front.
+    //
+    // The fallback emits ONE `BurdenDec` per (alias_rep, bypass-safe-entry block)
+    // for an in-class source var that is dead-at-entry there yet DOMINANCE-SAFE:
+    //   - the var is in the take-project SOURCE class (`is_in_class` + `source_reps`
+    //     + `let_alias_rep`) — the SAME landed `TakeMoveFacts` membership the
+    //     entry-states loop uses (no new tracker / no use-count proxy);
+    //   - the var is dead at the bypass-safe-entry block (NOT already emitted there
+    //     via the entry-states pass — `emitted_rep_blocks` dedups);
+    //   - the var's DEFINING block strictly dominates the bypass-safe-entry block
+    //     (`DominatorTree::dominates`), so `BurdenDec { var }` at the block front is
+    //     dominance-safe (LLVM "value dominates all uses" holds);
+    //   - not returned (RL-2 transfer), not an iterator-handle (Phase-6.9 owns it).
+    //
+    // Over-fire boundary: the bypass-safe-entry set already excludes any block
+    // forward/backward-reachable from a take-project (the consume site), so a block
+    // where the source is consumed is never admitted — the dec lands only on a path
+    // where the source genuinely dies unconsumed. Disjoint runtime paths from the
+    // consume arm's dec (mutual-exclusion via the bypass-safe partition), so no
+    // double-free. Spec: Annex E §AIMS RL-4 + RL-2.
+    if *TAKE_PROJECT_BYPASS_ENTRY_RELEASE_DISABLED {
+        return TakeProjectSourcePlan { strip_vars, emits };
+    }
+    let doms = crate::graph::DominatorTree::build(func);
+    let def_block = take_project_source_def_blocks(func);
+    for b in 0..func.blocks.len() {
+        let b_id = crate::aims::emit_rc::block_id(b);
+        for &var in &strip_vars {
+            if is_iterator_handle_dst(var, func, pool) {
+                continue;
+            }
+            if returned.contains(&rep_of(var)) {
+                continue;
+            }
+            if !take_move_facts.is_bypass_safe_entry_for_var(var, b) {
+                continue;
+            }
+            let Some(alias_rep) = take_move_facts.let_alias_rep(var) else {
+                continue;
+            };
+            // Skip if the entry-states pass already placed a dec for this rep here.
+            if emitted_rep_blocks.contains(&(alias_rep, b)) {
+                continue;
+            }
+            // Dominance-safety: the source var's def block must strictly dominate `b`
+            // (the var is live across the dominating-block → `b` edge, dead in `b`).
+            let Some(&db) = def_block.get(&var) else {
+                continue;
+            };
+            if db == b {
+                continue;
+            }
+            if !doms.dominates(crate::aims::emit_rc::block_id(db), b_id) {
+                continue;
+            }
+            if emitted_rep_blocks.insert((alias_rep, b)) {
+                emits.push((b, var));
+            }
+        }
+    }
+
     TakeProjectSourcePlan { strip_vars, emits }
+}
+
+/// Per-var defining block for take-project source members: the block index where
+/// the var is bound (a block param, or an instruction `dst`). Used by the
+/// dead-at-bypass-entry fallback to prove the source var's def dominates the
+/// bypass-safe-entry block (dominance-safe `BurdenDec` placement).
+fn take_project_source_def_blocks(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
+    let mut def_block: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        for &(param, _) in &block.params {
+            def_block.insert(param, b);
+        }
+        for instr in &block.body {
+            if let Some(dst) = instr.defined_var() {
+                def_block.insert(dst, b);
+            }
+        }
+    }
+    def_block
 }
 
 /// Where a dead iterator-handle release dec lands: at the END of the block body

@@ -329,3 +329,53 @@ def test_rust_failures_missing_file_is_empty_array(tmp_path):
 def test_rust_failures_requires_suite():
     result = _run(["--rust-failures"], stdin="test t ... FAILED\n")
     assert result.returncode == 2
+
+
+# --- rust-failures: cargo-nextest FAIL-line format (runner-switch coverage) ---
+
+
+def test_rust_failures_scrapes_nextest_fail_lines():
+    # Real cargo-nextest streamed format: indent, FAIL [time] (n/total) crate test::path
+    log = (
+        "        PASS [   0.004s] (1/3) oric foo::tests::ok_one\n"
+        "        FAIL [   0.038s] (2/3) oric eval::tests::dispatch::handler_missing\n"
+        "        FAIL [   1.2s  ] (3/3) ori_arc lattice::tests::join_law\n"
+        "     Summary [   3.393s] 3 tests run: 1 passed, 2 failed, 0 skipped\n"
+    )
+    result = _run(["--rust-failures", "--suite", "rust_workspace"], stdin=log)
+    assert result.returncode == 0
+    entries = json.loads(result.stdout)
+    names = sorted(e["test_id"] for e in entries)
+    assert names == ["eval::tests::dispatch::handler_missing", "lattice::tests::join_law"]
+    assert all(e["test_id_kind"] == "rust" for e in entries)
+
+
+def test_rust_failures_nextest_without_progress_index():
+    # Some nextest output modes omit the `(n/total)` progress index.
+    log = "        FAIL [   0.038s] oric eval::tests::handler_missing\n"
+    result = _run(["--rust-failures", "--suite", "rust_workspace"], stdin=log)
+    entries = json.loads(result.stdout)
+    assert [e["test_id"] for e in entries] == ["eval::tests::handler_missing"]
+
+
+def test_rust_failures_mixed_cargo_and_nextest_dedup():
+    # Both formats present (e.g. nextest streamed + a cargo-style replay); the
+    # same test id is emitted at most once.
+    log = (
+        "        FAIL [   0.038s] (1/1) oric eval::tests::dup\n"
+        "test eval::tests::dup ... FAILED\n"
+    )
+    result = _run(["--rust-failures", "--suite", "rust_workspace"], stdin=log)
+    entries = json.loads(result.stdout)
+    assert [e["test_id"] for e in entries] == ["eval::tests::dup"]
+
+
+def test_rust_failures_nextest_passing_run_is_empty():
+    # NEGATIVE PIN: a clean nextest run (only PASS lines) yields no failures.
+    log = (
+        "        PASS [   0.004s] (1/2) oric foo::ok\n"
+        "        PASS [   0.005s] (2/2) oric bar::ok\n"
+        "     Summary [   0.090s] 2 tests run: 2 passed, 0 skipped\n"
+    )
+    result = _run(["--rust-failures", "--suite", "rust_workspace"], stdin=log)
+    assert json.loads(result.stdout) == []

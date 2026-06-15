@@ -30,8 +30,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_FILE="${ORI_STATE_FILE:-$ROOT_DIR/.claude/state/known-state.json}"
 STATE_DIR="$(dirname "$STATE_FILE")"
 BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
-# Append-only test-all metrics ledger (data file; written by the metrics-ledger
-# runtime, read here for display). Env override for isolated testing.
+# Append-only test-all metrics ledger (data file; written by the test-all
+# ledger ingest, read here for display). Env override for isolated testing.
 LEDGER_FILE="${ORI_LEDGER_FILE:-$ROOT_DIR/build/test-all-ledger.json}"
 
 # ---- Defaults ----------------------------------------------------------------

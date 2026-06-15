@@ -174,7 +174,7 @@ def _rust_failure_entries(text, suite, failure_kind):
     """Yield a failure object per failed Rust test in a cargo OR nextest log.
 
     Matches both runner formats so failure-name attribution survives the
-    cargo-test -> cargo-nextest runner switch (per .claude/rules/compiler-ops.md):
+    cargo-test -> cargo-nextest runner switch:
     - cargo libtest:  `test <name> ... FAILED`
     - cargo-nextest:  `<indent>FAIL [ <time> ] (<n>/<total>) <crate> <test::path>`
     A test_id is emitted at most once even if both forms appear (dedup by id).
