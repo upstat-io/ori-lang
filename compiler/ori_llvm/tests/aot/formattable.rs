@@ -156,3 +156,27 @@ fn test_aot_format_negative_hex() {
         "format_negative_hex",
     );
 }
+
+// Non-primitive Formatting (canon desugar of `{x:spec}` on non-primitive
+// receivers — the AOT native-binary path the primitive-only fixtures above
+// never reached).
+
+// Branch (a): explicit `impl T: Formattable` desugars to a `format(FormatSpec)`
+// MethodCall — the struct + synthesized FormatSpec must round-trip leak-free.
+#[test]
+fn test_aot_format_user_struct() {
+    assert_aot_success(
+        include_str!("fixtures/formattable/aot_format_user_struct.ori"),
+        "format_user_struct",
+    );
+}
+
+// Branch (b): Printable-only desugars to `FormatWith { x.to_str(), spec }` —
+// the `to_str()` heap str re-routed through the `ori_format_str` arm.
+#[test]
+fn test_aot_format_printable_only() {
+    assert_aot_success(
+        include_str!("fixtures/formattable/aot_format_printable_only.ori"),
+        "format_printable_only",
+    );
+}

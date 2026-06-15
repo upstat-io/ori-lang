@@ -1,0 +1,22 @@
+// Non-primitive `{x:spec}` desugar — branch (a): explicit `impl T: Formattable`.
+// The canon desugar emits a `format(FormatSpec)` MethodCall + a synthesized
+// FormatSpec struct; the user `format()` owns spec application. Exercises the
+// AOT native-binary path (L8) the primitive-only fixtures never reached, under
+// `ORI_CHECK_LEAKS=1` (heap `str` + FormatSpec struct must round-trip leak-free).
+
+type Color = { r: int, g: int, b: int }
+
+impl Color: Formattable {
+    @format (self, spec: FormatSpec) -> str = {
+        let w = match spec.width {
+            Some(n) -> str(n),
+            None -> "?"
+        };
+        "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + "):w=" + w
+    }
+}
+
+@main () -> int = {
+    let c = Color { r: 255, g: 0, b: 128 };
+    if `{c:>20}` == "rgb(255,0,128):w=20" && `{c:<5}` == "rgb(255,0,128):w=5" then 0 else 1
+}

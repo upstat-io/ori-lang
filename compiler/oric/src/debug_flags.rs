@@ -273,6 +273,32 @@ flags! {
     /// Usage: `ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1 ori build file.ori`
     ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE
 
+    /// Decline the Phase-6.99 dead-at-bypass-entry fallback in
+    /// `compute_take_project_source_plan`: an iterator-bearing take-project
+    /// source enum dead-at-entry on the BYPASS edge of an outer runtime gate
+    /// reverts to the pre-cure under-release (the bypass path's `+1` iterator
+    /// leak).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified`. Bisects an
+    /// outer-gated take-project bypass-path leak to this fallback vs the rest
+    /// of the take-project source-dec pass. Default (unset) emits the
+    /// dominance-safe dead-at-bypass-entry release.
+    /// Usage: `ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE
+
+    /// Revert the Phase-6.68 nested-aggregate-into-in-scope-consumed-collection
+    /// keep-alive admission (`aggregate_pushed_into_in_scope_consumed_collection`
+    /// returns false): the `for p in parts yield Some(p); for opt in opts do ..`
+    /// shape reverts to the under-funded double-free (the stored slice view's
+    /// backing released by BOTH the source iter-drop and the in-scope
+    /// `elem_dec_fn`).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified`. Bisects the
+    /// nested-aggregate arm vs the rest of Phase 6.68. Default (unset) keeps the
+    /// RL-1 keep-alive.
+    /// Usage: `ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE=1 ori build file.ori`
+    ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE
+
     /// Disable the Phase-5 RL-4 per-edge release for a FRESH local `Construct`
     /// lineage consumed at an owned position on a strict subset of branch
     /// paths (the branch-exclusive terminal-move shape — the non-consuming
