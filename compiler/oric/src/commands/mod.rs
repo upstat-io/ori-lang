@@ -32,6 +32,7 @@ pub(crate) use codegen_pipeline::imported_mono::{
 };
 mod debug;
 mod demangle;
+mod emit_scip;
 mod explain;
 mod fmt;
 #[cfg(feature = "llvm")]
@@ -83,6 +84,7 @@ pub use build::build_file;
 pub use check::check_file;
 pub use debug::{lex_file, parse_file};
 pub use demangle::demangle_symbol;
+pub use emit_scip::emit_scip_file;
 pub use explain::explain_error;
 pub use fmt::run_format;
 pub use run::{run_file, run_file_compiled};
