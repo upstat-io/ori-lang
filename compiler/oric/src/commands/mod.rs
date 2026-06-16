@@ -115,12 +115,14 @@ impl FrontendResult {
 /// Run the frontend pipeline and report all errors to the emitter.
 ///
 /// Checks lex errors, parse errors, and type errors, emitting diagnostics for
-/// each. Returns `None` only if the Pool fails to cache (internal error).
-/// Otherwise returns `FrontendResult` with all pipeline outputs. Use
-/// `FrontendResult::has_errors()` to check whether any phase produced errors.
+/// each. This is the single source of truth for frontend error reporting —
+/// used by `check_file`, `run_file`, and `check_source` (LLVM path).
 ///
-/// This is the single source of truth for frontend error reporting — used by
-/// `check_file`, `run_file`, and `check_source` (LLVM path).
+/// # Returns
+///
+/// `None` only if the Pool fails to cache (internal error); otherwise
+/// `FrontendResult` with all pipeline outputs. Use
+/// `FrontendResult::has_errors()` to check whether any phase produced errors.
 pub(super) fn report_frontend_errors(
     db: &CompilerDb,
     file: SourceFile,

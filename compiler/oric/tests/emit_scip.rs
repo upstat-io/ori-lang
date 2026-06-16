@@ -19,6 +19,10 @@ const TWO_FN_FIXTURE: &str = include_str!("fixtures/emit_scip/two_fn.ori");
 /// frontend rejects it and no index is written.
 const TYPE_ERROR_FIXTURE: &str = include_str!("fixtures/emit_scip/type_error.ori");
 
+/// Function-less fixture: a type-only file type-checks cleanly but has no
+/// top-level function, so the emitted index carries zero symbols.
+const NO_FN_FIXTURE: &str = include_str!("fixtures/emit_scip/no_fn.ori");
+
 fn write_fixture(dir: &tempfile::TempDir, name: &str, content: &str) -> std::path::PathBuf {
     let path = dir.path().join(name);
     std::fs::write(&path, content).unwrap_or_else(|e| panic!("failed to write fixture: {e}"));
@@ -93,6 +97,34 @@ fn emit_scip_emits_first_function_by_sort_order() {
     // Negative pin: NOT `zebra` — the first-by-name function is the deliverable.
     assert_eq!(symbols[0]["display_name"], "add");
     assert_ne!(symbols[0]["display_name"], "zebra");
+}
+
+#[test]
+fn emit_scip_emits_empty_index_for_function_less_file() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let fixture = write_fixture(&dir, "no_fn.ori", NO_FN_FIXTURE);
+    let output = dir.path().join("index.scip");
+
+    let out = run_emit_scip(&fixture, &output);
+    // A function-less file type-checks cleanly, so emit-scip succeeds.
+    assert!(
+        out.status.success(),
+        "emit-scip exited non-zero on a function-less file: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let index =
+        std::fs::read_to_string(&output).unwrap_or_else(|e| panic!("index.scip written: {e}"));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&index).unwrap_or_else(|e| panic!("index.scip is valid JSON: {e}"));
+
+    assert_eq!(parsed["format"], "ori-scip-minimal/v1");
+    let symbols = parsed["documents"][0]["symbols"]
+        .as_array()
+        .unwrap_or_else(|| panic!("symbols array"));
+    // The deliverable: a structurally-valid index with zero symbols, NOT a
+    // missing file or a non-zero exit.
+    assert_eq!(symbols.len(), 0, "a function-less file emits zero symbols");
 }
 
 #[test]

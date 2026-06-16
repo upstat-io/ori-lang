@@ -113,10 +113,9 @@ pub fn emit_scip_file(path: &str, output: &str) {
         })
         .unwrap_or_default();
 
-    // Determine the project root for index metadata. A failed current_dir()
-    // must abort with a diagnostic (mirrors the serialize/write failure paths
-    // below) — silently recording an empty project_root would emit a
-    // structurally-wrong index a consumer would act on.
+    // Why: a failed current_dir() must abort (mirrors the serialize/write
+    // failure paths) — silently recording an empty project_root would emit a
+    // structurally-wrong index.
     let project_root = match std::env::current_dir() {
         Ok(dir) => dir.display().to_string(),
         Err(e) => {
