@@ -38,23 +38,10 @@ pub(crate) type ProjectSources = SmallVec<[ArcVarId; 1]>;
 /// set. The map is the unified same-allocation alias graph (R1 Project, R2
 /// generalized to whole-var Let identity of non-projected roots, R3 Jump-arg,
 /// R4 CFG-merge, R5 Select, R6 nested-Project transitive).
-///
-/// `over_approximation_dsts` records dsts whose source set spans ≥2 distinct
-/// GENUINE same-allocation reps — an R4 CFG-merge (a block-param phi over
-/// distinct parents) or R5 Select union. Such an entry is the ALIAS closure
-/// over-approximation (could-be-same-alloc), NOT an unconditional same-alloc
-/// relation: the alias denotes a DIFFERENT allocation per CFG path. Demand-side
-/// consumers (`propagate_project_source_demand`, the post-convergence witness
-/// extension) MUST exclude them — keeping ALL spanned parents alive
-/// over-extends every path's lifetime (the merge-edge scoped-cleanup leak).
-/// They remain in `sources` for the DP-5 SAFETY-CHECK path (could-alias is the
-/// right question there) and the unified same-allocation cross-block query.
-/// Spec: Annex E §AIMS — `project_alias_sources` is the alias closure.
 pub(crate) struct ProjectAliasTable {
     /// The UNIFIED same-allocation alias closure (R1 + R2-gen + R3 + R4 + R5 +
     /// R6). Installed on `AimsStateMap` for the post-convergence consumers
-    /// (witness extension, PIN-6 project-alias seeds, `cleanup_redundant`),
-    /// paired with `over_approximation_dsts` as the soundness boundary.
+    /// (PIN-6 project-alias seeds, `cleanup_redundant`).
     pub(crate) sources: FxHashMap<ArcVarId, ProjectSources>,
     /// The ORIGINAL §1.9 backward-demand table (R1 + R3 + R4 + R6 — NO R2-gen
     /// whole-var identity, NO R5). Consumed by `propagate_project_source_demand`;
@@ -65,10 +52,6 @@ pub(crate) struct ProjectAliasTable {
     /// parent's branch-edge dec (the merge-edge scoped-cleanup leak). Spec: Annex
     /// E §AIMS.
     pub(crate) demand_sources: FxHashMap<ArcVarId, ProjectSources>,
-    /// Dsts spanning ≥2 genuine same-alloc reps (R4 merge + R5 Select). Consumed
-    /// by the post-convergence WITNESS extension (`class_lifetime_extends`) to
-    /// exclude conditional aliases from the same-alloc witness set.
-    pub(crate) over_approximation_dsts: FxHashSet<ArcVarId>,
     /// R5 Select-origin dsts. Consumed by `propagate_project_source_demand` to
     /// exclude Select aliases from BACKWARD demand over `demand_sources`.
     pub(crate) select_alias_dsts: FxHashSet<ArcVarId>,
@@ -217,30 +200,11 @@ pub(crate) fn compute_project_alias_table(
     let demand_sources = run_alias_fixpoint(func, alias_sources.clone(), false).0;
     let (sources, select_alias_dsts) = run_alias_fixpoint(func, alias_sources, true);
 
-    // Over-approximation set: a dst whose UNIFIED source set spans ≥2 GENUINE
-    // same-allocation reps (Let + apply-Direct/Conditional union-find, EXCLUDING
-    // Jump-arg/merge + Select) is an R4 merge / R5 Select over-approximation —
-    // the alias is a DIFFERENT allocation per CFG path. The witness consumer
-    // excludes these. R5 Select dsts join unconditionally (a Select is always
-    // conditional even when both operands trace to one rep). Spec: Annex E
-    // §AIMS — alias closure vs unconditional same-alloc.
     let genuine_same_alloc_reps = compute_genuine_same_alloc_reps(func, apply_result_aliases);
-    let mut over_approximation_dsts = select_alias_dsts.clone();
-    for (&dst, srcs) in &sources {
-        let mut reps = srcs
-            .iter()
-            .map(|&s| genuine_same_alloc_reps.get(&s).copied().unwrap_or(s));
-        if let Some(first) = reps.next() {
-            if reps.any(|r| r != first) {
-                over_approximation_dsts.insert(dst);
-            }
-        }
-    }
 
     ProjectAliasTable {
         sources,
         demand_sources,
-        over_approximation_dsts,
         select_alias_dsts,
         genuine_same_alloc_reps,
     }

@@ -621,148 +621,10 @@ pub(crate) fn populate_context_events(
 // the converged AimsStateMap — syntactic ordering proxies cannot model
 // path-sensitive lifetimes (AIMS Invariant #5, unified model).
 
-/// Whether class A's lifetime extends past class B's destruction along some
-/// CFG path, using the converged `AimsStateMap`'s path-sensitive liveness.
-///
-/// Two-tier check (intra-block gap close + terminator + defined-dead
-/// refinements):
-/// 1. Block-exit tier: `is_live_at_exit` JOIN'd block-exit semantics.
-/// 2. Intra-block tier: `precompute_block_uses` last-use comparison; only
-///    fires when ALL B-members are dead-at-exit; defined-dead B detected
-///    via `def_site_block`.
-///
-/// Witness-set widening: A's witness set is extended with
-/// Project-derived aliases of B-members. Project apply-aliases live in a
-/// DIFFERENT class than their
-/// source (PIN-2 at `ssa_alias_classes.rs:131` — "different RC slot"), so
-/// `class_members(class_a)` cannot see them. The `project_alias_sources`
-/// side-table on `AimsStateMap` records each alias-chain destination's root
-/// sources; when any destination's sources include a B-member, the
-/// destination's liveness extends A's effective lifetime.
-///
-/// Example (`apply_alias_result_strmap.ori`): `wrap_ok(m: m)` returns Result
-/// wrapping `m`. In `@main`: `inner = Project result.payload[0]; extracted
-/// = Let Var(inner)`. `project_alias_sources` records `inner → [result]` and
-/// `extracted → [inner, result]`. Class B = `{result}`; class A = `{m}`.
-/// Raw `a_members` is `{m}`, which is Dead post-Apply. But `extracted`
-/// outlives `result`'s destructuring; treating `extracted`'s liveness as
-/// part of A's witness set correctly identifies "A outlives B" and skips
-/// the `class_payload_of` edge so PIN-6 does not over-suppress A's
-/// canonical dec.
-fn class_lifetime_extends_past_path_sensitive(
-    class_a_id: u32,
-    class_b_id: u32,
-    def_site_block: usize,
-    state_map: &AimsStateMap,
-    func: &ArcFunction,
-) -> bool {
-    let Some(a_members) = state_map.class_members(class_a_id) else {
-        return false;
-    };
-    let Some(b_members) = state_map.class_members(class_b_id) else {
-        return false;
-    };
-
-    // Build A's extended witness set by
-    // walking project_alias_sources for any alias whose root sources include
-    // a B-member. Witnesses are USED for "is A still alive?" checks (any_a
-    // _live_exit, max_a_in_body, a_at_term) but NOT for B-related checks
-    // (all_b_dead_exit stays based on real b_members per the lifetime check
-    // semantic — B's destruction is what we're testing A's survival past).
-    let over_approximation_dsts = state_map.alias_over_approximation_dsts();
-    let extended_a_witnesses: FxHashSet<ArcVarId> = {
-        let mut witnesses = a_members.iter().copied().collect::<FxHashSet<_>>();
-        for (&alias_var, sources) in state_map.project_alias_sources() {
-            // Soundness boundary (Spec: Annex E §AIMS — `project_alias_sources`
-            // is the ALIAS closure, NOT same-alloc-everywhere): a MERGE (R4) /
-            // Select (R5) OVER-APPROXIMATION denotes a DIFFERENT allocation per
-            // path, never an unconditional same-alloc witness for a single
-            // B-member. Counting it would extend A's lifetime spuriously past
-            // B's destruction (the merge-edge scoped-cleanup leak). The table's
-            // `alias_over_approximation_dsts` is the SSOT for this classification
-            // (sources spanning ≥2 genuine same-alloc reps); a genuine same-alloc
-            // alias (Project/Let chain of ONE root) is admitted.
-            if over_approximation_dsts.contains(&alias_var) {
-                continue;
-            }
-            if sources.iter().any(|src| b_members.contains(src)) {
-                witnesses.insert(alias_var);
-            }
-        }
-        witnesses
-    };
-
-    for blk_idx in 0..func.blocks.len() {
-        let Ok(blk_u32) = u32::try_from(blk_idx) else {
-            continue;
-        };
-        let blk = ArcBlockId::new(blk_u32);
-
-        let any_a_live_exit = extended_a_witnesses
-            .iter()
-            .any(|m| crate::aims::emit_rc::is_live_at_exit(state_map, blk, *m));
-        let all_b_dead_exit = b_members
-            .iter()
-            .all(|m| !crate::aims::emit_rc::is_live_at_exit(state_map, blk, *m));
-
-        if any_a_live_exit && all_b_dead_exit {
-            return true;
-        }
-
-        if !all_b_dead_exit {
-            continue;
-        }
-
-        let use_info = crate::aims::emit_rc::precompute_block_uses(&func.blocks[blk_idx]);
-        let any_b_used_in_block = b_members.iter().any(|m| use_info.contains_key(m));
-        let any_b_defined_dead_in_block = def_site_block == blk_idx;
-        if !any_b_used_in_block && !any_b_defined_dead_in_block {
-            continue;
-        }
-
-        let max_a_in_body: Option<usize> = extended_a_witnesses
-            .iter()
-            .filter_map(|m| use_info.get(m))
-            .filter_map(|(_count, lu)| match lu {
-                crate::aims::emit_rc::LastUse::Body(i) => Some(*i),
-                crate::aims::emit_rc::LastUse::Terminator => None,
-            })
-            .max();
-        let max_b_in_body: Option<usize> = b_members
-            .iter()
-            .filter_map(|m| use_info.get(m))
-            .filter_map(|(_count, lu)| match lu {
-                crate::aims::emit_rc::LastUse::Body(i) => Some(*i),
-                crate::aims::emit_rc::LastUse::Terminator => None,
-            })
-            .max();
-        let a_at_term = extended_a_witnesses
-            .iter()
-            .filter_map(|m| use_info.get(m))
-            .any(|(_, lu)| matches!(lu, crate::aims::emit_rc::LastUse::Terminator));
-        let b_at_term = b_members
-            .iter()
-            .filter_map(|m| use_info.get(m))
-            .any(|(_, lu)| matches!(lu, crate::aims::emit_rc::LastUse::Terminator));
-
-        if let (Some(a_idx), Some(b_idx)) = (max_a_in_body, max_b_in_body) {
-            if a_idx > b_idx && !b_at_term {
-                return true;
-            }
-        }
-        if a_at_term && !b_at_term && max_b_in_body.is_some() {
-            return true;
-        }
-    }
-    false
-}
-
-/// Centralized `class_payload_of` edge recording with path-sensitive
-/// lifetime check.
+/// Centralized `class_payload_of` edge recording.
 fn record_payload_edge_lifetime(
     arg: ArcVarId,
     dst: ArcVarId,
-    def_site_block: usize,
     func: &ArcFunction,
     state_map: &mut AimsStateMap,
     class_payload_of: &mut FxHashMap<u32, FxHashSet<u32>>,
@@ -790,46 +652,10 @@ fn record_payload_edge_lifetime(
     }
     state_map.ensure_singleton_class(arg_class);
     state_map.ensure_singleton_class(dst_class);
-    // BUG-04-123 / RL-2: if the container class is destructured by a take-
-    // project (a non-tag-field `Project` from a container-class member yielding
-    // an RC-managed payload), the container's scope-exit drop is shallow — it
-    // does not recurse into the moved-out slot. Recording a payload-of edge
-    // makes PIN-6 suppress the extracted payload's own canonical dec, leaking it
-    // on the consuming path (counterexample `04B.2-under-elim`: every concrete
-    // CFG path must net RC to 0). The liveness proxy below cannot see this — a
-    // late container dec makes the container appear to "outlive" the payload.
-    if container_payload_moved_out(dst_class, func, state_map) {
-        tracing::debug!(
-            func = ?func.name,
-            arg_var = arg.raw(),
-            dst_var = dst.raw(),
-            arg_class,
-            dst_class,
-            action = "SKIP",
-            "BUG-04-123 record_payload_edge: container destructured (take-project)"
-        );
-        return;
-    }
-    let outlives = class_lifetime_extends_past_path_sensitive(
-        arg_class,
-        dst_class,
-        def_site_block,
-        state_map,
-        func,
-    );
-    tracing::debug!(
-        func = ?func.name,
-        arg_var = arg.raw(),
-        dst_var = dst.raw(),
-        arg_class,
-        dst_class,
-        a_outlives_b = outlives,
-        action = if outlives { "SKIP" } else { "RECORD" },
-        "record_payload_edge: predicate decision"
-    );
-    if outlives {
-        return;
-    }
+    // Path-sensitive predicate-stack-soundness patches (container-destructure
+    // skip + class-lifetime "outlives" skip) retired: the burden path is the
+    // sole RC emitter and the predicate-stack consumers of this edge map (PIN-6)
+    // are retired, so the plain payload-of edge is recorded unconditionally.
     class_payload_of
         .entry(arg_class)
         .or_default()
@@ -839,31 +665,6 @@ fn record_payload_edge_lifetime(
 /// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar.
 fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
     *func.var_rc_strategies.get(dst.index())?
-}
-
-/// Whether `container_class` has a payload moved OUT via a take-project: a
-/// non-tag-field `Project` whose source is a `container_class` member and whose
-/// RC-managed destination is the extracted payload (BUG-04-123 / RL-2).
-///
-/// A destructured container's scope-exit drop is shallow — it reclaims only the
-/// container shell, never recursing into the moved-out slot — so it cannot cover
-/// the extracted payload. Distinct from the liveness proxy in
-/// `class_lifetime_extends_past_path_sensitive`, which is fooled when a late
-/// container dec makes the container appear to outlive the extracted payload.
-fn container_payload_moved_out(
-    container_class: u32,
-    func: &ArcFunction,
-    state_map: &AimsStateMap,
-) -> bool {
-    func.blocks.iter().flat_map(|b| b.body.iter()).any(|instr| {
-        matches!(
-            instr,
-            ArcInstr::Project { dst, value, field, .. }
-                if *field != 0
-                    && dst_strategy_of(func, *dst).is_some()
-                    && state_map.class_id_of(*value) == container_class
-        )
-    })
 }
 
 /// Post-convergence `class_payload_of` population.
@@ -886,7 +687,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
 ) {
     let mut class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
 
-    for (block_idx, block) in func.blocks.iter().enumerate() {
+    for block in &func.blocks {
         for instr in &block.body {
             match instr {
                 ArcInstr::Construct { dst, args, .. }
@@ -901,7 +702,6 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         record_payload_edge_lifetime(
                             *arg,
                             *dst,
-                            block_idx,
                             func,
                             state_map,
                             &mut class_payload_of,
@@ -949,7 +749,6 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         record_payload_edge_lifetime(
                             *arg,
                             *dst,
-                            block_idx,
                             func,
                             state_map,
                             &mut class_payload_of,
@@ -966,7 +765,6 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                     record_payload_edge_lifetime(
                         *value,
                         *base,
-                        block_idx,
                         func,
                         state_map,
                         &mut class_payload_of,
@@ -1009,7 +807,6 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         record_payload_edge_lifetime(
                             *arg,
                             *dst,
-                            block_idx,
                             func,
                             state_map,
                             &mut class_payload_of,

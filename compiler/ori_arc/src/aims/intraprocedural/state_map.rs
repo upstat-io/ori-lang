@@ -269,17 +269,6 @@ pub struct AimsStateMap {
     /// (preserves "different RC slot" architectural rule).
     project_alias_sources: FxHashMap<ArcVarId, ProjectSources>,
 
-    /// Dsts whose `project_alias_sources` entry is an R4 CFG-merge / R5 Select
-    /// OVER-APPROXIMATION (sources span ≥2 distinct genuine same-allocation
-    /// reps). Demand-side consumers (`propagate_project_source_demand`, the
-    /// post-convergence witness extension) EXCLUDE these — the alias denotes a
-    /// different allocation per CFG path, so keeping all spanned parents alive
-    /// over-extends every path's lifetime. Populated alongside
-    /// `project_alias_sources`; read-only thereafter (PL-5). Spec: Annex E
-    /// §AIMS — `project_alias_sources` is the alias closure, not same-alloc-
-    /// everywhere.
-    alias_over_approximation_dsts: FxHashSet<ArcVarId>,
-
     /// SSA-alias equivalence-class table. Sparse: only entries for variables
     /// participating in a multi-member class (singletons excluded).
     ///
@@ -543,7 +532,6 @@ impl AimsStateMap {
             borrow_sources: FxHashMap::default(),
             apply_result_aliases: FxHashMap::default(),
             project_alias_sources: FxHashMap::default(),
-            alias_over_approximation_dsts: FxHashSet::default(),
             ssa_alias_classes: FxHashMap::default(),
             class_members: FxHashMap::default(),
             class_apply_alias_source_candidates: FxHashMap::default(),
@@ -974,22 +962,6 @@ impl AimsStateMap {
         sources: FxHashMap<ArcVarId, ProjectSources>,
     ) {
         self.project_alias_sources = sources;
-    }
-
-    /// Read-only borrow of the alias over-approximation dst set (R4 merge / R5
-    /// Select entries whose sources span ≥2 genuine same-alloc reps). Consumed
-    /// by `class_lifetime_extends_past_path_sensitive` to exclude conditional
-    /// aliases from the same-alloc witness extension. Spec: Annex E §AIMS.
-    #[must_use]
-    pub(crate) fn alias_over_approximation_dsts(&self) -> &FxHashSet<ArcVarId> {
-        &self.alias_over_approximation_dsts
-    }
-
-    /// Bulk-install the alias over-approximation dst set. Called once per
-    /// function during `analyze_function` pre-walk alongside
-    /// `set_project_alias_sources`. Read-only after this point per PL-5.
-    pub(crate) fn set_alias_over_approximation_dsts(&mut self, dsts: FxHashSet<ArcVarId>) {
-        self.alias_over_approximation_dsts = dsts;
     }
 
     /// Whether `var` is the destination of an Apply/Invoke whose callee

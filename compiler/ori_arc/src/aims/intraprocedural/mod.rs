@@ -216,24 +216,19 @@ pub fn analyze_function(
         project_aliases::compute_project_alias_table(func, state_map.apply_result_aliases());
     let project_alias_sources = project_alias_table.sources;
     let demand_sources = project_alias_table.demand_sources;
-    let over_approximation_dsts = project_alias_table.over_approximation_dsts;
     let select_alias_dsts = project_alias_table.select_alias_dsts;
 
     // Persist the UNIFIED alias closure (R1 + R2-gen + R3 + R4 + R5 + R6) on
-    // AimsStateMap for the post-convergence consumers (witness extension,
-    // PIN-6 project-alias seeds in dead_cleanup / walk_dec,
-    // cleanup_redundant) — paired with `alias_over_approximation_dsts`, the
-    // soundness boundary excluding R4-merge / R5-Select entries from
-    // unconditional same-alloc treatment. The backward-demand worklist
-    // consumes `demand_sources` (the ORIGINAL §1.9 closure — no R2-gen, no
-    // R5) instead; widening DEMAND with whole-var identity would over-extend
-    // lifetimes (the merge-edge scoped-cleanup leak). The local maps remain
-    // for `propagate_project_source_demand` during the worklist loop; the
-    // clones are the persistent copies consumed AFTER convergence (PL-5:
-    // read-only after install). AIMS Invariant #5(c) — extends the unified
-    // model via typed pre-pass input on AimsStateMap.
+    // AimsStateMap for the post-convergence consumers (PIN-6 project-alias
+    // seeds in dead_cleanup / walk_dec, cleanup_redundant). The backward-demand
+    // worklist consumes `demand_sources` (the ORIGINAL §1.9 closure — no R2-gen,
+    // no R5) instead; widening DEMAND with whole-var identity would over-extend
+    // lifetimes (the merge-edge scoped-cleanup leak). The local maps remain for
+    // `propagate_project_source_demand` during the worklist loop; the clone is
+    // the persistent copy consumed AFTER convergence (PL-5: read-only after
+    // install). AIMS Invariant #5(c) — extends the unified model via typed
+    // pre-pass input on AimsStateMap.
     state_map.set_project_alias_sources(project_alias_sources.clone());
-    state_map.set_alias_over_approximation_dsts(over_approximation_dsts.clone());
 
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;
