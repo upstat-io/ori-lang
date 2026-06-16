@@ -5,13 +5,19 @@
 //! (`<scheme> <package> <descriptors>`, empty package components rendered as
 //! `.`).
 //!
-//! The minted strings are the cross-section join key: occurrence -> definition
-//! resolution is exact string equality, so each builder is deterministic
-//! (no timestamps, no hashed disambiguators, no map-iteration ordering).
+//! Every symbol carries the source module's identity in the SCIP package-name
+//! slot (`<scheme> . <module> . <descriptors>`). Two same-named definitions in
+//! different source files therefore mint distinct strings, so the
+//! occurrence -> definition resolution (exact string equality) never
+//! mis-resolves a cross-file homonym.
+//!
+//! Each builder is deterministic — no timestamps, no hashed disambiguators, no
+//! absolute paths, no map-iteration ordering.
 
+use protobuf::MessageField;
 use scip::symbol::format_symbol;
 use scip::types::symbol_information::Kind;
-use scip::types::{descriptor::Suffix, Descriptor, Symbol};
+use scip::types::{descriptor::Suffix, Descriptor, Package, Symbol};
 
 /// SCIP symbol scheme for Ori symbols.
 pub const SCIP_SCHEME: &str = "ori";
@@ -34,89 +40,123 @@ fn descriptor(name: &str, suffix: Suffix) -> Descriptor {
     }
 }
 
-/// Render a descriptor chain into a SCIP symbol string under the `ori` scheme
-/// with an empty package — `format_symbol` renders each empty package
-/// component (manager / name / version) as `.`.
-fn mint(descriptors: Vec<Descriptor>) -> String {
-    format_symbol(Symbol {
-        scheme: SCIP_SCHEME.to_string(),
-        descriptors,
-        ..Default::default()
-    })
+/// Mints SCIP symbols scoped to one source module.
+///
+/// The module identity rides in the package-name component so definitions of
+/// the same name in different files never collide on the exact-equality join.
+pub struct ModuleMinter {
+    module: String,
 }
 
-/// `<fn>().` — a top-level function (Method-suffix descriptor).
-pub fn function(name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![descriptor(name, Suffix::Method)]),
-        display_name: name.to_string(),
-        kind: Kind::Function,
+impl ModuleMinter {
+    /// Bind the minter to a project-relative module identity (the source path
+    /// with its `.ori` extension dropped, forward-slash normalized).
+    pub fn new(module: impl Into<String>) -> Self {
+        Self {
+            module: module.into(),
+        }
     }
-}
 
-/// `<Type>#` — a struct / sum / newtype declaration; `kind` distinguishes them.
-pub fn type_def(name: &str, kind: Kind) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![descriptor(name, Suffix::Type)]),
-        display_name: name.to_string(),
-        kind,
+    /// The SCIP package carrying this module's identity in the name slot. An
+    /// empty module yields an absent package (`format_symbol` renders the
+    /// missing components as `.`).
+    fn package(&self) -> MessageField<Package> {
+        if self.module.is_empty() {
+            MessageField::none()
+        } else {
+            MessageField::some(Package {
+                name: self.module.clone(),
+                ..Default::default()
+            })
+        }
     }
-}
 
-/// `<Trait>#` — a trait declaration.
-pub fn trait_def(name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![descriptor(name, Suffix::Type)]),
-        display_name: name.to_string(),
-        kind: Kind::Trait,
+    /// Render a descriptor chain into a SCIP symbol string under the `ori`
+    /// scheme with this module's package identity.
+    fn mint(&self, descriptors: Vec<Descriptor>) -> String {
+        format_symbol(Symbol {
+            scheme: SCIP_SCHEME.to_string(),
+            package: self.package(),
+            descriptors,
+            ..Default::default()
+        })
     }
-}
 
-/// `<Type>#<field>.` — a struct field (Type then Term descriptor).
-pub fn field(type_name: &str, field_name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![
-            descriptor(type_name, Suffix::Type),
-            descriptor(field_name, Suffix::Term),
-        ]),
-        display_name: field_name.to_string(),
-        kind: Kind::Field,
+    /// `<fn>().` — a top-level function (Method-suffix descriptor).
+    pub fn function(&self, name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![descriptor(name, Suffix::Method)]),
+            display_name: name.to_string(),
+            kind: Kind::Function,
+        }
     }
-}
 
-/// `<Type>#<Variant>.` — a sum-type variant.
-pub fn variant(type_name: &str, variant_name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![
-            descriptor(type_name, Suffix::Type),
-            descriptor(variant_name, Suffix::Term),
-        ]),
-        display_name: variant_name.to_string(),
-        kind: Kind::EnumMember,
+    /// `<Type>#` — a struct / sum / newtype declaration; `kind` distinguishes them.
+    pub fn type_def(&self, name: &str, kind: Kind) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![descriptor(name, Suffix::Type)]),
+            display_name: name.to_string(),
+            kind,
+        }
     }
-}
 
-/// `<Type>#<Variant>.<field>.` — a field of a sum-type variant.
-pub fn variant_field(type_name: &str, variant_name: &str, field_name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![
-            descriptor(type_name, Suffix::Type),
-            descriptor(variant_name, Suffix::Term),
-            descriptor(field_name, Suffix::Term),
-        ]),
-        display_name: field_name.to_string(),
-        kind: Kind::Field,
+    /// `<Trait>#` — a trait declaration.
+    pub fn trait_def(&self, name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![descriptor(name, Suffix::Type)]),
+            display_name: name.to_string(),
+            kind: Kind::Trait,
+        }
     }
-}
 
-/// `<Type>#<method>().` — an impl method or trait-method declaration.
-pub fn method(type_name: &str, method_name: &str) -> ScipDef {
-    ScipDef {
-        symbol: mint(vec![
-            descriptor(type_name, Suffix::Type),
-            descriptor(method_name, Suffix::Method),
-        ]),
-        display_name: method_name.to_string(),
-        kind: Kind::Method,
+    /// `<Type>#<field>.` — a struct field (Type then Term descriptor).
+    pub fn field(&self, type_name: &str, field_name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![
+                descriptor(type_name, Suffix::Type),
+                descriptor(field_name, Suffix::Term),
+            ]),
+            display_name: field_name.to_string(),
+            kind: Kind::Field,
+        }
+    }
+
+    /// `<Type>#<Variant>.` — a sum-type variant.
+    pub fn variant(&self, type_name: &str, variant_name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![
+                descriptor(type_name, Suffix::Type),
+                descriptor(variant_name, Suffix::Term),
+            ]),
+            display_name: variant_name.to_string(),
+            kind: Kind::EnumMember,
+        }
+    }
+
+    /// `<Type>#<Variant>.<field>.` — a field of a sum-type variant.
+    pub fn variant_field(&self, type_name: &str, variant_name: &str, field_name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![
+                descriptor(type_name, Suffix::Type),
+                descriptor(variant_name, Suffix::Term),
+                descriptor(field_name, Suffix::Term),
+            ]),
+            display_name: field_name.to_string(),
+            kind: Kind::Field,
+        }
+    }
+
+    /// `<Type>#<method>().` — an impl method, trait-method, def-impl method, or
+    /// extension method declaration. `parent` is the trait name for def-impl
+    /// methods and the target type for extensions / inherent impls.
+    pub fn method(&self, parent: &str, method_name: &str) -> ScipDef {
+        ScipDef {
+            symbol: self.mint(vec![
+                descriptor(parent, Suffix::Type),
+                descriptor(method_name, Suffix::Method),
+            ]),
+            display_name: method_name.to_string(),
+            kind: Kind::Method,
+        }
     }
 }

@@ -3,10 +3,11 @@
 //! Runs the frontend (lex -> parse -> typecheck) and, when it is error-free,
 //! emits a `scip` protobuf `Index` (`index.scip`) carrying one
 //! `SymbolInformation` per declared definition entity — every top-level
-//! function, type, trait, impl method, trait-method, struct field, sum-type
-//! variant, and variant field — each with a globally-stable, deterministic
-//! SCIP symbol string. A frontend error suppresses emission and exits
-//! non-zero (mirrors `check`).
+//! function, type, trait, impl method, trait-method, default-impl method,
+//! extension method, struct field, sum-type variant, and variant field — each
+//! with a globally-stable, deterministic SCIP symbol string carrying the source
+//! module's identity (so cross-file homonyms never collide). A frontend error
+//! suppresses emission and exits non-zero (mirrors `check`).
 
 mod symbol;
 
@@ -16,41 +17,44 @@ use oric::{CompilerDb, Db, SourceFile};
 use protobuf::{Message, MessageField};
 use scip::types::symbol_information::Kind;
 use scip::types::{Document, Index, Metadata, SymbolInformation, ToolInfo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::read_file;
 use super::report_frontend_errors;
-use symbol::ScipDef;
+use symbol::{ModuleMinter, ScipDef};
 
 /// Collect one [`ScipDef`] per declared definition entity in `module`.
 ///
 /// Walks the parsed module (functions, types + fields/variants, traits +
-/// methods, impl blocks + methods) in source order. Output order is
-/// canonicalized by the caller (stable sort + dedup on the symbol string), so
-/// the emitted index is independent of source ordering.
-fn collect_defs(module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
+/// methods, inherent + trait impl blocks, default impls, extensions) in source
+/// order, minting every symbol under `module_id` so cross-file homonyms stay
+/// distinct. Output order is canonicalized by the caller (stable sort + dedup
+/// on the symbol string), so the emitted index is independent of source
+/// ordering.
+fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
+    let minter = ModuleMinter::new(module_id);
     let mut defs = Vec::new();
 
     for func in &module.functions {
-        defs.push(symbol::function(interner.lookup(func.name)));
+        defs.push(minter.function(interner.lookup(func.name)));
     }
 
     for ty in &module.types {
         let type_name = interner.lookup(ty.name);
         match &ty.kind {
             TypeDeclKind::Struct(fields) => {
-                defs.push(symbol::type_def(type_name, Kind::Struct));
+                defs.push(minter.type_def(type_name, Kind::Struct));
                 for f in fields {
-                    defs.push(symbol::field(type_name, interner.lookup(f.name)));
+                    defs.push(minter.field(type_name, interner.lookup(f.name)));
                 }
             }
             TypeDeclKind::Sum(variants) => {
-                defs.push(symbol::type_def(type_name, Kind::Enum));
+                defs.push(minter.type_def(type_name, Kind::Enum));
                 for v in variants {
                     let variant_name = interner.lookup(v.name);
-                    defs.push(symbol::variant(type_name, variant_name));
+                    defs.push(minter.variant(type_name, variant_name));
                     for vf in &v.fields {
-                        defs.push(symbol::variant_field(
+                        defs.push(minter.variant_field(
                             type_name,
                             variant_name,
                             interner.lookup(vf.name),
@@ -60,14 +64,14 @@ fn collect_defs(module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
             }
             // A newtype is a distinct nominal type with no fields to index.
             TypeDeclKind::Newtype(_) => {
-                defs.push(symbol::type_def(type_name, Kind::Type));
+                defs.push(minter.type_def(type_name, Kind::Type));
             }
         }
     }
 
     for tr in &module.traits {
         let trait_name = interner.lookup(tr.name);
-        defs.push(symbol::trait_def(trait_name));
+        defs.push(minter.trait_def(trait_name));
         for item in &tr.items {
             let method_name = match item {
                 TraitItem::MethodSig(m) => Some(m.name),
@@ -75,7 +79,7 @@ fn collect_defs(module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
                 TraitItem::AssocType(_) => None,
             };
             if let Some(method_name) = method_name {
-                defs.push(symbol::method(trait_name, interner.lookup(method_name)));
+                defs.push(minter.method(trait_name, interner.lookup(method_name)));
             }
         }
     }
@@ -86,7 +90,24 @@ fn collect_defs(module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
         };
         let type_name = interner.lookup(type_name_id);
         for m in &imp.methods {
-            defs.push(symbol::method(type_name, interner.lookup(m.name)));
+            defs.push(minter.method(type_name, interner.lookup(m.name)));
+        }
+    }
+
+    // A `pub def impl Trait { @m }` declares default-impl methods keyed on the
+    // trait; an `extend Type { @m }` declares extension methods keyed on the
+    // target type. Both are real definitions downstream references resolve to.
+    for di in &module.def_impls {
+        let trait_name = interner.lookup(di.trait_name);
+        for m in &di.methods {
+            defs.push(minter.method(trait_name, interner.lookup(m.name)));
+        }
+    }
+
+    for ext in &module.extends {
+        let target_name = interner.lookup(ext.target_type_name);
+        for m in &ext.methods {
+            defs.push(minter.method(target_name, interner.lookup(m.name)));
         }
     }
 
@@ -97,6 +118,35 @@ fn collect_defs(module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
     defs.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     defs.dedup_by(|a, b| a.symbol == b.symbol);
     defs
+}
+
+/// Derive the project-relative source path used as the SCIP document path and
+/// the basis of the module identity.
+///
+/// An absolute path under `project_root` is stripped to its relative tail; an
+/// absolute path outside the root falls back to its file name. The result is
+/// forward-slash normalized so the identity is stable across platforms and
+/// never embeds an absolute, machine-specific directory.
+fn project_relative_path(path: &str, project_root: &str) -> String {
+    let p = Path::new(path);
+    let rel = if p.is_absolute() {
+        match p.strip_prefix(project_root) {
+            Ok(stripped) => stripped.to_path_buf(),
+            Err(_) => PathBuf::from(p.file_name().unwrap_or(p.as_os_str())),
+        }
+    } else {
+        p.to_path_buf()
+    };
+    rel.to_string_lossy().replace('\\', "/")
+}
+
+/// The module identity injected into every minted symbol: the project-relative
+/// path with its `.ori` extension dropped. Deterministic + machine-independent.
+fn module_identity(relative_path: &str) -> String {
+    relative_path
+        .strip_suffix(".ori")
+        .unwrap_or(relative_path)
+        .to_string()
 }
 
 /// Build the `scip` protobuf `Index` from the collected definitions.
@@ -154,11 +204,9 @@ pub fn emit_scip_file(path: &str, output: &str) {
         std::process::exit(1);
     }
 
-    let defs = collect_defs(&frontend.parse_result.module, db.interner());
-    let symbol_count = defs.len();
-
     // Why: a failed current_dir() must abort — silently recording an empty
-    // project_root would emit a structurally-wrong index.
+    // project_root would emit a structurally-wrong index and a machine-specific
+    // module identity.
     let project_root = match std::env::current_dir() {
         Ok(dir) => dir.display().to_string(),
         Err(e) => {
@@ -167,7 +215,13 @@ pub fn emit_scip_file(path: &str, output: &str) {
         }
     };
 
-    let index = build_index(path, project_root, defs);
+    let relative_path = project_relative_path(path, &project_root);
+    let module_id = module_identity(&relative_path);
+
+    let defs = collect_defs(&module_id, &frontend.parse_result.module, db.interner());
+    let symbol_count = defs.len();
+
+    let index = build_index(&relative_path, project_root, defs);
 
     let bytes = match index.write_to_bytes() {
         Ok(bytes) => bytes,
