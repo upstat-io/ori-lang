@@ -208,14 +208,33 @@ impl<'pool> UnifyEngine<'pool> {
         let a_flags = self.pool.flags(a);
         let b_flags = self.pool.flags(b);
 
-        // Error type propagates (don't report cascading errors)
+        let a_tag = self.pool.tag(a);
+        let b_tag = self.pool.tag(b);
+
+        // Error type propagates (don't report cascading errors). `Error` is a
+        // legitimate type (types.md §TY-5: Error == Idx::ERROR) sharing the
+        // poison slot, so `Result<str, Error>` carries HAS_ERROR. Suppressing the
+        // whole unification here leaves variables nested alongside the error type
+        // unbound, surfacing a spurious E2005 (e.g. `let r: Result<str, Error> =
+        // Ok("x")` then `is_ok(result: r)` — the value leaves the error param free
+        // and the annotation must bind it). Bind variables, but keep cascade
+        // suppression: a variable on either side binds to the other side; matching
+        // compound tags recurse structurally so nested variables bind, with any
+        // concrete-vs-concrete mismatch discarded (still no cascading diagnostic).
         if a_flags.contains(TypeFlags::HAS_ERROR) || b_flags.contains(TypeFlags::HAS_ERROR) {
+            if a_tag == Tag::Var {
+                return self.unify_var_with(a, b, context);
+            }
+            if b_tag == Tag::Var {
+                return self.unify_var_with(b, a, context);
+            }
+            // Recurse to bind nested variables; discard mismatch diagnostics —
+            // any error here is a cascade from the poison/Error slot.
+            let _ = self.unify_structural(a, b, context);
             return Ok(());
         }
 
         // Never type unifies with anything (bottom type)
-        let a_tag = self.pool.tag(a);
-        let b_tag = self.pool.tag(b);
 
         if a_tag == Tag::Never || b_tag == Tag::Never {
             return Ok(());

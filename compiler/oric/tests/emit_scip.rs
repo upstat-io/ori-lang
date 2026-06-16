@@ -30,6 +30,13 @@ const EXTEND_FIXTURE: &str = include_str!("fixtures/emit_scip/extend_methods.ori
 const MULTI_FIXTURE: &str = include_str!("fixtures/emit_scip/multi.ori");
 const EMPTY_FIXTURE: &str = include_str!("fixtures/emit_scip/empty.ori");
 const TYPE_ERROR_FIXTURE: &str = include_str!("fixtures/emit_scip/type_error.ori");
+const RESOLVED_CALL_FIXTURE: &str =
+    include_str!("fixtures/emit_scip/resolved_call_occurrences.ori");
+const AMBIGUOUS_METHOD_FIXTURE: &str = include_str!("fixtures/emit_scip/ambiguous_method.ori");
+const NON_INDEXED_CALLS_FIXTURE: &str = include_str!("fixtures/emit_scip/non_indexed_calls.ori");
+// Multi-line bodies so a Definition occurrence's identifier-token `range`
+// (single-line) is crisply distinct from its body-spanning `enclosing_range`.
+const CALLER_CALLEE_FIXTURE: &str = include_str!("fixtures/emit_scip/caller_callee.ori");
 
 /// Write `content` to `dir/name`, creating any parent directories the relative
 /// `name` implies (e.g. `mod_a/greet.ori`).
@@ -102,6 +109,33 @@ fn find<'a>(index: &'a Index, symbol: &str) -> &'a SymbolInformation {
 fn kind(info: &SymbolInformation) -> Kind {
     info.kind.enum_value_or_default()
 }
+
+/// The reference occurrences of the single emitted document.
+fn occurrences(index: &Index) -> &[scip::types::Occurrence] {
+    &document(index).occurrences
+}
+
+/// The (sorted) SCIP symbol strings of every emitted occurrence.
+fn occurrence_symbols(index: &Index) -> Vec<String> {
+    let mut syms: Vec<String> = occurrences(index)
+        .iter()
+        .map(|o| o.symbol.clone())
+        .collect();
+    syms.sort();
+    syms
+}
+
+/// Count of occurrences carrying an exact symbol string.
+fn occurrence_count(index: &Index, symbol: &str) -> usize {
+    occurrences(index)
+        .iter()
+        .filter(|o| o.symbol == symbol)
+        .count()
+}
+
+// SCIP SymbolRole bits: Definition=1, ReadAccess=8 (a call READS the callable).
+const ROLE_DEFINITION: i32 = 1;
+const ROLE_READ_ACCESS: i32 = 8;
 
 // Function cell
 
@@ -368,6 +402,143 @@ fn emit_scip_rejects_type_error_file() {
     );
 }
 
+// Reference-occurrence cells — trait-dispatch-resolved targets (accuracy core)
+
+/// Positive semantic pin: a trait-method call emits an `Occurrence` whose
+/// `symbol` is the CONCRETE impl method's SCIP symbol (`Rectangle#describe().`),
+/// NOT the bare method name — the receiver's type-checker-resolved type
+/// (`Rectangle`) selects the target, and the minted string is byte-identical to
+/// the definition side so the occurrence->definition join lands on equality.
+/// A free-function call emits the resolved `area().` symbol.
+#[test]
+fn emit_scip_method_call_occurrence_references_resolved_impl_symbol() {
+    let index = emit_and_decode("resolved_call_occurrences.ori", RESOLVED_CALL_FIXTURE);
+
+    let method_symbol = "ori . resolved_call_occurrences . Rectangle#describe().";
+    let fn_symbol = "ori . resolved_call_occurrences . area().";
+
+    let occ_syms = occurrence_symbols(&index);
+    assert!(
+        occ_syms.contains(&method_symbol.to_string()),
+        "trait-method call occurrence references the concrete impl symbol \
+         (resolved target, not bare `describe`): {occ_syms:?}"
+    );
+    assert!(
+        occ_syms.contains(&fn_symbol.to_string()),
+        "free-function call occurrence references the resolved function symbol: {occ_syms:?}"
+    );
+
+    // The emitted occurrence symbol is byte-identical to the definition the def
+    // side minted for the same impl method — the join is exact-string equality.
+    let def_syms = symbol_strings(&index);
+    assert!(
+        def_syms.contains(&method_symbol.to_string()),
+        "the resolved occurrence symbol also appears as a definition (join lands): {def_syms:?}"
+    );
+
+    // Role bits: a reference carries ReadAccess and never Definition.
+    let method_occ = occurrences(&index)
+        .iter()
+        .find(|o| o.symbol == method_symbol)
+        .unwrap_or_else(|| panic!("method-call occurrence present"));
+    assert_eq!(
+        method_occ.symbol_roles, ROLE_READ_ACCESS,
+        "reference occurrence carries the ReadAccess role bit"
+    );
+    assert_eq!(
+        method_occ.symbol_roles & ROLE_DEFINITION,
+        0,
+        "a reference occurrence must NOT carry the Definition role bit"
+    );
+
+    // The range carries the EXACT 0-based [start_line, start_col, end_line,
+    // end_col] of the `r.describe()` call on fixture line 15 (0-based 14), at the
+    // 4-space indent. Value-level pin (not just len==4): catches a line/col field
+    // swap (start_line would be 4 not 14), a column off-by-one, and a start/end
+    // swap (end_col must exceed start_col).
+    assert_eq!(
+        method_occ.range,
+        vec![14, 4, 14, 16],
+        "method-call occurrence range is the exact span of `r.describe()`"
+    );
+
+    // The free-function occurrence range is the callee-IDENTIFIER token (`area`)
+    // on fixture line 14 (0-based 13), NOT the whole call expression — pins the
+    // `free_call_occurrence` range == expr_span(func) contract.
+    let area_occ = occurrences(&index)
+        .iter()
+        .find(|o| o.symbol == fn_symbol)
+        .unwrap_or_else(|| panic!("free-function-call occurrence present"));
+    assert_eq!(
+        area_occ.range,
+        vec![13, 13, 13, 17],
+        "free-function occurrence range is the exact span of the `area` callee token"
+    );
+}
+
+/// Negative pin: two distinct types each declare a same-named method `speak`.
+/// Each call site must resolve to its OWN receiver's impl symbol — the
+/// `c.speak()` call references `Cat#speak().` and the `d.speak()` call
+/// references `Dog#speak().`. A wrong-target resolver (e.g. one that keys on the
+/// method name alone, or collapses to the first matching impl) would emit
+/// `Cat#speak().` twice and zero `Dog#speak().`; this pin rejects that.
+#[test]
+fn emit_scip_ambiguous_method_name_resolves_to_correct_receiver_impl() {
+    let index = emit_and_decode("ambiguous_method.ori", AMBIGUOUS_METHOD_FIXTURE);
+
+    let cat_symbol = "ori . ambiguous_method . Cat#speak().";
+    let dog_symbol = "ori . ambiguous_method . Dog#speak().";
+
+    let occ_syms = occurrence_symbols(&index);
+    assert!(
+        occ_syms.contains(&cat_symbol.to_string()),
+        "the `c.speak()` call resolves to Cat's impl: {occ_syms:?}"
+    );
+    assert!(
+        occ_syms.contains(&dog_symbol.to_string()),
+        "the `d.speak()` call resolves to Dog's impl (NOT collapsed to Cat): {occ_syms:?}"
+    );
+
+    // Exactly one occurrence per receiver type — proves neither call site was
+    // mis-resolved to the other type's impl symbol.
+    assert_eq!(
+        occurrence_count(&index, cat_symbol),
+        1,
+        "exactly one Cat#speak() occurrence (the cat call site)"
+    );
+    assert_eq!(
+        occurrence_count(&index, dog_symbol),
+        1,
+        "exactly one Dog#speak() occurrence (the dog call site)"
+    );
+}
+
+/// Negative pin for the "absent beats wrong-target" contract — the two
+/// occurrence None-drop paths must mint ZERO occurrences:
+/// - a builtin-receiver method call (`items.len()` on `[int]`) — the receiver
+///   has no user nominal type, so `resolved_receiver_type_name` returns `None`
+///   and NO `<builtin>#len().` occurrence is minted (a dangling/wrong-target
+///   occurrence would corrupt the join);
+/// - a prelude free-function call (`len(collection:)`) — not in this module's
+///   `local_fns`, so no occurrence is minted (prelude has no in-module def).
+///
+/// The occurrence walk still RAN (the local `helper(n:)` call mints its
+/// occurrence), so the empty builtin/prelude result is an active exclusion, not
+/// a dead walk. A resolver that keyed on the method name alone, or minted for
+/// every callee, would leak a builtin-method or prelude-function occurrence;
+/// this pin rejects that — the set is EXACTLY the one local call.
+#[test]
+fn emit_scip_builtin_and_prelude_calls_mint_no_occurrence() {
+    let index = emit_and_decode("non_indexed_calls.ori", NON_INDEXED_CALLS_FIXTURE);
+
+    assert_eq!(
+        occurrence_symbols(&index),
+        vec!["ori . non_indexed_calls . helper().".to_string()],
+        "only the local free-function call mints an occurrence; the builtin-receiver \
+         method call and the prelude free-function call mint none (absent beats wrong-target)"
+    );
+}
+
 // Metadata + determinism pins
 
 #[test]
@@ -382,6 +553,178 @@ fn emit_scip_index_carries_tool_metadata() {
     assert!(
         document(&index).relative_path.ends_with("greet.ori"),
         "document records the source path"
+    );
+}
+
+// Definition-occurrence cells (BUG-07-264) — the caller-attribution signal.
+//
+// The spec-correct SCIP convention (rust-analyzer / scip-clang / scip-java): a
+// `Definition`-role occurrence's `range` is the definition's IDENTIFIER TOKEN
+// (the name span), and the full definition extent (body included) lives in
+// `enclosing_range`. The importer keys caller-attribution containment on
+// `enclosing_range`, so the emitter MUST emit these per definition.
+
+/// True iff `outer` (a `[sl, sc, el, ec]` range) fully contains `inner`.
+fn range_contains(outer: &[i32], inner: &[i32]) -> bool {
+    (outer[0], outer[1]) <= (inner[0], inner[1]) && (inner[2], inner[3]) <= (outer[2], outer[3])
+}
+
+/// The single `Definition`-role occurrence (`symbol_roles == SymbolRole::Definition`)
+/// carrying `symbol`. Panics if absent (the pin: the emitter must emit it).
+fn definition_occurrence<'a>(index: &'a Index, symbol: &str) -> &'a scip::types::Occurrence {
+    occurrences(index)
+        .iter()
+        .find(|o| o.symbol == symbol && o.symbol_roles == ROLE_DEFINITION)
+        .unwrap_or_else(|| panic!("a Definition-role occurrence for `{symbol}` is emitted"))
+}
+
+/// Positive L12 pin: on a two-function fixture (one calls the other), each
+/// definition emits exactly one `Definition`-role occurrence whose `range` is
+/// the identifier-token span and whose `enclosing_range` spans the full
+/// (multi-line) definition extent. FAILS on the current emitter (it emits NO
+/// Definition-role occurrences and never sets `enclosing_range`).
+#[test]
+fn emit_scip_emits_definition_occurrence_with_identifier_range_and_body_enclosing_range() {
+    let index = emit_and_decode("caller_callee.ori", CALLER_CALLEE_FIXTURE);
+
+    let helper_sym = "ori . caller_callee . helper().";
+    let run_sym = "ori . caller_callee . run().";
+
+    // Exactly one Definition-role occurrence per emitted definition symbol.
+    for sym in [helper_sym, run_sym] {
+        let count = occurrences(&index)
+            .iter()
+            .filter(|o| o.symbol == sym && o.symbol_roles == ROLE_DEFINITION)
+            .count();
+        assert_eq!(
+            count, 1,
+            "exactly one Definition-role occurrence for `{sym}`"
+        );
+    }
+
+    // `helper`: identifier token `helper` is cols 1..7 on line 0 (after `@`);
+    // the body-spanning enclosing_range starts at the `@` (line 0, col 0) and
+    // ends on the closing-brace line 2, fully containing the identifier range.
+    let helper = definition_occurrence(&index, helper_sym);
+    assert_eq!(
+        helper.range,
+        vec![0, 1, 0, 7],
+        "Definition `range` is the `helper` identifier token, not the body"
+    );
+    assert_eq!(
+        (helper.enclosing_range[0], helper.enclosing_range[1]),
+        (0, 0),
+        "enclosing_range starts at the definition's first line, column 0"
+    );
+    assert_eq!(
+        helper.enclosing_range[2], 2,
+        "enclosing_range ends on the closing-brace line (body-spanning)"
+    );
+    assert!(
+        range_contains(&helper.enclosing_range, &helper.range),
+        "enclosing_range contains the identifier-token range"
+    );
+
+    // `run`: identifier token `run` is cols 1..4 on line 4; enclosing_range
+    // spans lines 4..6.
+    let run = definition_occurrence(&index, run_sym);
+    assert_eq!(
+        run.range,
+        vec![4, 1, 4, 4],
+        "Definition `range` is the `run` identifier token, not the body"
+    );
+    assert_eq!((run.enclosing_range[0], run.enclosing_range[1]), (4, 0));
+    assert_eq!(run.enclosing_range[2], 6);
+    assert!(range_contains(&run.enclosing_range, &run.range));
+}
+
+/// Negative pin: the rejected pragmatic shape gave the Definition occurrence a
+/// body-spanning `range`. The spec-correct convention keeps `range` as the
+/// single-line identifier token and puts the body span in `enclosing_range` —
+/// the two are never equal, and `range` never straddles lines. FAILS now (no
+/// Definition-role occurrence is emitted at all); also fails-closed if a later
+/// implementation ships the body-spanning-`range` shortcut.
+#[test]
+fn emit_scip_definition_occurrence_range_is_identifier_token_not_body_spanning() {
+    let index = emit_and_decode("caller_callee.ori", CALLER_CALLEE_FIXTURE);
+
+    let defs: Vec<&scip::types::Occurrence> = occurrences(&index)
+        .iter()
+        .filter(|o| o.symbol_roles == ROLE_DEFINITION)
+        .collect();
+    assert!(
+        !defs.is_empty(),
+        "the emitter emits at least one Definition-role occurrence"
+    );
+    for o in defs {
+        assert_ne!(
+            o.range, o.enclosing_range,
+            "Definition `range` (identifier token) is distinct from `enclosing_range` (body): {}",
+            o.symbol
+        );
+        // The identifier-token range is single-line; a body-spanning range would
+        // straddle lines (start_line != end_line) — the rejected shape.
+        assert_eq!(
+            o.range[0], o.range[2],
+            "Definition `range` is the single-line identifier token, never body-spanning: {}",
+            o.symbol
+        );
+        // enclosing_range proves the body span by straddling lines.
+        assert!(
+            o.enclosing_range[2] > o.enclosing_range[0],
+            "enclosing_range spans the multi-line definition body: {}",
+            o.symbol
+        );
+    }
+}
+
+/// Nesting pin: a method-in-impl emits its OWN `Definition`-role occurrence with
+/// its own method-extent `enclosing_range`, distinct from the enclosing type's
+/// Definition occurrence. FAILS now (no Definition-role occurrences emitted).
+#[test]
+fn emit_scip_method_and_type_each_emit_distinct_definition_occurrences() {
+    let index = emit_and_decode("impl.ori", IMPL_FIXTURE);
+
+    let type_sym = "ori . impl . Point#";
+    let method_sym = "ori . impl . Point#get_x().";
+
+    // The type's Definition occurrence: `Point` identifier token on line 0
+    // (`type ` is cols 0..5, `Point` cols 5..10).
+    let type_def = definition_occurrence(&index, type_sym);
+    assert_eq!(
+        type_def.range,
+        vec![0, 5, 0, 10],
+        "type Definition `range` is the `Point` identifier token"
+    );
+    assert_eq!(
+        (type_def.enclosing_range[0], type_def.enclosing_range[1]),
+        (0, 0),
+        "type enclosing_range starts at the `type Point` declaration"
+    );
+    assert!(range_contains(&type_def.enclosing_range, &type_def.range));
+
+    // The method's OWN Definition occurrence: `get_x` identifier token on line 3
+    // (4-space indent + `@`, so cols 5..10), with a method-extent enclosing_range
+    // beginning on line 3 — distinct from the type's.
+    let method_def = definition_occurrence(&index, method_sym);
+    assert_eq!(
+        method_def.range,
+        vec![3, 5, 3, 10],
+        "method Definition `range` is the `get_x` identifier token"
+    );
+    assert_eq!(
+        method_def.enclosing_range[0], 3,
+        "method enclosing_range is the method extent (line 3), not the type's"
+    );
+    assert!(range_contains(
+        &method_def.enclosing_range,
+        &method_def.range
+    ));
+
+    assert_ne!(method_def.range, type_def.range);
+    assert_ne!(
+        method_def.enclosing_range, type_def.enclosing_range,
+        "method and type each carry a distinct enclosing_range"
     );
 }
 

@@ -84,10 +84,10 @@ pub fn format_stdin() -> bool {
 
     let interner = StringInterner::new();
 
-    // Preprocess: convert tabs to spaces
-    let content = ori_fmt::tabs_to_spaces(&content);
-
-    // Lex with comment preservation
+    // Lex with comment preservation. Tabs are NOT pre-normalized: the formatter
+    // re-generates all indentation, and a naive tab→space pass over raw source
+    // corrupts literal tabs inside string/template literals (the lexer owns
+    // literal-boundary knowledge, not a text pre-pass).
     let lex_output = ori_lexer::lex_with_comments(&content, &interner);
 
     // Parse
@@ -123,16 +123,16 @@ pub fn format_stdin() -> bool {
 fn format_content(path: &str, content: &str, config: &FormatConfig) -> FormatResult {
     let interner = StringInterner::new();
 
-    // Preprocess: convert tabs to spaces
-    let content = ori_fmt::tabs_to_spaces(content);
-
-    // Lex with comment preservation
-    let lex_output = ori_lexer::lex_with_comments(&content, &interner);
+    // Lex with comment preservation. Tabs are NOT pre-normalized: the formatter
+    // re-generates all indentation, and a naive tab→space pass over raw source
+    // corrupts literal tabs inside string/template literals (the lexer owns
+    // literal-boundary knowledge, not a text pre-pass).
+    let lex_output = ori_lexer::lex_with_comments(content, &interner);
 
     // Parse
     let parse_output = crate::parser::parse(&lex_output.tokens, &interner);
     if parse_output.has_errors() {
-        let formatted_errors = format_parse_errors(path, &parse_output.errors, &content);
+        let formatted_errors = format_parse_errors(path, &parse_output.errors, content);
         return FormatResult::ParseError(formatted_errors);
     }
 
@@ -161,7 +161,7 @@ fn format_content(path: &str, content: &str, config: &FormatConfig) -> FormatRes
     }
 
     if config.diff {
-        print_diff(path, &content, &formatted);
+        print_diff(path, content, &formatted);
         return FormatResult::WouldFormat;
     }
 

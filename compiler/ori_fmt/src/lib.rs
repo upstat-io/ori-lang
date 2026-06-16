@@ -58,6 +58,7 @@ pub mod packing;
 pub mod rules;
 pub mod shape;
 pub mod spacing;
+pub mod template_escape;
 pub mod width;
 
 pub use comments::{format_comment, CommentIndex};
@@ -80,12 +81,18 @@ pub use rules::{
 };
 pub use shape::Shape;
 pub use spacing::{lookup_spacing, SpaceAction, TokenCategory, TokenMatcher, SPACE_RULES};
+pub use template_escape::escape_template_text;
 pub use width::{WidthCalculator, ALWAYS_STACKED};
 
-/// Convert tabs to spaces in source text.
+/// Convert tabs to spaces in arbitrary text.
 ///
 /// Each tab character is replaced with spaces to reach the next multiple of 4 columns.
-/// This is a preprocessing step for source text normalization.
+///
+/// This is a naive text pass with NO awareness of string/template/char literals
+/// or comments. It MUST NOT be applied to Ori source before formatting: a tab
+/// inside a literal is content, and expanding it corrupts the value. The
+/// formatter re-generates all indentation itself, so source tabs need no
+/// pre-normalization.
 ///
 /// # Example
 ///

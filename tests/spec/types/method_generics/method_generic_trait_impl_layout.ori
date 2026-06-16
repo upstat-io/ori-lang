@@ -1,0 +1,18 @@
+use std.testing { assert_eq }
+
+// BUG-04-146: TRAIT-impl method-level generic on a concrete receiver. Behaves
+// identically to the inherent case — the shared maybe_record_method_mono_instance
+// hook never fires (method_mono None), so this layout-using form hard-fails LLVM.
+type Boxer = { tag: int }
+
+trait Wrapper { @wrap<T> (self, item: T) -> [T]; }
+
+impl Boxer: Wrapper {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(item: 5);
+    assert_eq(actual: r[0], expected: 5)
+}

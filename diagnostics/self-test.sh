@@ -339,6 +339,18 @@ run_test_output_contains "valgrind-aot.sh --help shows usage" "Usage:" \
 # Skip actual Valgrind execution (may not be installed, slow)
 echo ""
 
+# ─── aot-guardrail.sh ─────────────────────────────────────────────
+printf "${C_BOLD}aot-guardrail.sh${C_NC}\n"
+run_test_output_contains "aot-guardrail.sh --help shows --floor" "--floor" \
+    "$SCRIPT_DIR/aot-guardrail.sh" --help
+run_test_output_contains "aot-guardrail.sh --help documents the gated floor env" \
+    "ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1" \
+    "$SCRIPT_DIR/aot-guardrail.sh" --help
+run_test_exit_code "aot-guardrail.sh rejects unknown flag (exit 2)" 2 \
+    "$SCRIPT_DIR/aot-guardrail.sh" --bogus-flag
+# Skip the actual corpus run (rebuilds oric+ori_rt, runs the full AOT suite — slow).
+echo ""
+
 # ─── dual-exec-verify.sh ────────────────────────────────────────
 printf "${C_BOLD}dual-exec-verify.sh${C_NC}\n"
 run_test_output_contains "dual-exec-verify.sh --help shows usage" "Usage:" \

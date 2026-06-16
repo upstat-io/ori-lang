@@ -109,6 +109,37 @@ fn unify_lists_with_variable() {
     assert_eq!(engine.resolve(var), Idx::INT);
 }
 
+// Regression: a variable nested inside an error-bearing compound type must
+// bind through unification. `Error` shares the poison slot (Idx::ERROR), so
+// `Result<str, Error>` carries HAS_ERROR; the early-out must still bind the
+// free error parameter rather than leaving it dangling (which surfaced a
+// spurious E2005 on `let r: Result<str, Error> = Ok("x"); is_ok(result: r)`).
+#[test]
+fn unify_result_error_binds_nested_variable() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let annotated = pool.result(Idx::STR, Idx::ERROR);
+    let inferred = pool.result(Idx::STR, var);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    assert!(engine.unify(annotated, inferred).is_ok());
+    // The free error parameter must resolve to the Error type, not remain unbound.
+    assert_eq!(engine.resolve(var), Idx::ERROR);
+}
+
+// Negative pin: cascade suppression is retained — a concrete-vs-error mismatch
+// in a non-variable position does NOT surface a diagnostic.
+#[test]
+fn unify_error_bearing_concrete_mismatch_is_suppressed() {
+    let mut pool = Pool::new();
+    let a = pool.result(Idx::STR, Idx::ERROR);
+    let b = pool.result(Idx::INT, Idx::BOOL);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // str-vs-int mismatch inside the error-bearing Result is suppressed (no Err).
+    assert!(engine.unify(a, b).is_ok());
+}
+
 #[test]
 fn unify_functions() {
     let mut pool = Pool::new();

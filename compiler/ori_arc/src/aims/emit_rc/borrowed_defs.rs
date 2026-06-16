@@ -8,7 +8,7 @@ use rustc_hash::FxHashSet;
 
 use ori_types::{Pool, Tag};
 
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 use crate::ownership::Ownership;
 
 /// Classify a `Project` instruction as a "take" (consuming
@@ -152,30 +152,6 @@ pub(crate) fn tagless_move_out_projections(func: &ArcFunction, pool: &Pool) -> F
     set
 }
 
-/// Collect variables defined by borrowing instructions (`Project`).
-///
-/// These create borrowed references that do NOT need independent RC
-/// management — the source variable's RC covers the borrowed ref.
-///
-/// take-projects (`is_take_project`) are excluded — they
-/// transfer ownership rather than borrow, so they must participate in
-/// normal RC decisions for the projected payload.
-pub(crate) fn collect_borrowed_defs(
-    block: &ArcBlock,
-    func: &ArcFunction,
-    pool: &Pool,
-) -> FxHashSet<ArcVarId> {
-    let mut borrowed = FxHashSet::default();
-    for instr in &block.body {
-        if let ArcInstr::Project { dst, .. } = instr {
-            if !is_take_project(instr, func, pool) {
-                borrowed.insert(*dst);
-            }
-        }
-    }
-    borrowed
-}
-
 /// Collect variables that are direct element projections from `__iter_next`
 /// results, plus their Let aliases (transitive closure).
 ///
@@ -271,56 +247,6 @@ pub(crate) fn collect_iter_element_defs(
         }
     }
     iter_elems
-}
-
-/// Collect variables projected from inline-enum sources (`Option`, `Result`, `Enum`).
-///
-/// These variables' RC is managed by the parent inline-enum's `RcDec` — no
-/// separate per-field `RcDec` is needed. This prevents double-free when the
-/// AIMS emits both inline-enum `RcDec` and per-field `RcDec` for the same value.
-///
-/// Includes transitive `Let` aliases (e.g., `%12 = %11` where `%11` is projected
-/// from an `Option`).
-///
-/// take-projects (see `is_take_project`) are EXCLUDED. For a
-/// take-project, the parent sum type has logically given up its payload
-/// (suppresses its scope-exit drop), so the projected
-/// iterator is no longer "managed by the parent" — it must participate
-/// in its own RC lifecycle and drop at its own scope exit when unused.
-/// Without this exclusion, `walk_dec`'s `emit_defined_dead` skips the
-/// inline-enum-projected iterator unconditionally (treating it as a
-/// borrow managed by the parent), and the iterator leaks.
-pub(crate) fn collect_inline_enum_projected_defs(
-    func: &ArcFunction,
-    pool: &Pool,
-) -> FxHashSet<ArcVarId> {
-    use ori_types::Tag;
-
-    let mut projected = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Project { dst, value, .. } = instr {
-                // Take-projects transfer ownership; the projected var
-                // is not managed by the parent and must get its own
-                // drop. Skip it from the borrowed-by-parent set.
-                if is_take_project(instr, func, pool) {
-                    continue;
-                }
-                let src_ty = func.var_type(*value);
-                let resolved = pool.resolve_fully(src_ty);
-                let tag = pool.tag(resolved);
-                if matches!(tag, Tag::Option | Tag::Result | Tag::Enum) {
-                    projected.insert(*dst);
-                }
-            }
-        }
-    }
-    propagate_borrowed_closure(
-        func,
-        &mut projected,
-        &tagless_move_out_projections(func, pool),
-    );
-    projected
 }
 
 /// Collect variables borrowed via `Project` only (excludes function params).
@@ -492,68 +418,4 @@ fn propagate_borrowed_closure(
             }
         }
     }
-}
-
-/// Collect borrowed-parameter variables that are receivers of MUTATING COW
-/// calls (push, set, insert, remove, etc.). Excludes `iter` — which takes
-/// ownership of the buffer for iteration but never reallocs/frees it.
-///
-/// Only includes receivers with [`RcPointer`](crate::ir::ValueRepr::RcPointer)
-/// representation (lists, maps, sets). String `add`/`concat` are borrowing
-/// operations (not COW) — see `borrow/builtins/mod.rs` type-qualification docs.
-pub(crate) fn collect_cow_borrowed_receivers(
-    func: &ArcFunction,
-    interner: &ori_ir::StringInterner,
-) -> FxHashSet<ArcVarId> {
-    let cow_names = crate::borrow::all_cow_method_names(interner);
-    // iter takes ownership but never mutates/frees — exclude from guard.
-    let iter_name =
-        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
-    let param_borrowed = collect_param_borrowed_vars(func);
-    if param_borrowed.is_empty() {
-        return FxHashSet::default();
-    }
-
-    let mut result = FxHashSet::default();
-
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                if *callee != iter_name && cow_names.contains(callee) && !args.is_empty() {
-                    let receiver = args[0];
-                    // COW semantics only apply to heap-pointer collections (lists, maps,
-                    // sets). Strings are FatValue and use borrowing semantics for
-                    // add/concat — including them here would emit invalid RcInc with
-                    // HeapPointer strategy on a FatPointer variable.
-                    if param_borrowed.contains(&receiver)
-                        && func.var_repr(receiver) == Some(ValueRepr::RcPointer)
-                    {
-                        result.insert(receiver);
-                    }
-                }
-            }
-        }
-        if let ArcTerminator::Invoke {
-            func: callee, args, ..
-        } = &block.terminator
-        {
-            if *callee != iter_name && cow_names.contains(callee) && !args.is_empty() {
-                let receiver = args[0];
-                if param_borrowed.contains(&receiver)
-                    && func.var_repr(receiver) == Some(ValueRepr::RcPointer)
-                {
-                    result.insert(receiver);
-                }
-            }
-        }
-    }
-
-    result
-}
-
-fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
-    crate::aims::emit_rc::queries::collect_param_borrowed_vars(func)
 }

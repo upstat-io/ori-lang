@@ -1,0 +1,15 @@
+use std.testing { assert_eq }
+
+// BUG-04-146: method-level generic (T = method's own binder) on a concrete-receiver
+// impl. Passthrough. T inferred from the argument (no turbofish).
+type Boxer = { tag: int }
+
+impl Boxer {
+    @pick<T> (self, item: T) -> T = item;
+}
+
+@t tests @pick () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.pick(item: 5);
+    assert_eq(actual: r, expected: 5)
+}

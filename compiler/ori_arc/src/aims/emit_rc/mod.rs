@@ -25,10 +25,8 @@ pub mod arg_ownership;
 pub(crate) mod borrowed_defs;
 mod coalesce;
 pub mod cow;
-pub(crate) mod dead_cleanup;
 pub mod drop_hints;
 mod edge_cleanup;
-mod forward_walk;
 mod helpers;
 pub(crate) mod queries;
 pub(crate) mod take_project;
@@ -53,23 +51,12 @@ pub(crate) use cow::{has_borrows_from_aggregate, is_borrow_disjoint_from_sibling
 pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 
 // Re-exports for `realize/` unified forward walk.
-pub(crate) use borrowed_defs::{
-    collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
-    collect_inline_enum_projected_defs, collect_iter_element_defs, collect_project_borrowed_defs,
-    is_take_project,
-};
+pub(crate) use borrowed_defs::{collect_all_borrowed_defs, collect_iter_element_defs};
 pub(crate) use coalesce::coalesce_block_rc;
-pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
 pub(crate) use edge_cleanup::{
     compute_same_alloc_reps, emit_edge_cleanup, emit_invoke_unwind_pair_net_releases, same_alloc,
 };
-pub(crate) use forward_walk::emit_terminator_rc;
-pub(crate) use helpers::{
-    collect_defined_vars, compute_child_effective_last_use, compute_function_project_sources,
-    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer,
-    precompute_block_uses, should_suppress_apply_aliased_dec, should_suppress_return_transfer_dec,
-    BlockCtx, LastUse,
-};
+pub(crate) use helpers::should_suppress_apply_aliased_dec;
 
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.
 ///
@@ -110,33 +97,6 @@ pub(crate) fn carries_burden(func: &ArcFunction, var: ArcVarId) -> bool {
         .get(var.index())
         .copied()
         .unwrap_or(false)
-}
-
-/// Faithful release: a `BurdenDec` paired adjacent to a release `RcDec`, gated
-/// on `carries_burden`. The `BurdenDec` mirrors the predicate-stack release per
-/// AIMS RL-2 / RL-4 / RL-5 so the per-value burden ledger nets 0 along the path
-/// the `RcDec` covers (`Spec: Annex E §AIMS` realization rules). When `var`
-/// carries no burden ops the returned vec holds only the `RcDec`.
-///
-/// SSOT for the burden-pair-then-RcDec pattern shared by edge cleanup
-/// (single-pred prepend + multi-pred trampoline), dead-at-entry cleanup, and
-/// the project-escape succ-dec path.
-#[inline]
-pub(crate) fn release_with_burden(
-    func: &ArcFunction,
-    var: ArcVarId,
-    strategy: RcStrategy,
-) -> Vec<ArcInstr> {
-    let mut ops = Vec::with_capacity(2);
-    if carries_burden(func, var) {
-        ops.push(ArcInstr::BurdenDec { var });
-    }
-    ops.push(ArcInstr::RcDec {
-        var,
-        strategy,
-        atomicity: RcAtomicity::default_atomic(),
-    });
-    ops
 }
 
 /// True iff `var` is consumed at an OWNED `Invoke`/`InvokeIndirect` arg
@@ -241,58 +201,4 @@ pub(crate) fn release_burden_only_edge(
     } else {
         Vec::new()
     }
-}
-
-/// True iff `succ_block` is a normal/unwind successor of some predecessor whose
-/// `Invoke`/`InvokeIndirect` terminator consumes `var` at an OWNED arg position.
-///
-/// Dead-at-entry / block-entry releases (`dead_cleanup`) of an owned-transfer
-/// Invoke arg are the same over-count case as the edge cleanup keyed on the
-/// predecessor: the value's burden ledger was balanced at the transfer point
-/// (`emit_terminator_burden_*`), so a block-entry `BurdenDec` on the Invoke's
-/// successor double-counts. The `RcDec` itself stays (RL-5 dead-at-entry holds).
-/// Keyed on the successor block since `dead_cleanup` emits at block entry, this
-/// is the successor-side companion of [`is_owned_transfer_arg_at_terminator`].
-fn is_owned_transfer_arg_into_block(func: &ArcFunction, succ_block: usize, var: ArcVarId) -> bool {
-    use crate::ir::ArcTerminator;
-    let succ_id = block_id(succ_block);
-    func.blocks.iter().any(|pred| {
-        let (ArcTerminator::Invoke { normal, unwind, .. }
-        | ArcTerminator::InvokeIndirect { normal, unwind, .. }) = &pred.terminator
-        else {
-            return false;
-        };
-        if *normal != succ_id && *unwind != succ_id {
-            return false;
-        }
-        pred.terminator
-            .used_vars()
-            .iter()
-            .enumerate()
-            .any(|(pos, &arg)| arg == var && pred.terminator.is_owned_position(pos))
-    })
-}
-
-/// Block-entry release: like [`release_with_burden`] but suppresses the paired
-/// `BurdenDec` when `var` is an owned-transfer Invoke/InvokeIndirect arg whose
-/// successor is `succ_block` (per [`is_owned_transfer_arg_into_block`] — the
-/// burden ledger is already balanced at the transfer point). The `RcDec` is
-/// always emitted (RL-5 dead-at-entry holds regardless of the burden ledger).
-#[inline]
-pub(crate) fn release_with_burden_into_block(
-    func: &ArcFunction,
-    succ_block: usize,
-    var: ArcVarId,
-    strategy: RcStrategy,
-) -> Vec<ArcInstr> {
-    let mut ops = Vec::with_capacity(2);
-    if carries_burden(func, var) && !is_owned_transfer_arg_into_block(func, succ_block, var) {
-        ops.push(ArcInstr::BurdenDec { var });
-    }
-    ops.push(ArcInstr::RcDec {
-        var,
-        strategy,
-        atomicity: RcAtomicity::default_atomic(),
-    });
-    ops
 }

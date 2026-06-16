@@ -241,6 +241,35 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an "index assignment not supported" error (E2050).
+    ///
+    /// Emitted when `x[i] = v` targets a type that supports index reads but not
+    /// index assignment (e.g. `str`, which is immutable through indexing).
+    pub fn index_assign_not_supported(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::IndexAssignNotSupported { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![],
+        }
+    }
+
+    /// Create an "assign through parameter" error (E2051).
+    ///
+    /// Emitted when `p[i] = v` / `p.f = v` targets a parameter binding —
+    /// parameters are not mutable roots for index/field assignment.
+    pub fn assign_through_parameter(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AssignThroughParameter { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "bind a mutable local with `let` and assign through it instead",
+                0,
+            )],
+        }
+    }
+
     /// Create an "index key mismatch" error (E2026).
     ///
     /// Emitted when `x[k]` uses a key type that doesn't match the `Index` impl.

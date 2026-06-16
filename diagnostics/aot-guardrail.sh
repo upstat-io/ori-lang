@@ -26,6 +26,17 @@
 # failures and silently excludes every VF-1 burden-imbalance verification
 # failure -- an under-count that MUST NOT be used as a floor or baseline.
 # Diagnostic-bisection override: --env "ORI_VERIFY_ARC=0 ORI_VERIFY_EACH=0".
+#   --floor            Floor-validation preset for the corpus_under_flag_gate
+#                      baseline. Prepends ORI_DISABLE_PREDICATE_STACK_RC=1 to the
+#                      run env (the burden-path-sole-emitter probe the baseline was
+#                      captured under) and, when --baseline is unset, defaults it to
+#                      compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/baseline_failing_ids.txt.
+#                      The FIXED set is relabeled "STALE (prune from baseline)": a
+#                      baseline cell no longer failing under the gated env is NOT
+#                      live floor. THE floor env is
+#                      ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1;
+#                      a plain `cargo test`/`ori build` runs the DEFAULT path
+#                      (predicate stack emits RC) where floor cells PASS (false-green).
 #   --threads N        cargo test --test-threads (default 8).
 #   --no-build         Skip the oric+ori_rt rebuild + staticlib confirm (caller
 #                      already built this cycle).
@@ -56,12 +67,14 @@ EXTRA_ENV=""
 THREADS=8
 DO_BUILD=1
 RUN_LOG=""
+FLOOR=0
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --baseline) BASELINE="${2:-}"; shift 2 ;;
         --out) OUT="${2:-}"; shift 2 ;;
         --env) EXTRA_ENV="${2:-}"; shift 2 ;;
+        --floor) FLOOR=1; shift ;;
         --threads) THREADS="${2:-}"; shift 2 ;;
         --no-build) DO_BUILD=0; shift ;;
         --log) RUN_LOG="${2:-}"; shift 2 ;;
@@ -69,6 +82,16 @@ while [[ $# -gt 0 ]]; do
         *) echo "Error: unknown option: $1" >&2; echo "Run with --help." >&2; exit 2 ;;
     esac
 done
+
+# --floor preset: validate against the corpus_under_flag_gate baseline under the
+# burden-path-sole-emitter probe env. Prepend the probe flag (explicit --env still
+# wins, since --env entries follow these in the `env` invocation) and default the
+# baseline to the checked-in corpus floor when unset.
+FLOOR_BASELINE="compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/baseline_failing_ids.txt"
+if [[ "$FLOOR" == "1" ]]; then
+    EXTRA_ENV="ORI_DISABLE_PREDICATE_STACK_RC=1 ${EXTRA_ENV}"
+    [[ -z "$BASELINE" ]] && BASELINE="$FLOOR_BASELINE"
+fi
 
 cd "$REPO_ROOT" || exit 2
 if [[ -z "$RUN_LOG" ]]; then
@@ -105,8 +128,20 @@ grep -E '^test .* \.\.\. FAILED' "$RUN_LOG" \
 # FIND the lib pre-link; E5006 `cannot find -lori_rt` fires when `cc` cannot.
 ABORTS="$(grep -c 'E5005 runtime library not found' "$RUN_LOG")"
 LINK_ABORTS="$(grep -c 'cannot find -lori_rt' "$RUN_LOG")"
+# Build-failure guard: a cargo/rustc compile failure (e.g. a parallel session
+# mid-editing a workspace crate) produces ZERO parseable `... FAILED` IDs, which
+# the FAIL COUNT below would read as a FALSE "0 failures" (the corpus never ran,
+# it did not pass). Detect the rustc/cargo build-failure markers — distinct from
+# Ori test output, which emits `ENNNN` Ori codes, never `error: could not
+# compile`. UNTRUSTABLE => exit 3, never a green count.
+BUILD_FAILS="$(grep -cE 'error: could not compile|error: build failed|error: aborting due to' "$RUN_LOG")"
 COUNT="$(wc -l < "$OUT")"
-echo "=== FAIL COUNT: $COUNT | E5005-aborts: $ABORTS | linker-aborts: $LINK_ABORTS | failing-ids: $OUT ==="
+echo "=== FAIL COUNT: $COUNT | E5005-aborts: $ABORTS | linker-aborts: $LINK_ABORTS | build-fails: $BUILD_FAILS | failing-ids: $OUT ==="
+
+if [[ "$BUILD_FAILS" -gt 0 ]]; then
+    echo "BUILD FAILURE in the AOT run ($BUILD_FAILS compile-error marker(s)) — result UNTRUSTABLE; the failing-ID set is empty because the workspace did NOT compile, NOT because the corpus is green. Fix the build (check for a parallel session mid-edit) + re-run." >&2
+    exit 3
+fi
 
 if [[ "$ABORTS" -gt 0 || "$LINK_ABORTS" -gt 0 ]]; then
     echo "STATICLIB-ABORT FALSE-RED (E5005: $ABORTS, linker: $LINK_ABORTS) — result UNTRUSTABLE; rebuild + re-run." >&2
@@ -127,7 +162,11 @@ if [[ -n "$BASELINE" ]]; then
     rm -f "$BASELINE_CLEAN"
     echo "=== NEW failures vs baseline (guardrail-2: MUST be empty): ==="
     echo "${NEW:-<none>}"
-    echo "=== FIXED vs baseline: ==="
+    if [[ "$FLOOR" == "1" ]]; then
+        echo "=== STALE baseline entries (prune from baseline — now PASSING under the gated env): ==="
+    else
+        echo "=== FIXED vs baseline: ==="
+    fi
     echo "${FIXED:-<none>}"
     if [[ -n "$NEW" ]]; then
         echo "GUARDRAIL-2 REGRESSION: $(echo "$NEW" | grep -c .) new failure(s)." >&2

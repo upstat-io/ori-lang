@@ -161,6 +161,8 @@ define_error_codes! {
     E2047, "Pre-condition contract references unknown identifier";
     E2048, "`EDROP_PARTIAL_MOVE`: partial move on type implementing Drop";
     E2049, "`EVALUE_DROP_CONFLICT`: type marked Value cannot implement Drop";
+    E2050, "Type does not support index assignment";
+    E2051, "Cannot assign through a parameter binding";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

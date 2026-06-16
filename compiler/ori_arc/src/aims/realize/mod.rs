@@ -5,8 +5,9 @@
 //!
 //! # Architecture
 //!
-//! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. Forward walk calling
-//!   `decide()` for RC and reuse decisions. Calls edge cleanup at the end.
+//! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. The burden path emits RC
+//!   via Phase 2.5 elimination + Phase 7 lowering, then reuse from collected
+//!   events. Calls edge cleanup at the end.
 //! - **Phase 2** ([`realize_annotations`]): post-merge. Walks post-merge IR
 //!   using ArcVarId-keyed state lookups for COW and drop hint decisions.
 //!
@@ -26,13 +27,10 @@ pub mod decide;
 mod dimension_consumer;
 mod emit_unified;
 pub mod metrics;
-mod project_escape;
 pub mod rl31_disjoint;
 #[cfg(test)]
 mod tests;
 mod transfer_anchor_net;
-mod walk;
-mod walk_dec;
 
 pub(crate) use burden_elim::eliminate_burden_ops;
 pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
@@ -114,11 +112,6 @@ pub fn realize_rc_reuse(
     interner: &ori_ir::StringInterner,
     _builtins: &BuiltinOwnershipSets,
     pool: &Pool,
-    // Probe (per the canonical burden RC-emission path, Spec: Annex E §AIMS): `true`
-    // suppresses the predicate-stack `RcInc`/`RcDec` emission below and lowers
-    // surviving `BurdenInc → RcInc` / `BurdenDec → RcDec` instead, proving the
-    // burden path is a complete standalone RC emitter. `false` = today's path.
-    predicate_stack_rc_disabled: bool,
 ) -> RealizationResult {
     // emit_arg_ownership runs as a Step 4b-prelude in
     // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
@@ -128,44 +121,15 @@ pub fn realize_rc_reuse(
     // emit_arg_ownership — the prelude has already populated arg_ownership
     // before it runs. `_builtins` is unused here (kept for signature
     // stability); contracts / interner / pool are consumed by Sub-steps
-    // A2 / B / C below.
+    // B / C below.
 
-    // Sub-step A2: insert RcInc for borrowed-param COW receivers.
-    // Borrowed function params at COW call receiver positions need an RcInc
-    // to prevent the runtime from seeing the buffer as unique (RC=1) when the
-    // caller also holds a reference. Without this, COW push/set/insert may
-    // realloc in place or dec the old buffer, invalidating the caller's pointer.
-    //
-    // Predicate-stack RcInc — suppressed under the probe; the burden path's
+    // Sub-step B: unified RC emission via the burden path. The burden path's
     // own RL-1 duplication inc (emit_burden_ops dup-alias / FRESH-site inc)
-    // covers the borrowed-receiver retain via the Phase-7 BurdenInc → RcInc
-    // lowering below.
-    if !predicate_stack_rc_disabled {
-        inject_cow_borrowed_receiver_incs(func, interner, pool);
-    }
-
-    // Sub-step B: unified RC emission — forward walk routing all decisions
-    // through decide(), collecting death/alloc events inline.
-    //
-    // `contracts` is threaded through so emit_rc_unified can compute
-    // `return_transfer_params` from the function's MemoryContract for
-    // BUG-04-090's `should_suppress_return_transfer_dec` (BlockCtx
-    // field).
-    //
-    // `predicate_stack_rc_disabled` (probe): when `true`, emit_rc_unified
-    // skips the predicate-stack `RcInc`/`RcDec` walk + cleanup passes and
-    // mechanically lowers surviving `BurdenInc → RcInc` / `BurdenDec → RcDec`
-    // (Phase 7) so the burden path alone emits real RC.
+    // covers the borrowed-receiver COW retain via the Phase-7 BurdenInc → RcInc
+    // lowering; the burden path is the sole RC emitter.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
-        emit_unified::emit_rc_unified(
-            func,
-            state_map,
-            pool,
-            interner,
-            contracts,
-            predicate_stack_rc_disabled,
-        )
+        emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts)
     };
 
     // Sub-step C: emit reuse from the collected death/alloc events.
@@ -418,93 +382,6 @@ fn annotate_block(
             if let Some(mode) = decisions.cow {
                 synergy.total_cow_decisions += 1;
                 cow_annotations.set(block_idx, block.body.len(), mode);
-            }
-        }
-    }
-}
-
-/// Pre-pass: inject `RcInc` before COW calls whose receiver is a borrowed
-/// function parameter (or alias thereof).
-///
-/// Borrowed parameters don't increment the refcount (that's the point of
-/// borrowing). But COW operations check `ori_rc_is_unique(data)` at runtime
-/// and will see RC=1 (the caller's sole reference), taking the fast path
-/// (realloc/mutate in place) — invalidating the caller's pointer.
-///
-/// By inserting an `RcInc` before the COW call, the runtime sees RC=2 and
-/// correctly takes the slow path (copy + dec old). The extra inc is matched
-/// by the COW slow path's dec of the old buffer.
-fn inject_cow_borrowed_receiver_incs(
-    func: &mut crate::ir::ArcFunction,
-    interner: &ori_ir::StringInterner,
-    pool: &ori_types::Pool,
-) {
-    use crate::aims::emit_rc::collect_cow_borrowed_receivers;
-    use crate::ir::{ArcInstr, ArcTerminator, RcAtomicity, RcStrategy};
-
-    let cow_borrowed_receivers = collect_cow_borrowed_receivers(func, interner);
-    if cow_borrowed_receivers.is_empty() {
-        return;
-    }
-
-    // Pre-compute RcStrategy per receiver before entering the mutable loop
-    // (borrow dance: immutable access to func before mutable iteration).
-    let receiver_strategies: rustc_hash::FxHashMap<ArcVarId, RcStrategy> = cow_borrowed_receivers
-        .iter()
-        .map(|&var| {
-            let strategy = func.var_repr(var).map_or(RcStrategy::HeapPointer, |r| {
-                RcStrategy::from_repr(r, pool, func.var_type(var))
-            });
-            (var, strategy)
-        })
-        .collect();
-
-    let cow_names = crate::borrow::all_cow_method_names(interner);
-
-    for block in &mut func.blocks {
-        // Body instructions: Apply COW calls with borrowed receivers
-        let mut insertions: Vec<(usize, ArcVarId, RcStrategy)> = Vec::new();
-        for (i, instr) in block.body.iter().enumerate() {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                if cow_names.contains(callee) && !args.is_empty() {
-                    let receiver = args[0];
-                    if let Some(&strategy) = receiver_strategies.get(&receiver) {
-                        insertions.push((i, receiver, strategy));
-                    }
-                }
-            }
-        }
-        // Insert in reverse order to preserve indices
-        for (idx, var, strategy) in insertions.into_iter().rev() {
-            block.body.insert(
-                idx,
-                ArcInstr::RcInc {
-                    var,
-                    count: 1,
-                    strategy,
-                    atomicity: RcAtomicity::default_atomic(),
-                },
-            );
-        }
-
-        // Terminator: Invoke COW call — insert RcInc at end of body
-        if let ArcTerminator::Invoke {
-            func: callee, args, ..
-        } = &block.terminator
-        {
-            if cow_names.contains(callee) && !args.is_empty() {
-                let receiver = args[0];
-                if let Some(&strategy) = receiver_strategies.get(&receiver) {
-                    block.body.push(ArcInstr::RcInc {
-                        var: receiver,
-                        count: 1,
-                        strategy,
-                        atomicity: RcAtomicity::default_atomic(),
-                    });
-                }
             }
         }
     }

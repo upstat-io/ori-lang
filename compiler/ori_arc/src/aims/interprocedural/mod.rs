@@ -43,4 +43,4 @@ pub use impl_method_contracts::{
 };
 pub use scc_driver::analyze_program;
 
-pub(crate) use extract::{build_alias_to_param_map, extract_contract};
+pub(crate) use extract::extract_contract;

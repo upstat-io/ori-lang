@@ -21,8 +21,19 @@ pub(crate) fn infer_assign(
     // The type-directed desugar (`ori_canon`) consumes the per-level types
     // recorded here to synthesize the pure-reassignment form.
     if let ExprKind::AssignTarget { root, steps } = arena.get_expr(target).kind {
-        let _ = infer_assign_target(engine, arena, target, root, steps);
-        let _value_ty = infer_expr(engine, arena, value);
+        let elem_ty = infer_assign_target(engine, arena, target, root, steps);
+        let value_ty = infer_expr(engine, arena, value);
+        // The assigned value must be assignable to the value-position element
+        // type of the chain (`xs[i] = v` requires `v: elem(xs)`). An `Idx::ERROR`
+        // element (e.g. str index-assign, already diagnosed) absorbs silently.
+        let expected = Expected {
+            ty: elem_ty,
+            origin: ExpectedOrigin::Context {
+                span: arena.get_expr(target).span,
+                kind: ContextKind::Assignment,
+            },
+        };
+        let _ = engine.check_type(value_ty, &expected, arena.get_expr(value).span);
         return Idx::UNIT;
     }
 
@@ -56,8 +67,10 @@ pub(crate) fn infer_assign(
 /// [`InferEngine`]'s assign-desugar accumulator keyed by the `AssignTarget`
 /// node's `ExprId` (`target`). `ori_canon` consumes the recorded plan to
 /// synthesize the pure-reassignment form (`root = root.updated(...)` /
-/// `{ ...root, f: v }`) — the type-directed desugar of `EX-17`. Result is
-/// `Idx::UNIT`, matching the assignment-statement form.
+/// `{ ...root, f: v }`) — the type-directed desugar of `EX-17`. Returns the
+/// value-position element type (the last level type) so `infer_assign` can
+/// check the assigned value against it; the assignment expression itself is
+/// `Idx::UNIT`.
 ///
 /// Each `level_types[k]` is the resolved type of reading `root` plus the
 /// first `k` steps, with map reads UNWRAPPED to the value type (the receiver
@@ -70,11 +83,22 @@ pub(crate) fn infer_assign_target(
     root: ExprId,
     steps: AccessStepRange,
 ) -> Idx {
-    // Assigning through an immutable root binding (`let $x = ...; x[i] = v`) is rejected.
+    // Root-binding validation: the chain root must be a mutable local.
+    //   - `let $x = ...` (immutable): rejected (E2039).
+    //   - parameter / non-mutable-tracked binding: rejected (E2051) — params are
+    //     not mutable roots for index/field assignment.
+    //   - `let x = ...` (mutable, `Some(true)`): allowed.
+    //   - unknown name (`None`, not bound): left to `infer_expr(root)` to report.
     if let ExprKind::Ident(name) = arena.get_expr(root).kind {
-        if engine.env().is_mutable(name) == Some(false) {
-            let span = arena.get_expr(root).span;
-            engine.push_error(TypeCheckError::assign_to_immutable(span, name));
+        let span = arena.get_expr(root).span;
+        match engine.env().is_mutable(name) {
+            Some(false) => {
+                engine.push_error(TypeCheckError::assign_to_immutable(span, name));
+            }
+            None if engine.env().lookup(name).is_some() => {
+                engine.push_error(TypeCheckError::assign_through_parameter(span, name));
+            }
+            _ => {}
         }
     }
 
@@ -105,8 +129,12 @@ pub(crate) fn infer_assign_target(
         receiver_ty = resolved;
     }
 
+    // The final level type is the value-position element type (`updated`'s
+    // `value` parameter / `{ ...s, f: v }`'s field type) the assigned value is
+    // checked against by `infer_assign`.
+    let elem_ty = level_types.last().copied().unwrap_or(Idx::UNIT);
     engine.record_assign_desugar(target, level_types);
-    Idx::UNIT
+    elem_ty
 }
 
 /// Resolve the value-position element type for an index step in an
@@ -121,28 +149,43 @@ fn step_index_read_type(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     index_ty: Idx,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     let resolved = engine.resolve(receiver_ty);
     match engine.pool().tag(resolved) {
         Tag::List => {
             let elem_ty = engine.pool().list_elem(resolved);
-            let _ = engine.unify_types(index_ty, Idx::INT);
+            check_index_key(engine, index_ty, Idx::INT, span);
             elem_ty
         }
         Tag::Map => {
             let key_ty = engine.pool().map_key(resolved);
             let value_ty = engine.pool().map_value(resolved);
-            let _ = engine.unify_types(index_ty, key_ty);
+            check_index_key(engine, index_ty, key_ty, span);
             value_ty
         }
+        // `str` supports index reads (`s[i]` → single-codepoint `str`) but NOT
+        // index assignment — it is immutable through indexing (no `IndexSet`).
         Tag::Str => {
-            let _ = engine.unify_types(index_ty, Idx::INT);
-            Idx::STR
+            engine.push_error(TypeCheckError::index_assign_not_supported(span, resolved));
+            Idx::ERROR
         }
         Tag::Var => engine.fresh_var(),
         _ => Idx::ERROR,
     }
+}
+
+/// Check an index expression's type against the receiver's key type, emitting a
+/// type mismatch (E2001) on failure (`m[5] = v` where `m: {str: V}`).
+fn check_index_key(engine: &mut InferEngine<'_>, index_ty: Idx, key_ty: Idx, span: Span) {
+    let expected = Expected {
+        ty: key_ty,
+        origin: ExpectedOrigin::Context {
+            span,
+            kind: ContextKind::IndexKey,
+        },
+    };
+    let _ = engine.check_type(index_ty, &expected, span);
 }
 
 /// Resolve the type of a field step in an assignment-target chain.

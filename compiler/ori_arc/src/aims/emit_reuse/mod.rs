@@ -41,9 +41,6 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, substitute_var_all};
 
-// Re-exports for `realize/` unified forward walk.
-pub(crate) use detect::{ctor_to_shape, is_reusable_ctor};
-
 /// A matched reuse opportunity: a dying value paired with a compatible allocation.
 #[derive(Clone, Debug)]
 pub struct ReuseOpportunity {

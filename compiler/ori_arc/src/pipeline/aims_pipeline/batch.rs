@@ -67,7 +67,6 @@ pub(crate) fn run_aims_pipeline_all(
         observer: None,
         sigs,
         type_registry,
-        predicate_stack_rc_disabled: *super::PREDICATE_STACK_RC_DISABLED,
     };
 
     let mut all_problems = Vec::new();

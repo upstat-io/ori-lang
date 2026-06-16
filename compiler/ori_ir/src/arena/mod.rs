@@ -27,7 +27,7 @@ use super::ast::{
 };
 use super::{
     BindingPatternId, ExprId, FunctionExpId, FunctionSeqId, MatchPatternId, ParsedType,
-    ParsedTypeId, Span, StmtId,
+    ParsedTypeId, ParsedTypeRange, Span, StmtId,
 };
 
 use crate::ast::patterns::{FunctionExp, FunctionSeq};
@@ -156,6 +156,13 @@ pub struct ExprArena {
 
     /// Access steps for assignment-target chains (`ExprKind::AssignTarget`).
     access_steps: Vec<AccessStep>,
+
+    /// Call-site type arguments for `MethodCall` / `MethodCallNamed`, keyed by the
+    /// call expression's `ExprId`. A sparse side-table (turbofish calls are rare)
+    /// stored as `Vec<(ExprId, ParsedTypeRange)>` — NOT a `FxHashMap` — so the
+    /// Salsa `Eq + Hash` contract on `ExprArena` stays deterministic (mirrors the
+    /// `canon::arena` `MonoInstance` side-table pattern).
+    method_call_type_args: Vec<(ExprId, ParsedTypeRange)>,
 }
 
 impl ExprArena {
@@ -192,6 +199,8 @@ impl ExprArena {
             function_exps: Vec::with_capacity(estimated_exprs / 32),
             template_parts: Vec::with_capacity(estimated_exprs / 32),
             access_steps: Vec::with_capacity(estimated_exprs / 32),
+            // Sparse — turbofish call sites are rare; no capacity pre-allocation.
+            method_call_type_args: Vec::new(),
         }
     }
 
@@ -289,6 +298,29 @@ impl ExprArena {
     #[track_caller]
     pub fn get_parsed_type(&self, id: ParsedTypeId) -> &ParsedType {
         &self.parsed_types[id.index()]
+    }
+
+    // -- Call-site Type Arguments (method-call turbofish side-table) --
+
+    /// Record call-site type arguments for a `MethodCall` / `MethodCallNamed`
+    /// expression, keyed by its `ExprId`. An `EMPTY` range is a no-op (the table
+    /// stays sparse — absence means "no turbofish").
+    #[inline]
+    pub fn set_method_call_type_args(&mut self, id: ExprId, type_args: ParsedTypeRange) {
+        if !type_args.is_empty() {
+            self.method_call_type_args.push((id, type_args));
+        }
+    }
+
+    /// Get the call-site type arguments recorded for a method-call expression.
+    /// Returns `ParsedTypeRange::EMPTY` when none were recorded (the common case).
+    /// Linear scan — turbofish call sites are rare, so the table is small.
+    #[inline]
+    pub fn method_call_type_args(&self, id: ExprId) -> ParsedTypeRange {
+        self.method_call_type_args
+            .iter()
+            .find(|(eid, _)| *eid == id)
+            .map_or(ParsedTypeRange::EMPTY, |(_, range)| *range)
     }
 
     // -- Match Pattern Storage --
@@ -396,6 +428,7 @@ impl ExprArena {
         self.function_exps.clear();
         self.template_parts.clear();
         self.access_steps.clear();
+        self.method_call_type_args.clear();
     }
 
     /// Check if arena is empty.
@@ -429,6 +462,7 @@ impl PartialEq for ExprArena {
             && self.function_exps == other.function_exps
             && self.template_parts == other.template_parts
             && self.access_steps == other.access_steps
+            && self.method_call_type_args == other.method_call_type_args
     }
 }
 
@@ -459,6 +493,7 @@ impl Hash for ExprArena {
         self.function_exps.hash(state);
         self.template_parts.hash(state);
         self.access_steps.hash(state);
+        self.method_call_type_args.hash(state);
     }
 }
 

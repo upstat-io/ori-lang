@@ -340,8 +340,11 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 }
             }
 
-            // Template literals
-            ExprKind::TemplateFull(name) => self.interner.lookup(*name).len() + 2, // backticks
+            // Template literals — width is the re-escaped rendered length
+            // (matches emit in formatter/inline.rs), plus two backticks.
+            ExprKind::TemplateFull(name) => {
+                crate::escape_template_text(self.interner.lookup(*name)).len() + 2
+            }
             ExprKind::TemplateLiteral { .. } => ALWAYS_STACKED, // conservative: contains expressions
 
             // Parse error - always stack

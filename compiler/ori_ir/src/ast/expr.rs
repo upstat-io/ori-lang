@@ -164,6 +164,11 @@ pub enum ExprKind {
     CallNamed { func: ExprId, args: CallArgRange },
 
     /// Method call: receiver.method(args...)
+    ///
+    /// Call-site type arguments (`receiver.method<T>(args)`) are NOT inlined here
+    /// — they are rare, so storing them on the hot node would bloat every
+    /// expression. They live in the arena `method_call_type_args` side-table keyed
+    /// by this expression's `ExprId` (queried by typeck at the call site).
     MethodCall {
         receiver: ExprId,
         method: Name,
@@ -171,6 +176,9 @@ pub enum ExprKind {
     },
 
     /// Method call with named args: receiver.method(a: 1, b: 2)
+    ///
+    /// Call-site type arguments live in the arena `method_call_type_args`
+    /// side-table keyed by this expression's `ExprId` (see `MethodCall`).
     MethodCallNamed {
         receiver: ExprId,
         method: Name,

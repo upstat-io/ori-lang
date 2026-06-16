@@ -528,15 +528,19 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(")");
             }
 
-            // Template literals
+            // Template literals — literal text segments are re-escaped back to
+            // canonical source (inverse of the lexer cooker) so the output
+            // round-trips; interpolation delimiters stay structural.
             ExprKind::TemplateFull(name) => {
                 self.ctx.emit("`");
-                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx
+                    .emit(&crate::escape_template_text(self.interner.lookup(*name)));
                 self.ctx.emit("`");
             }
             ExprKind::TemplateLiteral { head, parts } => {
                 self.ctx.emit("`");
-                self.ctx.emit(self.interner.lookup(*head));
+                self.ctx
+                    .emit(&crate::escape_template_text(self.interner.lookup(*head)));
                 for part in self.arena.get_template_parts(*parts) {
                     self.ctx.emit("{");
                     self.emit_inline(part.expr);
@@ -545,7 +549,9 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.ctx.emit(self.interner.lookup(part.format_spec));
                     }
                     self.ctx.emit("}");
-                    self.ctx.emit(self.interner.lookup(part.text_after));
+                    self.ctx.emit(&crate::escape_template_text(
+                        self.interner.lookup(part.text_after),
+                    ));
                 }
                 self.ctx.emit("`");
             }

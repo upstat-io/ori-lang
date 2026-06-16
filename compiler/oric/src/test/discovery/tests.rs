@@ -57,6 +57,34 @@ fn test_skip_hidden_and_target() {
 }
 
 #[test]
+fn test_directory_sweep_skips_formatter_golden_fixture() {
+    let dir = tempdir().unwrap();
+
+    // A formatter golden fixture: `.ori` with a sibling `.ori.expected`.
+    File::create(dir.path().join("golden.ori")).unwrap();
+    File::create(dir.path().join("golden.ori.expected")).unwrap();
+    // A regular spec test (no `.expected` sibling).
+    File::create(dir.path().join("real.ori")).unwrap();
+
+    let files = discover_tests(dir.path());
+    assert_eq!(files.len(), 1);
+    assert!(files[0].path.ends_with("real.ori"));
+}
+
+#[test]
+fn test_explicit_single_file_runs_formatter_golden_fixture() {
+    // An explicit single-file invocation still runs a golden fixture — only
+    // directory sweeps skip them.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("golden.ori");
+    File::create(&path).unwrap();
+    File::create(dir.path().join("golden.ori.expected")).unwrap();
+
+    let files = discover_tests_in(&path);
+    assert_eq!(files.len(), 1);
+}
+
+#[test]
 fn test_discover_single_file() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("test.ori");

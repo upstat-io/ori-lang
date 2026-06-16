@@ -186,16 +186,16 @@ pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
                     result.push_str(", ");
                 }
                 first = false;
-                // Map KEYS render UNQUOTED (`{x: 1}`): a str key is
-                // control-escaped without surrounding quotes (matching the
-                // LLVM backend's `emit_escape_control` for dual-execution
-                // parity); non-str keys use their normal Debug form. Map
-                // VALUES keep full Debug semantics, so str values stay quoted.
-                let key_str = match k {
-                    Value::Str(s) => escape_debug_str(s),
-                    other => debug_value(other, interner),
-                };
-                let _ = write!(result, "{}: {}", key_str, debug_value(v, interner));
+                // Spec: Clause 8.12.1 — `{K: V}` Debug renders keys with full
+                // Debug semantics (`{"x": 1}`): str keys are quoted, like every
+                // other Debug position. Keys and values both go through
+                // `debug_value`.
+                let _ = write!(
+                    result,
+                    "{}: {}",
+                    debug_value(k, interner),
+                    debug_value(v, interner)
+                );
             }
             result.push('}');
             result

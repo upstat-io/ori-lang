@@ -1,0 +1,16 @@
+use std.testing { assert_eq }
+
+// BUG-04-146: impl-level generic (T from receiver) AND method-level generic (U
+// from the method binder) present together. Exercises the §03 impl-T path plus
+// the new method-U path in one instance.
+type Box<T> = { inner: T }
+
+impl<T> Box<T> {
+    @tag<U> (self, u: U) -> U = u;
+}
+
+@t tests @tag () -> void = {
+    let b = Box { inner: 42 };
+    let $r = b.tag(u: "hi");
+    assert_eq(actual: r, expected: "hi")
+}

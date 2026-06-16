@@ -396,12 +396,6 @@ pub fn analyze_function(
     // burden ops; until then the call is cheap (early return) and kept wired so
     // the consumption path stays compiled.
     post_convergence::populate_class_covered(&mut state_map, func);
-    // Typed same-class dec obligation table for path-sensitive same-slot dec
-    // dedup across Let{Var} / Jump arg / Conditional alias chains. Mirrors
-    // class_payload_of's path-sensitive analysis but operates on intra-class
-    // member liveness rather than parent/child class containment. Consumed by
-    // walk_dec.rs::class_alive_after.
-    post_convergence::populate_class_dec_obligations(&mut state_map, func);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);

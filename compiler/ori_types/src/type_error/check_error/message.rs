@@ -230,6 +230,15 @@ impl TypeCheckError {
             TypeErrorKind::AssignToImmutable { .. } => {
                 "cannot assign to immutable binding".to_string()
             }
+            TypeErrorKind::IndexAssignNotSupported { ty } => {
+                format!(
+                    "type `{}` does not support index assignment",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::AssignThroughParameter { .. } => {
+                "cannot assign through parameter".to_string()
+            }
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }
@@ -429,6 +438,12 @@ impl TypeCheckError {
 
             // E2039: Cannot assign to immutable binding
             TypeErrorKind::AssignToImmutable { .. } => ErrorCode::E2039,
+
+            // E2050: Type does not support index assignment
+            TypeErrorKind::IndexAssignNotSupported { .. } => ErrorCode::E2050,
+
+            // E2051: Cannot assign through a parameter binding
+            TypeErrorKind::AssignThroughParameter { .. } => ErrorCode::E2051,
 
             // E2040: Feature not yet supported
             TypeErrorKind::UnsupportedFeature { .. } => ErrorCode::E2040,

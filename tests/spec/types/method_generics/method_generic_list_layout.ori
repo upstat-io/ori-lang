@@ -1,0 +1,15 @@
+use std.testing { assert_eq }
+
+// BUG-04-146: method-level generic that USES T's layout (returns [T]). The live
+// hard-fail cell — needs a recorded MonoInstance so codegen substitutes T -> int.
+type Boxer = { tag: int }
+
+impl Boxer {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(item: 5);
+    assert_eq(actual: r[0], expected: 5)
+}

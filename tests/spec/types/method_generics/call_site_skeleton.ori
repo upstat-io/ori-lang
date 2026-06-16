@@ -1,0 +1,20 @@
+// Spec: 14-expressions.md § Call-site type arguments
+// Proposal: docs/ori_lang/proposals/approved/call-site-method-generics-grammar-alignment-proposal.md
+// Walking-skeleton: a call-site method-generics turbofish parses, type-checks,
+// and runs end-to-end. The explicit <int> is redundant-but-supplied (T is also
+// inferable from item:) — its job is to prove the grammar threads parse -> typeck
+// -> eval, the vertical slice the per-phase sections then widen.
+
+use std.testing { assert_eq }
+
+type Boxer = { tag: int }
+
+impl Boxer {
+    @pick<T> (self, item: T) -> T = item;
+}
+
+@call_site_turbofish_runs tests _ () -> void = {
+    let $b = Boxer { tag: 0 };
+    let $r = b.pick<int>(item: 5);
+    assert_eq(actual: r, expected: 5)
+}

@@ -178,9 +178,17 @@ pub(super) fn maybe_record_method_mono_instance(
     receiver_ty: Idx,
     sig: &super::impl_lookup::ImplMethodSig,
 ) {
-    let Some(mono) = sig.method_mono.as_ref() else {
+    // Entry gate keys on EITHER binder axis: `method_mono` (impl-level, set when
+    // the impl is generic over the receiver — `impl<T> Box<T>`) OR
+    // `scheme_var_ids` (method-level, the method's own `<U>` binders, present
+    // even on a concrete-receiver impl — `impl Boxer { @pick<T> }`). Keying on
+    // `method_mono` alone conflates "impl is generic over the receiver" with
+    // "method needs monomorphization"; a method-level-only generic then records
+    // no MonoInstance and its `Tag::RigidVar` survives to codegen (PC-2 break).
+    let mono = sig.method_mono.as_ref();
+    if mono.is_none() && sig.scheme_var_ids.is_empty() {
         return;
-    };
+    }
 
     // Receiver carrier: the FULL concrete receiver Idx (e.g. `Box<int>`, NOT
     // the generic `Box<T>` shell). A receiver that still has type vars is not a
@@ -202,7 +210,7 @@ pub(super) fn maybe_record_method_mono_instance(
         receiver_concrete = is_fully_concrete(engine, receiver),
         receiver_tag = ?engine.pool().tag(receiver),
         receiver_flags = ?engine.pool().flags(receiver),
-        impl_args = ?mono.impl_type_args,
+        impl_args = ?mono.map(|m| &m.impl_type_args),
         ret_tag = ?engine.pool().tag(ret_resolved),
         ret_concrete = is_fully_concrete(engine, ret_resolved),
         "maybe_record_method entry gate"
@@ -214,13 +222,18 @@ pub(super) fn maybe_record_method_mono_instance(
     // Impl-level + method-level concrete arguments. `impl_type_args` is the
     // receiver-side substitution in declaration order (`[(T, int)]`); method-
     // level args come from the call-site instantiation of `<U>`-style binders.
-    let mut impl_args = Vec::with_capacity(mono.impl_type_args.len());
-    for &(_, concrete) in &mono.impl_type_args {
-        let resolved = engine.pool().resolve_fully(concrete);
-        if !is_fully_concrete(engine, resolved) {
-            return;
+    // A method-level-only generic on a concrete-receiver impl carries no impl
+    // binders (`mono` is `None`) — `impl_args` is empty, and `MonoInstance::
+    // new_method` accepts empty `impl_args` with populated `method_args`.
+    let mut impl_args = Vec::with_capacity(mono.map_or(0, |m| m.impl_type_args.len()));
+    if let Some(mono) = mono {
+        for &(_, concrete) in &mono.impl_type_args {
+            let resolved = engine.pool().resolve_fully(concrete);
+            if !is_fully_concrete(engine, resolved) {
+                return;
+            }
+            impl_args.push(GenericArg::Type(resolved));
         }
-        impl_args.push(GenericArg::Type(resolved));
     }
 
     let mut method_args = Vec::with_capacity(sig.scheme_var_ids.len());
@@ -268,11 +281,16 @@ pub(super) fn maybe_record_method_mono_instance(
         &mut var_subst,
     );
     let struct_type_params = collect_struct_type_params(engine);
-    let extra_named: Vec<(Name, Idx)> = mono
-        .impl_type_args
-        .iter()
-        .map(|&(name, concrete)| (name, engine.resolve(concrete)))
-        .collect();
+    // Impl-level `Tag::Named(binder) -> concrete` entries the var-keyed helper
+    // cannot reach. Empty for a method-level-only generic (no impl binders);
+    // `build_and_register_body_type_map` handles empty `extra_named` via
+    // `var_subst.clone()` (no rigid-var scan), which is correct here.
+    let extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
+        mono.impl_type_args
+            .iter()
+            .map(|&(name, concrete)| (name, engine.resolve(concrete)))
+            .collect()
+    });
     let pool = engine.pool_mut();
     let body_type_map =
         build_and_register_body_type_map(pool, &var_subst, &extra_named, &struct_type_params);

@@ -57,7 +57,18 @@ fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
             }
             discover_recursive(&path, files);
         } else if path.extension().is_some_and(|e| e == "ori") {
-            files.push(TestFile::new(path));
+            // Skip formatter golden fixtures (a `.ori` with a sibling
+            // `.ori.expected`): their correctness is owned by the formatter
+            // golden test (`ori_fmt/tests/`), not the spec harness. Their
+            // `#compile_fail` / `#skip` / `#fail` attributes are formatter
+            // round-trip test data, not spec assertions, so executing them as
+            // spec tests is incidental. An explicit single-file invocation
+            // (`discover_tests_in`) still runs them.
+            let mut expected = path.clone().into_os_string();
+            expected.push(".expected");
+            if !Path::new(&expected).exists() {
+                files.push(TestFile::new(path));
+            }
         }
     }
 }

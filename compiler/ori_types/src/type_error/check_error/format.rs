@@ -375,6 +375,18 @@ impl TypeCheckError {
                     format_name(*name)
                 )
             }
+            TypeErrorKind::IndexAssignNotSupported { ty } => {
+                format!(
+                    "type `{}` does not support index assignment",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::AssignThroughParameter { name } => {
+                format!(
+                    "cannot assign through parameter `{}`",
+                    format_name(*name)
+                )
+            }
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }

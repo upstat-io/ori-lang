@@ -2,10 +2,12 @@
 //!
 //! Parses call, method call, field access, index expressions, and struct literals.
 
+use crate::context::ParseContext;
 use crate::error::ErrorContext;
 use crate::{chain, committed, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, StructLitField, TokenKind,
+    CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, ParsedTypeRange,
+    StructLitField, TokenKind,
 };
 
 /// Bitset of tags that can start a postfix operation.
@@ -186,10 +188,19 @@ impl Parser<'_> {
 
         let field = self.cursor.expect_member_name()?;
 
+        // Call-site type arguments: `receiver.method<T>(args)`. Speculative — snapshot,
+        // attempt a `<type_args>` list in IN_TYPE context, and COMMIT only when it is
+        // immediately followed by `(` (a method call). Otherwise restore and let `<`
+        // fall through to the comparison path. The trailing-`(` gate is the parse-time
+        // half; the resolve-time comparison fallback (for `a.b < c > (d)`-shaped
+        // ambiguity) is the parser/typeck breadth sections' deliverable. Never the
+        // unsound deterministic commit (per the call-site-method-generics proposal).
+        let call_type_args = self.parse_call_site_type_args();
+
         if self.cursor.check(&TokenKind::LParen) {
             // Method call
             self.cursor.advance();
-            self.in_error_context_result(ErrorContext::MethodCall, |p| {
+            let node = self.in_error_context_result(ErrorContext::MethodCall, |p| {
                 let (call_args, has_named) = p.parse_call_args()?;
                 p.cursor.expect(&TokenKind::RParen)?;
 
@@ -221,7 +232,11 @@ impl Parser<'_> {
                         span,
                     )))
                 }
-            })
+            })?;
+            // Record the call-site type arguments in the arena side-table keyed by
+            // the method-call node (no-op when none were written).
+            self.arena.set_method_call_type_args(node, call_type_args);
+            Ok(node)
         } else {
             // Field access — no context needed (single token, can't fail after member name)
             let span = self
@@ -232,6 +247,30 @@ impl Parser<'_> {
             Ok(self
                 .arena
                 .alloc_expr(Expr::new(ExprKind::Field { receiver, field }, span)))
+        }
+    }
+
+    /// Speculatively parse a call-site type-argument list (`<T, U>`) after a member
+    /// name. Returns the parsed range ONLY when it is immediately followed by `(`
+    /// (i.e. a generic method call); otherwise restores the cursor and returns
+    /// `EMPTY` so `<` is parsed as the less-than operator. Reuses the snapshot
+    /// (SN-3) + `IN_TYPE` context (CF-1) machinery and the existing
+    /// `parse_optional_generic_args_range`. The trailing-`(` requirement is the
+    /// parse-time disambiguation half; resolve-time comparison fallback is the
+    /// parser/typeck breadth sections' deliverable.
+    fn parse_call_site_type_args(&mut self) -> ParsedTypeRange {
+        if !self.cursor.check(&TokenKind::Lt) {
+            return ParsedTypeRange::EMPTY;
+        }
+        let snap = self.snapshot();
+        let parsed = self.with_context(ParseContext::IN_TYPE, |p| {
+            p.parse_optional_generic_args_range()
+        });
+        if !parsed.is_empty() && self.cursor.check(&TokenKind::LParen) {
+            parsed
+        } else {
+            self.restore(snap);
+            ParsedTypeRange::EMPTY
         }
     }
 

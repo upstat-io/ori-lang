@@ -13,7 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Idx;
 
-use crate::aims::lattice::{ShapeClass, Uniqueness};
+use crate::aims::lattice::Uniqueness;
 use crate::ir::{ArcBlockId, ArcFunction};
 
 use super::planner::ReusePlanner;
@@ -135,25 +135,4 @@ pub(crate) fn find_reuse_opportunities_from_events(
     let mut all = same_block_opps;
     all.extend(cross_block_opps);
     (all, total_deaths)
-}
-
-/// Whether a constructor kind produces a reusable allocation.
-pub(crate) fn is_reusable_ctor(ctor: &crate::ir::CtorKind) -> bool {
-    matches!(
-        ctor,
-        crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::EnumVariant { .. }
-    )
-}
-
-/// Map a constructor kind to its shape classification.
-pub(crate) fn ctor_to_shape(ctor: &crate::ir::CtorKind) -> ShapeClass {
-    match ctor {
-        crate::ir::CtorKind::Struct(_) => {
-            ShapeClass::ReusableCtor(crate::aims::lattice::ReuseCtorKind::Struct)
-        }
-        crate::ir::CtorKind::EnumVariant { .. } => {
-            ShapeClass::ReusableCtor(crate::aims::lattice::ReuseCtorKind::EnumVariant)
-        }
-        _ => ShapeClass::NonReusable,
-    }
 }

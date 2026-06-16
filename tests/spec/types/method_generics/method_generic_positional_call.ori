@@ -1,0 +1,16 @@
+use std.testing { assert_eq }
+
+// BUG-04-146: positional method-call form exercises infer_method_call (the
+// positional entry point) — the named-arg fixtures exercise infer_method_call_named.
+// Both entry points call the shared mono-recording hook.
+type Boxer = { tag: int }
+
+impl Boxer {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(7);
+    assert_eq(actual: r[0], expected: 7)
+}

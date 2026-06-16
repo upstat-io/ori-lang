@@ -77,7 +77,7 @@ use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::dimensions::{AccessClass, Consumption, Locality};
 use crate::aims::lattice::AimsState;
-use crate::aims::transfer::{is_rc_dec_unnecessary, is_rc_inc_elidable};
+use crate::aims::transfer::is_rc_inc_elidable;
 use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
 use crate::graph::{compute_predecessors, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
@@ -131,7 +131,6 @@ pub(crate) fn eliminate_burden_ops(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
-    predicate_stack_rc_disabled: bool,
 ) {
     // INVARIANT: Phase 6 is an OPTIMIZER over the burden-emitted
     // baseline: it ELIMINATES burden ops, NEVER CONSTRUCTS them. Capture the
@@ -144,14 +143,7 @@ pub(crate) fn eliminate_burden_ops(
     #[cfg(debug_assertions)]
     let before = burden_op_census(func);
 
-    eliminate_whole_function(
-        func,
-        state_map,
-        same_alloc_reps,
-        contracts,
-        interner,
-        predicate_stack_rc_disabled,
-    );
+    eliminate_whole_function(func, state_map, same_alloc_reps, contracts, interner);
 
     #[cfg(debug_assertions)]
     debug_assert_burden_removal_only(&before, &burden_op_census(func));
@@ -239,28 +231,26 @@ fn debug_assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
 type OpSite = (usize, usize);
 
 // Per-var WHOLE-FUNCTION balance state. `inc_sites` / `dec_sites` locate every
-// whole-var Inc / Dec op for the var across ALL blocks; the booleans accumulate
-// AND over per-op predicate verdicts so a single non-elidable op anywhere in the
-// function pins ALL the var's whole-var ops to RETAIN. Whole-function scope is
-// load-bearing: a `BurdenInc` and its matching `BurdenDec` for a value live
-// across a block boundary land in different blocks (FRESH alloc in one block,
-// last-use release in another). A per-block pass could elide one side and
-// retain the other, netting the per-value burden ledger to +/-1 — the VF-1
-// imbalance per `aims/verify/burden_balance.rs`. Pairing across the whole
-// function keeps the inc/dec pair atomic.
+// whole-var Inc / Dec op for the var across ALL blocks; `all_inc_elidable`
+// accumulates AND over per-op DP-3 verdicts so a single non-elidable inc
+// anywhere in the function pins ALL the var's whole-var ops to RETAIN.
+// Whole-function scope is load-bearing: a `BurdenInc` and its matching
+// `BurdenDec` for a value live across a block boundary land in different blocks
+// (FRESH alloc in one block, last-use release in another). A per-block pass
+// could elide one side and retain the other, netting the per-value burden
+// ledger to +/-1 — the VF-1 imbalance per `aims/verify/burden_balance.rs`.
+// Pairing across the whole function keeps the inc/dec pair atomic.
 #[derive(Default)]
 struct WholeVarBalance {
     inc_sites: Vec<OpSite>,
     dec_sites: Vec<OpSite>,
     all_inc_elidable: bool,
-    all_dec_unnecessary: bool,
 }
 
 impl WholeVarBalance {
     fn seed() -> Self {
         Self {
             all_inc_elidable: true,
-            all_dec_unnecessary: true,
             ..Self::default()
         }
     }
@@ -277,7 +267,6 @@ fn eliminate_whole_function(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
-    predicate_stack_rc_disabled: bool,
 ) {
     // Per-block removal bitsets, indexed [block_idx][instr_idx].
     let mut remove: Vec<Vec<bool>> = func
@@ -297,11 +286,10 @@ fn eliminate_whole_function(
         same_alloc_reps,
         contracts,
         interner,
-        predicate_stack_rc_disabled,
         &mut remove,
     );
 
-    let balances = classify_burden_ops(func, state_map, predicate_stack_rc_disabled, &mut remove);
+    let balances = classify_burden_ops(func, state_map);
     let mut alias_dsts = collect_pair_atomic_alias_dsts(func);
     // RL-1 owned-call-arg duplication aliases are pair-atomic regardless of
     // root kind: their kept alias-site inc is inc-ONLY (the dec was
@@ -324,13 +312,7 @@ fn eliminate_whole_function(
     // Spec: Annex E §AIMS RL-1.
     alias_dsts
         .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
-    mark_whole_var_removals(
-        &balances,
-        &rebalanced_vars,
-        &alias_dsts,
-        &mut remove,
-        predicate_stack_rc_disabled,
-    );
+    mark_whole_var_removals(&balances, &rebalanced_vars, &alias_dsts, &mut remove);
     compact_removed(func, &remove);
 }
 
@@ -415,8 +397,8 @@ fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<ArcVarId> {
 }
 
 /// Pass 1: classify every whole-var burden op into per-var balance buckets
-/// across ALL blocks; settle field-grain Decs (`BurdenDecField`) inline into
-/// `remove`.
+/// across ALL blocks. Field-grain Decs (`BurdenDecField`) are always KEPT (the
+/// burden path is the sole RC emitter; dec-side elision would leak).
 ///
 /// Returns the per-var `WholeVarBalance` map. DP-3 (`is_rc_inc_elidable`) and
 /// DP-2 (`is_rc_dec_unnecessary`) are queried against the CONVERGED
@@ -430,8 +412,6 @@ fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<ArcVarId> {
 fn classify_burden_ops(
     func: &ArcFunction,
     state_map: &AimsStateMap,
-    predicate_stack_rc_disabled: bool,
-    remove: &mut [Vec<bool>],
 ) -> FxHashMap<ArcVarId, WholeVarBalance> {
     let mut balances: FxHashMap<ArcVarId, WholeVarBalance> = FxHashMap::default();
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -461,25 +441,17 @@ fn classify_burden_ops(
                 ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }
                 | ArcInstr::BurdenDecVariant { var } => {
-                    // DP-2 (`is_rc_dec_unnecessary`) consumes the same
-                    // converged-at-definition state. For a single-use fresh
-                    // value the def-state is `Once`/`Linear`, so DP-2 is FALSE
-                    // (the dec is the necessary RL-2 scope-exit release) and
-                    // the dec is KEPT — the decoupled elision below preserves
-                    // it while still eliding the spurious inc.
-                    let state = state_map.var_state_at_definition(block_id, *var);
+                    // The burden path is the sole RC emitter, so a whole-var dec
+                    // is the necessary RL-2 scope-exit release and is always
+                    // KEPT — the decoupled elision below elides only the
+                    // spurious inc, never the release.
                     let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
                     entry.dec_sites.push((block_idx, instr_idx));
-                    entry.all_dec_unnecessary &= is_rc_dec_unnecessary(&state);
                 }
-                ArcInstr::BurdenDecField { base, .. } => {
-                    // Field-grain dec-elision is dec-side (DP-2), hence
-                    // co-emitter-dependent — gated off on the sole-emitter path.
-                    if !predicate_stack_rc_disabled && should_elide_dec(state_map, block_id, *base)
-                    {
-                        remove[block_idx][instr_idx] = true;
-                    }
-                }
+                // `BurdenDecField` is field-grain dec-elision (dec-side, DP-2):
+                // eliding it would drop a genuine release on the sole-emitter
+                // path and leak, so it is always KEPT (no-op here, like every
+                // non-classified instruction).
                 _ => {}
             }
         }
@@ -608,18 +580,14 @@ fn mark_lineage_rebalance_removals(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
-    predicate_stack_rc_disabled: bool,
     remove: &mut [Vec<bool>],
 ) -> FxHashSet<ArcVarId> {
     let mut owned_vars: FxHashSet<ArcVarId> = FxHashSet::default();
-    // The lineage re-balance keeps exactly one dec as the RL-2 release. On the
-    // default (now burden-only) path that is the sole real-RC emitter, this is
-    // the correct sole release. Under a co-emitter path (`predicate_stack_rc_disabled
-    // == false`) the predicate stack already emits the lineage's release, so a
-    // kept burden dec would lower to a DUPLICATE `RcDec` → double-free. Mirror
-    // `mark_whole_var_removals`'s dec-elision co-emitter gate: only re-balance
-    // when the burden path is the sole emitter.
-    if !predicate_stack_rc_disabled || *LINEAGE_REBALANCE_DISABLED {
+    // The lineage re-balance keeps exactly one dec as the RL-2 release. The
+    // burden path is the sole real-RC emitter, so that kept dec is the correct
+    // sole release. `ORI_DISABLE_LINEAGE_REBALANCE=1` is the bisection escape
+    // hatch that defers every rep to the per-var pass.
+    if *LINEAGE_REBALANCE_DISABLED {
         return owned_vars;
     }
     let list_take_name = super::emit_unified::for_yield_result_finalizer_name(interner);
@@ -1195,7 +1163,6 @@ fn mark_whole_var_removals(
     rebalanced_vars: &FxHashSet<ArcVarId>,
     alias_dsts: &FxHashSet<ArcVarId>,
     remove: &mut [Vec<bool>],
-    predicate_stack_rc_disabled: bool,
 ) {
     let pair_coupling_active = !genuine_dup_pair_coupling_disabled();
     for (var, balance) in balances {
@@ -1207,28 +1174,18 @@ fn mark_whole_var_removals(
             continue;
         }
         if balance.all_inc_elidable {
-            // DP-2 dec-elision is co-emitter-DEPENDENT: on the sole-emitter
-            // (burden-only) path it would elide a genuine release and leak, so
-            // it runs ONLY when a predicate-stack co-emitter is present.
-            let decs_elidable = balance.all_dec_unnecessary && !predicate_stack_rc_disabled;
-            if pair_coupling_active
-                && alias_dsts.contains(var)
-                && !balance.inc_sites.is_empty()
-                && (balance.dec_sites.is_empty() || !decs_elidable)
-            {
-                // RL-1 dup-alias pair atomicity: an alias inc with no
-                // same-var elidable dec is either the backing of a cross-var
-                // release (inc-only) or one half of a balanced pair —
-                // splitting nets -1. Keep every op for this var.
+            // Whole-var decs are never elided: the burden path is the sole RC
+            // emitter, so each dec is the necessary RL-2 scope-exit release.
+            // Only the spurious inc is elided.
+            if pair_coupling_active && alias_dsts.contains(var) && !balance.inc_sites.is_empty() {
+                // RL-1 dup-alias pair atomicity: an alias inc whose dec is never
+                // elidable is either the backing of a cross-var release
+                // (inc-only) or one half of a balanced pair — splitting nets
+                // -1. Keep every op for this var.
                 continue;
             }
             for &(b, i) in &balance.inc_sites {
                 remove[b][i] = true;
-            }
-            if decs_elidable {
-                for &(b, i) in &balance.dec_sites {
-                    remove[b][i] = true;
-                }
             }
         }
     }
@@ -1247,17 +1204,4 @@ fn compact_removed(func: &mut ArcFunction, remove: &[Vec<bool>]) {
             keep
         });
     }
-}
-
-/// Whether a `BurdenDecField` site can be elided per DP-2 at `(block, var)`.
-///
-/// Field-grain Decs query DP-2 against the base's whole-var state, but
-/// they do not participate in the whole-var Inc/Dec pairing — they
-/// contribute to a separate field-grain accumulator per
-/// `aims/verify/burden_delta.rs`. Elision is per-op, independent of
-/// whole-var pairing.
-#[inline]
-fn should_elide_dec(state_map: &AimsStateMap, block_id: ArcBlockId, var: ArcVarId) -> bool {
-    let state = state_map.var_state_at_block_exit(block_id, var);
-    is_rc_dec_unnecessary(&state)
 }

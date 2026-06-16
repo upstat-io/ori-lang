@@ -16,7 +16,7 @@ impl Point: Describable {
     @describe (self) -> str = "second";
 }
 
-#[compile_fail("duplicate trait implementation")]
+#[compile_fail("duplicate implementation")]
 @test_duplicate_impl tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = p.describe();

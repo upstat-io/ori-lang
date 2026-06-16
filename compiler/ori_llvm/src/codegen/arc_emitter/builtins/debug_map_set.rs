@@ -234,22 +234,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             val
         };
 
-        // Keys: rendered UNQUOTED in both Debug and Printable modes (`{x: 1}`),
-        // matching the interpreter's map-key rendering. `emit_element_to_str`
-        // produces the raw Printable form (the borrowed Str for a str key, the
-        // decimal for an int key, etc.); the result is then control-escaped
-        // (no surrounding quotes) via `emit_escape_control`, mirroring the
-        // interpreter's `escape_debug_str`. Map VALUES (below) keep full Debug
-        // semantics, so str values stay quoted.
-        let raw_key_str = self.emit_element_to_str(key, key_ty)?;
-        let key_str = self.emit_escape_control(raw_key_str)?;
-        // `emit_escape_control` always allocates a fresh str, so `key_str` is
-        // always safe to dec. For a Str key, `emit_element_to_str` returns the
-        // borrowed Str (not a fresh allocation) — decrementing it would
-        // double-free; only dec `raw_key_str` when it was freshly allocated.
-        if !matches!(self.type_info.get(key_ty), TypeInfo::Str) {
-            self.dec_intermediate_str(raw_key_str);
-        }
+        // Keys: Debug renders with full Debug semantics (`{"x": 1}` — str keys
+        // quoted) per Spec Clause 8.12.1, mirroring the interpreter's
+        // `debug_value`. Printable (to_str) renders keys unquoted,
+        // control-escaped. This is the same Debug/Printable split applied to
+        // values below. Both branches return a freshly-allocated str.
+        let key_str = if is_debug {
+            self.emit_element_debug(key, key_ty)?
+        } else {
+            let raw_key_str = self.emit_element_to_str(key, key_ty)?;
+            let escaped = self.emit_escape_control(raw_key_str)?;
+            // For a Str key, `emit_element_to_str` returns the borrowed Str (not
+            // a fresh allocation) — decrementing it would double-free; only dec
+            // `raw_key_str` when it was freshly allocated.
+            if !matches!(self.type_info.get(key_ty), TypeInfo::Str) {
+                self.dec_intermediate_str(raw_key_str);
+            }
+            escaped
+        };
         let colon = self.emit_literal_ori_str(": ")?;
         // Values: Debug or Printable semantics per is_debug.
         let val_str = if is_debug {
@@ -264,7 +266,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(tmp1);
         let result = self.emit_str_concat(tmp2, val_str)?;
         self.dec_intermediate_str(tmp2);
-        // `key_str` is always a fresh `emit_escape_control` allocation.
+        // `key_str` is always a fresh allocation (Debug: `emit_element_debug`;
+        // Printable: `emit_escape_control`), so it is always safe to dec.
         self.dec_intermediate_str(key_str);
         if !val_is_borrowed_str {
             self.dec_intermediate_str(val_str);

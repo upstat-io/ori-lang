@@ -268,6 +268,18 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*name)
                 )
             }
+            TypeErrorKind::IndexAssignNotSupported { ty } => {
+                format!(
+                    "type `{}` does not support index assignment",
+                    self.format_type(*ty)
+                )
+            }
+            TypeErrorKind::AssignThroughParameter { name } => {
+                format!(
+                    "cannot assign through parameter `{}`",
+                    self.format_name(*name)
+                )
+            }
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }

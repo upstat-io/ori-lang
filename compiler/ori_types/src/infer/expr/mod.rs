@@ -273,7 +273,12 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
         ExprKind::AssignTarget { root, steps } => {
-            infer_assign_target(engine, arena, expr_id, *root, *steps)
+            // An assign-target chain is an lvalue; as a standalone expression it
+            // carries no value type. `infer_assign_target` records the desugar
+            // plan and returns the value-position element type (consumed by
+            // `infer_assign`); here it is discarded — the node types as unit.
+            let _ = infer_assign_target(engine, arena, expr_id, *root, *steps);
+            Idx::UNIT
         }
 
         // Capabilities

@@ -351,6 +351,18 @@ pub enum TypeErrorKind {
         name: Name,
     },
 
+    /// Type does not support index assignment (E2050).
+    IndexAssignNotSupported {
+        /// The receiver type the index-assignment targeted.
+        ty: Idx,
+    },
+
+    /// Cannot assign through a parameter binding (E2051).
+    AssignThroughParameter {
+        /// Name of the parameter binding.
+        name: Name,
+    },
+
     /// Feature not yet supported (E2040).
     UnsupportedFeature {
         /// Description of the unsupported feature.

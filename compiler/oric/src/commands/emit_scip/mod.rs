@@ -9,6 +9,7 @@
 //! module's identity (so cross-file homonyms never collide). A frontend error
 //! suppresses emission and exits non-zero (mirrors `check`).
 
+mod occurrence;
 mod symbol;
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
@@ -16,11 +17,12 @@ use ori_ir::{Module, Name, StringInterner, TraitItem, TypeDeclKind, Variant};
 use oric::{CompilerDb, Db, SourceFile};
 use protobuf::{Message, MessageField};
 use scip::types::symbol_information::Kind;
-use scip::types::{Document, Index, Metadata, SymbolInformation, ToolInfo};
+use scip::types::{Document, Index, Metadata, Occurrence, SymbolInformation, ToolInfo};
 use std::path::{Path, PathBuf};
 
 use super::read_file;
 use super::report_frontend_errors;
+use occurrence::{collect_occurrences, ScipOccurrence, REFERENCE_ROLE};
 use symbol::{ModuleMinter, ScipDef};
 
 /// Collect one [`ScipDef`] per declared definition entity in `module`.
@@ -180,14 +182,30 @@ fn module_identity(relative_path: &str) -> String {
         .to_string()
 }
 
-/// Build the `scip` protobuf `Index` from the collected definitions.
-fn build_index(relative_path: &str, project_root: String, defs: Vec<ScipDef>) -> Index {
+/// Build the `scip` protobuf `Index` from the collected definitions and
+/// reference occurrences.
+fn build_index(
+    relative_path: &str,
+    project_root: String,
+    defs: Vec<ScipDef>,
+    occurrences: Vec<ScipOccurrence>,
+) -> Index {
     let symbols: Vec<SymbolInformation> = defs
         .into_iter()
         .map(|d| SymbolInformation {
             symbol: d.symbol,
             display_name: d.display_name,
             kind: d.kind.into(),
+            ..Default::default()
+        })
+        .collect();
+
+    let occurrences: Vec<Occurrence> = occurrences
+        .into_iter()
+        .map(|o| Occurrence {
+            range: o.range,
+            symbol: o.symbol,
+            symbol_roles: REFERENCE_ROLE,
             ..Default::default()
         })
         .collect();
@@ -204,6 +222,7 @@ fn build_index(relative_path: &str, project_root: String, defs: Vec<ScipDef>) ->
         }),
         documents: vec![Document {
             relative_path: relative_path.to_string(),
+            occurrences,
             symbols,
             ..Default::default()
         }],
@@ -252,7 +271,19 @@ pub fn emit_scip_file(path: &str, output: &str) {
     let defs = collect_defs(&module_id, &frontend.parse_result.module, db.interner());
     let symbol_count = defs.len();
 
-    let index = build_index(&relative_path, project_root, defs);
+    let source = file.text(&db);
+    let occurrences = collect_occurrences(
+        &module_id,
+        &frontend.parse_result.arena,
+        &frontend.parse_result.module,
+        &frontend.type_result.typed,
+        &frontend.pool,
+        db.interner(),
+        source.as_str(),
+    );
+    let occurrence_count = occurrences.len();
+
+    let index = build_index(&relative_path, project_root, defs, occurrences);
 
     let bytes = match index.write_to_bytes() {
         Ok(bytes) => bytes,
@@ -267,5 +298,5 @@ pub fn emit_scip_file(path: &str, output: &str) {
         std::process::exit(1);
     }
 
-    println!("Wrote {output} ({symbol_count} symbols) for {path}");
+    println!("Wrote {output} ({symbol_count} symbols, {occurrence_count} occurrences) for {path}");
 }
