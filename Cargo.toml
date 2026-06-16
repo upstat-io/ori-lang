@@ -105,6 +105,9 @@ unused = { level = "deny", priority = -1 }
 # missing-docs sites. Run the doc-comment cleanup pass before flipping
 # to `warn`.
 missing_docs = "allow"
+# SF-3 (impl-hygiene.md §Unsafe & FFI): each unsafe op in an `unsafe fn` body
+# needs its own `unsafe {}` + `// SAFETY:`. 0 pre-existing hits at probe.
+unsafe_op_in_unsafe_fn = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -134,6 +137,23 @@ similar_names = "allow"
 # blocks. Run the SAFETY-annotation cleanup pass on ori_llvm, ori_rt,
 # oric before flipping to `warn`.
 undocumented_unsafe_blocks = "allow"
+
+# Rust-cleanliness lints (impl-hygiene.md PA-/SF-/AR-/EH-/CL-/LN- families +
+# §Finding Categories ARITH/SOUNDNESS). ENABLED: 0 pre-existing hits at probe.
+fallible_impl_from = "warn"            # PA-2: panic/unwrap in `impl From` -> TryFrom
+# STAGED (allow now -> warn/deny after a cleanup pass). Counts = probe hits incl.
+# tests, which several of these do not yet exempt; promote per LN-2. Staged-
+# promotion pattern mirrors missing_docs / undocumented_unsafe_blocks above.
+panic = "allow"                        # PA-3 deny target; 1004 hits (mostly test panic!())
+panic_in_result_fn = "allow"           # PA-1 deny target; 2 hits
+unwrap_in_result = "allow"             # PA-1 deny target; 58 hits
+arithmetic_side_effects = "allow"      # AR-1; 1844 hits - also needs clippy.toml scoping
+let_underscore_must_use = "allow"      # EH-1; 417 hits
+assertions_on_result_states = "allow"  # test weak-assert; 255 hits
+allow_attributes = "allow"             # LN-2; 137 hits
+redundant_clone = "allow"              # CL-1; 73 hits (nursery)
+needless_collect = "allow"             # CL-2; 64 hits (nursery)
+map_err_ignore = "allow"               # EH-2; 36 hits
 
 # Optimized release profile for final/published builds.
 # Use: cargo build --profile release-lto
