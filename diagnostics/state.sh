@@ -33,6 +33,11 @@ BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
 # Append-only test-all metrics ledger (data file; written by the test-all
 # ledger ingest, read here for display). Env override for isolated testing.
 LEDGER_FILE="${ORI_LEDGER_FILE:-$ROOT_DIR/build/test-all-ledger.json}"
+# Known aims-burden AOT floor (one test-id per line). baseline_compare excludes
+# these from newly_failing/newly_fixed so a known floor cell never reads as a
+# section-introduced regression (BUG-07-263). Env override for isolated testing;
+# a missing file degrades to empty-floor (legacy) behavior.
+FLOOR_FILE="${ORI_BASELINE_FLOOR_FILE:-$SCRIPT_DIR/baseline_failing_ids.txt}"
 
 # ---- Defaults ----------------------------------------------------------------
 OUTPUT=human    # show default; machine consumers pass --json
@@ -1121,9 +1126,17 @@ baseline_compare() {
     local cur cur_sha report exit_code
     cur=$(baseline_snapshot_from_state)
     cur_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
-    report=$(jq -n --argjson base "$base" --argjson cur "$cur" --arg cur_sha "$cur_sha" '
-        (($cur.test_suite.failures - $base.test_suite.failures)) as $newfail |
-        (($base.test_suite.failures - $cur.test_suite.failures)) as $newfix |
+    # Known aims-burden AOT floor (one test-id per line; blank lines dropped).
+    # A missing floor file degrades to empty-floor (legacy) behavior.
+    local floor
+    if [[ -f "$FLOOR_FILE" ]]; then
+        floor=$(jq -Rn '[inputs | select(length > 0)]' "$FLOOR_FILE")
+    else
+        floor='[]'
+    fi
+    report=$(jq -n --argjson base "$base" --argjson cur "$cur" --argjson floor "$floor" --arg cur_sha "$cur_sha" '
+        ((($cur.test_suite.failures - $base.test_suite.failures)) - $floor) as $newfail |
+        ((($base.test_suite.failures - $cur.test_suite.failures)) - $floor) as $newfix |
         (($cur.test_dispositions.untracked - $base.test_dispositions.untracked)) as $undelta |
         (($cur.clippy.errors - $base.clippy.errors)) as $clipdelta |
         (($newfail | length) > 0 or $undelta > 0 or $clipdelta > 0) as $reg |

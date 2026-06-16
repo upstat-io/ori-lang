@@ -66,6 +66,10 @@ tempfile = "3.10"
 # File watching (ori watch)
 notify = "7"
 
+# SCIP definition-index emission (`ori emit-scip`) + its protobuf wire format.
+scip = "0.8.1"
+protobuf = "3"
+
 # Process-group kill for test-worker subprocess isolation (already present
 # transitively in the workspace dependency tree)
 [target.'cfg(unix)'.dependencies]

@@ -7,9 +7,12 @@ a known floor cell never reads as a section-introduced regression.
 
 These tests drive the REAL `state.sh baseline compare --json` against synthetic
 state/baseline/floor fixtures via the `ORI_STATE_FILE` / `ORI_BASELINES_FILE` /
-`ORI_BASELINE_FLOOR_FILE` env overrides. They FAIL on the floor-blind code:
-SC-1 (floor cell flagged as regression) + SC-3 (floor fix spuriously credited).
-SC-2 is the negative pin — a genuine non-floor regression MUST still be caught.
+`ORI_BASELINE_FLOOR_FILE` env overrides. Fail-first on the floor-blind code (the
+3 semantic pins): SC-1 (floor cell flagged as a regression) + SC-3 (floor fix
+spuriously credited) + SC-6 (production-default floor path unread). SC-2 + SC-4
+are the negative pins — a genuine non-floor regression / non-floor fix MUST
+still be caught / credited; SC-5 is the missing-floor legacy-degradation guard.
+Verified `3 failed, 3 passed` against the unfixed `state.sh`.
 """
 from __future__ import annotations
 
@@ -164,3 +167,35 @@ def test_sc5_missing_floor_file_degrades_to_legacy(tmp_path):
     # No floor → the floor cell is a (legacy) regression; no crash.
     assert _FLOOR_CELL in report["newly_failing"], report
     assert report["gate_pass"] is False, report
+
+
+_REAL_FLOOR = Path(__file__).resolve().parents[1] / "baseline_failing_ids.txt"
+
+
+def test_sc6_production_default_floor_path_excludes_known_cell(tmp_path):
+    """SC-6 (fail-first; production-default pin per codex-F1): with NO
+    ORI_BASELINE_FLOOR_FILE override, baseline_compare must read the PRODUCTION
+    default floor (diagnostics/baseline_failing_ids.txt — the path the live
+    callers verify-and-complete-v7 / aot-guardrail.sh use) and exclude a real
+    floor cell from newly_failing. Pins the default-config path, not just the
+    test-injected seam."""
+    assert _FLOOR_CELL in _REAL_FLOOR.read_text().splitlines(), (
+        f"{_FLOOR_CELL} must be a member of the real floor {_REAL_FLOOR}"
+    )
+    state_f = tmp_path / "known-state.json"
+    base_f = tmp_path / "baselines.json"
+    _write_state(state_f, ["other::ok_test", _FLOOR_CELL])
+    _write_baseline(base_f, "sec", ["other::ok_test"])
+    env = {
+        "ORI_STATE_FILE": str(state_f),
+        "ORI_BASELINES_FILE": str(base_f),
+        # NO ORI_BASELINE_FLOOR_FILE — exercise the production default floor path.
+        "PATH": __import__("os").environ.get("PATH", ""),
+    }
+    r = subprocess.run(
+        ["bash", str(_STATE_SH), "baseline", "compare", "--key", "sec", "--json"],
+        capture_output=True, text=True, env=env, timeout=60,
+    )
+    report = json.loads(r.stdout)
+    assert report["newly_failing"] == [], report
+    assert report["gate_pass"] is True, report

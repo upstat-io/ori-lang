@@ -522,6 +522,11 @@ if command -v jq >/dev/null 2>&1; then
     BL_TMP=$(mktemp -d)
     export ORI_STATE_FILE="$BL_TMP/known-state.json"
     export ORI_BASELINES_FILE="$BL_TMP/baselines.json"
+    # Isolate the baseline self-test from the real aims-burden floor: an empty
+    # floor file keeps these synthetic-id regression/fix assertions independent
+    # of diagnostics/baseline_failing_ids.txt membership (BUG-07-263 cure).
+    : > "$BL_TMP/floor.txt"
+    export ORI_BASELINE_FLOOR_FILE="$BL_TMP/floor.txt"
     cat > "$ORI_STATE_FILE" <<'BLJSON'
 { "schema_version": 3, "head_sha": "aaaa111",
   "test_suite": { "status": "known-failing", "last_run_sha": "aaaa111",
