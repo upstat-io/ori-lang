@@ -242,11 +242,13 @@ fn identifier_token_span(source: &str, item_span: Span, name: &str, anchor: Name
     if let Some(rel) = locate_identifier(&slice[scan_from..], name) {
         let name_start = start + scan_from + rel;
         let name_end = name_start + name.len();
+        // `name_end <= end <= item_span.end` (a `u32`), so both offsets fit; the
+        // `try_from` falls through to the `item_span` fallback on the impossible
+        // overflow, preserving the never-panics contract.
         if name_end <= end {
-            return Span {
-                start: name_start as u32,
-                end: name_end as u32,
-            };
+            if let (Ok(start), Ok(end)) = (u32::try_from(name_start), u32::try_from(name_end)) {
+                return Span { start, end };
+            }
         }
     }
     item_span
