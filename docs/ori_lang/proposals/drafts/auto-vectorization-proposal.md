@@ -5,6 +5,7 @@
 **Created:** 2026-06-16
 **Affects:** Compiler (canonicalizer, ARC/AIMS analysis, LLVM codegen), evaluator (dual-execution parity), spec (Clause 20.8.4 cross-reference, new optimization-guarantee appendix)
 **Depends On:** intrinsics-capability-proposal.md, intrinsics-v2-byte-simd-proposal.md
+**Amends:** iterator-performance-semantics-proposal.md (moves its "Not Guaranteed → Vectorization" line to a guarantee; approval adds an errata block to that proposal per `.claude/rules/proposals.md` errata format — it is NOT rewritten in place)
 
 ---
 
@@ -98,13 +99,16 @@ A loop (a `for`/`while`/`loop` over a sequence, or a fused iterator chain per th
 
 | Condition | Proven from | Why it licenses vectorization |
 |---|---|---|
-| **No loop-carried dependence on the data** | Value semantics: each element is reassigned, not mutated in place; no aliased mutable view of the sequence exists | Lane *i* cannot observe a write from lane *j* |
+| **No loop-carried dependence — data AND control** | Value semantics on the *sequence* (each element reassigned, not mutated in place; no aliased mutable view) AND the body carries no loop-carried dependence through other state: no read-then-write of a captured mutable variable, no stateful iterator adaptor (`scan`, an accumulating `fold` body, index-carrying adaptors), no `x[i] = f(x[i-1])` recurrence | Lane *i* cannot observe a write produced by lane *j* — through the data **or** through body-external state |
 | **Lane type is `Value`** | The `Value` trait (bitwise-copy, no ARC, no `Drop`, fixed size) | Element fits a SIMD lane; no per-element refcount or destructor to sequence |
-| **Loop body is pure (or effect-uniform)** | No `uses` capability inside the body, OR only reads of loop-invariant captures | No side effect whose ordering across lanes is observable |
+| **Loop body is pure (or effect-uniform)** | No `uses` capability inside the body, AND no mutation of any binding that outlives a single iteration; only reads of loop-invariant captures | No side effect whose ordering across lanes is observable |
+| **Reduction operator is reorder-safe (reductions only)** | The combining operator is associative **and observably order-independent** — see §4. Element-wise maps/zips do not reduce and skip this row | A vector reduction reorders the combine; this is only sound when reordering changes no observable result (including panic behavior) |
 | **Trip count is statically analyzable** | `[T, max N]` capacity, range bounds, or `.len()` of a value-semantic sequence | Compiler can emit a vector body + scalar tail with a known split |
 | **Body maps to vector ops** | Each operation in the body has a SIMD form in the `Intrinsics` validity table (Clause 20.8.4) | A lowering target exists for every lane operation |
 
-When every condition holds, vectorization is **guaranteed** (the compiler MUST emit it, modulo the cost-model veto in §5). When any condition fails, the loop runs scalar — silently and correctly, never with a hard error.
+**Element-wise independence is NOT reduction associativity.** Conditions 1–3 establish that *lanes are independent* — sufficient for element-wise maps and zips. A *reduction* additionally reorders the combining operator across lanes, which conditions 1–3 do NOT license; the reorder-safe row (condition 4) is the separate, stricter gate reductions must also pass (§4 specifies it).
+
+**The guarantee, precisely.** When the gate holds, the compiler MUST either (a) emit the vector lowering, or (b) record a cost-model veto (§5) that is queryable via `ori explain --vectorization <fn>`. "Eligible-but-vetoed" is never silent: every gate-satisfying loop is either vectorized or carries a machine-readable reason it was not. When the gate does NOT hold, the loop runs scalar — silently and correctly, never with a hard error (non-vectorization is an optimization outcome, not a diagnostic; there is no `E`-code for "could not vectorize").
 
 This is the inversion of the C model: instead of *assuming* aliasing and bailing unless proven otherwise, Ori *assumes* independence because the type system already forbids the aliasing that would violate it.
 
@@ -120,16 +124,23 @@ This is the inversion of the C model: instead of *assuming* aliasing and bailing
 @add_vectors (a: [float], b: [float]) -> [float] =
     a.iter().zip(other: b).map(transform: (x, y) -> x + y).collect()
 
-// Integer reduction -> vector reduction. Eligible: int reassociation is exact.
-@sum (xs: [int]) -> int =
-    xs.iter().fold(initial: 0, op: (acc, x) -> acc + x)
+// Reorder-safe reduction (max) -> vector reduction. Eligible: max is associative,
+// total, and panic-free, so lane order changes nothing observable (§4).
+@peak (xs: [int]) -> int =
+    xs.iter().fold(initial: 0, op: (acc, x) -> max(acc, x))
 
-// Predicate count -> vector compare + mask popcount. Eligible.
+// Predicate count -> vector compare + mask popcount. Eligible: lane count is order-free.
 @count_positive (xs: [int]) -> int =
     xs.iter().filter(predicate: x -> x > 0).count()
+
+// Checked-integer SUM is NOT eligible by default — reassociating partial sums can
+// move an overflow panic (§4). Vectorizes only under #fast_math, or when the compiler
+// proves no overflow (e.g. a bounded [byte, max N] sum into a wider accumulator).
+@sum (xs: [int]) -> int =
+    xs.iter().fold(initial: 0, op: (acc, x) -> acc + x)   // default-scalar
 ```
 
-Each lowers to a `simd_*` vector body plus a scalar tail for the remainder lanes, reusing the exact register-allocation guarantee `intrinsics-v2` already specifies (`[T, max N]` classified Scalar in SIMD context: no heap, no RC).
+Each *eligible* loop lowers to a `simd_*` vector body plus a scalar tail for the remainder lanes, reusing the exact register-allocation guarantee `intrinsics-v2` already specifies (`[T, max N]` classified Scalar in SIMD context: no heap, no RC).
 
 ### 3. What does not vectorize (and stays correct)
 
@@ -140,26 +151,41 @@ Each lowers to a `simd_*` vector body plus a scalar tail for the remainder lanes
 
 In every case the fallback is the ordinary scalar loop. **There is no `E`-code for "could not vectorize"** — non-vectorization is never an error, because vectorization is an optimization, not a semantic.
 
-### 4. Floating-point determinism — the reassociation stance
+### 4. Reduction reassociation and determinism — where "pure optimization" has teeth
 
-This is the one place where "pure optimization" has teeth. SIMD reductions reassociate floating-point operations, and FP addition is not associative, so a vectorized `simd_sum` over `float` can produce a *different bit pattern* than the scalar left-fold. Under Ori's value-semantics observability model, a different result is an **observable difference** — which would break dual-execution parity and the pure-optimization guarantee.
+A vector reduction reorders the combining operator across lanes. That reorder is sound only when it changes **no observable result** — and in Ori "observable" includes panics, not just values. Two operators that are mathematically associative are still not equally safe to reassociate:
 
-The stance:
+**Floating-point arithmetic is not associative.** A vectorized `simd_sum` over `float` produces a different bit pattern than the scalar left-fold, so reassociating it is an observable change.
 
-- **Integer and bitwise reductions** reassociate **freely** — the result is bit-identical regardless of lane order. Always vectorized when eligible.
-- **Elementwise floating-point operations** (`map`, `zip`-`map`) vectorize freely — each lane computes the identical scalar result; no reassociation occurs.
-- **Floating-point reductions that require reassociation** (`fold`/`sum`/`product` over `float`) are **NOT auto-vectorized by default** — doing so would change the observable result.
-- A developer opts into FP-reassociated reductions explicitly via a `#fast_math` attribute on the function (or a narrower `.sum_fast()` / reassociable-fold form — exact spelling is an Unresolved Question). Inside that opt-in, FP reductions vectorize and the changed rounding is the *documented, requested* behavior.
+**Integer arithmetic reassociation is observable through overflow panics.** Ori panics on integer overflow (per spec — `int` add/mul are checked). Reassociating `(a + b) + c` into `a + (b + c)`, or summing lanes pairwise, changes *whether and where* an intermediate overflow panic fires — even when the final mathematical sum is identical. A panic is an observable result, so integer `+`/`*` reductions are **NOT** freely reassociable, contrary to a naive "integers are exact" intuition. (This is the trap: integer addition is associative over ℤ, but Ori's `int` is checked i64, and the check is observable.)
 
-This makes the determinism contract explicit rather than implicit: Ori never silently trades a different floating-point answer for speed.
+The stance — reorder-safe operators vs reorder-unsafe operators:
+
+| Reduction operator | Reorder-safe by default? | Why |
+|---|---|---|
+| Bitwise `&` / `\|` / `^`, `min`, `max` over `int`/`byte` | **Yes** — vectorized when eligible | Associative AND total (no overflow, no panic, no rounding); lane order changes nothing observable |
+| Integer `+` / `*` (checked) | **No** — default-scalar | Reassociation can change overflow-panic occurrence (observable) |
+| Floating-point `+` / `*` | **No** — default-scalar | Not associative; reassociation changes the bit result (observable) |
+| Element-wise `map` / `zip`-`map` (any lane type) | **Yes** — vectorized when eligible | No reduction occurs; each lane computes the identical scalar result |
+
+- **Reorder-unsafe reductions auto-vectorize ONLY with explicit opt-in** via the `#fast_math` attribute (§5) — OR when the compiler can *prove* the reduction cannot overflow (e.g. a bounded `[byte, max N]` sum into a wider accumulator), in which case the integer case becomes reorder-safe and needs no attribute.
+- Element-wise vectorization and reorder-safe reductions are the always-on default; they need no attribute and change nothing observable.
+
+**`#fast_math` is defined as a parity-preserving reassociation license, not a per-backend divergence.** When a function carries `#fast_math`, reorder-unsafe reductions in it MAY be reassociated — but **both** backends MUST adopt the **same** compiler-defined reduction order (e.g. a fixed lane-tree shape). The evaluator does NOT keep computing a precise scalar left-fold while LLVM reassociates — that asymmetry is exactly the parity break this attribute must avoid. Instead, `#fast_math` redefines the reduction's *specified* semantics to "combine in the compiler's reduction-tree order," and both `ori_eval` and `ori_llvm` implement that one order. The result is deterministic and identical across backends; it merely differs from the naive scalar left-fold — which is precisely what the developer opted into. `#fast_math` likewise accepts the reordered integer-overflow-panic behavior as documented, requested semantics.
+
+This makes the determinism contract explicit rather than implicit: Ori never silently trades a different value — or a different panic — for speed, and the speed-for-precision trade, when taken, is taken identically in both backends.
 
 ### 5. The cost-model veto
 
-A satisfied gate makes a loop *eligible*; a small backend cost model decides whether vectorizing actually helps (tiny known trip counts, scalar-cheaper bodies, or targets lacking the needed feature can veto). The veto is the single exception to "guaranteed when proven." To keep the guarantee meaningful and testable:
+A satisfied gate makes a loop *eligible*; a small backend cost model decides whether vectorizing actually helps (tiny known trip counts, scalar-cheaper bodies, or targets lacking the needed feature can veto). The veto is the single exception to "vectorized when the gate holds." To keep the guarantee meaningful, testable, and non-hollow:
 
+- **The veto is diagnosable, never silent.** Every eligible-but-vetoed loop is reportable via `ori explain --vectorization <fn>`, which states that the loop passed the gate and the specific cost-model reason it was not vectorized (trip count below threshold, target lacks feature, scalar body cheaper). A guarantee whose exception is invisible is hollow; making the exception queryable is what keeps "guaranteed when profitable" a real, auditable contract rather than a backend's private discretion.
 - The cost model is **conservative and documented** — it vetoes only when the scalar form is demonstrably not slower.
 - A `#vectorize` attribute **forces** vectorization past the cost-model veto (still subject to the correctness gate — it can never force an unsafe vectorization).
 - A `#no_vectorize` attribute **opts a function out** entirely (escape valve for measured regressions or bit-exact requirements).
+- A `#fast_math` attribute licenses reorder-unsafe reductions per §4 (parity-preserving: both backends adopt the same reduction order).
+
+These attributes use the `#name(...)` attribute grammar of the approved Simplified Attribute Syntax proposal.
 
 ### 6. Lowering and the dual-execution parity contract
 
@@ -167,9 +193,16 @@ Automatic vectorization is a transformation on canonical IR / ARC IR that produc
 
 The parity contract is the load-bearing invariant:
 
-> Automatic vectorization MUST be observably indistinguishable from the scalar program. The evaluator (`ori_eval`) executes the **scalar** form of every auto-vectorized loop; the LLVM backend executes the vector form. For every program, the two MUST produce identical observable results.
+> Automatic vectorization MUST be observably indistinguishable from the program's *specified* semantics. For every program, `ori_eval` and `ori_llvm` MUST produce identical observable results — values AND panics.
 
-Because the gate (§1) admits a loop only when lanes are independent, and because FP reassociation is excluded by default (§4), the vector and scalar forms are provably equal — so parity is satisfied *by construction*, not by case-by-case verification. The evaluator does not need a SIMD interpreter for auto-vectorization; it runs the scalar loop. (Manual `Intrinsics` calls are a separate surface and need their own eval support — that is the approved intrinsics work, not this proposal.)
+Two regimes, both parity-safe by construction:
+
+- **Default vectorization** (element-wise maps/zips + reorder-safe reductions per §4): the transformation does not change the combine order, so the evaluator runs the ordinary **scalar** loop and the LLVM backend runs the vector form, and the two are provably equal. The evaluator needs no SIMD interpreter here.
+- **`#fast_math` reductions** (reorder-unsafe combine, §4): the *specified* reduction semantics become "combine in the compiler's defined reduction-tree order," and **both** backends implement that one order. Parity is preserved because eval does not stay on a divergent scalar left-fold — it adopts the same defined order LLVM does. The result is deterministic across backends; it differs only from a naive scalar fold, which is the documented `#fast_math` semantics.
+
+In neither regime does eval compute one answer while LLVM computes another. Because the gate (§1) admits a loop only when lanes are independent, and reorder-unsafe reductions are excluded from the default and made backend-symmetric under `#fast_math`, the vector and scalar forms are provably equal — parity holds *by construction*, not by case-by-case verification. (Manual `Intrinsics` calls are a separate surface and need their own eval support — that is the approved intrinsics work, not this proposal.)
+
+**Baseline assumption — stated explicitly.** Parity-by-construction inherits the *pre-existing* scalar-execution parity baseline: `ori_eval` and `ori_llvm` are already required to agree bit-for-bit on the scalar program's floating-point and checked-integer arithmetic (the existing dual-execution-parity invariant). This proposal does not establish that baseline; it relies on it. If the scalar baseline ever diverges between backends, that is a pre-existing parity bug to fix independently — auto-vectorization layered on top would inherit the divergence, not introduce it.
 
 This is the same shape the Iterator Performance proposal already relies on: copy elision and deforestation are guaranteed *because* they are observably transparent. Auto-vectorization joins that set under the same discipline.
 
@@ -179,7 +212,7 @@ This is the same shape the Iterator Performance proposal already relies on: copy
 
 - **Implementation surface.** The provability gate spans the canonicalizer / ARC analysis (dependence + purity proof) and `ori_llvm` (vector lowering, scalar tail, cost model). It also presumes the `Intrinsics` capability is implemented, which it currently is not in any backend — this proposal is blocked on that substrate.
 - **A guarantee is a contract.** Promising "this vectorizes" means a regression that silently descalarizes an eligible loop is a *compiler bug*, not a missed optimization. That raises the testing bar: every guaranteed-eligible pattern needs a pin that fails if vectorization regresses.
-- **Floating-point subtlety leaks to users.** The `#fast_math` / default-scalar-reduction split is the honest design, but it means a `float` `sum` is *not* vectorized by default, which a performance-focused user may find surprising. The alternative (silent reassociation) is worse, but the surprise is real and must be documented prominently.
+- **Reduction subtlety leaks to users.** The `#fast_math` / default-scalar-reduction split is the honest design, but it means neither a `float` `sum` nor a checked-`int` `sum` is vectorized by default (FP for non-associativity, integer for overflow-panic observability — §4), which a performance-focused user may find surprising given how parallel a sum *looks*. The alternative (silent reassociation that moves a rounding result or an overflow panic) is worse, but the surprise is real and must be documented prominently. Reorder-safe reductions (`min`/`max`/bitwise) and all element-wise maps *do* vectorize by default, which softens it.
 - **Cost-model trust.** A "guarantee with a cost-model veto" is only as credible as the veto is conservative. If the cost model is too aggressive, the guarantee becomes hollow; the `#vectorize` force-attribute is the safety valve but shifts burden back to the user.
 
 ---
@@ -226,7 +259,8 @@ None of this is expressible in pure Ori; it is intrinsic compiler machinery, mat
 
 - **No grammar changes** for the default behavior — auto-vectorization is invisible at the syntax level (ordinary loops and iterator chains).
 - **New attributes** `#vectorize`, `#no_vectorize`, `#fast_math` join the attribute grammar (companion to existing `#derive`/`#repr`/`#cfg` attributes; canonical attribute-order placement per Annex D).
-- **New optimization-guarantee appendix** (or extension of the Iterator Performance "Compiler Optimizations" section): move vectorization from "Not Guaranteed" to "Guaranteed when the provability gate (this proposal §1) holds," with the gate conditions and the FP-reassociation stance specified normatively.
+- **New optimization-guarantee appendix** (or extension of the Iterator Performance "Compiler Optimizations" section): move vectorization from "Not Guaranteed" to "Guaranteed when the provability gate (this proposal §1) holds," with the gate conditions and the reduction-reassociation stance specified normatively.
+- **Errata on `iterator-performance-semantics-proposal.md` (approved) — NOT a rewrite.** That proposal's "Not Guaranteed → Vectorization (SIMD) for numeric operations" line is superseded by this one. Per `.claude/rules/proposals.md`, approved proposals are never edited in place; approval of this proposal MUST add an `## Errata (added YYYY-MM-DD)` block to the iterator proposal pointing here, stating that vectorization is now a provability-gated guarantee. The `**Amends:**` header records the relationship; the errata block records it on the amended side.
 - **Clause 20.8.4 cross-reference:** auto-vectorization lowers to the `Intrinsics` SIMD surface; the validity table (T × N combinations) bounds which lane types/widths the automatic layer can target.
 - **Dual-execution parity clause:** add auto-vectorization to the set of observably-transparent transformations the evaluator/LLVM parity invariant covers.
 
@@ -265,8 +299,15 @@ The cross-language reconnaissance (intelligence graph over rust/swift/zig/go/kok
 
 ## Unresolved Questions
 
-- **Reassociable-reduction spelling.** Is FP-reassociated reduction opted into via a function-level `#fast_math` attribute, a distinct method (`.sum_fast()` / `.fold_reassoc()`), or a per-reduction flag? (Resolve during review.)
-- **Iterator-chain eligibility boundary.** Exactly which fused iterator shapes (per the Iterator Performance proposal) are guaranteed-eligible vs. cost-model-discretionary? `map`, `zip`+`map`, `filter`+`count`, integer `fold` are clearly in; where is the line for `scan`, `flat_map`, stateful adaptors? (Resolve during review.)
-- **Cost-model observability.** Should the compiler offer a diagnostic / query (e.g. `ori explain --vectorization <fn>`) reporting whether a loop vectorized and, if not, which gate condition failed? Strong ergonomics argument; scope question for this proposal vs. a tooling follow-up. (Resolve during review.)
+Resolved during this review (recorded here for traceability, no longer open):
+
+- **Reassociable-reduction spelling** → a function-level `#fast_math` attribute (§4/§5). A narrower per-reduction method (`.sum_fast()`) MAY be added later as sugar, but the attribute is the primitive.
+- **Cost-model observability** → `ori explain --vectorization <fn>` reports gate-pass + veto reason (§1/§5). The veto is never silent; this is in-scope, not a follow-up.
+- **Stateful-adaptor / captured-mutable boundary** → excluded by gate condition 1 (§1): `scan`, accumulating-`fold` bodies, index-carrying adaptors, and captured-mutable bodies carry loop-carried dependence and do not vectorize.
+
+Still open:
+
+- **Eligibility edge of fusion shapes.** `map`, `zip`+`map`, `filter`+`count`, reorder-safe `fold` (bitwise/`min`/`max`) are guaranteed-eligible. The precise line for `flat_map` (variable per-element fan-out) and `take_while`/`skip_while` (data-dependent termination) within a fused chain is the remaining boundary question. (Resolve during review.)
+- **Provable-no-overflow promotion.** How aggressively does the compiler prove a checked-integer reduction cannot overflow (promoting it to reorder-safe without `#fast_math`)? The bounded-`[byte, max N]`-into-wider-accumulator case is clearly provable; the general case bounds the analysis effort. (Resolve during implementation.)
 - **Width selection policy.** Default to the 128-bit portable baseline (matching `std.bytes`) and widen via `cpu_has_feature`, or target the widest available width per function? (Resolve during implementation.)
-- **Reduction trees vs. lane accumulators.** For eligible integer reductions, the exact lowering shape (pairwise tree vs. N lane accumulators + horizontal sum) — bit-exact for integers either way, so an implementation-phase decision. (Resolve during implementation.)
+- **Reduction-tree shape under `#fast_math`.** The exact lane-tree order both backends adopt (pairwise tree vs. N lane accumulators + horizontal combine). Must be *one fixed order* both backends implement (§4/§6); which order is the implementation-phase choice. (Resolve during implementation.)
