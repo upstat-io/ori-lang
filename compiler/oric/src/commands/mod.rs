@@ -115,8 +115,7 @@ impl FrontendResult {
 /// Run the frontend pipeline and report all errors to the emitter.
 ///
 /// Checks lex errors, parse errors, and type errors, emitting diagnostics for
-/// each. This is the single source of truth for frontend error reporting —
-/// used by `check_file`, `run_file`, and `check_source` (LLVM path).
+/// each. The single source of truth for frontend error reporting.
 ///
 /// # Returns
 ///
@@ -350,18 +349,18 @@ pub(super) fn read_file(path: &str) -> String {
     match std::fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
-            let msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("cannot find file '{path}'"),
-                std::io::ErrorKind::PermissionDenied => {
-                    format!("permission denied reading '{path}'")
-                }
-                std::io::ErrorKind::InvalidData => {
-                    format!("'{path}' contains invalid UTF-8 data")
-                }
-                _ => format!("error reading '{path}': {e}"),
-            };
-            eprintln!("{msg}");
+            eprintln!("{}", read_file_error_message(path, &e));
             std::process::exit(1);
         }
+    }
+}
+
+/// Map a file-read [`std::io::Error`] to a user-friendly message for `path`.
+fn read_file_error_message(path: &str, e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => format!("cannot find file '{path}'"),
+        std::io::ErrorKind::PermissionDenied => format!("permission denied reading '{path}'"),
+        std::io::ErrorKind::InvalidData => format!("'{path}' contains invalid UTF-8 data"),
+        _ => format!("error reading '{path}': {e}"),
     }
 }

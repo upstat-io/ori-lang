@@ -133,12 +133,12 @@ fn emit_scip_nested_module_path_mints_slash_joined_module_component() {
     );
 }
 
+/// Regression pin: two top-level `greet` definitions in DIFFERENT source files
+/// must mint distinct symbol strings (disambiguated by the module component),
+/// so the exact-equality occurrence->definition join never collides on a
+/// cross-file homonym.
 #[test]
 fn emit_scip_same_name_in_different_files_mints_distinct_symbols() {
-    // Regression pin: two top-level `greet` definitions in DIFFERENT source
-    // files must mint distinct symbol strings (disambiguated by the module
-    // component), so the exact-equality occurrence->definition join never
-    // collides on a cross-file homonym.
     let index_a = emit_and_decode("mod_a/greet.ori", SINGLE_FN_FIXTURE);
     let index_b = emit_and_decode("mod_b/greet.ori", SINGLE_FN_FIXTURE);
 

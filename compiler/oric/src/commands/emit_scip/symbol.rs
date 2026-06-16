@@ -1,15 +1,12 @@
 //! SCIP symbol-string minting for Ori definition entities.
 //!
 //! Builds a `scip::types::Symbol` per entity and renders it through the
-//! crate's `format_symbol`, which implements the SCIP symbol-string grammar
-//! (`<scheme> <package> <descriptors>`, empty package components rendered as
-//! `.`).
+//! crate's `format_symbol`.
 //!
 //! Every symbol carries the source module's identity in the SCIP package-name
-//! slot (`<scheme> . <module> . <descriptors>`). Two same-named definitions in
-//! different source files therefore mint distinct strings, so the
-//! occurrence -> definition resolution (exact string equality) never
-//! mis-resolves a cross-file homonym.
+//! slot, so two same-named definitions in different source files mint distinct
+//! strings — the occurrence -> definition resolution (exact string equality)
+//! never mis-resolves a cross-file homonym.
 //!
 //! Each builder is deterministic — no timestamps, no hashed disambiguators, no
 //! absolute paths, no map-iteration ordering.

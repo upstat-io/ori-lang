@@ -12,7 +12,7 @@
 mod symbol;
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use ori_ir::{Module, StringInterner, TraitItem, TypeDeclKind};
+use ori_ir::{Module, Name, StringInterner, TraitItem, TypeDeclKind, Variant};
 use oric::{CompilerDb, Db, SourceFile};
 use protobuf::{Message, MessageField};
 use scip::types::symbol_information::Kind;
@@ -49,18 +49,7 @@ fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> 
                 }
             }
             TypeDeclKind::Sum(variants) => {
-                defs.push(minter.type_def(type_name, Kind::Enum));
-                for v in variants {
-                    let variant_name = interner.lookup(v.name);
-                    defs.push(minter.variant(type_name, variant_name));
-                    for vf in &v.fields {
-                        defs.push(minter.variant_field(
-                            type_name,
-                            variant_name,
-                            interner.lookup(vf.name),
-                        ));
-                    }
-                }
+                push_sum_type_defs(&mut defs, &minter, interner, type_name, variants);
             }
             // A newtype is a distinct nominal type with no fields to index.
             TypeDeclKind::Newtype(_) => {
@@ -85,12 +74,15 @@ fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> 
     }
 
     for imp in &module.impls {
-        let Some(type_name_id) = imp.type_name() else {
-            continue;
-        };
-        let type_name = interner.lookup(type_name_id);
-        for m in &imp.methods {
-            defs.push(minter.method(type_name, interner.lookup(m.name)));
+        if let Some(type_name_id) = imp.type_name() {
+            let parent = interner.lookup(type_name_id);
+            push_methods(
+                &mut defs,
+                &minter,
+                interner,
+                parent,
+                imp.methods.iter().map(|m| m.name),
+            );
         }
     }
 
@@ -98,26 +90,65 @@ fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> 
     // trait; an `extend Type { @m }` declares extension methods keyed on the
     // target type. Both are real definitions downstream references resolve to.
     for di in &module.def_impls {
-        let trait_name = interner.lookup(di.trait_name);
-        for m in &di.methods {
-            defs.push(minter.method(trait_name, interner.lookup(m.name)));
-        }
+        let parent = interner.lookup(di.trait_name);
+        push_methods(
+            &mut defs,
+            &minter,
+            interner,
+            parent,
+            di.methods.iter().map(|m| m.name),
+        );
     }
 
     for ext in &module.extends {
-        let target_name = interner.lookup(ext.target_type_name);
-        for m in &ext.methods {
-            defs.push(minter.method(target_name, interner.lookup(m.name)));
-        }
+        let parent = interner.lookup(ext.target_type_name);
+        push_methods(
+            &mut defs,
+            &minter,
+            interner,
+            parent,
+            ext.methods.iter().map(|m| m.name),
+        );
     }
 
-    // Canonical order: sort by symbol string, then collapse any duplicate
-    // symbols to one definition entry (a definition index has at most one
-    // entry per symbol — e.g. an inherent + trait impl method that mint the
-    // same `Type#m().`). Deterministic regardless of source ordering.
+    // Why: inherent + trait-impl methods can mint the same `Type#m().`; dedup keeps one per symbol.
     defs.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     defs.dedup_by(|a, b| a.symbol == b.symbol);
     defs
+}
+
+/// Push one method [`ScipDef`] per name in `method_names`, keyed on `parent`
+/// (the receiver type name for inherent / extension methods, the trait name
+/// for default-impl methods).
+fn push_methods(
+    defs: &mut Vec<ScipDef>,
+    minter: &ModuleMinter,
+    interner: &StringInterner,
+    parent: &str,
+    method_names: impl Iterator<Item = Name>,
+) {
+    for name in method_names {
+        defs.push(minter.method(parent, interner.lookup(name)));
+    }
+}
+
+/// Push the `Kind::Enum` type def plus one [`ScipDef`] per variant and per
+/// variant field for a sum-type declaration named `type_name`.
+fn push_sum_type_defs(
+    defs: &mut Vec<ScipDef>,
+    minter: &ModuleMinter,
+    interner: &StringInterner,
+    type_name: &str,
+    variants: &[Variant],
+) {
+    defs.push(minter.type_def(type_name, Kind::Enum));
+    for v in variants {
+        let variant_name = interner.lookup(v.name);
+        defs.push(minter.variant(type_name, variant_name));
+        for vf in &v.fields {
+            defs.push(minter.variant_field(type_name, variant_name, interner.lookup(vf.name)));
+        }
+    }
 }
 
 /// Derive the project-relative source path used as the SCIP document path and
