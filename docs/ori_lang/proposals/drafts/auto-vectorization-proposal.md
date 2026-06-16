@@ -5,7 +5,7 @@
 **Created:** 2026-06-16
 **Affects:** Compiler (canonicalizer, ARC/AIMS analysis, LLVM codegen), evaluator (dual-execution parity), spec (Clause 20.8.4 cross-reference, new optimization-guarantee appendix)
 **Depends On:** intrinsics-capability-proposal.md, intrinsics-v2-byte-simd-proposal.md
-**Amends:** iterator-performance-semantics-proposal.md (moves its "Not Guaranteed → Vectorization" line to a guarantee; approval adds an errata block to that proposal per the standard proposal errata convention — it is NOT rewritten in place)
+**Amends:** iterator-performance-semantics-proposal.md
 
 ---
 
