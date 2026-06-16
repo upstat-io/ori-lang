@@ -1,0 +1,22 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+//
+// Associated function (no self) carrying its OWN method-level generic binder
+// `<U>` on a generic impl (`@of<U> (v: U) -> Box<U>`). Dual-binder axis
+// (impl-level T + method-level U) for a no-self associated function. Same
+// mono-collection dispatch path as dedup_receiver_type_assoc_fn.ori; interp
+// passes, LLVM panics 'no method of on type int' until fixed.
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<T> Box<T> {
+    @of<U> (v: U) -> Box<U> = Box { value: v };
+}
+
+#skip("BUG-05-016: LLVM associated-function dispatch on generic impl mis-keys the mono-collection shell by first value param instead of owning receiver — interp passes, LLVM-only; method-level-generic no-self assoc fn")
+@test_assoc_fn_method_generic tests _ () -> void = {
+    let r: Box<int> = Box.of(v: 5);
+    assert_eq(actual: r.value, expected: 5)
+}
