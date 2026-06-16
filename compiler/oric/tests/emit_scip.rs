@@ -135,7 +135,7 @@ fn emit_scip_nested_module_path_mints_slash_joined_module_component() {
 
 #[test]
 fn emit_scip_same_name_in_different_files_mints_distinct_symbols() {
-    // F2 regression pin: two top-level `greet` definitions in DIFFERENT source
+    // Regression pin: two top-level `greet` definitions in DIFFERENT source
     // files must mint distinct symbol strings (disambiguated by the module
     // component), so the exact-equality occurrence->definition join never
     // collides on a cross-file homonym.
@@ -280,7 +280,7 @@ fn emit_scip_trait_impl_emits_distinct_method_symbols() {
     );
 }
 
-// Default-impl method cell (F3) — `def impl Trait { @m }` methods are indexed
+// Default-impl method cell — `def impl Trait { @m }` methods are indexed
 
 #[test]
 fn emit_scip_def_impl_emits_method_keyed_on_trait() {
@@ -299,11 +299,11 @@ fn emit_scip_def_impl_emits_method_keyed_on_trait() {
     );
 }
 
-// Extension method cell (F3) — `extend Type { @m }` methods are indexed
+// Extension method cell — `extend Type { @m }` methods are indexed
 
 #[test]
 fn emit_scip_extend_emits_method_keyed_on_target_type() {
-    // F3 regression pin: an extension method is keyed on its target type and is
+    // Regression pin: an extension method is keyed on its target type and is
     // NOT minted by any other walk (no trait, the struct walk emits only the
     // type + fields), so its presence proves the `extends` walk runs.
     let index = emit_and_decode("extend_methods.ori", EXTEND_FIXTURE);
