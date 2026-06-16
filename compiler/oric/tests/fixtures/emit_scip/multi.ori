@@ -1,0 +1,17 @@
+@area (w: int, h: int) -> int = w * h;
+
+type Point = { x: int, y: int }
+
+type Shape = Circle(radius: int) | Square;
+
+trait Drawable {
+    @draw (self) -> str
+}
+
+impl Point {
+    @magnitude (self) -> int = self.x * self.x + self.y * self.y;
+}
+
+impl Point: Drawable {
+    @draw (self) -> str = "point";
+}

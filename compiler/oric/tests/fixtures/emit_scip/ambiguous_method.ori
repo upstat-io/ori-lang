@@ -1,0 +1,15 @@
+type Cat = { age: int }
+
+type Dog = { age: int }
+
+impl Cat {
+    @speak (self) -> str = "meow";
+}
+
+impl Dog {
+    @speak (self) -> str = "woof";
+}
+
+@cat_speak (c: Cat) -> str = c.speak();
+
+@dog_speak (d: Dog) -> str = d.speak();

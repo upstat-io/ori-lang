@@ -299,8 +299,11 @@ pub fn concrete_sig_for_instance(
 ///    Example: `bar$m$3_int$im$3_str` for
 ///    `impl<T> Foo<T> { @bar<U> (...) }` at `T=int`, `U=str`.
 /// 4. **Method, no impl-level generics** (method-level only,
-///    e.g., `impl Box<int> { @m<U> ... }`):
-///    `<fn_name>$m$$im$<L0_PREFIXED_method_args>` (empty impl-args section).
+///    e.g., `impl Boxer { @pick<U> ... }`):
+///    `<fn_name>$m$<L0_PREFIXED_receiver>$im$<L0_PREFIXED_method_args>` — the
+///    receiver head is emitted after `$m$` (per the receiver-prepend rule below);
+///    the impl-args section between it and `$im$` is empty. Example:
+///    `pick$m$5_Boxer$im$3_int` for `impl Boxer { @pick<T> }` at `T = int`.
 ///
 /// For a method instance carrying a `receiver_type`, the encoded receiver type
 /// is emitted as the first length-prefixed payload after `$m$`, ahead of the

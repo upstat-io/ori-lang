@@ -1,0 +1,1 @@
+// A file with no declarations: type-checks clean, emits a 0-symbol index.

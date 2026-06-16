@@ -1,0 +1,5 @@
+type Widget = { size: int }
+
+extend Widget {
+    @doubled (self) -> int = self.size * 2;
+}

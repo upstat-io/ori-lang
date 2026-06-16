@@ -1,0 +1,9 @@
+type Rectangle = { width: int, height: int }
+
+trait Describable {
+    @describe (self) -> str
+}
+
+impl Rectangle: Describable {
+    @describe (self) -> str = "rect";
+}

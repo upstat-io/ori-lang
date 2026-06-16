@@ -1,0 +1,7 @@
+@helper (n: int) -> int = n + 1;
+
+@run (items: [int]) -> int = {
+    let $a = items.len();
+    print(msg: "x");
+    helper(n: a)
+};

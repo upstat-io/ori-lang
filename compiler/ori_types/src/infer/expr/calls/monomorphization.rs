@@ -157,17 +157,19 @@ pub(super) fn maybe_record_mono_instance(
     // from emitting indirect dispatch on each burden walk.
 }
 
-/// Record a `MonoInstance` for an INHERENT method call on a generically-
-/// instantiated receiver (`b.unwrap()` where `b: Box<int>` and the impl is
-/// `impl<T> Box<T> { @unwrap (self) -> T }`).
+/// Record a `MonoInstance` for a generic method call — either an IMPL-level
+/// generic (`b.unwrap()` where `b: Box<int>` and the impl is
+/// `impl<T> Box<T> { @unwrap (self) -> T }`) OR a METHOD-level generic
+/// (`b.pick(item: 5)` where the impl is `impl Boxer { @pick<T> (self, item: T) -> T }`).
 ///
-/// Fires ONLY when [`ImplMethodSig::method_mono`] is `Some` — i.e. the resolved
-/// method is inherent and its impl is generic over the receiver's type params.
-/// Trait-method dispatch, builtin dispatch, and non-generic impls leave that
-/// field `None` and never reach this path. Emission is additionally gated on
-/// the receiver (and every substituted param / return type) being fully
-/// concrete; a receiver that still carries type variables — a generic method
-/// resolving through another generic — is conservatively skipped this pass.
+/// Fires when EITHER binder axis is present: [`ImplMethodSig::method_mono`] is
+/// `Some` (impl generic over the receiver's type params) OR
+/// [`ImplMethodSig::scheme_var_ids`] is non-empty (the method's own `<U>` binders,
+/// present even on a concrete-receiver impl). A non-generic method on a
+/// non-generic impl leaves both empty and is conservatively skipped. Emission is
+/// additionally gated on the receiver (and every substituted param / return type)
+/// being fully concrete; a receiver that still carries type variables — a generic
+/// method resolving through another generic — is conservatively skipped this pass.
 ///
 /// MUST be called AFTER argument type-checking has unified the method's
 /// instantiation vars, so `engine.resolve` yields concrete types.

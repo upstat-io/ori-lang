@@ -1,0 +1,7 @@
+trait Greeter {
+    @greeting (self) -> int
+}
+
+def impl Greeter {
+    @greeting (self) -> int = 1;
+}
