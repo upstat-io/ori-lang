@@ -208,9 +208,15 @@ pub(super) fn refresh_method_mono_body_type_maps(
     use crate::{Idx, Tag};
 
     for inst in mono_instances.iter_mut() {
-        // Only impl-method instances can construct impl-generic composites in
-        // their body; top-level free functions carry no impl-level rigid leaves.
-        if inst.impl_args.is_empty() {
+        // Method instances can construct generic composites in their body on
+        // EITHER binder axis: impl-level (`impl<T> Box<T>` → a `Pair<B, A>` ctor
+        // in `swap`) OR method-level (`impl Boxer { @wrap<T> }` → a `[T]` ctor in
+        // `wrap`, whose `[Rigid(T)]` is interned at Pass 4, AFTER the Pass-3 call-
+        // site recording). Top-level free functions carry no impl/method rigid
+        // leaves (BUG-04-146: a method-level-only generic has empty `impl_args`
+        // but populated `method_args` — skipping it left its body composite
+        // unrefreshed and the rigid leaf survived to codegen).
+        if inst.impl_args.is_empty() && inst.method_args.is_empty() {
             continue;
         }
 

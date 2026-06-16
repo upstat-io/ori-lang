@@ -8,7 +8,7 @@ mod short_circuit;
 
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{Idx, Pool, Tag, TypeFlags};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -146,7 +146,32 @@ impl ArcLowerer<'_> {
     #[inline]
     pub(crate) fn resolve_body_type(&self, ty: Idx) -> Idx {
         match self.type_subst {
-            Some(map) => map.get(&ty).copied().unwrap_or(ty),
+            Some(map) => {
+                if let Some(resolved) = map.get(&ty).copied() {
+                    resolved
+                } else {
+                    // Monomorphization residual detector: a body type that still
+                    // carries a rigid/var leaf but is NOT a `body_type_map` key
+                    // survives to codegen as `Tag::rigid_var` (PC-2 break). The
+                    // exact-Idx map covers leaves + recording-time composites;
+                    // a body composite interned after the call-site recording
+                    // (e.g. `[T]` from a method body) misses here.
+                    if self
+                        .pool
+                        .flags(ty)
+                        .intersects(TypeFlags::HAS_RIGID_VAR | TypeFlags::HAS_VAR)
+                    {
+                        tracing::debug!(
+                            target: "ori_arc::mono",
+                            ty = ?ty,
+                            tag = ?self.pool.tag(ty),
+                            map_len = map.len(),
+                            "resolve_body_type miss on generic body type"
+                        );
+                    }
+                    ty
+                }
+            }
             None => ty,
         }
     }

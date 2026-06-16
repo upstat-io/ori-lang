@@ -1,0 +1,13 @@
+type Widget = { id: int }
+
+trait Renderable {
+    @render (self) -> str
+}
+
+impl Widget {
+    @render (self) -> str = "inherent";
+}
+
+impl Widget: Renderable {
+    @render (self) -> str = "trait-impl";
+}

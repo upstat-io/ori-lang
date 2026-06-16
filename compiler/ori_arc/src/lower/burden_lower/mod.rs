@@ -229,6 +229,26 @@ pub(in crate::lower::burden_lower) fn cross_block_final_use_cancel_disabled() ->
     *CROSS_BLOCK_FINAL_USE_CANCEL_DISABLED
 }
 
+/// `ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS=1` restores the kept
+/// surplus same-allocation scope-exit dec on a use-once owned source whose sole
+/// Let{Var} alias is a same-allocation borrow-view live downstream
+/// ([`ownership_scans::compute_transfer_via_move_alias`] borrow-view-dst arm).
+/// Default (unset): the source's dec is suppressed (the lineage's release is the
+/// edge-cleanup dec keyed on the shared `genuine_same_alloc_reps` rep) per
+/// RL-2 release-once — the forwarder-result `%6 = %4` keystone. With the toggle
+/// set, the surplus dec returns (double-free on the forwarder-result lineage).
+/// Spec: Annex E §AIMS RL-2.
+static BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS`
+/// toggle — consumed by the move-alias transfer scan
+/// (`ownership_scans::move_alias`).
+pub(in crate::lower::burden_lower) fn borrow_view_dst_surplus_dec_suppress_disabled() -> bool {
+    *BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED
+}
+
 /// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
 /// consumed by Phase 5 here and by the Phase-6 per-var elision
 /// (`aims::realize::burden_elim`) so both halves of the pair-coupling cure flip

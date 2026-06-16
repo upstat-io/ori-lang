@@ -392,6 +392,7 @@ pub(crate) fn emit_burden_ops<'a>(
         ctx.last_use_points(),
         &owned_vars_needing_rc,
         &invoke_ttr_edges,
+        &alias_table.genuine_same_alloc_reps,
     );
 
     // Symmetry: a FRESH move source whose last-use dec is suppressed (it

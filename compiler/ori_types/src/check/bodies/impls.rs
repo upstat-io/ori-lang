@@ -6,7 +6,7 @@
 use ori_ir::{ImplMethod, Module, Name, TraitDef, TraitItem};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::method_sig::{allocate_generic_binders, allocate_method_binders, build_method_sig};
+use super::method_sig::{allocate_generic_binders, build_method_sig};
 use crate::check::registration::resolve_type_with_method_generics;
 use crate::check::ModuleChecker;
 use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx};
@@ -130,8 +130,16 @@ fn check_impl_method(
     // body-scope binding below.
     // Phase B-Residual-2 (c): also collect inline `<T: Bound>` assumptions
     // for body-internal trait dispatch.
+    // BUG-04-146: REUSE the method-level `RigidVar`s allocated at Pass 0c
+    // (`register_impls`), keyed by body `ExprId`, so the body's generic types
+    // reference the identical `RigidVar` Idxs the pass-3 call-site recording
+    // scan substituted into `body_type_map`. Falls back to fresh allocation
+    // (`None`) for any method without a registered map (e.g. a synthesized
+    // trait default whose body was not registered), preserving prior behavior.
+    let method_prealloc: Option<FxHashMap<Name, Idx>> =
+        checker.method_rigid_var_map_for(method.body).cloned();
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
-        allocate_method_binders(checker, method);
+        allocate_generic_binders(checker, method.generics, method_prealloc.as_ref());
 
     // §10.1.2: merge impl-level (`impl<T>`) + method-level (`@m<U>`) RigidVar
     // overlays so an impl-level type-param annotation (`x: T`) resolves to the
@@ -369,12 +377,19 @@ fn check_impl_method(
     // been refreshed in place by `default_unbound_vars_in_scope` inside the
     // inference closure, so the sig reflects end-of-body truth — the exact
     // inputs `run_validator` needs to enforce `PC-2` across sig positions.
+    // BUG-04-146: include the method's own generic params (`@wrap<T>`) in the
+    // registered sig's `type_params`, not just the impl-level ones. `compile_impls`
+    // skips a method whose sig `is_generic()` (relying on mono instances); a
+    // concrete-receiver impl has empty impl `type_params`, so without the method
+    // binders here a method-level-generic template (`@wrap<T> -> [T]`) reported
+    // non-generic and was codegen'd directly, emitting `[Rigid(T)]` (PC-2 break).
+    // `combined_type_params` is impl-level + method-level in declaration order.
     let sig = build_method_sig(
         method.name,
         &params,
         param_types,
         return_type,
-        type_params,
+        &combined_type_params,
         method_const_params,
         checker.pool(),
     );

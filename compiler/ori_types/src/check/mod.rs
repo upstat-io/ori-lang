@@ -205,6 +205,14 @@ pub struct ModuleChecker<'a> {
     /// struct ctor composite never resolves (BUG-04-146 `swap` facet).
     impl_rigid_var_maps: Vec<FxHashMap<Name, Idx>>,
 
+    /// Method-level `RigidVar` substitution maps keyed by the method body's
+    /// `ExprId`. Allocated at Pass 0c (`register_impls`) so a method's generic
+    /// `RigidVar`s exist before any pass-3 call-site records a method mono;
+    /// `check_impl_method` (pass 4) REUSES the stored map via `prealloc` so the
+    /// body's `RigidVar` Idxs match the recording scan (BUG-04-146 method-level
+    /// generic facet). Mirror of `impl_rigid_var_maps` for method binders.
+    method_rigid_var_maps: FxHashMap<ExprId, FxHashMap<Name, Idx>>,
+
     // === Diagnostics ===
     /// Accumulated type check errors.
     errors: Vec<crate::TypeCheckError>,
@@ -292,6 +300,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             impl_rigid_var_maps: Vec::new(),
+            method_rigid_var_maps: FxHashMap::default(),
             errors: Vec::new(),
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
@@ -336,6 +345,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             impl_rigid_var_maps: Vec::new(),
+            method_rigid_var_maps: FxHashMap::default(),
             errors: Vec::new(),
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
@@ -362,6 +372,20 @@ impl<'a> ModuleChecker<'a> {
     /// `check_impl_block` to REUSE the registration-time `RigidVar`s.
     pub(crate) fn impl_rigid_var_map(&self, idx: usize) -> Option<&FxHashMap<Name, Idx>> {
         self.impl_rigid_var_maps.get(idx)
+    }
+
+    /// Store the method-level `RigidVar` substitution map for the method whose
+    /// body is `body`. Called once per impl method by `register_impls` (Pass 0c)
+    /// so the binders exist before any pass-3 call-site records a method mono.
+    pub(crate) fn set_method_rigid_var_map(&mut self, body: ExprId, map: FxHashMap<Name, Idx>) {
+        self.method_rigid_var_maps.insert(body, map);
+    }
+
+    /// The method-level `RigidVar` map for the method body `body`, or `None`
+    /// when the method has no registered map. Consumed by `check_impl_method`
+    /// (Pass 4) to REUSE the registration-time `RigidVar`s via `prealloc`.
+    pub(crate) fn method_rigid_var_map_for(&self, body: ExprId) -> Option<&FxHashMap<Name, Idx>> {
+        self.method_rigid_var_maps.get(&body)
     }
 
     // Import/Setup Setters

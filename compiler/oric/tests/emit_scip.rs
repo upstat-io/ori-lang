@@ -37,6 +37,10 @@ const NON_INDEXED_CALLS_FIXTURE: &str = include_str!("fixtures/emit_scip/non_ind
 // Multi-line bodies so a Definition occurrence's identifier-token `range`
 // (single-line) is crisply distinct from its body-spanning `enclosing_range`.
 const CALLER_CALLEE_FIXTURE: &str = include_str!("fixtures/emit_scip/caller_callee.ori");
+// Inherent + trait-impl `@render` on `Widget` both mint `Widget#render().` at
+// distinct source sites — the dedup-distinct-site Definition-occurrence pin.
+const SAME_SYMBOL_METHODS_FIXTURE: &str =
+    include_str!("fixtures/emit_scip/same_symbol_methods.ori");
 
 /// Write `content` to `dir/name`, creating any parent directories the relative
 /// `name` implies (e.g. `mod_a/greet.ori`).
@@ -110,14 +114,25 @@ fn kind(info: &SymbolInformation) -> Kind {
     info.kind.enum_value_or_default()
 }
 
-/// The reference occurrences of the single emitted document.
+/// All occurrences of the single emitted document (every role).
 fn occurrences(index: &Index) -> &[scip::types::Occurrence] {
     &document(index).occurrences
 }
 
-/// The (sorted) SCIP symbol strings of every emitted occurrence.
+/// The REFERENCE-role (`ReadAccess`) occurrences only. The emitter now also emits
+/// Definition-role occurrences per definition; the reference pins
+/// assert on call-site references, so they filter to ReadAccess-role first.
+fn reference_occurrences(index: &Index) -> Vec<&scip::types::Occurrence> {
+    occurrences(index)
+        .iter()
+        .filter(|o| o.symbol_roles == ROLE_READ_ACCESS)
+        .collect()
+}
+
+/// The (sorted) SCIP symbol strings of every REFERENCE occurrence (the
+/// reference-only set — Definition occurrences are excluded).
 fn occurrence_symbols(index: &Index) -> Vec<String> {
-    let mut syms: Vec<String> = occurrences(index)
+    let mut syms: Vec<String> = reference_occurrences(index)
         .iter()
         .map(|o| o.symbol.clone())
         .collect();
@@ -125,9 +140,9 @@ fn occurrence_symbols(index: &Index) -> Vec<String> {
     syms
 }
 
-/// Count of occurrences carrying an exact symbol string.
+/// Count of REFERENCE occurrences carrying an exact symbol string.
 fn occurrence_count(index: &Index, symbol: &str) -> usize {
-    occurrences(index)
+    reference_occurrences(index)
         .iter()
         .filter(|o| o.symbol == symbol)
         .count()
@@ -437,8 +452,8 @@ fn emit_scip_method_call_occurrence_references_resolved_impl_symbol() {
     );
 
     // Role bits: a reference carries ReadAccess and never Definition.
-    let method_occ = occurrences(&index)
-        .iter()
+    let method_occ = reference_occurrences(&index)
+        .into_iter()
         .find(|o| o.symbol == method_symbol)
         .unwrap_or_else(|| panic!("method-call occurrence present"));
     assert_eq!(
@@ -465,8 +480,8 @@ fn emit_scip_method_call_occurrence_references_resolved_impl_symbol() {
     // The free-function occurrence range is the callee-IDENTIFIER token (`area`)
     // on fixture line 14 (0-based 13), NOT the whole call expression — pins the
     // `free_call_occurrence` range == expr_span(func) contract.
-    let area_occ = occurrences(&index)
-        .iter()
+    let area_occ = reference_occurrences(&index)
+        .into_iter()
         .find(|o| o.symbol == fn_symbol)
         .unwrap_or_else(|| panic!("free-function-call occurrence present"));
     assert_eq!(
@@ -556,7 +571,7 @@ fn emit_scip_index_carries_tool_metadata() {
     );
 }
 
-// Definition-occurrence cells (BUG-07-264) — the caller-attribution signal.
+// Definition-occurrence cells — the caller-attribution signal.
 //
 // The spec-correct SCIP convention (rust-analyzer / scip-clang / scip-java): a
 // `Definition`-role occurrence's `range` is the definition's IDENTIFIER TOKEN
@@ -581,8 +596,8 @@ fn definition_occurrence<'a>(index: &'a Index, symbol: &str) -> &'a scip::types:
 /// Positive L12 pin: on a two-function fixture (one calls the other), each
 /// definition emits exactly one `Definition`-role occurrence whose `range` is
 /// the identifier-token span and whose `enclosing_range` spans the full
-/// (multi-line) definition extent. FAILS on the current emitter (it emits NO
-/// Definition-role occurrences and never sets `enclosing_range`).
+/// (multi-line) definition extent. Regression pin: pre-fix the emitter emitted
+/// NO Definition-role occurrences and never set `enclosing_range`.
 #[test]
 fn emit_scip_emits_definition_occurrence_with_identifier_range_and_body_enclosing_range() {
     let index = emit_and_decode("caller_callee.ori", CALLER_CALLEE_FIXTURE);
@@ -641,9 +656,9 @@ fn emit_scip_emits_definition_occurrence_with_identifier_range_and_body_enclosin
 /// Negative pin: the rejected pragmatic shape gave the Definition occurrence a
 /// body-spanning `range`. The spec-correct convention keeps `range` as the
 /// single-line identifier token and puts the body span in `enclosing_range` —
-/// the two are never equal, and `range` never straddles lines. FAILS now (no
-/// Definition-role occurrence is emitted at all); also fails-closed if a later
-/// implementation ships the body-spanning-`range` shortcut.
+/// the two are never equal, and `range` never straddles lines. Regression pin:
+/// pre-fix no Definition-role occurrence was emitted at all; also fails-closed
+/// if a later implementation ships the body-spanning-`range` shortcut.
 #[test]
 fn emit_scip_definition_occurrence_range_is_identifier_token_not_body_spanning() {
     let index = emit_and_decode("caller_callee.ori", CALLER_CALLEE_FIXTURE);
@@ -680,7 +695,8 @@ fn emit_scip_definition_occurrence_range_is_identifier_token_not_body_spanning()
 
 /// Nesting pin: a method-in-impl emits its OWN `Definition`-role occurrence with
 /// its own method-extent `enclosing_range`, distinct from the enclosing type's
-/// Definition occurrence. FAILS now (no Definition-role occurrences emitted).
+/// Definition occurrence. Regression pin: pre-fix no Definition-role occurrences
+/// were emitted.
 #[test]
 fn emit_scip_method_and_type_each_emit_distinct_definition_occurrences() {
     let index = emit_and_decode("impl.ori", IMPL_FIXTURE);
@@ -726,6 +742,108 @@ fn emit_scip_method_and_type_each_emit_distinct_definition_occurrences() {
         method_def.enclosing_range, type_def.enclosing_range,
         "method and type each carry a distinct enclosing_range"
     );
+}
+
+/// Coverage pin for non-function / non-method definition KINDS: `collect_defs`
+/// mints `type_def` / `trait_def` / variant beyond fn + struct + method, and EACH
+/// must emit a Definition-role occurrence with an identifier-token `range` +
+/// body `enclosing_range`. Drives the multi-entity fixture (trait `Drawable`,
+/// enum `Shape` + variant `Circle`). Regression pin: pre-fix no Definition
+/// occurrences were emitted.
+#[test]
+fn emit_scip_trait_and_enum_definition_kinds_emit_definition_occurrences() {
+    let index = emit_and_decode("multi.ori", MULTI_FIXTURE);
+
+    // Trait declaration: `Drawable` identifier token on line 6 (`trait ` is cols
+    // 0..6, `Drawable` cols 6..14), enclosing_range spans the trait body.
+    let trait_def = definition_occurrence(&index, "ori . multi . Drawable#");
+    assert_eq!(
+        trait_def.range,
+        vec![6, 6, 6, 14],
+        "trait Definition `range` is the `Drawable` identifier token"
+    );
+    assert!(
+        range_contains(&trait_def.enclosing_range, &trait_def.range),
+        "trait enclosing_range contains its identifier token"
+    );
+    assert!(
+        trait_def.enclosing_range[2] > trait_def.enclosing_range[0],
+        "trait enclosing_range spans the multi-line trait body"
+    );
+
+    // Enum type declaration: `Shape` identifier token on line 4 (`type ` cols
+    // 0..5, `Shape` cols 5..10).
+    let enum_def = definition_occurrence(&index, "ori . multi . Shape#");
+    assert_eq!(
+        enum_def.range,
+        vec![4, 5, 4, 10],
+        "enum Definition `range` is the `Shape` identifier token"
+    );
+    assert!(range_contains(&enum_def.enclosing_range, &enum_def.range));
+    assert_ne!(
+        enum_def.range, enum_def.enclosing_range,
+        "enum identifier-token range is distinct from its enclosing range"
+    );
+
+    // An enum VARIANT also emits a Definition occurrence: `Circle` on line 4.
+    let variant_def = definition_occurrence(&index, "ori . multi . Shape#Circle.");
+    assert_eq!(
+        variant_def.range,
+        vec![4, 13, 4, 19],
+        "variant Definition `range` is the `Circle` identifier token"
+    );
+    assert!(range_contains(
+        &variant_def.enclosing_range,
+        &variant_def.range
+    ));
+}
+
+/// Dedup-distinct-site pin: an inherent `@render` and a trait-impl `@render` on
+/// `Widget` mint the SAME `Widget#render().` symbol at two distinct source
+/// sites. The symbol table dedups to ONE `SymbolInformation`, but EACH site
+/// MUST emit its own Definition-role occurrence (guards `mod.rs` `defs.dedup_by`
+/// from collapsing per-site occurrences). Regression pin: pre-fix no Definition
+/// occurrences were emitted at all.
+#[test]
+fn emit_scip_same_symbol_methods_at_distinct_sites_each_emit_a_definition_occurrence() {
+    let index = emit_and_decode("same_symbol_methods.ori", SAME_SYMBOL_METHODS_FIXTURE);
+
+    let widget_render = "ori . same_symbol_methods . Widget#render().";
+
+    // Exactly ONE SymbolInformation for the deduped symbol.
+    assert_eq!(
+        symbol_strings(&index)
+            .iter()
+            .filter(|s| *s == widget_render)
+            .count(),
+        1,
+        "the symbol table carries exactly one `Widget#render().` SymbolInformation (deduped)"
+    );
+
+    // But TWO Definition-role occurrences — one per distinct source site.
+    let defs: Vec<&scip::types::Occurrence> = occurrences(&index)
+        .iter()
+        .filter(|o| o.symbol == widget_render && o.symbol_roles == ROLE_DEFINITION)
+        .collect();
+    assert_eq!(
+        defs.len(),
+        2,
+        "each distinct `@render` site (inherent + trait-impl) emits its own \
+         Definition occurrence — the dedup must NOT collapse per-site occurrences"
+    );
+
+    // The two sites carry DISTINCT enclosing ranges (different source extents).
+    assert_ne!(
+        defs[0].enclosing_range, defs[1].enclosing_range,
+        "the two Definition occurrences span distinct source extents"
+    );
+    for o in &defs {
+        assert_eq!(
+            o.range[0], o.range[2],
+            "each Definition `range` is the single-line `render` identifier token"
+        );
+        assert!(range_contains(&o.enclosing_range, &o.range));
+    }
 }
 
 #[test]

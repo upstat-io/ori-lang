@@ -60,6 +60,15 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     // var, not a Let-alias of the arg), leaving the value-copy aggregate's
     // intermediate decs/incs un-suppressed (double-free on the forwarder lineage).
     invoke_ttr_edges: &[(ArcVarId, ArcVarId)],
+    // GENUINE same-allocation reps (member -> rep): Let{Var} whole-var aliases +
+    // apply-result Direct/Conditional edges (NO Jump-phi / Select). Consumed by
+    // the borrow-view-dst suppression arm: a use-once owned source `%s` whose
+    // sole Let{Var} alias `%d` is a same-allocation borrow-view (NOT in
+    // `owned_vars_needing_rc`) live downstream has its single release discharged
+    // by the lineage's edge-cleanup dec on the same rep, so `%s`'s own scope-exit
+    // dec is the surplus same-allocation dec (RL-2 release-once: one lineage, one
+    // release). Spec: Annex E §AIMS RL-2.
+    genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> FxHashSet<ArcVarId> {
     // Global-last-use lookup: a var with exactly ONE `last_use_points` entry is
     // used in exactly one block, and that entry is its global last use. A var
@@ -184,21 +193,45 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
             transferred.insert(src);
         }
     }
-    // Fixpoint: a move source transfers out when its dst transfers out. The
-    // cross-block hand-off edges join here (and ONLY here): the relaxed gate's
-    // cancellation fires solely on a proven downstream owned-position transfer
-    // of the terminal alias AND of every non-terminal alias lineage — never on
-    // the owned-RC-dst seed above. Both edge kinds are monotone over
-    // `transferred`, so the combined fixpoint terminates.
+    // Borrow-view-dst surplus-dec suppression: the forwarder-result `%6 = %4`
+    // keystone (RL-2 release-once). Full rationale + gates:
+    // `collect_borrow_view_dst_surplus_dec_srcs`.
+    if !super::super::borrow_view_dst_surplus_dec_suppress_disabled() {
+        transferred.extend(collect_borrow_view_dst_surplus_dec_srcs(
+            func,
+            owned_vars_needing_rc,
+            use_counts,
+            last_use_points,
+            &src_has_dead_alias,
+            &param_vars,
+            genuine_same_alloc_reps,
+        ));
+    }
+    // Fixpoint: a move source transfers out when its dst transfers out (monotone
+    // over `transferred`; both move + cross-block hand-off edge kinds terminate).
+    // See `run_move_transfer_fixpoint`.
+    run_move_transfer_fixpoint(&mut transferred, &move_edges, &handoff_edges);
+    transferred
+}
+
+/// Transfer-out fixpoint over move + cross-block hand-off edges. A move source
+/// transfers out when its dst does; a hand-off edge fires only when its dst
+/// transfers AND every `required` non-terminal-alias lineage also transfers.
+/// Both edge kinds are monotone over `transferred`, so the loop terminates.
+fn run_move_transfer_fixpoint(
+    transferred: &mut FxHashSet<ArcVarId>,
+    move_edges: &[(ArcVarId, ArcVarId)],
+    handoff_edges: &[HandoffEdge],
+) {
     let mut changed = true;
     while changed {
         changed = false;
-        for &(dst, src) in &move_edges {
+        for &(dst, src) in move_edges {
             if transferred.contains(&dst) && transferred.insert(src) {
                 changed = true;
             }
         }
-        for edge in &handoff_edges {
+        for edge in handoff_edges {
             if transferred.contains(&edge.dst)
                 && edge.required.iter().all(|d| transferred.contains(d))
                 && transferred.insert(edge.src)
@@ -207,7 +240,66 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
             }
         }
     }
-    transferred
+}
+
+/// Borrow-view-dst surplus-dec suppression source set (RL-2 release-once). A
+/// use-once owned source `%s` whose sole `Let { Var }` alias `%d` is a
+/// same-allocation borrow-view (`genuine_same_alloc_reps` proves identity) that
+/// is live downstream: `%s`'s own scope-exit dec is the SURPLUS same-allocation
+/// dec (the lineage's single release is the edge-cleanup dec on the shared rep).
+/// Returns the `%s` set to mark transferred. Spec: Annex E §AIMS RL-2.
+fn collect_borrow_view_dst_surplus_dec_srcs(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+    use_counts: &FxHashMap<ArcVarId, u32>,
+    last_use_points: &[(ArcVarId, usize, usize)],
+    src_has_dead_alias: &FxHashSet<ArcVarId>,
+    param_vars: &FxHashSet<ArcVarId>,
+    genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut entry_count: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    let mut last_pos: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
+    for &(var, b, i) in last_use_points {
+        *entry_count.entry(var).or_default() += 1;
+        last_pos.insert(var, (b, i));
+    }
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            else {
+                continue;
+            };
+            let (dst, src) = (*dst, *src);
+            // `%s` owned-RC + use-once + this alias is its single-block last use +
+            // no dead alias (a dead alias's ref is discharged by the kept terminal
+            // dec, never the borrow-view path) + not a param.
+            let single_block_last_use = entry_count.get(&src).copied().unwrap_or(0) == 1
+                && last_pos.get(&src) == Some(&(block_idx, instr_idx));
+            if !owned_vars_needing_rc.contains(&src)
+                || use_counts.get(&src).copied().unwrap_or(0) != 1
+                || !single_block_last_use
+                || src_has_dead_alias.contains(&src)
+                || param_vars.contains(&src)
+            {
+                continue;
+            }
+            // `%d` is a SAME-ALLOCATION borrow-view that is LIVE downstream.
+            let same_alloc = genuine_same_alloc_reps.get(&dst).copied()
+                == genuine_same_alloc_reps.get(&src).copied()
+                && genuine_same_alloc_reps.contains_key(&dst);
+            let dst_is_borrow_view = !owned_vars_needing_rc.contains(&dst);
+            let dst_live = use_counts.get(&dst).copied().unwrap_or(0) >= 1;
+            if same_alloc && dst_is_borrow_view && dst_live {
+                out.insert(src);
+            }
+        }
+    }
+    out
 }
 
 /// DP-3 + RL-1 + RL-2 read-only-borrow orphan-inc suppression. A fresh

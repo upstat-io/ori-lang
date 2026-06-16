@@ -157,6 +157,52 @@ pub(super) fn maybe_record_mono_instance(
     // from emitting indirect dispatch on each burden walk.
 }
 
+/// `(method_args, method_named, var_subst)` triple from `resolve_method_binder_args`.
+type MethodBinderArgs = (Vec<GenericArg>, Vec<(Name, Idx)>, FxHashMap<u32, Idx>);
+
+/// Resolve the method's own `<T>`-style binders to concrete args.
+///
+/// In the SIGNATURE the binders are fresh unification vars (in
+/// `instantiation_subst`, link-resolved); in the BODY they are
+/// `VarState::Rigid { name }` rigid vars whose `var_id` is NOT the scheme `var_id`.
+/// The signature substitution keys on `scheme_var_ids` (var-id); the body
+/// substitution keys on the binder NAME via `build_impl_rigid_var_subst` — so
+/// the binder name (from `generic_param_metadata`, parallel to `scheme_var_ids`
+/// in declaration order, non-const entries only) is captured alongside each
+/// resolved arg for `extra_named` threading (the impl-binder name-scan path).
+///
+/// Returns `(method_args, method_named, var_subst)`, or `None` when a binder arg
+/// is not fully concrete (caller skips the recording this pass).
+fn resolve_method_binder_args(
+    engine: &mut InferEngine<'_>,
+    sig: &super::impl_lookup::ImplMethodSig,
+) -> Option<MethodBinderArgs> {
+    let method_binder_names: Vec<Name> = sig
+        .generic_param_metadata
+        .iter()
+        .filter(|m| !m.is_const)
+        .map(|m| m.name)
+        .collect();
+    let mut method_args = Vec::with_capacity(sig.scheme_var_ids.len());
+    let mut method_named: Vec<(Name, Idx)> = Vec::with_capacity(sig.scheme_var_ids.len());
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    for (pos, &sv_id) in sig.scheme_var_ids.iter().enumerate() {
+        let Some(&fresh) = sig.instantiation_subst.get(&sv_id) else {
+            continue;
+        };
+        let resolved = engine.pool().resolve_fully(fresh);
+        if !is_fully_concrete(engine, resolved) {
+            return None;
+        }
+        var_subst.insert(sv_id, resolved);
+        method_args.push(GenericArg::Type(resolved));
+        if let Some(&name) = method_binder_names.get(pos) {
+            method_named.push((name, resolved));
+        }
+    }
+    Some((method_args, method_named, var_subst))
+}
+
 /// Record a `MonoInstance` for a generic method call — either an IMPL-level
 /// generic (`b.unwrap()` where `b: Box<int>` and the impl is
 /// `impl<T> Box<T> { @unwrap (self) -> T }`) OR a METHOD-level generic
@@ -238,19 +284,12 @@ pub(super) fn maybe_record_method_mono_instance(
         }
     }
 
-    let mut method_args = Vec::with_capacity(sig.scheme_var_ids.len());
-    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
-    for &sv_id in &sig.scheme_var_ids {
-        let Some(&fresh) = sig.instantiation_subst.get(&sv_id) else {
-            continue;
-        };
-        let resolved = engine.pool().resolve_fully(fresh);
-        if !is_fully_concrete(engine, resolved) {
-            return;
-        }
-        var_subst.insert(sv_id, resolved);
-        method_args.push(GenericArg::Type(resolved));
-    }
+    // The method's `<T>`-style binders, resolved to concrete args; `None` when
+    // any binder arg still carries type vars (skip this pass).
+    let Some((method_args, method_named, mut var_subst)) = resolve_method_binder_args(engine, sig)
+    else {
+        return;
+    };
 
     // Concrete param / return types via `substitute_in_pool` (empty map), which
     // follows each child Var's `VarState::Link` while PRESERVING the `Applied`
@@ -274,28 +313,76 @@ pub(super) fn maybe_record_method_mono_instance(
         return;
     }
 
+    let (body_type_map, extra_named) =
+        build_method_body_type_map(engine, sig, mono, receiver, method_named, &mut var_subst);
+
+    let instance = MonoInstance::new_method(
+        method_name,
+        impl_args,
+        method_args,
+        receiver,
+        concrete_param_types,
+        concrete_return_type,
+        body_type_map,
+    );
+
+    tracing::debug!(
+        target: "ori_types::mono",
+        fn_name = ?method_name,
+        receiver = ?receiver,
+        impl_args = ?instance.impl_args,
+        method_args = ?instance.method_args,
+        extra_named = ?extra_named,
+        body_type_map = ?instance.body_type_map,
+        "recorded mono instance"
+    );
+
+    engine.record_mono_with_dispatch(call_expr_id, instance);
+}
+
+/// `(body_type_map, extra_named)` returned by [`build_method_body_type_map`]:
+/// the generic-body-type → concrete substitutions and the name-keyed binder
+/// list threaded into the recorded-instance trace.
+type MethodBodyTypeMap = (Vec<(Idx, Idx)>, Vec<(Name, Idx)>);
+
+/// Build the body type map for a method instance and register the receiver's
+/// concrete applied resolution. Returns `(body_type_map, extra_named)`; the
+/// caller threads `extra_named` into the recorded-instance trace.
+fn build_method_body_type_map(
+    engine: &mut InferEngine<'_>,
+    sig: &super::impl_lookup::ImplMethodSig,
+    mono: Option<&super::impl_lookup::MethodMonoData>,
+    receiver: Idx,
+    method_named: Vec<(Name, Idx)>,
+    var_subst: &mut FxHashMap<u32, Idx>,
+) -> MethodBodyTypeMap {
     // `body_type_map` maps each generic body type to its concrete form: the
     // method-level scheme vars via the canonical SSOT helper, plus the impl-
     // level `Tag::Named(binder)` entries the var-keyed helper cannot reach.
     crate::pool::substitute::extend_var_subst_with_roots(
         engine.pool(),
         &sig.scheme_var_ids,
-        &mut var_subst,
+        var_subst,
     );
     let struct_type_params = collect_struct_type_params(engine);
-    // Impl-level `Tag::Named(binder) -> concrete` entries the var-keyed helper
-    // cannot reach. Empty for a method-level-only generic (no impl binders);
-    // `build_and_register_body_type_map` handles empty `extra_named` via
-    // `var_subst.clone()` (no rigid-var scan), which is correct here.
-    let extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
+    // Name-keyed binder entries the var-keyed helper cannot reach — both the
+    // impl-level `Tag::Named(binder)` binders (when `mono` is `Some`) AND the
+    // method-level `<T>` binders (the body's `VarState::Rigid { name }` rigid
+    // vars). `build_and_register_body_type_map` runs `build_impl_rigid_var_subst`
+    // over `extra_named` (a pool scan mapping each binder NAME to its body rigid
+    // var_id) so a `[T]`-returning method body re-interns to `[int]`. Without the
+    // method binders here the signature monomorphizes but the body's rigid leaf
+    // survives to codegen (the BUG-04-146 `Tag::rigid_var` symptom).
+    let mut extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
         mono.impl_type_args
             .iter()
             .map(|&(name, concrete)| (name, engine.resolve(concrete)))
             .collect()
     });
+    extra_named.extend(method_named);
     let pool = engine.pool_mut();
     let body_type_map =
-        build_and_register_body_type_map(pool, &var_subst, &extra_named, &struct_type_params);
+        build_and_register_body_type_map(pool, var_subst, &extra_named, &struct_type_params);
 
     // The receiver's own concrete Applied type (e.g. `Box<str>`) is the `self`
     // type — never a value in `body_type_map`, which carries only binder
@@ -309,25 +396,7 @@ pub(super) fn maybe_record_method_mono_instance(
     // collapse the `(method, Box<_>)` dispatch key.
     resolve_applied_type(pool, receiver, &struct_type_params);
 
-    let instance = MonoInstance::new_method(
-        method_name,
-        impl_args,
-        method_args,
-        receiver,
-        concrete_param_types,
-        concrete_return_type,
-        body_type_map,
-    );
-
-    tracing::debug!(
-        fn_name = ?method_name,
-        receiver = ?receiver,
-        impl_args = ?instance.impl_args,
-        method_args = ?instance.method_args,
-        "recorded mono instance"
-    );
-
-    engine.record_mono_with_dispatch(call_expr_id, instance);
+    (body_type_map, extra_named)
 }
 
 /// True when `ty` carries no remaining type variables / inference holes —

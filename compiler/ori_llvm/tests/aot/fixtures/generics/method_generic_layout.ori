@@ -1,0 +1,17 @@
+// Method-level type generic on a concrete-receiver impl, returning a
+// layout-bearing [T] across int + str (heap-element) instantiations. A
+// rigid_var-at-codegen ICE this guards regressed only the LLVM/AOT path;
+// the interpreter always passed.
+type Boxer = { tag: int }
+
+impl Boxer {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@main () -> int = {
+    let $b = Boxer { tag: 1 };
+    let $xs = b.wrap(item: 42);
+    let $ys = b.wrap(item: "hi");
+
+    if xs[0] == 42 && ys[0] == "hi" then 0 else 1
+}

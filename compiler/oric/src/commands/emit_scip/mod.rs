@@ -13,7 +13,7 @@ mod occurrence;
 mod symbol;
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use ori_ir::{Module, Name, StringInterner, TraitItem, TypeDeclKind, Variant};
+use ori_ir::{ImplMethod, Module, Span, StringInterner, TraitItem, TypeDeclKind, Variant};
 use oric::{CompilerDb, Db, SourceFile};
 use protobuf::{Message, MessageField};
 use scip::types::symbol_information::Kind;
@@ -22,55 +22,54 @@ use std::path::{Path, PathBuf};
 
 use super::read_file;
 use super::report_frontend_errors;
-use occurrence::{collect_occurrences, ScipOccurrence, REFERENCE_ROLE};
+use occurrence::{collect_definition_occurrences, collect_occurrences, ScipOccurrence};
 use symbol::{ModuleMinter, ScipDef};
 
-/// Collect one [`ScipDef`] per declared definition entity in `module`.
-///
-/// Walks the parsed module (functions, types + fields/variants, traits +
-/// methods, inherent + trait impl blocks, default impls, extensions) in source
-/// order, minting every symbol under `module_id` so cross-file homonyms stay
-/// distinct. Output order is canonicalized by the caller (stable sort + dedup
-/// on the symbol string), so the emitted index is independent of source
-/// ordering.
-fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
+/// Collect every per-SITE definition [`ScipDef`] in `module`, in source order,
+/// WITHOUT dedup. Walks functions, types + fields/variants, traits + methods,
+/// inherent + trait-impl blocks, default impls, and extensions, minting every
+/// symbol under `module_id` so cross-file homonyms stay distinct. The pre-dedup
+/// list preserves distinct SITES that mint the same symbol string (inherent +
+/// trait-impl methods → one `Type#m().`), each with its own source span — the
+/// per-site Definition occurrences build from this list, never the deduped one.
+fn collect_raw_defs(module_id: &str, module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
     let minter = ModuleMinter::new(module_id);
     let mut defs = Vec::new();
 
     for func in &module.functions {
-        defs.push(minter.function(interner.lookup(func.name)));
+        defs.push(minter.function(interner.lookup(func.name), func.span));
     }
 
     for ty in &module.types {
         let type_name = interner.lookup(ty.name);
         match &ty.kind {
             TypeDeclKind::Struct(fields) => {
-                defs.push(minter.type_def(type_name, Kind::Struct));
+                defs.push(minter.type_def(type_name, Kind::Struct, ty.span));
                 for f in fields {
-                    defs.push(minter.field(type_name, interner.lookup(f.name)));
+                    defs.push(minter.field(type_name, interner.lookup(f.name), f.span));
                 }
             }
             TypeDeclKind::Sum(variants) => {
-                push_sum_type_defs(&mut defs, &minter, interner, type_name, variants);
+                push_sum_type_defs(&mut defs, &minter, interner, type_name, ty.span, variants);
             }
             // A newtype is a distinct nominal type with no fields to index.
             TypeDeclKind::Newtype(_) => {
-                defs.push(minter.type_def(type_name, Kind::Type));
+                defs.push(minter.type_def(type_name, Kind::Type, ty.span));
             }
         }
     }
 
     for tr in &module.traits {
         let trait_name = interner.lookup(tr.name);
-        defs.push(minter.trait_def(trait_name));
+        defs.push(minter.trait_def(trait_name, tr.span));
         for item in &tr.items {
-            let method_name = match item {
-                TraitItem::MethodSig(m) => Some(m.name),
-                TraitItem::DefaultMethod(m) => Some(m.name),
+            let method = match item {
+                TraitItem::MethodSig(m) => Some((m.name, m.span)),
+                TraitItem::DefaultMethod(m) => Some((m.name, m.span)),
                 TraitItem::AssocType(_) => None,
             };
-            if let Some(method_name) = method_name {
-                defs.push(minter.method(trait_name, interner.lookup(method_name)));
+            if let Some((method_name, method_span)) = method {
+                defs.push(minter.method(trait_name, interner.lookup(method_name), method_span));
             }
         }
     }
@@ -78,13 +77,7 @@ fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> 
     for imp in &module.impls {
         if let Some(type_name_id) = imp.type_name() {
             let parent = interner.lookup(type_name_id);
-            push_methods(
-                &mut defs,
-                &minter,
-                interner,
-                parent,
-                imp.methods.iter().map(|m| m.name),
-            );
+            push_methods(&mut defs, &minter, interner, parent, &imp.methods);
         }
     }
 
@@ -93,62 +86,69 @@ fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> 
     // target type. Both are real definitions downstream references resolve to.
     for di in &module.def_impls {
         let parent = interner.lookup(di.trait_name);
-        push_methods(
-            &mut defs,
-            &minter,
-            interner,
-            parent,
-            di.methods.iter().map(|m| m.name),
-        );
+        push_methods(&mut defs, &minter, interner, parent, &di.methods);
     }
 
     for ext in &module.extends {
         let parent = interner.lookup(ext.target_type_name);
-        push_methods(
-            &mut defs,
-            &minter,
-            interner,
-            parent,
-            ext.methods.iter().map(|m| m.name),
-        );
+        push_methods(&mut defs, &minter, interner, parent, &ext.methods);
     }
 
-    // Why: inherent + trait-impl methods can mint the same `Type#m().`; dedup keeps one per symbol.
+    defs
+}
+
+/// The symbol-unique [`ScipDef`] set emitted as `SymbolInformation` — the raw
+/// per-site list (stable-sorted) with same-symbol duplicates collapsed.
+///
+/// Why dedup: inherent + trait-impl methods can mint the same `Type#m().`, and
+/// one logical symbol gets exactly one `SymbolInformation`. Distinct SITES are
+/// preserved separately via [`collect_raw_defs`] for per-site Definition
+/// occurrences — the dedup here only governs the symbol table.
+fn collect_defs(module_id: &str, module: &Module, interner: &StringInterner) -> Vec<ScipDef> {
+    let mut defs = collect_raw_defs(module_id, module, interner);
     defs.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     defs.dedup_by(|a, b| a.symbol == b.symbol);
     defs
 }
 
-/// Push one method [`ScipDef`] per name in `method_names`, keyed on `parent`
-/// (the receiver type name for inherent / extension methods, the trait name
-/// for default-impl methods).
+/// Push one method [`ScipDef`] per entry in `methods`, keyed on `parent` (the
+/// receiver type name for inherent / extension methods, the trait name for
+/// default-impl methods). Each method's source `span` rides on its `ScipDef`.
 fn push_methods(
     defs: &mut Vec<ScipDef>,
     minter: &ModuleMinter,
     interner: &StringInterner,
     parent: &str,
-    method_names: impl Iterator<Item = Name>,
+    methods: &[ImplMethod],
 ) {
-    for name in method_names {
-        defs.push(minter.method(parent, interner.lookup(name)));
+    for m in methods {
+        defs.push(minter.method(parent, interner.lookup(m.name), m.span));
     }
 }
 
 /// Push the `Kind::Enum` type def plus one [`ScipDef`] per variant and per
-/// variant field for a sum-type declaration named `type_name`.
+/// variant field for a sum-type declaration named `type_name`. `type_span` is
+/// the sum-type declaration's full extent (the enum def occurrence's enclosing
+/// range); each variant / variant field carries its own source span.
 fn push_sum_type_defs(
     defs: &mut Vec<ScipDef>,
     minter: &ModuleMinter,
     interner: &StringInterner,
     type_name: &str,
+    type_span: Span,
     variants: &[Variant],
 ) {
-    defs.push(minter.type_def(type_name, Kind::Enum));
+    defs.push(minter.type_def(type_name, Kind::Enum, type_span));
     for v in variants {
         let variant_name = interner.lookup(v.name);
-        defs.push(minter.variant(type_name, variant_name));
+        defs.push(minter.variant(type_name, variant_name, v.span));
         for vf in &v.fields {
-            defs.push(minter.variant_field(type_name, variant_name, interner.lookup(vf.name)));
+            defs.push(minter.variant_field(
+                type_name,
+                variant_name,
+                interner.lookup(vf.name),
+                vf.span,
+            ));
         }
     }
 }
@@ -204,8 +204,12 @@ fn build_index(
         .into_iter()
         .map(|o| Occurrence {
             range: o.range,
+            enclosing_range: o.enclosing_range,
             symbol: o.symbol,
-            symbol_roles: REFERENCE_ROLE,
+            // Per-occurrence role: Definition occurrences carry DEFINITION_ROLE,
+            // references keep REFERENCE_ROLE (read from the ScipOccurrence, not
+            // hardcoded).
+            symbol_roles: o.symbol_roles,
             ..Default::default()
         })
         .collect();
@@ -272,7 +276,13 @@ pub fn emit_scip_file(path: &str, output: &str) {
     let symbol_count = defs.len();
 
     let source = file.text(&db);
-    let occurrences = collect_occurrences(
+
+    // Definition occurrences come from the PRE-DEDUP raw defs so distinct sites
+    // minting one symbol each emit their own Definition occurrence; the symbol
+    // table above uses the deduped `defs`.
+    let raw_defs = collect_raw_defs(&module_id, &frontend.parse_result.module, db.interner());
+    let mut occurrences = collect_definition_occurrences(&raw_defs, source.as_str());
+    occurrences.extend(collect_occurrences(
         &module_id,
         &frontend.parse_result.arena,
         &frontend.parse_result.module,
@@ -280,7 +290,7 @@ pub fn emit_scip_file(path: &str, output: &str) {
         &frontend.pool,
         db.interner(),
         source.as_str(),
-    );
+    ));
     let occurrence_count = occurrences.len();
 
     let index = build_index(&relative_path, project_root, defs, occurrences);

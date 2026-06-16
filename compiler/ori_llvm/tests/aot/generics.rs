@@ -21,6 +21,19 @@ fn test_generic_identity_string() {
     );
 }
 
+// Regression: method-level type generic on a concrete-receiver impl returning
+// a layout-bearing [T]. A rigid_var-at-codegen ICE regressed only the LLVM/AOT
+// path (the interpreter always passed). Exercises int + str (heap-element)
+// instantiations of one method-level binder; assert_aot_success also leak-checks
+// (exit 2 = leak).
+#[test]
+fn test_method_generic_layout() {
+    assert_aot_success(
+        include_str!("fixtures/generics/method_generic_layout.ori"),
+        "method_generic_layout",
+    );
+}
+
 #[test]
 fn test_generic_pair_with_strings() {
     assert_aot_success(

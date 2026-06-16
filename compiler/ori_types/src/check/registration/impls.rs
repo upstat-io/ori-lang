@@ -640,6 +640,19 @@ fn build_impl_method(
             self_type,
         );
 
+    // BUG-04-146: allocate the method body's `RigidVar`s NOW (Pass 0c) and store
+    // them keyed by body `ExprId`, so `check_impl_method` (Pass 4) REUSES them
+    // via `prealloc`. Symmetric with the impl-level binder lifecycle: the rigid
+    // vars must exist in `var_states` before any pass-3 call-site records a
+    // method mono, so the recording's name-scan (`build_impl_rigid_var_subst`)
+    // resolves `[Rigid(method_T)] -> concrete` in `body_type_map`. Without early
+    // allocation the body's `RigidVar`s are born at Pass 4 (after the recording)
+    // and the rigid leaf survives to codegen. The registration-time scheme vars
+    // (`scheme_var_ids`, fresh `Tag::Var` for call-site instantiation) and these
+    // body rigid vars are distinct pool entries serving distinct purposes.
+    let method_rigid_var_map = allocate_impl_rigid_var_map(checker, method.generics);
+    checker.set_method_rigid_var_map(method.body, method_rigid_var_map);
+
     // Merge `trait_substitutions` into the resolver overlay used for
     // param/return type resolution. The trait→impl
     // substitution carries impl-level `Idx` values for the trait's declared

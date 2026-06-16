@@ -16,24 +16,37 @@ use ori_types::{Pool, Tag, TypedModule};
 use scip::types::SymbolRole;
 use std::collections::BTreeSet;
 
-use super::symbol::ModuleMinter;
+use super::symbol::{ModuleMinter, NameAnchor, ScipDef};
 
 /// `SymbolRole` bitset emitted for a reference occurrence: a call READS the
 /// callable, so `ReadAccess` is the reference role (NOT `Definition`, which is
 /// reserved for the def site).
 pub const REFERENCE_ROLE: i32 = SymbolRole::ReadAccess as i32;
 
-/// One emitted reference occurrence: its SCIP symbol string and its 0-based
-/// `[start_line, start_col, end_line, end_col]` range.
-///
-/// Ordered by `(range, symbol)` so the caller can stable-sort + dedup for a
-/// byte-deterministic index.
+/// `SymbolRole` bitset emitted for a definition occurrence: the def site of a
+/// declaration. Caller-attribution containment keys on the Definition
+/// occurrence's `enclosing_range`.
+pub const DEFINITION_ROLE: i32 = SymbolRole::Definition as i32;
+
+/// One emitted occurrence: its SCIP symbol string, its 0-based identifier-token
+/// `range`, the `symbol_roles` bitset, and (for a Definition occurrence) the
+/// body-spanning `enclosing_range`. Reference occurrences carry `range` = the
+/// call-site token, empty `enclosing_range`, role `REFERENCE_ROLE`; Definition
+/// occurrences carry `range` = the IDENTIFIER-token span, `enclosing_range` =
+/// the definition's full extent, role `DEFINITION_ROLE`. Ordered by
+/// `(range, symbol)` for a byte-deterministic stable-sort + dedup.
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScipOccurrence {
-    /// 0-based `[start_line, start_col, end_line, end_col]`.
+    /// 0-based `[start_line, start_col, end_line, end_col]` of the identifier
+    /// token (Definition) or the reference token (reference).
     pub range: Vec<i32>,
+    /// 0-based `[start_line, start_col, end_line, end_col]` of the definition's
+    /// full source extent (Definition occurrences only; empty for references).
+    pub enclosing_range: Vec<i32>,
     /// The globally-stable SCIP symbol string of the resolved target.
     pub symbol: String,
+    /// The SCIP `SymbolRole` bitset: `REFERENCE_ROLE` or `DEFINITION_ROLE`.
+    pub symbol_roles: i32,
 }
 
 /// The read-only resolution context threaded to the per-kind occurrence
@@ -132,11 +145,13 @@ fn method_call_occurrence(
     let parent = resolved_receiver_type_name(receiver, ctx.typed, ctx.pool, ctx.interner)?;
     let symbol = ctx
         .minter
-        .method(parent, ctx.interner.lookup(method))
+        .method(parent, ctx.interner.lookup(method), span)
         .symbol;
     Some(ScipOccurrence {
         range: ctx.lines.range(span),
+        enclosing_range: Vec::new(),
         symbol,
+        symbol_roles: REFERENCE_ROLE,
     })
 }
 
@@ -153,11 +168,158 @@ fn free_call_occurrence(ctx: &OccurrenceCtx, func: ExprId) -> Option<ScipOccurre
     if !ctx.local_fns.contains(name_str) {
         return None;
     }
-    let symbol = ctx.minter.function(name_str).symbol;
+    let func_span = ctx.arena.expr_span(func);
+    let symbol = ctx.minter.function(name_str, func_span).symbol;
     Some(ScipOccurrence {
-        range: ctx.lines.range(ctx.arena.expr_span(func)),
+        range: ctx.lines.range(func_span),
+        enclosing_range: Vec::new(),
         symbol,
+        symbol_roles: REFERENCE_ROLE,
     })
+}
+
+/// Build one `Definition`-role [`ScipOccurrence`] per per-SITE definition in
+/// `raw_defs` (the PRE-DEDUP list — distinct sites minting the same symbol each
+/// get their own Definition occurrence).
+///
+/// Each occurrence's `range` is the IDENTIFIER-TOKEN span (the name span,
+/// anchored at the declaration keyword per the def's [`NameAnchor`]) and its
+/// `enclosing_range` is the definition's full source extent (body included), so
+/// the importer keys caller-attribution containment on the body-spanning extent
+/// (SCIP convention: rust-analyzer / scip-clang / scip-java).
+pub fn collect_definition_occurrences(raw_defs: &[ScipDef], source: &str) -> Vec<ScipOccurrence> {
+    let lines = LineIndex::new(source);
+    let mut occurrences = Vec::new();
+    for def in raw_defs {
+        let ident = identifier_token_span(source, def.span, &def.display_name, def.name_anchor);
+        occurrences.push(ScipOccurrence {
+            range: lines.range(ident),
+            enclosing_range: lines.range(def.span),
+            symbol: def.symbol.clone(),
+            symbol_roles: DEFINITION_ROLE,
+        });
+    }
+    occurrences.sort();
+    occurrences.dedup();
+    occurrences
+}
+
+/// Derive the identifier-token [`Span`] for a definition whose full extent is
+/// `item_span`, by skipping the declaration prefix from `item_span.start` per
+/// `anchor`, then matching `name` at the first identifier position.
+///
+/// Anchored at the declaration keyword (NOT a bare substring search): the scan
+/// starts at the item's first byte and consumes the known prefix (`@` sigil for
+/// functions/methods, `pub`/`type`/`trait`/`impl` keyword for type/trait decls,
+/// nothing for fields/variants), so the name span never false-matches the name
+/// text inside a body, doc comment, or string literal. Falls back to the full
+/// item span when the source slice cannot be located (never panics).
+fn identifier_token_span(source: &str, item_span: Span, name: &str, anchor: NameAnchor) -> Span {
+    let start = item_span.start as usize;
+    let end = (item_span.end as usize).min(source.len());
+    if start >= end {
+        return item_span;
+    }
+    let slice = &source[start..end];
+
+    // Offset (within `slice`) where the identifier scan begins, after skipping
+    // the anchor's declaration prefix.
+    let scan_from = match anchor {
+        // `@name` / `pub @name`: skip to the `@` sigil, then one byte past it.
+        NameAnchor::AtSigil => match slice.find('@') {
+            Some(at) => at + 1,
+            None => 0,
+        },
+        // `type Name` / `trait Name` / `pub type Name`: skip the leading
+        // declaration keyword token, then whitespace, to the name.
+        NameAnchor::Keyword => skip_declaration_keyword(slice),
+        // The item span starts at the name token itself.
+        NameAnchor::Direct => 0,
+    };
+
+    // Find `name` at or after `scan_from`, requiring an identifier boundary so a
+    // shorter name does not match inside a longer leading token.
+    if let Some(rel) = locate_identifier(&slice[scan_from..], name) {
+        let name_start = start + scan_from + rel;
+        let name_end = name_start + name.len();
+        if name_end <= end {
+            return Span {
+                start: name_start as u32,
+                end: name_end as u32,
+            };
+        }
+    }
+    item_span
+}
+
+/// Skip a leading `pub` modifier then the declaration keyword (`type` / `trait`)
+/// and the whitespace after it, returning the byte offset of the name token.
+/// Returns 0 when no keyword is recognized (the name is then matched from the
+/// slice start).
+fn skip_declaration_keyword(slice: &str) -> usize {
+    let mut rest = slice.trim_start();
+    let mut consumed = slice.len() - rest.len();
+
+    // Optional `pub ` visibility modifier.
+    if let Some(after_pub) = rest.strip_prefix("pub") {
+        if starts_with_boundary(after_pub) {
+            consumed += 3;
+            let trimmed = after_pub.trim_start();
+            consumed += after_pub.len() - trimmed.len();
+            rest = trimmed;
+        }
+    }
+
+    for kw in ["type", "trait"] {
+        if let Some(after_kw) = rest.strip_prefix(kw) {
+            if starts_with_boundary(after_kw) {
+                consumed += kw.len();
+                let trimmed = after_kw.trim_start();
+                consumed += after_kw.len() - trimmed.len();
+                return consumed;
+            }
+        }
+    }
+    consumed
+}
+
+/// True iff `s` is empty or begins with a non-identifier byte (so the preceding
+/// token was a complete keyword, not a prefix of a longer identifier).
+fn starts_with_boundary(s: &str) -> bool {
+    match s.as_bytes().first() {
+        None => true,
+        Some(&b) => !(b.is_ascii_alphanumeric() || b == b'_'),
+    }
+}
+
+/// Find `name` in `haystack` at an identifier boundary (the char before the
+/// match is not an identifier char, and the char after is not either), so a
+/// short name does not match inside a longer adjacent token. Returns the byte
+/// offset within `haystack`, or `None`.
+fn locate_identifier(haystack: &str, name: &str) -> Option<usize> {
+    if name.is_empty() {
+        return None;
+    }
+    let bytes = haystack.as_bytes();
+    let nbytes = name.as_bytes();
+    let mut i = 0;
+    while i + nbytes.len() <= bytes.len() {
+        if &bytes[i..i + nbytes.len()] == nbytes {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_idx = i + nbytes.len();
+            let after_ok = after_idx >= bytes.len() || !is_ident_byte(bytes[after_idx]);
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// True iff `b` is an ASCII identifier byte (alphanumeric or `_`).
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Resolve a method-call receiver's type-checker-resolved type to its nominal
