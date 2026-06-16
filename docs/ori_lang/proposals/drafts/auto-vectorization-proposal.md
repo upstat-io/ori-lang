@@ -119,7 +119,7 @@ This is the inversion of the C model: instead of *assuming* aliasing and bailing
 ```ori
 // Elementwise map over a Value type -> vector map. Always eligible.
 @normalize (xs: [float]) -> [float] =
-    let m = xs.iter().max();
+    let m = xs.iter().max().unwrap_or(default: 1.0);   // .max() returns Option<float>
     xs.iter().map(transform: x -> x / m).collect()
 
 // Elementwise zip -> vector add. Eligible: both inputs value-semantic, body pure.
@@ -203,7 +203,7 @@ The parity contract is the load-bearing invariant:
 Two regimes, both parity-safe by construction:
 
 - **Default vectorization** (element-wise maps/zips + reorder-safe reductions per §4): the transformation does not change the combine order, so the evaluator runs the ordinary **scalar** loop and the LLVM backend runs the vector form, and the two are provably equal. The evaluator needs no SIMD interpreter here.
-- **`#fast_math` reductions** (reorder-unsafe combine, §4): the *specified* reduction semantics become "combine in the compiler's defined reduction-tree order," and **both** backends implement that one order. Parity is preserved because eval does not stay on a divergent scalar left-fold — it adopts the same defined order LLVM does. The result is deterministic across backends; it differs only from a naive scalar fold, which is the documented `#fast_math` semantics.
+- **`#fast_math` reorder-unsafe cases** (reorder-unsafe reductions per §4, AND panic-capable element-wise bodies per §1): the *specified* semantics become "evaluate in the compiler's defined order" — a fixed reduction-tree shape for reductions, and a defined lane-visitation order for which element's panic surfaces first in a panic-capable element-wise body. In BOTH cases **both** backends implement that one defined order; eval does NOT stay on the divergent scalar left-fold / lowest-index-first default. Parity is preserved because the two backends adopt the *same* defined order; the result is deterministic across backends and differs only from the naive scalar evaluation, which is the documented `#fast_math` semantics. The default (non-`#fast_math`) regime above never reaches this case — it admits only reorder-safe reductions and panic-free element bodies, so eval's scalar form already matches.
 
 In neither regime does eval compute one answer while LLVM computes another. Because the gate (§1) admits a loop only when lanes are independent, and reorder-unsafe reductions are excluded from the default and made backend-symmetric under `#fast_math`, the vector and scalar forms are provably equal — parity holds *by construction*, not by case-by-case verification. (Manual `Intrinsics` calls are a separate surface and need their own eval support — that is the approved intrinsics work, not this proposal.)
 
@@ -280,7 +280,7 @@ Blocked on the `Intrinsics` capability (v1 + v2) being implemented across the ty
 3. Cost model + `#vectorize`/`#no_vectorize`/`#fast_math` attributes.
 4. Dual-execution parity test corpus (every guaranteed-eligible pattern gets a positive pin + a negative "stays scalar / stays correct" pin).
 
-Phase decomposition is for `/create-plan` at approval time, not this proposal.
+Phase decomposition into a feature plan happens at approval time, not in this proposal.
 
 ---
 
