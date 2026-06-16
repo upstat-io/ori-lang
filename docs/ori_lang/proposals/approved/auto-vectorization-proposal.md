@@ -1,8 +1,9 @@
 # Proposal: Provability-Gated Automatic Vectorization
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-06-16
+**Approved:** 2026-06-16
 **Affects:** Compiler (canonicalizer, ARC/AIMS analysis, LLVM codegen), evaluator (dual-execution parity), spec (Clause 20.8.4 cross-reference, new optimization-guarantee appendix)
 **Depends On:** intrinsics-capability-proposal.md, intrinsics-v2-byte-simd-proposal.md
 **Amends:** iterator-performance-semantics-proposal.md
