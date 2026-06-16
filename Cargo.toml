@@ -98,15 +98,14 @@ ori_stack = { path = "compiler/ori_stack" }
 unsafe_code = "deny"
 dead_code = "deny"
 unused = { level = "deny", priority = -1 }
-# C-A1 (missing /// on pub item).
+# Missing /// on pub item.
 # Staged promotion: `allow` (pre-cleanup baseline) → `warn` (post-cleanup,
 # surfaces new violations) → `deny` (gating). `clippy-all.sh` denies all
-# warnings, so `warn` here would block builds against ~886 pre-existing
+# warnings, so `warn` here would block builds against the pre-existing
 # missing-docs sites. Run the doc-comment cleanup pass before flipping
 # to `warn`.
 missing_docs = "allow"
-# SF-3 (impl-hygiene.md §Unsafe & FFI): each unsafe op in an `unsafe fn` body
-# needs its own `unsafe {}` + `// SAFETY:`. 0 pre-existing hits at probe.
+# Each unsafe op in an `unsafe fn` body needs its own `unsafe {}` + SAFETY note.
 unsafe_op_in_unsafe_fn = "warn"
 
 [workspace.lints.clippy]
@@ -130,7 +129,7 @@ must_use_candidate = "allow"
 too_many_lines = "deny"
 cognitive_complexity = "deny"
 similar_names = "allow"
-# C-A5 (// SAFETY: on unsafe blocks).
+# // SAFETY: on unsafe blocks.
 # clippy::restriction tier — staged promotion `allow` (current) → `warn`
 # (post-cleanup) → `deny` (gating). `clippy-all.sh` denies warnings, so
 # `warn` here would block builds against pre-existing un-annotated unsafe
@@ -138,22 +137,21 @@ similar_names = "allow"
 # oric before flipping to `warn`.
 undocumented_unsafe_blocks = "allow"
 
-# Rust-cleanliness lints (impl-hygiene.md PA-/SF-/AR-/EH-/CL-/LN- families +
-# §Finding Categories ARITH/SOUNDNESS). ENABLED: 0 pre-existing hits at probe.
-fallible_impl_from = "warn"            # PA-2: panic/unwrap in `impl From` -> TryFrom
-# STAGED (allow now -> warn/deny after a cleanup pass). Counts = probe hits incl.
-# tests, which several of these do not yet exempt; promote per LN-2. Staged-
-# promotion pattern mirrors missing_docs / undocumented_unsafe_blocks above.
-panic = "allow"                        # PA-3 deny target; 1004 hits (mostly test panic!())
-panic_in_result_fn = "allow"           # PA-1 deny target; 2 hits
-unwrap_in_result = "allow"             # PA-1 deny target; 58 hits
-arithmetic_side_effects = "allow"      # AR-1; 1844 hits - also needs clippy.toml scoping
-let_underscore_must_use = "allow"      # EH-1; 417 hits
-assertions_on_result_states = "allow"  # test weak-assert; 255 hits
-allow_attributes = "allow"             # LN-2; 137 hits
-redundant_clone = "allow"              # CL-1; 73 hits (nursery)
-needless_collect = "allow"             # CL-2; 64 hits (nursery)
-map_err_ignore = "allow"               # EH-2; 36 hits
+# Additional cleanliness lints. ENABLED: no pre-existing hits.
+fallible_impl_from = "warn"            # panic/unwrap in `impl From` -> use TryFrom
+# STAGED (allow now -> warn/deny after a cleanup pass; re-probe for current hit
+# counts). Several do not yet exempt tests. Staged-promotion pattern mirrors
+# missing_docs / undocumented_unsafe_blocks above.
+panic = "allow"                        # deny target (mostly test panic!())
+panic_in_result_fn = "allow"           # deny target
+unwrap_in_result = "allow"             # deny target
+arithmetic_side_effects = "allow"      # also needs clippy.toml scoping
+let_underscore_must_use = "allow"
+assertions_on_result_states = "allow"  # test weak-assertion lint
+allow_attributes = "allow"             # prefer #[expect] over #[allow]
+redundant_clone = "allow"              # nursery
+needless_collect = "allow"             # nursery
+map_err_ignore = "allow"               # error source discarded
 
 # Optimized release profile for final/published builds.
 # Use: cargo build --profile release-lto
