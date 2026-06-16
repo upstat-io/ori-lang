@@ -70,6 +70,7 @@ pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live
 pub(super) use loop_closure_dead_param::compute_loop_closure_dead_param_lineage;
 pub(super) use move_alias::{
     compute_readonly_borrow_orphan_inc_suppression, compute_transfer_via_move_alias,
+    SameAllocIdentity,
 };
 pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use reassign_release::compute_reassign_rebind_releases;

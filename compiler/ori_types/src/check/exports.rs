@@ -213,7 +213,7 @@ pub(super) fn refresh_method_mono_body_type_maps(
         // in `swap`) OR method-level (`impl Boxer { @wrap<T> }` → a `[T]` ctor in
         // `wrap`, whose `[Rigid(T)]` is interned at Pass 4, AFTER the Pass-3 call-
         // site recording). Top-level free functions carry no impl/method rigid
-        // leaves (BUG-04-146: a method-level-only generic has empty `impl_args`
+        // leaves (a method-level-only generic has empty `impl_args`
         // but populated `method_args` — skipping it left its body composite
         // unrefreshed and the rigid leaf survived to codegen).
         if inst.impl_args.is_empty() && inst.method_args.is_empty() {

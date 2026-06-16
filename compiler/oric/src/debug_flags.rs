@@ -698,6 +698,33 @@ flags! {
     /// Usage: `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1 ori build file.ori`
     ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE
 
+    /// Restore the surplus same-allocation dec on a use-once owned source whose
+    /// sole `Let { Var }` alias is a same-allocation borrow-view (proven by the
+    /// burden-path `genuine_same_alloc_reps` union-find) live downstream — the
+    /// forwarder-result `%6 = %4` keystone.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// forwarder-result double-free to the surplus-dec suppression arm vs the
+    /// rest of the Phase-5 walk. Spec: Annex E §AIMS RL-2.
+    /// Usage: `ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS
+
+    /// Restore the surplus same-allocation dec on a use-once owned source whose
+    /// SOLE owned RC field is projected-returned by a borrowed-receiver callee
+    /// (`@unwrap(b) = b.value`, an `ApplyAliasSource::Project` apply-result alias)
+    /// to a LIVE caller result — the joint borrow-projection keystone. Default
+    /// (unset): the source's premature field-drop is the surplus; the live
+    /// projected result carries the joint lineage's single release at its true
+    /// last use (RL-2 release exactly once).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// `edge_project_return_not_param` double-free to this arm vs the rest of the
+    /// Phase-5 walk. Spec: Annex E §AIMS RL-2 + TF-4.
+    /// Usage: `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS
+
     /// Decline the SELF-ALLOCATING-BUILTIN `Invoke`-result root family of the
     /// Phase-5 borrowed-`Invoke` lineage treatment (the CARRIER-SUCC mode): a
     /// fresh builtin result (`@concat` template-chain link, heap `@to_str` /

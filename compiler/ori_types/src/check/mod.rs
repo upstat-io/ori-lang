@@ -202,14 +202,14 @@ pub struct ModuleChecker<'a> {
     /// same map so the method body's generic types reference the identical
     /// `RigidVar` Idxs the recording scan substitutes. Without early allocation,
     /// the body's `RigidVar`s are created after the recording and the generic-
-    /// struct ctor composite never resolves (BUG-04-146 `swap` facet).
+    /// struct ctor composite never resolves (`swap` facet).
     impl_rigid_var_maps: Vec<FxHashMap<Name, Idx>>,
 
     /// Method-level `RigidVar` substitution maps keyed by the method body's
     /// `ExprId`. Allocated at Pass 0c (`register_impls`) so a method's generic
     /// `RigidVar`s exist before any pass-3 call-site records a method mono;
     /// `check_impl_method` (pass 4) REUSES the stored map via `prealloc` so the
-    /// body's `RigidVar` Idxs match the recording scan (BUG-04-146 method-level
+    /// body's `RigidVar` Idxs match the recording scan (method-level
     /// generic facet). Mirror of `impl_rigid_var_maps` for method binders.
     method_rigid_var_maps: FxHashMap<ExprId, FxHashMap<Name, Idx>>,
 

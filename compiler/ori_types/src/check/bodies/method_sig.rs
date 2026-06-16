@@ -161,7 +161,7 @@ pub(super) fn allocate_generic_binders(
 /// Allocate one fresh `RigidVar` per name and return the `name → Idx` map. SSOT
 /// for the "binder name → `RigidVar`" allocation loop shared by
 /// `allocate_generic_binders` (Pass-4 method binders) and
-/// `allocate_impl_rigid_var_map` (Pass-0c impl binders).
+/// `allocate_rigid_var_map` (Pass-0c impl binders).
 fn allocate_rigid_vars_for_names(
     checker: &mut ModuleChecker<'_>,
     names: &[Name],
@@ -178,7 +178,7 @@ fn allocate_rigid_vars_for_names(
 /// for one impl block's `generics`. Called by `register_impls` (Pass 0c) so the
 /// `RigidVar`s exist before any body pass records a method mono; `check_impl_block`
 /// (Pass 4) reuses the stored map via `allocate_generic_binders`'s `prealloc`.
-pub(crate) fn allocate_impl_rigid_var_map(
+pub(crate) fn allocate_rigid_var_map(
     checker: &mut ModuleChecker<'_>,
     generics: ori_ir::GenericParamRange,
 ) -> FxHashMap<Name, Idx> {

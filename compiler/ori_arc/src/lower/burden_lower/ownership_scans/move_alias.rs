@@ -6,8 +6,12 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::block_id;
+use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::graph::DominatorTree;
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
+use crate::lower::burden::{Burden, TypeRef};
+use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
+use ori_types::TypeRegistry;
 
 use super::{instr_transfer_vars, successor_reachable_blocks};
 
@@ -60,15 +64,12 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     // var, not a Let-alias of the arg), leaving the value-copy aggregate's
     // intermediate decs/incs un-suppressed (double-free on the forwarder lineage).
     invoke_ttr_edges: &[(ArcVarId, ArcVarId)],
-    // GENUINE same-allocation reps (member -> rep): Let{Var} whole-var aliases +
-    // apply-result Direct/Conditional edges (NO Jump-phi / Select). Consumed by
-    // the borrow-view-dst suppression arm: a use-once owned source `%s` whose
-    // sole Let{Var} alias `%d` is a same-allocation borrow-view (NOT in
-    // `owned_vars_needing_rc`) live downstream has its single release discharged
-    // by the lineage's edge-cleanup dec on the same rep, so `%s`'s own scope-exit
-    // dec is the surplus same-allocation dec (RL-2 release-once: one lineage, one
-    // release). Spec: Annex E §AIMS RL-2.
-    genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    // Same-allocation identity inputs consumed by the surplus-dec suppression
+    // arms (`collect_surplus_dec_srcs`): the `genuine_same_alloc_reps` union-find
+    // (Let{Var} + apply-Direct/Conditional edges) + the `apply_result_aliases`
+    // (`ApplyAliasSource::Project` for the joint borrow-projection arm) + the type
+    // registry (sole-owned-field gate). Spec: Annex E §AIMS RL-2 + TF-4.
+    same_alloc: &SameAllocIdentity<'_>,
 ) -> FxHashSet<ArcVarId> {
     // Global-last-use lookup: a var with exactly ONE `last_use_points` entry is
     // used in exactly one block, and that entry is its global last use. A var
@@ -193,20 +194,21 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
             transferred.insert(src);
         }
     }
-    // Borrow-view-dst surplus-dec suppression: the forwarder-result `%6 = %4`
-    // keystone (RL-2 release-once). Full rationale + gates:
-    // `collect_borrow_view_dst_surplus_dec_srcs`.
-    if !super::super::borrow_view_dst_surplus_dec_suppress_disabled() {
-        transferred.extend(collect_borrow_view_dst_surplus_dec_srcs(
-            func,
+    // Same-allocation surplus-dec suppression arms (both RL-2 release-once): the
+    // borrow-view-dst keystone (`%6 = %4` forwarder-result) + the joint
+    // borrow-projection arm (`edge_project_return_not_param`). Full rationale +
+    // gates: `collect_surplus_dec_srcs`.
+    transferred.extend(collect_surplus_dec_srcs(
+        func,
+        &SurplusDecInputs {
             owned_vars_needing_rc,
             use_counts,
             last_use_points,
-            &src_has_dead_alias,
-            &param_vars,
-            genuine_same_alloc_reps,
-        ));
-    }
+            src_has_dead_alias: &src_has_dead_alias,
+            param_vars: &param_vars,
+            same_alloc,
+        },
+    ));
     // Fixpoint: a move source transfers out when its dst transfers out (monotone
     // over `transferred`; both move + cross-block hand-off edge kinds terminate).
     // See `run_move_transfer_fixpoint`.
@@ -242,6 +244,42 @@ fn run_move_transfer_fixpoint(
     }
 }
 
+/// Same-allocation identity inputs for the surplus-dec suppression arms — the
+/// `genuine_same_alloc_reps` union-find + the `apply_result_aliases` Project
+/// edges + the type registry (sole-owned-field gate). Spec: Annex E §AIMS RL-2.
+pub(in crate::lower::burden_lower) struct SameAllocIdentity<'a> {
+    pub(in crate::lower::burden_lower) genuine_same_alloc_reps: &'a FxHashMap<ArcVarId, ArcVarId>,
+    pub(in crate::lower::burden_lower) apply_result_aliases:
+        &'a FxHashMap<ArcVarId, ApplyAliasSource>,
+    pub(in crate::lower::burden_lower) type_registry: &'a TypeRegistry,
+}
+
+/// Shared inputs for both surplus-dec suppression arms (borrow-view-dst +
+/// joint-borrow-projection). Bundles the per-var last-use / use-count / dead-alias
+/// facts with the same-allocation identity.
+struct SurplusDecInputs<'a> {
+    owned_vars_needing_rc: &'a FxHashSet<ArcVarId>,
+    use_counts: &'a FxHashMap<ArcVarId, u32>,
+    last_use_points: &'a [(ArcVarId, usize, usize)],
+    src_has_dead_alias: &'a FxHashSet<ArcVarId>,
+    param_vars: &'a FxHashSet<ArcVarId>,
+    same_alloc: &'a SameAllocIdentity<'a>,
+}
+
+/// Run both same-allocation surplus-dec suppression arms (each RL-2
+/// release-once), each behind its own toggle. Returns the union of `%s` (surplus
+/// source) sets to mark transferred. Spec: Annex E §AIMS RL-2 + TF-4.
+fn collect_surplus_dec_srcs(func: &ArcFunction, inp: &SurplusDecInputs<'_>) -> FxHashSet<ArcVarId> {
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    if !super::super::borrow_view_dst_surplus_dec_suppress_disabled() {
+        out.extend(collect_borrow_view_dst_surplus_dec_srcs(func, inp));
+    }
+    if !super::super::project_return_surplus_owner_dec_suppress_disabled() {
+        out.extend(collect_project_return_surplus_owner_dec_srcs(func, inp));
+    }
+    out
+}
+
 /// Borrow-view-dst surplus-dec suppression source set (RL-2 release-once). A
 /// use-once owned source `%s` whose sole `Let { Var }` alias `%d` is a
 /// same-allocation borrow-view (`genuine_same_alloc_reps` proves identity) that
@@ -250,13 +288,14 @@ fn run_move_transfer_fixpoint(
 /// Returns the `%s` set to mark transferred. Spec: Annex E §AIMS RL-2.
 fn collect_borrow_view_dst_surplus_dec_srcs(
     func: &ArcFunction,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    use_counts: &FxHashMap<ArcVarId, u32>,
-    last_use_points: &[(ArcVarId, usize, usize)],
-    src_has_dead_alias: &FxHashSet<ArcVarId>,
-    param_vars: &FxHashSet<ArcVarId>,
-    genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    inp: &SurplusDecInputs<'_>,
 ) -> FxHashSet<ArcVarId> {
+    let owned_vars_needing_rc = inp.owned_vars_needing_rc;
+    let use_counts = inp.use_counts;
+    let last_use_points = inp.last_use_points;
+    let src_has_dead_alias = inp.src_has_dead_alias;
+    let param_vars = inp.param_vars;
+    let genuine_same_alloc_reps = inp.same_alloc.genuine_same_alloc_reps;
     let mut entry_count: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut last_pos: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
     for &(var, b, i) in last_use_points {
@@ -300,6 +339,114 @@ fn collect_borrow_view_dst_surplus_dec_srcs(
         }
     }
     out
+}
+
+/// Joint borrow-projection surplus-owner-dec suppression source set (RL-2
+/// release-once + TF-4). A borrowed-receiver callee that returns `arg.field`
+/// (apply-result `ApplyAliasSource::Project { arg, field }` — `@unwrap(b) =
+/// b.value`) hands the caller's OWNED result `%d` a borrow-view of the SAME
+/// single allocation as `%s = arg`'s SOLE owned RC field. The base walk emits
+/// BOTH `%s`'s scope-exit dec (its drop recurses into the field) AND `%d`'s own
+/// scope-exit dec at the joint lineage's last use — two releases of one
+/// allocation (the joint borrow-projection double-free, exit 134). The proven
+/// joint release theorem: one allocation, exactly one release. The owned result
+/// `%d` carries the single release at its TRUE last use (which dominates `%s`'s
+/// premature drop); `%s`'s own dec is the SURPLUS same-allocation release —
+/// suppress it. Returns the `%s` set to mark transferred. Spec: Annex E §AIMS
+/// RL-2 (`RL2_release_exactly_once`) + TF-4 (Project borrow-view identity).
+///
+/// SAME-ALLOCATION-IDENTITY discriminators bound the family (NOT a use-count /
+/// type-membership proxy — each is a structural property of the lineage):
+///
+/// - **`return_alias = Project { field }`**: the callee's PROVEN contract that
+///   the result IS `arg.field` (TF-4 borrow-view of `arg`'s field). Direct /
+///   Conditional / Wrapped aliases are handled by other arms; only the
+///   `Project` apply-result alias keys this arm.
+/// - **SOLE owned RC field**: `arg`'s burden has EXACTLY ONE owned RC field, and
+///   it is the returned `field`. A multi-field struct returning one field would
+///   LEAK its other owned fields if `arg`'s whole-var dec were suppressed —
+///   declined here (a `BurdenDecPartial skip=[field]` is the multi-field
+///   extension, deferred to its own cycle). The single-owned-field gate makes
+///   `arg`'s whole-var drop a no-op once the field transfers out, so whole-var
+///   suppression is sound.
+/// - **`%d` live downstream**: the result is used past the call (`use_count ≥
+///   1`), so it carries the joint lineage's SINGLE release at its true last use
+///   (whether `%d` is a fresh owned result or released by the projected-result
+///   borrow-view machinery). A dead result aliases no surviving reference — the
+///   surplus would be the result's, not `%s`'s; declined.
+/// - **`%s` use-once owned non-param, no dead alias**: matches the keystone's
+///   surplus-source gates — a use-once owned source whose single use is the
+///   borrowed-receiver call, with no dead duplicate alias whose ref the kept
+///   terminal dec must discharge.
+fn collect_project_return_surplus_owner_dec_srcs(
+    func: &ArcFunction,
+    inp: &SurplusDecInputs<'_>,
+) -> FxHashSet<ArcVarId> {
+    let owned_vars_needing_rc = inp.owned_vars_needing_rc;
+    let use_counts = inp.use_counts;
+    let src_has_dead_alias = inp.src_has_dead_alias;
+    let param_vars = inp.param_vars;
+    let apply_result_aliases = inp.same_alloc.apply_result_aliases;
+    let type_registry = inp.same_alloc.type_registry;
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (&dst, source) in apply_result_aliases {
+        let ApplyAliasSource::Project { arg, field } = source else {
+            continue;
+        };
+        let (arg, field) = (*arg, *field);
+        // `%d` (the call result) is the joint lineage's release carrier: it is
+        // live downstream (used past the call), so it carries the SINGLE release
+        // at its true last use. Whether `%d` is tracked in `owned_vars_needing_rc`
+        // (a fresh owned result) or released by the projected-result borrow-view
+        // machinery, the buffer's one release lands at `%d`'s last use — `%s`'s
+        // own drop is the surplus regardless. Require only `%d` live (used ≥ 1).
+        if use_counts.get(&dst).copied().unwrap_or(0) == 0 {
+            continue;
+        }
+        // `%s` (= the consumed `arg`) is a use-once owned non-param source whose
+        // surplus drop is the box's recursive field-drop. No dead alias (its ref
+        // would otherwise be discharged by the kept terminal dec).
+        if !owned_vars_needing_rc.contains(&arg)
+            || use_counts.get(&arg).copied().unwrap_or(0) != 1
+            || src_has_dead_alias.contains(&arg)
+            || param_vars.contains(&arg)
+        {
+            continue;
+        }
+        // SOLE-owned-RC-field gate: `arg`'s burden has exactly ONE owned RC
+        // field, and it is the returned `field`. Whole-var suppression is sound
+        // only when no OTHER owned field would leak. A multi-field struct
+        // returning one field declines (deferred to a partial-dec extension).
+        if !arg_sole_owned_rc_field_is(func, arg, field, type_registry) {
+            continue;
+        }
+        out.insert(arg);
+    }
+    out
+}
+
+/// `arg`'s monomorphized burden has EXACTLY ONE owned RC field, and it is
+/// `field`. Used by `collect_project_return_surplus_owner_dec_srcs` to gate
+/// whole-var dec suppression on the single-owned-field case (whole-var drop
+/// becomes a no-op once that field transfers out via the projected return).
+fn arg_sole_owned_rc_field_is(
+    func: &ArcFunction,
+    arg: ArcVarId,
+    field: u32,
+    type_registry: &TypeRegistry,
+) -> bool {
+    let arg_ty: TypeRef = idx_to_type_ref(func.var_types[arg.index()], type_registry);
+    let Some(burden) = lookup_burden(arg_ty, type_registry) else {
+        return false;
+    };
+    // Each owned field carries a `field_path` (Cow<[u32]>); a TOP-LEVEL owned
+    // field has a single-element path `[idx]`. The sole-owned-field gate requires
+    // exactly one owned field, at the top level, equal to the returned `field`.
+    let owned: Vec<Vec<u32>> = burden
+        .owned_fields()
+        .map(|f| f.field_path.to_vec())
+        .collect();
+    owned.len() == 1 && owned[0].as_slice() == [field]
 }
 
 /// DP-3 + RL-1 + RL-2 read-only-borrow orphan-inc suppression. A fresh

@@ -13,7 +13,7 @@ use super::type_resolution::{
     collect_generic_params, resolve_parsed_type_simple, resolve_type_with_method_generics,
     resolve_type_with_self,
 };
-use crate::check::bodies::allocate_impl_rigid_var_map;
+use crate::check::bodies::allocate_rigid_var_map;
 use crate::registry::burden::UserBurdenSpec;
 use crate::registry::burden_compose::scc::mint_compiled_drop_fn_sym;
 use crate::{
@@ -32,7 +32,7 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) 
         // rather than at Pass 4 — is what lets a method mono recorded at a Pass-3
         // call site see the impl binder in `var_states`; the constructor
         // composite (`Pair<RigidVar(B), RigidVar(A)>`) then registers correctly.
-        let impl_rigid_var_map = allocate_impl_rigid_var_map(checker, impl_def.generics);
+        let impl_rigid_var_map = allocate_rigid_var_map(checker, impl_def.generics);
         checker.push_impl_rigid_var_map(impl_rigid_var_map);
         register_impl(checker, impl_def, &module.traits);
     }
@@ -640,7 +640,7 @@ fn build_impl_method(
             self_type,
         );
 
-    // BUG-04-146: allocate the method body's `RigidVar`s NOW (Pass 0c) and store
+    // allocate the method body's `RigidVar`s NOW (Pass 0c) and store
     // them keyed by body `ExprId`, so `check_impl_method` (Pass 4) REUSES them
     // via `prealloc`. Symmetric with the impl-level binder lifecycle: the rigid
     // vars must exist in `var_states` before any pass-3 call-site records a
@@ -650,7 +650,7 @@ fn build_impl_method(
     // and the rigid leaf survives to codegen. The registration-time scheme vars
     // (`scheme_var_ids`, fresh `Tag::Var` for call-site instantiation) and these
     // body rigid vars are distinct pool entries serving distinct purposes.
-    let method_rigid_var_map = allocate_impl_rigid_var_map(checker, method.generics);
+    let method_rigid_var_map = allocate_rigid_var_map(checker, method.generics);
     checker.set_method_rigid_var_map(method.body, method_rigid_var_map);
 
     // Merge `trait_substitutions` into the resolver overlay used for

@@ -249,6 +249,27 @@ pub(in crate::lower::burden_lower) fn borrow_view_dst_surplus_dec_suppress_disab
     *BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED
 }
 
+/// `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1` restores the surplus
+/// same-allocation dec on a use-once owned source `%s` (`arg`) whose SOLE owned
+/// RC field is projected-returned by a borrowed-receiver callee to an OWNED
+/// caller result (`ApplyAliasSource::Project { arg, field }`). Default (unset):
+/// `%s`'s own scope-exit dec is suppressed — the owned result carries the joint
+/// lineage's single release at its true last use (RL-2 release-once), so `%s`'s
+/// premature field-drop is the surplus. W/ the toggle set, the base walk's
+/// double-release returns (the joint borrow-projection double-free, exit 134).
+/// Bisection surface: isolates the `edge_project_return_not_param` double-free to
+/// this arm vs the rest of the Phase-5 walk. Spec: Annex E §AIMS RL-2 + TF-4.
+static PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the
+/// `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS` toggle — consumed by
+/// the move-alias transfer scan (`ownership_scans::move_alias`).
+pub(in crate::lower::burden_lower) fn project_return_surplus_owner_dec_suppress_disabled() -> bool {
+    *PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS_DISABLED
+}
+
 /// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
 /// consumed by Phase 5 here and by the Phase-6 per-var elision
 /// (`aims::realize::burden_elim`) so both halves of the pair-coupling cure flip

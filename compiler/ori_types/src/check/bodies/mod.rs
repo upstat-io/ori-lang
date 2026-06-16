@@ -42,7 +42,7 @@ mod method_sig;
 pub use def_impls::check_def_impl_bodies;
 pub use functions::{check_function_bodies, check_test_bodies};
 pub use impls::check_impl_bodies;
-pub(crate) use method_sig::allocate_impl_rigid_var_map;
+pub(crate) use method_sig::allocate_rigid_var_map;
 
 use ori_ir::{ExprId, ExprKind};
 use rustc_hash::FxHashMap;

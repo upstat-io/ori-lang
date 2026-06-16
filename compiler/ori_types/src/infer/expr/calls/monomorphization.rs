@@ -372,7 +372,7 @@ fn build_method_body_type_map(
     // over `extra_named` (a pool scan mapping each binder NAME to its body rigid
     // var_id) so a `[T]`-returning method body re-interns to `[int]`. Without the
     // method binders here the signature monomorphizes but the body's rigid leaf
-    // survives to codegen (the BUG-04-146 `Tag::rigid_var` symptom).
+    // survives to codegen (the `Tag::rigid_var` symptom).
     let mut extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
         mono.impl_type_args
             .iter()
