@@ -168,6 +168,7 @@ pub(super) fn emit_burden_ops_for_blocks(
     // balance. FRESH-site BurdenInc for Invoke/InvokeIndirect results is indexed
     // by the `normal` successor block where the result `dst` is bound.
     let invoke_result_incs = compute_invoke_result_incs(func, analysis);
+    let invoke_result_dead_cleanup_decs = compute_invoke_result_dead_cleanup_decs(func, analysis);
     for (block_idx, block) in func.blocks.iter_mut().enumerate() {
         let original = std::mem::take(&mut block.body);
         let terminator_idx = original.len();
@@ -178,6 +179,17 @@ pub(super) fn emit_burden_ops_for_blocks(
         for &dst in &invoke_result_incs[block_idx] {
             new_body.push(ArcInstr::BurdenInc { var: dst });
             *inc_counts.entry(dst).or_insert(0) += 1;
+        }
+        // RL-2 cleanup dec for a DEAD (discarded) transfer-through-return Invoke
+        // result bound on this block's normal-entry edge. The predecessor's
+        // borrowed-call completed, the result IS the transferred-in allocation
+        // (FRESH inc elided, caller arg dec suppressed), and it is used nowhere
+        // (`let _ = id(args)`), so its sole release is this immediate dec. NOT
+        // tallied into `inc_counts` — it balances the predecessor's
+        // transferred-in lifecycle, not a same-block inc. Placed after the
+        // Invoke-result FRESH incs so block-entry emission order is stable.
+        for &dst in &invoke_result_dead_cleanup_decs[block_idx] {
+            new_body.push(ArcInstr::BurdenDec { var: dst });
         }
         // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching this
         // block's DEAD block-params: exactly ONE `BurdenDec(param)` per distinct source
@@ -968,6 +980,50 @@ fn compute_invoke_result_incs(
             if let Some(slot) = per_succ.get_mut(normal.index()) {
                 slot.push(dst);
             }
+        }
+    }
+    per_succ
+}
+
+/// Per-normal-successor-block RL-2 cleanup `BurdenDec`s for a DEAD (discarded)
+/// transfer-through-return `Invoke` result. When `@f`'s callee transfers an
+/// owned arg THROUGH the return (`@id(xs) = xs`), the result `dst` IS the
+/// transferred-in allocation (not fresh — its FRESH inc is elided by
+/// `transfer_through_return_results`, and the caller's arg dec was suppressed at
+/// the owned transfer into the call). If that result is then DISCARDED (`let _ =
+/// id(args)`, used nowhere), NOTHING releases the allocation — the caller's arg
+/// dec was suppressed and the result carries no dec: +1 leak. Per AIMS RL-2
+/// (UNUSED owned non-scalar → immediate cleanup dec) the dead discarded result
+/// owes exactly ONE cleanup dec, placed at the normal-successor entry (after the
+/// call completes). Proven net-0: scratch
+/// `DeadTransferReturnResult.cure_correct_both_branches` (+ the live-result
+/// negative pin: a result with ANY use already carries its own last-use dec, so
+/// the cleanup fires ONLY on a genuinely dead result — else double-free).
+fn compute_invoke_result_dead_cleanup_decs(
+    func: &ArcFunction,
+    analysis: &BurdenAnalysisCtx<'_>,
+) -> Vec<Vec<ArcVarId>> {
+    let used = super::ownership_scans::function_used_vars(func);
+    let mut per_succ: Vec<Vec<ArcVarId>> = vec![Vec::new(); func.blocks.len()];
+    for block in &func.blocks {
+        let (dst, normal) = match &block.terminator {
+            ArcTerminator::Invoke { dst, normal, .. }
+            | ArcTerminator::InvokeIndirect { dst, normal, .. } => (*dst, *normal),
+            _ => continue,
+        };
+        // ONLY a transfer-through-return result (its FRESH inc was elided, and
+        // the transferred-in allocation's caller-side dec was suppressed) AND
+        // genuinely DEAD (used nowhere — the discarded `let _` case). A used
+        // result already carries its own last-use dec; firing here would
+        // double-free (the scratch live-result negative pin).
+        if !analysis.transfer_through_return_results.contains(&dst) {
+            continue;
+        }
+        if used.contains(&dst) {
+            continue;
+        }
+        if let Some(slot) = per_succ.get_mut(normal.index()) {
+            slot.push(dst);
         }
     }
     per_succ

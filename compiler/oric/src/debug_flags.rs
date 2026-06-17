@@ -886,6 +886,19 @@ flags! {
     /// Usage: `ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION=1 ori build file.ori`
     ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION
 
+    /// Bypass the iter-consume + transfer-through-return source-dec
+    /// suppression: an owned param both iter-consumed via an `@iter [own]`
+    /// call AND transferred through the function's own `Return` keeps its
+    /// premature normal-path source `BurdenDec` (freeing the param before the
+    /// Return). With the suppression ON, the source dec is dropped so the
+    /// kept-from-arrival reference survives as the live Return value.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
+    /// Defined here for documentation and `check-debug-flags.sh` consistency.
+    /// Bisects an iter-then-return UAF to this pass vs the base walk.
+    /// Usage: `ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

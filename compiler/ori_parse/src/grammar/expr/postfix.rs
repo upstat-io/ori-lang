@@ -481,6 +481,7 @@ impl Parser<'_> {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "Tests use expect for brevity")]
 mod method_call_turbofish_tests {
     //! Regression pins for method-call call-site turbofish parsing.
     //!
@@ -517,15 +518,15 @@ mod method_call_turbofish_tests {
         method: &str,
     ) -> Option<(ExprId, usize)> {
         let want = interner.intern(method);
-        for i in 0..output.arena.expr_count() {
-            let id = ExprId::new(i as u32);
-            let selector = match output.arena.get_expr(id).kind {
-                ExprKind::MethodCall { method, .. } | ExprKind::MethodCallNamed { method, .. } => {
-                    method
-                }
-                _ => continue,
+        let count = u32::try_from(output.arena.expr_count()).expect("expr count fits in u32");
+        for i in 0..count {
+            let id = ExprId::new(i);
+            let (ExprKind::MethodCall { method, .. } | ExprKind::MethodCallNamed { method, .. }) =
+                output.arena.get_expr(id).kind
+            else {
+                continue;
             };
-            if selector == want {
+            if method == want {
                 return Some((id, output.arena.method_call_type_args(id).len()));
             }
         }
@@ -535,8 +536,9 @@ mod method_call_turbofish_tests {
     /// Assert at least one `<`/`>`/`<=`/`>=` comparison node exists.
     fn assert_has_comparison(output: &crate::ParseOutput) {
         let mut saw = false;
-        for i in 0..output.arena.expr_count() {
-            if let ExprKind::Binary { op, .. } = output.arena.get_expr(ExprId::new(i as u32)).kind {
+        let count = u32::try_from(output.arena.expr_count()).expect("expr count fits in u32");
+        for i in 0..count {
+            if let ExprKind::Binary { op, .. } = output.arena.get_expr(ExprId::new(i)).kind {
                 if matches!(
                     op,
                     BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq

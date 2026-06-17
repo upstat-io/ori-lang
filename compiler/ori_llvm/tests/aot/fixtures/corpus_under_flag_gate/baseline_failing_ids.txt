@@ -32,9 +32,6 @@ arc::test_arc_borrowed_param_cow_push_diamond
 arc::test_rc_alias_owned_call_then_root_use
 arc::test_rc_project_merge_two_distinct_parents
 borrow_independence::test_borrow_separate_heap_types
-cli::test_main_args_owned_path_heap_strings
-cli::test_main_args_owned_path_no_double_free
-cli::test_main_args_owned_path_valgrind_clean
 collections_ext::test_coll_map_index_in_loop
 collections_ext::test_coll_map_index_int_str
 elem_dec_scope::test_set_str_union

@@ -17,6 +17,20 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       (`xs.fold(..)`, does not free -> caller decs) is the proof basis: one
       terminal-use kind cannot yield both verdicts, so the iter-consuming
       kind is a DISTINCT transfer kind.
+    - Iter-consume AND transfer-through-return OVERLAP: an owned param both
+      iter-consumed via an inline `@iter(arg [own])` call AND transferred
+      through the function's OWN Return (`@f(x) = { let _ = x.iter().count();
+      x }`) is a distinct shape. The iter-consume frees the param, but the
+      param ALSO survives as the Return value. The base walk's premature
+      normal-path source dec (the [burden_inc, burden_dec] pair before
+      `@iter`) frees the param before the Return -> caller UAF. The keep-alive
+      burden_inc is correct (funds the iter-consume); ONLY the normal-path
+      source burden_dec is the over-emission. The cure strips the normal-path
+      source dec on a transfers_through_return AND Owned param that is
+      iter-consumed-and-returned, keeping the keep-alive inc and the
+      unwind-path decs. Exactly one keep-alive inc is necessary and
+      sufficient: zero incs nets the returned allocation to refcount 0 (UAF),
+      one inc restores the live +1.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
@@ -93,6 +107,14 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
                                              no dec.
         unused_owned_cleanup_dec_balanced — alloc, immediate cleanup dec on
                                              an unused owned non-scalar.
+        iter_consume_return_overlap_cured — an owned param both iter-consumed
+                                            via `@iter [own]` AND transferred
+                                            through the function's own Return:
+                                            alloc(+1), keep-alive inc(+1),
+                                            iter-drop(-1) leaves the returned
+                                            value at +1; the caller's
+                                            scope-exit dec(-1) is the single
+                                            release. Net = 0.
 
     Negative-direction witnesses (REJECTED):
       NEG_dec_after_transfer_double_free — emitting a dec AFTER an ownership
@@ -101,7 +123,15 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       NEG_unused_owned_no_cleanup_leaks — an unused owned value with no
                                            cleanup dec: net = +1 (leak).
                                            Rejected.
-      Coverage gate: 5 ledger cases (3 sound + 2 negative witnesses).
+      NEG_iter_consume_return_overlap_gap — keeping the premature normal-path
+                                            source dec on an iter-consumed-and-
+                                            returned param: alloc(+1),
+                                            keep-alive inc(+1), source dec(-1),
+                                            iter-drop(-1) nets the returned
+                                            value to refcount 0 — a freed
+                                            allocation handed to the caller
+                                            (UAF). Rejected.
+      Coverage gate: 7 ledger cases (4 sound + 3 negative witnesses).
 
     Engines dispatched:
       rc_counting (PRIMARY — section_08::verify_rl2_dec_at_last_use;

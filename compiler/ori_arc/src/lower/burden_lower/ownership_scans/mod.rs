@@ -127,7 +127,9 @@ pub(super) fn instr_owned_position_transfer_vars(instr: &ArcInstr) -> FxHashSet<
 /// Function-wide used-var set: a var appearing in ANY instr / terminator operand
 /// position. A block-param NOT in this set is dead (`Cardinality = Absent`); its only
 /// appearance is its own param-binding slot.
-fn function_used_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(in crate::lower::burden_lower) fn function_used_vars(
+    func: &ArcFunction,
+) -> FxHashSet<ArcVarId> {
     let mut used: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {

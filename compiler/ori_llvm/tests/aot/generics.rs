@@ -857,6 +857,20 @@ fn test_edge_consumed_and_returned_uses_return_flow_only() {
     );
 }
 
+/// Param iter-consumed AND returned, str elements (heap element type). The
+/// iter-consume/transfer-through-return overlap cure keeps one keep-alive inc
+/// so the param's allocation (and its owned element strings) survive the
+/// iterator drop and remain intact as the returned list. Type-matrix companion
+/// to `test_edge_consumed_and_returned_uses_return_flow_only` ([int] elements):
+/// str elements exercise the `elem_dec_fn` propagation path the int case does not.
+#[test]
+fn test_iter_then_return_str_elements_survive_iter_consume() {
+    assert_aot_success(
+        include_str!("fixtures/generics/iter_then_return_str.ori"),
+        "iter_then_return_str",
+    );
+}
+
 /// Function declaring `uses Suspend` capability returning its param.
 /// Capability handlers lower to standard Return terminators; the
 /// param-return-alias rule applies uniformly.

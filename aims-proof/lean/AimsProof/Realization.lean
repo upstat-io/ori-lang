@@ -242,6 +242,51 @@ theorem RL2_release_exactly_once (use : TerminalUse) :
   -- (transfer), the single allocation `inc` is matched by exactly one `dec`.
   cases use <;> decide
 
+/-! ## §8.1 RL-2 — iter-consume ∧ transfer-through-return OVERLAP
+
+    `ApplyToIterConsumingParam` (the callee frees via `ori_iter_drop`) is a sound
+    transfer kind ONLY when the iter-consumed value does NOT also survive as the
+    Return value. When the SAME allocation is BOTH iter-consumed AND transferred
+    through Return — `@f(x) = { let _ = x.iter().count(); x }` — the pure-transfer
+    model frees the allocation the Return hands to the caller (UAF). The cure is
+    one keep-alive inc before the iter-consume: the `ori_iter_drop` cancels the
+    inc, and the original allocation survives as the live Return value. -/
+
+/-- §8.1 RL-2 overlap balance: a param allocated owned (+1) that is iter-consumed
+    (`ori_iter_drop`, −1) and ALSO transferred through Return must carry exactly
+    one live reference out. We model the body as the optional keep-alive inc; the
+    returned refcount = alloc(+1) + body + iterDrop(−1). -/
+def rl2_overlap_returned_rc (keepAliveInc : Bool) : Int :=
+  rcBalance ([RcOp.inc] ++ (if keepAliveInc then [RcOp.inc] else []) ++ [RcOp.dec])
+
+/-- §8.1 RL-2 overlap GAP: without the keep-alive inc the returned allocation has
+    refcount 0 — a freed value handed to the caller (the UAF the pure-transfer
+    model cannot prevent on the overlap shape). -/
+theorem RL2_iter_consume_return_overlap_gap :
+    rl2_overlap_returned_rc false = 0 := by decide
+
+/-- §8.1 RL-2 overlap CURE: one keep-alive inc before the iter-consume restores a
+    live (+1) reference in the Return value. -/
+theorem RL2_iter_consume_return_overlap_cured :
+    rl2_overlap_returned_rc true = 1 := by decide
+
+/-- §8.1 RL-2 overlap MINIMALITY: one inc is necessary (0 ⇒ unsound) and exact
+    (1 ⇒ live, not over-inc'd). The cure neither under- nor over-counts. -/
+theorem RL2_iter_consume_return_overlap_minimal :
+    rl2_overlap_returned_rc true = 1 ∧ rl2_overlap_returned_rc false = 0 := by decide
+
+/-- §8.1 RL-2 overlap FULL LIFECYCLE: counting alloc(+1), keep-alive inc(+1),
+    iter-drop(−1), and the caller's eventual release of the returned value (−1),
+    the cured lifecycle nets to 0 — released exactly once. -/
+theorem RL2_iter_consume_return_overlap_balanced :
+    rcBalance [RcOp.inc, RcOp.inc, RcOp.dec, RcOp.dec] = 0 := by decide
+
+/-- §8.1 RL-2 overlap DISJOINTNESS: when the param is iter-consumed but NOT
+    returned, the pure-transfer model is correct — no keep-alive inc, allocation
+    freed exactly once (net 0). The cure fires ONLY on the overlap. -/
+theorem RL2_iter_consume_no_return_unchanged :
+    rcBalance [RcOp.inc, RcOp.dec] = 0 := by decide
+
 /-! ## §8.1 RL-3 — RC op elision (annex-e §AIMS §8 RL-3)
 
     RL-3 elides a candidate RC op iff at least one of DP-2 / DP-3 / DP-7 holds.

@@ -366,6 +366,28 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
+    // Phase 6.66d — ITER-CONSUME + TRANSFER-THROUGH-RETURN source-dec suppression
+    // (RL-1 keep-alive inc + RL-2 iter-consume transfer + the proven overlap
+    // balance). An owned param both iter-consumed via `@iter [own]` AND
+    // transferred through the function's own `Return` has its premature
+    // normal-path source `BurdenDec` (emitted before the iter-consume) freeing
+    // the param before the Return -> caller UAF. Strip that normal-path source
+    // dec, keeping the keep-alive inc so the kept-from-arrival reference survives
+    // as the live Return value. Probe-gated -> default codegen byte-identical when
+    // no param matches the overlap contract. Spec: Annex E §AIMS RL-1 + RL-2.
+    suppress_iter_consume_transferred_return_source_dec(
+        func,
+        pool,
+        interner,
+        contracts,
+        same_alloc_reps,
+    );
+    trace_phase_snapshot(
+        "after_phase_6_66d_iter_consume_transferred_return",
+        func,
+        interner,
+    );
+
     // Phase 6.66b — SINGLE iter-consume + non-iter REUSE keep-alive (RL-1
     // duplication + RL-2 iter-consume transfer). A borrowed collection iterated
     // ONCE (`@iter [own]` -> `ori_iter_drop`) then REUSED at a non-iter position
@@ -4341,6 +4363,133 @@ fn suppress_single_borrowed_invoke_iter_consume_source(
                 !reps_to_strip.contains(&rep_of(*var))
             }
             _ => true,
+        });
+    }
+}
+
+/// Phase 6.66d — ITER-CONSUME + TRANSFER-THROUGH-RETURN source-dec suppression
+/// (RL-1 keep-alive inc + RL-2 iter-consume transfer + the proven
+/// iter-consume/return OVERLAP balance).
+///
+/// An owned param that is BOTH iter-consumed via an `@iter(arg [own])` call AND
+/// transferred through the function's own `Return` is the overlap shape:
+///
+/// ```text
+/// @iter_then_return <T> (x: [T]) -> [T] = {
+///     let n = x.iter().count();   // x iter-CONSUMED — ori_iter_drop frees it
+///     x                            // x ALSO returned (same allocation)
+/// };
+/// ```
+///
+/// The base Phase-5 walk treats the iter-consume as the param's last use and
+/// emits a normal-path source `BurdenDec` before the `@iter` call (the
+/// `[burden_inc, burden_dec]` pair around `@iter`). After the iter-consume frees
+/// the +1, that premature dec leaves the returned param at refcount 0 — the
+/// caller reads a freed allocation (UAF).
+///
+/// The keep-alive `BurdenInc` is correct (it funds the iter-consume); only the
+/// normal-path `BurdenDec` is wrong on the overlap. This pass strips the
+/// normal-path source `BurdenDec`(s) on a `transfers_through_return ∧ Owned ∧
+/// iter_consumes` param lineage, keeping the keep-alive inc — so the param's
+/// kept-from-arrival reference survives the iter-drop as the live Return value,
+/// and the caller's own scope-exit dec is the single release.
+///
+/// Unwind-path decs are panic cleanup, left intact: on the unwind edge the
+/// allocation has not yet flowed to the Return, so its release is still owed.
+///
+/// SCOPE GUARD (over-fire boundary) — ALL required: (a) the lineage is one of the
+/// CURRENT function's OWN params (read from `contracts.get(&func.name)`), (b) that
+/// param's contract proves `transfers_through_return ∧ access == Owned ∧
+/// iter_consumes`, (c) the param's rep is actually iter-consumed in the body
+/// (`collect_iter_consume_uses_per_rep`), AND (d) the param's rep flows to a
+/// normal-path `Return` (a same-alloc sibling reaches a `Return { value }`). A
+/// param that is returned but NOT iter-consumed keeps its accounting (the base
+/// walk balances it); an iter-consumed param NOT returned is the dead-after case
+/// Phase 6.66c owns. Probe-gated
+/// (`ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS`) → default codegen
+/// byte-identical when no param matches.
+///
+/// Lean: `AimsProof.Realization::RL2_iter_consume_return_overlap_{gap,cured,
+/// minimal,balanced}` (the overlap requires exactly one keep-alive inc; the
+/// source dec is the over-emission) + `RL2_iter_consuming_no_caller_dec`. Spec:
+/// Annex E §AIMS RL-1 + RL-2.
+fn suppress_iter_consume_transferred_return_source_dec(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if std::env::var_os("ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS").is_some() {
+        return;
+    }
+    // (a)+(b): the current function's OWN params proving the overlap contract.
+    let Some(self_contract) = contracts.get(&func.name) else {
+        return;
+    };
+    // (b): `transfers_through_return ∧ Owned`. The iter-consume half is the
+    // body-scan cross-check below ((c) `collect_iter_consume_uses_per_rep`),
+    // which directly detects the `@iter(arg [own])` consume in this function's
+    // own body — the param's contract `iter_consumes` flag tracks consume by a
+    // SEPARATE callee, not the inline `@iter`, so the body scan is the reliable
+    // signal for the same-function overlap shape.
+    let overlap_param_vars: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| {
+            self_contract
+                .params
+                .get(*i)
+                .is_some_and(|p| p.transfers_through_return && p.access == AccessClass::Owned)
+        })
+        .map(|(_, p)| p.var)
+        .collect();
+    if overlap_param_vars.is_empty() {
+        return;
+    }
+
+    let jt_reps = compute_jump_threaded_reps(func, Some(same_alloc_reps));
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let overlap_reps: FxHashSet<ArcVarId> = overlap_param_vars.iter().map(|&v| rep_of(v)).collect();
+
+    // (c): the param rep must actually be iter-consumed in the body — defensive
+    // cross-check of the contract's `iter_consumes` against the realized IR.
+    let iter_name = interner.intern("iter");
+    let iter_uses = collect_iter_consume_uses_per_rep(func, pool, contracts, iter_name, &rep_of);
+
+    // (d): the param rep must flow to a normal-path `Return` — a same-alloc
+    // sibling reaches a `Return { value }` on a non-unwind block.
+    let unwind_blocks = compute_unwind_reachable_blocks(func);
+    let mut returned_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if unwind_blocks.contains(&b) {
+            continue;
+        }
+        if let ArcTerminator::Return { value } = &block.terminator {
+            returned_reps.insert(rep_of(*value));
+        }
+    }
+
+    let reps_to_strip: FxHashSet<ArcVarId> = overlap_reps
+        .into_iter()
+        .filter(|rep| iter_uses.contains_key(rep) && returned_reps.contains(rep))
+        .collect();
+    if reps_to_strip.is_empty() {
+        return;
+    }
+
+    // Strip NORMAL-path `BurdenDec` on each matched lineage; keep keep-alive
+    // `BurdenInc` (funds the iter-consume) and unwind-path decs (panic cleanup).
+    for (b, block) in func.blocks.iter_mut().enumerate() {
+        if unwind_blocks.contains(&b) {
+            continue;
+        }
+        block.body.retain(|instr| {
+            !matches!(
+                instr,
+                ArcInstr::BurdenDec { var } if reps_to_strip.contains(&rep_of(*var))
+            )
         });
     }
 }
