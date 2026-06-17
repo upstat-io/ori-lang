@@ -32,12 +32,9 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
-use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, ValueRepr};
-use crate::lower::burden::Burden;
-use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
 /// RL-1 + RL-2 dead-thread orphaned-inc elision. Returns the same-alloc lineage
 /// vars to remove from `owned_vars_needing_rc` (eliding the orphan FRESH-site inc
