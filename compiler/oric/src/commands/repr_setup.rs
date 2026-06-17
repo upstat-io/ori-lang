@@ -76,7 +76,7 @@ pub(super) fn lower_impl_methods_for_analysis(
         });
 
         for method in &impl_def.methods {
-            let Some((_, sig)) = sig_iter.next() else {
+            let Some((_, _, sig)) = sig_iter.next() else {
                 break;
             };
             if sig.is_generic() {
@@ -208,7 +208,7 @@ fn record_qualified_by_recv(
 fn lower_default_trait_methods<'a>(
     impl_def: &ori_ir::ImplDef,
     parse_result: &ParseOutput,
-    sig_iter: &mut impl Iterator<Item = &'a (Name, ori_types::FunctionSig)>,
+    sig_iter: &mut impl Iterator<Item = &'a (ori_types::Idx, Name, ori_types::FunctionSig)>,
     type_name_name: Option<Name>,
     self_type_idx: Option<Idx>,
     interner: &StringInterner,
@@ -238,7 +238,7 @@ fn lower_default_trait_methods<'a>(
     for item in &trait_def.items {
         if let ori_ir::TraitItem::DefaultMethod(default) = item {
             if !overridden.contains(&default.name) {
-                let Some((_, sig)) = sig_iter.next() else {
+                let Some((_, _, sig)) = sig_iter.next() else {
                     break;
                 };
                 if sig.is_generic() {

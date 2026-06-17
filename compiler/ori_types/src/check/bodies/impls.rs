@@ -415,6 +415,7 @@ fn check_impl_method(
     );
 
     // Export impl method signature for codegen.
-    // Codegen needs param_types, return_type, and type_params to compute ABI.
-    checker.register_impl_sig(method.name, sig);
+    // Codegen needs param_types, return_type, and type_params to compute ABI,
+    // plus the owning receiver `self_type` to key mono-collection dispatch.
+    checker.register_impl_sig(self_type, method.name, sig);
 }

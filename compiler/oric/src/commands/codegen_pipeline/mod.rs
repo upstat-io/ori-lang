@@ -73,7 +73,7 @@ pub(super) fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
-    impl_sigs: &[(Name, FunctionSig)],
+    impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
     import_sigs: &[(Name, FunctionSig)],
     imported: ImportedSurfaces<'_>,
     canon: &CanonResult,
@@ -410,7 +410,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .typed
             .impl_sigs
             .iter()
-            .any(|(_, sig)| !sig.is_generic());
+            .any(|(_, _, sig)| !sig.is_generic());
         let repr_plan = super::repr_setup::compute_module_repr_plan(
             pool,
             &all_arc_funcs,

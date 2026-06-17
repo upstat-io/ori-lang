@@ -12,6 +12,7 @@ mod borrowed;
 mod borrowed_invoke_lineage;
 mod branch_release;
 mod call_arg_dup;
+mod closure_extract_borrow_view;
 mod construct_fed;
 mod dead_param;
 mod dup_inc;
@@ -41,6 +42,7 @@ pub(super) use borrowed_invoke_lineage::{
 };
 pub(super) use branch_release::compute_branch_exclusive_edge_releases;
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
+pub(super) use closure_extract_borrow_view::compute_closure_extract_borrow_view_lineage;
 // Test-only re-export: the RAW classification is consumed by the `tests`
 // sibling; production consumers take the FUNDED set.
 #[cfg(test)]

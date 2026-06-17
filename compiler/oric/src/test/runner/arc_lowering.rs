@@ -101,7 +101,7 @@ pub(crate) fn lower_and_infer_borrows(
     canon: &ori_ir::canon::CanonResult,
     interner: &ori_ir::StringInterner,
     pool: &ori_types::Pool,
-    impl_sigs: &[(Name, ori_types::FunctionSig)],
+    impl_sigs: &[(ori_types::Idx, Name, ori_types::FunctionSig)],
     import_sigs: &[(Name, ori_types::FunctionSig)],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
@@ -200,7 +200,7 @@ pub(crate) fn lower_and_infer_borrows(
                     .map(|te| te.idx)
             });
             for method in &impl_def.methods {
-                let Some((_, sig)) = sig_iter.next() else {
+                let Some((_, _, sig)) = sig_iter.next() else {
                     break;
                 };
                 if sig.is_generic() {
@@ -232,7 +232,7 @@ pub(crate) fn lower_and_infer_borrows(
                             if overridden.contains(&default.name) {
                                 continue;
                             }
-                            let Some((_, sig)) = sig_iter.next() else {
+                            let Some((_, _, sig)) = sig_iter.next() else {
                                 break;
                             };
                             if sig.is_generic() {

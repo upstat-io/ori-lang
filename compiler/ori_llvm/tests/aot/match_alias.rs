@@ -267,3 +267,31 @@ fn test_closure_scalar_only_capture_two_call() {
         "closure_scalar_only_capture_two_call",
     );
 }
+
+#[test]
+fn test_closure_result_ok_str_extract_two_call() {
+    // Matrix pin (semantic): closure extracts the Ok-arm str payload (field 0)
+    // of a captured `Result<str, int>`, the cross-variant sibling of
+    // closure_env_alias (Err-arm field 1). The closure-extract borrow-view scan
+    // suppresses the surplus per-result dec and places one release at the
+    // execution-final read; fails (double-free, exit 134) if the cure reverts.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_result_ok_str_extract_two_call.ori"),
+        "closure_result_ok_str_extract_two_call",
+    );
+}
+
+#[test]
+fn test_closure_direct_str_return_two_call_no_suppress() {
+    // Negative pin (over-fire boundary): the closure returns the captured str
+    // DIRECTLY (`() -> captured`), so its lambda contract is `return_alias =
+    // Direct`, NOT `Project { field }`. The closure-extract borrow-view scan
+    // keys ONLY on the `Project` contract edge — it MUST DECLINE here (no web
+    // collected) and leave the base walk's closure-env release untouched.
+    // Wrongly firing on a Direct return would suppress a needed release and
+    // leak. Reuses the bare-str-capture fixture; zero leaks pins the decline.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_str_capture_two_call_no_leak.ori"),
+        "closure_direct_str_return_two_call_no_suppress",
+    );
+}

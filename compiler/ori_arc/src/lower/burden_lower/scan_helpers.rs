@@ -24,17 +24,18 @@ use super::ownership_scans::borrowed_invoke_lineage_release_disabled;
 use super::ownership_scans::{
     collect_owned_burdens, compute_borrowed_arg_let_aliases,
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
-    compute_construct_fed_dead_param_lineage, compute_forwarder_identity_transparent_aliases,
-    compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
-    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
-    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_closure_extract_borrow_view_lineage, compute_construct_fed_dead_param_lineage,
+    compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
+    compute_fresh_sum_live_extract_lineage, compute_loop_closure_dead_param_lineage,
+    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
-    CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED, FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED,
-    FORWARDER_RESULT_RELEASE_DISABLED, FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED,
-    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED, CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED,
+    FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED, FORWARDER_RESULT_RELEASE_DISABLED,
+    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
+    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -305,6 +306,25 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // + RL-2 + RL-4.
     let multi_exit_releases =
         apply_multi_exit_borrow_view(func, contracts, &mut owned_vars_needing_rc);
+    // RL-2 + RL-4 closure-extract borrow-view treatment: N `ApplyIndirect`
+    // results that are PROVEN same-allocation borrow-views of ONE captured field
+    // of a closure env (the resolved lambda's `return_alias = Project { field }`
+    // contract over its capture param — `let f = () -> { match captured {
+    // Err(e) -> e, .. } }; let a = f(); let b = f()`) name ONE allocation. The
+    // base walk decs EACH result borrow-view, double-freeing the captured payload
+    // on call 2 (exit 134). The cure removes the whole result lineage (every
+    // result + its Let-Var aliases) from `owned_vars_needing_rc` (suppressing the
+    // N surplus per-result decs) and places EXACTLY ONE whole-var release per
+    // terminal path (RL-2 after the execution-final borrow-read; RL-4 edge dec at
+    // a dead normal-successor entry). Runs AFTER the multi-exit scan (disjoint
+    // family — interprocedural closure-extract RESULT roots vs the intraprocedural
+    // FRESH-closure RECEIVER roots). The PROVEN same-allocation identity is the
+    // lambda contract's `Project` edge (NOT a use-count / type-membership proxy —
+    // dead-end #150); the borrow-only vetting declines any owned-position escape
+    // (the fresh-sum live-extract over-fire boundary — dead-ends #174/#175).
+    // SSOT: `compute_closure_extract_borrow_view_lineage`. Spec: Annex E §AIMS
+    // RL-2 + TF-4.
+    apply_closure_extract_borrow_view(func, contracts, &mut owned_vars_needing_rc);
     // RL-5 dead-at-entry treatment for a FRESH `PartialApply` closure threaded
     // through a loop and dead at the post-loop block-param: `let f = (n) -> ..;
     // for i in xs do { .. f(i) .. }`. The fresh closure (TF-7) is loop-carried
@@ -577,6 +597,25 @@ fn apply_multi_exit_borrow_view(
     let treatment = compute_multi_exit_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     treatment.releases
+}
+
+/// Toggle-gated application of the closure-extract borrow-view treatment
+/// ([`compute_closure_extract_borrow_view_lineage`]): computes the vetted
+/// same-alloc `ApplyIndirect`-result lineages and removes them from
+/// `owned_vars_needing_rc` (suppressing the N surplus per-result decs). Places
+/// NO release — the closure env's own scope-exit dec cascade-frees the captured
+/// payload. No-op when `ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE=1`.
+fn apply_closure_extract_borrow_view(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+) {
+    if *CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED {
+        return;
+    }
+    let treatment =
+        compute_closure_extract_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
 }
 
 /// Toggle-gated application of the RL-5 loop-closure dead-param treatment

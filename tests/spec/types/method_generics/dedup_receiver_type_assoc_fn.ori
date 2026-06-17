@@ -24,7 +24,6 @@ impl<T> MyOption<T> {
     @new (v: T) -> MyOption<T> = MyOption { tag: 1, val: v };
 }
 
-#skip("BUG-05-016: LLVM associated-function dispatch on generic impl panics 'no method new on type int' — interp passes, LLVM-only; distinct assoc-fn-dispatch facet from BUG-04-146 method-level-generic layout codegen")
 @test_dedup_receiver_assoc_fn tests _ () -> void = {
     let r1: Box<int> = Box.new(v: 5);
     let r2: MyOption<int> = MyOption.new(v: 5);

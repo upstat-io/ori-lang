@@ -17,7 +17,6 @@ impl<T> Box<T> {
     @try_new (v: T) -> Result<Box<T>, str> = Ok(Box { value: v });
 }
 
-#skip("BUG-05-016: LLVM associated-function dispatch on generic impl mis-keys the mono-collection shell by first value param instead of owning receiver — interp passes, LLVM-only; non-Self-return negative pin")
 @test_assoc_fn_non_self_return tests _ () -> void = {
     let r: Result<Box<int>, str> = Box.try_new(v: 7);
     let b: Box<int> = r.unwrap();

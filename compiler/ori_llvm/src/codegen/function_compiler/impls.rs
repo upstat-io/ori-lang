@@ -233,7 +233,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     pub fn compile_impls(
         &mut self,
         impls: &[ori_ir::ImplDef],
-        impl_sigs: &[(Name, FunctionSig)],
+        impl_sigs: &[(Idx, Name, FunctionSig)],
         canon: &CanonResult,
         traits: &[TraitDef],
     ) {
@@ -299,7 +299,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         type_name_name: Name,
         type_name: &str,
         trait_map: &FxHashMap<Name, &TraitDef>,
-        sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
+        sig_iter: &mut impl Iterator<Item = &'sig (Idx, Name, FunctionSig)>,
         canon: &CanonResult,
     ) {
         let Some(trait_path) = &impl_def.trait_path else {
@@ -337,14 +337,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// trait methods.
     fn compile_impl_method_from_sig<'sig>(
         &mut self,
-        sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
+        sig_iter: &mut impl Iterator<Item = &'sig (Idx, Name, FunctionSig)>,
         method_name: Name,
         method_span: Span,
         type_name_name: Name,
         type_name: &str,
         canon: &CanonResult,
     ) {
-        let Some((sig_name, sig)) = sig_iter.next() else {
+        // The leading `Idx` is the owning impl receiver (used by mono-collection
+        // dispatch keying, not the immediate-emit path here).
+        let Some((_, sig_name, sig)) = sig_iter.next() else {
             trace!(
                 name = %self.interner.lookup(method_name),
                 "no type signature for impl method — exhausted sig iterator"

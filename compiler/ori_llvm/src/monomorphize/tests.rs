@@ -483,7 +483,10 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
 
     let sig_box = make_method_sig(&interner, get_name, box_generic);
     let sig_wrap = make_method_sig(&interner, get_name, wrap_generic);
-    let impl_sigs = vec![(get_name, sig_box), (get_name, sig_wrap)];
+    let impl_sigs = vec![
+        (box_generic, get_name, sig_box),
+        (wrap_generic, get_name, sig_wrap),
+    ];
 
     let inst_box = MonoInstance::new_method(
         get_name,
@@ -532,6 +535,70 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
 }
 
 #[test]
+fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
+    // Regression: a no-`self` associated function (`@new (v: T) -> Box<T>`) is
+    // keyed by its OWNING receiver shell (`Box<_>`), NOT by `param_types.first()`
+    // (the value param `v: T`, whose shell differs). Pre-fix the registration
+    // keyed on the value param, so the receiver-shell lookup missed and the
+    // specialization was dropped (BUG-05-016: LLVM panicked `no method new on
+    // type int`). Reverting the receiver-keyed registration drops this to 0.
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let new_name = interner.intern("new");
+    let box_name = interner.intern("Box");
+    let v_name = interner.intern("v");
+
+    let bv = pool.bound_var(0);
+    let box_generic = pool.applied(box_name, &[bv]); // owning receiver `Box<T>`
+    let box_int = pool.applied(box_name, &[Idx::INT]);
+
+    // `@new (v: T) -> Box<T>` — NO self; param[0] is the value param `v: T`,
+    // whose shell differs from the owning receiver shell.
+    let assoc_sig = FunctionSig {
+        name: new_name,
+        type_params: vec![interner.intern("T")],
+        const_params: vec![],
+        param_names: vec![v_name],
+        param_types: vec![bv], // value param `T`, NOT the receiver
+        return_type: box_generic,
+        capabilities: vec![],
+        is_public: true,
+        is_test: false,
+        is_main: false,
+        is_fbip: false,
+        type_param_bounds: vec![vec![]],
+        where_clauses: vec![],
+        generic_param_mapping: vec![None],
+        scheme_var_ids: vec![0],
+        required_params: 1,
+        param_defaults: vec![],
+        param_hashes: vec![0],
+        return_hash: 0,
+    };
+    let impl_sigs = vec![(box_generic, new_name, assoc_sig)];
+
+    let inst = MonoInstance::new_method(
+        new_name,
+        vec![GenericArg::Type(Idx::INT)],
+        vec![],
+        box_int,        // receiver `Box<int>`
+        vec![Idx::INT], // concrete value param (no self)
+        box_int,        // return `Box<int>`
+        Vec::new(),
+    );
+
+    let mono_fns = collect_mono_functions(&[inst], &[], &impl_sigs, &[], &interner, &pool);
+
+    assert_eq!(
+        mono_fns.len(),
+        1,
+        "no-self assoc fn must resolve under the owning receiver shell, not the \
+         value-param shell, got: {mono_fns:?}"
+    );
+    assert_eq!(mono_fns[0].original_name, new_name);
+}
+
+#[test]
 fn collect_skips_method_when_no_shell_matches() {
     // A method instance whose receiver shell matches no registered impl_sig
     // misses cleanly (silent skip), never mis-dispatches to a same-named
@@ -547,7 +614,7 @@ fn collect_skips_method_when_no_shell_matches() {
     let other_int = pool.applied(other_name, &[Idx::INT]);
 
     let sig_box = make_method_sig(&interner, get_name, box_generic);
-    let impl_sigs = vec![(get_name, sig_box)];
+    let impl_sigs = vec![(box_generic, get_name, sig_box)];
 
     // Receiver is Other<int> — name matches `get` but shell does not.
     let inst = MonoInstance::new_method(

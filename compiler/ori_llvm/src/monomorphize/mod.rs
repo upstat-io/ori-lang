@@ -95,7 +95,7 @@ fn nominal_type_name(pool: &Pool, idx: Idx) -> Option<Name> {
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
-    impl_sigs: &[(Name, FunctionSig)],
+    impl_sigs: &[(Idx, Name, FunctionSig)],
     import_sigs: &[(Name, FunctionSig)],
     interner: &StringInterner,
     pool: &Pool,
@@ -110,16 +110,16 @@ pub fn collect_mono_functions(
     //
     // `shell_pool` is a dedicated interning context: shells are content-
     // addressed there, leaving the shared read-only `pool` untouched. The
-    // generic sig's `self` param type carries the impl block's receiver
-    // pattern; its shell matches every concrete receiver's shell at lookup.
+    // owning impl receiver type (`Box<T>`, threaded as the impl-sig triple's
+    // first element) carries the impl block's receiver pattern; its shell
+    // matches every concrete receiver's shell at lookup. Keying on the receiver
+    // — NOT `sig.param_types.first()` — is load-bearing for a no-`self`
+    // associated function, whose first param is a VALUE param, not the receiver.
     let mut shell_pool = Pool::new();
     let mut impl_sig_by_name: FxHashMap<(Name, Option<Idx>), &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
-    for (name, sig) in impl_sigs {
-        let shell = sig
-            .param_types
-            .first()
-            .map(|&self_ty| shell_pool.generic_shell(pool, self_ty));
+    for (receiver, name, sig) in impl_sigs {
+        let shell = Some(shell_pool.generic_shell(pool, *receiver));
         impl_sig_by_name.entry((*name, shell)).or_insert(sig);
     }
     // Consulted after `function_sigs` misses on the top-level path; first registration wins.
@@ -187,13 +187,23 @@ pub fn collect_mono_functions(
             .and_then(|r| nominal_type_name(pool, r));
         let mut body_type_map: FxHashMap<Idx, Idx> =
             instance.body_type_map.iter().copied().collect();
-        // The method body references the generic receiver type (`Box<T>`); map
-        // it to the concrete receiver (`Box<int>`) so field projections on
-        // `self` resolve to the monomorphized layout. The generic sig's `self`
-        // param type is that generic receiver.
-        if let (Some(recv), Some(&self_generic)) =
-            (instance.receiver_type, generic_sig.param_types.first())
-        {
+        // For a method WITH `self`, the body references the generic receiver
+        // type (`Box<T>`) via `self`-projections; map it to the concrete
+        // receiver (`Box<int>`) so those projections resolve to the
+        // monomorphized layout. The generic sig keeps `self` as `param_types[0]`
+        // exactly when it has one MORE param than the instance's non-`self`
+        // concrete params (the same signal `concrete_sig_for_instance` uses for
+        // `receiver_self`). A no-`self` associated function has NO self
+        // projection — `param_types.first()` is a VALUE param, not the receiver —
+        // so this mapping is skipped (its body types come from
+        // `instance.body_type_map` alone).
+        let has_self_receiver =
+            instance.concrete_param_types.len() + 1 == generic_sig.param_types.len();
+        if let (Some(recv), true, Some(&self_generic)) = (
+            instance.receiver_type,
+            has_self_receiver,
+            generic_sig.param_types.first(),
+        ) {
             body_type_map.entry(self_generic).or_insert(recv);
         }
         name_to_index.insert(mangled_name, result.len());

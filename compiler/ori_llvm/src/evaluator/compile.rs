@@ -68,7 +68,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
-        impl_sigs: &[(Name, FunctionSig)],
+        impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
@@ -152,7 +152,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
-        impl_sigs: &[(Name, FunctionSig)],
+        impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
@@ -222,7 +222,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             imported_collection_surfaces,
             &unconstrained_fn_names,
             // JIT also has analysis-only impl methods.
-            impl_sigs.iter().any(|(_, sig)| !sig.is_generic()),
+            impl_sigs.iter().any(|(_, _, sig)| !sig.is_generic()),
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

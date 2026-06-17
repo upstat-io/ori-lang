@@ -2,21 +2,23 @@
 // Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
 //
 // Associated function (no self) carrying its OWN method-level generic binder
-// `<U>` on a generic impl (`@of<U> (v: U) -> Box<U>`). Dual-binder axis
-// (impl-level T + method-level U) for a no-self associated function. Same
-// mono-collection dispatch path as dedup_receiver_type_assoc_fn.ori; interp
-// passes, LLVM panics 'no method of on type int' until fixed.
+// `<U>` on a generic impl, where the impl-level `T` IS constrained by the call
+// (`base: T` + return `Box<T>`) so the receiver is concrete. Dual-binder axis
+// (impl-level T via the param/return + method-level U) for a no-self associated
+// function — exercises the mono-collection shell key plus method_args. Same
+// owning-receiver dispatch path as dedup_receiver_type_assoc_fn.ori; pre-fix the
+// mono specialization was dropped (shell keyed on the first VALUE param, not the
+// owning receiver) and LLVM panicked 'no method tagged on type int'.
 
 use std.testing { assert_eq }
 
 type Box<T> = { value: T }
 
 impl<T> Box<T> {
-    @of<U> (v: U) -> Box<U> = Box { value: v };
+    @tagged<U> (base: T, extra: U) -> Box<T> = Box { value: base };
 }
 
-#skip("BUG-05-016: LLVM associated-function dispatch on generic impl mis-keys the mono-collection shell by first value param instead of owning receiver — interp passes, LLVM-only; method-level-generic no-self assoc fn")
 @test_assoc_fn_method_generic tests _ () -> void = {
-    let r: Box<int> = Box.of(v: 5);
+    let r: Box<int> = Box.tagged(base: 5, extra: "x");
     assert_eq(actual: r.value, expected: 5)
 }

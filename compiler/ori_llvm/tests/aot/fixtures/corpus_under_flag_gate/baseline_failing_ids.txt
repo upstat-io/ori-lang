@@ -377,8 +377,6 @@ journey_guard::test_journey_12_options
 journey_guard::test_journey_13_iterators
 journey_guard::test_journey_19_rc_lifecycle
 match_alias::test_apply_alias_result_strmap
-match_alias::test_closure_env_alias
-match_alias::test_closure_env_alias_no_leak
 match_alias::test_closure_option_str_capture_two_call_no_leak
 match_alias::test_let_alias_struct_intlist
 match_alias::test_match_arm_alias_option_str

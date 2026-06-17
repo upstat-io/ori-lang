@@ -108,6 +108,25 @@ static MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|
     std::env::var("ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE=1` skips the Phase-5 RL-2 /
+/// RL-4 closure-extract borrow-view treatment for `ApplyIndirect` results that
+/// are PROVEN same-allocation borrow-views of ONE captured field of a closure env
+/// (the resolved lambda's `return_alias = Project { field }` contract over its
+/// capture param — `let f = () -> { match captured { Err(e) -> e, .. } }`
+/// invoked N times) ([`compute_closure_extract_borrow_view_lineage`]). Default
+/// (unset): the whole result lineage (every `ApplyIndirect` result + its Let-Var
+/// aliases projecting the SAME captured field) is removed from
+/// `owned_vars_needing_rc` (suppressing the N surplus per-result decs) and
+/// EXACTLY ONE whole-var release is placed per terminal path (RL-2 after the
+/// execution-final borrow-read; RL-4 edge dec on a dead normal-successor entry).
+/// With the toggle set, the base walk's per-result dec returns (the captured
+/// payload double-frees on call 2, exit 134). Spec: Annex E §AIMS RL-2
+/// (`RL2_release_exactly_once`, the joint-release theorem) + RL-4
+/// (`RL4_edge_dec_decision`) + TF-4 (`Project` borrow-view identity).
+static CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE=1` skips the Phase-5 RL-5
 /// dead-at-entry treatment for a FRESH `PartialApply` closure threaded through a
 /// loop and dead at the post-loop block-param

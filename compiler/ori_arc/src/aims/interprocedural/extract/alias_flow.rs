@@ -56,6 +56,23 @@ pub(super) fn find_return_alias_shapes(
         })
         .collect();
 
+    // Every `Project` dst (not only directly-returned ones) keyed to its
+    // `(source, field)`. Used by the indirect-return trace below to recognize a
+    // Project reached through a Let-Var / Jump-arg alias chain (the match-extract
+    // -through-block-param return shape), not only a direct `Return (Project dst)`.
+    let all_projects: FxHashMap<ArcVarId, (ArcVarId, u32)> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter_map(|instr| match instr {
+            ArcInstr::Project {
+                dst, value, field, ..
+            } => Some((*dst, (*value, *field))),
+            _ => None,
+        })
+        .collect();
+    let alias_sources = build_return_alias_source_map(func);
+
     let mut shapes: FxHashMap<usize, ReturnAliasShape> = FxHashMap::default();
     for block in &func.blocks {
         let ArcTerminator::Return { value } = &block.terminator else {
@@ -76,8 +93,110 @@ pub(super) fn find_return_alias_shapes(
                 }
             }
         }
+        // Indirect Project: the Return value is a block-param fed (via Jump-arg
+        // and Let-Var alias chain) by a `Project src.field` whose `src` aliases a
+        // param — the match-Switch-extract-to-block-param return shape. Resolved
+        // ONLY when EVERY alias-chain source is the SAME `(param, field)` Project;
+        // any source that is a fresh / non-aliasing value poisons to no shape so a
+        // caller never suppresses a release on a path that returns a fresh value.
+        if !project_returns.contains_key(value) {
+            if let Some((idx, field)) = resolve_indirect_project_return(
+                func,
+                *value,
+                &alias_sources,
+                &all_projects,
+                alias_to_param,
+            ) {
+                join_shape_into(&mut shapes, idx, ReturnAliasShape::Project { field });
+            }
+        }
     }
     shapes
+}
+
+/// Per-var backward alias sources for return-value tracing: the immediate
+/// vars a value can be equal to via `Let { Var(src) }` aliases and
+/// `Jump`-arg → block-param edges. Distinct from `build_alias_to_param_map`
+/// (which folds param indices); this keeps raw `ArcVarId` sources so the
+/// indirect-Project trace can reach a `Project` definition through the chain.
+fn build_return_alias_source_map(func: &ArcFunction) -> FxHashMap<ArcVarId, FxHashSet<ArcVarId>> {
+    let mut sources: FxHashMap<ArcVarId, FxHashSet<ArcVarId>> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: crate::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                sources.entry(*dst).or_default().insert(*src);
+            }
+        }
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let target_params = &func.blocks[target.index()].params;
+            for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
+                sources.entry(param_var).or_default().insert(*arg);
+            }
+        }
+    }
+    sources
+}
+
+/// Resolve a Return value to a single `(param_index, field)` Project alias when
+/// EVERY alias-chain leaf is the SAME `Project src.field` with `src` aliasing
+/// ONE param index. Returns `None` (poison) the moment ANY leaf is a non-Project
+/// value, a Project of a different `(src-param, field)`, or a Project whose
+/// source does not alias a param — so the resulting `Project` contract holds on
+/// EVERY return path (all-paths soundness; a fresh-value path never resolves).
+fn resolve_indirect_project_return(
+    func: &ArcFunction,
+    return_value: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+    all_projects: &FxHashMap<ArcVarId, (ArcVarId, u32)>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> Option<(usize, u32)> {
+    // Collect the alias-chain leaves: vars with no further alias source. Each
+    // leaf is the actual value returned on some path.
+    let mut visited: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut stack: Vec<ArcVarId> = vec![return_value];
+    let mut resolved: Option<(usize, u32)> = None;
+    while let Some(var) = stack.pop() {
+        if !visited.insert(var) {
+            continue;
+        }
+        match alias_sources.get(&var) {
+            Some(srcs) if !srcs.is_empty() => {
+                // Interior alias node — descend to its sources.
+                for &s in srcs {
+                    stack.push(s);
+                }
+            }
+            _ => {
+                // Leaf: the value returned on this path. A provably-`Scalar`-repr
+                // leaf carries no RC and owns no allocation (an unreachable
+                // panic-arm unit placeholder threaded into the merge block-param);
+                // it cannot conflict with a `Project` borrow-view treatment, so it
+                // is SKIPPED (not poison). Every OTHER leaf MUST be a `Project` of
+                // ONE param's SAME field; anything else (a fresh / non-aliasing
+                // RC-carrying value — the genuine fresh-return path) poisons.
+                if matches!(func.var_repr(var), Some(crate::ir::ValueRepr::Scalar)) {
+                    continue;
+                }
+                let (proj_src, field) = *all_projects.get(&var)?;
+                let param_indices = alias_to_param.get(&proj_src)?;
+                if param_indices.len() != 1 {
+                    return None;
+                }
+                let idx = *param_indices.iter().next()?;
+                match resolved {
+                    None => resolved = Some((idx, field)),
+                    Some(prev) if prev == (idx, field) => {}
+                    Some(_) => return None,
+                }
+            }
+        }
+    }
+    resolved
 }
 
 /// Multi-path join helper: insert `new` for `idx`, joining with any prior

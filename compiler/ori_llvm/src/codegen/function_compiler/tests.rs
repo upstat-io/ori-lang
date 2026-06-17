@@ -458,8 +458,8 @@ fn compile_impls_populates_method_functions_map() {
     );
 
     let impl_sigs = vec![
-        (distance_name, sig_point.clone()),
-        (distance_name, sig_line.clone()),
+        (point_idx, distance_name, sig_point.clone()),
+        (line_idx, distance_name, sig_line.clone()),
     ];
 
     // Create a minimal CanonResult for testing (methods have INVALID bodies,

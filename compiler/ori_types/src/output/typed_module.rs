@@ -155,10 +155,12 @@ pub struct TypedModule {
 
     /// Impl method signatures for codegen.
     ///
-    /// Each entry maps a method name to its resolved `FunctionSig`. Codegen
-    /// needs these to compute ABI (calling convention, sret, parameter passing)
-    /// for impl methods, which are compiled separately from top-level functions.
-    pub impl_sigs: Vec<(Name, FunctionSig)>,
+    /// Each entry maps an impl method's owning receiver type + name to its
+    /// resolved `FunctionSig`. Codegen needs these to compute ABI (calling
+    /// convention, sret, parameter passing) for impl methods (compiled
+    /// separately from top-level functions) AND to key mono-collection dispatch
+    /// on the owning receiver rather than the first value param.
+    pub impl_sigs: Vec<(Idx, Name, FunctionSig)>,
 
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
