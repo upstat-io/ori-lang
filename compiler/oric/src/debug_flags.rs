@@ -698,6 +698,26 @@ flags! {
     /// Usage: `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1 ori build file.ori`
     ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE
 
+    /// Decline the Phase-5 closure-extract borrow-view suppression for N
+    /// `ApplyIndirect` results that are PROVEN same-allocation borrow-views of
+    /// ONE captured field of a closure env (the resolved lambda's
+    /// `return_alias = Project { field }` capture-param contract). The closure
+    /// captures a sum payload (`Result<int, str>::Err(str)`) and the lambda
+    /// returns it via a match-Switch-extract-to-block-param Return; each result
+    /// is a TF-4 borrow-view of the captured str (canonical owner = the closure
+    /// env). Default (unset): the whole result lineage is removed from
+    /// `owned_vars_needing_rc` (killing the N surplus per-result decs); NO
+    /// release is placed — the closure env's OWN scope-exit dec cascade-frees
+    /// the captured payload exactly once (RL-2 release-exactly-once, the
+    /// joint-release theorem with the env as canonical owner).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// closure-extract double-free to this treatment vs the rest of the Phase-5
+    /// walk. Spec: Annex E §AIMS RL-2 + TF-4.
+    /// Usage: `ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE
+
     /// Restore the surplus same-allocation dec on a use-once owned source whose
     /// sole `Let { Var }` alias is a same-allocation borrow-view (proven by the
     /// burden-path `genuine_same_alloc_reps` union-find) live downstream — the
