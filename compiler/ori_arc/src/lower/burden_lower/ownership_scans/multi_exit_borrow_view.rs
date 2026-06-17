@@ -306,9 +306,29 @@ fn place_per_path_releases(
     root: ArcVarId,
     members: &FxHashSet<ArcVarId>,
 ) -> Vec<((usize, ForwarderReleasePos), ArcVarId)> {
+    // Multi-exit closure shape: the per-block final borrow-read is an
+    // `ApplyIndirect` at the borrowed receiver (`closure ∈ members`).
+    place_per_path_releases_with(func, root, members, |instr, members| match instr {
+        ArcInstr::ApplyIndirect { closure, .. } if members.contains(closure) => Some(*closure),
+        _ => None,
+    })
+}
+
+/// Per-path placement core, PARAMETERIZED over the per-block final-borrow-read
+/// detector `body_final_read(instr, members) -> Some(read_var)`. The
+/// `ApplyIndirect`-receiver consumer ([`place_per_path_releases`]) and any other
+/// final-read shape share this one allocation-liveness placement (RL-2 dec after
+/// the per-block final read on each reading path; RL-4 edge dec at each
+/// live-out → dead-in successor entry). Spec: Annex E §AIMS RL-2 + RL-4.
+fn place_per_path_releases_with(
+    func: &ArcFunction,
+    root: ArcVarId,
+    members: &FxHashSet<ArcVarId>,
+    body_final_read: impl Fn(&ArcInstr, &FxHashSet<ArcVarId>) -> Option<ArcVarId>,
+) -> Vec<((usize, ForwarderReleasePos), ArcVarId)> {
     let n = func.blocks.len();
-    // Per-block: index of the final borrow-read (closure receiver) + the var
-    // read there; whether the block births the root.
+    // Per-block: index of the final borrow-read + the var read there (per the
+    // `body_final_read` shape); whether the block births the root.
     let mut final_read: Vec<Option<(usize, ArcVarId)>> = vec![None; n];
     let mut births_root: Vec<bool> = vec![false; n];
     // The root's defining-`Invoke` UNWIND successor: the root is bound on the
@@ -318,12 +338,11 @@ fn place_per_path_releases(
     let mut root_def_unwind_succ: Option<usize> = None;
     for (b, block) in func.blocks.iter().enumerate() {
         for (i, instr) in block.body.iter().enumerate() {
-            match instr {
-                ArcInstr::ApplyIndirect { closure, .. } if members.contains(closure) => {
-                    final_read[b] = Some((i, *closure));
-                }
-                ArcInstr::Apply { dst, .. } if *dst == root => births_root[b] = true,
-                _ => {}
+            if let Some(read_var) = body_final_read(instr, members) {
+                final_read[b] = Some((i, read_var));
+            }
+            if matches!(instr, ArcInstr::Apply { dst, .. } if *dst == root) {
+                births_root[b] = true;
             }
         }
         if let ArcTerminator::Invoke { dst, unwind, .. } = &block.terminator {
