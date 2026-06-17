@@ -258,3 +258,100 @@ fn for_yield_not_iter_consumed_declines() {
         "borrowed @iter arg (not iter-consumed) declines"
     );
 }
+
+/// Positive pin (pre-loop borrow-read): a fresh list borrow-read via `@__index`
+/// (`xs[0]`) BEFORE the for-loop's `@iter [own]` consume — the borrow-read does
+/// not transfer/duplicate, so the value survives move-once into @iter and the
+/// dead-thread lineage is still suppressed. Mirrors the
+/// `for_yield_str_with_narrowed_int_list` shape (`if xs[0] != 1 ...` before the
+/// loop). A NON-param member borrow-read is benign; only a PARAM-member read
+/// (the live post-loop thread) declines.
+#[test]
+fn for_yield_pre_loop_borrow_read_suppresses() {
+    let v = ArcVarId::new;
+    let interner = StringInterner::new();
+    let iter = interner.intern("iter");
+    let index = interner.intern("__index");
+    // bb0: %3 = Construct List; %5 = %3; %8 = @__index(%5 [borrow]) (xs[0]);
+    //      Invoke @iter(%5 [own]) normal bb1 unwind bb2
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Construct {
+                dst: v(3),
+                ty: Idx::from_raw(1),
+                ctor: CtorKind::ListLiteral,
+                args: Vec::new(),
+            },
+            ArcInstr::Let {
+                dst: v(5),
+                ty: Idx::from_raw(1),
+                value: ArcValue::Var(v(3)),
+            },
+            // xs[0] borrow-read BEFORE the loop (non-param member, benign).
+            ArcInstr::Apply {
+                dst: v(8),
+                ty: Idx::from_raw(8),
+                func: index,
+                args: vec![v(5), v(7)],
+                arg_ownership: vec![
+                    crate::ir::ArgOwnership::Borrowed,
+                    crate::ir::ArgOwnership::Borrowed,
+                ],
+                mono_instance_id: None,
+            },
+        ],
+        terminator: ArcTerminator::Invoke {
+            dst: v(6),
+            ty: Idx::from_raw(2),
+            func: iter,
+            args: vec![v(5)],
+            arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+            mono_instance_id: None,
+        },
+    };
+    let bb1 = jmp_block(1, 3, vec![v(3)]);
+    let bb2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: Vec::new(),
+        body: vec![],
+        terminator: ArcTerminator::Resume,
+    };
+    // bb3: (%10) dead loop param; Return.
+    let bb3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![(v(10), Idx::from_raw(1))],
+        body: Vec::new(),
+        terminator: ArcTerminator::Return { value: v(8) },
+    };
+    let mut var_reprs = vec![ValueRepr::Scalar; 11];
+    var_reprs[3] = ValueRepr::RcPointer;
+    var_reprs[5] = ValueRepr::RcPointer;
+    var_reprs[6] = ValueRepr::RcPointer;
+    var_reprs[10] = ValueRepr::RcPointer;
+    let func = ArcFunction {
+        var_types: (0..11).map(|i| Idx::from_raw(i + 1)).collect(),
+        var_reprs,
+        blocks: vec![bb0, bb1, bb2, bb3],
+        entry: ArcBlockId::new(0),
+        name: interner.intern("main"),
+        ..ArcFunction::default()
+    };
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(3), ArcVarId::new(5), ArcVarId::new(10)]
+        .into_iter()
+        .collect();
+
+    let out = compute_iter_consume_dead_thread_orphan_inc(&func, &contracts, &owned, &interner);
+    assert!(
+        out.contains(&ArcVarId::new(3)),
+        "fresh list root suppressed despite pre-loop xs[0] borrow-read"
+    );
+    assert!(
+        out.contains(&ArcVarId::new(10)),
+        "dead loop param suppressed"
+    );
+}

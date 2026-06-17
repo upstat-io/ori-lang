@@ -303,6 +303,19 @@ fn dead_thread_vetted(
     lineage: &FxHashSet<ArcVarId>,
     iter_consumed: &FxHashSet<ArcVarId>,
 ) -> bool {
+    // The lineage's BLOCK-PARAM members are the loop-carried thread (the dead
+    // carry); a non-param member (the fresh-Construct root + its `Let`-Var
+    // aliases) may be borrow-read BEFORE the @iter consume (`xs[0]` length /
+    // index). A block-param member read at ANY position other than a Jump-arg
+    // re-thread means the post-loop thread is LIVE (the `str_list_explicit_last_owner`
+    // shape) — decline. Collect the param members so the vet can hold them to the
+    // stricter Jump-arg-only rule while allowing root/alias borrow-reads.
+    let param_members: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.params.iter().map(|&(p, _)| p))
+        .filter(|p| lineage.contains(p))
+        .collect();
     for block in &func.blocks {
         for instr in &block.body {
             if !instr.used_vars().iter().any(|v| lineage.contains(v)) {
@@ -314,24 +327,31 @@ fn dead_thread_vetted(
                     value: ArcValue::Var(src),
                     ..
                 } if lineage.contains(src) => {}
-                // An `Apply @iter` consume of a lineage member is the sanctioned
-                // genuine consume (the iterator owns + frees the buffer).
-                ArcInstr::Apply { args, .. }
-                    if args
-                        .iter()
-                        .any(|a| lineage.contains(a) && iter_consumed.contains(a)) =>
-                {
-                    // The @iter consume is allowed; any OTHER lineage member at
-                    // any OTHER position of this Apply is a genuine read -> decline.
-                    if args
-                        .iter()
-                        .any(|a| lineage.contains(a) && !iter_consumed.contains(a))
-                    {
+                // A `Project` of a NON-param lineage member (the root / a `Let`-Var
+                // alias) is a BORROW-view (a length / index read like `xs[0]` before
+                // the loop) — the value survives move-once into @iter. A `Project`
+                // of a PARAM member means the loop-carried thread is LIVE post-loop
+                // -> decline.
+                ArcInstr::Project { value, .. }
+                    if lineage.contains(value) && !param_members.contains(value) => {}
+                // An `Apply` consume of a lineage member: the `@iter [own]` consume
+                // is the sanctioned genuine consume; a BORROWED-position NON-param
+                // member arg (e.g. `@__index(%5 [borrow])` for `xs[0]`) is a benign
+                // borrow-read. Decline an OWNED-position non-@iter member arg (a
+                // transfer / duplication) OR ANY read of a PARAM member (the
+                // loop-carried thread must stay dead).
+                ArcInstr::Apply { args, .. } => {
+                    if args.iter().enumerate().any(|(i, a)| {
+                        lineage.contains(a)
+                            && (param_members.contains(a)
+                                || (instr.is_owned_position(i) && !iter_consumed.contains(a)))
+                    }) {
                         return false;
                     }
                 }
-                // Any other instruction touching a lineage member is a genuine
-                // read / owned consume -> decline.
+                // Any other instruction touching a lineage member (Construct / Set
+                // / Reuse store, ApplyIndirect, etc.) is a genuine owned consume
+                // -> decline.
                 _ => return false,
             }
         }
@@ -339,23 +359,23 @@ fn dead_thread_vetted(
         match term {
             // Jump-arg re-thread of a lineage member: the dead carry. Benign.
             ArcTerminator::Jump { .. } => {}
-            // An `Invoke @iter` terminator consume of a lineage member is the
-            // sanctioned genuine consume (the inline for-loop iterator).
-            ArcTerminator::Invoke { args, .. }
-                if args
-                    .iter()
-                    .any(|a| lineage.contains(a) && iter_consumed.contains(a)) =>
-            {
-                if args
-                    .iter()
-                    .any(|a| lineage.contains(a) && !iter_consumed.contains(a))
-                {
+            // An `Invoke` terminator consume of a lineage member: the `@iter [own]`
+            // consume is the sanctioned genuine consume; a BORROWED-position member
+            // arg is a benign borrow-read (value survives). Decline only an
+            // OWNED-position member arg that is NOT the @iter consume.
+            ArcTerminator::Invoke { args, .. } => {
+                if args.iter().enumerate().any(|(i, a)| {
+                    lineage.contains(a)
+                        && (param_members.contains(a)
+                            || (term.is_owned_position(i) && !iter_consumed.contains(a)))
+                }) {
                     return false;
                 }
             }
             // Any other terminator carrying a lineage member (Return / Branch /
-            // Switch / Resume / non-iter Invoke / InvokeIndirect) is a genuine
-            // read or escape -> decline.
+            // Switch / Resume / InvokeIndirect) is a genuine read or escape ->
+            // decline (the post-loop thread must be DEAD; a Branch/Switch/Return
+            // operand is a genuine read).
             other => {
                 if other.used_vars().iter().any(|v| lineage.contains(v)) {
                     return false;
