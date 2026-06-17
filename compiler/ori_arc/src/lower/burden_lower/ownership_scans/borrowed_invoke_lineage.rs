@@ -31,6 +31,8 @@ use roots::{
 };
 use vet::same_alloc_closure_vetted;
 
+pub(in crate::lower::burden_lower) use vet::same_alloc_closure_vetted as borrow_read_only_closure_vetted;
+
 /// One root's candidate admission, held until the pairwise-disjoint gate runs
 /// over the full candidate set.
 struct Candidate {

@@ -29,10 +29,11 @@ use super::ownership_scans::{
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
     compute_live_out_owned, compute_loop_invariant_dead_local_releases,
     compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
-    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
-    compute_transfer_through_return_results, compute_transfer_via_move_alias,
-    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
-    compute_yield_identity_push_dup_args, instr_transfer_vars, list_concat_consumed_operands,
+    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
+    compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
+    list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -553,6 +554,16 @@ pub(crate) fn emit_burden_ops<'a>(
     let index_builtin_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
 
+    // RL-1 surplus-inc suppression for read-only-in-place-co-owner seamless-slice
+    // RESULTS: the sharing-view runtime self-incs the shared buffer, so the result
+    // is an owned co-reference whose `+1` is the runtime's own inc — AIMS emits
+    // only the balancing dec, never a FRESH-site inc (else net +1 leak). Gated to
+    // the surplus shape (receiver survives + read downstream; result lineage a
+    // pure borrow-read co-owner not fed to another sharing-view). Empty under
+    // `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1`. SSOT:
+    // `compute_sharing_view_surplus_inc_dsts`.
+    let sharing_view_surplus_inc_dsts = compute_sharing_view_surplus_inc_dsts(func, interner);
+
     // RL-1 borrowed-store duplication incs: a BORROWED-param-rooted value
     // consumed at an aggregate-STORE position duplicates the caller's retained
     // reference — the store-site inc is load-bearing (the container's drop is
@@ -703,6 +714,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_results: &transfer_through_return_results,
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
+        sharing_view_surplus_inc_dsts: &sharing_view_surplus_inc_dsts,
         borrowed_store_dup_args: &borrowed_store_dup_args,
         yield_identity_push_dup_args: &yield_identity_push_dup_args,
         call_arg_dup_aliases: &genuine_dup_call_arg_aliases,

@@ -1066,6 +1066,24 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE
 
+    /// Restore the FRESH-site `BurdenInc` on a read-only-in-place-co-owner
+    /// seamless-slice RESULT (`slice` / `substring` / `take` / `drop`). Default:
+    /// the inc is suppressed — the sharing-view runtime self-incs the shared
+    /// buffer (`ori_rc_inc`, rc 1 -> 2), so the `MaybeShared` result is an owned
+    /// co-reference whose `+1` is the runtime's own inc; AIMS emits ONLY the
+    /// balancing last-use dec. A second FRESH-site inc double-counts under
+    /// sole-emitter Phase-7 lowering (net +1 leak; the shared buffer never reaches
+    /// rc 0). Gated to the surplus shape only (the receiver survives + is read
+    /// downstream, the result lineage is a pure borrow-read co-owner not fed to
+    /// another sharing-view) — the load-bearing-inc shapes (materialized / moved /
+    /// chained / receiver-dies-at-slice) keep the inc. With the toggle set, the
+    /// read-only-co-owner slice result reverts to the +1 leak (the pre-cure shape).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// read-only-co-owner slice leak to this suppression.
+    /// Usage: `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS
+
     // === Runtime Trace Flags ===
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
