@@ -28,6 +28,7 @@ use super::build_definition_map;
 pub(super) fn find_return_alias_shapes(
     func: &ArcFunction,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    sigs: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<usize, ReturnAliasShape> {
     // Collect Return-value vars first (most blocks have no Return); skip
     // the Project-def scan entirely when there are no Returns.
@@ -72,6 +73,10 @@ pub(super) fn find_return_alias_shapes(
         })
         .collect();
     let alias_sources = build_return_alias_source_map(func);
+    // Every `Apply` / `Invoke` call-result dst keyed to its `(callee, args)`.
+    // Used by the forwarder branch below: a Return value forwarding a callee's
+    // `Project` return-alias result inherits the same `Project { field }`.
+    let call_results = build_call_result_map(func);
 
     let mut shapes: FxHashMap<usize, ReturnAliasShape> = FxHashMap::default();
     for block in &func.blocks {
@@ -110,6 +115,33 @@ pub(super) fn find_return_alias_shapes(
                 join_shape_into(&mut shapes, idx, ReturnAliasShape::Project { field });
             }
         }
+        // Forwarder Project: the Return value's alias-chain leaf is the result
+        // of an `Apply` / `Invoke @callee(args)` whose callee returns
+        // `Project { field }` of its param `args[i]`. The forwarder returns that
+        // borrow-view UNCHANGED, so THIS function's param indices that `args[i]`
+        // aliases inherit `Project { field }` (forwarder-transitivity of the
+        // same-allocation-identity relation — proven net-0 single-release in
+        // scratch `ForwardedProjectReturn.forwarded_joint_release_exactly_once`,
+        // governing rules RL-2 `RL2_release_exactly_once` + TF-4 borrow-view).
+        let leaf = resolve_alias_leaf(*value, &alias_sources);
+        if let Some((callee, args)) = call_results.get(&leaf) {
+            if let Some(callee_contract) = sigs.get(callee) {
+                for (arg_pos, &arg) in args.iter().enumerate() {
+                    let Some(ReturnAliasShape::Project { field }) = callee_contract
+                        .params
+                        .get(arg_pos)
+                        .and_then(|p| p.return_alias)
+                    else {
+                        continue;
+                    };
+                    if let Some(param_indices) = alias_to_param.get(&arg) {
+                        for &idx in param_indices {
+                            join_shape_into(&mut shapes, idx, ReturnAliasShape::Project { field });
+                        }
+                    }
+                }
+            }
+        }
     }
     shapes
 }
@@ -140,6 +172,38 @@ fn build_return_alias_source_map(func: &ArcFunction) -> FxHashMap<ArcVarId, FxHa
         }
     }
     sources
+}
+
+/// Build the `Apply` / `Invoke` call-result map: each call result `dst` keyed
+/// to its `(callee, args)`. Used by the forwarder-Project branch in
+/// `find_return_alias_shapes` to recognize a Return value that forwards a
+/// callee's `Project` return-alias result. `Invoke` defines `dst` on its normal
+/// edge — included alongside `Apply`.
+fn build_call_result_map(func: &ArcFunction) -> FxHashMap<ArcVarId, (Name, Vec<ArcVarId>)> {
+    let mut out: FxHashMap<ArcVarId, (Name, Vec<ArcVarId>)> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst,
+                func: callee,
+                args,
+                ..
+            } = instr
+            {
+                out.insert(*dst, (*callee, args.clone()));
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            ..
+        } = &block.terminator
+        {
+            out.insert(*dst, (*callee, args.clone()));
+        }
+    }
+    out
 }
 
 /// Resolve a Return value to a single `(param_index, field)` Project alias when

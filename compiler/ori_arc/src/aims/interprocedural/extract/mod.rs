@@ -361,7 +361,7 @@ fn detect_param_facts(
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
     let return_flow = find_return_flow_params(func, &alias_to_param);
-    let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param);
+    let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param, sigs);
     let containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);

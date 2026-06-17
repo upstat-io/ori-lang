@@ -224,6 +224,104 @@ fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
 }
 
 #[test]
+fn extract_contract_project_return_alias_propagates_through_forwarder() {
+    // fn unbox(b: Box<[int]>) -> [int] = unwrap(b)
+    // where unwrap.params[0].return_alias == Project { field: 0 } (the callee
+    // returns `b.value`, a borrow-view of param field 0). The forwarder returns
+    // that borrow-view UNCHANGED via an Invoke terminator (the real @unbox
+    // shape), so the forwarder's param b MUST inherit Project { field: 0 } —
+    // forwarder-transitivity of the same-allocation-identity relation (proven
+    // net-0 single-release: scratch ForwardedProjectReturn
+    // forwarded_joint_release_exactly_once; governing RL-2 RL2_release_exactly_once
+    // + TF-4 borrow-view). Without it, @main drops the Box before the projected
+    // list's last use — the BUG-floor box_list_int_unwrap UAF.
+    let unwrap = name(11);
+    let mut callee_contract = MemoryContract::conservative(1);
+    callee_contract.params[0].return_alias =
+        Some(crate::aims::contract::ReturnAliasShape::Project { field: 0 });
+    let mut sigs = FxHashMap::default();
+    sigs.insert(unwrap, callee_contract);
+
+    let unbox = ArcFunction {
+        name: name(12),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(1),
+                    ty: ty(1),
+                    func: unwrap,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                    mono_instance_id: None,
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = analyze_function(&unbox, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &unbox,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert_eq!(
+        contract.params[0].return_alias,
+        Some(crate::aims::contract::ReturnAliasShape::Project { field: 0 }),
+        "forwarding a param to a Project-return-alias callee propagates Project field 0"
+    );
+
+    // Negative pin: a callee with NO return_alias (returns a fresh value) does
+    // NOT propagate any Project alias — the forwarder's param stays None, so a
+    // caller never suppresses a release on a genuinely-fresh forwarded result.
+    let mut sigs_fresh = FxHashMap::default();
+    sigs_fresh.insert(unwrap, MemoryContract::conservative(1));
+    let state_map_f = analyze_function(&unbox, &classifier, &sigs_fresh, &[], Vec::new());
+    let contract_f = extract_contract(
+        &unbox,
+        &state_map_f,
+        &classifier,
+        &sigs_fresh,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert_eq!(
+        contract_f.params[0].return_alias, None,
+        "forwarding to a callee with no return_alias does NOT propagate a Project alias"
+    );
+}
+
+#[test]
 fn borrowed_read_only_true_for_param_at_borrowed_user_call_position() {
     // fn fwd(xs: [int]) -> int { read_only(xs) }  where read_only's param is
     // Borrowed AND borrowed_read_only (a pure borrow-read callee). The param flows
