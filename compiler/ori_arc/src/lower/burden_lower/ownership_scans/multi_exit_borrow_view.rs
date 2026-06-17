@@ -339,7 +339,7 @@ fn place_per_path_releases(
 /// UNWIND edge is owned by the RL-4 live-out → dead-in edge logic + the
 /// downstream Category-2 `deadAtSucc` conjunct — disjoint edges, no double
 /// release. Spec: Annex E §AIMS RL-2 + RL-4.
-fn place_per_path_releases_with(
+pub(super) fn place_per_path_releases_with(
     func: &ArcFunction,
     root: ArcVarId,
     members: &FxHashSet<ArcVarId>,
