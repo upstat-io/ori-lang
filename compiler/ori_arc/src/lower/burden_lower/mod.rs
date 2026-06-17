@@ -169,6 +169,28 @@ static LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new
     std::env::var("ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC=1` skips the Phase-5 RL-1 +
+/// RL-2 orphaned-inc elision for a fresh collection iter-consumed by an inline
+/// `for`-loop whose loop-carried thread is dead post-loop
+/// ([`ownership_scans::compute_iter_consume_dead_thread_orphan_inc`]). Default
+/// (unset): a fresh `Construct` collection whose SOLE genuine consume is the
+/// for-loop's `@iter [own]` (`Invoke @iter` terminator / `Apply @iter`,
+/// `ori_iter_drop` frees it) AND whose Jump-arg thread across the loop back-edge
+/// terminates in a DEAD param (never read) is removed from
+/// `owned_vars_needing_rc` — eliding the orphaned FRESH-site keep-alive
+/// `BurdenInc` (the dead-thread is a `JumpArg` transfer into a dead param, NOT a
+/// genuine duplication, so the value is move-once into `@iter`:
+/// `RL1_duplication_balanced` move-once nets 0). With the toggle set, the orphan
+/// inc returns — the buffer's rc never reaches 0 (the `@iter` consume suppresses
+/// the scope-exit dec), a +1 leak (exit 2). Follows Jump-args across ALL edges
+/// (forward + back) via `compute_param_edge_args` — the back-edge inclusion the
+/// foreclosed forward-only scans (dead-ends #163/#164/#185) lacked; does NOT
+/// relax the `@iter` COW-taint (#181's over-fire surface). Spec: Annex E §AIMS
+/// RL-1 + RL-2.
+static ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
 /// release for a transfer-through-return forwarder RESULT whose monomorphized
 /// result-type burden is empty (`burden_carries_rc == false`), so the result

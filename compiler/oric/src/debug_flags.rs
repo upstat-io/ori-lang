@@ -703,6 +703,27 @@ flags! {
     /// Usage: `ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE
 
+    /// Skip the Phase-5 RL-1 + RL-2 orphaned-inc elision for a fresh collection
+    /// iter-consumed by an inline `for`-loop whose loop-carried thread is dead
+    /// post-loop. Default (unset): a fresh Construct collection whose SOLE genuine
+    /// consume is the for-loop's `@iter [own]` (Invoke @iter terminator / Apply
+    /// @iter; `ori_iter_drop` frees it) AND whose Jump-arg thread across the loop
+    /// back-edge terminates in a DEAD param (never read) is removed from
+    /// `owned_vars_needing_rc` — eliding the orphaned FRESH-site keep-alive
+    /// `BurdenInc` (the dead-thread is a `JumpArg` transfer into a dead param, NOT a
+    /// genuine duplication, so the value is move-once into @iter). With the toggle
+    /// set the orphan inc returns — the buffer rc never reaches 0 (the @iter
+    /// consume suppresses the scope-exit dec), a +1 leak (exit 2). Follows
+    /// Jump-args across ALL edges (forward + back) — the back-edge inclusion the
+    /// foreclosed forward-only scans lacked; does NOT relax the @iter COW-taint.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a `for_yield`
+    /// iter-source leak to this treatment vs the rest of the Phase-5 walk. Spec:
+    /// Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC=1 ori build file.ori`
+    ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC
+
     /// Decline the Phase-5 treatment for a FRESH closure result (`Unique` +
     /// `preserves_freshness`, non-forwarder) consumed ONLY at `ApplyIndirect`
     /// borrow-receiver sites across a short-circuit CFG. Default (unset): the

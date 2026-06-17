@@ -18,6 +18,7 @@ mod dead_param;
 mod dup_inc;
 mod forwarder;
 mod forwarder_release;
+mod iter_consume_dead_thread;
 mod lazy_iter_closure_borrow;
 mod live_extract;
 mod live_extract_site;
@@ -68,6 +69,7 @@ pub(super) use forwarder::{
 };
 pub(super) use forwarder_release::compute_forwarder_result_under_release;
 pub(crate) use forwarder_release::ForwarderReleasePos;
+pub(super) use iter_consume_dead_thread::compute_iter_consume_dead_thread_orphan_inc;
 pub(super) use lazy_iter_closure_borrow::compute_lazy_iter_closure_borrow_lineage;
 pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};

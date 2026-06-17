@@ -26,17 +26,18 @@ use super::ownership_scans::{
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
     compute_closure_extract_borrow_view_lineage, compute_construct_fed_dead_param_lineage,
     compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
-    compute_fresh_sum_live_extract_lineage, compute_lazy_iter_closure_borrow_lineage,
-    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
-    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_fresh_sum_live_extract_lineage, compute_iter_consume_dead_thread_orphan_inc,
+    compute_lazy_iter_closure_borrow_lineage, compute_loop_closure_dead_param_lineage,
+    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
     CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED, CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED,
     FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED, FORWARDER_RESULT_RELEASE_DISABLED,
-    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED,
-    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED,
+    LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
+    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -362,6 +363,29 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // + TF-7.
     let lazy_iter_closure_releases =
         apply_lazy_iter_closure_borrow(func, &mut owned_vars_needing_rc, interner);
+    // RL-1 + RL-2 iter-consume dead-thread orphaned-inc elision: a fresh
+    // collection (`let xs = [..]; let ys = for x in xs.iter() yield ...`) whose
+    // SOLE genuine consume is the inline for-loop's `@iter [own]` (Invoke @iter
+    // terminator / Apply @iter; ori_iter_drop frees it) AND whose Jump-arg thread
+    // across the loop back-edge terminates in a DEAD param (never read post-loop).
+    // The base walk's use-count counts the dead-thread as a 2nd live use ->
+    // classifies xs duplicated -> emits an orphaned FRESH-site keep-alive
+    // BurdenInc whose scope-exit dec is RL-2 transfer-suppressed by @iter -> +1
+    // leak. The dead-thread is a JumpArg transfer (RL-4 exemption) into a dead
+    // param, NOT a genuine duplication, so xs is move-once into @iter and the inc
+    // is elidable (RL1_duplication_balanced move-once nets 0). Removes the whole
+    // same-alloc dead-thread lineage from owned_vars_needing_rc. Follows Jump-args
+    // across ALL edges (forward + back) via compute_param_edge_args — the
+    // back-edge inclusion the foreclosed forward-only scans (#163/#164/#185)
+    // lacked; does NOT relax the @iter COW-taint (#181's over-fire). SSOT:
+    // `compute_iter_consume_dead_thread_orphan_inc`. Spec: Annex E §AIMS RL-1 +
+    // RL-2.
+    apply_iter_consume_dead_thread_orphan_inc(
+        func,
+        &mut owned_vars_needing_rc,
+        contracts,
+        interner,
+    );
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
     // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
@@ -687,6 +711,32 @@ fn apply_lazy_iter_closure_borrow(
     let treatment = compute_lazy_iter_closure_borrow_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     treatment.releases
+}
+
+/// Toggle-gated application of the RL-1 + RL-2 iter-consume dead-thread
+/// orphaned-inc elision ([`compute_iter_consume_dead_thread_orphan_inc`]):
+/// computes the vetted fresh-collection dead-thread lineages (a fresh collection
+/// iter-consumed by an inline for-loop whose loop-carried thread is dead
+/// post-loop) and removes them from `owned_vars_needing_rc` — eliding the orphan
+/// FRESH-site inc + the symmetric per-thread pairs. Places NO release (the
+/// `@iter`'s `ori_iter_drop` is the single buffer release). No-op when
+/// `ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC=1`.
+fn apply_iter_consume_dead_thread_orphan_inc(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) {
+    if *ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED {
+        return;
+    }
+    let suppressed = compute_iter_consume_dead_thread_orphan_inc(
+        func,
+        contracts,
+        owned_vars_needing_rc,
+        interner,
+    );
+    owned_vars_needing_rc.retain(|v| !suppressed.contains(v));
 }
 
 /// Populate `func.burden_emitted` from the just-emitted burden ops. Walks
