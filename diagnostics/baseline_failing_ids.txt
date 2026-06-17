@@ -26,7 +26,6 @@ fat_ptr_iter::for_yield::test_yield_identity_str_list_two_calls
 fat_ptr_iter::function_param::test_borrowed_param_then_cow_mutation
 fat_ptr_iter::function_param::test_borrowed_param_use_after_iteration
 fat_ptr_iter::function_param::test_borrowed_str_list_called_in_loop
-fat_ptr_iter::method_collect::test_iter_collect_set_str
 fat_ptr_iter::str_list::test_split_first_to_lowercase
 fat_ptr_iter::unwind::test_unwind_break_then_panic
 generics::test_borrow_list_int_nested_pin6_chain_then_return_no_leak

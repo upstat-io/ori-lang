@@ -355,3 +355,143 @@ fn for_yield_pre_loop_borrow_read_suppresses() {
         "dead loop param suppressed"
     );
 }
+
+/// Build the chained-collect shape (`iter_collect_set_str`):
+/// ```text
+/// bb0: %4 = Apply @__collect_set(%3 [own])   ; fresh {str}, RC=1 (the root)
+///      %6 = %4;
+///      Apply @iter(%6 [own]) -> %7            ; move-once iter-consume
+///      ... (the second collect chains off %7, separate lineage)
+///      Jump bb1(%4)                           ; %4 dead-thread into the tail param
+/// bb1: (%19: {str})                           ; DEAD post-loop alias (read iff thread_read)
+///      Return %ret
+/// ```
+/// `thread_read` makes bb1 genuinely READ %19 (the negative live-thread case).
+fn collect_set_chain_func(interner: &StringInterner, thread_read: bool) -> ArcFunction {
+    let v = ArcVarId::new;
+    let iter = interner.intern("iter");
+    let collect_set = interner.intern("__collect_set");
+    let ret = v(41);
+
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            // %4 = @__collect_set(%3 [own]) — fresh {str} root (NOT a Construct).
+            ArcInstr::Apply {
+                dst: v(4),
+                ty: Idx::from_raw(2),
+                func: collect_set,
+                args: vec![v(3)],
+                arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+            ArcInstr::Let {
+                dst: v(6),
+                ty: Idx::from_raw(2),
+                value: ArcValue::Var(v(4)),
+            },
+            // @iter(%6 [own]) — the move-once iter-consume of the collect result.
+            ArcInstr::Apply {
+                dst: v(7),
+                ty: Idx::from_raw(3),
+                func: iter,
+                args: vec![v(6)],
+                arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        // %4 dead-thread Jump-arg'd into the tail param %19.
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v(4)],
+        },
+    };
+    // bb1 post-loop: optionally READ %19 (negative live-thread); else %19 dead.
+    let bb1_body = if thread_read {
+        vec![ArcInstr::Apply {
+            dst: v(50),
+            ty: Idx::from_raw(8),
+            func: interner.intern("len"),
+            args: vec![v(19)],
+            arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+            mono_instance_id: None,
+        }]
+    } else {
+        Vec::new()
+    };
+    let bb1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(v(19), Idx::from_raw(2))],
+        body: bb1_body,
+        terminator: ArcTerminator::Return { value: ret },
+    };
+
+    let mut var_reprs = vec![ValueRepr::Scalar; 51];
+    var_reprs[3] = ValueRepr::RcPointer; // collect-set source iterator
+    var_reprs[4] = ValueRepr::RcPointer; // fresh {str} root
+    var_reprs[6] = ValueRepr::RcPointer; // @iter arg alias
+    var_reprs[7] = ValueRepr::RcPointer; // second iterator (separate lineage)
+    var_reprs[19] = ValueRepr::RcPointer; // dead post-loop thread param
+
+    ArcFunction {
+        var_types: (0..51).map(|i| Idx::from_raw(i + 1)).collect(),
+        var_reprs,
+        blocks: vec![bb0, bb1],
+        entry: ArcBlockId::new(0),
+        name: interner.intern("main"),
+        ..ArcFunction::default()
+    }
+}
+
+/// Positive pin (collect-builtin root): a fresh `@__collect_set` result
+/// move-once iter-consumed and dead-thread Jump-arg'd to a DEAD tail param is
+/// suppressed (lineage {%4, %6, %19} removed from `owned_vars_needing_rc`),
+/// eliding the orphan funding inc — the `iter_collect_set_str` floor cell.
+/// Reverting (Construct-only root set) leaks the intermediate Set (the @iter
+/// consume suppresses the scope-exit dec, the funding inc has no paired dec).
+#[test]
+fn collect_set_chain_dead_thread_suppresses_orphan_inc() {
+    let interner = StringInterner::new();
+    let func = collect_set_chain_func(&interner, false);
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(4), ArcVarId::new(6), ArcVarId::new(19)]
+        .into_iter()
+        .collect();
+
+    let out = compute_iter_consume_dead_thread_orphan_inc(&func, &contracts, &owned, &interner);
+    assert!(
+        out.contains(&ArcVarId::new(4)),
+        "fresh @__collect_set result root suppressed"
+    );
+    assert!(
+        out.contains(&ArcVarId::new(6)),
+        "@iter arg alias suppressed"
+    );
+    assert!(
+        out.contains(&ArcVarId::new(19)),
+        "dead post-loop thread param suppressed"
+    );
+}
+
+/// Negative pin (collect-builtin root, live thread): when the post-iter thread
+/// param %19 is GENUINELY READ at an owned position (the collected Set survives
+/// downstream — stored / returned / re-consumed), the lineage is NOT
+/// dead-threaded -> gate (c)/(d) declines (the funding inc is load-bearing).
+/// Guards against eliding a collect result that genuinely survives (dead-end
+/// #191 surface for the collect-builtin family).
+#[test]
+fn collect_set_chain_live_thread_declines() {
+    let interner = StringInterner::new();
+    let func = collect_set_chain_func(&interner, true);
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let owned: FxHashSet<ArcVarId> = [ArcVarId::new(4), ArcVarId::new(6), ArcVarId::new(19)]
+        .into_iter()
+        .collect();
+
+    let out = compute_iter_consume_dead_thread_orphan_inc(&func, &contracts, &owned, &interner);
+    assert!(
+        out.is_empty(),
+        "a genuine owned-position read of the collect-result thread declines (keep-alive needed)"
+    );
+}

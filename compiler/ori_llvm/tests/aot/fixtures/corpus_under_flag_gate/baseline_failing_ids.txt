@@ -47,7 +47,6 @@ fat_ptr_iter::for_yield::test_yield_identity_str_list_two_calls
 fat_ptr_iter::function_param::test_borrowed_param_then_cow_mutation
 fat_ptr_iter::function_param::test_borrowed_param_use_after_iteration
 fat_ptr_iter::function_param::test_borrowed_str_list_called_in_loop
-fat_ptr_iter::method_collect::test_iter_collect_set_str
 fat_ptr_iter::str_list::test_split_first_to_lowercase
 generics::test_generic_forwarder_result_list_str_returns_intact
 generics::test_path_sensitive_match_dispatch_list_balances_rc
