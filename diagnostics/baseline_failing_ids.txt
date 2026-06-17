@@ -22,7 +22,6 @@ fat_ptr_iter::conversion::test_str_split_in_tuple_list
 fat_ptr_iter::conversion::test_str_split_on_substring
 fat_ptr_iter::cow::test_push_element_borrowed_param_two_calls
 fat_ptr_iter::for_yield::test_for_yield_str_identity
-fat_ptr_iter::for_yield::test_yield_identity_str_list_borrowed_param
 fat_ptr_iter::for_yield::test_yield_identity_str_list_two_calls
 fat_ptr_iter::function_param::test_borrowed_param_then_cow_mutation
 fat_ptr_iter::function_param::test_borrowed_param_use_after_iteration

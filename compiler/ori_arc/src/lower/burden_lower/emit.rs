@@ -108,6 +108,16 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // container's drop is the matched release. SSOT:
     // `compute_borrowed_store_dup_args`.
     pub(super) borrowed_store_dup_args: &'a FxHashSet<ArcVarId>,
+    // RL-1 yield-identity push-store dup args: iterator-element borrow-views
+    // (`Project field:1` of `@__iter_next` over a BORROWED-param-rooted source)
+    // consumed at the OWNED element-store position of `@ori_list_push`. Excluded
+    // from `owned_vars_needing_rc` (iter-element-view), so the normal owned
+    // inc-emission skips them; this set re-emits the load-bearing store-dup inc
+    // at the push site only (no paired dec — the result collection's drop is the
+    // match). DISTINCT from `borrowed_store_dup_args` so an element never
+    // double-incs. SSOT: `compute_yield_identity_push_dup_args`. Spec: Annex E
+    // §AIMS RL-1.
+    pub(super) yield_identity_push_dup_args: &'a FxHashSet<ArcVarId>,
     // RL-1 genuine-duplication OWNED-CALL-ARG aliases (`Let { Var(src) }`
     // dup-aliases consumed at an owned call-arg position while `src` stays
     // live). Their alias-site `BurdenInc` is the fork's funded reference —
@@ -516,13 +526,28 @@ fn emit_owned_position_incs(
             }
             new_body.push(ArcInstr::BurdenInc { var: arg });
         }
-        // Step-1 RL-1 COW-inc: a borrowed-param alias consumed at an owned
-        // COW-mutation position (NOT in `owned_vars_needing_rc`, so the normal
-        // owned-position inc above skipped it). Always emit the inc — the
-        // duplicating COW-mutation use re-reads the refcount, so it is never
-        // last-use-elided (the value survives the call into the caller's hand).
+        // RL-1 dup-incs on owned-position args NOT in `owned_vars_needing_rc`
+        // (so the normal owned-position inc above skipped them), each a genuine
+        // duplication whose matched release is the consumer's drop:
+        //
+        // - `cow_inc_borrowed_aliases`: a borrowed-param alias consumed at an
+        //   owned COW-mutation position — the duplicating COW-mutation use
+        //   re-reads the refcount; never last-use-elided (value survives into
+        //   the caller's hand).
+        // - `yield_identity_push_dup_args`: an iterator-element borrow-view
+        //   (excluded as such from `owned_vars_needing_rc`) consumed at the
+        //   OWNED element-store position of `@ori_list_push`. The push copies
+        //   the element into the fresh result buffer — a real SECOND reference
+        //   the borrowed source's caller still retains. Gated to the
+        //   `@ori_list_push` element-store site only, so it never double-incs
+        //   an aggregate-store member already handled by
+        //   `emit_borrowed_store_dup_incs`. SSOT:
+        //   `compute_yield_identity_push_dup_args`.
+        //
+        // Both per `AimsProof.Realization::RL1_duplication_balanced`.
         else if instr.is_owned_position(pos)
-            && ctx.analysis.cow_inc_borrowed_aliases.contains(&arg)
+            && (ctx.analysis.cow_inc_borrowed_aliases.contains(&arg)
+                || ctx.analysis.yield_identity_push_dup_args.contains(&arg))
         {
             new_body.push(ArcInstr::BurdenInc { var: arg });
         }

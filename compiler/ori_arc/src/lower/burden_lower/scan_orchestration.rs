@@ -31,7 +31,8 @@ use super::ownership_scans::{
     compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
+    compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
+    list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -559,6 +560,22 @@ pub(crate) fn emit_burden_ops<'a>(
     // (the compute fn owns the toggle). SSOT: `compute_borrowed_store_dup_args`.
     let borrowed_store_dup_args = compute_borrowed_store_dup_args(func, type_registry);
 
+    // RL-1 yield-identity push duplication incs: an iterator-element borrow-view
+    // (`Project field:1` of `@__iter_next` over a BORROWED-param-rooted source)
+    // consumed at the OWNED element-store position of `@ori_list_push`. The push
+    // copies the element into the fresh result buffer (a real SECOND reference);
+    // the borrowed source survives in the caller (RL-2), so the store duplicates
+    // and owes one inc — matched by the result collection's `elem_dec_fn` drop.
+    // The iterator-element-view exclusion (`collect_iter_element_defs`) dropped
+    // both the spurious dec AND this load-bearing inc; this restores ONLY the inc
+    // on the genuine duplication. Kept DISTINCT from `borrowed_store_dup_args`
+    // (those fire at aggregate-store nodes; these fire at the `@ori_list_push`
+    // call-arg site) so an element never double-incs. Empty when
+    // `ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC=1`. SSOT:
+    // `compute_yield_identity_push_dup_args`. Spec: Annex E §AIMS RL-1.
+    let yield_identity_push_dup_args =
+        compute_yield_identity_push_dup_args(func, type_registry, interner);
+
     // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching a
     // merge/return block's dead block-params: the Jump-arg → Owned-param handoff
     // (RL-4 exemption) suppresses the source's last-use dec expecting RL-5 to release
@@ -676,6 +693,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
         borrowed_store_dup_args: &borrowed_store_dup_args,
+        yield_identity_push_dup_args: &yield_identity_push_dup_args,
         call_arg_dup_aliases: &genuine_dup_call_arg_aliases,
     };
     emit_burden_ops_for_blocks(
