@@ -29,6 +29,7 @@ mod shared_seam;
 
 pub(crate) use nounwind::pre_lower_monos_to_arc_cache;
 pub use nounwind::rewrite_apply_targets_for_monos;
+pub(crate) use nounwind::MonoTargetMaps;
 pub use nounwind::PreparedFunction;
 
 use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};

@@ -41,28 +41,61 @@ pub fn rewrite_apply_targets_for_monos(
     mono_functions: &[crate::monomorphize::MonoFunction],
     pool: &ori_types::Pool,
 ) {
-    use ori_ir::canon::MonoInstanceId;
-    let mut mono_by_id: FxHashMap<MonoInstanceId, Name> = FxHashMap::default();
-    let mut mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>> = FxHashMap::default();
-    for mono_fn in mono_functions {
-        for &id in &mono_fn.instance_ids {
-            mono_by_id.insert(id, mono_fn.mangled_name);
-        }
-        let resolved_params: Vec<Idx> = mono_fn
-            .sig
-            .param_types
-            .iter()
-            .map(|&t| pool.resolve_fully(t))
-            .collect();
-        mono_by_generic
-            .entry(mono_fn.original_name)
-            .or_default()
-            .push((resolved_params, mono_fn.mangled_name));
-    }
+    let maps = MonoTargetMaps::build(mono_functions, pool);
     for (_name, (arc_func, lambdas)) in arc_cache.iter_mut() {
-        rewrite_func_call_targets(arc_func, &mono_by_id, &mono_by_generic, pool);
+        maps.rewrite_function(arc_func, lambdas, pool);
+    }
+}
+
+/// The two mono-name lookup tables a call-target rewrite consumes: a
+/// `MonoInstanceId → mangled Name` map and a `generic Name → [(resolved param
+/// types, mangled Name)]` candidate list. SSOT for the mono-target rewrite — both
+/// the `arc_cache` walk and the per-test-body rewrite build it once and call
+/// `rewrite_function`.
+pub struct MonoTargetMaps {
+    mono_by_id: FxHashMap<ori_ir::canon::MonoInstanceId, Name>,
+    mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+}
+
+impl MonoTargetMaps {
+    pub fn build(
+        mono_functions: &[crate::monomorphize::MonoFunction],
+        pool: &ori_types::Pool,
+    ) -> Self {
+        let mut mono_by_id = FxHashMap::default();
+        let mut mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>> = FxHashMap::default();
+        for mono_fn in mono_functions {
+            for &id in &mono_fn.instance_ids {
+                mono_by_id.insert(id, mono_fn.mangled_name);
+            }
+            let resolved_params: Vec<Idx> = mono_fn
+                .sig
+                .param_types
+                .iter()
+                .map(|&t| pool.resolve_fully(t))
+                .collect();
+            mono_by_generic
+                .entry(mono_fn.original_name)
+                .or_default()
+                .push((resolved_params, mono_fn.mangled_name));
+        }
+        Self {
+            mono_by_id,
+            mono_by_generic,
+        }
+    }
+
+    /// Rewrite the call targets of `func` and every lambda in `lambdas` to the
+    /// mangled mono name. Idempotent; no-op for non-generic call sites.
+    pub fn rewrite_function(
+        &self,
+        func: &mut ori_arc::ArcFunction,
+        lambdas: &mut [ori_arc::ArcFunction],
+        pool: &ori_types::Pool,
+    ) {
+        rewrite_func_call_targets(func, &self.mono_by_id, &self.mono_by_generic, pool);
         for lambda in lambdas {
-            rewrite_func_call_targets(lambda, &mono_by_id, &mono_by_generic, pool);
+            rewrite_func_call_targets(lambda, &self.mono_by_id, &self.mono_by_generic, pool);
         }
     }
 }
