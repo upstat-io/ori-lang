@@ -1,0 +1,15 @@
+// Journey 17: "I am a captured fat pointer"
+// Slug: fat-closure-capture
+// Difficulty: complex
+// Features: strings, arc, closures, capture, higher_order
+// Expected: check_capture() = 10
+// NOTE: This journey exposes a compiler bug — closure capturing str
+//       triggers unresolved type variable at codegen (Idx leak)
+
+@check_capture () -> int = {
+    let prefix = "hello";
+    let f = s -> prefix.length() + s.length();
+    f("world")
+}
+
+@main () -> int = check_capture();

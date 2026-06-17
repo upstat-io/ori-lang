@@ -1,0 +1,58 @@
+// Journey 19: "I am a lifecycle"
+// Slug: rc-lifecycle
+// Difficulty: complex
+// Features: structs, heap_fields, rc, ownership_transfer, nested_structs, field_projection
+// Expected: make_and_use(5) + extract_and_use(make_container(3)) + pass_through_sum(4) + nested_containers() = 15 + 6 + 10 + 20 = 51
+
+type Container = { items: [int], name: str }
+
+type Nested = { inner: Container, label: str }
+
+@make_container (n: int) -> Container = {
+    let items = for i in 0..n yield i + 1;
+    Container { items: items, name: "container" }
+}
+
+@extract_and_use (c: Container) -> int = {
+    // Project fields from struct with heap fields.
+    // After extraction, let the container go out of scope.
+    let total = 0;
+    for item in c.items do total = total + item;
+    total
+}
+
+@pass_through (c: Container) -> Container = {
+    // Identity — tests ownership transfer through function call.
+    c
+}
+
+@pass_through_sum (n: int) -> int = {
+    let c = make_container(n:);
+    let c2 = pass_through(c:);
+    extract_and_use(c: c2)
+}
+
+@make_and_use (n: int) -> int = {
+    let c = make_container(n:);
+    extract_and_use(c:)
+}
+
+@nested_containers () -> int = {
+    // Struct containing another struct with RC fields.
+    // Exercises recursive aggregate drop.
+    let inner = make_container(n: 3);
+    let nested = Nested { inner: inner, label: "outer" };
+    // Access through nested struct
+    let inner_sum = extract_and_use(c: nested.inner);
+    // nested.label is a str (heap) — accessing it exercises str projection
+    let label_len = nested.label.length();
+    inner_sum + label_len + nested.inner.name.length()
+}
+
+@main () -> int = {
+    let a = make_and_use(n: 5);
+    let b = extract_and_use(c: make_container(n: 3));
+    let c = pass_through_sum(n: 4);
+    let d = nested_containers();
+    a + b + c + d
+}

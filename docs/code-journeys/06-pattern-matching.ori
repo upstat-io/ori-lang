@@ -1,0 +1,26 @@
+// Journey 6: "I am a match"
+// Slug: pattern-matching
+// Difficulty: moderate
+// Features: pattern_matching, sum_types, destructuring, exhaustiveness
+// Expected: extract(Success(42)) + extract(Failure(-1)) + to_code(Pending) = 42 + (-1) + 0 = 41
+
+type Status = Pending | Running | Completed;
+type Result2 = Success(value: int) | Failure(code: int);
+
+@to_code (s: Status) -> int = match s {
+    Pending -> 0,
+    Running -> 1,
+    Completed -> 2,
+}
+
+@extract (r: Result2) -> int = match r {
+    Success(v) -> v,
+    Failure(c) -> c,
+}
+
+@main () -> int = {
+    let a = extract(r: Success(value: 42));     // = 42
+    let b = extract(r: Failure(code: -1));      // = -1
+    let c = to_code(s: Pending);                // = 0
+    a + b + c                                   // = 41
+}
