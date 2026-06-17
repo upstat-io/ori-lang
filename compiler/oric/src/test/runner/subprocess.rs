@@ -412,9 +412,11 @@ fn consume_worker_stdout(
             // the result accounting survives an over-cap failure detail.
             Some(event) => consume_event(event, state, summary, interner),
             // Non-protocol line, mid-line marker, absent/mismatched token,
-            // or malformed protocol-shaped line: surface verbatim.
-            None if truncated => println!("{line}{LINE_TRUNCATION_MARKER}"),
-            None => println!("{line}"),
+            // or malformed protocol-shaped line: surface verbatim on stderr so
+            // the parent's stdout stays pure for the `--format json` summary
+            // (a raw test-program print on stdout corrupts the captured JSON).
+            None if truncated => eprintln!("{line}{LINE_TRUNCATION_MARKER}"),
+            None => eprintln!("{line}"),
         }
     }
 }
