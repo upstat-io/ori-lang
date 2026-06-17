@@ -387,6 +387,32 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
+    // Phase 6.66e — LOOP-INVARIANT iter-consumed SURVIVOR surplus suppression
+    // (RL-1 duplication + RL-2 iter-consume transfer + RL-2 release-exactly-once).
+    // A loop-INVARIANT collection (`Construct` OUTSIDE the loop) iter-consumed via
+    // the inline for-loop `@iter(arg [own])` and READ AFTER the loop via a borrow
+    // (`words.len()`) is the survivor shape. The base walk over-emits across the
+    // loop-carried lineage (`same_alloc_reps` drops the Jump-phi back-edge): a
+    // surplus FRESH-site `BurdenInc` at the `Construct` + a surplus pre-survivor-read
+    // `BurdenDec`, beyond the genuine keep-alive inc + the one post-read survivor
+    // release → net -1 double-free. This pass rewrites the survivor rep's burden ops
+    // to the proven oracle ledger (keep ONE keep-alive inc the `@iter`/`ori_iter_drop`
+    // pair balances + the LAST dec, the post-read survivor release; strip the
+    // surplus). Four discriminators bound the over-fire to EXACTLY the survivor
+    // shape: BACK-EDGE-EXCLUDED forward-threaded reps (no loop-carried-accumulator
+    // merge), a BORROWED-position post-loop COLLECTION read (vs str_split's no-read /
+    // a Project element-view / a forwarded dec), a genuine-value-COW-mutator decline
+    // (@iter excluded — keeps map-cow keep-alive incs), and a collection-conversion
+    // decline (@keys/@values/@split/@to_list). Lean: `RL1_duplication_balanced` +
+    // `RL2_iter_consuming_no_caller_dec` + `RL2_release_exactly_once`.
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    suppress_loop_invariant_iter_survivor_surplus(func, pool, interner, contracts);
+    trace_phase_snapshot(
+        "after_phase_6_66e_loop_invariant_iter_survivor",
+        func,
+        interner,
+    );
+
     // Phase 6.67 — NESTED-loop iter-element-view keep-alive inc (RL-1). A nested
     // `for inner in outer do { for x in inner do .. }` projects the inner
     // collection `inner` out of the OUTER source's iter-element-view
@@ -1890,6 +1916,559 @@ fn populate_burden_emitted_from_iter_keepalive(func: &mut ArcFunction, vars: &Fx
             *slot = true;
         }
     }
+}
+
+/// True iff `ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS=1` declines the
+/// Phase-6.66e loop-invariant iter-consumed survivor surplus suppression.
+fn loop_invariant_iter_survivor_disabled() -> bool {
+    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DISABLED.get_or_init(|| {
+        std::env::var("ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS").as_deref() == Ok("1")
+    })
+}
+
+/// Same-allocation reps via Let-Var aliases + FORWARD Jump-arg→block-param renames
+/// (the Jump-phi BACK-edge EXCLUDED). Connects a survivor's alias chain to its
+/// post-loop read AND threads a loop-INVARIANT value unchanged through the loop
+/// header, but NEVER unions a rebuilt loop accumulator's distinct per-iteration
+/// allocation (`result = result.push(w)` / `for...yield` scratch — only the back-edge
+/// would). Used by the loop-invariant-survivor pass to avoid the jump-threaded
+/// over-merge of `words` with an accumulator. Spec: Annex E §AIMS — merge-point
+/// filtering (back-edge declines).
+fn compute_forward_threaded_reps(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+        let p = *parent.get(&v).unwrap_or(&v);
+        if p == v {
+            return v;
+        }
+        let r = find(parent, p);
+        parent.insert(v, r);
+        r
+    }
+    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent.insert(ra, rb);
+        }
+    }
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                union(&mut parent, *dst, *src);
+            }
+        }
+    }
+    let param_edges = crate::aims::intraprocedural::project_aliases::compute_param_edge_args(func);
+    for (&param, edges) in &param_edges {
+        for e in edges {
+            if !e.is_back_edge {
+                union(&mut parent, param, e.arg);
+            }
+        }
+    }
+    let keys: Vec<ArcVarId> = parent.keys().copied().collect();
+    let mut reps = FxHashMap::default();
+    for v in keys {
+        let r = find(&mut parent, v);
+        reps.insert(v, r);
+    }
+    reps
+}
+
+/// The resolved burden-op rewrite for ONE loop-invariant iter-consumed survivor
+/// rep: the keep-alive `BurdenInc` site to KEEP (the dup the `@iter`/`ori_iter_drop`
+/// pair balances) + the survivor-release `BurdenDec` site to KEEP (the LAST dec,
+/// after the post-loop borrow-read). Every OTHER normal-path `BurdenInc`/`BurdenDec`
+/// on the rep is the base-walk surplus and is removed.
+struct SurvivorRewrite {
+    keep_inc: (usize, usize),
+    keep_dec: (usize, usize),
+}
+
+/// Phase 6.66e — suppress the base-walk surplus burden ops on a loop-INVARIANT
+/// collection iter-consumed via the inline for-loop `@iter [own]` and read AFTER
+/// the loop via a borrow (the survivor shape — `str_list_explicit_last_owner`).
+///
+/// A rep (computed via BACK-EDGE-EXCLUDED [`compute_forward_threaded_reps`] so a
+/// loop-carried accumulator's allocation is NOT merged in) qualifies when ALL hold:
+///  - exactly ONE inline `@iter(arg [own])` iter-consume, on a loop path, with a
+///    paired `ori_iter_drop`;
+///  - a fresh `Construct`/collection-source alloc OUTSIDE the loop (loop-invariant);
+///  - a post-`ori_iter_drop` BORROWED-position read of the COLLECTION rep (the
+///    survivor read — NOT a Project element-view, NOT a Jump-arg forward, NOT a
+///    scope-exit dec; the discriminator vs `str_split`/`set_to_list`/`derive_clone`);
+///  - it does NOT flow into a genuine value-COW-mutator (`@iter` excluded) NOR a
+///    collection-conversion builtin (`@keys`/`@values`/`@split`/`@to_list`);
+///  - the base walk over-emitted (>= 2 incs OR >= 2 decs on the rep).
+///
+/// The rewrite KEEPS the keep-alive inc + the LAST dec and REMOVES every other
+/// normal-path burden op on the rep. Unwind/`Resume` decs are left intact.
+fn suppress_loop_invariant_iter_survivor_surplus(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) {
+    if loop_invariant_iter_survivor_disabled() {
+        return;
+    }
+    let jt_reps = compute_forward_threaded_reps(func);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let iter_name = interner.intern("iter");
+    let preds = crate::graph::compute_predecessors(func);
+    let dom = crate::graph::DominatorTree::build(func);
+    let loop_blocks = compute_loop_blocks_local(func, &preds, &dom);
+    let unwind_blocks = compute_unwind_reachable_blocks(func);
+    // Genuine value-COW-mutator names (`@iter` EXCLUDED — it is an iter-consume
+    // transfer balanced by `ori_iter_drop`, not a value mutation). A rep flowing into
+    // one of these at an owned position needs its keep-alive inc KEPT (RL-1 COW copy).
+    let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
+    cow_mutators.remove(&iter_name);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let list_take_name = for_yield_result_finalizer_name(interner);
+
+    let uses_per_rep = collect_iter_consume_uses_per_rep(func, pool, contracts, iter_name, &rep_of);
+
+    let mut rewrites: Vec<(ArcVarId, SurvivorRewrite)> = Vec::new();
+    for (rep, uses) in &uses_per_rep {
+        // Decline a rep consumed at a SECOND owned position beyond the single `@iter`
+        // (a `result = result.push(w)` accumulator / `for...yield` scratch / concat):
+        // the single-survivor-release oracle cannot collapse its branch-distributed
+        // releases. A true survivor's collection is consumed ONCE + otherwise read.
+        if rep_has_second_owned_consume(func, &rep_of, *rep, iter_name) {
+            continue;
+        }
+        // Decline a rep flowing into a genuine value-COW-mutation (keep-alive inc is
+        // load-bearing for the COW copy verdict; the map-cow / map_keys families).
+        if rep_lineage_is_cow_tainted(
+            func,
+            &rep_of,
+            &cow_mutators,
+            &builtins,
+            contracts,
+            interner,
+            list_take_name,
+            *rep,
+        ) {
+            continue;
+        }
+        let Some(rw) = resolve_loop_invariant_iter_survivor(
+            func,
+            &jt_reps,
+            *rep,
+            uses,
+            &loop_blocks,
+            &unwind_blocks,
+            interner,
+        ) else {
+            continue;
+        };
+        rewrites.push((*rep, rw));
+    }
+    if rewrites.is_empty() {
+        return;
+    }
+
+    // Resolve the remove-set per rep against the un-mutated body, then remove in
+    // descending (block, idx) order so earlier removals never invalidate later.
+    let mut to_remove: FxHashSet<(usize, usize)> = FxHashSet::default();
+    let mut burden_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (rep, rw) in &rewrites {
+        for (b, block) in func.blocks.iter().enumerate() {
+            if unwind_blocks.contains(&b) {
+                continue;
+            }
+            for (i, instr) in block.body.iter().enumerate() {
+                let var = match instr {
+                    ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var } => *var,
+                    _ => continue,
+                };
+                if rep_of(var) != *rep {
+                    continue;
+                }
+                burden_vars.insert(var);
+                if (b, i) != rw.keep_inc && (b, i) != rw.keep_dec {
+                    to_remove.insert((b, i));
+                }
+            }
+        }
+    }
+    let mut by_block: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
+    for (b, i) in to_remove {
+        by_block.entry(b).or_default().push(i);
+    }
+    for (b, mut idxs) in by_block {
+        let Some(block) = func.blocks.get_mut(b) else {
+            continue;
+        };
+        idxs.sort_unstable_by(|a, c| c.cmp(a));
+        for i in idxs {
+            if i < block.body.len() {
+                block.body.remove(i);
+            }
+        }
+    }
+    populate_burden_emitted_from_iter_keepalive(func, &burden_vars);
+}
+
+/// True iff the rep is consumed at a NON-`@iter` owned position anywhere — a SECOND
+/// owned consume beyond the single survivor `@iter` (a `@push` accumulator, a
+/// `for...yield` scratch finalizer, a concat). A true survivor's collection is
+/// consumed ONCE (the `@iter`).
+fn rep_has_second_owned_consume(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+    iter_name: Name,
+) -> bool {
+    let is_rcptr = |v: ArcVarId| {
+        matches!(
+            func.var_repr(v),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+        )
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            let callee = match instr {
+                ArcInstr::Apply { func: c, .. } => Some(*c),
+                _ => None,
+            };
+            let used = instr.used_vars();
+            for (pos, &arg) in used.iter().enumerate() {
+                if instr.is_owned_position(pos)
+                    && is_rcptr(arg)
+                    && rep_of(arg) == rep
+                    && callee != Some(iter_name)
+                {
+                    return true;
+                }
+            }
+        }
+        let tused = block.terminator.used_vars();
+        for (pos, &arg) in tused.iter().enumerate() {
+            if block.terminator.is_owned_position(pos) && is_rcptr(arg) && rep_of(arg) == rep {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Resolve the [`SurvivorRewrite`] for `rep` iff it is a loop-invariant
+/// iter-consumed survivor (see [`suppress_loop_invariant_iter_survivor_surplus`]).
+fn resolve_loop_invariant_iter_survivor(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    uses: &[IterConsumeUse],
+    loop_blocks: &FxHashSet<usize>,
+    unwind_blocks: &FxHashSet<usize>,
+    interner: &ori_ir::StringInterner,
+) -> Option<SurvivorRewrite> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    // (1) Exactly ONE inline `@iter [own]` consume with a paired `ori_iter_drop`.
+    if uses.len() != 1 {
+        return None;
+    }
+    let u = uses[0];
+    let iter_idx = u.instr?;
+    let (drop_block, drop_at, _) = paired_iter_drop_site(func, u.block, iter_idx, interner)?;
+    // The iteration is a loop: a loop block lies ON the path between the `@iter` and
+    // the paired `ori_iter_drop`. A straight-line single iter-consume is not the
+    // back-edge over-emission this pass cures.
+    let from_iter = forward_reachable_from(func, &[u.block]);
+    let on_loop_path = loop_blocks.contains(&u.block)
+        || loop_blocks.contains(&drop_block)
+        || loop_blocks.iter().any(|lb| from_iter.contains(lb));
+    if loop_blocks.is_empty() || !on_loop_path {
+        return None;
+    }
+    // (2) Fresh loop-invariant alloc OUTSIDE the loop.
+    if !rep_has_loop_invariant_fresh_alloc(func, &rep_of, rep, loop_blocks, interner) {
+        return None;
+    }
+    // (3) A post-`ori_iter_drop` BORROWED-position read of the COLLECTION rep.
+    if !rep_has_post_drop_collection_borrow_read(func, &rep_of, rep, drop_block, drop_at) {
+        return None;
+    }
+    // (3b) Decline a rep flowing into a collection-CONVERSION builtin (the
+    // derived-second-collection `map_keys_then_use_map` shape).
+    if rep_flows_into_collection_conversion(func, &rep_of, rep, interner) {
+        return None;
+    }
+    // (4) The keep-alive inc + the survivor release + the over-emission signature.
+    let mut incs: Vec<(usize, usize)> = Vec::new();
+    let mut decs: Vec<(usize, usize)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if unwind_blocks.contains(&b) {
+            continue;
+        }
+        for (i, instr) in block.body.iter().enumerate() {
+            match instr {
+                ArcInstr::BurdenInc { var } if rep_of(*var) == rep => incs.push((b, i)),
+                ArcInstr::BurdenDec { var } if rep_of(*var) == rep => decs.push((b, i)),
+                _ => {}
+            }
+        }
+    }
+    if incs.len() < 2 && decs.len() < 2 {
+        return None;
+    }
+    let keep_inc = incs
+        .iter()
+        .rfind(|(b, i)| *b == u.block && *i < iter_idx)
+        .or_else(|| incs.last())
+        .copied()?;
+    let keep_dec = *decs.last()?;
+    if keep_inc == keep_dec {
+        return None;
+    }
+    Some(SurvivorRewrite { keep_inc, keep_dec })
+}
+
+/// True iff `rep` has a fresh RcPtr/FatValue alloc (the canonical `fresh_rc_alloc_dst`
+/// birth `+1`) in a body block OUTSIDE every loop block — the loop-invariant birth.
+fn rep_has_loop_invariant_fresh_alloc(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+    loop_blocks: &FxHashSet<usize>,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    let list_take_name = for_yield_result_finalizer_name(interner);
+    for (b, block) in func.blocks.iter().enumerate() {
+        if loop_blocks.contains(&b) {
+            continue;
+        }
+        for instr in &block.body {
+            if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
+                if rep_of(dst) == rep {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// True iff `rep` has a genuine BORROWED-position read of the COLLECTION at or after
+/// the paired `ori_iter_drop` `(drop_block, drop_at)` — the survivor read. NOT a read:
+/// a `Project` element-view, a scope-exit `BurdenDec`, a Jump-arg forward, an owned
+/// consume. This is the discriminator vs `str_split`/`set_to_list`/`derive_clone` (whose
+/// fresh `@iter` source has NO post-loop COLLECTION borrow-read).
+fn rep_has_post_drop_collection_borrow_read(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+    drop_block: usize,
+    drop_at: usize,
+) -> bool {
+    let succ_starts: Vec<usize> = func
+        .blocks
+        .get(drop_block)
+        .map(|blk| {
+            crate::graph::successor_block_ids(&blk.terminator)
+                .into_iter()
+                .map(crate::ir::ArcBlockId::index)
+                .collect()
+        })
+        .unwrap_or_default();
+    let reachable = forward_reachable_from(func, &succ_starts);
+    for (b, block) in func.blocks.iter().enumerate() {
+        let after_drop = b == drop_block;
+        if !after_drop && !reachable.contains(&b) {
+            continue;
+        }
+        for (i, instr) in block.body.iter().enumerate() {
+            if after_drop && i <= drop_at {
+                continue;
+            }
+            if instr_borrow_reads_rep(instr, rep_of, rep) {
+                return true;
+            }
+        }
+        if terminator_borrow_reads_rep(&block.terminator, rep_of, rep) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True iff `instr` is an `Apply` using the rep at a BORROWED arg position (the
+/// survivor read) — owned positions, Projects, and RC bookkeeping are NOT reads.
+fn instr_borrow_reads_rep(
+    instr: &ArcInstr,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+) -> bool {
+    let ArcInstr::Apply { arg_ownership, .. } = instr else {
+        return false;
+    };
+    instr.used_vars().iter().enumerate().any(|(pos, &v)| {
+        rep_of(v) == rep
+            && !instr.is_owned_position(pos)
+            && arg_ownership.get(pos) == Some(&crate::ir::ArgOwnership::Borrowed)
+    })
+}
+
+/// Terminator analogue of [`instr_borrow_reads_rep`]: an `Invoke` terminator
+/// borrow-reading the rep (`Invoke @len(coll [borrow])`). A `Jump`/`Branch`/`Return`
+/// is a forward/transfer, never a survivor read.
+fn terminator_borrow_reads_rep(
+    term: &ArcTerminator,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+) -> bool {
+    let (ArcTerminator::Invoke {
+        args,
+        arg_ownership,
+        ..
+    }
+    | ArcTerminator::InvokeIndirect {
+        args,
+        arg_ownership,
+        ..
+    }) = term
+    else {
+        return false;
+    };
+    args.iter().enumerate().any(|(pos, &v)| {
+        rep_of(v) == rep && arg_ownership.get(pos) == Some(&crate::ir::ArgOwnership::Borrowed)
+    })
+}
+
+/// True iff the rep's lineage flows into a collection-CONVERSION builtin
+/// (`@keys`/`@values`/`@split`/`@to_list`) at any `Apply`/`Invoke` position — the
+/// result is a SECOND derived collection whose branch-distributed releases the
+/// single-survivor-release oracle cannot collapse. The simple survivor (`words.len()`)
+/// never flows into a conversion.
+fn rep_flows_into_collection_conversion(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep: ArcVarId,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    let conversions = collection_conversion_names(interner);
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                if conversions.contains(callee) && args.iter().any(|&a| rep_of(a) == rep) {
+                    return true;
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            if conversions.contains(callee) && args.iter().any(|&a| rep_of(a) == rep) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True iff the rep's lineage flows into a GENUINE value-COW-mutation — an
+/// owned-position consume at a genuine COW-mutator (`cow_mutators`, with `@iter`
+/// already excluded by the caller), a concat `Add` `PrimOp` operand, or a may-COW
+/// user-call arg. The keep-alive inc is then load-bearing (RL-1 COW copy verdict).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the COW-taint predicate reads the function, the rep resolver, the \
+              COW-mutator set, the builtin ownership sets, the contracts, the \
+              interner, the list-take name, and the rep — each a distinct SSOT input"
+)]
+fn rep_lineage_is_cow_tainted(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    cow_mutators: &FxHashSet<Name>,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+    list_take_name: Name,
+    rep: ArcVarId,
+) -> bool {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                if cow_mutators.contains(callee) {
+                    let used = instr.used_vars();
+                    for (pos, &arg) in used.iter().enumerate() {
+                        if instr.is_owned_position(pos) && rep_of(arg) == rep {
+                            return true;
+                        }
+                    }
+                }
+                for (pos, &arg) in args.iter().enumerate() {
+                    if rep_of(arg) == rep
+                        && callee_may_cow_arg(
+                            contracts,
+                            builtins,
+                            interner,
+                            list_take_name,
+                            *callee,
+                            pos,
+                        )
+                    {
+                        return true;
+                    }
+                }
+            }
+            if let ArcInstr::Let {
+                value: ArcValue::PrimOp { op, args },
+                ..
+            } = instr
+            {
+                if matches!(op, PrimOp::Binary(ori_ir::BinaryOp::Add))
+                    && args.iter().any(|&a| rep_of(a) == rep)
+                {
+                    return true;
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            let used = block.terminator.used_vars();
+            if cow_mutators.contains(callee) {
+                for (pos, &arg) in used.iter().enumerate() {
+                    if block.terminator.is_owned_position(pos) && rep_of(arg) == rep {
+                        return true;
+                    }
+                }
+            }
+            for (pos, &arg) in args.iter().enumerate() {
+                if rep_of(arg) == rep
+                    && callee_may_cow_arg(
+                        contracts,
+                        builtins,
+                        interner,
+                        list_take_name,
+                        *callee,
+                        pos,
+                    )
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// The `(arg, instr_idx)` of the lineage `rep`'s LAST non-iter-consume use at or

@@ -44,7 +44,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     /// - `interner`: String interner for name resolution
     /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
     /// - `user_types`: User-defined type entries from type checker
-    /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
+    /// - `impl_sigs`: Impl signatures as (`Idx`, `Name`, `FunctionSig`) triples, where `Idx` is the owning impl receiver type
     /// - `imported_functions`: Individual imported functions to compile into
     ///   this JIT module so calls to them resolve correctly
     /// - `mono_instances`: Monomorphized generic function instances

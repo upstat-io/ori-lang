@@ -760,6 +760,27 @@ flags! {
     /// Usage: `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE=1 ori build file.ori`
     ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE
 
+    /// Decline the Phase-6.66e loop-invariant iter-consumed SURVIVOR surplus
+    /// suppression. A loop-INVARIANT collection (`Construct` outside the loop)
+    /// iter-consumed via the inline for-loop `@iter [own]` and READ AFTER the loop
+    /// via a borrow (`words.len()`) is the survivor shape; the base walk over-emits
+    /// across the loop-carried lineage (`same_alloc_reps` drops the Jump-phi
+    /// back-edge) — a surplus fresh-site `BurdenInc` + a surplus pre-read
+    /// `BurdenDec` beyond the keep-alive inc + the one post-read survivor release →
+    /// net -1, double-free (exit -134). Default (unset): rewrite the survivor rep's
+    /// burden ops to the proven oracle ledger (keep ONE keep-alive inc the
+    /// `@iter`/`ori_iter_drop` pair balances + the LAST dec, the post-read survivor
+    /// release; strip the surplus). The post-loop COLLECTION borrow-read is the
+    /// discriminator vs `str_split`/`set_to_list`/`derive_clone` (no COLLECTION
+    /// survivor read), so their `@iter` COW protection is untouched.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
+    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// loop-invariant iter-survivor double-free to this pass vs the rest of the
+    /// burden path. Spec: Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS=1 ori build file.ori`
+    ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
