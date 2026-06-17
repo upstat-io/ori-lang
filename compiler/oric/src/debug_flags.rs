@@ -781,6 +781,31 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS=1 ori build file.ori`
     ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS
 
+    /// Decline the Phase-6.66f sharing-view slice + iter-consume surplus-inc
+    /// suppression. A FRESH owned collection (`let words = [..]`) BORROWED into a
+    /// seamless-slice producer (`words.take(2)` / `.slice(..)` / `.substring(..)` /
+    /// `.drop(..)`) AND iter-consumed via the inline for-loop `@iter [own]` is the
+    /// slice+iter-interaction shape. The sharing-view producer rc-INCs the shared
+    /// backing buffer (funding the surviving slice's ref, released by the slice's
+    /// own scope-exit dec), and the `@iter [own]` -> `ori_iter_drop` is the source
+    /// allocation's single transfer release — so the source's correct burden ledger
+    /// is ZERO incs. The base walk over-emits keep-alive `BurdenInc`s on the source
+    /// lineage (treating the live-across iter-consume of the slice's source as a
+    /// duplication) beyond the producer's own inc, so the rc-1 buffer never reaches
+    /// 0 (the buffer + its owned element strings leak via the never-run
+    /// `elem_dec_fn`). Default (unset): strip every normal-path source `BurdenInc`/
+    /// `BurdenDec` on the iter-consumed sharing-view source lineage (unwind-path ops
+    /// are panic cleanup, left intact). The surviving-slice borrow-read after the
+    /// producer is the discriminator vs the dead-after-slice case the base walk
+    /// already balances.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
+    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// slice+iter-consume leak to this pass vs the rest of the burden path.
+    /// Spec: Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS=1 ori build file.ori`
+    ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS
+
     // === Alive2 IR Capture ===
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.

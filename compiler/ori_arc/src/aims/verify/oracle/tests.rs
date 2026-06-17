@@ -132,6 +132,7 @@ fn oracle_accepts_matching_contract() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -171,6 +172,7 @@ fn oracle_accepts_conservative_inference() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -215,6 +217,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -380,6 +383,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
@@ -732,6 +736,7 @@ fn oracle_accepts_conservative_may_share() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -801,6 +806,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
+            capture_variant_return_project: None,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -817,6 +823,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
+            capture_variant_return_project: None,
         },
     ]);
 
@@ -854,6 +861,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }]);
 
     // Should not panic — zip truncates to the shorter (1 param from contract).

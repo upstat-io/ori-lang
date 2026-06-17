@@ -295,3 +295,35 @@ fn test_closure_direct_str_return_two_call_no_suppress() {
         "closure_direct_str_return_two_call_no_suppress",
     );
 }
+
+#[test]
+fn test_closure_result_err_capture_two_call_no_leak() {
+    // Matrix pin (capture-variant-deadness, cross-variant): closure captures
+    // `Result<int, str>::Err(str)` (Err = tag 1), extracts the Err-arm payload;
+    // the Ok arm returns a fresh str so the whole-param `return_alias` POISONS.
+    // The caller's single-variant `Construct Variant(Result.1)` proves the Ok arm
+    // DEAD, so the capture-variant-deadness refinement resolves the live return to
+    // `Project { field }` and the two results are same-allocation borrow-views.
+    // Cross-variant sibling of closure_option_str_capture_two_call (Some = tag 0).
+    // Fails (double-free, exit 134) if the refinement reverts.
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_result_err_capture_two_call_no_leak.ori"),
+        "closure_result_err_capture_two_call_no_leak",
+    );
+}
+
+#[test]
+fn test_closure_option_none_capture_fresh_arm_no_suppress() {
+    // Negative pin (capture-variant-deadness over-fire boundary): closure captures
+    // `Option<str>::None` (tag 1) whose MATCHED arm returns a FRESH owned str, NOT
+    // a Project of the captured payload. The lambda's per-variant Project records
+    // `tag 0 (Some) -> Project field 1`, but the caller constructs None (tag 1) —
+    // the recorded tag does NOT match the captured variant, so the closure-extract
+    // borrow-view scan MUST DECLINE (the live return is the fresh literal owning
+    // its own ref; suppressing would touch the wrong lineage). Zero leaks pins the
+    // decline (the `fresh_arm_declines_live` soundness boundary).
+    assert_aot_success(
+        include_str!("fixtures/match_alias/closure_option_none_capture_fresh_arm_no_suppress.ori"),
+        "closure_option_none_capture_fresh_arm_no_suppress",
+    );
+}

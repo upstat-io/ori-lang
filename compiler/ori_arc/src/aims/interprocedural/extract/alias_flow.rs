@@ -199,6 +199,241 @@ fn resolve_indirect_project_return(
     resolved
 }
 
+/// Capture-variant-deadness Project record (RL-2 closure-extract borrow-view):
+/// for each param `i` that is a SUM whose discriminant is `Switch`ed, when EXACTLY
+/// ONE Switch case arm returns `Project param.field` (a borrow-view of that
+/// variant's payload) and EVERY OTHER reachable arm returns a fresh / non-aliasing
+/// value, record `i → (variant_tag, field)`. This is the per-variant refinement
+/// of `find_return_alias_shapes`: the whole-param `return_alias` POISONS to `None`
+/// because the fresh-return arms disagree with the Project arm, but the Project
+/// holds on the matching arm alone — admissible at a caller that proves the
+/// captured value is `variant_tag` (the non-matching arms are then DEAD).
+///
+/// Detection (all hold per recorded param):
+///  - the Switch scrutinee is `Project param.0` (the sum discriminant of `param`).
+///  - EXACTLY ONE case `(tag, block)` Jumps the merge a value tracing to
+///    `Project param.field` (the matching-variant payload borrow-view).
+///  - every OTHER case + the default arm Jumps a value that does NOT trace to a
+///    `Project` of ANY param (a fresh / literal / non-aliasing return — the poison
+///    leaf the whole-param join chokes on). An arm that projects a DIFFERENT param
+///    or a different field declines the whole record (ambiguous web).
+///  - the matching case's payload field is NOT field 0 (field 0 is the
+///    discriminant tag, never an owned payload borrow-view).
+fn find_capture_variant_return_projections(
+    func: &ArcFunction,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+    all_projects: &FxHashMap<ArcVarId, (ArcVarId, u32)>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashMap<usize, (u64, u32)> {
+    let mut out: FxHashMap<usize, (u64, u32)> = FxHashMap::default();
+    // The Return value of the whole function — the per-arm leaves all flow here.
+    let Some(return_value) = func.blocks.iter().find_map(|b| match &b.terminator {
+        ArcTerminator::Return { value } => Some(*value),
+        _ => None,
+    }) else {
+        return out;
+    };
+    // Per-case-block Jump-arg into the merge param: the value this arm contributes.
+    // The merge block-param's alias_sources are the per-arm Jump args; we instead
+    // trace each case block's OWN Jump terminator to the value it forwards.
+    for block in &func.blocks {
+        let ArcTerminator::Switch {
+            scrutinee,
+            cases,
+            default,
+        } = &block.terminator
+        else {
+            continue;
+        };
+        // The scrutinee must be `Project param.0` (the sum discriminant).
+        let Some(&(disc_src, disc_field)) = all_projects.get(scrutinee) else {
+            continue;
+        };
+        if disc_field != 0 {
+            continue;
+        }
+        let Some(param_set) = alias_to_param.get(&disc_src) else {
+            continue;
+        };
+        let Some(&param_idx) = param_set.iter().next().filter(|_| param_set.len() == 1) else {
+            continue;
+        };
+
+        // Classify each arm's contributed leaf: a Project of THIS param's field,
+        // or a fresh / non-aliasing leaf. A Project of a different param / field
+        // (or a Direct alias of any param) declines the whole record.
+        let mut project_arm: Option<(u64, u32)> = None;
+        let mut declined = false;
+        let mut classify_arm = |arm_block: crate::ir::ArcBlockId, tag: Option<u64>| {
+            if declined {
+                return;
+            }
+            // The value this arm forwards to the merge: the arm block's Jump arg
+            // that flows (via the alias chain) to the function Return value. No
+            // resolvable single leaf — conservatively a non-Project (fresh) arm.
+            let Some(leaf) = arm_leaf_for_return(func, arm_block, return_value, alias_sources)
+            else {
+                return;
+            };
+            // A Project of THIS param's non-discriminant field is the matching
+            // borrow-view arm; a Project of a different param / field 0 declines;
+            // a non-Project leaf is a permitted fresh-return non-matching arm.
+            match all_projects.get(&leaf) {
+                Some(&(proj_src, field))
+                    if field != 0
+                        && alias_to_param
+                            .get(&proj_src)
+                            .is_some_and(|s| s.len() == 1 && s.contains(&param_idx)) =>
+                {
+                    match (tag, project_arm) {
+                        // The matching-variant project arm (tag-carrying case).
+                        (Some(t), None) => project_arm = Some((t, field)),
+                        // A second project arm (or a project on the default) —
+                        // ambiguous; decline.
+                        _ => declined = true,
+                    }
+                }
+                // A Project of a DIFFERENT param / field 0 — ambiguous web.
+                Some(_) => declined = true,
+                // A non-Project leaf (fresh / literal return) — the poison the
+                // whole-param join chokes on; permitted, no record change.
+                None => {}
+            }
+        };
+        for &(tag, arm_block) in cases {
+            classify_arm(arm_block, Some(tag));
+        }
+        classify_arm(*default, None);
+
+        if declined {
+            continue;
+        }
+        if let Some((tag, field)) = project_arm {
+            // Equal record idempotent; a disagreeing second Switch on the same
+            // param poisons the record (matches the contract join).
+            match out.get(&param_idx).copied() {
+                None => {
+                    out.insert(param_idx, (tag, field));
+                }
+                Some(existing) if existing == (tag, field) => {}
+                Some(_) => {
+                    out.remove(&param_idx);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Trace the value an arm block contributes to the function Return: the arm's
+/// own `Jump` arg whose alias chain reaches `return_value`. Returns the leaf the
+/// arm forwards (a `Project`-def var or a fresh def var); `None` when the arm has
+/// no single resolvable contributing value.
+fn arm_leaf_for_return(
+    func: &ArcFunction,
+    arm_block: crate::ir::ArcBlockId,
+    return_value: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+) -> Option<ArcVarId> {
+    let block = func.blocks.get(arm_block.index())?;
+    let ArcTerminator::Jump { args, .. } = &block.terminator else {
+        return None;
+    };
+    // The Jump arg whose alias chain reaches the function Return value is the
+    // leaf this arm contributes. Trace each arg forward through alias_sources
+    // (Jump-arg → block-param edges + Let-Var aliases recorded there).
+    for &arg in args {
+        if arg == return_value || alias_reaches(arg, return_value, alias_sources) {
+            // The arg's OWN leaf: descend its alias chain to the defining value.
+            return Some(resolve_alias_leaf(arg, alias_sources));
+        }
+    }
+    // Single-arg merge: the only contributed value (its chain forms the return).
+    if args.len() == 1 {
+        return Some(resolve_alias_leaf(args[0], alias_sources));
+    }
+    None
+}
+
+/// Does `from`'s alias chain reach `target` (forward through the recorded
+/// `alias_sources` edges, which are stored target→sources)? We walk the reverse:
+/// is `from` a source-leaf of `target`'s chain?
+fn alias_reaches(
+    from: ArcVarId,
+    target: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+) -> bool {
+    let mut visited: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut stack = vec![target];
+    while let Some(v) = stack.pop() {
+        if v == from {
+            return true;
+        }
+        if !visited.insert(v) {
+            continue;
+        }
+        if let Some(srcs) = alias_sources.get(&v) {
+            stack.extend(srcs.iter().copied());
+        }
+    }
+    false
+}
+
+/// Descend `var`'s alias chain to its deepest single source leaf. Stops at a var
+/// with no further alias source (the defining `Project` / fresh def).
+fn resolve_alias_leaf(
+    var: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+) -> ArcVarId {
+    let mut visited: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut cur = var;
+    loop {
+        if !visited.insert(cur) {
+            return cur;
+        }
+        // A single alias source — descend; zero or multiple sources is the leaf.
+        match alias_sources.get(&cur).and_then(|srcs| {
+            (srcs.len() == 1)
+                .then(|| srcs.iter().next().copied())
+                .flatten()
+        }) {
+            Some(next) => cur = next,
+            None => return cur,
+        }
+    }
+}
+
+/// Public entry: compute the per-param capture-variant Project records.
+pub(super) fn find_capture_variant_return_projections_entry(
+    func: &ArcFunction,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> FxHashMap<usize, (u64, u32)> {
+    let return_values: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .filter_map(|b| match &b.terminator {
+            ArcTerminator::Return { value } => Some(*value),
+            _ => None,
+        })
+        .collect();
+    if return_values.is_empty() {
+        return FxHashMap::default();
+    }
+    let all_projects: FxHashMap<ArcVarId, (ArcVarId, u32)> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter_map(|instr| match instr {
+            ArcInstr::Project {
+                dst, value, field, ..
+            } => Some((*dst, (*value, *field))),
+            _ => None,
+        })
+        .collect();
+    let alias_sources = build_return_alias_source_map(func);
+    find_capture_variant_return_projections(func, &alias_sources, &all_projects, alias_to_param)
+}
+
 /// Multi-path join helper: insert `new` for `idx`, joining with any prior
 /// shape per `ReturnAliasShape::join` semantics.
 fn join_shape_into(

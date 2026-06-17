@@ -84,6 +84,7 @@ fn absent_param() -> ParamContract {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        capture_variant_return_project: None,
     }
 }
 

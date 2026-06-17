@@ -21,7 +21,10 @@
 # floor env (ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1).
 # Prior baseline (520 entries) was heavily stale: 462 now pass, 18 failing-at-HEAD
 # were unlisted. elem_dec_scope::test_str_list_explicit_last_owner pruned: cured by
-# the Phase-6.66e @iter-survivor-surplus suppress + 4 over-fire guards (74-cell floor).
+# the Phase-6.66e @iter-survivor-surplus suppress + 4 over-fire guards.
+# elem_dec_scope::test_str_list_slice_then_iter +
+# match_alias::test_closure_option_str_capture_two_call_no_leak pruned: cured by
+# the Phase-6.66f sharing-view-slice + iter-consume surplus-inc suppress (72-cell floor).
 aims_interactions::test_h12_rc_merge_preserves_rc_ops
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 apply_alias_coverage::test_apply_alias_conditional_intlist
@@ -35,7 +38,6 @@ cli::test_main_args_owned_path_valgrind_clean
 collections_ext::test_coll_map_index_in_loop
 collections_ext::test_coll_map_index_int_str
 elem_dec_scope::test_set_str_union
-elem_dec_scope::test_str_list_slice_then_iter
 error_handling::test_catch_index_inbounds_receiver_reused_no_leak
 error_handling::test_catch_index_oob_option_str_elements
 error_handling::test_catch_index_oob_receiver_reused_after_catch
@@ -65,7 +67,6 @@ higher_order::test_hof_map_str_capture_no_leak
 ir_checks::run_all_codegen_filecheck
 ir_quality_loops::test_while_condition_continue_diverging_operand_compiles
 journey_guard::test_journey_19_rc_lifecycle
-match_alias::test_closure_option_str_capture_two_call_no_leak
 match_alias::test_let_alias_struct_intlist
 match_alias::test_option_intlist_select_branch_return
 match_alias::test_result_str_letvar_forloop_over_alias

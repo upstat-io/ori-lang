@@ -24,8 +24,8 @@ mod return_contract;
 
 pub(crate) use alias_flow::build_alias_to_param_map;
 use alias_flow::{
-    find_consumed_via_callees, find_payload_containment_params, find_return_alias_shapes,
-    find_return_flow_params,
+    find_capture_variant_return_projections_entry, find_consumed_via_callees,
+    find_payload_containment_params, find_return_alias_shapes, find_return_flow_params,
 };
 use param_facts::{
     find_borrowed_cow_consumed_params, find_borrowed_read_only_params, find_iter_consume_params,
@@ -237,6 +237,9 @@ fn param_contract_for(
         // owned-call-arg duplication-inc admission funds one reference per
         // call site (`compute_genuine_dup_call_arg_aliases`).
         borrowed_cow_consumed: facts.borrowed_cow_consumed.contains(&i),
+        // RL-2 capture-variant-deadness Project record — the per-variant
+        // refinement of `return_alias` for the closure-extract borrow-view scan.
+        capture_variant_return_project: facts.capture_variant_return_project.get(&i).copied(),
     }
 }
 
@@ -335,6 +338,10 @@ struct ParamFacts {
     /// mutator receiver / second arg, or transitive callee fact) — the
     /// caller-funding obligation behind `ParamContract.borrowed_cow_consumed`.
     borrowed_cow_consumed: FxHashSet<usize>,
+    /// Per-param capture-variant Project record `i → (variant_tag, field)` — the
+    /// caller-side capture-variant-deadness signal behind
+    /// `ParamContract.capture_variant_return_project`.
+    capture_variant_return_project: FxHashMap<usize, (u64, u32)>,
 }
 
 /// Detect every structural [`ParamFacts`] set in one pass over the body
@@ -360,6 +367,8 @@ fn detect_param_facts(
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
     let borrowed_cow_consumed =
         find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner);
+    let capture_variant_return_project =
+        find_capture_variant_return_projections_entry(func, &alias_to_param);
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -386,6 +395,7 @@ fn detect_param_facts(
         iter_consume,
         borrowed_read_only,
         borrowed_cow_consumed,
+        capture_variant_return_project,
     }
 }
 

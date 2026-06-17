@@ -413,6 +413,39 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
+    // Phase 6.66f — SHARING-VIEW slice + iter-consume surplus-inc suppression
+    // (RL-1 duplication + RL-2 iter-consume transfer + RL-2 release-exactly-once).
+    // A FRESH owned collection (`let words = [..]`) BORROWED into a seamless-slice
+    // producer (`words.take(2)` / `.slice(..)` / `.substring(..)` / `.drop(..)` —
+    // `sharing_view_relocation_names`) AND iter-consumed by the inline `@iter [own]`
+    // is the slice+iter-interaction shape. The sharing-view producer ITSELF
+    // rc-INCs the shared backing buffer (rc 1 -> 2; the surviving slice's own
+    // scope-exit dec is the balancing release), and the `@iter [own]` -> `ori_iter_drop`
+    // is the alloc's single transfer release (`RL2_iter_consuming_no_caller_dec`).
+    // So the source's correct burden ledger is ZERO incs: the slice-share is funded
+    // by the producer's codegen inc, the iter-consume is a transfer. The base walk
+    // diverges — it emits keep-alive `BurdenInc`s on the source lineage (treating the
+    // live-across iter-consume as a duplication that needs a caller keep-alive),
+    // beyond the producer's own inc — so the rc-1 buffer never reaches 0 (the buffer
+    // plus its owned element strings leak via the never-run `elem_dec_fn`). This pass
+    // strips every NORMAL-path source `BurdenInc` on the iter-consumed sharing-view
+    // source lineage (unwind-edge ops are panic cleanup, left intact). Lean:
+    // `RL1_duplication_balanced` (the single slice-share dup is funded by the producer
+    // inc) + `RL2_iter_consuming_no_caller_dec` + `RL2_release_exactly_once`.
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    suppress_sharing_view_iter_consume_surplus_inc(
+        func,
+        pool,
+        interner,
+        contracts,
+        same_alloc_reps,
+    );
+    trace_phase_snapshot(
+        "after_phase_6_66f_sharing_view_iter_consume_surplus",
+        func,
+        interner,
+    );
+
     // Phase 6.67 — NESTED-loop iter-element-view keep-alive inc (RL-1). A nested
     // `for inner in outer do { for x in inner do .. }` projects the inner
     // collection `inner` out of the OUTER source's iter-element-view
@@ -4294,6 +4327,171 @@ fn suppress_single_borrowed_invoke_iter_consume_source(
             _ => true,
         });
     }
+}
+
+/// Phase 6.66f — SHARING-VIEW slice + iter-consume surplus-inc suppression
+/// (RL-1 duplication + RL-2 iter-consume transfer + RL-2 release-exactly-once).
+///
+/// A FRESH owned collection (`let words = [..]`) BORROWED into a seamless-slice
+/// producer (`words.take(2)` / `.slice(..)` / `.substring(..)` / `.drop(..)` —
+/// [`sharing_view_relocation_names`]) AND iter-consumed by the inline
+/// `@iter [own]` -> `ori_iter_drop` is the slice+iter-interaction shape.
+///
+/// The runtime accounting (verified via `ORI_TRACE_RC`): the sharing-view
+/// producer rc-INCs the shared backing buffer (rc 1 -> 2) so the surviving slice
+/// holds its own ref (released by the slice's own scope-exit dec), and the
+/// `@iter [own]` -> `ori_iter_drop` is the source allocation's single TRANSFER
+/// release (`RL2_iter_consuming_no_caller_dec`). The source's correct burden
+/// ledger therefore carries ZERO incs: the one slice-share duplication is funded
+/// by the producer's CODEGEN inc (not a burden inc), and the iter-consume is a
+/// transfer (no caller keep-alive). The base Phase-5 walk diverges — it treats
+/// the live-across iter-consume of the slice's source as a duplication needing a
+/// caller keep-alive `BurdenInc`, emitting one (or more) on the source lineage
+/// BEYOND the producer's own inc — so the rc-1 buffer nets to rc>=1 and never
+/// reaches 0 (the buffer plus its owned element strings leak via the never-run
+/// `elem_dec_fn`).
+///
+/// This pass strips every NORMAL-path `BurdenInc` on the iter-consumed
+/// sharing-view source lineage. Unwind-path ops are panic cleanup, left intact.
+/// Normal-path source `BurdenDec`s are also stripped (the iter-drop is the single
+/// release; a burden dec would over-release the transferred ref).
+///
+/// Discriminators (the over-fire boundary) — ALL required:
+/// - (a) the source is an owned FRESH collection (`compute_fresh_owned_collection_reps`
+///   — a non-empty List/Map/Set `Construct`; a borrowed PARAM source has no FRESH
+///   producer inc and is excluded);
+/// - (b) the source is iter-consumed (inline `@iter [own]` OR a user callee whose
+///   `ParamContract.iter_consumes` is true — `collect_iter_consume_uses_per_rep`);
+/// - (c) the source is borrowed into a sharing-view producer
+///   (`sharing_view_relocation_names`: `slice` / `substring` / `take` / `drop`)
+///   whose RESULT is a surviving slice (the slice is read after the producer call;
+///   a slice produced and immediately dead is the no-survivor case the base walk
+///   already balances). The producer's own codegen inc funds the slice's ref, so
+///   the source needs no burden inc.
+///
+/// Lean: `RL1_duplication_balanced` (the single slice-share dup is funded by the
+/// producer inc, lifecycle `[]` for the source's burden ledger) +
+/// `RL2_iter_consuming_no_caller_dec` + `RL2_release_exactly_once`. Probe-gated
+/// (`ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS`) -> default codegen
+/// byte-identical. Spec: Annex E §AIMS RL-1 + RL-2.
+fn suppress_sharing_view_iter_consume_surplus_inc(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if std::env::var_os("ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS").is_some() {
+        return;
+    }
+    let jt_reps = compute_jump_threaded_reps(func, Some(same_alloc_reps));
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let fresh_reps =
+        compute_fresh_owned_collection_reps(func, pool, &jt_reps, same_alloc_reps, interner);
+    if fresh_reps.is_empty() {
+        return;
+    }
+    let iter_name = interner.intern("iter");
+    let iter_uses = collect_iter_consume_uses_per_rep(func, pool, contracts, iter_name, &rep_of);
+    let sharing_names = sharing_view_relocation_names(interner);
+
+    // A source rep qualifies when it is (b) iter-consumed AND (c) borrowed into a
+    // sharing-view producer whose result is read after the producer call (a
+    // surviving slice). The surviving-slice read is the discriminator separating
+    // this leak shape from the dead-after-slice case the base walk already balances.
+    let mut reps_to_strip: FxHashSet<ArcVarId> = FxHashSet::default();
+    for &rep in &fresh_reps {
+        if !iter_uses.contains_key(&rep) {
+            continue;
+        }
+        if rep_borrowed_into_surviving_sharing_view(func, rep, &rep_of, &sharing_names) {
+            reps_to_strip.insert(rep);
+        }
+    }
+    if reps_to_strip.is_empty() {
+        return;
+    }
+
+    // Unwind/Resume cleanup blocks keep their burden ops (panic-path release of the
+    // producer's inc); only NORMAL-path source burden ops are stripped.
+    let unwind_blocks = compute_unwind_reachable_blocks(func);
+    for (b, block) in func.blocks.iter_mut().enumerate() {
+        if unwind_blocks.contains(&b) {
+            continue;
+        }
+        block.body.retain(|instr| match instr {
+            ArcInstr::BurdenInc { var } | ArcInstr::BurdenDec { var } => {
+                !reps_to_strip.contains(&rep_of(*var))
+            }
+            _ => true,
+        });
+    }
+}
+
+/// Whether lineage `rep` is BORROWED into a sharing-view producer (`take` / `slice`
+/// / `substring` / `drop`) whose RESULT is read AFTER the producer call (a
+/// surviving seamless slice). The producer's codegen inc funds the surviving
+/// slice's shared-buffer ref, so the source needs no burden inc — its iter-consume
+/// is the single transfer release.
+///
+/// The producer call is an `Apply`/`Invoke` to a `sharing_names` callee whose
+/// position-0 (receiver) arg traces (`rep_of`) to `rep`. "Surviving" = the
+/// producer's RESULT dst is GENUINELY read by some later non-burden instruction
+/// (an `@len` / `Project` / `Return` / aggregate field — anything other than pure
+/// SSA-rename plumbing). A producer result that is immediately dead is the
+/// no-survivor case the base walk already balances. Spec: Annex E §AIMS RL-2.
+fn rep_borrowed_into_surviving_sharing_view(
+    func: &ArcFunction,
+    rep: ArcVarId,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    sharing_names: &FxHashSet<Name>,
+) -> bool {
+    // Collect the result dsts of sharing-view producers whose receiver is `rep`.
+    let mut result_dsts: Vec<ArcVarId> = Vec::new();
+    let mut scan = |callee: Name, args: &[ArcVarId], dst: Option<ArcVarId>| {
+        if !sharing_names.contains(&callee) {
+            return;
+        }
+        // Position 0 is the receiver (the borrowed sliced collection).
+        if args.first().is_some_and(|&recv| rep_of(recv) == rep) {
+            if let Some(d) = dst {
+                result_dsts.push(d);
+            }
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee,
+                args,
+                dst,
+                ..
+            } = instr
+            {
+                scan(*callee, args, Some(*dst));
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            dst,
+            ..
+        } = &block.terminator
+        {
+            scan(*callee, args, Some(*dst));
+        }
+    }
+    if result_dsts.is_empty() {
+        return false;
+    }
+    // The result is a SURVIVING slice when any producer result's lineage is
+    // genuinely read after the producer (a borrow read / Project / Return / field
+    // store) — `lineage_genuinely_read_outside_call` over the result rep with no
+    // skip site (the producer call itself defines, never reads, the result).
+    result_dsts.iter().any(|&d| {
+        let dst_rep = rep_of(d);
+        lineage_genuinely_read_outside_call(func, dst_rep, rep_of, usize::MAX, None)
+    })
 }
 
 /// Step-B' pass: free a genuinely-leaked OWNED collection-source whose lineage

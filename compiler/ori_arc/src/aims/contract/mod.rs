@@ -439,6 +439,39 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — no funding obligation claimed).
     pub borrowed_cow_consumed: bool,
+
+    /// Capture-variant-deadness Project record (RL-2 closure-extract borrow-view,
+    /// the per-variant refinement of `return_alias`).
+    ///
+    /// `Some((variant_tag, field))` when the param is a SUM whose discriminant is
+    /// `Switch`ed and the arm matching `variant_tag` returns `Project param.field`
+    /// (a borrow-view of that variant's payload), while EVERY OTHER reachable arm
+    /// returns a fresh / non-aliasing value (which makes the joined `return_alias`
+    /// poison to `None`). The whole-param `return_alias` cannot carry this because
+    /// the Project holds only on the matching arm; the fresh-return arms are dead
+    /// ONLY when the CALLER proves the captured value is `variant_tag`.
+    ///
+    /// Consumed on the CALLER side by
+    /// `lower::burden_lower::ownership_scans::closure_extract_borrow_view`: at an
+    /// `ApplyIndirect` whose capture arg is a single-variant `Construct
+    /// Variant(T.variant_tag)(payload)`, the non-matching arms are provably DEAD
+    /// (the Switch scrutinee is the static tag), so the LIVE return resolves to
+    /// `Project { field }` and the result is admitted as a same-allocation
+    /// borrow-view of the captured payload. The scan's joint-release suppression
+    /// (`RL2_release_exactly_once`, the closure env as canonical owner) then
+    /// applies unchanged. Soundness of the variant-deadness narrowing:
+    /// the live return-leaf set under a statically-known capture variant is the
+    /// matching arm's leaf alone (the unreachable fresh-return arm never executes,
+    /// so admitting Project over the reachable arm set over-releases no program
+    /// where the capture is that variant).
+    ///
+    /// IC-3 join: equal `Some` survives; disagreement (different tag/field, or
+    /// `Some` vs the whole-param shape having promoted) poisons to `None`. A
+    /// single callee computes this once intraprocedurally, so the join is
+    /// idempotent for its own return shape.
+    ///
+    /// Default: `None` (conservative — no per-variant Project claim).
+    pub capture_variant_return_project: Option<(u64, u32)>,
 }
 
 impl ParamContract {
@@ -479,6 +512,9 @@ impl ParamContract {
         // owned-call-arg duplication admission never fires on an unknown
         // callee.
         borrowed_cow_consumed: false,
+        // Conservative default: no per-variant Project claim — an unknown
+        // callee never feeds the caller-side capture-variant-deadness scan.
+        capture_variant_return_project: None,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -520,6 +556,9 @@ impl ParamContract {
         // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
         // (OR) promotes when a path's COW-consume-at-death fact fires.
         borrowed_cow_consumed: false,
+        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
+        // body's Switch-arm scan; a single callee computes it once.
+        capture_variant_return_project: None,
     };
 
     /// Componentwise join toward conservative.
@@ -558,6 +597,17 @@ impl ParamContract {
             // OR (conservative direction): a consuming path obligates the
             // caller's funding.
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
+            // Equal `Some` survives; disagreement poisons to `None`. A single
+            // callee computes its own return shape once, so the join over its
+            // own call sites is idempotent.
+            capture_variant_return_project: match (
+                self.capture_variant_return_project,
+                other.capture_variant_return_project,
+            ) {
+                (None, x) | (x, None) => x,
+                (Some(a), Some(b)) if a == b => Some(a),
+                (Some(_), Some(_)) => None,
+            },
         }
     }
 }

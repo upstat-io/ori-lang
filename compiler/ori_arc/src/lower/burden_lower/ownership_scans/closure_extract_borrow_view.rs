@@ -11,7 +11,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::{MemoryContract, ReturnAliasShape};
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, ValueRepr};
 
 /// Result of [`compute_closure_extract_borrow_view_lineage`]: the same-alloc
 /// borrow-view result lineage to suppress (every surplus per-result dec). The
@@ -166,6 +166,7 @@ fn collect_borrow_view_result_roots(
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> FxHashMap<(ArcVarId, ArcVarId, u32), Vec<ArcVarId>> {
     let closure_def_map = crate::rc_insert::closure_resolve::build_closure_def_map(&func.blocks);
+    let construct_variant = build_construct_variant_map(func);
     let mut webs: FxHashMap<(ArcVarId, ArcVarId, u32), Vec<ArcVarId>> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -192,17 +193,33 @@ fn collect_borrow_view_result_roots(
             };
             // The capture params are the contract's LEADING params (capture-first
             // ordering, matching `populate_apply_result_aliases`). A capture param
-            // with `return_alias = Project { field }` proves the result aliases
-            // `capture_args[i].field`. Require EXACTLY ONE such capture param so
-            // the web key is unambiguous (a multi-capture-project lambda is a
-            // distinct, deferred shape).
+            // resolves to a `(param_idx, field)` Project of its captured payload by
+            // EITHER:
+            //  (1) `return_alias = Project { field }` — every return path projects
+            //      the SAME field (the whole-param shape), OR
+            //  (2) `capture_variant_return_project = Some((tag, field))` AND the
+            //      capture arg is a single-variant `Construct Variant(T.tag)(..)` —
+            //      the per-variant refinement: the non-matching arms are DEAD here,
+            //      so the live return resolves to `Project { field }` (the cell's
+            //      `Option<str>::Some` capture-and-extract shape). The whole-param
+            //      `return_alias` POISONS on the fresh-return non-matching arm, so
+            //      this caller-site variant-deadness proof is the sole admission.
+            // Require EXACTLY ONE projecting capture param so the web key is
+            // unambiguous (a multi-capture-project lambda is a deferred shape).
             let projecting: Vec<(usize, u32)> = contract
                 .params
                 .iter()
                 .enumerate()
-                .filter_map(|(i, p)| match p.return_alias {
-                    Some(ReturnAliasShape::Project { field }) => Some((i, field)),
-                    _ => None,
+                .filter_map(|(i, p)| {
+                    if let Some(ReturnAliasShape::Project { field }) = p.return_alias {
+                        return Some((i, field));
+                    }
+                    // Per-variant refinement: the capture arg must be a single-
+                    // variant Construct of the recorded variant tag.
+                    let (tag, field) = p.capture_variant_return_project?;
+                    let &capture = capture_args.get(i)?;
+                    let variant = construct_variant.get(&capture)?;
+                    (u64::from(*variant) == tag).then_some((i, field))
                 })
                 .collect();
             if projecting.len() != 1 {
@@ -218,6 +235,26 @@ fn collect_borrow_view_result_roots(
         }
     }
     webs
+}
+
+/// Map each var defined by `Construct EnumVariant { variant }` to its variant
+/// index — the caller-site discriminant proof the capture-variant-deadness
+/// refinement consumes (gate (2) of [`collect_borrow_view_result_roots`]).
+fn build_construct_variant_map(func: &ArcFunction) -> FxHashMap<ArcVarId, u32> {
+    let mut out: FxHashMap<ArcVarId, u32> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct {
+                dst,
+                ctor: CtorKind::EnumVariant { variant, .. },
+                ..
+            } = instr
+            {
+                out.insert(*dst, *variant);
+            }
+        }
+    }
+    out
 }
 
 /// Trace a closure operand var through `Let { Var }` aliases to the var whose

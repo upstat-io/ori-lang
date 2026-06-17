@@ -398,6 +398,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     // `extract_contract`, which reads Apply-arg POSITIONS directly, not this seed.
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
+    capture_variant_return_project: None,
 };
 
 /// Borrowed parameter PROVEN read-only: the runtime function reads the value's
@@ -427,6 +428,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     // Owned param is consumed, never read-only.
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
+    capture_variant_return_project: None,
 };
 
 /// Return contract for methods producing unique results (COW operations).
