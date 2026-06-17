@@ -73,7 +73,7 @@ pub(in crate::lower::burden_lower) fn compute_iter_consume_dead_thread_orphan_in
     let mut suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut admitted_lineages: Vec<FxHashSet<ArcVarId>> = Vec::new();
 
-    for root in collect_fresh_collection_roots(func) {
+    for root in collect_fresh_collection_roots(func, interner) {
         let decline = |gate: &str| {
             tracing::trace!(
                 target: "ori_arc::aims::realize",
@@ -204,19 +204,43 @@ fn collect_iter_consumed_vars(
     consumed
 }
 
-/// Gate (a): fresh collection `Construct` roots (`ListLiteral`/`MapLiteral`/
-/// `SetLiteral`) body dsts.
-fn collect_fresh_collection_roots(func: &ArcFunction) -> Vec<ArcVarId> {
+/// Gate (a): fresh collection roots. TWO allocation forms, lattice-IDENTICAL
+/// (both `Owned / Linear / Once / Unique / fresh`, RC = 1):
+///  - a `Construct` collection literal (`ListLiteral`/`MapLiteral`/`SetLiteral`)
+///    body dst (TF-3 FRESH);
+///  - an `Apply __collect_set` result body dst (TF-6 with the `CollectSet`
+///    protocol's `Unique ∧ preserves_freshness` return — `.iter().collect()`
+///    into a `Set` builds a fresh `{str}` exactly like a `SetLiteral`). A
+///    collect-builtin result move-once-consumed at a downstream `@iter [own]`
+///    (the chained `original.iter().collect()` shape) carries the SAME orphaned
+///    funding inc a fresh `Construct` root does; the move-once elision is the
+///    same `RL1_duplication_balanced` arithmetic (root-set widening only, no new
+///    realization theorem — proven invariant across source kind:
+///    `scratch CollectBuiltinDeadThreadRoot.widening_sound`).
+fn collect_fresh_collection_roots(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> Vec<ArcVarId> {
+    let collect_set_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     let mut roots = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Construct { dst, ctor, .. } = instr {
-                if matches!(
-                    ctor,
-                    CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
-                ) {
+            match instr {
+                ArcInstr::Construct { dst, ctor, .. }
+                    if matches!(
+                        ctor,
+                        CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
+                    ) =>
+                {
                     roots.push(*dst);
                 }
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if *callee == collect_set_name => {
+                    roots.push(*dst);
+                }
+                _ => {}
             }
         }
     }
