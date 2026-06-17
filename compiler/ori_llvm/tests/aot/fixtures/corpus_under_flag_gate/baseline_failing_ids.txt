@@ -27,7 +27,6 @@
 # the Phase-6.66f sharing-view-slice + iter-consume surplus-inc suppress (72-cell floor).
 aims_interactions::test_h12_rc_merge_preserves_rc_ops
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
-apply_alias_coverage::test_apply_alias_conditional_intlist
 arc::test_arc_borrowed_param_cow_push_diamond
 arc::test_rc_alias_owned_call_then_root_use
 arc::test_rc_project_merge_two_distinct_parents

@@ -37,6 +37,25 @@ fn assert_burden_ops_disabled_byte_identical(source: &str, test_name: &str) {
     );
 }
 
+/// Negative pin for a cell where burden emission is the LOAD-BEARING cure: the
+/// `ORI_DISABLE_BURDEN_OPS=1` predicate-stack baseline LEAKS (exit 2), while the
+/// burden-default path (asserted leak-clean by `assert_aot_success`) cures it.
+/// The byte-identical "burden inert" premise does NOT hold for such a cell —
+/// burden emission is the difference, which is exactly the migration's goal.
+/// Asserting the baseline still leaks proves the burden cure is what frees the
+/// allocation (per `plans/aims-burden-tracking`; the predicate stack is being
+/// retired at section-09, never repaired).
+fn assert_burden_ops_disabled_baseline_leaks(source: &str, test_name: &str) {
+    let (exit_code, _stdout, _stderr) =
+        compile_and_run_with_build_env(source, &[("ORI_DISABLE_BURDEN_OPS", "1")]);
+    assert_eq!(
+        exit_code, 2,
+        "{test_name} under ORI_DISABLE_BURDEN_OPS=1 MUST exit 2 (predicate-stack baseline leaks); \
+         burden emission is the load-bearing cure for this cell. A change here means the baseline \
+         behavior shifted — re-verify the burden-default path with assert_aot_success.",
+    );
+}
+
 // --- Direct shape (`@id<T>(x: T) -> T = x`) ---
 
 #[test]
@@ -82,7 +101,9 @@ fn test_apply_alias_conditional_str() {
 fn test_apply_alias_conditional_intlist() {
     let src = include_str!("fixtures/apply_alias_coverage/conditional_intlist.ori");
     assert_aot_success(src, "apply_alias_conditional_intlist");
-    assert_burden_ops_disabled_byte_identical(src, "apply_alias_conditional_intlist");
+    // Burden is the LOAD-BEARING cure here: the predicate-stack baseline leaks
+    // the un-chosen [int] conditional-alias buffer; the burden path frees it.
+    assert_burden_ops_disabled_baseline_leaks(src, "apply_alias_conditional_intlist");
 }
 
 #[test]

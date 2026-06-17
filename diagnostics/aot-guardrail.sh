@@ -99,14 +99,19 @@ if [[ -z "$RUN_LOG" ]]; then
 fi
 echo "run log: $RUN_LOG"
 
+# Resolve the cargo target dir so the staticlib confirm works under an isolated
+# CARGO_TARGET_DIR (worktree-isolated builds) as well as the default `target/`.
+CARGO_TARGET="${CARGO_TARGET_DIR:-target}"
+STATICLIB="$CARGO_TARGET/debug/libori_rt.a"
+
 if [[ "$DO_BUILD" == "1" ]]; then
     echo "=== rebuild oric + ori_rt (serialize staticlib) ==="
     cargo build -p oric -p ori_rt 2>&1 | tail -2
-    if [[ ! -f target/debug/libori_rt.a ]]; then
-        echo "STATICLIB MISSING — abort (rebuild ori_rt before running)" >&2
+    if [[ ! -f "$STATICLIB" ]]; then
+        echo "STATICLIB MISSING ($STATICLIB) — abort (rebuild ori_rt before running)" >&2
         exit 3
     fi
-    echo "STATICLIB OK ($(stat -c%s target/debug/libori_rt.a) bytes)"
+    echo "STATICLIB OK ($(stat -c%s "$STATICLIB") bytes)"
     cargo test -p ori_llvm --test aot --no-run 2>&1 | tail -1
 fi
 
