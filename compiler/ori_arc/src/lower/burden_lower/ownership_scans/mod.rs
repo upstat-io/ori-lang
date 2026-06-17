@@ -24,6 +24,7 @@ mod live_extract;
 mod live_extract_site;
 mod live_out;
 mod loop_closure_dead_param;
+mod loop_invariant_dead_local;
 mod move_alias;
 mod multi_exit_borrow_view;
 mod nested_construct_return_passthrough;
@@ -75,6 +76,7 @@ pub(super) use lazy_iter_closure_borrow::compute_lazy_iter_closure_borrow_lineag
 pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use loop_closure_dead_param::compute_loop_closure_dead_param_lineage;
+pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
 pub(super) use move_alias::{
     compute_readonly_borrow_orphan_inc_suppression, compute_transfer_via_move_alias,
     SameAllocIdentity,

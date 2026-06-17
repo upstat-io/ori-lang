@@ -27,12 +27,12 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_readonly_borrow_orphan_inc_suppression,
-    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
-    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
-    list_concat_consumed_operands,
+    compute_live_out_owned, compute_loop_invariant_dead_local_releases,
+    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
+    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
+    compute_transfer_through_return_results, compute_transfer_via_move_alias,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
+    compute_yield_identity_push_dup_args, instr_transfer_vars, list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -633,14 +633,25 @@ pub(crate) fn emit_burden_ops<'a>(
         &alias_table.genuine_same_alloc_reps,
         &param_edge_args,
     );
-    for (block_idx, params) in rebuild_lineage_releases {
-        let entry = dead_forwarder_param_releases.entry(block_idx).or_default();
-        for p in params {
-            if !entry.contains(&p) {
-                entry.push(p);
-            }
-        }
-    }
+    merge_release_vars(&mut dead_forwarder_param_releases, rebuild_lineage_releases);
+    // RL-5 release for a purely-dead loop-invariant fresh-collection local: a
+    // fresh `Construct List/Map/Set` threaded UNCHANGED through loop block-params
+    // and NEVER read (`let root = [1]; for .. { xs = xs.push(..) }; xs[k]` —
+    // `root` dead). The loop back-edge fractures the union-find lineage so the
+    // construct-fed scan declines it; this self-contained scan (decoupled from
+    // the keystone same-alloc union per the reverted broad-union dead-end) emits
+    // ONE RL-5 dead-at-entry dec at the lineage's terminal dead block-param.
+    // DISJOINT root kind from the scans above (purely-dead loop-invariant
+    // Construct, threaded-only, never read); the contains-gated push keeps the
+    // merge idempotent. Empty when
+    // `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1`. SSOT:
+    // `compute_loop_invariant_dead_local_releases`. Spec: Annex E §AIMS RL-5.
+    let loop_invariant_dead_releases =
+        compute_loop_invariant_dead_local_releases(func, &owned_vars_needing_rc);
+    merge_release_vars(
+        &mut dead_forwarder_param_releases,
+        loop_invariant_dead_releases,
+    );
 
     // RL-4 branch-exclusive terminal-move edge release: a FRESH local
     // `Construct` lineage consumed at an owned position on a strict subset of
