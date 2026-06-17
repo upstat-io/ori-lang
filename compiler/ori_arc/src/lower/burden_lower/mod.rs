@@ -191,6 +191,25 @@ static ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED: LazyLock<bool> = LazyLock::
     std::env::var("ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_NESTED_CONSTRUCT_RETURN_PASSTHROUGH=1` skips the Phase-5 RL-2
+/// in-callee container-passthrough suppression for a fresh nested struct/tuple
+/// `Construct` chain whose deepest projection IS the function's Return value,
+/// wrapping a transfers-through-return param
+/// ([`ownership_scans::compute_nested_construct_return_passthrough`]). Default
+/// (unset): a param moved into a chain of fresh struct/tuple `Construct`s and
+/// projected back out (`Project (Construct args) field == args[field]`) as the
+/// Return value has the whole wrapper-chain lineage removed from
+/// `owned_vars_needing_rc` — eliding the surplus container drops that would free
+/// the transferred-out param (the wrapper owns nothing surviving;
+/// `wrapper_passthrough_release_exactly_once` nets 0). With the toggle set, the
+/// container drops return — the outermost wrapper's transitive drop frees the
+/// returned nested field, a use-after-free (exit -139). Pairs with the
+/// caller-side construct-project round-trip `Direct` return-alias. Spec: Annex E
+/// §AIMS RL-2 + TF-3 + TF-4.
+static NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_NESTED_CONSTRUCT_RETURN_PASSTHROUGH").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
 /// release for a transfer-through-return forwarder RESULT whose monomorphized
 /// result-type burden is empty (`burden_carries_rc == false`), so the result

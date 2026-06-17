@@ -724,6 +724,26 @@ flags! {
     /// Usage: `ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC=1 ori build file.ori`
     ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC
 
+    /// Skip the Phase-5 RL-2 in-callee container-passthrough suppression for a
+    /// fresh nested struct/tuple `Construct` chain whose deepest projection is the
+    /// function's Return value, wrapping a transfers-through-return param. Default
+    /// (unset): a param moved into a chain of fresh struct/tuple Constructs and
+    /// projected back out (`Project (Construct args) field == args[field]`) as the
+    /// Return value has the whole wrapper-chain lineage removed from
+    /// `owned_vars_needing_rc` — eliding the surplus container drops that would
+    /// free the transferred-out param (the wrapper owns nothing surviving). With
+    /// the toggle set the container drops return — the outermost wrapper's
+    /// transitive drop frees the returned nested field, a use-after-free
+    /// (exit -139). Pairs with the caller-side construct-project round-trip
+    /// `Direct` return-alias.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a nested-
+    /// construct-return use-after-free to this treatment vs the rest of the
+    /// Phase-5 walk. Spec: Annex E §AIMS RL-2 + TF-3 + TF-4.
+    /// Usage: `ORI_DISABLE_NESTED_CONSTRUCT_RETURN_PASSTHROUGH=1 ori build file.ori`
+    ORI_DISABLE_NESTED_CONSTRUCT_RETURN_PASSTHROUGH
+
     /// Decline the Phase-5 treatment for a FRESH closure result (`Unique` +
     /// `preserves_freshness`, non-forwarder) consumed ONLY at `ApplyIndirect`
     /// borrow-receiver sites across a short-circuit CFG. Default (unset): the
@@ -847,6 +867,24 @@ flags! {
     /// Spec: Annex E §AIMS RL-1 + RL-2.
     /// Usage: `ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS=1 ori build file.ori`
     ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS
+
+    /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
+    /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
+    /// w in words yield w`) read via sibling `Let`-Var aliases across two blocks
+    /// (`copied[0]` then `copied[1]`) has its single normal-path release placed by
+    /// the base walk at the EARLY sibling's SSA last-use — the per-SSA-var `live_out`
+    /// suppressor misses that a later-block sibling alias keeps the SAME allocation
+    /// live, so the list is freed before the later block re-reads it (-134 UAF).
+    /// Default (unset): relocate the single premature `BurdenDec` to AFTER the
+    /// lineage's execution-final read (one release, moved later; `RL2_release_exactly_once`
+    /// preserved). Unwind-path (`Resume`) releases untouched.
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
+    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// for_yield-result premature-free to this pass vs the rest of the burden path.
+    /// Spec: Annex E §AIMS RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION=1 ori build file.ori`
+    ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION
 
     // === Alive2 IR Capture ===
 

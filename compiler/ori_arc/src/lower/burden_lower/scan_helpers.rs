@@ -28,8 +28,9 @@ use super::ownership_scans::{
     compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
     compute_fresh_sum_live_extract_lineage, compute_iter_consume_dead_thread_orphan_inc,
     compute_lazy_iter_closure_borrow_lineage, compute_loop_closure_dead_param_lineage,
-    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_multi_exit_borrow_view_lineage, compute_nested_construct_return_passthrough,
+    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
+    group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
@@ -37,7 +38,7 @@ use super::{
     FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED, FORWARDER_RESULT_RELEASE_DISABLED,
     FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED,
     LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
-    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED, NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -385,6 +386,23 @@ pub(super) fn compute_owned_rc_filter<'a>(
         &mut owned_vars_needing_rc,
         contracts,
         interner,
+    );
+    // RL-2 in-callee container-passthrough suppression: a param moved into a
+    // chain of fresh struct/tuple Constructs and projected back out
+    // (`Project (Construct args) field == args[field]`) as the Return value has
+    // the whole wrapper-chain lineage removed from owned_vars_needing_rc — the
+    // wrapper owns nothing surviving (its sole owned content IS the transferred-
+    // out param), so the base walk's container drop is a surplus release that
+    // frees the returned nested field (in-callee UAF). Pairs with the caller-side
+    // construct-project round-trip Direct return-alias. SSOT:
+    // `compute_nested_construct_return_passthrough`
+    // (`wrapper_passthrough_release_exactly_once` nets 0). Spec: Annex E §AIMS
+    // RL-2 + TF-3 + TF-4.
+    apply_nested_construct_return_passthrough(
+        func,
+        &mut owned_vars_needing_rc,
+        contracts,
+        type_registry,
     );
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
@@ -735,6 +753,31 @@ fn apply_iter_consume_dead_thread_orphan_inc(
         contracts,
         owned_vars_needing_rc,
         interner,
+    );
+    owned_vars_needing_rc.retain(|v| !suppressed.contains(v));
+}
+
+/// Toggle-gated application of the RL-2 in-callee container-passthrough
+/// suppression ([`compute_nested_construct_return_passthrough`]): computes the
+/// vetted fresh nested struct/tuple Construct chain whose deepest projection is
+/// the function's Return value wrapping a transfers-through-return param, and
+/// removes the whole wrapper-chain lineage from `owned_vars_needing_rc` — eliding
+/// the surplus container drops that would free the transferred-out param. No-op
+/// when `ORI_DISABLE_NESTED_CONSTRUCT_RETURN_PASSTHROUGH=1`.
+fn apply_nested_construct_return_passthrough(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &TypeRegistry,
+) {
+    if *NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED {
+        return;
+    }
+    let suppressed = compute_nested_construct_return_passthrough(
+        func,
+        contracts,
+        owned_vars_needing_rc,
+        type_registry,
     );
     owned_vars_needing_rc.retain(|v| !suppressed.contains(v));
 }

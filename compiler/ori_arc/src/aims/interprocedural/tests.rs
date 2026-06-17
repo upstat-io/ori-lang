@@ -322,6 +322,115 @@ fn extract_contract_project_return_alias_propagates_through_forwarder() {
 }
 
 #[test]
+fn extract_contract_construct_project_roundtrip_records_direct() {
+    // fn f(xs: [int]) -> [int] = { let w = Wrap { items: xs }; w.items }
+    // The param is moved into a struct Construct then projected back out as the
+    // Return value. `Project (Construct args) field == args[field]` (TF-3 + TF-4),
+    // so the return ALIASES the param — Direct. The construct-project round-trip
+    // resolver must record Direct + transfers_through_return (the caller defers
+    // its premature param drop; the in-callee container suppression defers the
+    // callee's). Proven net-0:
+    // `ConstructProjectRoundtrip.cure_restores_balance`.
+    let wrap = name(20);
+    let f = ArcFunction {
+        name: name(21),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(1), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                // %1 = Construct Wrap(%0)
+                ArcInstr::Construct {
+                    dst: var(1),
+                    ty: ty(1),
+                    ctor: CtorKind::Struct(wrap),
+                    args: vec![var(0)],
+                },
+                // %2 = Project %1.0  (== %0, the param)
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&f, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &f,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert_eq!(
+        contract.params[0].return_alias,
+        Some(crate::aims::contract::ReturnAliasShape::Direct),
+        "construct-project round-trip records Direct on the round-tripped param"
+    );
+    assert!(
+        contract.params[0].transfers_through_return,
+        "Direct round-trip param transfers through the return (invariant paired)"
+    );
+
+    // Negative pin: a FRESH struct returned WHOLE (no project-back-to-param) does
+    // NOT record a round-trip Direct — the return is the construct itself, not the
+    // param, so suppressing the param's release would be unsound.
+    let g = ArcFunction {
+        name: name(22),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(1),
+                ty: ty(1),
+                ctor: CtorKind::Struct(wrap),
+                args: vec![var(0)],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let classifier_g = TestClassifier::all_ref(2);
+    let state_map_g = analyze_function(&g, &classifier_g, &sigs, &[], Vec::new());
+    let contract_g = extract_contract(
+        &g,
+        &state_map_g,
+        &classifier_g,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+    assert_ne!(
+        contract_g.params[0].return_alias,
+        Some(crate::aims::contract::ReturnAliasShape::Direct),
+        "a fresh struct returned WHOLE is not a construct-project round-trip Direct"
+    );
+}
+
+#[test]
 fn borrowed_read_only_true_for_param_at_borrowed_user_call_position() {
     // fn fwd(xs: [int]) -> int { read_only(xs) }  where read_only's param is
     // Borrowed AND borrowed_read_only (a pure borrow-read callee). The param flows

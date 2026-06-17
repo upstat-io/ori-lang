@@ -360,8 +360,20 @@ fn detect_param_facts(
 ) -> ParamFacts {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
-    let return_flow = find_return_flow_params(func, &alias_to_param);
+    let mut return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param, sigs);
+    // Invariant `transfers_through_return == true IFF return_alias ==
+    // Some(Direct)`: a `Direct` return-alias means the WHOLE param flows out as
+    // the return (transfers ownership through the return slot). The
+    // construct-project round-trip (`find_return_alias_shapes`) can record
+    // `Direct` for a param the structural `find_return_flow_params` (Let / Jump /
+    // Select alias-chain only) does not reach — union those into `return_flow` so
+    // `transfers_through_return` stays paired with the `Direct` shape.
+    for (&idx, &shape) in &return_alias_shapes {
+        if shape == ReturnAliasShape::Direct {
+            return_flow.insert(idx);
+        }
+    }
     let containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);

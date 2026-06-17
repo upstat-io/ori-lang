@@ -77,6 +77,10 @@ pub(super) fn find_return_alias_shapes(
     // Used by the forwarder branch below: a Return value forwarding a callee's
     // `Project` return-alias result inherits the same `Project { field }`.
     let call_results = build_call_result_map(func);
+    // Every struct `Construct` dst keyed to its field args. Used by the
+    // construct-project round-trip branch: `Project (Construct args) field`
+    // resolves to `args[field]` (the field IS the arg allocation, TF-3 + TF-4).
+    let struct_constructs = build_struct_construct_map(func);
 
     let mut shapes: FxHashMap<usize, ReturnAliasShape> = FxHashMap::default();
     for block in &func.blocks {
@@ -142,6 +146,29 @@ pub(super) fn find_return_alias_shapes(
                 }
             }
         }
+        // Construct-project round-trip Direct: the Return value is a chain of
+        // `Project src.field` hops that resolve through struct `Construct`s back
+        // to a param. `Project (Construct args) field == args[field]` (the field
+        // IS the arg allocation — no copy, TF-3 Construct + TF-4 Project
+        // borrow-view), so a param inc'd into a struct and projected back out
+        // flows out UNCHANGED — the return ALIASES the param (Direct). The
+        // round-trip is the identity on the field allocation at any nesting depth
+        // (proven `ConstructProjectRoundtrip.nest_roundtrip_is_identity` +
+        // `cure_restores_balance`; governing TF-3 + TF-4 + RL-2
+        // `RL2_release_exactly_once`). Recording Direct defers the caller's
+        // premature param drop past the returned value's last use. Resolved ONLY
+        // when EVERY hop is a struct-construct-project round-trip terminating in
+        // ONE param index (a fresh / non-aliasing leaf records no shape, so a
+        // caller never suppresses a release on a genuinely-fresh return path).
+        if let Some(idx) = resolve_construct_project_roundtrip(
+            *value,
+            &alias_sources,
+            &all_projects,
+            &struct_constructs,
+            alias_to_param,
+        ) {
+            join_shape_into(&mut shapes, idx, ReturnAliasShape::Direct);
+        }
     }
     shapes
 }
@@ -204,6 +231,106 @@ fn build_call_result_map(func: &ArcFunction) -> FxHashMap<ArcVarId, (Name, Vec<A
         }
     }
     out
+}
+
+/// Build the struct/tuple `Construct` map: each dst keyed to its field args.
+/// Only `CtorKind::Struct` and `CtorKind::Tuple` are positional aggregates where
+/// `Project (Construct args) i == args[i]` holds unconditionally (no tag, no
+/// copy). `EnumVariant` is EXCLUDED — its projection is variant-conditional, so
+/// the round-trip identity does not hold blindly.
+fn build_struct_construct_map(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<ArcVarId>> {
+    let mut out: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct {
+                dst, ctor, args, ..
+            } = instr
+            {
+                if matches!(
+                    ctor,
+                    crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::Tuple
+                ) {
+                    out.insert(*dst, args.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Resolve a Return value to a single param index when it is a chain of
+/// `Project src.field` hops that each resolve through a struct/tuple `Construct`
+/// back to ONE param — the construct-project round-trip Direct alias.
+///
+/// At each hop: resolve `value`'s alias-leaf; if it aliases a param, the chain
+/// terminates Direct on that param. Otherwise, if the leaf is a `Project
+/// src.field` whose `src`'s alias-leaf is a struct/tuple `Construct`, step to
+/// that construct's `args[field]` and continue. Any other leaf (a fresh
+/// non-construct value, a non-aliasing `Project` source, a multi-param ambiguity)
+/// resolves to `None` — so a caller never suppresses a release on a genuinely
+/// fresh return path. Bounded by a visited set (the IR is acyclic in this chain).
+fn resolve_construct_project_roundtrip(
+    return_value: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+    all_projects: &FxHashMap<ArcVarId, (ArcVarId, u32)>,
+    struct_constructs: &FxHashMap<ArcVarId, Vec<ArcVarId>>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+) -> Option<usize> {
+    let mut visited: FxHashSet<ArcVarId> = FxHashSet::default();
+    let resolved = resolve_value(
+        return_value,
+        alias_sources,
+        all_projects,
+        struct_constructs,
+        &mut visited,
+    )?;
+    // Terminates Direct only when the round-trip-resolved value aliases exactly
+    // ONE param (the whole param flows out unchanged through the construct-
+    // project chain). Multi-param ambiguity or a non-param value declines.
+    let param_indices = alias_to_param.get(&resolved)?;
+    if param_indices.len() == 1 {
+        return param_indices.iter().next().copied();
+    }
+    None
+}
+
+/// Recursively fold a var to the value it equals under the construct-project
+/// round-trip identity `Project (Construct args) field == value_of(args[field])`.
+/// Resolves `Let`/`Jump` aliases (via `resolve_alias_leaf`), then: if the leaf is
+/// `Project src.field` whose `src`'s value is a struct/tuple `Construct`, recurse
+/// into `value_of(args[field])`; otherwise the leaf IS the value (a param, a
+/// fresh construct, an opaque call result). Bounded by a visited set.
+fn resolve_value(
+    var: ArcVarId,
+    alias_sources: &FxHashMap<ArcVarId, FxHashSet<ArcVarId>>,
+    all_projects: &FxHashMap<ArcVarId, (ArcVarId, u32)>,
+    struct_constructs: &FxHashMap<ArcVarId, Vec<ArcVarId>>,
+    visited: &mut FxHashSet<ArcVarId>,
+) -> Option<ArcVarId> {
+    let leaf = resolve_alias_leaf(var, alias_sources);
+    if !visited.insert(leaf) {
+        return None; // cycle guard
+    }
+    // `Project src.field`: resolve `src`'s value; if it is a struct/tuple
+    // Construct, the projection IS that construct's `args[field]` value.
+    if let Some(&(proj_src, field)) = all_projects.get(&leaf) {
+        let src_val = resolve_value(
+            proj_src,
+            alias_sources,
+            all_projects,
+            struct_constructs,
+            visited,
+        )?;
+        if let Some(args) = struct_constructs.get(&src_val) {
+            let arg = *args.get(field as usize)?;
+            return resolve_value(arg, alias_sources, all_projects, struct_constructs, visited);
+        }
+        // A Project whose source is NOT a construct (an opaque borrow-view of a
+        // param / call result) — the value is the leaf itself (not a round-trip).
+        return Some(leaf);
+    }
+    // Not a Project — the leaf is the value (param, construct dst, call result).
+    Some(leaf)
 }
 
 /// Resolve a Return value to a single `(param_index, field)` Project alias when

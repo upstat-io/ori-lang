@@ -715,6 +715,22 @@ fn emit_burden_path_probe_tail(
     emit_for_yield_index_consumed_element_rc(func, pool, interner, same_alloc_reps);
     trace_phase_snapshot("after_phase_6_95_for_yield_index_element", func, interner);
 
+    // Phase 6.95b — relocate a PREMATURE normal-path release of an eligible
+    // `for_yield` `ori_list_take` result list whose allocation is read again in a
+    // LATER block via a same-allocation sibling alias. The base walk places the
+    // list's single normal-path dec at an early sibling's SSA last-use (the
+    // per-SSA-var `live_out` suppressor misses the sibling-alias allocation
+    // liveness), freeing the list before a later block re-reads it (-134 UAF). This
+    // relocates the single dec to AFTER the lineage's execution-final read — one
+    // release, moved later (RL2_release_exactly_once preserved; net unchanged).
+    // Probe-gated -> default codegen byte-identical. Spec: Annex E §AIMS RL-2 + RL-4.
+    relocate_for_yield_result_premature_release(func, pool, interner, same_alloc_reps);
+    trace_phase_snapshot(
+        "after_phase_6_95b_for_yield_result_premature_release",
+        func,
+        interner,
+    );
+
     // Phase 6.96 — strip the spurious project-borrowed-view `BurdenDec` whose
     // source aggregate's `[AggFields]`/`[InlineEnum]` drop already frees the
     // projected heap field (RL-4 borrowed view emits no release; RL-2 the
@@ -9349,6 +9365,293 @@ fn for_yield_result_iter_consumed_not_returned(
     iter_consumed
 }
 
+/// `ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION=1` declines the
+/// Phase-6.95b relocation. Read once at first access.
+static FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| {
+        std::env::var("ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION").as_deref()
+            == Ok("1")
+    });
+
+/// Phase 6.95b (probe): relocate a PREMATURE normal-path release of an eligible
+/// `for_yield` `ori_list_take` RESULT list whose allocation is read again in a
+/// LATER block via a same-allocation sibling alias.
+///
+/// Shape (`let copied = for w in words yield w; copied[0].length() + copied[1].length()`):
+/// the result list (`%20 = ori_list_take`) is read via sibling `Let`-Var aliases
+/// (`%24 = %20` in `bb3`, `%29 = %20` in `bb4`) across TWO blocks. The base walk
+/// emits the list's single normal-path release at `%24`'s SSA last-use (`bb3`,
+/// after `@__index(%24)`), but `%29` (the SAME allocation) is `@__index`-read in
+/// `bb4` — so the early dec frees the list before `bb4` reads it (use-after-free /
+/// `-134`). The base walk's `live_out` suppressor suppresses `%20`'s own dec
+/// (live-out via `%29`) but NOT `%24`'s (a sibling Let-Var alias dead-out of `bb3`):
+/// the live-out set is per-SSA-var, not allocation-grain.
+///
+/// The cure RELOCATES the single premature normal-path `BurdenDec` to AFTER the
+/// lineage's execution-final normal-path value-read — one release, moved later
+/// (`RL2_release_exactly_once` preserved; net unchanged, `RL3_elision_net_preserving`).
+/// NOT a removal, NOT an addition — a placement move. Unwind-path (`Resume`)
+/// releases are untouched (status-quo unwind behavior preserved).
+///
+/// Admission gates (ALL hold; ANY failure declines — the status-quo premature
+/// free is the migration floor, never a regression introduced here):
+///  (a) the lineage rep is an ELIGIBLE non-transferred-out `ori_list_take` result
+///      (the result owns its element copies; its own release frees them).
+///  (b) EXACTLY ONE normal-path `BurdenDec` on a lineage member (`dec_block`,
+///      `dec_pos`); zero or >1 declines (the multi-release shape is out of family).
+///  (c) a member is READ (borrow/owned use, excluding the dec itself) in a block
+///      `read_block` that is FORWARD-REACHABLE from `dec_block` AND distinct from
+///      it — the premature-free condition (the allocation is read after its only
+///      normal-path release on some path).
+///  (d) a UNIQUE execution-final normal-path read site exists (single
+///      `(final_block, final_pos)`); a non-unique final read declines.
+///  (e) `final_block` is NOT in a CFG cycle (no loop-carried relocation — that is
+///      the foreclosed back-edge territory).
+/// One relocation plan for [`relocate_for_yield_result_premature_release`]:
+/// strip the premature normal-path dec at `(strip_block, strip_pos)` and place
+/// ONE dec on `var` after the lineage's execution-final read at
+/// `(place_block, place_pos)`.
+struct ForYieldDecRelocation {
+    strip_block: usize,
+    strip_pos: usize,
+    place_block: usize,
+    place_pos: usize,
+    var: ArcVarId,
+}
+
+/// Gate (a): eligible non-transferred-out `ori_list_take` result reps whose
+/// premature normal-path release may be relocatable.
+fn for_yield_eligible_take_reps(
+    func: &ArcFunction,
+    take_name: Name,
+    iter_name: Name,
+    phi_rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+) -> FxHashSet<ArcVarId> {
+    let mut eligible_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == take_name
+                    && matches!(
+                        func.var_repr(*dst),
+                        Some(ValueRepr::RcPointer | ValueRepr::FatValue)
+                    )
+                {
+                    let rep = phi_rep_of(*dst);
+                    if !for_yield_result_transferred_out(func, rep, phi_rep_of, iter_name) {
+                        eligible_reps.insert(rep);
+                    }
+                }
+            }
+        }
+    }
+    eligible_reps
+}
+
+/// Gates (b)-(e) for one eligible `rep`: produce a relocation plan when the rep
+/// has EXACTLY ONE normal-path `BurdenDec` (b) that is genuinely premature — a
+/// later forward-reachable value-read exists (c) with a UNIQUE execution-final
+/// read site (d) whose block is NOT in a CFG cycle (e). `None` declines.
+fn for_yield_relocation_plan_for_rep(
+    func: &ArcFunction,
+    rep: ArcVarId,
+    phi_rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+) -> Option<ForYieldDecRelocation> {
+    let in_lineage = |v: ArcVarId| phi_rep_of(v) == rep;
+
+    // Gate (b): the single normal-path `BurdenDec` on a lineage member.
+    let mut dec_sites: Vec<(usize, usize, ArcVarId)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if matches!(block.terminator, ArcTerminator::Resume) {
+            continue;
+        }
+        for (i, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::BurdenDec { var } = instr {
+                if in_lineage(*var) {
+                    dec_sites.push((b, i, *var));
+                }
+            }
+        }
+    }
+    if dec_sites.len() != 1 {
+        return None;
+    }
+    let (dec_block, dec_pos, _dec_var) = dec_sites[0];
+
+    // Gate (c) + (d): the execution-final normal-path member value-read, and the
+    // premature-free condition (a read forward-reachable from `dec_block`,
+    // distinct from `dec_block`). A "value-read" is any non-`BurdenDec`/
+    // non-`BurdenInc`/non-`RcDec`/non-`RcInc` body use OR a terminator use of a
+    // lineage member at a borrow/owned position.
+    let reachable_from_dec = forward_reachable_from(func, &[dec_block]);
+    let mut read_sites: Vec<(usize, usize)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if matches!(block.terminator, ArcTerminator::Resume) {
+            continue;
+        }
+        for (i, instr) in block.body.iter().enumerate() {
+            if matches!(
+                instr,
+                ArcInstr::BurdenDec { .. }
+                    | ArcInstr::BurdenInc { .. }
+                    | ArcInstr::RcDec { .. }
+                    | ArcInstr::RcInc { .. }
+            ) {
+                continue;
+            }
+            // A `Let { Var(src) }` alias hop is a lineage edge, not a genuine
+            // value-read of the allocation — skip (it never frees / reads bytes).
+            if let ArcInstr::Let {
+                value: ArcValue::Var(_),
+                ..
+            } = instr
+            {
+                continue;
+            }
+            if instr.used_vars().iter().any(|v| in_lineage(*v)) {
+                read_sites.push((b, i));
+            }
+        }
+    }
+    if read_sites.is_empty() {
+        return None;
+    }
+    // Premature-free: at least one read is in a DISTINCT block forward-reachable
+    // from `dec_block` (the allocation is read after its only release on some
+    // path).
+    let premature = read_sites
+        .iter()
+        .any(|&(b, _)| b != dec_block && reachable_from_dec.contains(&b));
+    if !premature {
+        return None;
+    }
+    // Gate (d): the unique execution-final read site. Order by (block, pos); the
+    // final read is the maximum. A tie across two distinct blocks is a
+    // branch-split final read handled by taking the single maximal block.
+    let max_block = read_sites.iter().map(|&(b, _)| b).max().unwrap_or(0);
+    let final_pos = read_sites
+        .iter()
+        .filter(|&&(b, _)| b == max_block)
+        .map(|&(_, p)| p)
+        .max()
+        .unwrap_or(0);
+
+    // Gate (e): `max_block` not in a CFG cycle (no loop-carried relocation).
+    if for_yield_block_in_cycle(func, max_block) {
+        return None;
+    }
+
+    // Only relocate when the final read is strictly AFTER the dec in CFG order
+    // (the dec is genuinely premature). When the dec already sits at-or-after the
+    // final read in the same block, leave it.
+    if max_block == dec_block && final_pos <= dec_pos {
+        return None;
+    }
+
+    // Use the same lineage var the stripped dec targeted (its allocation identity
+    // is the lineage rep; the placed dec frees the same allocation).
+    Some(ForYieldDecRelocation {
+        strip_block: dec_block,
+        strip_pos: dec_pos,
+        place_block: max_block,
+        place_pos: final_pos,
+        var: dec_sites[0].2,
+    })
+}
+
+/// Gate (e) helper: `block` is in a CFG cycle when a successor of it can reach
+/// it again.
+fn for_yield_block_in_cycle(func: &ArcFunction, block: usize) -> bool {
+    forward_reachable_from(func, &[block]).contains(&block)
+        && func.blocks.get(block).is_some_and(|blk| {
+            crate::graph::successor_block_ids(&blk.terminator)
+                .iter()
+                .any(|s| {
+                    let si = s.index();
+                    si != block && forward_reachable_from(func, &[si]).contains(&block)
+                })
+        })
+}
+
+/// Apply each plan: strip the premature dec (descending position), then place
+/// the new dec after the final read (descending position). Strips and places
+/// target distinct `(block, pos)` so ordering across plans is independent;
+/// sorting each group descending keeps indices stable within a block.
+fn apply_for_yield_dec_relocations(func: &mut ArcFunction, plans: &[ForYieldDecRelocation]) {
+    let mut strips: Vec<(usize, usize)> =
+        plans.iter().map(|p| (p.strip_block, p.strip_pos)).collect();
+    strips.sort_unstable_by(|a, b| b.cmp(a));
+    for (b, i) in strips {
+        if let Some(block) = func.blocks.get_mut(b) {
+            if i < block.body.len() && matches!(block.body[i], ArcInstr::BurdenDec { .. }) {
+                block.body.remove(i);
+            }
+        }
+    }
+    // Placement positions were computed against the PRE-strip body; recompute the
+    // safe insertion index by clamping (a strip in the same block at a lower index
+    // shifts later positions left by one). Apply per-block, descending placement
+    // position, after adjusting for same-block strips below the placement.
+    let mut places: Vec<(usize, usize, ArcVarId)> = plans
+        .iter()
+        .map(|p| {
+            let strips_below = plans
+                .iter()
+                .filter(|q| q.strip_block == p.place_block && q.strip_pos <= p.place_pos)
+                .count();
+            (
+                p.place_block,
+                p.place_pos.saturating_sub(strips_below),
+                p.var,
+            )
+        })
+        .collect();
+    places.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    for (b, after, var) in places {
+        if let Some(block) = func.blocks.get_mut(b) {
+            let pos = (after + 1).min(block.body.len());
+            block.body.insert(pos, ArcInstr::BurdenDec { var });
+        }
+    }
+}
+
+fn relocate_for_yield_result_premature_release(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if *FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION_DISABLED {
+        return;
+    }
+    let _ = pool;
+    let take_name = for_yield_result_finalizer_name(interner);
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    let threaded = compute_phi_threaded_alloc_reps(func, same_alloc_reps);
+    let phi_rep_of = |v: ArcVarId| threaded.get(&v).copied().unwrap_or(v);
+
+    let eligible_reps = for_yield_eligible_take_reps(func, take_name, iter_name, &phi_rep_of);
+    if eligible_reps.is_empty() {
+        return;
+    }
+
+    // One relocation plan per eligible rep: strip the premature dec, place ONE
+    // after the final read.
+    let plans: Vec<ForYieldDecRelocation> = eligible_reps
+        .iter()
+        .filter_map(|&rep| for_yield_relocation_plan_for_rep(func, rep, &phi_rep_of))
+        .collect();
+    if plans.is_empty() {
+        return;
+    }
+
+    apply_for_yield_dec_relocations(func, &plans);
+}
+
 /// A pending burden-op insertion for [`emit_for_yield_index_consumed_element_rc`]:
 /// insert `BurdenInc`/`BurdenDec` (`is_inc`) on `var` AFTER `block`'s instruction
 /// index `after`.
@@ -9405,6 +9708,23 @@ fn emit_for_yield_index_consumed_element_rc(
     // discriminator for the transferred-out yield-element-inc.
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
 
+    // Result vars that ALREADY carry a surviving `BurdenDec` — the base walk's own
+    // last-use release of the `@__index` self-inc result (owned +1 per emit.rs RL-1
+    // inc-elision). The index-result-element-dec below is a COMPENSATION for the
+    // case where that base dec was suppressed (the iter-element-view exclusion);
+    // when the base dec SURVIVES, a second dec here over-releases the owned `+1`
+    // (RL2_release_exactly_once: inc :: [dec, dec] nets -1 -> double-free). Skip the
+    // compensation dec for any `@__index` result the base walk already releases.
+    let already_decced: FxHashSet<ArcVarId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.body.iter())
+        .filter_map(|instr| match instr {
+            ArcInstr::BurdenDec { var } => Some(*var),
+            _ => None,
+        })
+        .collect();
+
     // Collect insertion points so we mutate after the read scan.
     let mut inserts: Vec<ForYieldElemInsert> = Vec::new();
     for (b, block) in func.blocks.iter().enumerate() {
@@ -9460,6 +9780,9 @@ fn emit_for_yield_index_consumed_element_rc(
                     func.var_repr(*dst),
                     Some(ValueRepr::RcPointer | ValueRepr::FatValue)
                 )
+                // The base walk already emits this result's single release —
+                // compensating here over-releases the owned `+1` (RL2_release_exactly_once).
+                && !already_decced.contains(dst)
             {
                 inserts.push(ForYieldElemInsert {
                     block: b,
