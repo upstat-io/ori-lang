@@ -1136,7 +1136,17 @@ fn borrowed_terminator_arg_relocation_for_block(
     let recv_nonscalar = !matches!(recv_repr, Some(ValueRepr::Scalar) | None);
     let recv_has_freeable_dec = matches!(recv_repr, Some(ValueRepr::RcPointer))
         || (accessor_retain_names.contains(callee) && recv_nonscalar)
-        || (sharing_view_names.contains(callee) && recv_nonscalar);
+        || (sharing_view_names.contains(callee) && recv_nonscalar)
+        // A `survives_transform` clone with a non-scalar AGGREGATE receiver (a
+        // derived `@clone` on `Node { value, next: Option<Node> }`): the receiver
+        // is an `Aggregate`/`InlineEnum` whose drop glue releases its RC-bearing
+        // fields (the boxed recursive `next`). That freeable dec the Phase-5 walk
+        // misplaced INLINE before the borrowed clone read — relocating it to the
+        // successor edges keeps the boxed field alive across the clone's recursive
+        // read (else the inline dec frees the box the clone then re-reads ->
+        // use-after-free / double-free). Same non-scalar widening as the
+        // accessor-retain / sharing-view classes. Spec: Annex E §AIMS RL-2 + RL-4.
+        || (escape_safe_names.survives_transform.contains(callee) && recv_nonscalar);
     if !recv_has_freeable_dec {
         return None;
     }
