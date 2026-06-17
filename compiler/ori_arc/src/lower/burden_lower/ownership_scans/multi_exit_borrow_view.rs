@@ -307,29 +307,53 @@ fn place_per_path_releases(
     members: &FxHashSet<ArcVarId>,
 ) -> Vec<((usize, ForwarderReleasePos), ArcVarId)> {
     // Multi-exit closure shape: the per-block final borrow-read is an
-    // `ApplyIndirect` at the borrowed receiver (`closure ∈ members`).
-    place_per_path_releases_with(func, root, members, |instr, members| match instr {
-        ArcInstr::ApplyIndirect { closure, .. } if members.contains(closure) => Some(*closure),
-        _ => None,
-    })
+    // `ApplyIndirect` at the borrowed receiver (`closure ∈ members`). The
+    // closure is vetted (`member_uses_all_borrow_views`) to never appear at a
+    // terminator, so the terminator-read predicate yields `None` — byte-
+    // identical to the pre-terminator-read placement core.
+    place_per_path_releases_with(
+        func,
+        root,
+        members,
+        |instr, members| match instr {
+            ArcInstr::ApplyIndirect { closure, .. } if members.contains(closure) => Some(*closure),
+            _ => None,
+        },
+        |_term, _members| None,
+    )
 }
 
-/// Per-path placement core, PARAMETERIZED over the per-block final-borrow-read
-/// detector `body_final_read(instr, members) -> Some(read_var)`. The
-/// `ApplyIndirect`-receiver consumer ([`place_per_path_releases`]) and any other
-/// final-read shape share this one allocation-liveness placement (RL-2 dec after
-/// the per-block final read on each reading path; RL-4 edge dec at each
-/// live-out → dead-in successor entry). Spec: Annex E §AIMS RL-2 + RL-4.
+/// Per-path placement core, PARAMETERIZED over TWO final-borrow-read detectors:
+/// `body_final_read(instr, members)` for a borrow-read at a BODY instruction,
+/// and `term_final_read(terminator, members)` for a borrow-read at a
+/// may-unwind TERMINATOR-`Invoke` (the accessor-retain shape:
+/// `Invoke @unwrap(member [borrow])` / `Invoke @starts_with(member [borrow])`).
+/// The `ApplyIndirect`-receiver consumer ([`place_per_path_releases`]) and the
+/// accessor-retain consumer share this one allocation-liveness placement.
+///
+/// A BODY read places its RL-2 dec `AfterInstr` past the read (the read
+/// completes first — no UAF). A TERMINATOR-`Invoke` read completes on the
+/// NORMAL edge, so its RL-2 dec lands at the normal-successor `BlockEntry`
+/// (the read is over once control reaches the normal successor); the dec
+/// targets the root (it dominates every successor). The terminator read's
+/// UNWIND edge is owned by the RL-4 live-out → dead-in edge logic + the
+/// downstream Category-2 `deadAtSucc` conjunct — disjoint edges, no double
+/// release. Spec: Annex E §AIMS RL-2 + RL-4.
 fn place_per_path_releases_with(
     func: &ArcFunction,
     root: ArcVarId,
     members: &FxHashSet<ArcVarId>,
     body_final_read: impl Fn(&ArcInstr, &FxHashSet<ArcVarId>) -> Option<ArcVarId>,
+    term_final_read: impl Fn(&ArcTerminator, &FxHashSet<ArcVarId>) -> Option<ArcVarId>,
 ) -> Vec<((usize, ForwarderReleasePos), ArcVarId)> {
     let n = func.blocks.len();
-    // Per-block: index of the final borrow-read + the var read there (per the
-    // `body_final_read` shape); whether the block births the root.
+    // Per-block: index of the final BODY borrow-read + the var read there (per
+    // the `body_final_read` shape); whether the block births the root.
     let mut final_read: Vec<Option<(usize, ArcVarId)>> = vec![None; n];
+    // Per-block: the NORMAL successor of a TERMINATOR-`Invoke` borrow-read (per
+    // the `term_final_read` shape). The block is a lineage USE; its release
+    // lands at the normal-successor `BlockEntry` (after the read completes).
+    let mut term_read_normal_succ: Vec<Option<usize>> = vec![None; n];
     let mut births_root: Vec<bool> = vec![false; n];
     // The root's defining-`Invoke` UNWIND successor: the root is bound on the
     // NORMAL edge only, so on the unwind edge the allocation never existed (the
@@ -345,7 +369,18 @@ fn place_per_path_releases_with(
                 births_root[b] = true;
             }
         }
-        if let ArcTerminator::Invoke { dst, unwind, .. } = &block.terminator {
+        if let ArcTerminator::Invoke {
+            dst,
+            normal,
+            unwind,
+            ..
+        } = &block.terminator
+        {
+            // A terminator-`Invoke` reading a member (per `term_final_read`)
+            // is a lineage USE whose RL-2 release lands at the normal succ.
+            if term_final_read(&block.terminator, members).is_some() {
+                term_read_normal_succ[b] = Some(normal.index());
+            }
             if *dst == root {
                 births_root[b] = true;
                 root_def_unwind_succ = Some(unwind.index());
@@ -354,7 +389,8 @@ fn place_per_path_releases_with(
     }
 
     // Allocation-level liveness fixpoint: a block is a USE iff it carries a
-    // borrow-read; a block KILLS upward liveness iff it births the root.
+    // body borrow-read OR a terminator-`Invoke` borrow-read; a block KILLS
+    // upward liveness iff it births the root.
     let mut live_in = vec![false; n];
     let mut live_out = vec![false; n];
     let preds_succs: Vec<Vec<usize>> = func
@@ -379,7 +415,9 @@ fn place_per_path_releases_with(
         changed = false;
         for b in (0..n).rev() {
             let lo = preds_succs[b].iter().any(|&s| live_in[s]);
-            let li = final_read[b].is_some() || (lo && !births_root[b]);
+            let li = final_read[b].is_some()
+                || term_read_normal_succ[b].is_some()
+                || (lo && !births_root[b]);
             if lo != live_out[b] || li != live_in[b] {
                 live_out[b] = lo;
                 live_in[b] = li;
@@ -390,10 +428,21 @@ fn place_per_path_releases_with(
 
     let mut placements: Vec<((usize, ForwarderReleasePos), ArcVarId)> = Vec::new();
     for b in 0..n {
-        // RL-2: a borrow-read block dead at exit releases after its final read.
+        // RL-2 (body read): a borrow-read block dead at exit releases after its
+        // final read.
         if let Some((idx, read_var)) = final_read[b] {
             if !live_out[b] {
                 placements.push(((b, ForwarderReleasePos::AfterInstr(idx)), read_var));
+            }
+        }
+        // RL-2 (terminator-`Invoke` read): the read completes on the normal
+        // edge, so when the lineage is dead at the normal successor's entry the
+        // release lands there (on the root). A live normal successor keeps the
+        // lineage; the later reader owns the release. The unwind edge is handled
+        // by the RL-4 conjunct below.
+        if let Some(normal_succ) = term_read_normal_succ[b] {
+            if normal_succ < n && !live_in[normal_succ] {
+                placements.push(((normal_succ, ForwarderReleasePos::BlockEntry), root));
             }
         }
         // RL-4: a CFG edge crossing from live-out to dead-in releases at the
@@ -406,5 +455,12 @@ fn place_per_path_releases_with(
             }
         }
     }
+    // Exactly-once-per-(site, var): the terminator-read normal-successor RL-2
+    // placement and the RL-4 dead-in edge placement can name the SAME
+    // `(normal_succ, BlockEntry, root)` (a terminator-read block live-out on
+    // one edge with a dead normal successor) — dedupe so one allocation is
+    // released once per path (`RL2_release_exactly_once`).
+    let mut seen: FxHashSet<(usize, ForwarderReleasePos, ArcVarId)> = FxHashSet::default();
+    placements.retain(|&((b, pos), v)| seen.insert((b, pos, v)));
     placements
 }
