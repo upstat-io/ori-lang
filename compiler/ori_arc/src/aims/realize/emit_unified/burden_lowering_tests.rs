@@ -27,7 +27,8 @@ use super::{
     fresh_str_producing_method_names, is_burden_carrying_aggregate,
     iterator_consumer_collection_names, lineage_genuinely_read_outside_call,
     lower_burden_ops_to_rc, relocate_borrowed_terminator_arg_dec_to_edges,
-    sharing_view_relocation_names, suppress_multi_borrow_iter_consume_source_decs,
+    set_algebra_relocation_names, sharing_view_relocation_names,
+    suppress_multi_borrow_iter_consume_source_decs,
     suppress_single_borrowed_invoke_iter_consume_source, user_callee_iter_consume_uses_of_rep,
     EdgeRelease, EscapeSafeBorrowedNames, IterHandleRelease,
 };
@@ -4568,6 +4569,7 @@ fn borrow_survives_transform_set_and_verdict_classification() {
     let accessor = crate::borrow::accessor_retain_builtin_names(&interner);
     let sharing_view = sharing_view_relocation_names(&interner);
     let fresh_str = fresh_str_producing_method_names(&interner);
+    let set_algebra = set_algebra_relocation_names(&interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
     let names = EscapeSafeBorrowedNames {
@@ -4576,6 +4578,7 @@ fn borrow_survives_transform_set_and_verdict_classification() {
         accessor_retain: &accessor,
         sharing_view: &sharing_view,
         fresh_str: &fresh_str,
+        set_algebra: &set_algebra,
         builtins: &builtins,
     };
 
@@ -4619,6 +4622,40 @@ fn borrow_survives_transform_set_and_verdict_classification() {
             borrowed_arg_release_verdict(interner.intern(name), 0, false, &names, &contracts),
             Some(EdgeRelease::PostDominator),
             "{name} (sharing view) must relocate to one post-dominating edge",
+        );
+    }
+    // Verdict: a set-algebra op (`union`/`intersection`/`difference`) with a
+    // non-scalar `{T}` Set result yields `Both` (the borrowed `other` arg's
+    // elements are rc-inc'd into a FRESH result, so `other` survives the call and
+    // is dead on each successor). Checked for every set-algebra op.
+    for name in ["union", "intersection", "difference"] {
+        assert_eq!(
+            borrowed_arg_release_verdict(interner.intern(name), 1, false, &names, &contracts),
+            Some(EdgeRelease::Both),
+            "{name} (set-algebra) with a non-scalar Set result must relocate to Both edges",
+        );
+    }
+}
+
+#[test]
+fn set_algebra_relocation_names_covers_union_intersection_difference() {
+    // The set-algebra relocation set is EXACTLY the 3 element-retaining ops whose
+    // borrowed `other` arg has its surviving elements rc-inc'd into a fresh result
+    // (`inc_copied_set_elements`). TIGHT: COW mutators / comparison-only ops
+    // (`remove`/`contains`) and fresh-buffer producers stay OUT (no element-retain
+    // into a borrowed-arg-survives result).
+    let interner = ori_ir::StringInterner::new();
+    let set = set_algebra_relocation_names(&interner);
+    for name in ["union", "intersection", "difference"] {
+        assert!(
+            set.contains(&interner.intern(name)),
+            "{name} must be in the set-algebra relocation set",
+        );
+    }
+    for name in ["remove", "contains", "insert", "filter", "map", "to_list"] {
+        assert!(
+            !set.contains(&interner.intern(name)),
+            "{name} must NOT be in the set-algebra relocation set",
         );
     }
 }

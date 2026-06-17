@@ -1182,6 +1182,72 @@ fn borrowed_terminator_arg_relocation_for_block(
     Some((recv, normal.index(), unwind.index(), release))
 }
 
+/// The arg-1 sibling of [`borrowed_terminator_arg_relocation_for_block`] for the
+/// 3 named set-algebra ops (`union`/`intersection`/`difference`): the receiver
+/// (arg 0) is OWNED/consumed, but `other` (arg 1) is BORROWED and has its
+/// surviving elements rc-inc'd into the FRESH result set by the runtime
+/// (`inc_copied_set_elements`). The Phase-5 walk misplaces `other`'s container
+/// dec INLINE before the may-unwind `@union` terminator that still READS `other`
+/// — the inline dec cascade-frees `other`'s elements, the call then re-incs the
+/// freed elements into the result (UAF), and the result drop frees them again
+/// (double-free). Relocating `other`'s dec to BOTH successor edges releases it
+/// AFTER the read on each concrete path (`RL2_release_exactly_once` +
+/// `RL4_edge_release_balanced`). Returns `(other, normal, unwind)`; `None`
+/// declines. TIGHT: fires only for the 3 named ops, only on a borrowed arg 1
+/// that genuinely dies after the call and carries an inline dec. Spec: Annex E
+/// §AIMS RL-1 + RL-2 + RL-4.
+fn set_algebra_other_arg_relocation_for_block(
+    func: &ArcFunction,
+    block: &ArcBlock,
+    set_algebra_names: &FxHashSet<Name>,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    b: usize,
+) -> Option<(ArcVarId, usize, usize)> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let ArcTerminator::Invoke {
+        func: callee,
+        args,
+        arg_ownership,
+        normal,
+        unwind,
+        ..
+    } = &block.terminator
+    else {
+        return None;
+    };
+    if !set_algebra_names.contains(callee) {
+        return None;
+    }
+    // arg 0 = receiver (consumed/COW); arg 1 = `other` (borrowed, element-retained).
+    let &other = args.get(1)?;
+    let other_borrowed = arg_ownership
+        .get(1)
+        .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+    if !other_borrowed {
+        return None;
+    }
+    // `other` must carry a freeable container dec (an RcPointer Set) — a scalar
+    // has none.
+    if !matches!(func.var_repr(other), Some(ValueRepr::RcPointer)) {
+        return None;
+    }
+    // Single-borrow guard: relocate only when `other` genuinely dies after this
+    // call. A source still live past the call needs joint multi-alias accounting.
+    if lineage_live_out(func, jt_reps, rep_of(other), b) {
+        return None;
+    }
+    // The INLINE scope-exit `BurdenDec other` the Phase-5 walk emitted before the
+    // terminator must exist (else nothing to relocate).
+    if !block
+        .body
+        .iter()
+        .any(|instr| matches!(instr, ArcInstr::BurdenDec { var } if *var == other))
+    {
+        return None;
+    }
+    Some((other, normal.index(), unwind.index()))
+}
+
 /// Probe-only effect: the relocation runs in the predicate-stack-disabled probe
 /// tail. On the default path the predicate stack co-emits the arg's release on
 /// the successor edge already, and this pass never runs — default codegen stays
@@ -1196,6 +1262,7 @@ fn relocate_borrowed_terminator_arg_dec_to_edges(
     let accessor_retain_names = crate::borrow::accessor_retain_builtin_names(interner);
     let sharing_view_names = sharing_view_relocation_names(interner);
     let fresh_str_names = fresh_str_producing_method_names(interner);
+    let set_algebra_names = set_algebra_relocation_names(interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let escape_safe_names = EscapeSafeBorrowedNames {
         conversion: &conversion_names,
@@ -1203,6 +1270,7 @@ fn relocate_borrowed_terminator_arg_dec_to_edges(
         accessor_retain: &accessor_retain_names,
         sharing_view: &sharing_view_names,
         fresh_str: &fresh_str_names,
+        set_algebra: &set_algebra_names,
         builtins: &builtins,
     };
     let post_doms = crate::graph::PostDominatorTree::build(func);
@@ -1224,6 +1292,16 @@ fn relocate_borrowed_terminator_arg_dec_to_edges(
             b,
         ) {
             relocations.push((b, recv, normal, unwind, release));
+        }
+        // Set-algebra `other` (arg 1) sibling: a borrowed non-receiver arg whose
+        // surviving elements are rc-inc'd into the fresh result; its premature
+        // inline dec relocates to BOTH edges (the receiver relocation's arg-1
+        // analogue, scoped to the 3 named set-algebra ops). Distinct from the
+        // arg-0 case above — `union`'s arg 0 is OWNED, so the arg-0 path declines.
+        if let Some((other, normal, unwind)) =
+            set_algebra_other_arg_relocation_for_block(func, block, &set_algebra_names, &jt_reps, b)
+        {
+            relocations.push((b, other, normal, unwind, EdgeRelease::Both));
         }
     }
     // Remove the inline dec from each call block, then prepend the release to the
@@ -1492,6 +1570,12 @@ struct EscapeSafeBorrowedNames<'a> {
     /// str analogue of `conversion`). The receiver survives the borrowed read and
     /// is released on BOTH successor edges (see `fresh_str_producing_method_names`).
     fresh_str: &'a FxHashSet<Name>,
+    /// Set-algebra ops (`union`/`intersection`/`difference`) — the borrowed
+    /// `other` arg (arg 1; the receiver is OWNED/consumed) has its surviving
+    /// elements rc-inc'd into a FRESH result set (`inc_copied_set_elements`),
+    /// never aliased uninc'd. `other` survives the borrowed read, so its dec
+    /// relocates to BOTH successor edges (see `set_algebra_relocation_names`).
+    set_algebra: &'a FxHashSet<Name>,
     /// All builtin methods (for the scalar-result borrowing-read fallback).
     builtins: &'a crate::borrow::BuiltinOwnershipSets,
 }
@@ -1569,6 +1653,16 @@ fn borrowed_arg_release_verdict(
     // gate: the result is a non-scalar `str` yet provably non-aliasing (the str
     // analogue of the conversion class). Spec: Annex E §AIMS RL-2 + RL-4.
     if names.fresh_str.contains(&callee) {
+        return Some(EdgeRelease::Both);
+    }
+    // Set-algebra ops (`union`/`intersection`/`difference`): the borrowed `other`
+    // arg's surviving elements are rc-inc'd into a FRESH result set by the runtime
+    // (`inc_copied_set_elements`), so `other` survives the borrowed read and is
+    // dead on each successor → Both edges. Checked BEFORE the scalar gate: the
+    // result is a non-scalar `{T}` Set yet provably non-aliasing via the
+    // element-retain inc (the Set analogue of the conversion class). Spec: Annex E
+    // §AIMS RL-1 + RL-2 + RL-4.
+    if names.set_algebra.contains(&callee) {
         return Some(EdgeRelease::Both);
     }
     // Escape-safety: a non-scalar result MAY alias `recv` (slice/substring return a
@@ -5106,6 +5200,7 @@ fn compute_borrowed_terminator_aggregate_relocations(
     let accessor_retain_names = crate::borrow::accessor_retain_builtin_names(interner);
     let sharing_view_names = sharing_view_relocation_names(interner);
     let fresh_str_names = fresh_str_producing_method_names(interner);
+    let set_algebra_names = set_algebra_relocation_names(interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let escape_safe_names = EscapeSafeBorrowedNames {
         conversion: &conversion_names,
@@ -5113,6 +5208,7 @@ fn compute_borrowed_terminator_aggregate_relocations(
         accessor_retain: &accessor_retain_names,
         sharing_view: &sharing_view_names,
         fresh_str: &fresh_str_names,
+        set_algebra: &set_algebra_names,
         builtins: &builtins,
     };
 
@@ -7211,6 +7307,20 @@ fn sharing_view_relocation_names(interner: &ori_ir::StringInterner) -> FxHashSet
 /// their own per-shape dec-placement accounting (Spec: Annex E §AIMS RL-2 + RL-4).
 fn borrow_survives_transform_names(interner: &ori_ir::StringInterner) -> FxHashSet<Name> {
     ["filter", "map", "clone"]
+        .iter()
+        .map(|n| interner.intern(n))
+        .collect()
+}
+
+/// Set-algebra ops whose borrowed `other` arg (arg 1) has its surviving
+/// elements rc-inc'd into a FRESH result set by the runtime
+/// (`inc_copied_set_elements` on every `ori_set_{union,intersection,difference}`
+/// path), never aliased uninc'd. The receiver (arg 0) is consumed (COW); only
+/// `other` is borrowed-and-element-retained, so `other`'s premature inline dec
+/// relocates to BOTH successor edges of the may-unwind call (the receiver
+/// relocation's arg-1 sibling). Spec: Annex E §AIMS RL-1 + RL-2 + RL-4.
+fn set_algebra_relocation_names(interner: &ori_ir::StringInterner) -> FxHashSet<Name> {
+    ["union", "intersection", "difference"]
         .iter()
         .map(|n| interner.intern(n))
         .collect()

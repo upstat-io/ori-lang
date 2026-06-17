@@ -25,6 +25,10 @@
 # elem_dec_scope::test_str_list_slice_then_iter +
 # match_alias::test_closure_option_str_capture_two_call_no_leak pruned: cured by
 # the Phase-6.66f sharing-view-slice + iter-consume surplus-inc suppress (72-cell floor).
+# elem_dec_scope::test_set_str_union pruned: cured by the Phase-6.65
+# borrowed-non-receiver-arg relocation for set-algebra ops (union/intersection/
+# difference) — the borrowed `other` arg's premature inline dec relocates to both
+# successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
 aims_interactions::test_h12_rc_merge_preserves_rc_ops
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
@@ -32,7 +36,6 @@ arc::test_rc_alias_owned_call_then_root_use
 arc::test_rc_project_merge_two_distinct_parents
 borrow_independence::test_borrow_separate_heap_types
 collections_ext::test_coll_map_index_in_loop
-elem_dec_scope::test_set_str_union
 error_handling::test_catch_index_inbounds_receiver_reused_no_leak
 error_handling::test_catch_index_oob_option_str_elements
 error_handling::test_catch_index_oob_receiver_reused_after_catch

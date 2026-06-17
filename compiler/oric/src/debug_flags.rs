@@ -760,6 +760,24 @@ flags! {
     /// Usage: `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1 ori build file.ori`
     ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE
 
+    /// Decline the Phase-5 accessor-retain retain-aliasing per-reference
+    /// treatment for the branchy `m[k].unwrap().starts_with(..)` shape: a
+    /// niche-family sum (`@__index` Option) read through N accessor-retain hops
+    /// (`@unwrap`/`@get`), each self-incrementing the SAME allocation, across a
+    /// short-circuit CFG where a reader-bypass arm reaches a terminal without the
+    /// read. Default (unset): the whole same-alloc closure is removed from
+    /// `owned_vars_needing_rc` and ONE release is placed per RETAINED REFERENCE
+    /// per terminal path (each accessor-retain hop's self-inc'd reference
+    /// released once at its own last use). A straight-line accessor-retain
+    /// declines (no bypass; the base walk is already correct).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a branchy
+    /// retain-aliasing double-free to this treatment vs the single-site Phase-5
+    /// fresh-sum live-extract scan. Spec: Annex E §AIMS RL-1 + RL-2 + RL-4 + TF-4.
+    /// Usage: `ORI_DISABLE_RETAIN_ALIASING_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_RETAIN_ALIASING_RELEASE
+
     /// Decline the Phase-5 closure-extract borrow-view suppression for N
     /// `ApplyIndirect` results that are PROVEN same-allocation borrow-views of
     /// ONE captured field of a closure env (the resolved lambda's
