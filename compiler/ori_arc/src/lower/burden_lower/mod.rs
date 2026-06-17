@@ -147,6 +147,28 @@ static LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(
     std::env::var("ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE=1` skips the Phase-5 RL-2
+/// treatment for a FRESH `PartialApply` closure borrowed into a lazy-iterator
+/// builtin (`@map` / `@filter`) whose result iterator retains the closure env as
+/// a borrowed raw pointer across the chain's terminal consumer
+/// ([`ownership_scans::compute_lazy_iter_closure_borrow_lineage`]). Default
+/// (unset): the whole same-alloc closure lineage (root + `Let`-Var aliases) is
+/// removed from `owned_vars_needing_rc` (suppressing the early borrowed-arg
+/// `BurdenDec` the base walk places at the `@map`/`@filter` call) and EXACTLY ONE
+/// whole-var `BurdenDec` is placed at the lazy-iterator chain's terminal
+/// consumer's (`@collect`/…) normal-successor entry. With the toggle set, the
+/// base walk's early dec returns — the env (and its cascade-freed captured heap
+/// payload) is freed while the lazy iterator still holds the borrowed env
+/// pointer, a use-after-free when the closure runs at `@collect` time (exit −139).
+/// `@fold` is EAGER (the closure runs synchronously inside `@fold`) so it survives
+/// the identical early dec and is excluded. Bisection surface: isolates a lazy-HOF
+/// closure-borrow UAF to this treatment vs the rest of the Phase-5 walk. Spec:
+/// Annex E §AIMS RL-2 (`RL2_borrowed_param_emits_caller_dec` +
+/// `RL2_release_exactly_once`) + TF-4 + TF-7.
+static LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` skips the Phase-5 RL-2 scope-exit
 /// release for a transfer-through-return forwarder RESULT whose monomorphized
 /// result-type burden is empty (`burden_carries_rc == false`), so the result

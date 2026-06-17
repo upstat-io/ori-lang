@@ -682,6 +682,27 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE
 
+    /// Skip the Phase-5 RL-2 treatment for a FRESH `PartialApply` closure
+    /// borrowed into a lazy-iterator builtin (`@map` / `@filter`) whose result
+    /// iterator retains the closure env as a borrowed raw pointer across the
+    /// chain's terminal consumer. Default (unset): the whole same-alloc closure
+    /// lineage is removed from `owned_vars_needing_rc` (suppressing the early
+    /// borrowed-arg `BurdenDec` the base walk places at the `@map`/`@filter`
+    /// call) and EXACTLY ONE whole-var `BurdenDec` is placed at the lazy-iterator
+    /// chain's terminal consumer's (`@collect`/…) normal-successor entry. With the
+    /// toggle set the base walk's early dec returns — the env (and its
+    /// cascade-freed captured heap payload) is freed while the lazy iterator still
+    /// holds the borrowed env pointer, a use-after-free when the closure runs at
+    /// `@collect` time (exit -139). `@fold` is EAGER (closure runs synchronously)
+    /// and is excluded.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects a lazy-HOF
+    /// closure-borrow use-after-free to this treatment vs the rest of the Phase-5
+    /// walk. Spec: Annex E §AIMS RL-2 + TF-4 + TF-7.
+    /// Usage: `ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE
+
     /// Decline the Phase-5 treatment for a FRESH closure result (`Unique` +
     /// `preserves_freshness`, non-forwarder) consumed ONLY at `ApplyIndirect`
     /// borrow-receiver sites across a short-circuit CFG. Default (unset): the

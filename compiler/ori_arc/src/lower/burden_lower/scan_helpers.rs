@@ -12,7 +12,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
@@ -26,16 +26,17 @@ use super::ownership_scans::{
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
     compute_closure_extract_borrow_view_lineage, compute_construct_fed_dead_param_lineage,
     compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
-    compute_fresh_sum_live_extract_lineage, compute_loop_closure_dead_param_lineage,
-    compute_multi_exit_borrow_view_lineage, compute_owned_vars_needing_rc, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_fresh_sum_live_extract_lineage, compute_lazy_iter_closure_borrow_lineage,
+    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
+    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
+    group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
     CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED, CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED,
     FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED, FORWARDER_RESULT_RELEASE_DISABLED,
-    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
-    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED,
+    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -341,6 +342,26 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // `compute_loop_closure_dead_param_lineage`. Spec: Annex E §AIMS RL-5 +
     // RL-2 + RL-4.
     let loop_closure_releases = apply_loop_closure_dead_param(func, &mut owned_vars_needing_rc);
+    // RL-2 lazy-iterator closure-borrow treatment: a FRESH `PartialApply` closure
+    // borrowed into a lazy-iterator builtin (`@map`/`@filter`) whose result
+    // iterator retains the closure env as a borrowed raw pointer (the runtime
+    // adapter never incs/drops the env — dead-end #154) across the chain's
+    // terminal consumer (`@collect`/…). The base walk places the closure's
+    // `BurdenDec` at its last var-use (the `@map`/`@filter` borrowed arg), BEFORE
+    // the lazy iterator runs the closure at `@collect` time — freeing the env (and
+    // its cascade-freed captured heap payload) while the iterator still holds the
+    // borrowed env pointer → use-after-free (exit −139). The cure removes the
+    // whole same-alloc closure from `owned_vars_needing_rc` (suppressing the early
+    // dec) and places EXACTLY ONE whole-var release at the iterator chain's
+    // terminal consumer's normal-successor entry (`RL2_release_exactly_once`:
+    // released once after the closure's final run). `@fold` is EAGER (closure runs
+    // synchronously) and is excluded. Disjoint family (lazy-builtin-borrowed
+    // FRESH-closure roots vs loop-carried closures / call-result closures /
+    // forwarder results / niche-family sums). SSOT:
+    // `compute_lazy_iter_closure_borrow_lineage`. Spec: Annex E §AIMS RL-2 + TF-4
+    // + TF-7.
+    let lazy_iter_closure_releases =
+        apply_lazy_iter_closure_borrow(func, &mut owned_vars_needing_rc, interner);
     // RL-2 + RL-4 borrowed-`Invoke`-collection lineage treatment: a FRESH
     // collection-`Construct` buffer (`%2 = Construct List(..)`) read through
     // Let-Var aliases + a length `Project` and BORROWED into a may-unwind
@@ -434,6 +455,16 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // family (loop-carried PartialApply FatValue roots vs call-result closures /
     // forwarder results / niche-family sums), so the merge cannot double-release.
     for (site, vars) in loop_closure_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
+    // Merge the lazy-iterator closure-borrow releases into the same surface.
+    // Disjoint family (lazy-builtin-borrowed FRESH-closure roots vs loop-carried
+    // closures / call-result closures / forwarder results / niche-family sums),
+    // so the merge cannot double-release.
+    for (site, vars) in lazy_iter_closure_releases {
         forwarder_result_releases
             .entry(site)
             .or_default()
@@ -633,6 +664,27 @@ fn apply_loop_closure_dead_param(
         return FxHashMap::default();
     }
     let treatment = compute_loop_closure_dead_param_lineage(func, owned_vars_needing_rc);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
+}
+
+/// Toggle-gated application of the RL-2 lazy-iterator closure-borrow treatment
+/// ([`compute_lazy_iter_closure_borrow_lineage`]): computes the vetted fresh-
+/// closure lineages borrowed into `@map`/`@filter`, removes them from
+/// `owned_vars_needing_rc` (suppressing the early borrowed-arg dec the base walk
+/// places at the lazy builtin), and returns the single placed RL-2 release at
+/// the iterator chain's terminal consumer's normal-successor entry for the
+/// `forwarder_result_releases` merge. Empty when
+/// `ORI_DISABLE_LAZY_ITER_CLOSURE_BORROW_RELEASE=1`.
+fn apply_lazy_iter_closure_borrow(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    interner: &StringInterner,
+) -> PlacedReleaseMap {
+    if *LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment = compute_lazy_iter_closure_borrow_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     treatment.releases
 }

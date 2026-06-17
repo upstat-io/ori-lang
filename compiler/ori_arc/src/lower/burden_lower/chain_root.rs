@@ -129,7 +129,7 @@ impl ChainRootIndex {
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = alias_table;
+            let _ = (self, alias_table);
         }
     }
 
