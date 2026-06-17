@@ -1185,12 +1185,14 @@ fn relocate_borrowed_terminator_arg_dec_to_edges(
     let survives_transform_names = borrow_survives_transform_names(interner);
     let accessor_retain_names = crate::borrow::accessor_retain_builtin_names(interner);
     let sharing_view_names = sharing_view_relocation_names(interner);
+    let fresh_str_names = fresh_str_producing_method_names(interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let escape_safe_names = EscapeSafeBorrowedNames {
         conversion: &conversion_names,
         survives_transform: &survives_transform_names,
         accessor_retain: &accessor_retain_names,
         sharing_view: &sharing_view_names,
+        fresh_str: &fresh_str_names,
         builtins: &builtins,
     };
     let post_doms = crate::graph::PostDominatorTree::build(func);
@@ -1475,6 +1477,11 @@ struct EscapeSafeBorrowedNames<'a> {
     /// placement (`PostDominator`), not `Both`, because the shared-buffer result
     /// is read across branches (see `sharing_view_relocation_names`).
     sharing_view: &'a FxHashSet<Name>,
+    /// Fresh-str producers (`debug`/`to_str`) — the result is a FRESH owned `str`
+    /// the callee synthesised, NEVER a view aliasing the receiver's buffer (the
+    /// str analogue of `conversion`). The receiver survives the borrowed read and
+    /// is released on BOTH successor edges (see `fresh_str_producing_method_names`).
+    fresh_str: &'a FxHashSet<Name>,
     /// All builtin methods (for the scalar-result borrowing-read fallback).
     builtins: &'a crate::borrow::BuiltinOwnershipSets,
 }
@@ -1543,6 +1550,16 @@ fn borrowed_arg_release_verdict(
     // non-scalar buffer-sharing view (Spec: Annex E §AIMS RL-2 / RL-4).
     if names.sharing_view.contains(&callee) {
         return Some(EdgeRelease::PostDominator);
+    }
+    // Fresh-str producers (`debug`/`to_str`): the result is a FRESH owned `str`
+    // the callee synthesised, NEVER a view aliasing `recv`'s payload (contrast
+    // `slice`/`substring`, which share backing — in `sharing_view`). The receiver
+    // is borrow-read (debug/to_str copies, never consumes), so it survives the
+    // call and is dead on each successor → Both edges. Checked BEFORE the scalar
+    // gate: the result is a non-scalar `str` yet provably non-aliasing (the str
+    // analogue of the conversion class). Spec: Annex E §AIMS RL-2 + RL-4.
+    if names.fresh_str.contains(&callee) {
+        return Some(EdgeRelease::Both);
     }
     // Escape-safety: a non-scalar result MAY alias `recv` (slice/substring return a
     // view). Only a scalar result is provably non-aliasing here.
@@ -5078,12 +5095,14 @@ fn compute_borrowed_terminator_aggregate_relocations(
     let survives_transform_names = borrow_survives_transform_names(interner);
     let accessor_retain_names = crate::borrow::accessor_retain_builtin_names(interner);
     let sharing_view_names = sharing_view_relocation_names(interner);
+    let fresh_str_names = fresh_str_producing_method_names(interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let escape_safe_names = EscapeSafeBorrowedNames {
         conversion: &conversion_names,
         survives_transform: &survives_transform_names,
         accessor_retain: &accessor_retain_names,
         sharing_view: &sharing_view_names,
+        fresh_str: &fresh_str_names,
         builtins: &builtins,
     };
 

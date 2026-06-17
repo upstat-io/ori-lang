@@ -24,10 +24,10 @@ use super::{
     emit_for_yield_index_consumed_element_rc,
     emit_iter_element_pushed_into_returned_collection_keepalive_inc,
     emit_iter_element_view_iter_consume_keepalive_inc, emit_single_iter_consume_reuse_keepalive,
-    is_burden_carrying_aggregate, iterator_consumer_collection_names,
-    lineage_genuinely_read_outside_call, lower_burden_ops_to_rc,
-    relocate_borrowed_terminator_arg_dec_to_edges, sharing_view_relocation_names,
-    suppress_multi_borrow_iter_consume_source_decs,
+    fresh_str_producing_method_names, is_burden_carrying_aggregate,
+    iterator_consumer_collection_names, lineage_genuinely_read_outside_call,
+    lower_burden_ops_to_rc, relocate_borrowed_terminator_arg_dec_to_edges,
+    sharing_view_relocation_names, suppress_multi_borrow_iter_consume_source_decs,
     suppress_single_borrowed_invoke_iter_consume_source, user_callee_iter_consume_uses_of_rep,
     EdgeRelease, EscapeSafeBorrowedNames, IterHandleRelease,
 };
@@ -4567,6 +4567,7 @@ fn borrow_survives_transform_set_and_verdict_classification() {
     let conversion = collection_conversion_names(&interner);
     let accessor = crate::borrow::accessor_retain_builtin_names(&interner);
     let sharing_view = sharing_view_relocation_names(&interner);
+    let fresh_str = fresh_str_producing_method_names(&interner);
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let contracts: FxHashMap<ori_ir::Name, MemoryContract> = FxHashMap::default();
     let names = EscapeSafeBorrowedNames {
@@ -4574,6 +4575,7 @@ fn borrow_survives_transform_set_and_verdict_classification() {
         survives_transform: &set,
         accessor_retain: &accessor,
         sharing_view: &sharing_view,
+        fresh_str: &fresh_str,
         builtins: &builtins,
     };
 

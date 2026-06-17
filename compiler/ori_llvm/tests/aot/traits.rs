@@ -967,17 +967,18 @@ fn test_aot_option_debug_empty_list() {
 
 // Map debug formatting tests
 
-/// Map debug should format as `{key: value, ...}` not `<?>`.
-/// Keys use Printable semantics (unquoted strings), values use Debug semantics.
+/// Map debug should format as `{"key": value, ...}` not `<?>`.
+/// Per Spec Clause 8.12, `{K: V}` Debug QUOTES string keys (`{"a": 1}`); values
+/// use Debug semantics. The spec is SSOT over the prior unquoted-key expectation.
 #[test]
 fn test_aot_map_debug_str_keys() {
     let (exit_code, stdout, stderr) =
         compile_and_run_capture(include_str!("fixtures/traits/aot_map_debug_str_keys.ori"));
     assert_eq!(exit_code, 0, "map_debug_str_keys failed: {stderr}");
-    // Map iteration order may vary; check both entries are present
+    // Map iteration order may vary; check both entries are present (quoted keys).
     assert!(
-        stdout.contains("x: 1") && stdout.contains("y: 2"),
-        "Expected map entries 'x: 1' and 'y: 2' in output, got: '{stdout}'"
+        stdout.contains("\"x\": 1") && stdout.contains("\"y\": 2"),
+        "Expected map entries '\"x\": 1' and '\"y\": 2' in output, got: '{stdout}'"
     );
 }
 
@@ -1016,9 +1017,12 @@ fn test_aot_map_debug_nested_list_value() {
         "fixtures/traits/aot_map_debug_nested_list_value.ori"
     ));
     assert_eq!(exit_code, 0, "map_debug_nested_list_value failed: {stderr}");
+    // Spec Clause 8.12: `{K: V}` Debug QUOTES string keys (`{"a": 1, "b": 2}`);
+    // the nested `[int]` value formats inline. The spec is SSOT over the prior
+    // unquoted-key expectation.
     assert!(
-        stdout.contains("a: [1, 2]"),
-        "Expected 'a: [1, 2]' in output, got: '{stdout}'"
+        stdout.contains("\"a\": [1, 2]"),
+        "Expected '\"a\": [1, 2]' in output, got: '{stdout}'"
     );
 }
 

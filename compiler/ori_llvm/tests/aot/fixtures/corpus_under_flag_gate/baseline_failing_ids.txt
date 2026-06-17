@@ -51,7 +51,6 @@ fat_ptr_iter::function_param::test_borrowed_param_use_after_iteration
 fat_ptr_iter::function_param::test_borrowed_str_list_called_in_loop
 fat_ptr_iter::method_collect::test_iter_collect_set_str
 fat_ptr_iter::str_list::test_split_first_to_lowercase
-generics::test_edge_consumed_and_returned_uses_return_flow_only
 generics::test_generic_forwarder_result_list_str_returns_intact
 generics::test_path_sensitive_match_dispatch_list_balances_rc
 ir_checks::run_all_codegen_filecheck
@@ -78,8 +77,6 @@ recursive_derive::recursive_derive_clone_result_boxed_ok_incs_box_no_leak
 slices::test_list_slice_preserves_original
 structs::test_struct_list_field
 traits::test_aot_enum_structural_eq
-traits::test_aot_map_debug_nested_list_value
-traits::test_aot_map_debug_str_keys
 traits::test_aot_option_debug_map_payload
 traits::test_aot_payload_enum_structural_eq
 trmc::test_trmc_nested_recursion
