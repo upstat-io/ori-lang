@@ -1,0 +1,11 @@
+{
+  "subjects": {
+    "lexer": {
+      "bench": "lexer",
+      "case": "lexer/raw/throughput/5000",
+      "direction": "higher-is-better",
+      "unit": "MiB/s"
+    }
+  },
+  "noise_threshold_pct": 5.0
+}
