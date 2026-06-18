@@ -163,6 +163,36 @@ pub(in crate::lower::burden_lower) fn compute_fresh_sum_live_extract_lineage(
             decline("e:live-extract-param");
             continue;
         }
+        // Gate (e2): the live-extracted payload member must NOT be a by-value
+        // `Aggregate` struct. Gate (c)'s "one release frees the whole web"
+        // premise holds ONLY when the niche's single payload IS the wrapper's
+        // allocation — a leaf `FatVal` / `RcPtr` (`str` / `[T]`), where the
+        // niche stores the payload pointer inline so wrapper and payload name
+        // ONE allocation and the wrapper carries no release of its own. An
+        // `Aggregate` struct payload (`Option<Node>` where `Node` is a
+        // by-value struct with owned heap fields) is INLINE in the niche but
+        // recursively owns heap children: the wrapper's own scope-exit release
+        // (`RcDec [InlineEnum]`, cascading into the struct's heap fields) and
+        // the live-extracted struct's own release (`RcDec [AggFields]`) are TWO
+        // distinct releases on the allocation. The keep-alive inc the base
+        // walk emits between them is therefore LOAD-BEARING per RL-1
+        // duplication (`RL1_duplication_balanced`: a value live across an
+        // independent release of its own allocation duplicates, and the
+        // `[inc, dec]` pair nets 0). Suppressing it leaves the allocation net
+        // -1 (double-free, exit -134) — the over-fire boundary the negative
+        // `probe_nested_construct_payload_extracted_live` pin guards. Spec:
+        // Annex E §AIMS RL-1 + RL-2.
+        let extracted_aggregate_payload = func.blocks.iter().any(|b| {
+            b.params.iter().any(|&(p, _)| {
+                members.contains(&p)
+                    && used.contains(&p)
+                    && matches!(func.var_repr(p), Some(ValueRepr::Aggregate))
+            })
+        });
+        if extracted_aggregate_payload {
+            decline("e2:aggregate-payload-extract");
+            continue;
+        }
         // Gate (f): the placed single release.
         let Some((site_block, site_pos, dec_var)) = choose_release_site(func, &members) else {
             decline("f:release-site");
