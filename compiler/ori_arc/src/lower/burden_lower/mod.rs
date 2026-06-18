@@ -108,6 +108,18 @@ static MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|
     std::env::var("ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_RETAIN_ALIASING_RELEASE=1` skips the Phase-5 RL-1 + RL-2 + RL-4
+/// retain-aliasing treatment: a FRESH niche-family sum (`@__index` Option result)
+/// whose payload is read through an accessor-retain call (`@unwrap`/`@get`, a
+/// per-hop self-inc on the SAME allocation) across a SHORT-CIRCUIT branchy CFG.
+/// The whole same-alloc closure is removed from `owned_vars_needing_rc` and a
+/// per-path release is placed for EACH retained reference (the niche-sum root +
+/// each accessor-retain result). Bisection surface: isolates the branchy
+/// retain-aliasing double-free to this treatment. Spec: Annex E §AIMS RL-1 + RL-2
+/// + RL-4 + TF-4.
+static RETAIN_ALIASING_RELEASE_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_RETAIN_ALIASING_RELEASE").as_deref() == Ok("1"));
+
 /// `ORI_DISABLE_CLOSURE_EXTRACT_BORROW_VIEW_RELEASE=1` skips the Phase-5 RL-2 /
 /// RL-4 closure-extract borrow-view treatment for `ApplyIndirect` results that
 /// are PROVEN same-allocation borrow-views of ONE captured field of a closure env

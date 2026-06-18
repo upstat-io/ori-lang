@@ -15,6 +15,7 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, TypeEntry};
 
 use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::function_compiler::MonoTargetMaps;
 use crate::codegen::ir_builder::IrBuilder;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::codegen::type_registration;
@@ -398,7 +399,17 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
 
         // Compile test wrappers
         debug!("compiling test wrappers");
-        let wrappers = fc.compile_tests(tests, canon);
+        // Test bodies are lowered directly here (NOT via `arc_cache`), so they
+        // miss the `rewrite_apply_targets_for_monos` pass that rewrites generic
+        // call targets to mangled mono names. Without it, a test body's
+        // `Invoke @assert_eq(generic)` misses the mono-keyed AIMS contract
+        // (`@assert_eq$m$..`), so a borrowed transfer-through-return arg is
+        // mis-excluded from the dead-collection release scan and leaks. Pass the
+        // mono maps so test bodies get the same rewrite as `arc_cache` functions
+        // (eval/AOT contract parity).
+        let mono_target_maps =
+            (!mono_functions.is_empty()).then(|| MonoTargetMaps::build(&mono_functions, self.pool));
+        let wrappers = fc.compile_tests(tests, canon, mono_target_maps.as_ref());
 
         // Post-hoc nounwind: catch impl methods and test wrappers that were
         // compiled before the two-pass analysis but contain no invoke instructions.

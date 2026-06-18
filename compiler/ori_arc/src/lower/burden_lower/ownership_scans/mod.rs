@@ -24,6 +24,7 @@ mod live_extract;
 mod live_extract_site;
 mod live_out;
 mod loop_closure_dead_param;
+mod loop_invariant_dead_local;
 mod move_alias;
 mod multi_exit_borrow_view;
 mod nested_construct_return_passthrough;
@@ -38,7 +39,7 @@ mod tests;
 pub(super) use borrowed::{
     compute_borrowed_arg_let_aliases, compute_borrowed_projection_dsts,
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
-    compute_sole_carrier_borrowed_invoke_aliases,
+    compute_sole_carrier_borrowed_invoke_aliases, compute_yield_identity_push_dup_args,
 };
 pub(super) use borrowed_invoke_lineage::{
     borrowed_invoke_lineage_release_disabled, compute_borrowed_invoke_collection_lineage,
@@ -72,9 +73,12 @@ pub(super) use forwarder_release::compute_forwarder_result_under_release;
 pub(crate) use forwarder_release::ForwarderReleasePos;
 pub(super) use iter_consume_dead_thread::compute_iter_consume_dead_thread_orphan_inc;
 pub(super) use lazy_iter_closure_borrow::compute_lazy_iter_closure_borrow_lineage;
-pub(super) use live_extract::compute_fresh_sum_live_extract_lineage;
+pub(super) use live_extract::{
+    compute_fresh_sum_live_extract_lineage, compute_retain_aliasing_lineage,
+};
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
 pub(super) use loop_closure_dead_param::compute_loop_closure_dead_param_lineage;
+pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
 pub(super) use move_alias::{
     compute_readonly_borrow_orphan_inc_suppression, compute_transfer_via_move_alias,
     SameAllocIdentity,

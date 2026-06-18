@@ -72,17 +72,15 @@ use std.testing { assert_eq }
 @f_list (n: int, tail: [int] = [9, 9]) -> [int] = tail;
 
 // POSITIONAL omit, heap return: f_list(1) omits tail -> Call, fills [9, 9].
-// Default-fill itself is verified on interp + covered for composite returns by
-// the Option/struct omit cells below; the by-value list-param RETURN leaks on
-// LLVM/AOT, an orthogonal ARC-realization defect tracked separately.
-#skip("BUG-04-192: by-value list-typed-parameter return leaks 1 allocation on LLVM/AOT — orthogonal ARC realization bug, not default-fill")
+// The omitted default-fill flows through the wrapper-forwarder return hop
+// (pos_omit_list -> f_list -> Return) and is released exactly once on LLVM/AOT.
 @test_pos_omit_list tests @pos_omit_list () -> void = {
     assert_eq(actual: pos_omit_list(), expected: [9, 9])
 }
 @pos_omit_list () -> [int] = f_list(1);
 
-// PROVIDED list (regression pin). Same orthogonal list-return leak (no default omitted).
-#skip("BUG-04-192: by-value list-typed-parameter return leaks 1 allocation on LLVM/AOT — orthogonal ARC realization bug, not default-fill")
+// PROVIDED list (regression pin): the provided list transfers through the
+// by-value param return and the wrapper-forwarder hop, leak-clean on LLVM/AOT.
 @test_provided_list tests @provided_list () -> void = {
     assert_eq(actual: provided_list(), expected: [1, 2])
 }

@@ -37,6 +37,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         tests: &[&TestDef],
         canon: &CanonResult,
+        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
     ) -> FxHashMap<Name, String> {
         let mut test_wrappers = FxHashMap::default();
 
@@ -64,9 +65,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             };
 
             let emitted = if use_invoke_wrapper {
-                self.compile_test_with_invoke_wrapper(test, &wrapper_name, body, canon, &abi)
+                self.compile_test_with_invoke_wrapper(
+                    test,
+                    &wrapper_name,
+                    body,
+                    canon,
+                    &abi,
+                    mono_target_maps,
+                )
             } else {
-                self.compile_test_without_invoke_wrapper(test, &wrapper_name, body, canon, &abi)
+                self.compile_test_without_invoke_wrapper(
+                    test,
+                    &wrapper_name,
+                    body,
+                    canon,
+                    &abi,
+                    mono_target_maps,
+                )
             };
 
             if emitted {
@@ -89,6 +104,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         body: ori_ir::canon::CanId,
         canon: &CanonResult,
         abi: &FunctionAbi,
+        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let body_name = format!("{wrapper_name}_body");
@@ -99,7 +115,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.builder.set_current_function(body_func_id);
 
         let mut problems = Vec::new();
-        let (arc_func, lambdas) = lower_function_can(
+        let (mut arc_func, mut lambdas) = lower_function_can(
             test.name,
             &[],
             Idx::UNIT,
@@ -111,6 +127,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             false,
             None,
         );
+
+        // Rewrite generic call targets to mangled mono names so the test body's
+        // AIMS-contract lookups resolve (eval/AOT parity).
+        if let Some(maps) = mono_target_maps {
+            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool);
+        }
 
         if let Err(err) = self.emit_arc_function(test.name, body_func_id, abi, arc_func, lambdas) {
             // PC-2 contract violation — error already recorded via
@@ -180,6 +202,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         body: ori_ir::canon::CanId,
         canon: &CanonResult,
         abi: &FunctionAbi,
+        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let func_id = self.builder.declare_void_function(wrapper_name, &[]);
@@ -187,7 +210,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.builder.set_current_function(func_id);
 
         let mut problems = Vec::new();
-        let (arc_func, lambdas) = lower_function_can(
+        let (mut arc_func, mut lambdas) = lower_function_can(
             test.name,
             &[],
             Idx::UNIT,
@@ -199,6 +222,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             false,
             None,
         );
+
+        // Rewrite generic call targets to mangled mono names so the test body's
+        // AIMS-contract lookups resolve (eval/AOT parity).
+        if let Some(maps) = mono_target_maps {
+            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool);
+        }
 
         if let Err(err) = self.emit_arc_function(test.name, func_id, abi, arc_func, lambdas) {
             // PC-2 contract violation — error already recorded via

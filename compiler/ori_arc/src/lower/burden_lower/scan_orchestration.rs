@@ -27,11 +27,12 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_readonly_borrow_orphan_inc_suppression,
-    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
-    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
-    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases, instr_transfer_vars, list_concat_consumed_operands,
+    compute_live_out_owned, compute_loop_invariant_dead_local_releases,
+    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
+    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
+    compute_transfer_through_return_results, compute_transfer_via_move_alias,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
+    compute_yield_identity_push_dup_args, instr_transfer_vars, list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -559,6 +560,22 @@ pub(crate) fn emit_burden_ops<'a>(
     // (the compute fn owns the toggle). SSOT: `compute_borrowed_store_dup_args`.
     let borrowed_store_dup_args = compute_borrowed_store_dup_args(func, type_registry);
 
+    // RL-1 yield-identity push duplication incs: an iterator-element borrow-view
+    // (`Project field:1` of `@__iter_next` over a BORROWED-param-rooted source)
+    // consumed at the OWNED element-store position of `@ori_list_push`. The push
+    // copies the element into the fresh result buffer (a real SECOND reference);
+    // the borrowed source survives in the caller (RL-2), so the store duplicates
+    // and owes one inc — matched by the result collection's `elem_dec_fn` drop.
+    // The iterator-element-view exclusion (`collect_iter_element_defs`) dropped
+    // both the spurious dec AND this load-bearing inc; this restores ONLY the inc
+    // on the genuine duplication. Kept DISTINCT from `borrowed_store_dup_args`
+    // (those fire at aggregate-store nodes; these fire at the `@ori_list_push`
+    // call-arg site) so an element never double-incs. Empty when
+    // `ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC=1`. SSOT:
+    // `compute_yield_identity_push_dup_args`. Spec: Annex E §AIMS RL-1.
+    let yield_identity_push_dup_args =
+        compute_yield_identity_push_dup_args(func, type_registry, interner);
+
     // RL-5 dead-at-entry cleanup for forwarder-identity allocations reaching a
     // merge/return block's dead block-params: the Jump-arg → Owned-param handoff
     // (RL-4 exemption) suppresses the source's last-use dec expecting RL-5 to release
@@ -616,14 +633,25 @@ pub(crate) fn emit_burden_ops<'a>(
         &alias_table.genuine_same_alloc_reps,
         &param_edge_args,
     );
-    for (block_idx, params) in rebuild_lineage_releases {
-        let entry = dead_forwarder_param_releases.entry(block_idx).or_default();
-        for p in params {
-            if !entry.contains(&p) {
-                entry.push(p);
-            }
-        }
-    }
+    merge_release_vars(&mut dead_forwarder_param_releases, rebuild_lineage_releases);
+    // RL-5 release for a purely-dead loop-invariant fresh-collection local: a
+    // fresh `Construct List/Map/Set` threaded UNCHANGED through loop block-params
+    // and NEVER read (`let root = [1]; for .. { xs = xs.push(..) }; xs[k]` —
+    // `root` dead). The loop back-edge fractures the union-find lineage so the
+    // construct-fed scan declines it; this self-contained scan (decoupled from
+    // the keystone same-alloc union per the reverted broad-union dead-end) emits
+    // ONE RL-5 dead-at-entry dec at the lineage's terminal dead block-param.
+    // DISJOINT root kind from the scans above (purely-dead loop-invariant
+    // Construct, threaded-only, never read); the contains-gated push keeps the
+    // merge idempotent. Empty when
+    // `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1`. SSOT:
+    // `compute_loop_invariant_dead_local_releases`. Spec: Annex E §AIMS RL-5.
+    let loop_invariant_dead_releases =
+        compute_loop_invariant_dead_local_releases(func, &owned_vars_needing_rc);
+    merge_release_vars(
+        &mut dead_forwarder_param_releases,
+        loop_invariant_dead_releases,
+    );
 
     // RL-4 branch-exclusive terminal-move edge release: a FRESH local
     // `Construct` lineage consumed at an owned position on a strict subset of
@@ -676,6 +704,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
         borrowed_store_dup_args: &borrowed_store_dup_args,
+        yield_identity_push_dup_args: &yield_identity_push_dup_args,
         call_arg_dup_aliases: &genuine_dup_call_arg_aliases,
     };
     emit_burden_ops_for_blocks(

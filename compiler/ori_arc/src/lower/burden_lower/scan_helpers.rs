@@ -29,8 +29,8 @@ use super::ownership_scans::{
     compute_fresh_sum_live_extract_lineage, compute_iter_consume_dead_thread_orphan_inc,
     compute_lazy_iter_closure_borrow_lineage, compute_loop_closure_dead_param_lineage,
     compute_multi_exit_borrow_view_lineage, compute_nested_construct_return_passthrough,
-    compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,
-    group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_owned_vars_needing_rc, compute_retain_aliasing_lineage, detect_last_uses,
+    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
@@ -39,6 +39,7 @@ use super::{
     FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED,
     LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
     MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED, NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED,
+    RETAIN_ALIASING_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -309,6 +310,34 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // + RL-2 + RL-4.
     let multi_exit_releases =
         apply_multi_exit_borrow_view(func, contracts, &mut owned_vars_needing_rc);
+    // RL-1 + RL-2 + RL-4 retain-aliasing treatment: a FRESH niche-family sum
+    // (`@__index` Option result) whose payload is read through an ACCESSOR-RETAIN
+    // call (`@unwrap`/`@get`, a per-hop self-inc on the SAME allocation) across a
+    // SHORT-CIRCUIT branchy CFG (`if v.is_some() && v.unwrap().starts_with(..)`).
+    // The base walk emits the spurious dup-alias keep-alive incs + an INLINE
+    // source dec BEFORE the accessor-retain call reads the payload → use-after-
+    // free + double-free (exit -134: coll_map_index_int_str / set_str_union /
+    // catch-cohort). The single-site fresh-sum live-extract scan is FORECLOSED
+    // (ledger 212): the allocation is live on the BYPASS branch that reaches
+    // Return WITHOUT passing the reader's site. The cure removes the whole same-
+    // alloc closure (root + Let-Var aliases + niche-payload Projects + accessor-
+    // retain results) from `owned_vars_needing_rc` and places a per-path release
+    // for EACH retained reference (the niche-sum root for the `@__index` self-inc
+    // + each accessor-retain result for its `@unwrap`/`@get` self-inc — ledger
+    // 214/216): RL-2 after the final borrow-read on each READING path (a body
+    // read, or a terminator-`Invoke` read released at its normal successor), RL-4
+    // edge dec on each BYPASS edge — exactly-once-per-path-per-reference. Runs
+    // AFTER the fresh-sum live-extract scan so a root that scan claimed (its
+    // single-site shape) auto-declines (gate b owned-set check) — disjoint
+    // families. SSOT: `compute_retain_aliasing_lineage`. Spec: Annex E §AIMS
+    // RL-1 + RL-2 + RL-4 + TF-4.
+    let retain_aliasing_releases = apply_retain_aliasing(
+        func,
+        contracts,
+        &mut owned_vars_needing_rc,
+        type_registry,
+        interner,
+    );
     // RL-2 + RL-4 closure-extract borrow-view treatment: N `ApplyIndirect`
     // results that are PROVEN same-allocation borrow-views of ONE captured field
     // of a closure env (the resolved lambda's `return_alias = Project { field }`
@@ -493,6 +522,16 @@ pub(super) fn compute_owned_rc_filter<'a>(
             .or_default()
             .extend(vars);
     }
+    // Merge the retain-aliasing per-path-per-reference releases into the same
+    // surface. Disjoint family (niche-family-sum + accessor-retain closure roots
+    // vs FatValue multi-exit closures / forwarder results / loop-carried
+    // closures), so the merge cannot double-release.
+    for (site, vars) in retain_aliasing_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
     // Merge the loop-closure dead-param releases into the same surface. Disjoint
     // family (loop-carried PartialApply FatValue roots vs call-result closures /
     // forwarder results / niche-family sums), so the merge cannot double-release.
@@ -651,6 +690,34 @@ fn apply_fresh_sum_live_extract(
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     (treatment.suppressed_lineage_vars, treatment.releases)
+}
+
+/// Toggle-gated application of the RL-1 + RL-2 + RL-4 + TF-4 retain-aliasing
+/// treatment ([`compute_retain_aliasing_lineage`]): computes the vetted
+/// niche-family-sum + accessor-retain same-alloc closures, removes them from
+/// `owned_vars_needing_rc` (suppressing the dup keep-alive incs + the inline
+/// source dec), and returns the per-path-per-reference placed releases for the
+/// `forwarder_result_releases` merge. Empty when
+/// `ORI_DISABLE_RETAIN_ALIASING_RELEASE=1`.
+fn apply_retain_aliasing(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    type_registry: &TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> PlacedReleaseMap {
+    if *RETAIN_ALIASING_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment = compute_retain_aliasing_lineage(
+        func,
+        contracts,
+        owned_vars_needing_rc,
+        type_registry,
+        interner,
+    );
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
 }
 
 /// Toggle-gated application of the RL-1 + RL-2 + RL-4 multi-exit borrow-view

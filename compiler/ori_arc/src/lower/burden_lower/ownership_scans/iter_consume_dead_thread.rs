@@ -227,12 +227,11 @@ fn collect_fresh_collection_roots(
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
-                ArcInstr::Construct { dst, ctor, .. }
-                    if matches!(
-                        ctor,
-                        CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
-                    ) =>
-                {
+                ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
+                    ..
+                } => {
                     roots.push(*dst);
                 }
                 ArcInstr::Apply {

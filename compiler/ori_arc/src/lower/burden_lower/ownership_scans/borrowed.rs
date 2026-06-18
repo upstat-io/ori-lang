@@ -6,6 +6,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::TypeRegistry;
 
+use ori_ir::StringInterner;
+
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 use crate::lower::burden::TypeRef;
 use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
@@ -27,6 +29,14 @@ use std::sync::LazyLock;
 /// Phase-5 walk. Spec: Annex E §AIMS RL-2 + RL-4.
 static SOLE_CARRIER_BORROWED_INVOKE_CLAIM_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM").as_deref() == Ok("1")
+});
+
+/// `ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC=1` restores the missing store-dup
+/// inc on a yield-identity `@ori_list_push` element (the bisection surface that
+/// isolates the RL-1 yield-identity duplication inc from the rest of the
+/// Phase-5 walk). Default off (the inc is emitted). Spec: Annex E §AIMS RL-1.
+static YIELD_IDENTITY_PUSH_DUP_INC_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC").as_deref() == Ok("1")
 });
 
 /// SOLE-CARRIER borrowed-`Invoke` aliases (RL-2 + RL-4): `Let { Var(src) }`
@@ -433,4 +443,175 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_store_dup_args(
         }
     }
     dup_args
+}
+
+/// Yield-identity push duplication args per AIMS RL-1: element vars consumed at
+/// the OWNED element-store position (`args[1]`) of an `Apply @ori_list_push`
+/// whose stored element is an iterator-element borrow-view (`Project field:1`
+/// of `Apply @__iter_next`, + its `Let`-alias closure) AND whose iteration
+/// SOURCE roots at a BORROWED parameter of THIS function.
+///
+/// `for w in borrowed_words yield w` lowers to `@ori_list_push(fresh_list,
+/// w [own], elem_size)` where `w` is a BORROW into the source's buffer. The
+/// source is a borrowed param, so the CALLER retains it across the whole call
+/// (RL-2: `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec`); the
+/// push copies the element bytes into the FRESH result buffer, creating a real
+/// SECOND reference. Per RL-1 (`RL1_duplication_balanced`) this duplicating
+/// store MUST emit one `BurdenInc` on the element — matched by the result
+/// collection's `elem_dec_fn` drop. Without it both the source (via the
+/// caller's retained reference) and the result list dec the shared element ->
+/// double-free (single call + source reuse) or under-count -> leak (two calls).
+///
+/// The iterator-element-view exclusion (`collect_iter_element_defs` keeps the
+/// view OUT of `owned_vars_needing_rc` to suppress a spurious last-use dec)
+/// correctly drops the DEC side but also suppressed this load-bearing store-dup
+/// INC; this scan restores only the inc on the genuine duplication.
+///
+/// Source-ownership discriminator: only a BORROWED-param-rooted source duplicates
+/// (the source survives in the caller). An OWNED / freshly-`Construct`ed source
+/// (e.g. `for w in [..] yield w`) is consumed by its own iteration and needs no
+/// inc — its element references transfer; firing there over-counts -> leak.
+/// No paired dec is emitted here — the result collection's drop is the match.
+pub(in crate::lower::burden_lower) fn compute_yield_identity_push_dup_args(
+    func: &ArcFunction,
+    type_registry: &TypeRegistry,
+    interner: &StringInterner,
+) -> FxHashSet<ArcVarId> {
+    if *YIELD_IDENTITY_PUSH_DUP_INC_DISABLED {
+        return FxHashSet::default();
+    }
+    let elem_views = compute_borrowed_source_iter_element_views(func, interner);
+    if elem_views.is_empty() {
+        return FxHashSet::default();
+    }
+    let list_push_name = interner.intern("ori_list_push");
+
+    // Admit element views consumed at the OWNED element-store position
+    // (`args[1]`) of `@ori_list_push`, gated on RC-carrying burden.
+    let mut dup_args: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let ArcInstr::Apply { func: f, args, .. } = instr else {
+                continue;
+            };
+            if *f != list_push_name {
+                continue;
+            }
+            let Some(&elem) = args.get(1) else { continue };
+            if !elem_views.contains(&elem) || dup_args.contains(&elem) {
+                continue;
+            }
+            let ty: TypeRef = idx_to_type_ref(func.var_types[elem.index()], type_registry);
+            if lookup_burden(ty, type_registry)
+                .as_ref()
+                .is_some_and(burden_carries_rc)
+            {
+                dup_args.insert(elem);
+            }
+        }
+    }
+    dup_args
+}
+
+/// Iterator-element borrow-views (`Project field:1` of `@__iter_next`, + the
+/// `Let { Var }` alias closure) whose iteration SOURCE roots at a BORROWED
+/// parameter of `func`. The borrowed-param root is the survives-in-caller
+/// discriminator (RL-2): only such an element duplicates when stored. An
+/// OWNED / freshly-`Construct`ed source is consumed by its own iteration and
+/// is intentionally NOT collected (no `@iter` over a borrowed-rooted source).
+fn compute_borrowed_source_iter_element_views(
+    func: &ArcFunction,
+    interner: &StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+    let iter_next_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
+
+    // Borrowed-param roots (+ `Let { Var }` alias closure), the same source-gate
+    // as `compute_borrowed_store_dup_args`.
+    let mut borrowed_rooted: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| p.ownership == Ownership::Borrowed)
+        .map(|p| p.var)
+        .collect();
+    if borrowed_rooted.is_empty() {
+        return FxHashSet::default();
+    }
+    propagate_let_var_closure(func, &mut borrowed_rooted);
+
+    // `@iter` results whose source `args[0]` roots at a borrowed param, then
+    // `__iter_next` results whose iterator `args[0]` is such a borrowed iter.
+    let borrowed_iter_dsts = apply_dsts_with_first_arg_in(func, iter_name, &borrowed_rooted);
+    if borrowed_iter_dsts.is_empty() {
+        return FxHashSet::default();
+    }
+    let borrowed_iter_next_dsts =
+        apply_dsts_with_first_arg_in(func, iter_next_name, &borrowed_iter_dsts);
+    if borrowed_iter_next_dsts.is_empty() {
+        return FxHashSet::default();
+    }
+
+    // Element views: `Project field:1` of a borrowed-source `__iter_next`, plus
+    // the `Let { Var }` alias closure (the lowering emits `%elem = %projected`).
+    let mut elem_views: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst,
+                value,
+                field: 1,
+                ..
+            } = instr
+            {
+                if borrowed_iter_next_dsts.contains(value) {
+                    elem_views.insert(*dst);
+                }
+            }
+        }
+    }
+    propagate_let_var_closure(func, &mut elem_views);
+    elem_views
+}
+
+/// Grow `set` by the `Let { Var(src) }` alias closure: `dst` joins when `src`
+/// is a member (single forward pass — vars are defined before use).
+fn propagate_let_var_closure(func: &ArcFunction, set: &mut FxHashSet<ArcVarId>) {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if set.contains(src) {
+                    set.insert(*dst);
+                }
+            }
+        }
+    }
+}
+
+/// `Apply @name` result dsts whose first arg (`args[0]`) is in `sources`.
+fn apply_dsts_with_first_arg_in(
+    func: &ArcFunction,
+    name: ori_ir::Name,
+    sources: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: f, args, ..
+            } = instr
+            {
+                if *f == name && args.first().is_some_and(|a| sources.contains(a)) {
+                    dsts.insert(*dst);
+                }
+            }
+        }
+    }
+    dsts
 }
