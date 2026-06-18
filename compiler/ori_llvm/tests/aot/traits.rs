@@ -1034,9 +1034,12 @@ fn test_aot_option_debug_map_payload() {
         "fixtures/traits/aot_option_debug_map_payload.ori"
     ));
     assert_eq!(exit_code, 0, "option_debug_map_payload failed: {stderr}");
+    // Spec Clause 8.12.1: {K: V} Debug QUOTES string keys (`{"x": 1}`); the
+    // Option payload formats inline as `Some(...)`. The spec is SSOT over the
+    // prior unquoted-key expectation.
     assert!(
-        stdout.contains("Some({x: 1})"),
-        "Expected 'Some({{x: 1}})' in output, got: '{stdout}'"
+        stdout.contains("Some({\"x\": 1})"),
+        "Expected 'Some({{\"x\": 1}})' in output, got: '{stdout}'"
     );
     // Negative pin: must NOT contain the old broken output
     assert!(
