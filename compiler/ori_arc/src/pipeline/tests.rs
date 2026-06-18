@@ -60,6 +60,7 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
             preserves_freshness: false,
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),

@@ -86,7 +86,7 @@ pub(crate) fn extract_contract(
         })
         .collect();
 
-    let return_info = extract_return_info(func, classifier, sigs);
+    let return_info = extract_return_info(func, classifier, sigs, interner);
 
     let mut effects = state_map.effect_summary();
 

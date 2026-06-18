@@ -23,6 +23,7 @@ pub(super) fn extract_return_info(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> ReturnContract {
     // Build definition map: var → defining instruction.
     let def_map = build_definition_map(func);
@@ -34,11 +35,22 @@ pub(super) fn extract_return_info(
     // Collect parameter variables for identity checks.
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
 
+    // The `for_yield` finalizer name: a Return of `@ori_list_take(scratch)`
+    // hands the caller a FRESH rc=1 buffer moved out of the comprehension
+    // scratch — the surface-(a) fresh-self-alloc collection return.
+    let list_take_name = interner.intern("ori_list_take");
+
     let mut return_uniqueness = None::<Uniqueness>;
     let mut all_preserve_freshness = true;
+    // Optimistic AND-join across return paths: every path must produce a fresh
+    // self-alloc for the contract to certify it (no path may return an existing
+    // / param-aliased / callee-borrowed buffer).
+    let mut all_return_fresh_self_alloc = true;
+    let mut saw_return = false;
 
     for block in &func.blocks {
         if let ArcTerminator::Return { value } = &block.terminator {
+            saw_return = true;
             let (uniq, preserves) = var_uniqueness(
                 *value,
                 &def_map,
@@ -56,6 +68,10 @@ pub(super) fn extract_return_info(
             if !preserves {
                 all_preserve_freshness = false;
             }
+
+            if !var_is_fresh_self_alloc(*value, &def_map, &param_vars, list_take_name, sigs) {
+                all_return_fresh_self_alloc = false;
+            }
         }
     }
 
@@ -63,10 +79,67 @@ pub(super) fn extract_return_info(
         Some(uniqueness) => ReturnContract {
             uniqueness,
             preserves_freshness: all_preserve_freshness,
+            returns_fresh_self_alloc: saw_return && all_return_fresh_self_alloc,
             ..ReturnContract::CONSERVATIVE
         },
         // No Return terminators (e.g., infinite loop) — conservative.
         None => ReturnContract::CONSERVATIVE,
+    }
+}
+
+/// `true` iff `var` is defined (tracing through `Let { Var }` aliases) by a
+/// FRESH self-allocating instruction whose result the caller receives at rc=1:
+///  - the `for_yield` `@ori_list_take` finalizer (moves a fresh scratch buffer
+///    out — surface (a)'s `clone_list` return);
+///  - a `Construct` / `Reuse` / `CollectionReuse` of a COLLECTION (the
+///    `ListLiteral`/`MapLiteral`/`SetLiteral` builders, `TF-3` FRESH rc=1);
+///  - an `Apply`/`Invoke` whose callee's contract ALREADY certifies
+///    `returns_fresh_self_alloc` (transitive freshness — a forwarder returning
+///    `clone_list(..)` is itself fresh).
+///
+/// Mirrors the FRESH-site set `fresh_self_alloc_dst` (`emit_unified.rs`) the
+/// caller-side burden walk treats as self-allocating, restricted to the
+/// COLLECTION shapes the fresh-collection-root admission consumes. A param
+/// passthrough / `Project` borrow / contract-less call yields `false` (the
+/// returned buffer may alias a caller-visible value — NOT a fresh self-alloc).
+fn var_is_fresh_self_alloc(
+    var: ArcVarId,
+    def_map: &FxHashMap<ArcVarId, &ArcInstr>,
+    param_vars: &rustc_hash::FxHashSet<ArcVarId>,
+    list_take_name: Name,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    use crate::ir::CtorKind;
+    if param_vars.contains(&var) {
+        return false;
+    }
+    let Some(instr) = def_map.get(&var) else {
+        // Block-param / Invoke-defined / unknown → conservative (not certified
+        // fresh). The Invoke-result case is deliberately NOT certified here: a
+        // function returning `@clone_list(..)` directly is rare; the surface-(a)
+        // cure consumes the CALLEE's contract at the call site, not the
+        // forwarder's own return.
+        return false;
+    };
+    match instr {
+        ArcInstr::Construct {
+            ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
+            ..
+        }
+        | ArcInstr::CollectionReuse { .. }
+        | ArcInstr::Reuse { .. } => true,
+        ArcInstr::Apply { func: callee, .. } => {
+            *callee == list_take_name
+                || sigs
+                    .get(callee)
+                    .is_some_and(|c| c.return_info.returns_fresh_self_alloc)
+        }
+        // Trace through transparent `Let { Var }` aliases.
+        ArcInstr::Let {
+            value: crate::ir::ArcValue::Var(source),
+            ..
+        } => var_is_fresh_self_alloc(*source, def_map, param_vars, list_take_name, sigs),
+        _ => false,
     }
 }
 

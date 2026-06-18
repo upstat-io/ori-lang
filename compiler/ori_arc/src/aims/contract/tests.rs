@@ -331,6 +331,7 @@ fn to_uniqueness_summary_basic() {
             preserves_freshness: true,
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
