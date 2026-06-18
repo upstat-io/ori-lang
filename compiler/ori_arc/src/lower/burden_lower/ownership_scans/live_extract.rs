@@ -719,7 +719,7 @@ fn accessor_retain_result(
 /// `Apply` / `Invoke` results whose callee contract hands the caller an owned
 /// reference (`uniqueness ∈ {Unique, MaybeShared}`) without transferring an
 /// arg through the return.
-fn collect_fresh_sum_roots(
+pub(in crate::lower::burden_lower) fn collect_fresh_sum_roots(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> Vec<ArcVarId> {
@@ -763,7 +763,11 @@ fn collect_fresh_sum_roots(
 /// at most ONE owned payload (transfer-on-match binding or retained field).
 /// The wrapper then carries no allocation of its own and its RC identity is
 /// the single live payload — one release frees the whole web.
-fn is_niche_family_sum(func: &ArcFunction, root: ArcVarId, type_registry: &TypeRegistry) -> bool {
+pub(in crate::lower::burden_lower) fn is_niche_family_sum(
+    func: &ArcFunction,
+    root: ArcVarId,
+    type_registry: &TypeRegistry,
+) -> bool {
     let ty: TypeRef = idx_to_type_ref(func.var_types[root.index()], type_registry);
     let Some(burden) = lookup_burden(ty, type_registry) else {
         return false;

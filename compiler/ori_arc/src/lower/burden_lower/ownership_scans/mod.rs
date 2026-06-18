@@ -65,8 +65,8 @@ pub(super) use dead_param::{
 };
 pub(crate) use dup_inc::collect_move_edges_and_store_consumes;
 pub(super) use dup_inc::{
-    compute_genuine_dup_move_aliases, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases,
+    compute_genuine_dup_move_aliases, compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
 };
 pub(super) use forwarder::{
     compute_forwarder_identity_transparent_aliases, compute_transfer_through_return_param_vars,

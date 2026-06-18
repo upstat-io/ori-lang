@@ -30,6 +30,7 @@ use super::ownership_scans::{
     compute_live_out_owned, compute_loop_invariant_dead_local_releases,
     compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
     compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
+    compute_sum_payload_iter_consume_dup_inc_suppression,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
@@ -41,7 +42,8 @@ use super::scan_helpers::{
 use super::terminator::{compute_terminator_inc_per_block, compute_terminator_transfer_per_block};
 use super::{
     extract_transfer, sibling_union, DEAD_FORWARDER_PARAM_RELEASE_DISABLED,
-    DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, TTR_ITER_CONSUME_DUP_INC_DISABLED,
+    DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED,
+    TTR_ITER_CONSUME_DUP_INC_DISABLED,
 };
 
 /// Merge `source`'s per-key `ArcVarId` release lists into `target`, skipping a
@@ -352,6 +354,30 @@ pub(crate) fn emit_burden_ops<'a>(
     } else {
         compute_ttr_iter_consume_dup_aliases(func, contracts, interner)
     };
+
+    // RL-1 move-once surplus dup-alias-inc suppression: a `Let { Var }` dup-alias
+    // of a fresh niche-family sum-aggregate whose extracted payload is
+    // iter-consumed adds NO owner (the by-value aggregate carries the buffer's
+    // own allocation), so its duplication inc is move-once-elidable
+    // (`RL1_duplication_balanced`, `incElidable = true`). The base walk's
+    // `use_counts >= 2` proxy emits the surplus inc; on the live-extract path the
+    // payload transfers out via `@iter [own]` (`ori_iter_drop` releases it,
+    // `RL2_iter_consuming_no_caller_dec`), leaving the dup-alias inc unmatched →
+    // +1 leak. Suppress it. Empty when
+    // `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1`.
+    let sum_payload_iter_consume_suppressed = if *SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED {
+        FxHashSet::default()
+    } else {
+        compute_sum_payload_iter_consume_dup_inc_suppression(
+            func,
+            contracts,
+            &owned_vars_needing_rc,
+            &dup_alias_dsts,
+            type_registry,
+            interner,
+        )
+    };
+    inc_suppressed_vars.extend(sum_payload_iter_consume_suppressed.iter().copied());
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {

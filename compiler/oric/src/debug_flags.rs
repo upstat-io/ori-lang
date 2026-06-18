@@ -397,6 +397,19 @@ flags! {
     /// Usage: `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC
 
+    /// Restore the surplus duplication inc on a `Let { Var }` dup-alias of a
+    /// fresh niche-family sum-aggregate whose extracted payload is iter-consumed
+    /// (default: the by-value aggregate's Let-Var dup-alias adds no owner, so its
+    /// inc is RL-1 move-once-elidable and suppressed; the payload transfers out
+    /// via `@iter [own]` whose `ori_iter_drop` releases it, so the surplus inc
+    /// would leak the buffer + its heap elements — the
+    /// `str_list_iteration_in_match` shape over `Option<[str]>`).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// sum-payload-iter-consume leak to this suppression.
+    /// Usage: `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1 ori build file.ori`
+    ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC
+
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
     /// is its proven global final use — successor-reachability proof, loop

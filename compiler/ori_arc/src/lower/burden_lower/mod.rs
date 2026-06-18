@@ -297,6 +297,29 @@ static GENUINE_DUP_PAIR_COUPLING_DISABLED: LazyLock<bool> =
 static TTR_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1` restores the surplus
+/// duplication `BurdenInc` on a `Let { Var }` dup-alias of a fresh niche-family
+/// sum-aggregate whose extracted payload is iter-consumed
+/// ([`ownership_scans::compute_sum_payload_iter_consume_dup_inc_suppression`]).
+/// Default (unset): the buffer is born once (`Construct List` MOVED by-value
+/// into `Construct Variant(Option.0)`), so the by-value aggregate's Let-Var
+/// dup-alias adds NO owner and its inc is RL-1 move-once-elidable
+/// (`AimsProof.Realization::RL1_duplication_balanced`, `incElidable = true`); the
+/// suppression strips the surplus inc the `use_counts >= 2` proxy mis-emits. On
+/// the live-extract path the payload (`Project alias.1`) transfers out via
+/// `@iter [own]` whose `ori_iter_drop` releases it (RL-2
+/// `ApplyToIterConsumingParam`, no caller dec); the kept construct-site inc is
+/// released by the Some-arm scope-exit dec, the dead None / Unreachable arms
+/// release birth + construct-site inc. With the toggle set the surplus dup-alias
+/// inc returns (the `match m { Some(words) -> for w in words .. }` over
+/// `Option<[str]>` leaks the buffer + its str elements, the
+/// `str_list_iteration_in_match` shape). Bisection surface: isolates a
+/// sum-payload-iter-consume leak to this suppression vs the rest of the Phase-5
+/// walk. Spec: Annex E §AIMS RL-1 + RL-2 + TF-4.
+static SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL=1` restores the single-block
 /// `last_use_points == 1` over-approximation in the dup'd terminal-move gate
 /// ([`ownership_scans::compute_transfer_via_move_alias`]). Default (unset): a

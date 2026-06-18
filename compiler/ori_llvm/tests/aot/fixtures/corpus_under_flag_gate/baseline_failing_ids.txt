@@ -36,7 +36,6 @@ arc::test_rc_project_merge_two_distinct_parents
 borrow_independence::test_borrow_separate_heap_types
 collections_ext::test_coll_map_index_in_loop
 error_handling::test_nested_catch_panic_heap_messages_release_once
-fat_ptr_iter::control_flow::test_str_list_iteration_in_match
 fat_ptr_iter::conversion::test_str_split_on_substring
 fat_ptr_iter::cow::test_push_element_borrowed_param_two_calls
 fat_ptr_iter::for_yield::test_yield_identity_str_list_two_calls
