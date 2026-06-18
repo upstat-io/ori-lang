@@ -130,6 +130,7 @@ impl<'a> Cursor<'a> {
         unsafe_code,
         reason = "from_utf8_unchecked on source originally validated as &str"
     )]
+    #[inline]
     pub fn slice(&self, start: u32, end: u32) -> &'a str {
         debug_assert!(
             end <= self.source_len,
@@ -146,6 +147,7 @@ impl<'a> Cursor<'a> {
     /// Extract a source substring from `start` to the current position.
     ///
     /// Equivalent to `self.slice(start, self.pos())`.
+    #[inline]
     pub fn slice_from(&self, start: u32) -> &'a str {
         self.slice(start, self.pos)
     }
@@ -205,6 +207,7 @@ impl<'a> Cursor<'a> {
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
+    #[inline]
     pub fn eat_until_newline_or_eof(&mut self) {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         if let Some(offset) = memchr::memchr(b'\n', remaining) {
@@ -224,6 +227,7 @@ impl<'a> Cursor<'a> {
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
+    #[inline]
     pub fn skip_to_string_delim(&mut self) -> u8 {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         // Find nearest of ", \, or \n (the 3 most common string terminators)
@@ -253,6 +257,7 @@ impl<'a> Cursor<'a> {
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
+    #[inline]
     pub fn skip_to_template_delim(&mut self) -> u8 {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         // Primary: find backtick, open brace, or backslash
@@ -300,6 +305,7 @@ impl<'a> Cursor<'a> {
     /// found byte, or at EOF if the byte was not found.
     ///
     /// Interior null bytes are skipped (they are not EOF).
+    #[inline]
     pub fn eat_until(&mut self, byte: u8) -> u32 {
         let start = self.pos;
         loop {
@@ -322,6 +328,7 @@ impl<'a> Cursor<'a> {
 /// Used by the memchr-based scanning methods to combine results from
 /// separate memchr calls when we need to search for more bytes than
 /// `memchr3` supports (which handles at most 3 needles).
+#[inline]
 fn earliest_of(a: Option<usize>, b: Option<usize>) -> Option<usize> {
     match (a, b) {
         (Some(x), Some(y)) => Some(x.min(y)),

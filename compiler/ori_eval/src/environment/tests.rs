@@ -66,19 +66,76 @@ fn test_environment_immutable() {
 }
 
 #[test]
-fn test_environment_capture() {
+fn test_environment_capture_local_only() {
+    // capture() returns LOCAL bindings only. Globals are reached at call time via
+    // child() scope-sharing (prepare_call_env), so they are deliberately excluded
+    // from the capture map — re-binding every global into each call env was the
+    // dominant per-call allocation cost on the function-call hot path.
     let interner = SharedInterner::default();
-    let x = interner.intern("x");
-    let y = interner.intern("y");
+    let local_a = interner.intern("local_a");
+    let local_b = interner.intern("local_b");
+    let glob = interner.intern("glob");
 
     let mut env = Environment::new();
-    env.define(x, Value::int(1), Mutability::Immutable);
+    env.define_global(glob, Value::int(1));
     env.push_scope();
-    env.define(y, Value::int(2), Mutability::Immutable);
+    env.define(local_a, Value::int(2), Mutability::Immutable);
+    env.push_scope();
+    env.define(local_b, Value::int(3), Mutability::Immutable);
 
     let captures = env.capture();
-    assert_eq!(captures.get(&x), Some(&Value::int(1)));
-    assert_eq!(captures.get(&y), Some(&Value::int(2)));
+    assert_eq!(
+        captures.get(&local_a),
+        Some(&Value::int(2)),
+        "outer-local binding is captured"
+    );
+    assert_eq!(
+        captures.get(&local_b),
+        Some(&Value::int(3)),
+        "inner-local binding is captured"
+    );
+    assert_eq!(
+        captures.get(&glob),
+        None,
+        "global binding is NOT in the capture map (reached via child scope-sharing)"
+    );
+}
+
+#[test]
+fn test_capture_excludes_global_but_child_resolves_it() {
+    // Real invariant the local-only capture must preserve: a closure can still
+    // resolve a global when called, because its call env is built via child()
+    // (which shares the global scope) — independent of the capture map.
+    let interner = SharedInterner::default();
+    let glob = interner.intern("glob");
+
+    let mut env = Environment::new();
+    env.define_global(glob, Value::int(42));
+    env.push_scope();
+
+    // Not in the capture snapshot...
+    assert_eq!(env.capture().get(&glob), None);
+    // ...but a child env (the call-env shape) still resolves it.
+    assert_eq!(env.child().lookup(glob), Some(Value::int(42)));
+}
+
+#[test]
+fn test_environment_capture_shadowing_innermost_wins() {
+    // A name bound in both an outer and inner local scope captures the innermost.
+    let interner = SharedInterner::default();
+    let n = interner.intern("n");
+
+    let mut env = Environment::new();
+    env.push_scope();
+    env.define(n, Value::int(1), Mutability::Immutable);
+    env.push_scope();
+    env.define(n, Value::int(2), Mutability::Immutable);
+
+    assert_eq!(
+        env.capture().get(&n),
+        Some(&Value::int(2)),
+        "innermost local binding wins on shadowing"
+    );
 }
 
 #[test]

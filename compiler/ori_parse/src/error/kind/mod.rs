@@ -13,7 +13,7 @@ use ori_ir::{Span, TokenKind};
 /// error variants and Roc's nested error context.
 #[derive(Clone, Debug)]
 pub enum ParseErrorKind {
-    // === Token-level errors ===
+    // Token-level errors
     /// Expected a specific token, found something else.
     UnexpectedToken {
         /// The token that was found.
@@ -32,7 +32,7 @@ pub enum ParseErrorKind {
         unclosed: Option<(TokenKind, Span)>,
     },
 
-    // === Expression errors ===
+    // Expression errors
     /// Expected an expression but found something else.
     ExpectedExpression {
         /// The token that was found.
@@ -47,7 +47,7 @@ pub enum ParseErrorKind {
         operator: TokenKind,
     },
 
-    // === Declaration errors ===
+    // Declaration errors
     /// Expected a declaration (function, type, etc.).
     ExpectedDeclaration {
         /// The token that was found.
@@ -68,7 +68,7 @@ pub enum ParseErrorKind {
         reason: &'static str,
     },
 
-    // === Pattern errors ===
+    // Pattern errors
     /// Invalid pattern syntax.
     InvalidPattern {
         /// The token that was found.
@@ -85,14 +85,14 @@ pub enum ParseErrorKind {
         reason: PatternArgError,
     },
 
-    // === Type errors (parsing) ===
+    // Type errors (parsing)
     /// Expected a type annotation.
     ExpectedType {
         /// The token that was found.
         found: TokenKind,
     },
 
-    // === Delimiter errors ===
+    // Delimiter errors
     /// Unclosed delimiter.
     UnclosedDelimiter {
         /// The opening delimiter.
@@ -103,14 +103,14 @@ pub enum ParseErrorKind {
         expected_close: TokenKind,
     },
 
-    // === Attribute errors ===
+    // Attribute errors
     /// Invalid attribute syntax.
     InvalidAttribute {
         /// What's wrong with the attribute.
         reason: &'static str,
     },
 
-    // === Keyword errors ===
+    // Keyword errors
     /// Unsupported or misplaced keyword.
     UnsupportedKeyword {
         /// The keyword that was found.

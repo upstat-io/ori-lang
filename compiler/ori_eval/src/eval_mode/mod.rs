@@ -129,19 +129,6 @@ impl ModeState {
         }
     }
 
-    /// Create child mode state that inherits profiling enablement from the parent.
-    ///
-    /// Fresh counters (zeroed) are created if the parent has profiling enabled,
-    /// ensuring child calls are tracked. The caller is responsible for merging
-    /// child counters back via `merge_child_counters` after the call returns.
-    pub fn child(mode: &EvalMode, parent: &ModeState) -> Self {
-        let mut state = Self::new(mode);
-        if parent.counters.is_some() {
-            state.counters = Some(crate::diagnostics::EvalCounters::default());
-        }
-        state
-    }
-
     /// Enable performance counters (activated by `--profile` CLI flag).
     pub fn enable_counters(&mut self) {
         self.counters = Some(crate::diagnostics::EvalCounters::default());
@@ -200,18 +187,6 @@ impl ModeState {
     /// Get the counters for reporting (returns `None` when profiling is off).
     pub fn counters(&self) -> Option<&crate::diagnostics::EvalCounters> {
         self.counters.as_ref()
-    }
-
-    /// Merge counters from a child interpreter's `ModeState` into this one.
-    ///
-    /// No-op when profiling is disabled on either side. Called after each
-    /// function/method call returns to accumulate child counters into the parent.
-    pub fn merge_child_counters(&mut self, child: &ModeState) {
-        if let (Some(parent_counters), Some(child_counters)) =
-            (self.counters.as_mut(), child.counters.as_ref())
-        {
-            parent_counters.merge(child_counters);
-        }
     }
 }
 

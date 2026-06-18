@@ -198,24 +198,3 @@ fn counters_report_format() {
     assert!(report.contains("10"));
     assert!(report.contains("Evaluation profile"));
 }
-
-#[test]
-fn counters_merge() {
-    let mut parent = EvalCounters {
-        expressions_evaluated: 10,
-        function_calls: 2,
-        method_calls: 1,
-        pattern_matches: 0,
-    };
-    let child = EvalCounters {
-        expressions_evaluated: 5,
-        function_calls: 3,
-        method_calls: 0,
-        pattern_matches: 4,
-    };
-    parent.merge(&child);
-    assert_eq!(parent.expressions_evaluated, 15);
-    assert_eq!(parent.function_calls, 5);
-    assert_eq!(parent.method_calls, 1);
-    assert_eq!(parent.pattern_matches, 4);
-}

@@ -12,6 +12,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use ori_ir::StringInterner;
 use oric::query::parsed;
 use oric::{CompilerDb, SourceFile};
+use salsa::Setter;
 use std::path::PathBuf;
 
 /// Simple function
@@ -49,6 +50,15 @@ fn generate_nested_conditionals(depth: usize) -> String {
         expr = format!("if x > {i} then {} else {i}", expr.clone());
     }
     format!("@nested (x: int) -> int = {expr}")
+}
+
+/// Deeply nested binary expressions — exercises the Pratt parser loop.
+fn generate_expr_heavy(depth: usize) -> String {
+    let mut expr = "x".to_string();
+    for _ in 0..depth {
+        expr = format!("({expr} + y * z - w)");
+    }
+    format!("@compute (x: int, y: int, z: int, w: int) -> int = {expr}")
 }
 
 /// Pattern expressions
@@ -486,8 +496,169 @@ fn bench_raw_ast_nodes(c: &mut Criterion) {
     raw_benches::bench_raw_ast_nodes(c);
 }
 
+/// Expression-heavy parsing — deeply nested binary ops stress the Pratt parser loop.
+fn bench_expr_heavy(c: &mut Criterion) {
+    let interner = StringInterner::new();
+    let mut group = c.benchmark_group("parser/raw/expr_heavy");
+
+    for depth in [10, 50, 100, 500] {
+        let source = generate_expr_heavy(depth);
+        let bytes = source.len() as u64;
+        group.throughput(Throughput::Bytes(bytes));
+        group.bench_with_input(BenchmarkId::new("depth", depth), &source, |b, src| {
+            b.iter(|| {
+                let tokens = ori_lexer::lex(src, &interner);
+                black_box(ori_parse::parse(&tokens, &interner));
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Isolate Salsa query-system overhead: identical workload, raw path vs via Salsa.
+fn bench_salsa_overhead(c: &mut Criterion) {
+    let interner = StringInterner::new();
+    let db = CompilerDb::new();
+    let source = generate_n_functions(500);
+    let bytes = source.len() as u64;
+    let mut group = c.benchmark_group("parser/salsa_overhead");
+    group.throughput(Throughput::Bytes(bytes));
+
+    group.bench_function("raw", |b| {
+        b.iter(|| {
+            let tokens = ori_lexer::lex(&source, &interner);
+            black_box(ori_parse::parse(&tokens, &interner));
+        });
+    });
+
+    group.bench_function("via_salsa", |b| {
+        b.iter(|| {
+            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source.clone());
+            black_box(parsed(&db, file));
+        });
+    });
+
+    group.finish();
+}
+
+/// A second 500-function workload of equivalent parse cost to `generate_n_functions`,
+/// distinct in text so `set_text` registers a real change and forces a recompute.
+fn generate_n_functions_alt(n: usize) -> String {
+    (0..n)
+        .map(|i| format!("@gunc{i} (y: int) -> int = y + {i}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Corrected Salsa-overhead isolation per the baselines.json `salsa_overhead` caveat:
+/// the original `via_salsa` constructs a fresh `SourceFile` + query per iteration, so
+/// its timing includes Salsa INPUT-SETUP, NOT pure query-recompute. This splits the two.
+///
+/// - `salsa_input_setup`: per-iter construct `SourceFile` (on a fresh-per-iter `CompilerDb`)
+///   then run `parsed` once — captures input-construction + first-eval (matches the original
+///   `via_salsa` shape, but the db is fresh each iter so no Salsa caching masks setup).
+/// - `salsa_recompute`: construct `CompilerDb` + `SourceFile` ONCE outside the timing loop,
+///   warm the query, then per-iter `set_text` to an alternate equivalent-cost 500-fn source
+///   (the documented invalidation path) and re-query `parsed` — pure query-recompute with
+///   NO input/db reconstruction.
+/// - `raw`: no-Salsa `lex` + `parse` reference denominator.
+fn bench_salsa_overhead_split(c: &mut Criterion) {
+    let interner = StringInterner::new();
+    let source = generate_n_functions(500);
+    let source_alt = generate_n_functions_alt(500);
+    let bytes = source.len() as u64;
+    let mut group = c.benchmark_group("parser/salsa_overhead_split");
+    group.throughput(Throughput::Bytes(bytes));
+
+    // Reference denominator: raw lex + parse, no Salsa.
+    group.bench_function("raw", |b| {
+        b.iter(|| {
+            let tokens = ori_lexer::lex(&source, &interner);
+            black_box(ori_parse::parse(&tokens, &interner));
+        });
+    });
+
+    // Input-setup + first-eval: fresh db + SourceFile per iteration (no caching masks setup).
+    group.bench_function("salsa_input_setup", |b| {
+        b.iter(|| {
+            let db = CompilerDb::new();
+            let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source.clone());
+            black_box(parsed(&db, file));
+        });
+    });
+
+    // Pure recompute: db + file built ONCE; per-iter set_text forces invalidation + re-query.
+    group.bench_function("salsa_recompute", |b| {
+        let mut db = CompilerDb::new();
+        let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source.clone());
+        let _ = parsed(&db, file); // warm
+        let mut toggle = false;
+        b.iter(|| {
+            // Alternate the input text between two equivalent-cost 500-fn sources so each
+            // iteration registers a genuine change and forces a recompute of equal work.
+            let next = if toggle {
+                source.clone()
+            } else {
+                source_alt.clone()
+            };
+            toggle = !toggle;
+            file.set_text(&mut db).to(next);
+            black_box(parsed(&db, file));
+        });
+    });
+
+    group.finish();
+}
+
+/// A realistic multi-file corpus: distinct modules of varying size, mirroring a
+/// real codebase rather than one giant file.
+fn generate_macro_corpus(n_files: usize) -> Vec<String> {
+    (0..n_files)
+        .map(|f| {
+            // Vary module size so the corpus is not uniform (30..130 functions).
+            let fns = 30 + (f * 13) % 100;
+            (0..fns)
+                .map(|i| format!("@mod{f}_fn{i} (a: int, b: int) -> int = (a + {i}) * b - {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .collect()
+}
+
+/// Macro baseline: end-to-end frontend throughput (lex + parse) across a realistic
+/// multi-file corpus. The clean frontend anchor §06 re-measures vs parser-perf-v0
+/// to prove the micro-tuning wins compound (raw path — no Salsa input-setup confound
+/// per the baselines.json `salsa_overhead` caveat).
+fn bench_macro_frontend(c: &mut Criterion) {
+    let interner = StringInterner::new();
+    let mut group = c.benchmark_group("parser/macro/frontend");
+
+    for n_files in [10, 50, 100] {
+        let corpus = generate_macro_corpus(n_files);
+        let total_bytes: u64 = corpus.iter().map(|s| s.len() as u64).sum();
+        group.throughput(Throughput::Bytes(total_bytes));
+        group.bench_with_input(BenchmarkId::new("files", n_files), &corpus, |b, files| {
+            b.iter(|| {
+                for src in files {
+                    let tokens = ori_lexer::lex(src, &interner);
+                    black_box(ori_parse::parse(&tokens, &interner));
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    // End-to-end frontend macro anchor (lex+parse over a multi-file corpus)
+    bench_macro_frontend,
+    // Pratt-loop stress + Salsa overhead isolation
+    bench_expr_heavy,
+    bench_salsa_overhead,
+    bench_salsa_overhead_split,
     // Salsa query benchmarks (real-world usage)
     bench_parser_simple,
     bench_parser_nested_arithmetic,

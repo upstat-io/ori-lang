@@ -1,5 +1,6 @@
 //! Function call evaluation methods for the Interpreter.
 
+use super::scope_guard::CallFrameGuard;
 use super::Interpreter;
 use crate::errors::not_callable;
 use crate::exec::call::{
@@ -23,6 +24,53 @@ fn catch_propagation(result: EvalResult) -> EvalResult {
 }
 
 impl Interpreter<'_> {
+    /// Evaluate a function body ON THIS interpreter (no child-interpreter build).
+    ///
+    /// Saves the per-call fields (`env`, `imported_arena`, `canon`), installs the call
+    /// state, evaluates the body, then restores — eliminating the per-call `Interpreter`
+    /// struct build + drop. Mode-state counters accumulate directly (no child `ModeState`,
+    /// no merge). The `CallFrame` is pushed/popped on the shared `call_stack`. The inner
+    /// IIFE funnels every exit path (incl. a `?` early return from parameter binding)
+    /// through the restore, so the parent state is never left installed. Saved locals live
+    /// on this Rust call frame, so recursive calls nest correctly (each frame restores its
+    /// own caller's state). `self.arena` is intentionally NOT swapped — `eval_can` reads
+    /// `self.canon`, so the parent's `&'a` arena borrow is never consulted during the call.
+    ///
+    /// Precondition: `check_recursion_limit()` has passed, so `call_stack.push` cannot fail.
+    pub(super) fn run_function_body(
+        &mut self,
+        f: &FunctionValue,
+        func: &Value,
+        args: &[Value],
+        call_env: Environment,
+        self_name: ori_ir::Name,
+    ) -> EvalResult {
+        let new_canon = f.canon().cloned().or_else(|| self.canon.clone());
+        // RAII guard: installs the call frame + restores the caller's state on drop, INCLUDING
+        // a panic unwinding out of the body eval (the panic-safety the removed per-call child
+        // interpreter's Drop provided). The IIFE funnels the `?` early-return from
+        // `bind_parameters_with_defaults` through the same restore path.
+        let mut guard = CallFrameGuard::install(
+            self,
+            call_env,
+            f.shared_arena().clone(),
+            new_canon,
+            self_name,
+        );
+
+        let result = (|| {
+            bind_parameters_with_defaults(&mut guard, f, args)?;
+            // Bind 'self' to the current function for recursive patterns.
+            guard
+                .env
+                .define(self_name, func.clone(), Mutability::Immutable);
+            guard.eval_can(f.can_body)
+        })();
+
+        drop(guard);
+        catch_propagation(result)
+    }
+
     /// Evaluate a function call.
     #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
@@ -38,23 +86,7 @@ impl Interpreter<'_> {
                 self.check_recursion_limit()?;
                 let self_name = self.self_name;
                 let call_env = self.prepare_call_env(f, args)?;
-                let mut call_interpreter = self.create_function_interpreter(
-                    f.shared_arena(),
-                    call_env,
-                    self_name,
-                    f.canon().cloned(),
-                );
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
-
-                // Bind 'self' to the current function for recursive patterns
-                call_interpreter
-                    .env
-                    .define(self_name, func.clone(), Mutability::Immutable);
-
-                let result = call_interpreter.eval_can(f.can_body);
-                self.mode_state
-                    .merge_child_counters(&call_interpreter.mode_state);
-                catch_propagation(result)
+                self.run_function_body(f, func, args, call_env, self_name)
             }
             Value::MemoizedFunction(mf) => {
                 // Check cache first
@@ -66,23 +98,9 @@ impl Interpreter<'_> {
                 let self_name = self.self_name;
                 let f = &mf.func;
                 let call_env = self.prepare_call_env(f, args)?;
-                let mut call_interpreter = self.create_function_interpreter(
-                    f.shared_arena(),
-                    call_env,
-                    self_name,
-                    f.canon().cloned(),
-                );
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
-
-                // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
-                call_interpreter
-                    .env
-                    .define(self_name, func.clone(), Mutability::Immutable);
-
-                let result = call_interpreter.eval_can(f.can_body);
-                self.mode_state
-                    .merge_child_counters(&call_interpreter.mode_state);
-                let result = catch_propagation(result);
+                // `func` (the MemoizedFunction value) is bound as 'self' so recursive calls
+                // also hit the cache; `run_function_body` already applies `catch_propagation`.
+                let result = self.run_function_body(f, func, args, call_env, self_name);
 
                 // Cache the result before returning
                 if let Ok(ref value) = result {

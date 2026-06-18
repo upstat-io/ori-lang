@@ -329,7 +329,10 @@ impl<'src> TokenCooker<'src> {
 
         // Soft keywords are NOT cached — they are context-sensitive
         // (same text can be keyword or identifier depending on lookahead).
-        if keywords::could_be_soft_keyword(text) {
+        // The pre-filter is pure over `text`; compute once and reuse for the
+        // cache-insert gate below.
+        let could_be_soft = keywords::could_be_soft_keyword(text);
+        if could_be_soft {
             let rest = &self.source[(offset + len) as usize..];
             if let Some(kw) = keywords::soft_keyword_lookup(text, rest) {
                 return CookResult::contextual(kw);
@@ -362,7 +365,7 @@ impl<'src> TokenCooker<'src> {
         // Intern and cache (skip cache for soft keyword candidates — they are
         // context-sensitive and must be re-evaluated on every occurrence).
         let kind = TokenKind::Ident(self.interner.intern(text));
-        if !keywords::could_be_soft_keyword(text) {
+        if !could_be_soft {
             self.ident_cache.insert(text, kind.clone());
         }
         let tag = kind.discriminant_index();

@@ -276,6 +276,7 @@ impl<'a> Cursor<'a> {
 
     /// Check if looking at `>` followed immediately by `>` (no whitespace).
     /// Used for detecting `>>` shift operator in expression context.
+    #[inline]
     pub fn is_shift_right(&self) -> bool {
         self.current_tag() == TokenKind::TAG_GT
             && self.pos + 1 < self.tags.len()
@@ -285,6 +286,7 @@ impl<'a> Cursor<'a> {
 
     /// Check if looking at `>` followed immediately by `=` (no whitespace).
     /// Used for detecting `>=` comparison operator in expression context.
+    #[inline]
     pub fn is_greater_equal(&self) -> bool {
         self.current_tag() == TokenKind::TAG_GT
             && self.pos + 1 < self.tags.len()
@@ -294,6 +296,7 @@ impl<'a> Cursor<'a> {
 
     /// Check if looking at `>` `>` `=` all adjacent (no whitespace).
     /// Used for detecting `>>=` compound assignment in expression context.
+    #[inline]
     pub fn is_shift_right_assign(&self) -> bool {
         self.current_tag() == TokenKind::TAG_GT
             && self.pos + 2 < self.tags.len()

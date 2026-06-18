@@ -242,6 +242,7 @@ impl RawTag {
     /// Newlines are NOT trivia — they are significant as implicit statement
     /// separators in Ori.
     #[must_use]
+    #[inline]
     pub fn is_trivia(self) -> bool {
         matches!(self, Self::Whitespace | Self::LineComment)
     }

@@ -14,7 +14,7 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::{FormatNames, Interpreter, OpNames, PrintNames, PropNames, ScopeOwnership, TypeNames};
+use super::{FormatNames, Interpreter, OpNames, PrintNames, PropNames, TypeNames};
 use crate::diagnostics::CallStack;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::{
@@ -39,7 +39,6 @@ pub struct InterpreterBuilder<'a> {
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     default_field_types: Option<SharedMutableRegistry<crate::DefaultFieldTypeRegistry>>,
     print_handler: Option<SharedPrintHandler>,
-    scope_ownership: ScopeOwnership,
     call_stack: Option<CallStack>,
     /// Source file path for Traceable trace entries.
     source_file_path: Option<Arc<String>>,
@@ -61,7 +60,6 @@ impl<'a> InterpreterBuilder<'a> {
             user_method_registry: None,
             default_field_types: None,
             print_handler: None,
-            scope_ownership: ScopeOwnership::Borrowed,
             call_stack: None,
             source_file_path: None,
             source_text: None,
@@ -115,16 +113,6 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn print_handler(mut self, handler: SharedPrintHandler) -> Self {
         self.print_handler = Some(handler);
-        self
-    }
-
-    /// Mark this interpreter as owning a scoped environment.
-    ///
-    /// When called, the interpreter will pop its environment scope when dropped.
-    /// This is used for function/method call interpreters to ensure RAII panic safety.
-    #[must_use]
-    pub fn with_scoped_env_ownership(mut self) -> Self {
-        self.scope_ownership = ScopeOwnership::Owned;
         self
     }
 
@@ -241,7 +229,6 @@ impl<'a> InterpreterBuilder<'a> {
             method_dispatcher,
             imported_arena,
             print_handler,
-            scope_ownership: self.scope_ownership,
             builtin_method_names,
             source_file_path: self.source_file_path,
             source_text: self.source_text,

@@ -30,10 +30,12 @@
 
 mod arena;
 mod expr;
+mod expr_debug;
 pub mod hash;
 mod ids;
 mod patterns;
 mod pools;
+mod result;
 pub mod tree;
 
 pub use arena::*;
@@ -41,6 +43,7 @@ pub use expr::*;
 pub use ids::*;
 pub use patterns::*;
 pub use pools::*;
+pub use result::*;
 pub use tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
     TestValue,

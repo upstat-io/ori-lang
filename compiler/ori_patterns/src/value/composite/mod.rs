@@ -124,8 +124,8 @@ impl StructValue {
 /// # Canonical Evaluation
 ///
 /// All evaluation goes through `eval_can(CanId)` using `can_body`/`canon`.
-/// The `arena` field is retained for `create_function_interpreter` which
-/// needs it for arena threading during function calls.
+/// The `arena` field is retained for arena threading during function calls
+/// (installed on the interpreter via `CallFrameGuard` for the call's duration).
 #[derive(Clone)]
 pub struct FunctionValue {
     /// Parameter names.
@@ -137,7 +137,7 @@ pub struct FunctionValue {
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<FxHashMap<Name, Value>>,
-    /// Arena for expression resolution (needed for `create_function_interpreter`).
+    /// Arena for expression resolution (threaded into the call frame via `CallFrameGuard`).
     arena: SharedArena,
     /// Canonical IR for this function's body.
     ///

@@ -43,8 +43,8 @@
 //! - `method_dispatch.rs`: User-defined method calls
 //! - Lambda evaluation inherits from the arena captured at creation time
 //!
-//! Use `create_function_interpreter()` to correctly set up evaluation context
-//! with the callee's arena.
+//! Each call installs the callee's arena + canon on the one interpreter via a
+//! `CallFrameGuard` (see `scope_guard`), restoring the caller's state on drop.
 
 mod builder;
 mod can_eval;
@@ -78,19 +78,6 @@ use ori_patterns::{
 };
 
 pub(crate) use interned_names::{FormatNames, OpNames, PrintNames, PropNames, TypeNames};
-
-/// Whether this interpreter owns a scoped environment that should be popped on drop.
-///
-/// Replaces a bare `bool` flag for self-documenting intent at construction sites.
-/// - `Borrowed`: No scope cleanup on drop (default for top-level interpreters).
-/// - `Owned`: Pop the environment scope on drop (for function/method call interpreters).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ScopeOwnership {
-    /// This interpreter does not own a scope. No cleanup on drop.
-    Borrowed,
-    /// This interpreter owns a pushed scope. Pop it on drop (RAII panic safety).
-    Owned,
-}
 
 /// Tree-walking interpreter for Ori expressions.
 ///
@@ -171,20 +158,15 @@ pub struct Interpreter<'a> {
     /// - `TestRun`: buffer for capture
     /// - `ConstEval`: silent (discards output)
     pub(crate) print_handler: SharedPrintHandler,
-    /// Scope ownership for RAII-style panic-safe scope cleanup.
-    ///
-    /// When `Owned`, the interpreter was created for a function/method call
-    /// via `create_function_interpreter` and will pop its environment scope on drop.
-    pub(crate) scope_ownership: ScopeOwnership,
     /// Source file path for Traceable trait trace entries.
     ///
-    /// Set by `oric` when creating the top-level interpreter. Propagated to
-    /// child interpreters in `create_function_interpreter()`.
+    /// Set by `oric` when creating the top-level interpreter; unchanged across calls
+    /// (call frames swap only `env` / `imported_arena` / `canon` via `CallFrameGuard`).
     pub(crate) source_file_path: Option<Arc<String>>,
     /// Source text for Traceable trait trace entries.
     ///
-    /// Used to compute line/column from byte offsets in spans. Set by `oric`
-    /// and propagated to child interpreters.
+    /// Used to compute line/column from byte offsets in spans. Set by `oric`;
+    /// unchanged across calls.
     pub(crate) source_text: Option<Arc<String>>,
     /// Canonical IR for the current module (optional during migration).
     ///
@@ -192,19 +174,6 @@ pub struct Interpreter<'a> {
     /// dispatch via `eval_can()` instead of `eval()`. This enables incremental
     /// migration from `ExprArena` to `CanonResult` without a big-bang rewrite.
     pub(crate) canon: Option<SharedCanonResult>,
-}
-
-/// RAII Drop implementation for panic-safe scope cleanup.
-///
-/// When `scope_ownership` is `Owned`, this interpreter was created for a function/method
-/// call and owns a scope that must be popped. This ensures scope cleanup even if
-/// evaluation panics during the call.
-impl Drop for Interpreter<'_> {
-    fn drop(&mut self) {
-        if self.scope_ownership == ScopeOwnership::Owned {
-            self.env.pop_scope();
-        }
-    }
 }
 
 /// Implement `PatternExecutor` for Interpreter.
@@ -276,7 +245,7 @@ impl<'a> Interpreter<'a> {
     /// Check if the current call depth exceeds the recursion limit.
     ///
     /// Depth is tracked via `call_stack.depth()`. Frame names for backtraces
-    /// are populated by `create_function_interpreter()` (placeholder names
+    /// are populated by `CallFrameGuard::install()` (placeholder names
     /// for now; proper function names in Section 07 with `CanExpr` context).
     ///
     /// The limit is determined by `EvalMode::max_recursion_depth()`:
@@ -384,77 +353,6 @@ impl<'a> Interpreter<'a> {
     /// IR is available and the name exists in the roots list.
     pub fn canon_root_for(&self, name: Name) -> Option<ori_ir::canon::CanId> {
         self.canon.as_ref().and_then(|c| c.root_for(name))
-    }
-
-    /// Create an interpreter for function/method body evaluation.
-    ///
-    /// This helper implements the arena threading pattern: the callee's arena
-    /// is used to evaluate the body, ensuring expression IDs are valid and
-    /// enabling thread-safe parallel evaluation.
-    ///
-    /// # Arguments
-    /// * `imported_arena` - The callee's shared arena (O(1) Arc clone, not deep copy)
-    /// * `call_env` - The environment with parameters bound
-    /// * `call_name` - Name for the call stack frame
-    /// * `canon` - Canonical IR for the callee. When `Some`, uses the callee's
-    ///   canon directly instead of cloning the parent's (avoids a wasted Arc clone
-    ///   that would be immediately overwritten).
-    ///
-    /// # Returns
-    /// A new interpreter configured to evaluate the function body.
-    /// The returned interpreter's lifetime is tied to `imported_arena`, not `self`,
-    /// but requires that `'a` outlives `'b` since we pass the interner through.
-    pub(crate) fn create_function_interpreter<'b>(
-        &self,
-        imported_arena: &'b SharedArena,
-        call_env: Environment,
-        call_name: Name,
-        canon: Option<SharedCanonResult>,
-    ) -> Interpreter<'b>
-    where
-        'a: 'b,
-    {
-        // Clone the parent's call stack and push a frame for this call.
-        // The depth check in check_recursion_limit() has already passed,
-        // so this push cannot fail (depth < max at the check point).
-        let mut child_stack = self.call_stack.clone();
-        // Invariant: check_recursion_limit() passed, so depth < max_depth.
-        // push() cannot fail here.
-        #[expect(
-            clippy::expect_used,
-            reason = "Invariant: check_recursion_limit already passed"
-        )]
-        child_stack
-            .push(crate::diagnostics::CallFrame {
-                name: call_name,
-                call_span: None,
-            })
-            .expect("check_recursion_limit passed but CallStack::push failed");
-
-        Interpreter {
-            interner: self.interner,
-            arena: imported_arena,
-            env: call_env,
-            self_name: self.self_name,
-            type_names: self.type_names,
-            print_names: self.print_names,
-            prop_names: self.prop_names,
-            op_names: self.op_names,
-            format_names: self.format_names,
-            builtin_method_names: self.builtin_method_names,
-            source_file_path: self.source_file_path.clone(),
-            source_text: self.source_text.clone(),
-            mode: self.mode,
-            mode_state: ModeState::child(&self.mode, &self.mode_state),
-            call_stack: child_stack,
-            user_method_registry: self.user_method_registry.clone(),
-            default_field_types: self.default_field_types.clone(),
-            method_dispatcher: self.method_dispatcher.clone(),
-            imported_arena: imported_arena.clone(),
-            print_handler: self.print_handler.clone(),
-            scope_ownership: ScopeOwnership::Owned,
-            canon: canon.or_else(|| self.canon.clone()),
-        }
     }
 
     /// Get captured print output.

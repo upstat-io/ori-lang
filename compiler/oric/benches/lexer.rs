@@ -31,6 +31,14 @@ fn generate_n_functions(n: usize) -> String {
         .join("\n")
 }
 
+/// String-literal-heavy source — escapes exercise the lexer cooker hot paths.
+fn generate_string_heavy(n: usize) -> String {
+    (0..n)
+        .map(|i| format!(r#"let $msg{i} = "hello \n world \t {i} \u{{0041}}""#))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Function with patterns
 const PATTERN_FUNCTION: &str = r"
 @transform (items: [int]) -> [int] = map(
@@ -210,8 +218,27 @@ fn bench_raw_tokens(c: &mut Criterion) {
     raw_benches::bench_raw_tokens(c);
 }
 
+/// Benchmark the lexer on string-literal-heavy source (cooker hot paths).
+fn bench_string_heavy(c: &mut Criterion) {
+    let interner = StringInterner::new();
+    let mut group = c.benchmark_group("lexer/raw/string_heavy");
+
+    for n in [10, 50, 100, 500] {
+        let source = generate_string_heavy(n);
+        let bytes = source.len() as u64;
+        group.throughput(Throughput::Bytes(bytes));
+        group.bench_with_input(BenchmarkId::new("count", n), &source, |b, src| {
+            b.iter(|| black_box(ori_lexer::lex(src, &interner)));
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    // String-literal-heavy cooker stress
+    bench_string_heavy,
     // Salsa query benchmarks (real-world usage)
     bench_lexer_simple,
     bench_lexer_arithmetic,

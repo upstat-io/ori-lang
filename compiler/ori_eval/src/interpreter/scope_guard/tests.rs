@@ -1,5 +1,5 @@
 use super::*;
-use ori_ir::{ExprArena, SharedInterner};
+use ori_ir::{ExprArena, SharedArena, SharedInterner};
 
 #[test]
 fn test_scoped_interpreter_drops_on_normal_exit() {
@@ -113,6 +113,104 @@ fn test_with_env_scope_closure_panic() {
     assert_eq!(interp.env.depth(), 1);
     // Variable should be gone
     assert_eq!(interp.env.lookup(name), None);
+}
+
+#[test]
+fn test_call_frame_guard_restores_state_on_normal_drop() {
+    let interner = SharedInterner::default();
+    let arena = ExprArena::new();
+    let mut interp = Interpreter::new(&interner, &arena);
+    let callee = interner.intern("callee_fn");
+    let local = interner.intern("local");
+    let base_env_depth = interp.env.depth();
+    let base_stack_depth = interp.call_stack.depth();
+
+    let mut call_env = interp.env.child();
+    call_env.push_scope();
+    call_env.define(local, Value::int(7), Mutability::Immutable);
+    // Distinct callee arena (NOT a clone of the caller's) so the imported_arena restore is
+    // observable — pins the arena slot, not just env/call_stack. `Drop` restores all three
+    // saved slots unconditionally (no branches), so pinning env + imported_arena also covers
+    // the `canon` slot, which travels the identical restore path.
+    let caller_arena = interp.imported_arena.clone();
+    let callee_arena = SharedArena::new(ExprArena::new());
+
+    {
+        let guard = CallFrameGuard::install(&mut interp, call_env, callee_arena, None, callee);
+        assert_eq!(
+            guard.env.lookup(local),
+            Some(Value::int(7)),
+            "callee env installed during the call"
+        );
+        assert!(
+            !std::ptr::eq(&raw const *guard.imported_arena, &raw const *caller_arena),
+            "callee arena installed during the call (distinct from caller's)"
+        );
+        assert!(
+            guard.call_stack.depth() > base_stack_depth,
+            "call frame pushed during the call"
+        );
+    }
+
+    // Drop restored the caller's state.
+    assert_eq!(interp.env.depth(), base_env_depth, "env restored on drop");
+    assert_eq!(
+        interp.env.lookup(local),
+        None,
+        "callee binding gone after restore"
+    );
+    assert!(
+        std::ptr::eq(&raw const *interp.imported_arena, &raw const *caller_arena),
+        "caller imported_arena restored on drop"
+    );
+    assert_eq!(
+        interp.call_stack.depth(),
+        base_stack_depth,
+        "call frame popped on drop"
+    );
+}
+
+#[test]
+fn test_call_frame_guard_restores_state_on_panic() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let interner = SharedInterner::default();
+    let arena = ExprArena::new();
+    let mut interp = Interpreter::new(&interner, &arena);
+    let callee = interner.intern("callee_fn");
+    let local = interner.intern("local");
+    let base_env_depth = interp.env.depth();
+    let base_stack_depth = interp.call_stack.depth();
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut call_env = interp.env.child();
+        call_env.push_scope();
+        call_env.define(local, Value::int(7), Mutability::Immutable);
+        let imported = interp.imported_arena.clone();
+        let guard = CallFrameGuard::install(&mut interp, call_env, imported, None, callee);
+        assert!(guard.call_stack.depth() > base_stack_depth);
+        panic!("callee body panicked mid-eval");
+    }));
+
+    assert!(result.is_err());
+    // Panic-safety regression pin: a panic unwinding through the call MUST NOT leak the callee
+    // env / call frame — CallFrameGuard::drop restores during unwinding, as the removed
+    // per-call child interpreter Drop did.
+    assert_eq!(
+        interp.env.depth(),
+        base_env_depth,
+        "env restored after panic"
+    );
+    assert_eq!(
+        interp.env.lookup(local),
+        None,
+        "callee binding gone after panic"
+    );
+    assert_eq!(
+        interp.call_stack.depth(),
+        base_stack_depth,
+        "call frame popped after panic"
+    );
 }
 
 #[test]

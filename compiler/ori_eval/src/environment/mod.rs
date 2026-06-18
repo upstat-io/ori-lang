@@ -177,85 +177,89 @@ impl Default for Scope {
     }
 }
 
-/// Environment for the interpreter using a scope stack.
+/// Environment for the interpreter — flat local scopes + a shared global scope.
 ///
-/// Instead of cloning environments, we maintain a stack of scopes
-/// that can be pushed and popped efficiently.
+/// Local scopes are a FLAT representation: `bindings` is one contiguous stack of
+/// `(Name, Binding)` entries (innermost-last) and `scope_starts[i]` marks where local
+/// scope `i` begins. `push_scope` is an O(1) `scope_starts.push` with NO per-scope
+/// `Rc<RefCell<Scope>>` + `FxHashMap` allocation (the prior chain allocated both per
+/// call); `pop_scope` truncates. The GLOBAL scope stays a shared `Rc<RefCell<Scope>>`
+/// (a `HashMap` for fast top-level-fn lookup, shared across `child()` envs so recursion
+/// and top-level functions resolve). Lookup scans the local bindings backward
+/// (innermost shadows outer) then falls to the global scope.
 pub struct Environment {
-    /// Stack of scopes, with current scope at the top.
-    scopes: Vec<LocalScope<Scope>>,
-    /// Global scope (always at the bottom).
+    /// Flat local-scope bindings, innermost-last. Shadowing resolves via backward scan.
+    bindings: Vec<(Name, Binding)>,
+    /// `scope_starts[i]` = index into `bindings` where local scope `i` begins.
+    scope_starts: Vec<usize>,
+    /// Shared global scope (recursion + top-level fns; shared across `child()` envs).
     global: LocalScope<Scope>,
 }
 
 impl Environment {
-    /// Create a new environment with a global scope.
+    /// Create a new environment with an empty local stack + a fresh global scope.
     pub fn new() -> Self {
-        let global = LocalScope::new(Scope::new());
         Environment {
-            scopes: vec![global.clone()],
-            global,
+            bindings: Vec::new(),
+            scope_starts: Vec::new(),
+            global: LocalScope::new(Scope::new()),
         }
     }
 
-    /// Get the current scope depth.
+    /// Get the current scope depth (global scope is depth 1; each local scope adds 1).
     pub fn depth(&self) -> usize {
-        self.scopes.len()
+        self.scope_starts.len().saturating_add(1)
     }
 
-    /// Push a new scope onto the stack.
+    /// Push a new local scope — O(1), no allocation (just a `scope_starts` marker).
     #[inline]
     pub fn push_scope(&mut self) {
-        let parent = self.current_scope();
-        let new_scope = LocalScope::new(Scope::with_parent(parent));
-        self.scopes.push(new_scope);
+        self.scope_starts.push(self.bindings.len());
     }
 
-    /// Pop the current scope from the stack.
+    /// Pop the current local scope — truncate its bindings off the flat stack.
     #[inline]
     pub fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
+        if let Some(start) = self.scope_starts.pop() {
+            self.bindings.truncate(start);
         }
     }
 
-    /// Get the current scope.
-    /// Returns the last scope on the stack, or the global scope if empty (which shouldn't happen).
-    #[inline]
-    fn current_scope(&self) -> LocalScope<Scope> {
-        self.scopes.last().unwrap_or(&self.global).clone()
-    }
-
-    /// Define a variable in the current scope.
+    /// Define a variable in the current scope (a pushed local scope, else the global).
     #[inline]
     pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
-        self.scopes
-            .last()
-            .unwrap_or(&self.global)
-            .borrow_mut()
-            .define(name, value, mutability);
+        if self.scope_starts.is_empty() {
+            // No local scope pushed → a top-level define lands in the global scope.
+            self.global.borrow_mut().define(name, value, mutability);
+        } else {
+            self.bindings.push((name, Binding { value, mutability }));
+        }
     }
 
-    /// Look up a variable by name.
-    ///
-    /// Optimized to avoid cloning the current scope by accessing the last scope directly.
+    /// Look up a variable: innermost local binding first, then the global scope.
     #[inline]
     pub fn lookup(&self, name: Name) -> Option<Value> {
-        self.scopes
-            .last()
-            .unwrap_or(&self.global)
-            .borrow()
-            .lookup(name)
+        for (n, binding) in self.bindings.iter().rev() {
+            if *n == name {
+                return Some(binding.value.clone());
+            }
+        }
+        self.global.borrow().lookup(name)
     }
 
-    /// Assign to a variable.
+    /// Assign to a variable: innermost local binding first, then the global scope.
     #[inline]
     pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
-        self.scopes
-            .last()
-            .unwrap_or(&self.global)
-            .borrow_mut()
-            .assign(name, value)
+        for (n, binding) in self.bindings.iter_mut().rev() {
+            if *n == name {
+                if !binding.mutability.is_mutable() {
+                    return Err(AssignError::Immutable);
+                }
+                binding.value = value;
+                return Ok(());
+            }
+        }
+        self.global.borrow_mut().assign(name, value)
     }
 
     /// Define a global variable (immutable).
@@ -265,37 +269,31 @@ impl Environment {
             .define(name, value, Mutability::Immutable);
     }
 
-    /// Create a child environment for function calls.
-    ///
-    /// This creates a new environment that shares the global scope
-    /// but has its own local scope stack.
+    /// Create a child environment for function calls — shares the global scope
+    /// (recursion + top-level fns) but starts with an empty local stack.
     #[must_use]
     pub fn child(&self) -> Self {
-        // Clone global once and reuse to avoid redundant Rc::clone
-        let global = self.global.clone();
         Environment {
-            scopes: vec![global.clone()],
-            global,
+            bindings: Vec::new(),
+            scope_starts: Vec::new(),
+            global: self.global.clone(),
         }
     }
 
-    /// Capture the current scope for closures.
+    /// Capture the LOCAL bindings for closures (global scope excluded).
     ///
-    /// Returns a map of all visible bindings that can be used
-    /// when the closure is called later.
+    /// Globals are reached at call time via `child()` scope-sharing (`prepare_call_env`
+    /// builds the call env from `self.env.child()`, which shares the global `Rc`), so
+    /// top-level functions resolve there — NOT via the capture map. Innermost local
+    /// binding wins on shadowing.
     pub fn capture(&self) -> FxHashMap<Name, Value> {
-        fn collect(scope: &Scope, captures: &mut FxHashMap<Name, Value>) {
-            for (name, binding) in &scope.bindings {
-                captures
-                    .entry(*name)
-                    .or_insert_with(|| binding.value.clone());
-            }
-            if let Some(parent) = &scope.parent {
-                collect(&parent.borrow(), captures);
-            }
-        }
         let mut captures = FxHashMap::default();
-        collect(&self.current_scope().borrow(), &mut captures);
+        // Innermost-first (backward) so a shadowing inner binding wins via or_insert.
+        for (name, binding) in self.bindings.iter().rev() {
+            captures
+                .entry(*name)
+                .or_insert_with(|| binding.value.clone());
+        }
         captures
     }
 }

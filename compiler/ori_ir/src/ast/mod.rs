@@ -17,6 +17,7 @@
 
 mod collections;
 mod expr;
+mod expr_debug;
 pub mod items;
 mod operators;
 pub mod patterns;

@@ -1,0 +1,285 @@
+//! Backtracking macros for `ParseOutcome`.
+//
+// These macros implement Elm/Roc-style automatic backtracking using the
+// four-way distinction in `ParseOutcome`. The key insight:
+//
+// - `ConsumedErr`: Hard error - don't backtrack, report immediately
+// - `EmptyErr`: Soft error - try the next alternative
+//
+// This enables clean alternative parsing without explicit lookahead.
+
+/// Try multiple parsing alternatives, using automatic backtracking.
+///
+/// The `one_of!` macro evaluates each parser in order. For each parser:
+/// - `ConsumedOk` or `EmptyOk`: Return this result immediately
+/// - `ConsumedErr`: Return this error immediately (hard error, committed)
+/// - `EmptyErr`: Accumulate expected tokens and try the next alternative
+///
+/// If all alternatives fail with `EmptyErr`, returns a merged `EmptyErr` with
+/// all accumulated expected tokens.
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_atom(&mut self) -> ParseOutcome<ExprId> {
+///     one_of!(self,
+///         self.parse_literal(),
+///         self.parse_ident(),
+///         self.parse_paren_expr(),
+///     )
+/// }
+/// ```
+///
+/// # Note
+///
+/// The parser (`$self`) must have a `snapshot()` and `restore()` method for
+/// rollback on soft errors. Each alternative is evaluated fresh from the
+/// original position.
+#[macro_export]
+macro_rules! one_of {
+    ($self:expr, $first:expr $(, $rest:expr)* $(,)?) => {{
+        let original = $self.snapshot();
+        let mut accumulated_expected = $crate::recovery::TokenSet::new();
+        let mut last_position: usize = $self.cursor.position();
+
+        // Try first alternative
+        match $first {
+            outcome @ $crate::ParseOutcome::ConsumedOk { .. } => outcome,
+            outcome @ $crate::ParseOutcome::EmptyOk { .. } => outcome,
+            outcome @ $crate::ParseOutcome::ConsumedErr { .. } => outcome,
+            $crate::ParseOutcome::EmptyErr { expected, position } => {
+                accumulated_expected.union_with(&expected);
+                last_position = last_position.max(position);
+                $self.restore(original.clone());
+
+                // Try remaining alternatives
+                one_of!(@rest $self, original, accumulated_expected, last_position $(, $rest)*)
+            }
+        }
+    }};
+
+    // Internal: process remaining alternatives
+    (@rest $self:expr, $original:expr, $accumulated:expr, $last_pos:expr $(,)?) => {{
+        // No more alternatives - return accumulated EmptyErr
+        $crate::ParseOutcome::EmptyErr {
+            expected: $accumulated,
+            position: $last_pos,
+        }
+    }};
+
+    (@rest $self:expr, $original:expr, $accumulated:expr, $last_pos:expr, $next:expr $(, $rest:expr)* $(,)?) => {{
+        match $next {
+            outcome @ $crate::ParseOutcome::ConsumedOk { .. } => outcome,
+            outcome @ $crate::ParseOutcome::EmptyOk { .. } => outcome,
+            outcome @ $crate::ParseOutcome::ConsumedErr { .. } => outcome,
+            $crate::ParseOutcome::EmptyErr { expected, position } => {
+                let mut acc = $accumulated;
+                acc.union_with(&expected);
+                let new_pos = $last_pos.max(position);
+                $self.restore($original.clone());
+                one_of!(@rest $self, $original, acc, new_pos $(, $rest)*)
+            }
+        }
+    }};
+}
+
+/// Try to parse something optional, returning `Some(value)` on success or `None` on soft error.
+///
+/// Unlike `one_of!`, this macro is for single optional elements, not alternatives.
+///
+/// # Behavior
+///
+/// - `ConsumedOk` or `EmptyOk`: Return `Some(value)`
+/// - `ConsumedErr`: Propagate the error (hard error)
+/// - `EmptyErr`: Return `None` (soft error, nothing consumed)
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_optional_type_annotation(&mut self) -> ParseOutcome<Option<TypeId>> {
+///     let ty = try_outcome!(self, self.parse_type_annotation());
+///     ParseOutcome::consumed_ok(ty)
+/// }
+/// ```
+///
+/// # Note
+///
+/// This macro should be used inside a function returning `ParseOutcome<T>`.
+/// On `ConsumedErr`, it returns early from the enclosing function.
+/// On `EmptyErr`, it evaluates to `None` and continues execution.
+#[macro_export]
+macro_rules! try_outcome {
+    ($self:expr, $parser:expr) => {{
+        let snapshot = $self.snapshot();
+        match $parser {
+            $crate::ParseOutcome::ConsumedOk { value } => Some(value),
+            $crate::ParseOutcome::EmptyOk { value } => Some(value),
+            $crate::ParseOutcome::ConsumedErr {
+                error,
+                consumed_span,
+            } => {
+                // Hard error: propagate immediately
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span,
+                };
+            }
+            $crate::ParseOutcome::EmptyErr { .. } => {
+                // Soft error: restore and return None
+                $self.restore(snapshot);
+                None
+            }
+        }
+    }};
+}
+
+/// Require a successful parse, upgrading soft errors to hard errors with context.
+///
+/// This macro is for mandatory elements where failure should be reported
+/// with context about what was being parsed.
+///
+/// # Behavior
+///
+/// - `ConsumedOk` or `EmptyOk`: Return the value
+/// - `ConsumedErr`: Propagate unchanged (already a hard error)
+/// - `EmptyErr`: Convert to `ConsumedErr` with enriched error message
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+///     self.expect(&TokenKind::If)?;  // Already consumed 'if'
+///     let cond = require!(self, self.parse_expr(), "condition in if expression");
+///     // ...
+/// }
+/// ```
+///
+/// # Note
+///
+/// Use this after you've committed to a parse path (consumed some tokens).
+/// The context message helps users understand what the parser was expecting.
+#[macro_export]
+macro_rules! require {
+    ($self:expr, $parser:expr, $context:expr) => {{
+        match $parser {
+            $crate::ParseOutcome::ConsumedOk { value } => value,
+            $crate::ParseOutcome::EmptyOk { value } => value,
+            $crate::ParseOutcome::ConsumedErr {
+                error,
+                consumed_span,
+            } => {
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span,
+                };
+            }
+            $crate::ParseOutcome::EmptyErr { expected, position } => {
+                // Convert soft error to hard error with context
+                let error = $crate::ParseError::from_expected_tokens_with_context(
+                    &expected, position, $context,
+                );
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "position fits in u32 for source files"
+                )]
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span: ori_ir::Span::point(position as u32),
+                };
+            }
+        }
+    }};
+}
+
+/// Chain a parse result with progress tracking.
+///
+/// Similar to `and_then`, but as a macro for use in complex parsing flows
+/// where you need to sequence multiple parses while accumulating progress.
+///
+/// # Behavior
+///
+/// - Success: Binds the value to the pattern and continues
+/// - Error: Returns early with the error
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_binary(&mut self) -> ParseOutcome<ExprId> {
+///     let lhs = chain!(self, self.parse_atom());
+///     let op = chain!(self, self.parse_operator());
+///     let rhs = chain!(self, self.parse_atom());
+///     ParseOutcome::consumed_ok(self.make_binary(lhs, op, rhs))
+/// }
+/// ```
+#[macro_export]
+macro_rules! chain {
+    ($self:expr, $parser:expr) => {{
+        match $parser {
+            $crate::ParseOutcome::ConsumedOk { value }
+            | $crate::ParseOutcome::EmptyOk { value } => value,
+            $crate::ParseOutcome::ConsumedErr {
+                error,
+                consumed_span,
+            } => {
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span,
+                };
+            }
+            $crate::ParseOutcome::EmptyErr { expected, position } => {
+                return $crate::ParseOutcome::EmptyErr { expected, position };
+            }
+        }
+    }};
+}
+
+/// Bridge a `Result<T, ParseError>` into a `ParseOutcome`-returning function after commitment.
+///
+/// Use inside functions returning `ParseOutcome<T>` when you've already committed
+/// to a parse path (consumed some tokens). All `Result::Err` values become
+/// `ConsumedErr` since backtracking is no longer possible.
+///
+/// This is the `ParseOutcome` equivalent of the `?` operator for `Result` calls
+/// in the committed (post-entry-check) section of a grammar function.
+///
+/// # Behavior
+///
+/// - `Ok(value)`: Extracts the value and continues
+/// - `Err(error)`: Returns `ConsumedErr` from the enclosing function
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_generics(&mut self) -> ParseOutcome<GenericParamRange> {
+///     if !self.check(&TokenKind::Lt) {
+///         return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.position());
+///     }
+///     // Committed: `<` confirmed present, all errors are hard errors
+///     committed!(self.expect(&TokenKind::Lt));
+///     let params = committed!(self.series(...));
+///     committed!(self.expect(&TokenKind::Gt));
+///     ParseOutcome::consumed_ok(self.arena.alloc_generic_params(params))
+/// }
+/// ```
+///
+/// # Note
+///
+/// Unlike `chain!` (which takes `ParseOutcome` input), this macro bridges
+/// `Result<T, ParseError>` input. Use `chain!` when calling functions that
+/// already return `ParseOutcome`, and `committed!` when calling functions
+/// that still return `Result` (like `expect()`, `series()`, `expect_ident()`).
+#[macro_export]
+macro_rules! committed {
+    ($expr:expr) => {
+        match $expr {
+            Ok(value) => value,
+            Err(error) => {
+                let span = error.span;
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span: span,
+                };
+            }
+        }
+    };
+}

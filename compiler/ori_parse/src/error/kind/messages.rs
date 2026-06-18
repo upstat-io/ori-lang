@@ -195,13 +195,13 @@ impl ParseErrorKind {
     /// coming from other programming languages.
     pub fn hint(&self) -> Option<&'static str> {
         match self {
-            // === Semicolons ===
+            // Semicolons
             Self::UnexpectedToken {
                 found: TokenKind::Semicolon,
                 ..
             } => Some("Semicolons separate statements inside block expressions `{ ... }` and terminate top-level items."),
 
-            // === Return keyword ===
+            // Return keyword
             Self::UnexpectedToken {
                 found: TokenKind::Return,
                 ..
@@ -211,7 +211,7 @@ impl ParseErrorKind {
                 ..
             } => Some("Ori has no `return` keyword. The last expression in a block is automatically its value."),
 
-            // === Trailing operators ===
+            // Trailing operators
             Self::TrailingOperator {
                 operator: TokenKind::Plus,
                 ..
@@ -230,19 +230,19 @@ impl ParseErrorKind {
             } => Some("The `/` operator needs a value on both sides, like `a / b`."),
             Self::TrailingOperator { .. } => Some("Binary operators need values on both sides."),
 
-            // === Empty blocks ===
+            // Empty blocks
             Self::ExpectedExpression {
                 found: TokenKind::RBrace,
                 ..
             } => Some("Blocks must end with an expression. Try adding `void` if no value is needed."),
 
-            // === For loop ===
+            // For loop
             Self::ExpectedExpression {
                 found: TokenKind::For,
                 position: ExprPosition::Primary,
             } => Some("For loops in Ori use `for item in collection { ... }` syntax."),
 
-            // === Common type keywords in wrong positions ===
+            // Common type keywords in wrong positions
             Self::UnexpectedToken {
                 found: TokenKind::Void,
                 context: Some("expression"),

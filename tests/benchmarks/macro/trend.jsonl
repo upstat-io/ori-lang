@@ -1,0 +1,2 @@
+{"captured_at": "2026-06-18T01:18:24.044911+00:00", "ori_median_ms": 547.669, "parity_ok": true, "program": "ackermann", "python_median_ms": 25.461, "ratio": 21.5104, "threshold_ms": 38.191, "verdict": "loss"}
+{"captured_at": "2026-06-18T01:18:24.044911+00:00", "ori_median_ms": 120.833, "parity_ok": true, "program": "doors", "python_median_ms": 12.958, "ratio": 9.3251, "threshold_ms": 19.437, "verdict": "loss"}

@@ -101,5 +101,9 @@ harness = false
 name = "pool_interning"
 harness = false
 
+[[bench]]
+name = "interpreter"
+harness = false
+
 [lints]
 workspace = true

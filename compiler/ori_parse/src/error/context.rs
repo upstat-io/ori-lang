@@ -15,7 +15,7 @@
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ErrorContext {
-    // === Top-level ===
+    // Top-level
     /// Parsing a module (top-level declarations).
     Module,
     /// Parsing a function definition.
@@ -31,7 +31,7 @@ pub enum ErrorContext {
     /// Parsing an extern block.
     ExternBlock,
 
-    // === Expressions ===
+    // Expressions
     /// Parsing an expression (generic).
     Expression,
     /// Parsing an if expression.
@@ -67,7 +67,7 @@ pub enum ErrorContext {
     /// Parsing a field access.
     FieldAccess,
 
-    // === Patterns ===
+    // Patterns
     /// Parsing a pattern (generic).
     Pattern,
     /// Parsing a match arm.
@@ -77,7 +77,7 @@ pub enum ErrorContext {
     /// Parsing function parameters.
     FunctionParams,
 
-    // === Types ===
+    // Types
     /// Parsing a type annotation.
     TypeAnnotation,
     /// Parsing generic type parameters.
@@ -85,7 +85,7 @@ pub enum ErrorContext {
     /// Parsing a function signature.
     FunctionSignature,
 
-    // === Other ===
+    // Other
     /// Parsing an attribute.
     Attribute,
     /// Parsing a test definition.

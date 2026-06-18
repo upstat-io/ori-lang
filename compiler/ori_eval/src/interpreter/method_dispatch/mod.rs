@@ -11,6 +11,7 @@ use crate::methods::{dispatch_builtin_method, DispatchCtx};
 use crate::{EvalResult, Mutability, UserMethod, Value};
 
 use super::resolvers::MethodResolution;
+use super::scope_guard::CallFrameGuard;
 use super::Interpreter;
 
 impl Interpreter<'_> {
@@ -314,18 +315,17 @@ impl Interpreter<'_> {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate body via canonical IR.
-        // The scope is popped automatically via RAII when call_interpreter drops.
-        let mut call_interpreter = self.create_function_interpreter(
-            &method.arena,
-            call_env,
-            method_name,
-            method.canon.clone(),
-        );
-
-        let result = call_interpreter.eval_can(method.can_body);
-        self.mode_state
-            .merge_child_counters(&call_interpreter.mode_state);
+        // Evaluate the body ON THIS interpreter (no child build) via the RAII CallFrameGuard:
+        // it installs the pre-bound call_env + method arena/canon, and restores the caller's
+        // state on drop INCLUDING a panic unwinding out of `eval_can`. Counters accumulate
+        // directly (no child ModeState). `self.arena` is left as the parent's — `eval_can`
+        // reads `self.canon`, so the stale borrow is never consulted.
+        // Precondition: check_recursion_limit() passed, so the frame push cannot fail.
+        let new_canon = method.canon.clone().or_else(|| self.canon.clone());
+        let mut guard =
+            CallFrameGuard::install(self, call_env, method.arena.clone(), new_canon, method_name);
+        let result = guard.eval_can(method.can_body);
+        drop(guard);
         result
     }
 }

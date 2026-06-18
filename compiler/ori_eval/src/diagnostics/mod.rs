@@ -187,19 +187,6 @@ impl EvalCounters {
         self.pattern_matches = self.pattern_matches.wrapping_add(1);
     }
 
-    /// Merge counters from a child interpreter into this one.
-    ///
-    /// Used to accumulate profiling data from child interpreters created
-    /// for function/method calls back into the parent's counters.
-    pub fn merge(&mut self, other: &EvalCounters) {
-        self.expressions_evaluated = self
-            .expressions_evaluated
-            .wrapping_add(other.expressions_evaluated);
-        self.function_calls = self.function_calls.wrapping_add(other.function_calls);
-        self.method_calls = self.method_calls.wrapping_add(other.method_calls);
-        self.pattern_matches = self.pattern_matches.wrapping_add(other.pattern_matches);
-    }
-
     /// Format a summary report.
     pub fn report(&self) -> String {
         format!(

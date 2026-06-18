@@ -86,6 +86,7 @@ impl Parser<'_> {
     ///
     /// Use this for contexts where `=` is a delimiter rather than an operator,
     /// such as guard clauses (`if condition = body`).
+    #[inline]
     pub(crate) fn parse_non_assign_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(0))
     }
@@ -94,11 +95,13 @@ impl Parser<'_> {
     ///
     /// Use this in contexts where `<` and `>` are delimiters, not operators,
     /// such as const generic default values: `<$N: int = 10>`.
+    #[inline]
     pub(crate) fn parse_non_comparison_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(bp::ABOVE_COMPARISON))
     }
 
     /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
+    #[inline]
     fn parse_expr_inner(&mut self) -> ParseOutcome<ExprId> {
         let left = chain!(self, self.parse_binary_pratt(0));
 
