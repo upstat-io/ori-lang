@@ -29,10 +29,12 @@ use super::ownership_scans::{
     compute_dead_owned_param_branch_releases, compute_genuine_dup_move_aliases,
     compute_live_out_owned, compute_loop_invariant_dead_local_releases,
     compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
-    compute_rebuild_lineage_dead_param_releases, compute_transfer_through_return_param_vars,
-    compute_transfer_through_return_results, compute_transfer_via_move_alias,
-    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
-    compute_yield_identity_push_dup_args, instr_transfer_vars, list_concat_consumed_operands,
+    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
+    compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
+    compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
+    compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
+    list_concat_consumed_operands,
 };
 use super::scan_helpers::{
     collect_invoke_ttr_edges, compute_owned_rc_filter, populate_burden_emitted, OwnedRcFilter,
@@ -40,7 +42,8 @@ use super::scan_helpers::{
 use super::terminator::{compute_terminator_inc_per_block, compute_terminator_transfer_per_block};
 use super::{
     extract_transfer, sibling_union, DEAD_FORWARDER_PARAM_RELEASE_DISABLED,
-    DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, TTR_ITER_CONSUME_DUP_INC_DISABLED,
+    DEAD_OWNED_PARAM_BRANCH_RELEASE_DISABLED, SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED,
+    TTR_ITER_CONSUME_DUP_INC_DISABLED,
 };
 
 /// Merge `source`'s per-key `ArcVarId` release lists into `target`, skipping a
@@ -140,6 +143,7 @@ pub(crate) fn emit_burden_ops<'a>(
         last_uses_at,
         claimed_no_sink_vars,
         final_read_release_aliases,
+        owner_borrow_view_dec_suppress,
     } = compute_owned_rc_filter(
         &mut ctx,
         func,
@@ -351,6 +355,30 @@ pub(crate) fn emit_burden_ops<'a>(
         compute_ttr_iter_consume_dup_aliases(func, contracts, interner)
     };
 
+    // RL-1 move-once surplus dup-alias-inc suppression: a `Let { Var }` dup-alias
+    // of a fresh niche-family sum-aggregate whose extracted payload is
+    // iter-consumed adds NO owner (the by-value aggregate carries the buffer's
+    // own allocation), so its duplication inc is move-once-elidable
+    // (`RL1_duplication_balanced`, `incElidable = true`). The base walk's
+    // `use_counts >= 2` proxy emits the surplus inc; on the live-extract path the
+    // payload transfers out via `@iter [own]` (`ori_iter_drop` releases it,
+    // `RL2_iter_consuming_no_caller_dec`), leaving the dup-alias inc unmatched →
+    // +1 leak. Suppress it. Empty when
+    // `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1`.
+    let sum_payload_iter_consume_suppressed = if *SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED {
+        FxHashSet::default()
+    } else {
+        compute_sum_payload_iter_consume_dup_inc_suppression(
+            func,
+            contracts,
+            &owned_vars_needing_rc,
+            &dup_alias_dsts,
+            type_registry,
+            interner,
+        )
+    };
+    inc_suppressed_vars.extend(sum_payload_iter_consume_suppressed.iter().copied());
+
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             let Some(last_used) = last_uses_at.get(&(block_idx, instr_idx)) else {
@@ -386,7 +414,7 @@ pub(crate) fn emit_burden_ops<'a>(
     // transfers an owned param THROUGH its return, the call result IS the
     // forwarded arg (a move across the call), so the move-chain must span it.
     let invoke_ttr_edges = collect_invoke_ttr_edges(func, contracts);
-    let transfer_via_move_alias = compute_transfer_via_move_alias(
+    let mut transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
         &use_counts,
@@ -437,6 +465,15 @@ pub(crate) fn emit_burden_ops<'a>(
             inc_suppressed_vars.insert(var);
         }
     }
+
+    // TF-14 owner-drop borrow-view DEC-ONLY suppression: an owner aggregate whose
+    // release was relocated to a borrowed-`Invoke` normal-successor `BlockEntry`
+    // has its OWN in-block last-use `BurdenDec` suppressed — but its FRESH
+    // (`Construct`) inc is KEPT (the relocated `BlockEntry` release is the single
+    // release of that rc=1 allocation, RL-2 release-once). Merged AFTER the
+    // inc-suppression loop so the owner's inc is never swept into
+    // `inc_suppressed_vars`. Spec: Annex E §AIMS TF-14 + RL-2 + RL-4.
+    transfer_via_move_alias.extend(owner_borrow_view_dec_suppress.iter().copied());
 
     // DP-3 read-only-borrow orphan-inc suppression: a fresh `Construct` whose
     // scope-exit dec is transfer-suppressed (via the owned-RC-dst move-edge seed,
@@ -552,6 +589,16 @@ pub(crate) fn emit_burden_ops<'a>(
     // (AIMS emits only the balancing dec). Interned once; idempotent.
     let index_builtin_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
+
+    // RL-1 surplus-inc suppression for read-only-in-place-co-owner seamless-slice
+    // RESULTS: the sharing-view runtime self-incs the shared buffer, so the result
+    // is an owned co-reference whose `+1` is the runtime's own inc — AIMS emits
+    // only the balancing dec, never a FRESH-site inc (else net +1 leak). Gated to
+    // the surplus shape (receiver survives + read downstream; result lineage a
+    // pure borrow-read co-owner not fed to another sharing-view). Empty under
+    // `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1`. SSOT:
+    // `compute_sharing_view_surplus_inc_dsts`.
+    let sharing_view_surplus_inc_dsts = compute_sharing_view_surplus_inc_dsts(func, interner);
 
     // RL-1 borrowed-store duplication incs: a BORROWED-param-rooted value
     // consumed at an aggregate-STORE position duplicates the caller's retained
@@ -703,6 +750,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_through_return_results: &transfer_through_return_results,
         transfer_through_return_param_vars: &transfer_through_return_param_vars,
         index_builtin_name,
+        sharing_view_surplus_inc_dsts: &sharing_view_surplus_inc_dsts,
         borrowed_store_dup_args: &borrowed_store_dup_args,
         yield_identity_push_dup_args: &yield_identity_push_dup_args,
         call_arg_dup_aliases: &genuine_dup_call_arg_aliases,

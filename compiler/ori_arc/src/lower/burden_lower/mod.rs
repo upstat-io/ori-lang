@@ -297,6 +297,29 @@ static GENUINE_DUP_PAIR_COUPLING_DISABLED: LazyLock<bool> =
 static TTR_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1` restores the surplus
+/// duplication `BurdenInc` on a `Let { Var }` dup-alias of a fresh niche-family
+/// sum-aggregate whose extracted payload is iter-consumed
+/// ([`ownership_scans::compute_sum_payload_iter_consume_dup_inc_suppression`]).
+/// Default (unset): the buffer is born once (`Construct List` MOVED by-value
+/// into `Construct Variant(Option.0)`), so the by-value aggregate's Let-Var
+/// dup-alias adds NO owner and its inc is RL-1 move-once-elidable
+/// (`AimsProof.Realization::RL1_duplication_balanced`, `incElidable = true`); the
+/// suppression strips the surplus inc the `use_counts >= 2` proxy mis-emits. On
+/// the live-extract path the payload (`Project alias.1`) transfers out via
+/// `@iter [own]` whose `ori_iter_drop` releases it (RL-2
+/// `ApplyToIterConsumingParam`, no caller dec); the kept construct-site inc is
+/// released by the Some-arm scope-exit dec, the dead None / Unreachable arms
+/// release birth + construct-site inc. With the toggle set the surplus dup-alias
+/// inc returns (the `match m { Some(words) -> for w in words .. }` over
+/// `Option<[str]>` leaks the buffer + its str elements, the
+/// `str_list_iteration_in_match` shape). Bisection surface: isolates a
+/// sum-payload-iter-consume leak to this suppression vs the rest of the Phase-5
+/// walk. Spec: Annex E §AIMS RL-1 + RL-2 + TF-4.
+static SUM_PAYLOAD_ITER_CONSUME_DUP_INC_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_CROSS_BLOCK_FINAL_USE_CANCEL=1` restores the single-block
 /// `last_use_points == 1` over-approximation in the dup'd terminal-move gate
 /// ([`ownership_scans::compute_transfer_via_move_alias`]). Default (unset): a
@@ -341,6 +364,31 @@ static BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED: LazyLock<bool> = LazyLock:
 /// (`ownership_scans::move_alias`).
 pub(in crate::lower::burden_lower) fn borrow_view_dst_surplus_dec_suppress_disabled() -> bool {
     *BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED
+}
+
+/// `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS=1` restores the syntactic
+/// last-use placement of an owned aggregate's whole-var `BurdenDec`, ignoring
+/// the downstream liveness of its `Project` borrow-views. Default (unset): an
+/// aggregate `%agg` whose `Project` borrow-view (or a `Let{Var}` alias of one)
+/// is read AFTER `%agg`'s own syntactic last use has its whole-var release
+/// PLACEMENT extended to the borrow-view's last use — the owner's drop (which
+/// cascade-frees the projected field) must not precede a borrow-read of that
+/// field (TF-14 `TF14_propagation_spec`: a Project's source liveness joins the
+/// view's liveness; RL-2 `RL2_release_exactly_once`: the owner drop is the
+/// field's single release). With the toggle set, the owner drop lands at the
+/// aggregate's syntactic last use (use-after-free on a borrow-view read past
+/// the owner's drop — `let xs = c.items; xs.fold(..)`). Same-allocation-identity
+/// gated on the structural `Project { value: agg }` borrow-view edge (NOT a
+/// use-count / type-membership proxy). Spec: Annex E §AIMS TF-14 + RL-2.
+static OWNER_DROP_BORROW_VIEW_LIVENESS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS`
+/// toggle — consumed by the last-use detection extension
+/// (`ownership_scans::walk::extend_owner_last_use_for_borrow_views`).
+pub(in crate::lower::burden_lower) fn owner_drop_borrow_view_liveness_disabled() -> bool {
+    *OWNER_DROP_BORROW_VIEW_LIVENESS_DISABLED
 }
 
 /// `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1` restores the surplus

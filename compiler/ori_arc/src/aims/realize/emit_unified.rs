@@ -45,6 +45,21 @@ static TAKE_PROJECT_BYPASS_ENTRY_RELEASE_DISABLED: LazyLock<bool> = LazyLock::ne
     std::env::var("ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1` keeps the comparison-operand
+/// same-root guard purely structural (the pre-cure behavior): a `==`/`!=` whose two
+/// operands share one `same_alloc` rep declines the M3/M4 strip unconditionally.
+/// Default (unset): a forwarder-transfer pair (one operand a `transfers_through_return
+/// ∧ Direct` forwarder RESULT sharing the other operand's allocation) is EXEMPTED from
+/// the guard — the two operands are genuinely distinct co-references (the duplication
+/// funds the transfer, rc 1 -> 2), so the strip fires (RL-1 + RL-2).
+static COMPARISON_FORWARDER_SAME_ROOT_EXEMPT_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT").as_deref() == Ok("1")
+});
+
+fn comparison_forwarder_same_root_exempt_disabled() -> bool {
+    *COMPARISON_FORWARDER_SAME_ROOT_EXEMPT_DISABLED
+}
+
 /// Per-phase RC-op snapshot for post-walk pass debugging.
 ///
 /// Emits one `tracing::trace!` per block summarising every `RcInc`/`RcDec` by
@@ -2495,7 +2510,7 @@ fn rep_has_post_drop_collection_borrow_read(
 
 /// True iff `instr` is an `Apply` using the rep at a BORROWED arg position (the
 /// survivor read) — owned positions, Projects, and RC bookkeeping are NOT reads.
-fn instr_borrow_reads_rep(
+pub(super) fn instr_borrow_reads_rep(
     instr: &ArcInstr,
     rep_of: &impl Fn(ArcVarId) -> ArcVarId,
     rep: ArcVarId,
@@ -2513,7 +2528,7 @@ fn instr_borrow_reads_rep(
 /// Terminator analogue of [`instr_borrow_reads_rep`]: an `Invoke` terminator
 /// borrow-reading the rep (`Invoke @len(coll [borrow])`). A `Jump`/`Branch`/`Return`
 /// is a forward/transfer, never a survivor read.
-fn terminator_borrow_reads_rep(
+pub(super) fn terminator_borrow_reads_rep(
     term: &ArcTerminator,
     rep_of: &impl Fn(ArcVarId) -> ArcVarId,
     rep: ArcVarId,
@@ -5633,6 +5648,33 @@ fn compute_comparison_operand_aliases(
     resolve_root: &impl Fn(ArcVarId) -> ArcVarId,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
+    // FORWARDER-TRANSFER EXEMPTION to the same-root guard: a comparison whose two
+    // operands trace to one `same_alloc` rep is NORMALLY a balanced self-comparison
+    // (`a == a`), so the same-root guard declines the strip. But when the shared
+    // allocation arises because one operand is a `transfers_through_return ∧ Direct`
+    // forwarder RESULT (`let result = take_and_return(b)` where `result` aliases the
+    // arg `b`'s allocation), the two operands (`result` and the live source `a`) are
+    // GENUINELY DISTINCT owned co-references: the alloc was rc-INC'd (the `b = a`
+    // duplication funds the transfer) so it carries TWO live refs, each owing one
+    // release (RL-2 `RL2_release_exactly_once`). The forwarder-result lineage rep set
+    // identifies exactly this case; an operand whose lineage IS a forwarder result is
+    // exempted from the same-root exclusion so its spurious keep-alive inc is M3-
+    // stripped (leaving its dec as one of the two genuine releases). Empty when
+    // `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1` (the guard stays purely
+    // structural — the pre-cure behavior). Spec: Annex E §AIMS RL-1 + RL-2.
+    let forwarder_result_reps = if comparison_forwarder_same_root_exempt_disabled() {
+        FxHashSet::default()
+    } else {
+        let jt_reps = compute_jump_threaded_reps(func, Some(same_alloc_reps));
+        compute_forwarder_result_reps(func, &jt_reps, same_alloc_reps)
+    };
+    let sa_rep = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let is_forwarder_transfer_pair = |a: ArcVarId, b: ArcVarId| -> bool {
+        // A genuine 2-ref forwarder-transfer comparison: the two operands share an
+        // allocation rep AND at least one operand's rep is a forwarder result.
+        forwarder_result_reps.contains(&sa_rep(a)) || forwarder_result_reps.contains(&sa_rep(b))
+    };
+
     // Per-var non-RC use tally + whether EVERY non-RC use is a `Binary(Eq|NotEq)`
     // operand. An RC op is NOT a use; a `Let { Var }` reference IS a use of its
     // source (counted when that source's occurrences are walked).
@@ -5668,10 +5710,15 @@ fn compute_comparison_operand_aliases(
                     note_use(arg, is_cmp);
                 }
                 // A binary compare with both operands in ONE allocation class is a
-                // same-root comparison; exclude its operands from the strip.
+                // same-root comparison; exclude its operands from the strip — UNLESS
+                // the shared allocation arises from a forwarder transfer (the two
+                // operands are then genuinely distinct co-references owing two
+                // releases, so the strip MUST fire — see the forwarder-transfer
+                // exemption above).
                 if is_cmp
                     && args.len() == 2
                     && crate::aims::emit_rc::same_alloc(same_alloc_reps, args[0], args[1])
+                    && !is_forwarder_transfer_pair(args[0], args[1])
                 {
                     for &arg in args {
                         same_root_operands.insert(arg);

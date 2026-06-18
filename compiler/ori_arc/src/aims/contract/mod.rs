@@ -624,6 +624,20 @@ pub struct ReturnContract {
     pub locality: Locality,
     /// Shape class of the return value.
     pub shape: ShapeClass,
+    /// Whether the function returns a FRESH self-allocated rc=1 buffer on every
+    /// path — a buffer allocated INSIDE this function (a `Construct`/`Reuse`/
+    /// `CollectionReuse` collection, or the `for_yield` `@ori_list_take`
+    /// finalizer that moves a fresh scratch buffer out), distinct from any
+    /// caller-visible value. Stronger than `preserves_freshness ∧ uniqueness`:
+    /// it certifies the returned allocation is a fresh self-alloc the caller
+    /// receives at rc=1 (no upstream alias), which licenses the caller-side
+    /// burden walk to admit the Invoke/Apply result as a fresh collection root
+    /// (per `ownership_scans/iter_consume_dead_thread.rs`). Orthogonal to
+    /// `uniqueness`/`preserves_freshness` — set independently, consumed only by
+    /// the fresh-collection-root admission, so it never perturbs the
+    /// uniqueness/freshness-driven store-dup accounting.
+    /// Spec: Annex E §AIMS RL-1 + RL-29 (fresh + Unique non-aliasing).
+    pub returns_fresh_self_alloc: bool,
 }
 
 impl ReturnContract {
@@ -633,6 +647,7 @@ impl ReturnContract {
         preserves_freshness: false,
         locality: Locality::Unknown,
         shape: ShapeClass::NonReusable,
+        returns_fresh_self_alloc: false,
     };
 
     /// Most-optimistic: unique return, freshness preserved.
@@ -643,6 +658,11 @@ impl ReturnContract {
         // Shape isn't monotonically ordered in a useful way for return values;
         // NonReusable is the safe starting point.
         shape: ShapeClass::NonReusable,
+        // Optimistic-init: assume fresh self-alloc so the monotone SCC fixpoint
+        // join (AND) only ever CLEARS it. The extractor recomputes the true
+        // value from the body each pass; `true ∧ extractor` lets a consistently
+        // fresh-self-alloc return survive, `true ∧ false` clears a non-fresh one.
+        returns_fresh_self_alloc: true,
     };
 
     /// Componentwise join toward conservative.
@@ -653,6 +673,8 @@ impl ReturnContract {
             preserves_freshness: self.preserves_freshness && other.preserves_freshness,
             locality: self.locality.join(other.locality),
             shape: self.shape.join(other.shape),
+            returns_fresh_self_alloc: self.returns_fresh_self_alloc
+                && other.returns_fresh_self_alloc,
         }
     }
 }

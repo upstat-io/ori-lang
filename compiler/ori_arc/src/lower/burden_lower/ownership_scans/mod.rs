@@ -28,7 +28,9 @@ mod loop_invariant_dead_local;
 mod move_alias;
 mod multi_exit_borrow_view;
 mod nested_construct_return_passthrough;
+mod owner_borrow_view;
 mod reassign_release;
+mod sharing_view_surplus;
 mod store_dup;
 mod union_find;
 mod walk;
@@ -47,6 +49,7 @@ pub(super) use borrowed_invoke_lineage::{
 pub(super) use branch_release::compute_branch_exclusive_edge_releases;
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
 pub(super) use closure_extract_borrow_view::compute_closure_extract_borrow_view_lineage;
+pub(super) use sharing_view_surplus::compute_sharing_view_surplus_inc_dsts;
 // Test-only re-export: the RAW classification is consumed by the `tests`
 // sibling; production consumers take the FUNDED set.
 #[cfg(test)]
@@ -62,8 +65,8 @@ pub(super) use dead_param::{
 };
 pub(crate) use dup_inc::collect_move_edges_and_store_consumes;
 pub(super) use dup_inc::{
-    compute_genuine_dup_move_aliases, compute_ttr_iter_consume_dup_aliases,
-    compute_use_counts_and_dup_aliases,
+    compute_genuine_dup_move_aliases, compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_ttr_iter_consume_dup_aliases, compute_use_counts_and_dup_aliases,
 };
 pub(super) use forwarder::{
     compute_forwarder_identity_transparent_aliases, compute_transfer_through_return_param_vars,
@@ -85,6 +88,7 @@ pub(super) use move_alias::{
 };
 pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use nested_construct_return_passthrough::compute_nested_construct_return_passthrough;
+pub(super) use owner_borrow_view::extend_owner_last_use_for_borrow_views;
 pub(super) use reassign_release::compute_reassign_rebind_releases;
 pub(crate) use store_dup::{compute_funded_store_dup_aliases, store_family_funding_disabled};
 pub(super) use walk::{

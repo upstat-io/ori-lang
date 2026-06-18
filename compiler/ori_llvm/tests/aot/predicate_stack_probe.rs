@@ -5072,3 +5072,45 @@ type Node = { value: int, next: Option<Node> }
         "nested_construct_payload_extracted_live_no_double_free",
     );
 }
+
+#[test]
+fn probe_owner_drop_deferred_past_borrow_view_intlist_field_no_uaf() {
+    // Regression (TF-14 owner-drop borrow-view liveness): a fresh sole-owned-RC-
+    // field struct (`Container { items: [int] }`) whose `[int]` field is projected
+    // as a borrow-view (`let xs = c.items`) and read at a borrowed-`Invoke`
+    // terminator arg (`xs.fold(..)`) AFTER the container's own syntactic last use.
+    // The container's whole-var `RcDec [AggFields]` cascade-frees the field; placed
+    // at the container's last use it frees the buffer BEFORE `fold` borrow-reads it
+    // -> use-after-free. The fix relocates the container release to the borrowed-
+    // call's normal-successor block entry (RL-2 release-once, past the borrow-read).
+    // Spec: Annex E §AIMS TF-14 + RL-2 + RL-4.
+    let src = r#"
+type Container = { items: [int] }
+
+@main () -> int = {
+    let c = Container { items: [10, 20, 30] };
+    let xs = c.items;
+    let sum = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+    if sum == 60 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "owner_drop_deferred_past_borrow_view_intlist_field");
+}
+
+#[test]
+fn probe_owner_drop_deferred_past_borrow_view_str_field_no_uaf() {
+    // Matrix (str field): the same owner-drop-past-borrow-view shape with a `str`
+    // owned field instead of `[int]` — the borrow-view `s` is read via a borrowed
+    // call after the holder's syntactic last use. Spec: Annex E §AIMS TF-14 + RL-2.
+    let src = r#"
+type Holder = { name: str }
+
+@main () -> int = {
+    let h = Holder { name: "a string long enough to exceed inline SSO storage by a wide margin" };
+    let s = h.name;
+    let n = s.split(sep: " ").count();
+    if n == 13 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "owner_drop_deferred_past_borrow_view_str_field");
+}

@@ -1,0 +1,15 @@
+@main () -> int = {
+    let maybe_nums: Option<[int]> = Some([10, 20, 30]);
+    let total = match maybe_nums {
+        Some(nums) -> {
+            let t = 0;
+            for n in nums do {
+                t = t + n;
+            };
+            t
+        },
+        None -> 0
+    };
+    // 10 + 20 + 30 = 60
+    if total == 60 then 0 else 1
+}

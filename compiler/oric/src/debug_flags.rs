@@ -194,6 +194,21 @@ flags! {
     /// Usage: `ORI_DISABLE_LINEAGE_REBALANCE=1 ori build file.ori`
     ORI_DISABLE_LINEAGE_REBALANCE
 
+    /// Revert the Phase-6 lineage-rebalance single-release selection to
+    /// terminal-net-only placement. Default: the kept whole-var release is
+    /// rejected when a borrow-read of the rep is forward-reachable from its
+    /// position (release-before-read is a UAF / double-free — RL-2 requires the
+    /// single release after the lineage's LAST read; the `copy[0]` then `copy[1]`
+    /// yield-identity shape frees the list buffer in an early block while a later
+    /// `@__index(alias)` still reads it). With the toggle set, the selection
+    /// accepts any per-path-net-zero dec regardless of a later read, restoring
+    /// the early-placement double-free.
+    ///
+    /// Consumed in `ori_arc::aims::realize::burden_elim` (Phase 6). Bisects a
+    /// lineage-rebalance read-after-release double-free to this filter.
+    /// Usage: `ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ=1 ori build file.ori`
+    ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ
+
     /// Disable the Phase-5 RL-5 dead-at-entry release for forwarder-identity
     /// allocations reaching a merge/return block's dead block-params.
     ///
@@ -381,6 +396,19 @@ flags! {
     /// for-yield-then-return double-free to this inc.
     /// Usage: `ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_TTR_ITER_CONSUME_DUP_INC
+
+    /// Restore the surplus duplication inc on a `Let { Var }` dup-alias of a
+    /// fresh niche-family sum-aggregate whose extracted payload is iter-consumed
+    /// (default: the by-value aggregate's Let-Var dup-alias adds no owner, so its
+    /// inc is RL-1 move-once-elidable and suppressed; the payload transfers out
+    /// via `@iter [own]` whose `ori_iter_drop` releases it, so the surplus inc
+    /// would leak the buffer + its heap elements — the
+    /// `str_list_iteration_in_match` shape over `Option<[str]>`).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// sum-payload-iter-consume leak to this suppression.
+    /// Usage: `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1 ori build file.ori`
+    ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC
 
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
@@ -825,6 +853,24 @@ flags! {
     /// Usage: `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS
 
+    /// Restore the syntactic last-use placement of an owned aggregate's whole-var
+    /// `BurdenDec`, ignoring the downstream liveness of its `Project` borrow-views.
+    /// Default (unset): an aggregate `%agg` whose `Project` borrow-view (or a
+    /// `Let{Var}` alias of one) is read AFTER `%agg`'s own syntactic last use has
+    /// its whole-var release PLACEMENT extended to the borrow-view's last use — the
+    /// owner's drop (which cascade-frees the projected field) must not precede a
+    /// borrow-read of that field (TF-14 source-liveness joins the view's liveness;
+    /// RL-2 the owner drop is the field's single release). With the toggle set, the
+    /// owner drop lands at the aggregate's syntactic last use (use-after-free on a
+    /// borrow-view read past the owner's drop — `let xs = c.items; xs.fold(..)`).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// borrow-view-read-past-owner-drop UAF to this placement extension vs the
+    /// rest of the Phase-5 walk. Spec: Annex E §AIMS TF-14 + RL-2.
+    /// Usage: `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS=1 ori build file.ori`
+    ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS
+
     /// Decline the SELF-ALLOCATING-BUILTIN `Invoke`-result root family of the
     /// Phase-5 borrowed-`Invoke` lineage treatment (the CARRIER-SUCC mode): a
     /// fresh builtin result (`@concat` template-chain link, heap `@to_str` /
@@ -839,6 +885,23 @@ flags! {
     /// the Phase-5 walk. Spec: Annex E §AIMS RL-1 + RL-2.
     /// Usage: `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE=1 ori build file.ori`
     ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE
+
+    /// Restore the base behavior of the self-recursive `Invoke` tail-call
+    /// loop-lowering rewrite: move EVERY normal-continuation RC op into the call
+    /// block, INCLUDING ops on the Invoke's now-eliminated result var. Default
+    /// (unset): drop every RC op whose subject is the eliminated result var — the
+    /// recursive result is never materialized after the loop-back rewrite, so a
+    /// post-call dec on it is forbidden (a transferred tail-call result carries no
+    /// post-call dec) and would dangle as a use-before-def in the rewritten loop
+    /// (the `list_reverse_helper` `match`-arm tail-recursion shape: an
+    /// `RcDec(result)` moved into the back-edge block references a var the loop
+    /// form no longer defines).
+    ///
+    /// Consumed in `ori_arc::tail_call::rewrite` (Step 8 loop lowering). Bisects a
+    /// TRMC tail-call use-before-def to this result-dec drop. Spec: Annex E §AIMS
+    /// RL-34.
+    /// Usage: `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1 ori build file.ori`
+    ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP
 
     /// Decline the Phase-6.66e loop-invariant iter-consumed SURVIVOR surplus
     /// suppression. A loop-INVARIANT collection (`Construct` outside the loop)
@@ -885,6 +948,22 @@ flags! {
     /// Spec: Annex E §AIMS RL-1 + RL-2.
     /// Usage: `ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS=1 ori build file.ori`
     ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS
+
+    /// Keep the comparison-operand same-root guard purely structural. Default: a
+    /// `==`/`!=` whose two operands share one `same_alloc` rep BECAUSE one operand is
+    /// a `transfers_through_return ∧ Direct` forwarder RESULT (`result == a` where
+    /// `result` aliases the arg's allocation) is EXEMPTED from the same-root guard —
+    /// the two operands are genuinely distinct co-references (the `b = a` duplication
+    /// funds the transfer, rc 1 -> 2), so the M3/M4 comparison-operand strip fires
+    /// (stripping the spurious operand keep-alive `BurdenInc`, leaving its dec as one
+    /// of the two genuine releases). With the toggle set, the guard stays structural
+    /// and the forwarder-transfer comparison reverts to the orphaned-dec double-free
+    /// (Phase-6 elim strips the spurious inc, the paired dec survives unmatched).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (Phase 6.97). Bisects a
+    /// forwarder-transfer comparison double-free to this exemption.
+    /// Usage: `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1 ori build file.ori`
+    ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT
 
     /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
     /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
@@ -1065,6 +1144,24 @@ flags! {
     /// dead loop-invariant local leak to this release.
     /// Usage: `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE
+
+    /// Restore the FRESH-site `BurdenInc` on a read-only-in-place-co-owner
+    /// seamless-slice RESULT (`slice` / `substring` / `take` / `drop`). Default:
+    /// the inc is suppressed — the sharing-view runtime self-incs the shared
+    /// buffer (`ori_rc_inc`, rc 1 -> 2), so the `MaybeShared` result is an owned
+    /// co-reference whose `+1` is the runtime's own inc; AIMS emits ONLY the
+    /// balancing last-use dec. A second FRESH-site inc double-counts under
+    /// sole-emitter Phase-7 lowering (net +1 leak; the shared buffer never reaches
+    /// rc 0). Gated to the surplus shape only (the receiver survives + is read
+    /// downstream, the result lineage is a pure borrow-read co-owner not fed to
+    /// another sharing-view) — the load-bearing-inc shapes (materialized / moved /
+    /// chained / receiver-dies-at-slice) keep the inc. With the toggle set, the
+    /// read-only-co-owner slice result reverts to the +1 leak (the pre-cure shape).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// read-only-co-owner slice leak to this suppression.
+    /// Usage: `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS
 
     // === Runtime Trace Flags ===
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).

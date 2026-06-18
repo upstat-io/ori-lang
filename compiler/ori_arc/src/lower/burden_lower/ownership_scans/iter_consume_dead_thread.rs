@@ -73,7 +73,7 @@ pub(in crate::lower::burden_lower) fn compute_iter_consume_dead_thread_orphan_in
     let mut suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut admitted_lineages: Vec<FxHashSet<ArcVarId>> = Vec::new();
 
-    for root in collect_fresh_collection_roots(func, interner) {
+    for root in collect_fresh_collection_roots(func, contracts, interner) {
         let decline = |gate: &str| {
             tracing::trace!(
                 target: "ori_arc::aims::realize",
@@ -219,10 +219,12 @@ fn collect_iter_consumed_vars(
 ///    `scratch CollectBuiltinDeadThreadRoot.widening_sound`).
 fn collect_fresh_collection_roots(
     func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> Vec<ArcVarId> {
     let collect_set_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
+    let admit_invoke_result = !invoke_result_root_disabled();
     let mut roots = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
@@ -239,11 +241,51 @@ fn collect_fresh_collection_roots(
                 } if *callee == collect_set_name => {
                     roots.push(*dst);
                 }
+                // A user-callee `Apply` result whose contract certifies
+                // `returns_fresh_self_alloc` is a FRESH rc=1 collection (e.g.
+                // `clone_list(..)` returning `@ori_list_take(scratch)`),
+                // lattice-identical to a `Construct` root. RcPointer-repr only.
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if admit_invoke_result
+                    && matches!(func.var_repr(*dst), Some(ValueRepr::RcPointer))
+                    && contracts
+                        .get(callee)
+                        .is_some_and(|c| c.return_info.returns_fresh_self_alloc) =>
+                {
+                    roots.push(*dst);
+                }
                 _ => {}
+            }
+        }
+        // The `Invoke` TERMINATOR result of a fresh-self-alloc user callee is the
+        // surface-(a) two_calls shape: `let a = clone_list(words)` lowers to an
+        // `Invoke @clone_list` whose `dst` is the fresh rc=1 `a`-buffer.
+        if admit_invoke_result {
+            if let ArcTerminator::Invoke {
+                dst, func: callee, ..
+            } = &block.terminator
+            {
+                if matches!(func.var_repr(*dst), Some(ValueRepr::RcPointer))
+                    && contracts
+                        .get(callee)
+                        .is_some_and(|c| c.return_info.returns_fresh_self_alloc)
+                {
+                    roots.push(*dst);
+                }
             }
         }
     }
     roots
+}
+
+/// `ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT=1` declines admitting a
+/// fresh-self-alloc user-callee `Apply`/`Invoke` result as a dead-thread
+/// orphan-inc root, restoring the pre-cure leak on the two-iter-consumed-clones
+/// shape (surface (a) of the str-list `two_calls` cell). Default (unset): cure
+/// active.
+fn invoke_result_root_disabled() -> bool {
+    std::env::var("ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT").as_deref() == Ok("1")
 }
 
 /// Gate (c) support: grow the same-alloc lineage from `root` over `Let { Var }`

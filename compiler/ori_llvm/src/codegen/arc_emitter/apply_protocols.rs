@@ -138,7 +138,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // ori_list_take: NOT a protocol builtin — it's a real runtime function
         // with special sret handling (has `ori_` prefix, exists in RT_FUNCTIONS).
         if callee == self.list_rt_names.take && !args.is_empty() {
-            if let Some(val) = self.emit_list_take(args[0], func) {
+            if let Some(val) = self.emit_list_take(dst, args[0], func) {
                 self.def_var_repr(dst, val, func);
             }
             return true;
@@ -213,12 +213,55 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// `ori_list_take` uses an explicit sret pattern: `void(ptr list, ptr out)`.
     /// We alloca a `{i64, i64, ptr}` result, call the function, then load.
-    fn emit_list_take(&mut self, list_var: ArcVarId, _func: &ArcFunction) -> Option<ValueId> {
+    ///
+    /// The moved-out result buffer's V5 RC header carries no `elem_dec_fn` —
+    /// `ori_list_take` moves the data buffer out without populating it. When the
+    /// for-yield result is freed solely via `IterState::Drop` (the iter-consumed
+    /// shape, caller `elem_dec_fn = None`), the null header runs zero element
+    /// cleanup and heap elements leak. Store `elem_dec_fn` + `elem_count` on the
+    /// result here, mirroring the Construct List / collect-consumer finalizers
+    /// (CG:RT-4 `elem_dec_fn` contract). The element type is derived from the
+    /// RESULT `dst`'s `[T]` type — `list_var` is the scratch `OriList` handle
+    /// (`Tag::Int` in ARC IR) and would mis-type the dec fn.
+    fn emit_list_take(
+        &mut self,
+        dst: ArcVarId,
+        list_var: ArcVarId,
+        func: &ArcFunction,
+    ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_take");
         let list_ptr = self.var(list_var);
 
         let list_struct_ty = self.fat_ptr_llvm_type();
-        self.call_with_manual_sret_out(func_id, &[list_ptr], list_struct_ty, "list_take")
+        let result =
+            self.call_with_manual_sret_out(func_id, &[list_ptr], list_struct_ty, "list_take")?;
+
+        // Populate the result buffer's V5 elem header from the dst `[T]` type.
+        // `get_or_generate_elem_dec_fn` returns a null pointer for scalar
+        // elements (CG:RT-4), so `[int]`/`[byte]` results store a NULL
+        // elem_dec_fn — no spurious per-element dec fn is attached.
+        let dst_ty = func.var_type(dst);
+        let resolved = self.pool.resolve_fully(dst_ty);
+        if self.pool.tag(resolved) == ori_types::Tag::List {
+            let elem_ty = self.pool.list_elem(resolved);
+            let result_data = self
+                .builder
+                .extract_value(result, FIELD_DATA, "list_take.data")
+                .unwrap_or_else(|| self.builder.const_null_ptr());
+            let result_len = self
+                .builder
+                .extract_value(result, FIELD_LEN, "list_take.len")
+                .unwrap_or_else(|| self.builder.const_i64(0));
+            let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+            let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+            self.builder
+                .call(store_dec, &[result_data, elem_dec_fn], "");
+            let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+            self.builder
+                .call(store_count, &[result_data, result_len], "");
+        }
+
+        Some(result)
     }
 
     /// The canonical `{ i64, i64, ptr }` fat-pointer LLVM type — the runtime

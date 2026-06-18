@@ -428,8 +428,10 @@ fn collect_project_return_surplus_owner_dec_srcs(
 /// `arg`'s monomorphized burden has EXACTLY ONE owned RC field, and it is
 /// `field`. Used by `collect_project_return_surplus_owner_dec_srcs` to gate
 /// whole-var dec suppression on the single-owned-field case (whole-var drop
-/// becomes a no-op once that field transfers out via the projected return).
-fn arg_sole_owned_rc_field_is(
+/// becomes a no-op once that field transfers out via the projected return) AND by
+/// `walk::extend_owner_last_use_for_borrow_views` to gate the owner-drop
+/// borrow-view-liveness placement relocation on the same discriminator.
+pub(in crate::lower::burden_lower) fn arg_sole_owned_rc_field_is(
     func: &ArcFunction,
     arg: ArcVarId,
     field: u32,

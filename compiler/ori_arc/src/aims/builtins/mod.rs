@@ -437,4 +437,8 @@ const RETURN_UNIQUE: ReturnContract = ReturnContract {
     preserves_freshness: true,
     locality: Locality::Unknown,
     shape: super::lattice::ShapeClass::NonReusable,
+    // Builtin COW-method results are fresh, but the fresh-self-alloc admission
+    // is scoped to USER for-yield finalizers (`@ori_list_take`) extracted from
+    // the body; builtins keep `false` to preserve the status-quo store-dup path.
+    returns_fresh_self_alloc: false,
 };

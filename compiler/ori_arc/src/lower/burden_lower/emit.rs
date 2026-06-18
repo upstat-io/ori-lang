@@ -101,6 +101,17 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // it double-counts under sole-emitter Phase-7 lowering (net +1 leak per
     // heap element index).
     pub(super) index_builtin_name: Name,
+    // Seamless-slice RESULT dsts whose FRESH-site `BurdenInc` is SURPLUS: the
+    // sharing-view runtime self-incs the shared buffer (`ori_rc_inc`, rc 1 -> 2),
+    // so the `MaybeShared` result is an owned co-reference whose `+1` is the
+    // runtime's own inc — AIMS emits ONLY the result's balancing last-use dec,
+    // never a FRESH-site inc (else net +1 LEAK; the shared buffer never reaches
+    // rc 0). Gated to the read-only-in-place-co-owner shape (the receiver
+    // survives + is read downstream, the result lineage is a pure borrow-read
+    // co-owner not fed to another sharing-view). Empty when
+    // `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1`. SSOT:
+    // `compute_sharing_view_surplus_inc_dsts`. Spec: Annex E §AIMS RL-1 + RL-2.
+    pub(super) sharing_view_surplus_inc_dsts: &'a FxHashSet<ArcVarId>,
     // BORROWED-param-rooted vars consumed at an aggregate-STORE position
     // (`Construct` / `Reuse` / `CollectionReuse` arg, `Set.value`). The store
     // duplicates the caller's retained reference (RL-1), so a `BurdenInc` is
@@ -926,6 +937,16 @@ fn fresh_site_burden_inc_dst(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Optio
         }
         _ => return None,
     };
+    // Suppress the FRESH-site Inc when dst is a read-only-in-place-co-owner
+    // sharing-view RESULT (`slice` / `substring` / `take` / `drop`): the runtime
+    // self-incs the shared buffer (`ori_rc_inc`, rc 1 -> 2), so the result's `+1`
+    // is the runtime's own inc — AIMS emits ONLY the balancing last-use dec. A
+    // second FRESH-site inc here double-counts under sole-emitter Phase-7 lowering
+    // (net +1 LEAK; the shared buffer never reaches rc 0). Gated to the surplus
+    // shape only (`compute_sharing_view_surplus_inc_dsts`).
+    if ctx.analysis.sharing_view_surplus_inc_dsts.contains(&dst) {
+        return None;
+    }
     // Suppress the FRESH-site Inc when dst is the result of a callee that
     // transfers an owned arg THROUGH the return (RL-1): the result IS the
     // transferred-in allocation, not a fresh one — the arg's own alloc supplied
@@ -993,6 +1014,12 @@ fn compute_invoke_result_incs(
             ArcTerminator::InvokeIndirect { dst, normal, .. } => (*dst, *normal),
             _ => continue,
         };
+        // RL-1: a read-only-in-place-co-owner sharing-view Invoke result self-incs
+        // the shared buffer at runtime (mirrors the `__index` arm + the `Apply`
+        // arm in `fresh_site_burden_inc_dst`). Emit only the balancing dec.
+        if analysis.sharing_view_surplus_inc_dsts.contains(&dst) {
+            continue;
+        }
         // RL-1: an Invoke result whose callee transfers an owned arg through the
         // return aliases the transferred-in allocation (not fresh) — its
         // result-inc is elidable (`compute_transfer_through_return_results`).

@@ -31,7 +31,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 /// On any failed param the WHOLE closure declines (`None`) — the conservative
 /// status-quo leak, never the `04B.2-cross-class-uaf` foreign-merge bug
 /// (wrong suppression / a release on a merged-in foreign allocation).
-pub(super) fn same_alloc_closure_vetted(
+pub(in crate::lower::burden_lower) fn same_alloc_closure_vetted(
     func: &ArcFunction,
     root: ArcVarId,
 ) -> Option<FxHashSet<ArcVarId>> {

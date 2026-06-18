@@ -4203,6 +4203,7 @@ fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
             preserves_freshness: false,
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4233,6 +4234,7 @@ fn populate_call_result_states_apply_unique_contract_filtered() {
             preserves_freshness: true,
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4374,6 +4376,7 @@ fn populate_call_result_states_invoke_with_contract_inserts_dst() {
             preserves_freshness: false,
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4412,6 +4415,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
             preserves_freshness: false,
             locality: Locality::BlockLocal,
             shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4449,6 +4453,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
             preserves_freshness: true,
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4484,6 +4489,7 @@ fn populate_call_result_states_skips_scalar_dst() {
             preserves_freshness: false,
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4517,6 +4523,7 @@ fn populate_sparse_events_sees_function_local_contract_locality() {
             preserves_freshness: false,
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4554,6 +4561,7 @@ fn populate_call_result_states_block_local_filtered_no_event() {
             preserves_freshness: false,
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4637,6 +4645,7 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
             preserves_freshness: false,
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4724,6 +4733,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
             preserves_freshness: false,
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4769,6 +4779,7 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
             preserves_freshness: false,
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
@@ -4801,6 +4812,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
             preserves_freshness: false,
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
         }),
     );
 
