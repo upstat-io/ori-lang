@@ -194,6 +194,21 @@ flags! {
     /// Usage: `ORI_DISABLE_LINEAGE_REBALANCE=1 ori build file.ori`
     ORI_DISABLE_LINEAGE_REBALANCE
 
+    /// Revert the Phase-6 lineage-rebalance single-release selection to
+    /// terminal-net-only placement. Default: the kept whole-var release is
+    /// rejected when a borrow-read of the rep is forward-reachable from its
+    /// position (release-before-read is a UAF / double-free — RL-2 requires the
+    /// single release after the lineage's LAST read; the `copy[0]` then `copy[1]`
+    /// yield-identity shape frees the list buffer in an early block while a later
+    /// `@__index(alias)` still reads it). With the toggle set, the selection
+    /// accepts any per-path-net-zero dec regardless of a later read, restoring
+    /// the early-placement double-free.
+    ///
+    /// Consumed in `ori_arc::aims::realize::burden_elim` (Phase 6). Bisects a
+    /// lineage-rebalance read-after-release double-free to this filter.
+    /// Usage: `ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ=1 ori build file.ori`
+    ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ
+
     /// Disable the Phase-5 RL-5 dead-at-entry release for forwarder-identity
     /// allocations reaching a merge/return block's dead block-params.
     ///

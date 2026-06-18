@@ -2510,7 +2510,7 @@ fn rep_has_post_drop_collection_borrow_read(
 
 /// True iff `instr` is an `Apply` using the rep at a BORROWED arg position (the
 /// survivor read) — owned positions, Projects, and RC bookkeeping are NOT reads.
-fn instr_borrow_reads_rep(
+pub(super) fn instr_borrow_reads_rep(
     instr: &ArcInstr,
     rep_of: &impl Fn(ArcVarId) -> ArcVarId,
     rep: ArcVarId,
@@ -2528,7 +2528,7 @@ fn instr_borrow_reads_rep(
 /// Terminator analogue of [`instr_borrow_reads_rep`]: an `Invoke` terminator
 /// borrow-reading the rep (`Invoke @len(coll [borrow])`). A `Jump`/`Branch`/`Return`
 /// is a forward/transfer, never a survivor read.
-fn terminator_borrow_reads_rep(
+pub(super) fn terminator_borrow_reads_rep(
     term: &ArcTerminator,
     rep_of: &impl Fn(ArcVarId) -> ArcVarId,
     rep: ArcVarId,

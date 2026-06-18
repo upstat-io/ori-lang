@@ -95,6 +95,18 @@ use crate::lower::burden_lower::{
 static LINEAGE_REBALANCE_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_LINEAGE_REBALANCE").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ=1` reverts the single-release
+/// selection to terminal-net-only (the pre-cure behavior): a kept dec is
+/// accepted whenever its retention drives the per-path terminal net to 0,
+/// ignoring whether a borrow-read of the rep is forward-reachable from that dec.
+/// Default (unset): a candidate dec whose position is followed by a borrow-read
+/// of the rep on a forward path is REJECTED (release-before-read is a UAF /
+/// double-free per RL-2 `RL2_release_exactly_once` — the single release must
+/// sit after the lineage's last read). Spec: Annex E §AIMS RL-2.
+static SINGLE_RELEASE_AFTER_LAST_READ_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ").as_deref() == Ok("1")
+});
+
 /// Realization-level escape-safety gate over DP-3's `is_rc_inc_elidable` verdict.
 ///
 /// An `Affine` (borrow) inc is a NET-0 retain on a value the borrow SHARES;
@@ -742,9 +754,15 @@ fn mark_lineage_rebalance_removals(
         // returned / moved out → consumer decs, needs no local release) has NO
         // balancing single-dec and is rejected (the per-var pass keeps it). Spec:
         // Annex E §AIMS RL-1 (alias inc spurious) + RL-2 (release exactly once).
-        let Some(kept_dec) =
-            select_single_release_dec(func, &preds, &alloc_blocks, &alloc_delta, &ops.dec_sites)
-        else {
+        let Some(kept_dec) = select_single_release_dec(
+            func,
+            &preds,
+            &alloc_blocks,
+            &alloc_delta,
+            &ops.dec_sites,
+            *rep,
+            &rep_of,
+        ) else {
             continue;
         };
         // Commit: elide all incs + every dec except the kept release.
@@ -912,6 +930,8 @@ fn select_single_release_dec(
     alloc_blocks: &[usize],
     alloc_delta: &[i64],
     dec_sites: &[LineageOp],
+    rep: ArcVarId,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
 ) -> Option<LineageOp> {
     let alloc_reachable = forward_reachable(func, alloc_blocks);
     // The kept release must be forward-reachable from an anchor block — a
@@ -923,6 +943,17 @@ fn select_single_release_dec(
         .copied()
         .filter(|&(b, _)| alloc_reachable.contains(&b))
         .collect();
+    // RL-2 release-exactly-once: the kept release MUST sit after the lineage's
+    // LAST read. A dec followed by a borrow-read of the rep on a forward path
+    // frees the allocation while a later block still reads it — a use-after-free
+    // / double-free (the `copy[0]` … `copy[1]` yield-identity shape: an early
+    // alias's dec in bb3 frees the list buffer the bb7 `@__index(alias)` still
+    // reads). The terminal-net check below only validates per-path BALANCE, not
+    // read-ordering; this filter removes the unsafe candidates before selection.
+    // Disabled by `ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ=1`.
+    if !*SINGLE_RELEASE_AFTER_LAST_READ_DISABLED {
+        candidates.retain(|&(b, i)| !dec_precedes_rep_read(func, rep, rep_of, b, i));
+    }
     // Ordering: alloc-block decs first, then the rest (stable within each group).
     candidates.sort_by_key(|&(b, _)| usize::from(!alloc_blocks.contains(&b)));
 
@@ -957,6 +988,55 @@ fn select_single_release_dec(
         }
     }
     None
+}
+
+/// True iff a borrow-read of `rep` is forward-reachable from the dec at
+/// `(dec_block, dec_idx)` — i.e. keeping the release there would free the
+/// allocation before a later read (UAF). Scans: (1) the same block AFTER
+/// `dec_idx` (body instrs + terminator), and (2) every block forward-reachable
+/// across the dec block's successor edges (full body + terminator). Reuses the
+/// borrow-read-of-rep SSOT (`instr_borrow_reads_rep` / `terminator_borrow_reads_rep`)
+/// so the read predicate never drifts. Spec: Annex E §AIMS RL-2.
+fn dec_precedes_rep_read(
+    func: &ArcFunction,
+    rep: ArcVarId,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    dec_block: usize,
+    dec_idx: usize,
+) -> bool {
+    use super::emit_unified::{instr_borrow_reads_rep, terminator_borrow_reads_rep};
+    let dec_blk = &func.blocks[dec_block];
+    // (1) Same block, strictly after the dec position.
+    for instr in dec_blk.body.iter().skip(dec_idx + 1) {
+        if instr_borrow_reads_rep(instr, rep_of, rep) {
+            return true;
+        }
+    }
+    if terminator_borrow_reads_rep(&dec_blk.terminator, rep_of, rep) {
+        return true;
+    }
+    // (2) Strictly-forward blocks (successors of the dec block, transitively;
+    // the dec block itself is excluded — its post-dec slice is covered above).
+    let succ_starts: Vec<usize> = crate::graph::successor_block_ids(&dec_blk.terminator)
+        .iter()
+        .map(|s| s.index())
+        .collect();
+    let reachable = forward_reachable(func, &succ_starts);
+    for b in reachable {
+        if b == dec_block {
+            continue;
+        }
+        let block = &func.blocks[b];
+        for instr in &block.body {
+            if instr_borrow_reads_rep(instr, rep_of, rep) {
+                return true;
+            }
+        }
+        if terminator_borrow_reads_rep(&block.terminator, rep_of, rep) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Local `Construct` roots whose alias lineage TERMINALLY moves into an
