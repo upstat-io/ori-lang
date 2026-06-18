@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generic benchmark probe for /benchmark-grind. ONE harness for ALL subjects;
+# Generic benchmark probe: ONE harness for ALL subjects;
 # subjects are rows in registry.json (data), never per-subject scripts.
 #
 # Usage: measure.sh <subject>

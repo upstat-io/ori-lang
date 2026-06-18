@@ -78,8 +78,6 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
             break;
         }
 
-        let token_span = crate::cooker::span(offset, raw.len);
-
         match raw.tag {
             RawTag::Whitespace => {
                 pending_flags.set(TokenFlags::SPACE_BEFORE);
@@ -87,6 +85,7 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
 
             RawTag::LineComment => {
                 if WITH_METADATA {
+                    let token_span = crate::cooker::span(offset, raw.len);
                     let slice = &source[offset as usize..(offset + raw.len) as usize];
                     let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
                     let (kind, normalized) = classify_and_normalize_comment(content_str);
@@ -116,6 +115,7 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
             }
 
             RawTag::Newline => {
+                let token_span = crate::cooker::span(offset, raw.len);
                 if WITH_METADATA {
                     output.newlines.push(token_span.start);
 
@@ -143,6 +143,7 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
 
             // Cook everything else
             _ => {
+                let token_span = crate::cooker::span(offset, raw.len);
                 if WITH_METADATA {
                     last_significant_was_newline = false;
                 }
