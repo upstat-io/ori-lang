@@ -469,6 +469,44 @@ flags! {
     /// Usage: `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 ori build file.ori`
     ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING
 
+    /// Restore the RL-1 inc on a fresh self-alloc `Invoke`-terminator result
+    /// used exactly once at a borrowed (non-owned) arg position of a body
+    /// `Apply` / `ApplyIndirect` (default: the FRESH + ONCE + AFFINE-borrowed
+    /// shape is inc-elidable, so the duplication inc is suppressed; an
+    /// owned-position transfer, `Return` escape, non-call read, or terminator
+    /// consume keeps the inc).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// borrowed-arg fresh-result leak / use-after-free to this elision.
+    /// Spec: Annex E §AIMS RL-1 + DP-3.
+    /// Usage: `ORI_DISABLE_FRESH_CALL_RESULT_BORROWED_ARG_INC_ELISION=1 ori build file.ori`
+    ORI_DISABLE_FRESH_CALL_RESULT_BORROWED_ARG_INC_ELISION
+
+    /// Restore the RL-4 edge-deadness release for a fresh `Construct` owned
+    /// non-scalar local that dies on a branch merge edge (default: the untaken
+    /// parent aggregate of an `if c then p1.first else p2.first` shape is
+    /// released on its own merge edge; reuses the single-pred + edge-deadness +
+    /// Jump-transfer-exemption gates of the param scan).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects an
+    /// untaken-merge-parent leak to this release.
+    /// Spec: Annex E §AIMS RL-4 + RL-2.
+    /// Usage: `ORI_DISABLE_FRESH_CONSTRUCT_DEAD_BRANCH_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_FRESH_CONSTRUCT_DEAD_BRANCH_RELEASE
+
+    /// Decline admitting a direct `@ori_list_take` builtin result (the
+    /// for-yield-result finalizer — a fresh rc=1 buffer moved out of the loop
+    /// accumulator, lattice-identical to a `Construct`) as an iter-consume
+    /// dead-thread orphan-inc root (default: admitted as a root so its keep-alive
+    /// inc balances the downstream `@iter [own]` consume; `=1` restores the
+    /// pre-cure leak on the loop-carried for-yield iter-consumed shape).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// loop-carried for-yield-result iter-consume leak to this admission.
+    /// Spec: Annex E §AIMS RL-1.
+    /// Usage: `ORI_DISABLE_ITER_CONSUME_FOR_YIELD_TAKE_ROOT=1 ori build file.ori`
+    ORI_DISABLE_ITER_CONSUME_FOR_YIELD_TAKE_ROOT
+
     /// Disable the `ori_panic` message ownership-transfer contract seed
     /// (default: the panic machinery owns + releases its message; a
     /// still-live message dup-incs per RL-1).
