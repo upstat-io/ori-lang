@@ -29,7 +29,6 @@
 # borrowed-non-receiver-arg relocation for set-algebra ops (union/intersection/
 # difference) — the borrowed `other` arg's premature inline dec relocates to both
 # successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
-aims_interactions::test_h12_rc_merge_preserves_rc_ops
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
 arc::test_rc_project_merge_two_distinct_parents

@@ -3,8 +3,7 @@ type Wrapper = { name: str, value: int };
 @process (w: Wrapper) -> int = {
     let $base = w.value;
     let $result = if base > 10 then {
-        let $extra = w.name;
-        len(collection: extra) + base
+        len(collection: w.name) + base
     } else {
         base * 2
     };
