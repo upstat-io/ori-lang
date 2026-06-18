@@ -886,6 +886,23 @@ flags! {
     /// Usage: `ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE=1 ori build file.ori`
     ORI_DISABLE_BUILTIN_INVOKE_RESULT_LINEAGE
 
+    /// Restore the base behavior of the self-recursive `Invoke` tail-call
+    /// loop-lowering rewrite: move EVERY normal-continuation RC op into the call
+    /// block, INCLUDING ops on the Invoke's now-eliminated result var. Default
+    /// (unset): drop every RC op whose subject is the eliminated result var — the
+    /// recursive result is never materialized after the loop-back rewrite, so a
+    /// post-call dec on it is forbidden (a transferred tail-call result carries no
+    /// post-call dec) and would dangle as a use-before-def in the rewritten loop
+    /// (the `list_reverse_helper` `match`-arm tail-recursion shape: an
+    /// `RcDec(result)` moved into the back-edge block references a var the loop
+    /// form no longer defines).
+    ///
+    /// Consumed in `ori_arc::tail_call::rewrite` (Step 8 loop lowering). Bisects a
+    /// TRMC tail-call use-before-def to this result-dec drop. Spec: Annex E §AIMS
+    /// RL-34.
+    /// Usage: `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1 ori build file.ori`
+    ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP
+
     /// Decline the Phase-6.66e loop-invariant iter-consumed SURVIVOR surplus
     /// suppression. A loop-INVARIANT collection (`Construct` outside the loop)
     /// iter-consumed via the inline for-loop `@iter [own]` and READ AFTER the loop

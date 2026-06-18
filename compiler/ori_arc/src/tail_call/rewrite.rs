@@ -25,8 +25,22 @@
 //! Runs immediately after [`detect_tail_calls`](super::detect_tail_calls),
 //! AFTER `rc_elim` and BEFORE `block_merge`.
 
+use std::sync::LazyLock;
+
 use super::TailCallKind;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+
+/// `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1` restores the base
+/// behavior of moving EVERY normal-continuation RC op into the call block when
+/// a recursive `Invoke` tail call is rewritten to a loop back-edge — including
+/// the RC ops on the Invoke's now-eliminated result var. Default (unset): drop
+/// the RC ops whose operand is the eliminated result var (a forbidden post-call
+/// dec on the transferred tail-call result; the result is never materialized
+/// post-rewrite, so the op is a use-before-def). Spec: Annex E §AIMS RL-34
+/// (`RL34_never_post_call_dec`).
+static TRMC_TRANSFERRED_RESULT_DEC_DROP_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP").as_deref() == Ok("1")
+});
 
 /// Rewrite detected tail calls as loop back-edges.
 ///
@@ -169,17 +183,53 @@ fn rewrite_apply_site(
 /// back-edge jump so they execute at the end of each iteration.
 fn rewrite_invoke_site(func: &mut ArcFunction, block_idx: usize, header_id: crate::ir::ArcBlockId) {
     // Extract args from the Invoke terminator.
-    let invoke_args = if let ArcTerminator::Invoke { args, normal, .. } =
-        &func.blocks[block_idx].terminator
+    let invoke_args = if let ArcTerminator::Invoke {
+        args, normal, dst, ..
+    } = &func.blocks[block_idx].terminator
     {
         let normal_idx = normal.index();
         let args = args.clone();
+        // The Invoke's result var — eliminated by this rewrite (the recursive
+        // call is replaced by the loop back-edge, so the result is never
+        // materialized). Any RC op on it in the moved normal-continuation body
+        // is a forbidden post-call dec on the transferred tail-call result
+        // (RL34_never_post_call_dec) that would dangle as a use-before-def.
+        let result_dst = *dst;
 
-        // Move RcDec instructions from the normal continuation block
-        // into the call block. These clean up the current iteration's
-        // values before the next iteration begins.
-        let normal_body: Vec<ArcInstr> = func.blocks[normal_idx].body.drain(..).collect();
-        let normal_spans: Vec<Option<ori_ir::Span>> = func.spans[normal_idx].drain(..).collect();
+        // Move the normal continuation block's body into the call block.
+        // These clean up the current iteration's values before the next
+        // iteration begins. The body and spans are moved as PARALLEL arrays
+        // (independent extends preserve any pre-existing length relationship —
+        // a zip would silently truncate when the arrays differ in length).
+        let mut normal_body: Vec<ArcInstr> = func.blocks[normal_idx].body.drain(..).collect();
+        let mut normal_spans: Vec<Option<ori_ir::Span>> =
+            func.spans[normal_idx].drain(..).collect();
+
+        // Drop every RC op whose subject is the Invoke's now-eliminated result:
+        // the result is never materialized after the loop-back rewrite, so a
+        // post-call dec on it is forbidden (RL34_never_post_call_dec) and would
+        // dangle as a use-before-def. Index-aligned removal keeps the body /
+        // span arrays in lockstep. `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1`
+        // restores the base move-everything behavior for bisection.
+        if !*TRMC_TRANSFERRED_RESULT_DEC_DROP_DISABLED {
+            let mut i = 0;
+            while i < normal_body.len() {
+                if rc_op_on_var(&normal_body[i], result_dst) {
+                    tracing::trace!(
+                        target: "ori_arc::tail_call",
+                        result_dst = result_dst.index(),
+                        instr = ?normal_body[i],
+                        "TRMC rewrite: dropping eliminated-Invoke-result RC op (RL-34)"
+                    );
+                    normal_body.remove(i);
+                    if i < normal_spans.len() {
+                        normal_spans.remove(i);
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
 
         func.blocks[block_idx].body.extend(normal_body);
         func.spans[block_idx].extend(normal_spans);
@@ -198,4 +248,24 @@ fn rewrite_invoke_site(func: &mut ArcFunction, block_idx: usize, header_id: crat
         target: header_id,
         args: invoke_args,
     };
+}
+
+/// True iff `instr` is an RC / burden op (realized or burden-spelled) whose
+/// subject var is `var`. Used to drop the eliminated-Invoke-result RC ops when
+/// a recursive tail call is rewritten to a loop back-edge: the result is never
+/// materialized post-rewrite, so a dec on it is a forbidden post-call dec that
+/// dangles as a use-before-def. Spec: Annex E §AIMS RL-34.
+fn rc_op_on_var(instr: &ArcInstr, var: ArcVarId) -> bool {
+    match instr {
+        ArcInstr::RcInc { var: v, .. }
+        | ArcInstr::RcDec { var: v, .. }
+        | ArcInstr::RcDecPartial { var: v, .. }
+        | ArcInstr::RcDecVariant { var: v }
+        | ArcInstr::BurdenInc { var: v }
+        | ArcInstr::BurdenDec { var: v }
+        | ArcInstr::BurdenDecPartial { var: v, .. }
+        | ArcInstr::BurdenDecVariant { var: v } => *v == var,
+        ArcInstr::RcDecField { base, .. } | ArcInstr::BurdenDecField { base, .. } => *base == var,
+        _ => false,
+    }
 }
