@@ -977,6 +977,25 @@ flags! {
     /// Usage: `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1 ori build file.ori`
     ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT
 
+    /// Restore the surplus FRESH-site `BurdenInc` on a fresh local consumed
+    /// EXACTLY ONCE as a `Binary(Add)` concat operand. Default (unset): such an
+    /// operand is move-once-linear — the runtime concat helper
+    /// (`ori_str_concat` / `ori_list_concat_cow`) BORROWS it and the caller's
+    /// single dec frees it (RL-2 `ApplyToBorrowedParam`), so the keep-alive inc
+    /// is surplus and is suppressed (else net +1 leak: alloc rc=1 + inc rc=2 -
+    /// one dec rc=1 — the `matched_some + str(v)` match-arm-result literal leak).
+    /// The single-use gate excludes the re-read-after-concat shape (`let s = a +
+    /// b; a.starts_with(..)`) where the inc is LOAD-BEARING — it raises rc >= 2
+    /// so the helper COPIES instead of mutating `a` in place. With the toggle
+    /// set, the surplus inc returns and the terminal-concat operand leaks again.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`
+    /// (`compute_cow_terminal_concat_inc_dsts` -> `fresh_site_burden_inc_dst`
+    /// suppression). Bisects a terminal-concat-operand leak to this suppression.
+    /// Spec: Annex E §AIMS RL-1.
+    /// Usage: `ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION=1 ori build file.ori`
+    ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION
+
     /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
     /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
     /// w in words yield w`) read via sibling `Let`-Var aliases across two blocks

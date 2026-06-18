@@ -112,6 +112,16 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1`. SSOT:
     // `compute_sharing_view_surplus_inc_dsts`. Spec: Annex E §AIMS RL-1 + RL-2.
     pub(super) sharing_view_surplus_inc_dsts: &'a FxHashSet<ArcVarId>,
+    // FRESH-local vars consumed EXACTLY ONCE as a TERMINAL `Binary(Add)` concat
+    // operand: the runtime concat helper BORROWS the operand and the caller's
+    // single dec frees it (RL-2 `ApplyToBorrowedParam`), so the operand is
+    // move-once-linear (`incElidable`, DP-3) and its keep-alive FRESH-site inc
+    // is surplus (else net +1 LEAK: alloc rc=1 + inc rc=2 - one dec rc=1). The
+    // single-use gate excludes the re-read-after-concat shape where the inc is
+    // LOAD-BEARING (forces a COW copy). Empty when
+    // `ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION=1`. SSOT:
+    // `compute_cow_terminal_concat_inc_dsts`. Spec: Annex E §AIMS RL-1 + RL-2.
+    pub(super) cow_terminal_concat_inc_dsts: &'a FxHashSet<ArcVarId>,
     // BORROWED-param-rooted vars consumed at an aggregate-STORE position
     // (`Construct` / `Reuse` / `CollectionReuse` arg, `Set.value`). The store
     // duplicates the caller's retained reference (RL-1), so a `BurdenInc` is
@@ -945,6 +955,16 @@ fn fresh_site_burden_inc_dst(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> Optio
     // (net +1 LEAK; the shared buffer never reaches rc 0). Gated to the surplus
     // shape only (`compute_sharing_view_surplus_inc_dsts`).
     if ctx.analysis.sharing_view_surplus_inc_dsts.contains(&dst) {
+        return None;
+    }
+    // Suppress the FRESH-site Inc when dst is a fresh local consumed EXACTLY
+    // ONCE as a TERMINAL `Binary(Add)` concat operand (RL-1): the concat helper
+    // borrows the operand and the caller's single dec frees it, so the keep-alive
+    // inc is surplus and would leave the rc=1 allocation at net +1 (alloc rc=1 +
+    // inc rc=2 - one dec rc=1 -> LEAK). Gated to the single-use-terminal-concat
+    // shape only (`compute_cow_terminal_concat_inc_dsts`); a re-read-after-concat
+    // operand keeps the inc (it forces a COW copy). Spec: Annex E §AIMS RL-1.
+    if ctx.analysis.cow_terminal_concat_inc_dsts.contains(&dst) {
         return None;
     }
     // Suppress the FRESH-site Inc when dst is the result of a callee that

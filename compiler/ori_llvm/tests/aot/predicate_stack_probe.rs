@@ -5114,3 +5114,58 @@ type Holder = { name: str }
 "#;
     assert_burden_path_self_sufficient(src, "owner_drop_deferred_past_borrow_view_str_field");
 }
+
+#[test]
+fn probe_terminal_concat_str_operand_no_leak() {
+    // A fresh str literal consumed EXACTLY ONCE as the LHS operand of a `+`
+    // concat in a match arm: `let $s = match x { Some(v) -> "lit_" + str(v), ..}`.
+    // The concat helper BORROWS the operand; the caller's single dec frees it, so
+    // the operand is move-once-linear (DP-3 `incElidable`) and its keep-alive
+    // FRESH-site inc is surplus — without suppression the literal leaks (alloc
+    // rc=1 + inc rc=2 - one dec rc=1). Spec: Annex E §AIMS RL-1 + RL-2.
+    let src = r#"
+@main () -> int = {
+    let $x = Some(42);
+    let $s = match x {
+        Some(v) -> "matched_some_heap_value_" + str(v),
+        None -> "matched_none_heap_fallback",
+    };
+    if s.starts_with(prefix: "matched_some") then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "terminal_concat_str_operand");
+}
+
+#[test]
+fn probe_terminal_concat_list_operand_no_leak() {
+    // Matrix (list `+`): a fresh `[int]` literal consumed EXACTLY ONCE as a `+`
+    // concat operand (`[1,2,3] + [4,5]`). The same move-once-linear surplus-inc
+    // shape as the str variant (`ori_list_concat_cow` borrows the operand).
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    let src = r#"
+@main () -> int = {
+    let $xs = [10, 20, 30] + [40, 50];
+    if xs.length() == 5 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "terminal_concat_list_operand");
+}
+
+#[test]
+fn probe_concat_lhs_reread_after_concat_no_double_free() {
+    // Negative clamp (the over-fire boundary the single-use gate protects): when
+    // the concat LHS is RE-READ after the concat (`let $s = a + "x"; a.starts_with`),
+    // the keep-alive inc is LOAD-BEARING — it raises rc >= 2 so `ori_str_concat`
+    // COPIES instead of mutating `a` in place, preserving the later read. The
+    // multi-use count excludes this shape from suppression; if the cure
+    // over-fired here, `a` would be mutated-in-place and the later read would see
+    // the concatenated value (wrong) or double-free. Spec: Annex E §AIMS RL-1.
+    let src = r#"
+@main () -> int = {
+    let $a = "long_prefix_heap_value_exceeding_inline_sso_storage";
+    let $s = a + "_suffix";
+    if a.starts_with(prefix: "long_prefix") && s.starts_with(prefix: "long_prefix") then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "concat_lhs_reread_after_concat");
+}
