@@ -801,3 +801,190 @@ fn sole_carrier_claim_declines_block_param_rooted_source() {
         "a block-param-rooted source declines the claim: {claims:?}"
     );
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// compute_fresh_call_result_borrowed_arg_inc_dsts (RL-1 / DP-3): a fresh
+// self-allocating Invoke result (`@to_str`) whose SOLE use is a borrowed
+// body-`Apply` arg has its surplus fresh-site inc suppressed. Spec: Annex E
+// §AIMS RL-1 (`incElidable`) + DP-3 (Once ∧ Affine).
+// ───────────────────────────────────────────────────────────────────────────
+
+use crate::ir::ValueRepr;
+
+/// `func_of` + a `var_reprs` vec sized to `n_vars` (default `Scalar`), with the
+/// listed `(var, repr)` overrides applied.
+fn func_with_reprs(blocks: Vec<ArcBlock>, n_vars: u32, reprs: &[(u32, ValueRepr)]) -> ArcFunction {
+    let mut func = func_of(blocks, n_vars);
+    let mut v = vec![ValueRepr::Scalar; n_vars as usize];
+    for &(idx, r) in reprs {
+        v[idx as usize] = r;
+    }
+    func.var_reprs = v;
+    func
+}
+
+/// The canonical `print(msg: xs.len().to_str())` shape: `%0 = Invoke @to_str()`
+/// (fresh `FatValue` str) consumed ONLY as the borrowed arg of the body
+/// `Apply @ori_print(%0 [borrow])`. Once ∧ Affine → fresh-site inc suppressed.
+#[test]
+fn fresh_to_str_result_sole_borrowed_body_apply_suppressed() {
+    let interner = StringInterner::new();
+    let to_str = interner.intern("to_str");
+    let print = interner.intern("ori_print");
+    let func = func_with_reprs(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: to_str,
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::from_raw(1),
+                    func: print,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                }],
+                ArcTerminator::Return {
+                    value: ArcVarId::new(1),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+        ],
+        2,
+        &[(0, ValueRepr::FatValue)],
+    );
+    let out = super::compute_fresh_call_result_borrowed_arg_inc_dsts(&func, &interner);
+    assert_eq!(
+        out.into_iter().collect::<Vec<_>>(),
+        vec![ArcVarId::new(0)],
+        "fresh to_str result borrowed once by a body-Apply has its surplus fresh-site inc suppressed"
+    );
+}
+
+/// Negative: a fresh `to_str` result read by TWO borrowed body-`Apply` args is a
+/// genuine duplication (`use_count` 2) — the inc is LOAD-BEARING, NOT suppressed.
+#[test]
+fn fresh_to_str_result_used_twice_keeps_inc() {
+    let interner = StringInterner::new();
+    let to_str = interner.intern("to_str");
+    let print = interner.intern("ori_print");
+    let func = func_with_reprs(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: to_str,
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(1),
+                        ty: Idx::from_raw(1),
+                        func: print,
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Apply {
+                        dst: ArcVarId::new(2),
+                        ty: Idx::from_raw(1),
+                        func: print,
+                        args: vec![ArcVarId::new(0)],
+                        arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                ],
+                ArcTerminator::Return {
+                    value: ArcVarId::new(2),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+        ],
+        3,
+        &[(0, ValueRepr::FatValue)],
+    );
+    let out = super::compute_fresh_call_result_borrowed_arg_inc_dsts(&func, &interner);
+    assert!(
+        out.is_empty(),
+        "a twice-used fresh result is a genuine duplication — inc kept: {out:?}"
+    );
+}
+
+/// Negative: a fresh `to_str` result consumed at an OWNED body-`Apply` arg
+/// position transfers ownership into the callee — the inc is the transfer
+/// funding, NOT suppressed.
+#[test]
+fn fresh_to_str_result_owned_arg_position_keeps_inc() {
+    let interner = StringInterner::new();
+    let to_str = interner.intern("to_str");
+    let consume = interner.intern("consume_owned");
+    let func = func_with_reprs(
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                ArcTerminator::Invoke {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::STR,
+                    func: to_str,
+                    args: Vec::new(),
+                    arg_ownership: Vec::new(),
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                vec![ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::from_raw(1),
+                    func: consume,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                    mono_instance_id: None,
+                }],
+                ArcTerminator::Return {
+                    value: ArcVarId::new(1),
+                },
+            ),
+            block(2, Vec::new(), Vec::new(), ArcTerminator::Resume),
+        ],
+        2,
+        &[(0, ValueRepr::FatValue)],
+    );
+    let out = super::compute_fresh_call_result_borrowed_arg_inc_dsts(&func, &interner);
+    assert!(
+        out.is_empty(),
+        "an owned-position transfer keeps the inc: {out:?}"
+    );
+}

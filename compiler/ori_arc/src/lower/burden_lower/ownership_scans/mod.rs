@@ -19,6 +19,7 @@ mod dead_param;
 mod dup_inc;
 mod forwarder;
 mod forwarder_release;
+mod fresh_call_result_borrowed_arg;
 mod iter_consume_dead_thread;
 mod lazy_iter_closure_borrow;
 mod live_extract;
@@ -51,6 +52,7 @@ pub(super) use branch_release::compute_branch_exclusive_edge_releases;
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
 pub(super) use closure_extract_borrow_view::compute_closure_extract_borrow_view_lineage;
 pub(super) use cow_terminal_concat::compute_cow_terminal_concat_inc_dsts;
+pub(super) use fresh_call_result_borrowed_arg::compute_fresh_call_result_borrowed_arg_inc_dsts;
 pub(super) use sharing_view_surplus::compute_sharing_view_surplus_inc_dsts;
 // Test-only re-export: the RAW classification is consumed by the `tests`
 // sibling; production consumers take the FUNDED set.

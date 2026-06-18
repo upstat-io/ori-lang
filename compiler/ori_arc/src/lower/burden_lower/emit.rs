@@ -122,6 +122,17 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // `ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION=1`. SSOT:
     // `compute_cow_terminal_concat_inc_dsts`. Spec: Annex E §AIMS RL-1 + RL-2.
     pub(super) cow_terminal_concat_inc_dsts: &'a FxHashSet<ArcVarId>,
+    // FRESH self-allocating `Invoke`-terminator call results (`@to_str` etc.)
+    // whose SOLE function-wide use is a single BORROWED body-`Apply` call arg
+    // (`print(msg: xs.len().to_str())`): the fresh rc=1 result is borrowed by one
+    // call arg and released by its single last-use dec, so the keep-alive
+    // FRESH-site inc is surplus (`incElidable`, DP-3 Once AND Affine; else net +1
+    // LEAK). Suppress ONLY the fresh-site inc; the paired single dec frees the
+    // alloc. Disjoint from the terminator-`Invoke`-consume lineage treatment.
+    // Empty when `ORI_DISABLE_FRESH_CALL_RESULT_BORROWED_ARG_INC_ELISION=1`.
+    // SSOT: `compute_fresh_call_result_borrowed_arg_inc_dsts`. Spec: Annex E
+    // §AIMS RL-1 + DP-3.
+    pub(super) fresh_call_result_borrowed_arg_inc_dsts: &'a FxHashSet<ArcVarId>,
     // BORROWED-param-rooted vars consumed at an aggregate-STORE position
     // (`Construct` / `Reuse` / `CollectionReuse` arg, `Set.value`). The store
     // duplicates the caller's retained reference (RL-1), so a `BurdenInc` is
@@ -1044,6 +1055,17 @@ fn compute_invoke_result_incs(
         // return aliases the transferred-in allocation (not fresh) — its
         // result-inc is elidable (`compute_transfer_through_return_results`).
         if analysis.transfer_through_return_results.contains(&dst) {
+            continue;
+        }
+        // RL-1 / DP-3: a fresh self-allocating Invoke result (`@to_str`) whose
+        // SOLE use is a borrowed body-`Apply` arg (`print(msg: ..)`) is
+        // move-once-linear — the keep-alive fresh-site inc is surplus (the
+        // paired single dec frees the rc=1 alloc; else net +1 leak). SSOT:
+        // `compute_fresh_call_result_borrowed_arg_inc_dsts`.
+        if analysis
+            .fresh_call_result_borrowed_arg_inc_dsts
+            .contains(&dst)
+        {
             continue;
         }
         if analysis.owned_vars_needing_rc.contains(&dst)

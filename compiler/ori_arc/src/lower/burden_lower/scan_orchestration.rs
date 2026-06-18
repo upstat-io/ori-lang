@@ -27,10 +27,11 @@ use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_cow_terminal_concat_inc_dsts,
     compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
-    compute_genuine_dup_move_aliases, compute_live_out_owned,
-    compute_loop_invariant_dead_local_releases, compute_readonly_borrow_orphan_inc_suppression,
-    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
-    compute_sharing_view_surplus_inc_dsts, compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_fresh_call_result_borrowed_arg_inc_dsts, compute_genuine_dup_move_aliases,
+    compute_live_out_owned, compute_loop_invariant_dead_local_releases,
+    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
+    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
+    compute_sum_payload_iter_consume_dup_inc_suppression,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
@@ -609,6 +610,17 @@ pub(crate) fn emit_burden_ops<'a>(
     // toggle). SSOT: `compute_cow_terminal_concat_inc_dsts`.
     let cow_terminal_concat_inc_dsts = compute_cow_terminal_concat_inc_dsts(func);
 
+    // RL-1 / DP-3 fresh-call-result borrowed-arg surplus inc: a fresh
+    // self-allocating Invoke result (`@to_str`) whose sole use is a borrowed
+    // body-`Apply` arg (`print(msg: xs.len().to_str())`) is move-once-linear —
+    // its keep-alive fresh-site inc is surplus (the paired single dec frees the
+    // alloc; else net +1 leak). Disjoint from the terminator-Invoke-consume
+    // lineage treatment. Empty under
+    // `ORI_DISABLE_FRESH_CALL_RESULT_BORROWED_ARG_INC_ELISION=1` (the compute fn
+    // owns the toggle). SSOT: `compute_fresh_call_result_borrowed_arg_inc_dsts`.
+    let fresh_call_result_borrowed_arg_inc_dsts =
+        compute_fresh_call_result_borrowed_arg_inc_dsts(func, interner);
+
     // RL-1 borrowed-store duplication incs: a BORROWED-param-rooted value
     // consumed at an aggregate-STORE position duplicates the caller's retained
     // reference — the store-site inc is load-bearing (the container's drop is
@@ -761,6 +773,7 @@ pub(crate) fn emit_burden_ops<'a>(
         index_builtin_name,
         sharing_view_surplus_inc_dsts: &sharing_view_surplus_inc_dsts,
         cow_terminal_concat_inc_dsts: &cow_terminal_concat_inc_dsts,
+        fresh_call_result_borrowed_arg_inc_dsts: &fresh_call_result_borrowed_arg_inc_dsts,
         borrowed_store_dup_args: &borrowed_store_dup_args,
         yield_identity_push_dup_args: &yield_identity_push_dup_args,
         call_arg_dup_aliases: &genuine_dup_call_arg_aliases,
