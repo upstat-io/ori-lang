@@ -32,7 +32,6 @@
 aims_interactions::test_h12_rc_merge_preserves_rc_ops
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
-arc::test_rc_alias_owned_call_then_root_use
 arc::test_rc_project_merge_two_distinct_parents
 borrow_independence::test_borrow_separate_heap_types
 collections_ext::test_coll_map_index_in_loop

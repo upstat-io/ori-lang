@@ -886,6 +886,22 @@ flags! {
     /// Usage: `ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS=1 ori build file.ori`
     ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS
 
+    /// Keep the comparison-operand same-root guard purely structural. Default: a
+    /// `==`/`!=` whose two operands share one `same_alloc` rep BECAUSE one operand is
+    /// a `transfers_through_return ∧ Direct` forwarder RESULT (`result == a` where
+    /// `result` aliases the arg's allocation) is EXEMPTED from the same-root guard —
+    /// the two operands are genuinely distinct co-references (the `b = a` duplication
+    /// funds the transfer, rc 1 -> 2), so the M3/M4 comparison-operand strip fires
+    /// (stripping the spurious operand keep-alive `BurdenInc`, leaving its dec as one
+    /// of the two genuine releases). With the toggle set, the guard stays structural
+    /// and the forwarder-transfer comparison reverts to the orphaned-dec double-free
+    /// (Phase-6 elim strips the spurious inc, the paired dec survives unmatched).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (Phase 6.97). Bisects a
+    /// forwarder-transfer comparison double-free to this exemption.
+    /// Usage: `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1 ori build file.ori`
+    ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT
+
     /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
     /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
     /// w in words yield w`) read via sibling `Let`-Var aliases across two blocks
