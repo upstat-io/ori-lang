@@ -32,7 +32,6 @@
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
 arc::test_rc_project_merge_two_distinct_parents
-borrow_independence::test_borrow_separate_heap_types
 collections_ext::test_coll_map_index_in_loop
 error_handling::test_nested_catch_panic_heap_messages_release_once
 fat_ptr_iter::conversion::test_str_split_on_substring
