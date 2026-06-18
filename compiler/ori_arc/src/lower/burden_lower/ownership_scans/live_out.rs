@@ -4,7 +4,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 use crate::ownership::Ownership;
 
 /// Compute per-block live-out sets restricted to `owned_vars_needing_rc`.
@@ -169,14 +169,36 @@ pub(in crate::lower::burden_lower) fn compute_dead_owned_param_branch_releases(
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<usize, Vec<ArcVarId>> {
-    // Owned non-scalar function params that carry heap RC — the only release candidates.
-    let owned_params: Vec<ArcVarId> = func
+    // Owned non-scalar function params that carry heap RC — release candidates.
+    let mut candidates: Vec<ArcVarId> = func
         .params
         .iter()
         .filter(|p| p.ownership == Ownership::Owned && owned_vars_needing_rc.contains(&p.var))
         .map(|p| p.var)
         .collect();
-    if owned_params.is_empty() {
+    // RL-4 edge-deadness ALSO governs a FRESH `Construct` owned non-scalar LOCAL
+    // dead crossing a branch edge (`if c then p1.first else p2.first` — the
+    // UNTAKEN parent aggregate dies on its own merge edge with no release).
+    // Reuses the SAME single-pred + `live_out(pred) ∧ ¬live_in(B)` edge-deadness
+    // + Jump-transfer-exemption gates as the param scan. Disjoint from the
+    // construct-fed-dead-param family (Jump-arg-threaded, exempted by
+    // `transferred_to_block`) and `branch_release` (funded-duplicate consume).
+    // Gated by `ORI_DISABLE_FRESH_CONSTRUCT_DEAD_BRANCH_RELEASE=1`. Spec: Annex
+    // E §AIMS RL-4 (`RL4_edge_dec_decision`, P1) + RL-2.
+    if std::env::var("ORI_DISABLE_FRESH_CONSTRUCT_DEAD_BRANCH_RELEASE").as_deref() != Ok("1") {
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Construct { dst, .. } = instr {
+                    if owned_vars_needing_rc.contains(dst)
+                        && !matches!(func.var_repr(*dst), Some(ValueRepr::Scalar))
+                    {
+                        candidates.push(*dst);
+                    }
+                }
+            }
+        }
+    }
+    if candidates.is_empty() {
         return FxHashMap::default();
     }
 
@@ -208,7 +230,7 @@ pub(in crate::lower::burden_lower) fn compute_dead_owned_param_branch_releases(
             continue;
         };
         let transferred = transferred_to_block(&func.blocks[pred].terminator, func.blocks[b].id);
-        for &p in &owned_params {
+        for &p in &candidates {
             // Edge-deadness: live entering `b`, dead in `b`'s forward sub-CFG.
             if !liveness.live_out[pred].contains(&p) {
                 continue;

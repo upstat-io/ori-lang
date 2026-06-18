@@ -31,7 +31,6 @@
 # successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
-arc::test_rc_project_merge_two_distinct_parents
 collections_ext::test_coll_map_index_in_loop
 error_handling::test_nested_catch_panic_heap_messages_release_once
 fat_ptr_iter::conversion::test_str_split_on_substring
@@ -44,7 +43,6 @@ generics::test_generic_forwarder_result_list_str_returns_intact
 generics::test_path_sensitive_match_dispatch_list_balances_rc
 ir_quality_loops::test_while_condition_continue_diverging_operand_compiles
 journey_guard::test_journey_19_rc_lifecycle
-match_alias::test_option_intlist_select_branch_return
 match_alias::test_result_str_letvar_forloop_over_alias
 narrowing::test_narrowed_list_and_canonical_set_coexist
 predicate_stack_probe::probe_aggregate_transfer_forwarder_option_no_double_free
