@@ -240,8 +240,20 @@ run_rust_llvm() {
 }
 
 run_aot() {
-    echo "=== Running AOT integration tests ==="
-    if rust_test_leg "$AOT_OUTPUT" -p ori_llvm --test aot; then
+    echo "=== Running AOT integration tests (gated burden probe) ==="
+    # The AOT RC / floor verdict is captured ONLY under the gated burden probe:
+    # ORI_DISABLE_PREDICATE_STACK_RC=1 switches the legacy predicate-stack RC
+    # emitter OFF so the burden path is the sole RC emitter (the path of record,
+    # under active migration). The DEFAULT path runs the predicate stack, which is
+    # false-green on known-failing floor cells AND can double-free in the
+    # predicate-stack/burden coexistence surface — that abort produces no
+    # parseable nextest summary, which is why the default-path aot leg ERRORED.
+    # diagnostics/aot-guardrail.sh --floor uses the same gated env. Subshell scopes
+    # the env to this leg only.
+    if (
+        export ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1
+        rust_test_leg "$AOT_OUTPUT" -p ori_llvm --test aot
+    ); then
         echo "  ✓ AOT integration tests passed"
         return 0
     else

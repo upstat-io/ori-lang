@@ -410,6 +410,18 @@ flags! {
     /// Usage: `ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC=1 ori build file.ori`
     ORI_DISABLE_SUM_PAYLOAD_ITER_CONSUME_DUP_INC
 
+    /// Decline admitting a fresh-self-alloc user-callee `Apply`/`Invoke` result
+    /// as an iter-consume dead-thread orphan-inc root (default: a `clone_list` /
+    /// fresh-collection result whose `ReturnContract.returns_fresh_self_alloc`
+    /// certifies rc=1 is admitted as a dead-thread root, so its keep-alive inc
+    /// balances the downstream `@iter [own]` consume — the two-iter-consumed
+    /// `str_list` `two_calls` shape, surface (a)). `=1` restores the pre-cure leak.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// fresh-Invoke-result iter-consume leak to this admission.
+    /// Usage: `ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT=1 ori build file.ori`
+    ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT
+
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
     /// is its proven global final use — successor-reachability proof, loop
