@@ -840,6 +840,24 @@ flags! {
     /// Usage: `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS
 
+    /// Restore the syntactic last-use placement of an owned aggregate's whole-var
+    /// `BurdenDec`, ignoring the downstream liveness of its `Project` borrow-views.
+    /// Default (unset): an aggregate `%agg` whose `Project` borrow-view (or a
+    /// `Let{Var}` alias of one) is read AFTER `%agg`'s own syntactic last use has
+    /// its whole-var release PLACEMENT extended to the borrow-view's last use — the
+    /// owner's drop (which cascade-frees the projected field) must not precede a
+    /// borrow-read of that field (TF-14 source-liveness joins the view's liveness;
+    /// RL-2 the owner drop is the field's single release). With the toggle set, the
+    /// owner drop lands at the aggregate's syntactic last use (use-after-free on a
+    /// borrow-view read past the owner's drop — `let xs = c.items; xs.fold(..)`).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. Bisects the
+    /// borrow-view-read-past-owner-drop UAF to this placement extension vs the
+    /// rest of the Phase-5 walk. Spec: Annex E §AIMS TF-14 + RL-2.
+    /// Usage: `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS=1 ori build file.ori`
+    ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS
+
     /// Decline the SELF-ALLOCATING-BUILTIN `Invoke`-result root family of the
     /// Phase-5 borrowed-`Invoke` lineage treatment (the CARRIER-SUCC mode): a
     /// fresh builtin result (`@concat` template-chain link, heap `@to_str` /

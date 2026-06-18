@@ -30,7 +30,8 @@ use super::ownership_scans::{
     compute_lazy_iter_closure_borrow_lineage, compute_loop_closure_dead_param_lineage,
     compute_multi_exit_borrow_view_lineage, compute_nested_construct_return_passthrough,
     compute_owned_vars_needing_rc, compute_retain_aliasing_lineage, detect_last_uses,
-    detect_transfer_points, group_last_uses_filtered, ConstructFedDeadParamLineage,
+    detect_transfer_points, extend_owner_last_use_for_borrow_views, group_last_uses_filtered,
+    ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
@@ -74,6 +75,12 @@ pub(super) struct OwnedRcFilter {
     /// last-use `BurdenDec` survives. SSOT:
     /// `compute_call_result_element_final_read_releases`.
     pub(super) final_read_release_aliases: FxHashSet<ArcVarId>,
+    /// Owner aggregates whose own in-block last-use `BurdenDec` is SUPPRESSED by
+    /// the TF-14 owner-drop borrow-view liveness extension (the borrowed-`Invoke`
+    /// case relocates the release to the normal-successor `BlockEntry`). Merged
+    /// into `transfer_via_move_alias` (dec-only suppression) in
+    /// `scan_orchestration`. SSOT: `extend_owner_last_use_for_borrow_views`.
+    pub(super) owner_borrow_view_dec_suppress: FxHashSet<ArcVarId>,
 }
 
 /// Run the burden-walk suppression-filter prologue: populate `ctx`, compute the
@@ -99,6 +106,15 @@ pub(super) fn compute_owned_rc_filter<'a>(
     collect_owned_burdens(ctx, func, type_registry);
     detect_transfer_points(ctx, func, type_registry);
     detect_last_uses(ctx, func);
+    // TF-14 owner-drop placement extension: a SOLE-owned-RC-field inline aggregate
+    // whose projected borrow-view is read at a borrowed-`Invoke` terminator arg has
+    // its whole-var `[AggFields]` release relocated to the normal-successor
+    // `BlockEntry` (merged into `forwarder_result_releases` below) + its own in-block
+    // dec suppressed — the owner drop cascade-frees the projected field, so it must
+    // land AFTER the borrow-read (else UAF). Gated on the SAME same-allocation
+    // sole-owned-field discriminator as the surplus-dec arms (`arg_sole_owned_rc_field_is`),
+    // NOT a structural Project-edge proxy. Spec: Annex E §AIMS TF-14 + RL-2 + RL-4.
+    let owner_borrow_view_ext = extend_owner_last_use_for_borrow_views(&*ctx, func, type_registry);
 
     // `owned_vars_needing_rc` filters scalars whose `lookup_burden` returns
     // `Some(BurdenRef)` wrapping the empty builtin burden — required by AIMS
@@ -560,6 +576,16 @@ pub(super) fn compute_owned_rc_filter<'a>(
             .or_default()
             .extend(vars);
     }
+    // Merge the TF-14 owner-drop borrow-view relocated releases (borrowed-`Invoke`
+    // case → normal-successor `BlockEntry`) into the same surface. Disjoint family
+    // (owner aggregates whose borrow-view survives a borrowed call vs forwarder
+    // results / niche-family sums / closures), so the merge cannot double-release.
+    for (site, vars) in owner_borrow_view_ext.releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
     let last_uses_at = group_last_uses_filtered(ctx, &owned_vars_needing_rc);
     {
         let mut owned: Vec<u32> = owned_vars_needing_rc
@@ -589,6 +615,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         last_uses_at,
         claimed_no_sink_vars,
         final_read_release_aliases,
+        owner_borrow_view_dec_suppress: owner_borrow_view_ext.suppress,
     }
 }
 

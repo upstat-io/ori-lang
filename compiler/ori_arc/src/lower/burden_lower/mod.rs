@@ -343,6 +343,31 @@ pub(in crate::lower::burden_lower) fn borrow_view_dst_surplus_dec_suppress_disab
     *BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS_DISABLED
 }
 
+/// `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS=1` restores the syntactic
+/// last-use placement of an owned aggregate's whole-var `BurdenDec`, ignoring
+/// the downstream liveness of its `Project` borrow-views. Default (unset): an
+/// aggregate `%agg` whose `Project` borrow-view (or a `Let{Var}` alias of one)
+/// is read AFTER `%agg`'s own syntactic last use has its whole-var release
+/// PLACEMENT extended to the borrow-view's last use — the owner's drop (which
+/// cascade-frees the projected field) must not precede a borrow-read of that
+/// field (TF-14 `TF14_propagation_spec`: a Project's source liveness joins the
+/// view's liveness; RL-2 `RL2_release_exactly_once`: the owner drop is the
+/// field's single release). With the toggle set, the owner drop lands at the
+/// aggregate's syntactic last use (use-after-free on a borrow-view read past
+/// the owner's drop — `let xs = c.items; xs.fold(..)`). Same-allocation-identity
+/// gated on the structural `Project { value: agg }` borrow-view edge (NOT a
+/// use-count / type-membership proxy). Spec: Annex E §AIMS TF-14 + RL-2.
+static OWNER_DROP_BORROW_VIEW_LIVENESS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_OWNER_DROP_BORROW_VIEW_LIVENESS`
+/// toggle — consumed by the last-use detection extension
+/// (`ownership_scans::walk::extend_owner_last_use_for_borrow_views`).
+pub(in crate::lower::burden_lower) fn owner_drop_borrow_view_liveness_disabled() -> bool {
+    *OWNER_DROP_BORROW_VIEW_LIVENESS_DISABLED
+}
+
 /// `ORI_DISABLE_PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS=1` restores the surplus
 /// same-allocation dec on a use-once owned source `%s` (`arg`) whose SOLE owned
 /// RC field is projected-returned by a borrowed-receiver callee to an OWNED

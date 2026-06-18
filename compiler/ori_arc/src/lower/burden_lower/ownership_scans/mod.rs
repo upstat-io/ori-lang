@@ -28,6 +28,7 @@ mod loop_invariant_dead_local;
 mod move_alias;
 mod multi_exit_borrow_view;
 mod nested_construct_return_passthrough;
+mod owner_borrow_view;
 mod reassign_release;
 mod sharing_view_surplus;
 mod store_dup;
@@ -87,6 +88,7 @@ pub(super) use move_alias::{
 };
 pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use nested_construct_return_passthrough::compute_nested_construct_return_passthrough;
+pub(super) use owner_borrow_view::extend_owner_last_use_for_borrow_views;
 pub(super) use reassign_release::compute_reassign_rebind_releases;
 pub(crate) use store_dup::{compute_funded_store_dup_aliases, store_family_funding_disabled};
 pub(super) use walk::{

@@ -141,6 +141,7 @@ pub(crate) fn emit_burden_ops<'a>(
         last_uses_at,
         claimed_no_sink_vars,
         final_read_release_aliases,
+        owner_borrow_view_dec_suppress,
     } = compute_owned_rc_filter(
         &mut ctx,
         func,
@@ -387,7 +388,7 @@ pub(crate) fn emit_burden_ops<'a>(
     // transfers an owned param THROUGH its return, the call result IS the
     // forwarded arg (a move across the call), so the move-chain must span it.
     let invoke_ttr_edges = collect_invoke_ttr_edges(func, contracts);
-    let transfer_via_move_alias = compute_transfer_via_move_alias(
+    let mut transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
         &use_counts,
@@ -438,6 +439,15 @@ pub(crate) fn emit_burden_ops<'a>(
             inc_suppressed_vars.insert(var);
         }
     }
+
+    // TF-14 owner-drop borrow-view DEC-ONLY suppression: an owner aggregate whose
+    // release was relocated to a borrowed-`Invoke` normal-successor `BlockEntry`
+    // has its OWN in-block last-use `BurdenDec` suppressed — but its FRESH
+    // (`Construct`) inc is KEPT (the relocated `BlockEntry` release is the single
+    // release of that rc=1 allocation, RL-2 release-once). Merged AFTER the
+    // inc-suppression loop so the owner's inc is never swept into
+    // `inc_suppressed_vars`. Spec: Annex E §AIMS TF-14 + RL-2 + RL-4.
+    transfer_via_move_alias.extend(owner_borrow_view_dec_suppress.iter().copied());
 
     // DP-3 read-only-borrow orphan-inc suppression: a fresh `Construct` whose
     // scope-exit dec is transfer-suppressed (via the owned-RC-dst move-edge seed,
