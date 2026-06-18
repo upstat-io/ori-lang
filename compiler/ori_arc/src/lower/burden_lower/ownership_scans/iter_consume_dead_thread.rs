@@ -224,7 +224,12 @@ fn collect_fresh_collection_roots(
 ) -> Vec<ArcVarId> {
     let collect_set_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
+    // The for-yield-result finalizer (`ori_list_take` moves the loop-accumulator
+    // buffer out → a FRESH owned `[T]` at rc=1, lattice-identical to a `Construct`
+    // root). SSOT-shared with the Phase-6 net-keyed elision (`burden_elim.rs`).
+    let list_take_name = crate::aims::realize::for_yield_result_finalizer_name(interner);
     let admit_invoke_result = !invoke_result_root_disabled();
+    let admit_for_yield_take = !for_yield_take_root_disabled();
     let mut roots = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
@@ -239,6 +244,18 @@ fn collect_fresh_collection_roots(
                 ArcInstr::Apply {
                     dst, func: callee, ..
                 } if *callee == collect_set_name => {
+                    roots.push(*dst);
+                }
+                // A direct `@ori_list_take` builtin result is the for-yield-result
+                // FRESH rc=1 buffer (RcPointer-repr only), lattice-identical to a
+                // `Construct` root. Gates (b)/(c)/(d) below decline any non-dead-
+                // threaded / non-iter-consumed take-result (the over-fire boundary).
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if admit_for_yield_take
+                    && *callee == list_take_name
+                    && matches!(func.var_repr(*dst), Some(ValueRepr::RcPointer)) =>
+                {
                     roots.push(*dst);
                 }
                 // A user-callee `Apply` result whose contract certifies
@@ -286,6 +303,19 @@ fn collect_fresh_collection_roots(
 /// active.
 fn invoke_result_root_disabled() -> bool {
     std::env::var("ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT").as_deref() == Ok("1")
+}
+
+/// `ORI_DISABLE_ITER_CONSUME_FOR_YIELD_TAKE_ROOT=1` declines admitting a direct
+/// `@ori_list_take` builtin result (the for-yield-result finalizer — a FRESH
+/// rc=1 buffer moved out of the loop accumulator, lattice-identical to a
+/// `Construct`) as a dead-thread orphan-inc root, restoring the pre-cure leak on
+/// the loop-carried for-yield-result iter-consumed shape (the all-unit-enum
+/// `for d in dirs yield d` → `for d in copy do` cell). Default (unset): cure
+/// active. The Phase-6 `mark_lineage_rebalance_removals` `touches_loop` gate
+/// DEFERS this loop-carried lineage by design; this back-edge-aware Phase-5 scan
+/// is its purpose-built handler.
+fn for_yield_take_root_disabled() -> bool {
+    std::env::var("ORI_DISABLE_ITER_CONSUME_FOR_YIELD_TAKE_ROOT").as_deref() == Ok("1")
 }
 
 /// Gate (c) support: grow the same-alloc lineage from `root` over `Let { Var }`

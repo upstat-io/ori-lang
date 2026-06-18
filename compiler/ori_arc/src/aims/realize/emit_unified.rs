@@ -10377,7 +10377,7 @@ fn forward_reachable_from(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usi
 /// owned `[T]` at RC = 1. For alloc-aware-net accounting this result IS a fresh
 /// self-allocation (the buffer's own `+1`), so [`fresh_self_alloc_dst`] treats it
 /// like a `Construct`.
-pub(super) fn for_yield_result_finalizer_name(interner: &ori_ir::StringInterner) -> ori_ir::Name {
+pub(crate) fn for_yield_result_finalizer_name(interner: &ori_ir::StringInterner) -> ori_ir::Name {
     interner.intern("ori_list_take")
 }
 

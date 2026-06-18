@@ -495,3 +495,165 @@ fn collect_set_chain_live_thread_declines() {
         "a genuine owned-position read of the collect-result thread declines (keep-alive needed)"
     );
 }
+
+/// Build the for-yield-result shape whose root is a direct `@ori_list_take`
+/// builtin `Apply` (the loop-accumulator finalizer — a FRESH rc=1 buffer), NOT a
+/// `Construct` literal. Mirrors `for_yield_func` otherwise:
+/// ```text
+/// bb0: %3 = Apply @ori_list_take(%2 [borrow]); %5 = %3;
+///      Invoke @iter(%5 [own/borrow]) normal bb1 unwind bb2
+/// bb1..bb6: identical dead-thread carry as for_yield_func.
+/// ```
+/// `iter_consumed` controls the `@iter` arg ownership (Owned = iter-consumed,
+/// Borrowed = the not-iter-consumed over-fire boundary).
+fn for_yield_take_func(interner: &StringInterner, iter_consumed: bool) -> ArcFunction {
+    let v = ArcVarId::new;
+    let iter = interner.intern("iter");
+    let take = interner.intern("ori_list_take");
+    let cond = v(16);
+    let ret = v(49);
+    let iter_own = if iter_consumed {
+        crate::ir::ArgOwnership::Owned
+    } else {
+        crate::ir::ArgOwnership::Borrowed
+    };
+
+    let bb0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Apply {
+                dst: v(3),
+                ty: Idx::from_raw(1),
+                func: take,
+                args: vec![v(2)],
+                arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+            ArcInstr::Let {
+                dst: v(5),
+                ty: Idx::from_raw(1),
+                value: ArcValue::Var(v(3)),
+            },
+        ],
+        terminator: ArcTerminator::Invoke {
+            dst: v(6),
+            ty: Idx::from_raw(2),
+            func: iter,
+            args: vec![v(5)],
+            arg_ownership: vec![iter_own],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+            mono_instance_id: None,
+        },
+    };
+    let bb1 = jmp_block(1, 3, vec![v(3)]);
+    let bb2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: Vec::new(),
+        body: vec![],
+        terminator: ArcTerminator::Resume,
+    };
+    let bb3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![(v(10), Idx::from_raw(1))],
+        body: vec![ArcInstr::Let {
+            dst: cond,
+            ty: Idx::from_raw(9),
+            value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+        }],
+        terminator: ArcTerminator::Branch {
+            cond,
+            then_block: ArcBlockId::new(4),
+            else_block: ArcBlockId::new(6),
+        },
+    };
+    let bb4 = jmp_block(4, 3, vec![v(10)]);
+    let bb5 = ArcBlock {
+        id: ArcBlockId::new(5),
+        params: vec![(v(11), Idx::from_raw(1))],
+        body: Vec::new(),
+        terminator: ArcTerminator::Return { value: ret },
+    };
+    let bb6 = jmp_block(6, 5, vec![v(10)]);
+
+    let mut var_reprs = vec![ValueRepr::Scalar; 51];
+    var_reprs[3] = ValueRepr::RcPointer; // ori_list_take result root
+    var_reprs[5] = ValueRepr::RcPointer; // @iter arg alias
+    var_reprs[6] = ValueRepr::RcPointer; // iterator
+    var_reprs[10] = ValueRepr::RcPointer; // loop-carried dead-thread param
+    var_reprs[11] = ValueRepr::RcPointer; // post-loop dead-thread param
+
+    ArcFunction {
+        var_types: (0..51).map(|i| Idx::from_raw(i + 1)).collect(),
+        var_reprs,
+        blocks: vec![bb0, bb1, bb2, bb3, bb4, bb5, bb6],
+        entry: ArcBlockId::new(0),
+        name: interner.intern("main"),
+        ..ArcFunction::default()
+    }
+}
+
+/// Positive pin (for-yield-result root): the `@ori_list_take` finalizer result %3
+/// (FRESH rc=1, the `for d in dirs yield d` → `for d in copy do` shape) iter-
+/// consumed + dead-threaded is suppressed — the surplus FRESH-site inc is elided.
+/// Reverting the take-root admission (`ORI_DISABLE_ITER_CONSUME_FOR_YIELD_TAKE_ROOT=1`)
+/// restores the +1 leak (the all-unit-enum `narrowing::test_for_yield_all_unit_enum`
+/// AOT cell). The Phase-6 `mark_lineage_rebalance_removals` `touches_loop` gate
+/// DEFERS this loop-carried lineage; this back-edge-aware Phase-5 scan owns it.
+/// Spec: Annex E §AIMS RL-1 + RL-2.
+#[test]
+fn for_yield_list_take_root_dead_thread_suppresses_orphan_inc() {
+    let interner = StringInterner::new();
+    let func = for_yield_take_func(&interner, true);
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let owned: FxHashSet<ArcVarId> = [
+        ArcVarId::new(3),
+        ArcVarId::new(5),
+        ArcVarId::new(10),
+        ArcVarId::new(11),
+    ]
+    .into_iter()
+    .collect();
+
+    let out = compute_iter_consume_dead_thread_orphan_inc(&func, &contracts, &owned, &interner);
+
+    assert!(
+        out.contains(&ArcVarId::new(3)),
+        "ori_list_take for-yield-result root suppressed"
+    );
+    assert!(
+        out.contains(&ArcVarId::new(10)),
+        "loop-carried dead-thread param suppressed"
+    );
+    assert!(
+        out.contains(&ArcVarId::new(11)),
+        "post-loop dead-thread param suppressed"
+    );
+}
+
+/// Negative pin (over-fire boundary): an `@ori_list_take` for-yield-result root
+/// whose `@iter` arg is BORROWED (not iter-consumed) declines — gate (b) holds for
+/// the take-root exactly as for a `Construct` root. Guards the take-root admission
+/// against eliding a take-result that genuinely survives (no `ori_iter_drop`
+/// release ⇒ eliding the inc would leak nothing but eliding the dec would UAF).
+#[test]
+fn for_yield_list_take_root_not_iter_consumed_declines() {
+    let interner = StringInterner::new();
+    let func = for_yield_take_func(&interner, false);
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let owned: FxHashSet<ArcVarId> = [
+        ArcVarId::new(3),
+        ArcVarId::new(5),
+        ArcVarId::new(10),
+        ArcVarId::new(11),
+    ]
+    .into_iter()
+    .collect();
+
+    let out = compute_iter_consume_dead_thread_orphan_inc(&func, &contracts, &owned, &interner);
+    assert!(
+        out.is_empty(),
+        "a take-root not consumed at @iter [own] declines (gate b — no iter-drop release)"
+    );
+}
