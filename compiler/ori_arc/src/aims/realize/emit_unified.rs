@@ -403,6 +403,25 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
+    // Phase 6.66g — AGGREGATE-FIELD iter-consume partial-dec (RL-2 field-grained
+    // iter-consume inward transfer). A fresh/dead OWNED aggregate passed at a
+    // BORROWED `Invoke` arg to a callee whose `ParamContract.iter_consumes_projected_field`
+    // is `Some(field)` (the callee iter-consumes `Project param.field` — e.g.
+    // `for item in c.items` over a borrowed struct `c`) has that field's
+    // ownership transferred inward: the callee's `ori_iter_drop` is the single
+    // release of the projected collection. The caller's whole-aggregate scope-exit
+    // `BurdenDec` would recursively re-free that consumed field (double-free), so
+    // rewrite it to a `BurdenDecPartial skip_fields=[field]` — releasing the
+    // aggregate shell + its OTHER owned fields but NOT the iter-consumed field.
+    // Probe-gated (`ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL`) -> default codegen
+    // byte-identical when no aggregate matches. Spec: Annex E §AIMS RL-2.
+    rewrite_aggregate_iter_consume_field_decs(func, contracts, same_alloc_reps);
+    trace_phase_snapshot(
+        "after_phase_6_66g_aggregate_field_iter_consume",
+        func,
+        interner,
+    );
+
     // Phase 6.66b — SINGLE iter-consume + non-iter REUSE keep-alive (RL-1
     // duplication + RL-2 iter-consume transfer). A borrowed collection iterated
     // ONCE (`@iter [own]` -> `ori_iter_drop`) then REUSED at a non-iter position
@@ -4499,6 +4518,194 @@ fn suppress_single_borrowed_invoke_iter_consume_source(
                 !reps_to_strip.contains(&rep_of(*var))
             }
             _ => true,
+        });
+    }
+}
+
+/// Phase 6.66g — AGGREGATE-FIELD iter-consume partial-dec rewrite (RL-2
+/// field-grained iter-consume inward transfer).
+///
+/// A fresh/dead OWNED aggregate (`Construct Struct`/`Construct Tuple`, or the
+/// owned result of a user callee returning one) passed at a BORROWED `Invoke`
+/// terminator arg to a callee whose `ParamContract.iter_consumes_projected_field`
+/// is `Some(field)` has that field's ownership transferred inward: the callee's
+/// `@iter(Project param.field [own])` -> `ori_iter_drop` is the SINGLE release of
+/// the projected collection (`for item in c.items` over a borrowed struct `c`).
+///
+/// The caller's whole-aggregate scope-exit `BurdenDec` (emitted by the Phase-6.5
+/// edge-cleanup Category-1 dead-var release) would recursively re-free that
+/// consumed field — a double-free, since the field's backing buffer is already
+/// gone. This pass rewrites each such whole-var `BurdenDec aggregate` (on the
+/// aggregate's same-alloc lineage) to a `BurdenDecPartial aggregate
+/// skip_fields=[field]`: the aggregate shell and its OTHER owned fields still get
+/// released, but the iter-consumed field is skipped (RL-2 transfer — no caller
+/// dec for a transferred field).
+///
+/// SCOPE GUARD (over-fire boundary) — ALL required: (a) the arg sits at a
+/// BORROWED `Invoke`/`InvokeIndirect` arg position (an Owned arg already
+/// transfers the whole aggregate, no partial needed); (b) the callee's param
+/// contract proves `iter_consumes_projected_field = Some(field)` AND NOT
+/// whole-param `iter_consumes` (the whole-param case is Phase 6.66c); (c) the arg
+/// var (via `same_alloc_reps`) actually carries a whole-var `BurdenDec` to
+/// rewrite (a leak-shaped under-emission is left to the leak passes; this rewrite
+/// only ever NARROWS an over-release). A `BurdenDec` that is already a partial /
+/// field-grain op is left untouched (no double-rewrite). Probe-gated
+/// (`ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL`) -> default codegen
+/// byte-identical when no aggregate matches.
+///
+/// Lean: `AimsProof.Realization::RL2_iter_consuming_no_caller_dec` +
+/// `RL2_iter_consuming_caller_dec_splits` (the field-grained iter-consume is the
+/// same RL-2 inward transfer at field grain — the consumed field's release is the
+/// callee's, the caller emits none for it). Spec: Annex E §AIMS RL-2.
+fn rewrite_aggregate_iter_consume_field_decs(
+    func: &mut ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if std::env::var_os("ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL").is_some() {
+        return;
+    }
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+
+    // (a)+(b): collect (aggregate-rep -> consumed field) for every borrowed
+    // `Invoke` arg whose callee param carries the field-grained iter-consume
+    // contract (and NOT whole-param iter-consume). A rep with >1 distinct
+    // consumed field is poisoned (no consistent skip set) -> drop it.
+    let mut rep_consumed_field: FxHashMap<ArcVarId, Option<u32>> = FxHashMap::default();
+    for block in &func.blocks {
+        let (callee, args, arg_ownership, is_indirect) = match &block.terminator {
+            ArcTerminator::Invoke {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } => (Some(*callee), args, arg_ownership, false),
+            ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => (None, args, arg_ownership, true),
+            _ => continue,
+        };
+        let Some(callee) = callee else {
+            // InvokeIndirect has no contract -> no field-grained signal.
+            let _ = is_indirect;
+            continue;
+        };
+        let Some(contract) = contracts.get(&callee) else {
+            continue;
+        };
+        for (i, &arg) in args.iter().enumerate() {
+            // (a): borrowed arg position only.
+            let owned = match arg_ownership.get(i) {
+                Some(o) => *o == ArgOwnership::Owned,
+                None => true, // direct-call default is Owned
+            };
+            if owned {
+                continue;
+            }
+            let Some(param) = contract.params.get(i) else {
+                continue;
+            };
+            // (b): field-grained iter-consume, NOT whole-param iter-consume.
+            if param.iter_consumes {
+                continue;
+            }
+            let Some(field) = param.iter_consumes_projected_field else {
+                continue;
+            };
+            let rep = rep_of(arg);
+            match rep_consumed_field.entry(rep) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(Some(field));
+                }
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    if e.get() != &Some(field) {
+                        // Conflicting consumed fields across call sites of the same
+                        // allocation -> poison (no consistent partial skip).
+                        *e.get_mut() = None;
+                    }
+                }
+            }
+        }
+    }
+    rep_consumed_field.retain(|_, f| f.is_some());
+    if rep_consumed_field.is_empty() {
+        return;
+    }
+
+    // The consumed field's reference is transferred inward (the callee's iter-drop
+    // is its single release). A whole-aggregate keep-alive `BurdenInc` on the same
+    // rep incs EVERY heap field — including the consumed one — so leaving it while
+    // the dec skips the consumed field strands a +1 on that field (a leak). Count
+    // the per-rep whole-var inc/dec balance: when the rep carries a net-0
+    // `BurdenInc`/`BurdenDec` keep-alive pair, remove ONE matching whole-var
+    // `BurdenInc` alongside the dec→partial rewrite — the surviving fields are then
+    // accounted by the partial dec alone (each constructed at rc=1, released once),
+    // and the consumed field is freed exactly once by the callee. A rep with MORE
+    // incs than decs (a genuine duplication beyond the keep-alive) keeps the
+    // surplus incs intact (only one keep-alive inc is paired off).
+    let mut rep_incs: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    let mut rep_decs: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    let r = rep_of(*var);
+                    if rep_consumed_field.contains_key(&r) {
+                        *rep_incs.entry(r).or_default() += 1;
+                    }
+                }
+                ArcInstr::BurdenDec { var } => {
+                    let r = rep_of(*var);
+                    if rep_consumed_field.contains_key(&r) {
+                        *rep_decs.entry(r).or_default() += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // Reps whose whole-var inc count == dec count carry the net-0 keep-alive pair;
+    // for those, remove ONE whole-var inc on the rep.
+    let mut inc_removal_budget: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    for &rep in rep_consumed_field.keys() {
+        let incs = rep_incs.get(&rep).copied().unwrap_or(0);
+        let decs = rep_decs.get(&rep).copied().unwrap_or(0);
+        if incs > 0 && incs == decs {
+            inc_removal_budget.insert(rep, 1);
+        }
+    }
+
+    // (c): rewrite each whole-var `BurdenDec var` whose rep matches to a
+    // `BurdenDecPartial var skip_fields=[field]`; remove one matching keep-alive
+    // `BurdenInc` per budgeted rep. Field-grain ops are left as-is.
+    for block in &mut func.blocks {
+        block.body.retain_mut(|instr| {
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    let r = rep_of(*var);
+                    if let Some(budget) = inc_removal_budget.get_mut(&r) {
+                        if *budget > 0 {
+                            *budget -= 1;
+                            return false; // drop this keep-alive inc
+                        }
+                    }
+                    true
+                }
+                ArcInstr::BurdenDec { var } => {
+                    if let Some(Some(field)) = rep_consumed_field.get(&rep_of(*var)) {
+                        let v = *var;
+                        let f = *field;
+                        *instr = ArcInstr::BurdenDecPartial {
+                            var: v,
+                            skip_fields: vec![f],
+                        };
+                    }
+                    true
+                }
+                _ => true,
+            }
         });
     }
 }

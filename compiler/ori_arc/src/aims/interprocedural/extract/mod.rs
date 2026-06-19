@@ -28,7 +28,8 @@ use alias_flow::{
     find_payload_containment_params, find_return_alias_shapes, find_return_flow_params,
 };
 use param_facts::{
-    find_borrowed_cow_consumed_params, find_borrowed_read_only_params, find_iter_consume_params,
+    find_aggregate_iter_consume_fields, find_borrowed_cow_consumed_params,
+    find_borrowed_read_only_params, find_iter_consume_params,
 };
 use return_contract::extract_return_info;
 
@@ -240,6 +241,9 @@ fn param_contract_for(
         // RL-2 capture-variant-deadness Project record — the per-variant
         // refinement of `return_alias` for the closure-extract borrow-view scan.
         capture_variant_return_project: facts.capture_variant_return_project.get(&i).copied(),
+        // RL-2 field-grained iter-consume record — the per-field refinement of
+        // `iter_consumes` for the aggregate-field iter-consume caller scan.
+        iter_consumes_projected_field: facts.iter_consumes_projected_field.get(&i).copied(),
     }
 }
 
@@ -342,6 +346,10 @@ struct ParamFacts {
     /// caller-side capture-variant-deadness signal behind
     /// `ParamContract.capture_variant_return_project`.
     capture_variant_return_project: FxHashMap<usize, (u64, u32)>,
+    /// Per-param field-grained iter-consume record `i → field` — the caller-side
+    /// aggregate-field iter-consume signal behind
+    /// `ParamContract.iter_consumes_projected_field`.
+    iter_consumes_projected_field: FxHashMap<usize, u32>,
 }
 
 /// Detect every structural [`ParamFacts`] set in one pass over the body
@@ -381,6 +389,11 @@ fn detect_param_facts(
         find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner);
     let capture_variant_return_project =
         find_capture_variant_return_projections_entry(func, &alias_to_param);
+    // Field-grained iter-consume of a borrowed aggregate param's projected field
+    // (RL-2 inward transfer of the consumed field) — exclude any param already
+    // covered by the whole-param `iter_consume` fact (that case is whole-value).
+    let mut iter_consumes_projected_field = find_aggregate_iter_consume_fields(func, interner);
+    iter_consumes_projected_field.retain(|pi, _| !iter_consume.contains(pi));
     // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
     // pattern): the param IS the returned value, so the caller takes
     // ownership of the param's allocation through the return slot.
@@ -408,6 +421,7 @@ fn detect_param_facts(
         borrowed_read_only,
         borrowed_cow_consumed,
         capture_variant_return_project,
+        iter_consumes_projected_field,
     }
 }
 

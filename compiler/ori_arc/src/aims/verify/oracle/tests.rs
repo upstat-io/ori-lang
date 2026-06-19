@@ -133,6 +133,7 @@ fn oracle_accepts_matching_contract() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -173,6 +174,7 @@ fn oracle_accepts_conservative_inference() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -218,6 +220,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -384,6 +387,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
@@ -737,6 +741,7 @@ fn oracle_accepts_conservative_may_share() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     let mismatches = verify_coherence(&func, &contract, 0);
@@ -807,6 +812,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             capture_variant_return_project: None,
+            iter_consumes_projected_field: None,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -824,6 +830,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             capture_variant_return_project: None,
+            iter_consumes_projected_field: None,
         },
     ]);
 
@@ -862,6 +869,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         capture_variant_return_project: None,
+        iter_consumes_projected_field: None,
     }]);
 
     // Should not panic — zip truncates to the shorter (1 param from contract).

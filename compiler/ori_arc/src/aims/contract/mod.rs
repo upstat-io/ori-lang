@@ -472,6 +472,32 @@ pub struct ParamContract {
     ///
     /// Default: `None` (conservative — no per-variant Project claim).
     pub capture_variant_return_project: Option<(u64, u32)>,
+
+    /// Field-grained iter-consume record (RL-2 iter-consume inward-transfer,
+    /// the per-field refinement of `iter_consumes`).
+    ///
+    /// `Some(field)` when this BORROWED aggregate param has its `Project
+    /// param.field` projection iter-consumed (`@iter [own]` → `ori_iter_drop`
+    /// frees the projected collection INSIDE the callee), while the param itself
+    /// is NOT directly iter-consumed (the whole-param `iter_consumes` covers the
+    /// param-IS-the-collection case; this covers the field-IS-the-collection
+    /// case). Exactly one consumed field; multiple distinct consumed fields, or a
+    /// field also read past the consume, poison to `None`.
+    ///
+    /// Consumed on the CALLER side by
+    /// `lower::burden_lower::ownership_scans::aggregate_iter_consume_field`: when
+    /// a fresh/dead OWNED aggregate is passed at this borrowed `Invoke` arg
+    /// position, the callee transfers ownership of `field` inward (RL-2), so the
+    /// caller's whole-aggregate scope-exit `BurdenDec` is rewritten to a
+    /// `BurdenDecPartial skip_fields=[field]` — releasing the aggregate shell and
+    /// its other owned fields but NOT the iter-consumed field the callee already
+    /// freed (a double-free otherwise).
+    ///
+    /// IC-3 join: equal `Some` survives; disagreement (different field index)
+    /// poisons to `None`. A single callee computes this once intraprocedurally.
+    ///
+    /// Default: `None` (conservative — no field-grained iter-consume claim).
+    pub iter_consumes_projected_field: Option<u32>,
 }
 
 impl ParamContract {
@@ -515,6 +541,9 @@ impl ParamContract {
         // Conservative default: no per-variant Project claim — an unknown
         // callee never feeds the caller-side capture-variant-deadness scan.
         capture_variant_return_project: None,
+        // Conservative default: no field-grained iter-consume claim — an unknown
+        // callee never feeds the caller-side aggregate-field iter-consume scan.
+        iter_consumes_projected_field: None,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -559,6 +588,9 @@ impl ParamContract {
         // IC-2 seed: no claim. `extract_contract` overrides per-param from the
         // body's Switch-arm scan; a single callee computes it once.
         capture_variant_return_project: None,
+        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
+        // body's projected-field iter-consume scan; a single callee computes it once.
+        iter_consumes_projected_field: None,
     };
 
     /// Componentwise join toward conservative.
@@ -603,6 +635,17 @@ impl ParamContract {
             capture_variant_return_project: match (
                 self.capture_variant_return_project,
                 other.capture_variant_return_project,
+            ) {
+                (None, x) | (x, None) => x,
+                (Some(a), Some(b)) if a == b => Some(a),
+                (Some(_), Some(_)) => None,
+            },
+            // Equal `Some` survives; disagreement (different consumed field)
+            // poisons to `None`. A single callee computes its own field-grained
+            // iter-consume shape once.
+            iter_consumes_projected_field: match (
+                self.iter_consumes_projected_field,
+                other.iter_consumes_projected_field,
             ) {
                 (None, x) | (x, None) => x,
                 (Some(a), Some(b)) if a == b => Some(a),

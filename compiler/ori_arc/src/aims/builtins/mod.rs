@@ -399,6 +399,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     capture_variant_return_project: None,
+    iter_consumes_projected_field: None,
 };
 
 /// Borrowed parameter PROVEN read-only: the runtime function reads the value's
@@ -429,6 +430,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     capture_variant_return_project: None,
+    iter_consumes_projected_field: None,
 };
 
 /// Return contract for methods producing unique results (COW operations).
