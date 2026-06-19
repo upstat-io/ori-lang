@@ -19,13 +19,21 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
 
 /// `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1` declines the RL-5 release
 /// for a purely-dead loop-invariant fresh-collection local (the bisection
 /// surface; default off -> the release is emitted). Spec: Annex E §AIMS RL-5.
 fn disabled() -> bool {
     std::env::var("ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE").as_deref() == Ok("1")
+}
+
+/// `ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE=1` declines the RL-5 release
+/// for the BORROW-ONLY-READ loop-invariant fresh-collection local (the
+/// borrow-read sibling of the purely-dead family; default off -> the release is
+/// emitted). Spec: Annex E §AIMS RL-5.
+fn borrow_only_disabled() -> bool {
+    std::env::var("ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE").as_deref() == Ok("1")
 }
 
 /// Per-block RL-5 releases for purely-dead loop-invariant fresh-collection
@@ -80,9 +88,19 @@ pub(in crate::lower::burden_lower) fn compute_loop_invariant_dead_local_releases
     }
 
     for root in roots {
-        if let Some((block_idx, param)) =
-            admit_lineage(func, root, &param_loc, owned_vars_needing_rc)
-        {
+        // Purely-dead family (threaded only, never read): the original RL-5
+        // recovery. Borrow-only-read family (loop-borrowed via `[borrow]` reads,
+        // then dead at the terminal exit param): the sibling recovery. The two
+        // are disjoint by their read discriminator; the contains-gate below
+        // keeps the merge idempotent if both ever match one root.
+        let admitted = admit_lineage(func, root, &param_loc, owned_vars_needing_rc).or_else(|| {
+            if borrow_only_disabled() {
+                None
+            } else {
+                admit_borrow_only_lineage(func, root, &param_loc, owned_vars_needing_rc)
+            }
+        });
+        if let Some((block_idx, param)) = admitted {
             let entry = out.entry(block_idx).or_default();
             if !entry.contains(&param) {
                 entry.push(param);
@@ -106,6 +124,206 @@ fn admit_lineage(
         return None;
     }
     find_sole_terminal(func, &members, param_loc, owned_vars_needing_rc)
+}
+
+/// Admit the BORROW-ONLY-READ loop-invariant variant: a fresh-collection
+/// `Construct` threaded UNCHANGED through loop block-params whose ONLY non-thread
+/// uses are `[borrow]`-position `Apply`/`Invoke` args (and their `Let`-Var
+/// aliases), reaching EXACTLY ONE terminal dead block-param. Shape: a map/list
+/// borrow-read each iteration (`let v = m[k]` lowers to `@__index(m [borrow], ..)`
+/// off a `Let`-alias of the threaded param), dead at the loop-normal-exit param.
+/// The loop back-edge fractures the union-find lineage so the base walk emits no
+/// scope-exit release on the normal path (only the unwind-edge cleanup decs),
+/// leaking the buffer. Per `RL5_dead_at_entry_cleanup` + `RL5_cleanup_balanced`
+/// the terminal Owned non-scalar Absent param entered with a live RC=1 reference
+/// never consumed; ONE RL-5 release balances it. Spec: Annex E §AIMS RL-5.
+fn admit_borrow_only_lineage(
+    func: &ArcFunction,
+    root: ArcVarId,
+    param_loc: &FxHashMap<ArcVarId, (usize, usize)>,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) -> Option<(usize, ArcVarId)> {
+    let members = grow_lineage_with_aliases(func, root);
+    // CLOSURE gate (the loop-INVARIANT discriminator): every member block-param's
+    // EVERY incoming `Jump`-arg MUST itself be a member. A reassigned loop local
+    // (`s = [i,i+1]; s = s.push(7)`) feeds a FRESH per-iteration value back into
+    // the loop slot via the back-edge — that feeder is a non-member, so the slot
+    // is NOT a single allocation threaded unchanged. Only a value constructed ONCE
+    // (the sole root) and threaded by its own self-aliases satisfies RL-5's
+    // dead-at-entry single-reference premise; a reassigned slot carries a fresh
+    // allocation per iteration whose release the base walk already owns.
+    if !lineage_is_closed_under_feeders(func, &members, &param_loc_of(func)) {
+        return None;
+    }
+    if !lineage_is_borrow_only_dead(func, &members) {
+        return None;
+    }
+    find_sole_terminal(func, &members, param_loc, owned_vars_needing_rc)
+}
+
+/// Block-param -> defining `(block_idx, position)` index over the whole function.
+fn param_loc_of(func: &ArcFunction) -> FxHashMap<ArcVarId, (usize, usize)> {
+    let mut m: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for (pos, &(p, _)) in block.params.iter().enumerate() {
+            m.insert(p, (bi, pos));
+        }
+    }
+    m
+}
+
+/// True iff every member that is a block-param has ALL its incoming `Jump`-args
+/// (across every predecessor block, every back-edge) be members. A non-member
+/// feeder means a fresh-per-iteration value is reassigned into the loop slot —
+/// the slot is NOT loop-invariant, so the dead-at-entry single-reference premise
+/// of RL-5 fails and the base walk already releases each fresh value.
+fn lineage_is_closed_under_feeders(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    param_loc: &FxHashMap<ArcVarId, (usize, usize)>,
+) -> bool {
+    for block in &func.blocks {
+        let ArcTerminator::Jump { target, args } = &block.terminator else {
+            continue;
+        };
+        let target_params = &func.blocks[target.index()].params;
+        for (pos, &arg) in args.iter().enumerate() {
+            let Some(&(tp, _)) = target_params.get(pos) else {
+                continue;
+            };
+            // This Jump-arg feeds a member block-param at `pos`.
+            if members.contains(&tp) && param_loc.contains_key(&tp) && !members.contains(&arg) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Grow the member set from `root` over BOTH `Jump`-arg -> block-param edges
+/// (the loop threading, including back-edges) AND `Let { value: Var(member) }`
+/// alias edges (the borrow-read view's binding). A borrow-read `let v = m[k]`
+/// binds `%alias = Let Var(%threaded)` then reads `@__index(%alias [borrow])`;
+/// `%alias` joins the lineage so its borrow-read is vetted by
+/// [`lineage_is_borrow_only_dead`].
+fn grow_lineage_with_aliases(func: &ArcFunction, root: ArcVarId) -> FxHashSet<ArcVarId> {
+    let mut members: FxHashSet<ArcVarId> = FxHashSet::default();
+    members.insert(root);
+    let mut work: Vec<ArcVarId> = vec![root];
+    while let Some(v) = work.pop() {
+        // Jump-arg -> block-param threading (loop edges).
+        for block in &func.blocks {
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                for (pos, &arg) in args.iter().enumerate() {
+                    if arg == v {
+                        if let Some(&(p, _)) = func.blocks[target.index()].params.get(pos) {
+                            if members.insert(p) {
+                                work.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Let { Var(member) } alias edges (the borrow-read view's binding).
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if *src == v && members.insert(*dst) {
+                        work.push(*dst);
+                    }
+                }
+            }
+        }
+    }
+    members
+}
+
+/// True iff EVERY use of every member is one of: a `Jump`-arg feeding a member
+/// block-param (the loop threading), a `Let { Var(member) }` alias edge (an
+/// internal lineage hop), a BORROWED-position `Apply`/`ApplyIndirect`/`Invoke`
+/// arg (the read-only borrow), or a balanced `BurdenInc`/`BurdenDec` keep-alive
+/// pair. ANY owned-position consume / store / `Project` / `Construct`-arg /
+/// `Set` / `Select` / non-thread terminator operand / `Jump`-arg feeding a
+/// NON-member declines (a real transfer-out with its own release the base walk
+/// emits). Mirrors the borrow-only vetting in `closure_extract_borrow_view`,
+/// extended to permit the loop's member-threading `Jump`-args.
+fn lineage_is_borrow_only_dead(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
+    let mut saw_borrow_read = false;
+    for block in &func.blocks {
+        for instr in &block.body {
+            let touches = instr.used_vars().iter().any(|v| members.contains(v));
+            if !touches {
+                continue;
+            }
+            match instr {
+                // Balanced keep-alive pair on a member: a no-op, not a read.
+                ArcInstr::BurdenInc { .. } | ArcInstr::BurdenDec { .. } => {}
+                // Alias-edge: the lineage's own internal hop.
+                ArcInstr::Let {
+                    value: ArcValue::Var(src),
+                    ..
+                } if members.contains(src) => {}
+                // Borrowed call: EVERY member arg MUST be at a BORROWED position.
+                ArcInstr::Apply { args, .. } | ArcInstr::ApplyIndirect { args, .. } => {
+                    for (pos, a) in args.iter().enumerate() {
+                        if members.contains(a) {
+                            if instr.is_owned_position(pos) {
+                                return false;
+                            }
+                            saw_borrow_read = true;
+                        }
+                    }
+                }
+                // Any other instruction touching a member is an owned consume /
+                // store / capture / projection / construct-arg — decline.
+                _ => return false,
+            }
+        }
+        match &block.terminator {
+            ArcTerminator::Jump { target, args } => {
+                for (pos, &arg) in args.iter().enumerate() {
+                    if !members.contains(&arg) {
+                        continue;
+                    }
+                    let feeds_member = func.blocks[target.index()]
+                        .params
+                        .get(pos)
+                        .is_some_and(|&(p, _)| members.contains(&p));
+                    if !feeds_member {
+                        return false;
+                    }
+                }
+            }
+            // A member at a BORROWED `Invoke` terminator arg is a borrow-read
+            // (the may-unwind `@__index` / `@unwrap` lowering); any owned arg
+            // position or any other terminator operand is an escape — decline.
+            ArcTerminator::Invoke { args, .. } | ArcTerminator::InvokeIndirect { args, .. } => {
+                let term = &block.terminator;
+                for (pos, &arg) in args.iter().enumerate() {
+                    if members.contains(&arg) {
+                        if term.is_owned_position(pos) {
+                            return false;
+                        }
+                        saw_borrow_read = true;
+                    }
+                }
+            }
+            other => {
+                if other.used_vars().iter().any(|v| members.contains(v)) {
+                    return false;
+                }
+            }
+        }
+    }
+    // At least one genuine borrow-read distinguishes this from the purely-dead
+    // family (which the first admission path already owns).
+    saw_borrow_read
 }
 
 /// Grow the member set from `root` over `Jump`-arg -> block-param edges (the

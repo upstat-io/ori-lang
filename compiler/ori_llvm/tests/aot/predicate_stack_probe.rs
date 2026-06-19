@@ -2887,6 +2887,32 @@ fn probe_loop_invariant_map_index_borrow_no_premature_free_negative() {
     assert_burden_path_self_sufficient(src, "loop_invariant_map_index_borrow_negative");
 }
 
+#[test]
+fn probe_loop_reassigned_list_borrow_read_no_double_free_negative() {
+    // NEGATIVE / loop-invariant-BORROW closure clamp: a list local REASSIGNED
+    // each iteration (`xs = [i]; xs = xs.push(i)`) is then borrow-READ
+    // (`@__index [borrow]`). The reassignment feeds a FRESH per-iteration
+    // allocation into the loop-carried slot via the back-edge, so the slot is
+    // NOT loop-invariant — the borrow-only-read RL-5 release MUST NOT fire (the
+    // base walk already releases each fresh value). Over-firing a single
+    // scope-exit release on the reassigned slot double-frees the last
+    // iteration's buffer (`-134`). The discriminator is the lineage-closure gate:
+    // a member block-param fed by a non-member (the fresh reassignment) declines.
+    let src = r#"
+@main () -> int = {
+    let xs = [0];
+    let sum = 0;
+    for i in 1..=3 do {
+        xs = [i, i + 1];
+        xs = xs.push(7);
+        sum = sum + xs[0];
+    };
+    if sum == 6 && xs.len() == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "loop_reassigned_list_borrow_read_negative");
+}
+
 // --- Transfer-through-return forwarder RESULT freeing (RL-2 ScopeExit) ---
 // A fresh-owned collection passed `[own]` into a `transfers_through_return ∧
 // ReturnAliasShape::Direct` forwarder (`@id<T>(x: T) -> T = x`) is returned
