@@ -12,6 +12,7 @@ mod borrowed;
 mod borrowed_invoke_lineage;
 mod branch_release;
 mod call_arg_dup;
+mod catch_recover_release;
 mod closure_extract_borrow_view;
 mod construct_fed;
 mod cow_terminal_concat;
@@ -50,6 +51,7 @@ pub(super) use borrowed_invoke_lineage::{
 };
 pub(super) use branch_release::compute_branch_exclusive_edge_releases;
 pub(super) use call_arg_dup::compute_call_result_element_final_read_releases;
+pub(super) use catch_recover_release::compute_catch_recover_release_lineage;
 pub(super) use closure_extract_borrow_view::compute_closure_extract_borrow_view_lineage;
 pub(super) use cow_terminal_concat::compute_cow_terminal_concat_inc_dsts;
 pub(super) use fresh_call_result_borrowed_arg::compute_fresh_call_result_borrowed_arg_inc_dsts;

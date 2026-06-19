@@ -24,23 +24,23 @@ use super::ownership_scans::borrowed_invoke_lineage_release_disabled;
 use super::ownership_scans::{
     collect_owned_burdens, compute_borrowed_arg_let_aliases,
     compute_borrowed_invoke_collection_lineage, compute_borrowed_projection_dsts,
-    compute_closure_extract_borrow_view_lineage, compute_construct_fed_dead_param_lineage,
-    compute_forwarder_identity_transparent_aliases, compute_forwarder_result_under_release,
-    compute_fresh_sum_live_extract_lineage, compute_iter_consume_dead_thread_orphan_inc,
-    compute_lazy_iter_closure_borrow_lineage, compute_loop_closure_dead_param_lineage,
-    compute_multi_exit_borrow_view_lineage, compute_nested_construct_return_passthrough,
-    compute_owned_vars_needing_rc, compute_retain_aliasing_lineage, detect_last_uses,
-    detect_transfer_points, extend_owner_last_use_for_borrow_views, group_last_uses_filtered,
-    ConstructFedDeadParamLineage,
+    compute_catch_recover_release_lineage, compute_closure_extract_borrow_view_lineage,
+    compute_construct_fed_dead_param_lineage, compute_forwarder_identity_transparent_aliases,
+    compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
+    compute_iter_consume_dead_thread_orphan_inc, compute_lazy_iter_closure_borrow_lineage,
+    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
+    compute_nested_construct_return_passthrough, compute_owned_vars_needing_rc,
+    compute_retain_aliasing_lineage, detect_last_uses, detect_transfer_points,
+    extend_owner_last_use_for_borrow_views, group_last_uses_filtered, ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
-    CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED, CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED,
-    FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED, FORWARDER_RESULT_RELEASE_DISABLED,
-    FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED, ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED,
-    LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
-    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED, NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED,
-    RETAIN_ALIASING_RELEASE_DISABLED,
+    CATCH_RECOVER_RELEASE_DISABLED, CLOSURE_EXTRACT_BORROW_VIEW_RELEASE_DISABLED,
+    CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED, FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED,
+    FORWARDER_RESULT_RELEASE_DISABLED, FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED,
+    ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED, LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED,
+    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
+    NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED, RETAIN_ALIASING_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -309,6 +309,26 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // provably emits zero ops for this shape (predicate-only probe: bare alloc).
     let (fresh_sum_claimed, fresh_sum_releases) =
         apply_fresh_sum_live_extract(func, contracts, &mut owned_vars_needing_rc, type_registry);
+    // RL-2 catch-recover release: a `catch(panic(...))` recovered `str` whose
+    // `Result::Err(msg)` payload is match-extracted + borrow-read (`@chars` /
+    // `@contains`) but never released on the NORMAL path — the walk's only dec
+    // sits on the unwind / `Resume` edge. The recovered copy is a FRESH
+    // `ori_catch_recover` builtin result with NO seeded contract (the deliberate
+    // no-contract decision per `arc.md §Protocol Builtins`), so the fresh-sum
+    // live-extract scan FORECLOSES it (`collect_fresh_sum_roots` requires a callee
+    // contract). This scan roots on the `ori_catch_recover` callee IDENTITY,
+    // builds the borrow-only same-alloc closure (recover result + `Construct
+    // Variant` Result wrap + niche-payload `Project` + Let-Var aliases +
+    // Jump-threaded loop block-params), confirms every existing dec is unwind-only
+    // (the MISSING-release shape), and places EXACTLY ONE whole-var `BurdenDec`
+    // after the closure's execution-final GENUINE borrow-read on the normal path —
+    // excluding the loop-carried keep-alive churn from the final-read computation.
+    // Runs AFTER the fresh-sum scan (disjoint family — `ori_catch_recover`-rooted
+    // closures vs contract-rooted niche-family sums); a root either scan claimed
+    // auto-declines via gate (b)'s owned-set check. SSOT:
+    // `compute_catch_recover_release_lineage`. Spec: Annex E §AIMS RL-2.
+    let catch_recover_releases =
+        apply_catch_recover_release(func, &mut owned_vars_needing_rc, interner);
     // RL-1 + RL-2 + RL-4 multi-exit borrow-view treatment: a FRESH closure
     // (`Apply`/`Invoke` result, `Unique ∧ preserves_freshness`, non-forwarder)
     // consumed ONLY at `ApplyIndirect` borrow-receiver sites across a
@@ -529,6 +549,16 @@ pub(super) fn compute_owned_rc_filter<'a>(
             .or_default()
             .extend(vars);
     }
+    // Merge the catch-recover normal-path releases into the same surface.
+    // Disjoint family (`ori_catch_recover`-rooted message closures vs forwarder
+    // results / contract-rooted niche-family sums / closures), so the merge
+    // cannot double-release.
+    for (site, vars) in catch_recover_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
     // Merge the multi-exit borrow-view per-path releases into the same surface.
     // Disjoint family (FatValue closure roots vs forwarder results / niche-family
     // sums), so the merge cannot double-release.
@@ -717,6 +747,26 @@ fn apply_fresh_sum_live_extract(
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     (treatment.suppressed_lineage_vars, treatment.releases)
+}
+
+/// Toggle-gated application of the RL-2 catch-recover missing-release treatment
+/// ([`compute_catch_recover_release_lineage`]): computes the vetted borrow-only
+/// `ori_catch_recover`-rooted same-alloc closure, removes it from
+/// `owned_vars_needing_rc` (suppressing the keep-alive incs + unwind-only decs),
+/// and returns the single placed normal-path release for the
+/// `forwarder_result_releases` merge. Empty when
+/// `ORI_DISABLE_CATCH_RECOVER_RELEASE=1`.
+fn apply_catch_recover_release(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    interner: &StringInterner,
+) -> PlacedReleaseMap {
+    if *CATCH_RECOVER_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment = compute_catch_recover_release_lineage(func, owned_vars_needing_rc, interner);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
 }
 
 /// Toggle-gated application of the RL-1 + RL-2 + RL-4 + TF-4 retain-aliasing

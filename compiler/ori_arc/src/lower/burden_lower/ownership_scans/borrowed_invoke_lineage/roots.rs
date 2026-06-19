@@ -8,9 +8,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue};
 
-/// Gate (a): candidate roots — every FRESH heap-`Construct` dst:
+/// Gate (a): candidate roots — every FRESH heap rc=1 dst:
 ///  - a collection buffer `Construct { ctor: ListLiteral | MapLiteral |
 ///    SetLiteral }`, OR
 ///  - a sum-aggregate `Construct { ctor: EnumVariant }` (Option / Result / user
@@ -19,11 +19,23 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 ///    The `owned_vars_needing_rc` gate excludes all-scalar-payload sum
 ///    instantiations (`Option<int>`: niche-packed, no RC header), keeping the
 ///    no-sink / dead-param treatment scoped to genuine heap lineages.
+///  - a HEAP string literal `Let { value: Literal::String }` whose dst is in
+///    `owned_vars_needing_rc` (heap-backed `OriStr`, not SSO — the membership
+///    gate IS the heap discriminator, mirroring the `EnumVariant` arm). A heap
+///    str literal borrow-read through a chain of borrowed-`Invoke` args
+///    (`base.substring(..).split(..)` — every part is a seamless slice co-owning
+///    the base buffer) then dead at the normal-exit `Return` is the SAME
+///    receiver-lineage shape as a collection `Construct`: the base walk places
+///    the whole-var release on the dying unwind edges (Cat-2 `deadAtSucc`) but
+///    NOT on the normal `Return`, leaking the base allocation on the normal path
+///    (`RL2_release_exactly_once`: every concrete path nets to 0; the normal
+///    path nets +1). The same death-point treatment + same-alloc vetting +
+///    overlap gate place EXACTLY ONE release after the closure's final
+///    borrow-read on the normal exit. Spec: Annex E §AIMS RL-2 + RL-4.
 ///
 /// Plain `Struct` ctors stay DECLINED (no failing cell; a wider admission is
-/// over-fire surface without evidence). A `Let { Literal::String }` heap-str body
-/// is NOT a candidate (no `Construct` definer; string-literal lineages decline
-/// naturally).
+/// over-fire surface without evidence). An SSO str literal (absent from
+/// `owned_vars_needing_rc`) declines naturally — no RC burden.
 pub(super) fn collect_fresh_construct_roots(
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
@@ -32,14 +44,23 @@ pub(super) fn collect_fresh_construct_roots(
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
+                // Collection buffers: always heap rc=1, no `owned_vars_needing_rc` gate.
                 ArcInstr::Construct {
                     dst,
                     ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
                     ..
                 } => roots.push(*dst),
+                // Sum-aggregate `Construct` + heap str-literal `Let`: heap rc=1
+                // ONLY when the `owned_vars_needing_rc` membership proves an RC
+                // burden (excludes niche-packed scalar sums + SSO strings).
                 ArcInstr::Construct {
                     dst,
                     ctor: CtorKind::EnumVariant { .. },
+                    ..
+                }
+                | ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Literal(LitValue::String(_)),
                     ..
                 } if owned_vars_needing_rc.contains(dst) => roots.push(*dst),
                 _ => {}

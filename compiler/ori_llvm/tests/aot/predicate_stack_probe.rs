@@ -5194,3 +5194,57 @@ fn probe_concat_lhs_reread_after_concat_no_double_free() {
 "#;
     assert_burden_path_self_sufficient(src, "concat_lhs_reread_after_concat");
 }
+
+#[test]
+fn probe_heap_str_literal_slice_split_borrow_read_dead_no_leak() {
+    // POSITIVE / heap str-literal receiver-lineage clamp: a HEAP string literal
+    // (`base`, > SSO_MAX_LEN) borrow-read through a chain of borrowed-`Invoke`
+    // args (`base.substring(..)` -> `.split(..)`: every long part is a seamless
+    // slice co-owning `base`'s buffer) then DEAD at the normal-exit `Return`. The
+    // base walk places `base`'s whole-var release on the dying unwind edges only,
+    // NOT on the normal `Return` -> `base` leaks on the normal path
+    // (`RL2_release_exactly_once`: every concrete path nets to 0; the normal path
+    // nets +1). The borrowed-`Invoke` lineage scan admits the heap str-literal
+    // root (gated on `owned_vars_needing_rc` membership = heap, not SSO) and
+    // places EXACTLY ONE release after the closure's final borrow-read on the
+    // normal exit. Spec: Annex E §AIMS RL-2 + RL-4.
+    let src = r#"
+@main () -> int = {
+    let base = "AAAAAAAAAAAAAAAAAAAAAAAA,BBBBBBBBBBBBBBBBBBBBBBBB,CCCCCCCCCCCC";
+    let sub = base.substring(start: 0, end: 49);
+    let parts = sub.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        total = total + p.len();
+    };
+    if total == 48 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_literal_slice_split_borrow_read_dead");
+}
+
+#[test]
+fn probe_heap_str_literal_returned_no_double_free_negative() {
+    // NEGATIVE / heap str-literal OWNED-CONSUME clamp: a HEAP string literal
+    // (`s`, > SSO_MAX_LEN) read once via a borrowed `@len` then RETURNED through a
+    // branch. The `Return` is an OWNED-position consume (RL-2 transfer) — the
+    // same-alloc vetting gate (d) of the borrowed-`Invoke` lineage scan MUST
+    // DECLINE the str-literal root (any owned-position consume / `Return` declines).
+    // Over-firing a normal-path dead-param release on a value the `Return`
+    // transfers would double-free the returned allocation (`-134`). The
+    // discriminator is the vetting gate: a member at an owned terminator operand
+    // declines. Spec: Annex E §AIMS RL-2.
+    let src = r#"
+@pick (s: str) -> int = {
+    let n = s.len();
+    if n > 100 then n else 0
+}
+
+@main () -> int = {
+    let s = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD_heap_string";
+    let r = pick(s: s);
+    if r == 0 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "heap_str_literal_returned_negative");
+}

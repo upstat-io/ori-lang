@@ -90,6 +90,27 @@ static FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|
     std::env::var("ORI_DISABLE_FRESH_SUM_LIVE_EXTRACT_RELEASE").as_deref() == Ok("1")
 });
 
+/// `ORI_DISABLE_CATCH_RECOVER_RELEASE=1` skips the Phase-5 RL-2 missing-release
+/// treatment for a `catch(panic(...))` recovered `str` whose `Result::Err(msg)`
+/// payload is match-extracted + borrow-read but never released on the normal path
+/// ([`ownership_scans::compute_catch_recover_release_lineage`]). Default (unset):
+/// the whole same-alloc closure (the `ori_catch_recover` result + its
+/// `Construct Variant` Result wrap + niche-payload `Project` extraction + Let-Var
+/// aliases + Jump-threaded loop block-params) is removed from
+/// `owned_vars_needing_rc` (suppressing the keep-alive incs + unwind-only decs)
+/// and EXACTLY ONE whole-var `BurdenDec` is placed after the closure's
+/// execution-final GENUINE borrow-read (`@chars` / `@contains`) on the normal
+/// path. Roots on the `ori_catch_recover` callee IDENTITY — the
+/// `compute_fresh_sum_live_extract_lineage` sibling is foreclosed because
+/// `collect_fresh_sum_roots` requires a callee contract and `ori_catch_recover`
+/// has none by the deliberate no-contract decision (`arc.md §Protocol Builtins`).
+/// With the toggle set, the base walk's unwind-only release returns (the
+/// recovered message buffer leaks on the normal path). Bisection surface:
+/// isolates a catch-recover message leak to this treatment vs the rest of the
+/// Phase-5 walk. Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
+static CATCH_RECOVER_RELEASE_DISABLED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_DISABLE_CATCH_RECOVER_RELEASE").as_deref() == Ok("1"));
+
 /// `ORI_DISABLE_MULTI_EXIT_BORROW_VIEW_RELEASE=1` skips the Phase-5 RL-1 / RL-2
 /// / RL-4 multi-exit borrow-view treatment for a FRESH closure (`Apply`/`Invoke`
 /// result, `Unique` + `preserves_freshness`, non-forwarder) consumed ONLY at

@@ -45,7 +45,6 @@ match_alias::test_closure_env_alias_no_leak
 match_alias::test_closure_option_str_capture_two_call_no_leak
 match_alias::test_let_alias_struct_intlist
 match_alias::test_option_intlist_select_branch_return
-match_alias::test_result_str_letvar_forloop_over_alias
 narrowing::test_for_yield_all_unit_enum
 narrowing::test_for_yield_all_unit_enum_transform
 narrowing::test_for_yield_int_from_narrowed_int_list
