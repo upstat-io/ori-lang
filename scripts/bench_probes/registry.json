@@ -5,6 +5,18 @@
       "case": "lexer/raw/throughput/5000",
       "direction": "higher-is-better",
       "unit": "MiB/s"
+    },
+    "eval": {
+      "kind": "program-wallclock",
+      "build": "cargo build --release -q --bin ori",
+      "command": "./target/release/ori run tests/run-pass/rosetta/001_100_doors/ori/100_doors.ori",
+      "direction": "lower-is-better",
+      "unit": "s",
+      "samples": 3,
+      "external_baseline": {
+        "label": "python3",
+        "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors.py"
+      }
     }
   },
   "noise_threshold_pct": 5.0

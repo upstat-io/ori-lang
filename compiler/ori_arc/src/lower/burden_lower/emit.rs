@@ -13,7 +13,6 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitVal
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::instr_owned_position_transfer_vars;
 use super::ownership_scans::ForwarderReleasePos;
 
 /// Function-wide analysis results consumed by burden emission. Bundled into
@@ -48,13 +47,6 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // dec in a block the value outlives.
     pub(super) live_out_per_block: &'a [FxHashSet<ArcVarId>],
     pub(super) contracts: &'a FxHashMap<Name, MemoryContract>,
-    // Probe flag (`ORI_DISABLE_PREDICATE_STACK_RC=1`). When set, the predicate
-    // stack RC emitter is off and the burden path is the sole real-RC emitter:
-    // instruction-level transfer-suppression in `emit_last_use_decs` is lifted so
-    // a value consumed at an owned instruction position (e.g. an `ApplyIndirect`
-    // closure receiver) emits its release here instead of deferring to the
-    // (disabled) predicate stack. Default-path (false) suppression is unchanged.
-    pub(super) predicate_stack_rc_disabled: bool,
     // Vars consumed as a list-concat `PrimOp Binary(Add)` `RcPointer` operand
     // (`ori_list_concat_cow` dual-consuming contract). Precomputed before the
     // `&mut` emit walk (var reprs are stable), consulted by `emit_last_use_decs`
@@ -319,17 +311,10 @@ pub(super) fn emit_burden_ops_for_blocks(
                 }
             }
         }
-        // When the predicate stack is disabled (probe), the burden walk is the
-        // sole RC emitter: it MUST emit the borrowed-Invoke-arg scope-exit dec
-        // itself (the predicate stack's `release_with_burden_edge` is off).
-        // Passing an empty borrowed-arg set un-suppresses those decs. On the
-        // default path the predicate stack co-emits, so suppression stays.
-        let empty_borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
-        let terminator_borrowed_args = if analysis.predicate_stack_rc_disabled {
-            empty_borrowed
-        } else {
-            invoke_terminator_borrowed_args(&block.terminator)
-        };
+        // The burden walk is the sole RC emitter: it MUST emit the
+        // borrowed-Invoke-arg scope-exit dec itself. The empty borrowed-arg set
+        // un-suppresses those decs.
+        let terminator_borrowed_args: FxHashSet<ArcVarId> = FxHashSet::default();
         emit_terminator_burden_decs(
             &mut new_body,
             block_idx,
@@ -342,32 +327,6 @@ pub(super) fn emit_burden_ops_for_blocks(
         block.body = new_body;
     }
     trace_burden_orphans(func, analysis.owned_vars_needing_rc);
-}
-
-/// Vars used at a BORROWED (non-owned) arg position of an `Invoke` /
-/// `InvokeIndirect` terminator. A borrowed Invoke arg is NOT consumed by the
-/// callee — the value survives to the `normal` / `unwind` successors, where the
-/// predicate-stack edge cleanup (`emit_rc::release_with_burden`) releases it and
-/// co-emits the paired scope-exit `BurdenDec`. Emitting the burden-walk's own
-/// terminator-last-use `BurdenDec` for such an arg double-counts the release
-/// (VF-1 net=-1 per terminal path). Used by `emit_terminator_burden_decs` to
-/// suppress the redundant terminator dec. Non-Invoke terminators (Return /
-/// Jump / Branch) return empty — their owned transfers are handled by
-/// `terminator_transfer_vars` and their non-arg last-uses are genuine
-/// scope-exit releases the burden walk owns.
-fn invoke_terminator_borrowed_args(term: &ArcTerminator) -> FxHashSet<ArcVarId> {
-    let mut borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
-    if matches!(
-        term,
-        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
-    ) {
-        for (pos, &var) in term.used_vars().iter().enumerate() {
-            if !term.is_owned_position(pos) {
-                borrowed.insert(var);
-            }
-        }
-    }
-    borrowed
 }
 
 /// Emit `BurdenInc` for each owned terminator-position arg pre-computed by
@@ -445,18 +404,12 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
     // `Set` ordering invariant holds: `BurdenDecField` BEFORE
     // `BurdenInc(value)` BEFORE the mutation.
     emit_borrowed_store_dup_incs(new_body, &instr, ctx);
-    let transfer_vars = instr_owned_position_transfer_vars(&instr);
-    // The FRESH-site Inc references `dst`, DEFINED by `instr`. Under the probe
-    // (`predicate_stack_rc_disabled`) the surviving whole-var burden ops lower
-    // mechanically to real `RcInc`/`RcDec`, so a `BurdenInc dst` placed BEFORE
-    // the defining `Construct` / `PartialApply` / `Reuse` / `Apply`-result /
-    // dup-`Let` would lower to an `RcInc` on an undefined var (the ArcIrEmitter
-    // rejects it) — emit the Inc AFTER the instruction so the lowered RcInc
-    // sees a defined value. On the DEFAULT path the burden ops are accounting
-    // markers consumed by Phase-6 elimination / the predicate-stack coexistence
-    // (never lowered to real RC at this site), so the historical pre-instruction
-    // placement is byte-identical and MUST be preserved to keep default-path
-    // codegen unchanged.
+    // The burden walk is the sole RC emitter: the surviving whole-var burden ops
+    // lower mechanically to real `RcInc`/`RcDec`, so a `BurdenInc dst` placed
+    // BEFORE the defining `Construct` / `PartialApply` / `Reuse` /
+    // `Apply`-result / dup-`Let` would lower to an `RcInc` on an undefined var
+    // (the ArcIrEmitter rejects it) — emit the Inc AFTER the instruction so the
+    // lowered RcInc sees a defined value.
     let fresh_inc_dst = fresh_site_burden_inc_dst(&instr, ctx);
     // Step-2 (RL-4 / scope-exit release of the step-1 COW-inc): a borrowed-alias
     // receiver consumed at an owned COW/iter position by THIS body instruction
@@ -470,25 +423,16 @@ fn emit_instr_burdens(new_body: &mut Vec<ArcInstr>, instr: ArcInstr, ctx: &Burde
     // here — the value survives into the normal/unwind successors, released by
     // step-2 edge cleanup (RL-4).
     let cow_release_after: Vec<ArcVarId> = cow_inc_args_consumed_by_instr(&instr, ctx);
-    if ctx.analysis.predicate_stack_rc_disabled {
-        // Probe path: emit the FRESH-site Inc AFTER the defining instruction so
-        // the lowered RcInc references a defined dst.
-        new_body.push(instr);
-        if let Some(dst) = fresh_inc_dst {
-            new_body.push(ArcInstr::BurdenInc { var: dst });
-        }
-        for var in cow_release_after {
-            new_body.push(ArcInstr::BurdenDec { var });
-        }
-    } else {
-        // Default path: historical pre-instruction placement (burden ops are
-        // codegen no-op markers here — byte-identical to keep AOT unchanged).
-        if let Some(dst) = fresh_inc_dst {
-            new_body.push(ArcInstr::BurdenInc { var: dst });
-        }
-        new_body.push(instr);
+    // Emit the FRESH-site Inc AFTER the defining instruction so the lowered
+    // RcInc references a defined dst.
+    new_body.push(instr);
+    if let Some(dst) = fresh_inc_dst {
+        new_body.push(ArcInstr::BurdenInc { var: dst });
     }
-    emit_last_use_decs(new_body, ctx, &transfer_vars);
+    for var in cow_release_after {
+        new_body.push(ArcInstr::BurdenDec { var });
+    }
+    emit_last_use_decs(new_body, ctx);
 }
 
 /// Step-2 helper: COW-MUTATOR receivers consumed at an owned position of THIS
@@ -702,11 +646,7 @@ fn emit_in_place_mutation_drops(
 /// in `match_alias::test_closure_*` AOT tests. For VF-1 balance, the legacy
 /// owned-position Inc/transfer-Dec pattern is rebalanced separately by
 /// `emit_terminator_burden_decs` and by `eliminate_burden_ops` paired elision.
-fn emit_last_use_decs(
-    new_body: &mut Vec<ArcInstr>,
-    ctx: &BurdenEmitCtx<'_>,
-    transfer_vars: &FxHashSet<ArcVarId>,
-) {
+fn emit_last_use_decs(new_body: &mut Vec<ArcInstr>, ctx: &BurdenEmitCtx<'_>) {
     let Some(last_use_vars) = ctx
         .analysis
         .last_uses_at
@@ -715,7 +655,7 @@ fn emit_last_use_decs(
         return;
     };
     for &var in last_use_vars {
-        if let Some(scan) = last_use_dec_suppressor(ctx, var, transfer_vars) {
+        if let Some(scan) = last_use_dec_suppressor(ctx, var) {
             trace_dec_site(ctx.block_idx, ctx.instr_idx, var, ctx.analysis, Some(scan));
             continue;
         }
@@ -737,21 +677,11 @@ fn emit_last_use_decs(
 /// by `emit_last_use_decs` (suppress-or-emit) AND `trace_dec_site` (suppression
 /// attribution) so the diagnostic can never drift from the actual decision.
 /// Spec: Annex E §AIMS RL-2 / RL-4.
-fn last_use_dec_suppressor(
-    ctx: &BurdenEmitCtx<'_>,
-    var: ArcVarId,
-    transfer_vars: &FxHashSet<ArcVarId>,
-) -> Option<&'static str> {
-    // `transfer_vars` = consumed at THIS instruction's owned position. On the
-    // default path the downstream owned-position RcDec (or predicate stack)
-    // discharges the release, so suppress the dec here. Under the probe the
-    // predicate stack is off and a value consumed at an owned position whose
-    // callee BORROWS (no real transfer) must be released by the burden path —
-    // the ApplyIndirect closure-receiver + borrowed-Apply-arg case. Lift only
-    // this instruction-local suppression under the probe.
-    if !ctx.analysis.predicate_stack_rc_disabled && transfer_vars.contains(&var) {
-        return Some("instr_transfer");
-    }
+fn last_use_dec_suppressor(ctx: &BurdenEmitCtx<'_>, var: ArcVarId) -> Option<&'static str> {
+    // The burden walk is the sole RC emitter: a value consumed at an owned
+    // position whose callee BORROWS (no real transfer) is released by the burden
+    // path — the ApplyIndirect closure-receiver + borrowed-Apply-arg case — so
+    // no instruction-local transfer-suppression is applied (the dec is emitted).
     // `transfer_via_move_alias` = the value genuinely moves downstream through
     // a Let-Var move-alias chain to a real transfer point; its release is
     // discharged THERE, not at the move-alias site (else a double dec on the
@@ -763,15 +693,11 @@ fn last_use_dec_suppressor(
     // return (per the function's own `MemoryContract`) hands its allocation back
     // to the caller — a callee scope-exit dec double-releases it
     // (`AimsProof.Realization::RL2_transfer_kinds_no_dec` for the `Return`
-    // `TerminalUse`). PROBE-ONLY: on the default path the `burden_dec` marker
-    // drives `populate_class_covered` to suppress the predicate stack's OWN real
-    // dec on this param, so removing it there un-covers the class and the
-    // predicate stack emits a real dec → double-free.
-    if ctx.analysis.predicate_stack_rc_disabled
-        && ctx
-            .analysis
-            .transfer_through_return_param_vars
-            .contains(&var)
+    // `TerminalUse`).
+    if ctx
+        .analysis
+        .transfer_through_return_param_vars
+        .contains(&var)
     {
         return Some("transfer_through_return_param");
     }
@@ -1204,11 +1130,7 @@ fn emit_terminator_burden_decs(
             }
             // RL-2 callee transfer-source-dec strip: a param flowing to Return
             // transfers ownership to the caller — no callee scope-exit dec.
-            // PROBE-ONLY (the default-path coexistence handshake relies on the
-            // marker; see `emit_last_use_decs`).
-            if analysis.predicate_stack_rc_disabled
-                && analysis.transfer_through_return_param_vars.contains(&var)
-            {
+            if analysis.transfer_through_return_param_vars.contains(&var) {
                 continue;
             }
             // RL-4: a terminator-position last-use whose var is live-out of the

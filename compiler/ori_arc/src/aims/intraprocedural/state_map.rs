@@ -284,9 +284,8 @@ pub struct AimsStateMap {
     /// or fill class B's payload, and class B's `RcStrategy` is in the
     /// transitive-drop set per [`is_transitive_drop_strategy`].
     ///
-    /// Consumed by `populate_class_covered` (`post_convergence`) to derive the
-    /// `class_covered` coexistence-handshake side table. The predicate-stack
-    /// dec-suppression consumers (the retired realization walk) are removed.
+    /// The predicate-stack dec-suppression consumers (the retired realization
+    /// walk) are removed.
     /// Self-loop entries (A → A from Direct apply-aliases that union into one
     /// class) are excluded at population time.
     ///
@@ -443,30 +442,6 @@ pub struct AimsStateMap {
     ///
     /// Convergence Feedback.
     cross_dimension_detected: bool,
-
-    /// Set of SSA-alias class ids fully covered by the burden walk
-    /// (`emit_burden_ops`).
-    ///
-    /// `class_covered[C] = true` iff:
-    /// 1. EVERY var `v` in `class_members(C)` satisfies
-    ///    `func.burden_emitted[v.index()] = true`, AND
-    /// 2. EVERY payload class `P` transitively reachable from `C` via
-    ///    `class_payload_of` is also in `class_covered`.
-    ///
-    /// Populated POST-CONVERGENCE by
-    /// [`populate_class_covered`](super::post_convergence::populate_class_covered)
-    /// via fixed-point iteration on the finite class set (terminates per AIMS
-    /// L-5). Sparse — only ids of covered classes are stored; absence ⇒ not
-    /// covered.
-    ///
-    /// Consumed by `decide()` (`aims/realize/decide.rs`) — when a target var's
-    /// class is in this set, `RcDecision` is forced to `None` (the burden walk
-    /// owns the inc/dec; the predicate stack defers) per the coexistence
-    /// handshake.
-    ///
-    /// AIMS Invariant #5(c) — typed pre-pass input on `AimsStateMap`, derived
-    /// from `class_members` + `class_payload_of` + `func.burden_emitted`.
-    class_covered: FxHashSet<u32>,
 }
 
 impl AimsStateMap {
@@ -501,7 +476,6 @@ impl AimsStateMap {
             def_demand: FxHashMap::default(),
             changed: false,
             cross_dimension_detected: false,
-            class_covered: FxHashSet::default(),
         }
     }
 
@@ -888,18 +862,6 @@ impl AimsStateMap {
 
     // Project-derived alias graph
 
-    /// Read-only borrow of the entire Project-derived alias source map.
-    ///
-    /// Consumed by `class_lifetime_extends_past_path_sensitive` (in the
-    /// post-convergence pass) to widen the A-live witness set with Project-
-    /// derived aliases of B-members; the predicate iterates this map's
-    /// entries and treats any var whose `ProjectSources` intersect any
-    /// B-member as an extended A-witness.
-    #[must_use]
-    pub(crate) fn project_alias_sources(&self) -> &FxHashMap<ArcVarId, ProjectSources> {
-        &self.project_alias_sources
-    }
-
     /// Bulk-install the pre-computed Project-derived alias source map.
     ///
     /// Called once per function during `analyze_function`'s pre-walk setup,
@@ -953,12 +915,6 @@ impl AimsStateMap {
         self.class_apply_alias_source_candidates.get(&class_id)
     }
 
-    /// Iterate every `(class_id, members)` entry. `populate_class_covered`
-    /// walks every class to compute coverage.
-    pub(crate) fn class_members_iter(&self) -> impl Iterator<Item = (u32, &FxHashSet<ArcVarId>)> {
-        self.class_members.iter().map(|(k, v)| (*k, v))
-    }
-
     /// Return the set of parent class ids whose drop transitively covers
     /// `class_id`'s RC slot via a transitive-drop `RcStrategy`.
     ///
@@ -989,37 +945,6 @@ impl AimsStateMap {
         self.class_members = class_members;
         self.class_apply_alias_source_candidates = class_apply_alias_source_candidates;
         self.class_payload_of = class_payload_of;
-    }
-
-    // class_covered accessors
-
-    /// Whether the SSA-alias class `class_id` is fully burden-covered (every
-    /// member's burden walk owns its RC traffic AND every transitive payload
-    /// class is also covered).
-    ///
-    /// Returns `false` for unknown class ids (sparse — absence means not
-    /// covered). Consumed by `decide()` at realization to force `RcDecision::None`
-    /// when the burden walk owns the var's RC ops.
-    ///
-    /// See [`class_covered`](Self::class_covered) field doc.
-    #[must_use]
-    pub fn is_class_covered(&self, class_id: u32) -> bool {
-        self.class_covered.contains(&class_id)
-    }
-
-    /// Number of classes currently marked covered. Test/diagnostic accessor.
-    #[must_use]
-    pub fn class_covered_count(&self) -> usize {
-        self.class_covered.len()
-    }
-
-    /// Install the post-convergence `class_covered` set.
-    ///
-    /// Called by [`populate_class_covered`](super::post_convergence::populate_class_covered)
-    /// after the fixed-point computation completes. Read-only thereafter per
-    /// PL-5 (no-stale-summary invariant).
-    pub(crate) fn set_class_covered(&mut self, covered: FxHashSet<u32>) {
-        self.class_covered = covered;
     }
 
     /// Install the post-convergence `class_payload_of` edge map.

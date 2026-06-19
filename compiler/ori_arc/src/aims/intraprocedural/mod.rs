@@ -379,23 +379,6 @@ pub fn analyze_function(
     // post-convergence passes see the path-sensitive edge map (none read it
     // today, but ordering is defensive).
     post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
-    // Coexistence-handshake `class_covered` computation. Runs AFTER
-    // `populate_class_payload_of_with_liveness` so the path-sensitive payload
-    // map is in place.
-    //
-    // INVARIANT: `func.burden_emitted` is empty at THIS call site. This pass
-    // runs inside `analyze_function` (Step 4); `emit_burden_ops` populates
-    // `burden_emitted` at Step 4b, strictly AFTER. So `class_covered` is always
-    // empty (the function short-circuits on empty `burden_emitted`) and the
-    // predicate stack owns ALL RC during coexistence — burden ops are codegen
-    // no-ops, so the inert handshake is not a double-free risk. The handshake
-    // becomes load-bearing only when the predicate stack retires and burden ops
-    // become the sole RC emitter; populating `class_covered` BEFORE that point
-    // would suppress predicate-stack RC and leak (see `lower::burden_lower::emit`
-    // transfer-suppression comments). Retirement relocates this pass behind the
-    // burden ops; until then the call is cheap (early return) and kept wired so
-    // the consumption path stays compiled.
-    post_convergence::populate_class_covered(&mut state_map, func);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);
