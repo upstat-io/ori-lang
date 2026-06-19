@@ -38,7 +38,7 @@ pub(crate) use ownership_scans::{
 };
 // Re-exported into `burden_lower` scope so sibling submodules (`emit`,
 // `moved_fields`) resolve them via `super::`.
-use ownership_scans::instr_transfer_vars;
+use ownership_scans::{instr_owned_position_transfer_vars, instr_transfer_vars};
 // Test-only re-export so the `tests` child resolves it via `super::`.
 #[cfg(test)]
 use ownership_scans::compute_borrowed_arg_let_aliases;

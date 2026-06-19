@@ -96,6 +96,7 @@ fn drive_steps_4_and_4b(
         &[],
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashMap::default(),
+        false,
         &smoke_interner,
     );
     // Re-run Step 4 over burden-emitted IR. 's shipped TF-N/A
@@ -372,6 +373,7 @@ fn emit_burden_ops_on_scalar_fixture_is_observationally_inert() {
         &[],
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashMap::default(),
+        false,
         &smoke_interner,
     );
     assert_eq!(

@@ -474,11 +474,13 @@ pub struct ArcFunction {
     /// `BurdenDecField` / `BurdenDecVariant` instruction.
     ///
     /// Indexed by `ArcVarId::index()`. `true` = burden walker owns this var's
-    /// RC traffic.
+    /// RC traffic; the predicate-stack realization should defer to the burden
+    /// walk for vars in this set when their containing SSA-alias class is
+    /// fully covered (`AimsStateMap::class_covered`).
     ///
-    /// Default: empty. Populated by `emit_burden_ops`. Consumed by the
-    /// burden-balance verifier and edge-cleanup logging. Skipped during cache
-    /// serialization — derived data.
+    /// Default: empty. Populated by `emit_burden_ops`. Read by the AIMS
+    /// post-convergence `class_covered` computation and by `decide()` at
+    /// realization. Skipped during cache serialization — derived data.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
     /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs

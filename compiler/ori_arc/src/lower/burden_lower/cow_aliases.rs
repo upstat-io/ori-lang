@@ -67,6 +67,9 @@ pub(crate) fn compute_borrowed_alias_vars(func: &ArcFunction) -> FxHashSet<ArcVa
 }
 
 /// Compute the step-1 COW-inc set + the step-2 COW-mutator-release-gate names.
+/// PROBE-ONLY: both empty on the default path (`predicate_stack_rc_disabled =
+/// false`) — the predicate stack emits the equivalent `RcInc`, so default AOT
+/// codegen is byte-identical and step 2 is inert.
 ///
 /// - `cow_inc`: `compute_cow_inc_borrowed_aliases` (borrowed-alias COW-MUTATOR
 ///   receivers needing a step-1 `BurdenInc` per RL-1).
@@ -78,7 +81,11 @@ pub(super) fn compute_cow_inc_and_mutators(
     func: &ArcFunction,
     borrowed_aliases: &FxHashSet<ArcVarId>,
     interner: &ori_ir::StringInterner,
+    predicate_stack_rc_disabled: bool,
 ) -> (FxHashSet<ArcVarId>, FxHashSet<Name>) {
+    if !predicate_stack_rc_disabled {
+        return (FxHashSet::default(), FxHashSet::default());
+    }
     let cow_inc = compute_cow_inc_borrowed_aliases(func, borrowed_aliases, interner);
     let mut cow_mutators = crate::borrow::all_cow_method_names(interner);
     cow_mutators.remove(

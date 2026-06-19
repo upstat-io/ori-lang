@@ -24,14 +24,14 @@ use super::moved_fields::{
     compute_full_move_vars, compute_partial_move_vars, populate_moved_out_fields,
 };
 use super::ownership_scans::{
-    compute_borrowed_store_dup_args, compute_branch_exclusive_edge_releases,
-    compute_cow_terminal_concat_inc_dsts, compute_dead_forwarder_block_param_releases,
-    compute_dead_owned_param_branch_releases, compute_fresh_call_result_borrowed_arg_inc_dsts,
-    compute_genuine_dup_move_aliases, compute_live_out_owned,
-    compute_loop_invariant_dead_local_releases, compute_multi_borrow_view_alias_surplus,
-    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
-    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
-    compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
+    compute_branch_exclusive_edge_releases, compute_cow_terminal_concat_inc_dsts,
+    compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
+    compute_fresh_call_result_borrowed_arg_inc_dsts, compute_genuine_dup_move_aliases,
+    compute_live_out_owned, compute_loop_invariant_dead_local_releases,
+    compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,
+    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
+    compute_sharing_view_surplus_inc_dsts, compute_sum_payload_iter_consume_dup_inc_suppression,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
@@ -79,6 +79,12 @@ fn merge_release_vars<K: Eq + std::hash::Hash>(
               per-block emit walk are one cohesive pass; splitting mid-sequence \
               fragments the load-bearing emission order"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Phase-5 emission inputs are the typed pre-pass side tables \
+              (ownership, contracts, immortals, apply-result aliases) the walk \
+              consumes per AIMS Invariant 5"
+)]
 pub(crate) fn emit_burden_ops<'a>(
     func: &mut ArcFunction,
     type_registry: &'a TypeRegistry,
@@ -109,6 +115,14 @@ pub(crate) fn emit_burden_ops<'a>(
         ArcVarId,
         crate::aims::intraprocedural::state_map::ApplyAliasSource,
     >,
+    // When true (`ORI_DISABLE_PREDICATE_STACK_RC=1`), the predicate-stack edge
+    // cleanup is OFF, so the burden walk is the sole RC emitter. The
+    // borrowed-Invoke-arg scope-exit `BurdenDec` (normally deferred to the
+    // predicate stack's `release_with_burden_edge`) MUST be emitted by the
+    // burden walk instead — the completeness pass per `emit.rs`
+    // `emit_terminator_burden_decs`. On the default path (false) the dec stays
+    // deferred so the two paths do not double-count.
+    predicate_stack_rc_disabled: bool,
     // String interner — threaded so the iterator-element exclusion can resolve
     // the `__iter_next` protocol-builtin name via `collect_iter_element_defs`
     // (`Spec: Annex E §AIMS Protocol Builtins`). The SSOT element-classification
@@ -514,11 +528,30 @@ pub(crate) fn emit_burden_ops<'a>(
         inc_suppressed_vars.extend(owner_inc_suppress.iter().copied());
     }
 
-    // The burden walk is the sole RC emitter: the terminator-last-use
-    // `BurdenDec` for a BORROWED `Invoke`/`InvokeIndirect` arg is un-suppressed
-    // (`emit_burden_ops_for_blocks` passes an empty borrowed-arg set), so a
-    // FRESH value passed borrowed must keep its paired FRESH inc + dec — no
-    // symmetric inc suppression.
+    // Symmetry for borrowed terminator-Invoke args: `invoke_terminator_borrowed_args`
+    // (emit.rs) suppresses the terminator-last-use `BurdenDec` for a BORROWED
+    // `Invoke`/`InvokeIndirect` arg — the value survives the borrowed call and
+    // the predicate-stack edge cleanup discharges its release. A FRESH value
+    // created in the terminator block solely to pass borrowed (e.g.
+    // `%0 = "hello"; Invoke @f(%0 [borrow])` where the callee stores `%0` into
+    // its result) would otherwise keep its FRESH-site `BurdenInc` with the dec
+    // suppressed → net=+1 on the path where the value lives on into the result.
+    // Suppress the FRESH inc symmetrically so the var carries NO burden ops
+    // (`burden_emitted` stays false → edge cleanup emits no paired `BurdenDec`)
+    // and is fully predicate-stack-managed (`Spec: Annex E §AIMS RL-2`). A
+    // genuine borrow (param / alias, no FRESH inc) gains nothing — no-op.
+    //
+    // Probe gate: under `predicate_stack_rc_disabled` the terminator-last-use
+    // BurdenDec is un-suppressed (emit_burden_ops_for_blocks passes an empty
+    // borrowed-arg set), so the FRESH inc must survive symmetrically — the
+    // burden path carries the full paired inc+dec for the fresh-owned arg the
+    // callee stores. Keep the inc suppressed only on the default path.
+    let borrowed_terminator_args = compute_borrowed_terminator_invoke_args(func);
+    if !predicate_stack_rc_disabled {
+        for &var in &borrowed_terminator_args {
+            inc_suppressed_vars.insert(var);
+        }
+    }
 
     // RL-2 mutable-`Ident` reassignment release, merged into the forwarder-result
     // placed-release surface (contains-gated). Leak signature + 5-condition gate:
@@ -538,10 +571,15 @@ pub(crate) fn emit_burden_ops<'a>(
     // `compute_live_out_owned`.
     let live_out_per_block = compute_live_out_owned(func, &owned_vars_needing_rc);
 
-    // Step-1 COW-inc set + step-2 COW-mutator-release-gate names. Detail:
-    // `compute_cow_inc_and_mutators`.
-    let (cow_inc_borrowed_aliases, cow_mutator_names) =
-        compute_cow_inc_and_mutators(func, &borrowed_aliases, interner);
+    // Step-1 COW-inc set + step-2 COW-mutator-release-gate names. Probe-only —
+    // empty on the default path (the predicate stack emits the equivalent RcInc,
+    // so default AOT codegen is byte-identical). Detail: `compute_cow_inc_and_mutators`.
+    let (cow_inc_borrowed_aliases, cow_mutator_names) = compute_cow_inc_and_mutators(
+        func,
+        &borrowed_aliases,
+        interner,
+        predicate_stack_rc_disabled,
+    );
 
     // Function-wide list-concat consume set (precomputed: the `&mut` emit walk
     // cannot re-borrow `func` for `var_repr`). SSOT: `list_concat_consumed_operands`.
@@ -748,6 +786,7 @@ pub(crate) fn emit_burden_ops<'a>(
         transfer_via_move_alias: &transfer_via_move_alias,
         live_out_per_block: &live_out_per_block,
         contracts,
+        predicate_stack_rc_disabled,
         list_concat_transfer_vars: &list_concat_transfer_vars,
         cow_inc_borrowed_aliases: &cow_inc_borrowed_aliases,
         cow_mutator_names: &cow_mutator_names,

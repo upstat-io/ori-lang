@@ -868,6 +868,155 @@ fn preserve_inc_on_dead_absent() {
     ));
 }
 
+// Coexistence handshake pins.
+//
+// These pins target the predicate-stack / burden-walk handshake: when an
+// SSA-alias class is fully burden-covered, `decide()` returns
+// `RcDecision::None` (predicate stack defers); when ANY member lacks
+// burden coverage, `class_covered` is false and predicate stack runs
+// unchanged. The unit-level test exercises `decide()` directly with the
+// `class_covered` flag set/unset (mirroring what the realize walks
+// compute from `state_map.is_class_covered`); the integration shape
+// (populating burden_emitted + class_covered + invoking decide) lands
+// in the full pipeline path.
+
+/// Positive pin: `decide()` with `class_covered: true`
+/// returns `RcDecision::None` regardless of the underlying `DecisionSite`.
+/// Predicate-stack realization SHALL emit zero RC ops on this site —
+/// burden walk owns the inc/dec.
+#[test]
+fn class_fully_covered_predicate_stack_skips() {
+    use crate::aims::realize::decide::{
+        decide, DecisionContext, DecisionSite, RcDecision, ReuseContext, ReuseDecision,
+        UseSemantics,
+    };
+
+    // Use-site that would normally emit Inc (future use, Normal semantics).
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on Use site (got {:?})",
+        decision.rc
+    );
+
+    // Defined-dead site that would normally emit Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::DefinedDead,
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on DefinedDead (got {:?})",
+        decision.rc
+    );
+
+    // Last-use site that would normally emit Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::NonReusable,
+                uniqueness: Uniqueness::Unique,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+        class_covered: true,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::None,
+        "class_covered=true must force RcDecision::None on LastUse (got {:?})",
+        decision.rc
+    );
+    assert_eq!(
+        decision.reuse,
+        ReuseDecision::None,
+        "class_covered=true must skip reuse (burden walk owns disposal)"
+    );
+}
+
+/// Negative pin: when `class_covered: false` (mixed
+/// coverage in the class), `decide()` runs as today and produces the
+/// normal predicate-stack decisions. This pin proves the coexistence
+/// handshake is a STRICT all-or-nothing gate — no partial-class skipping.
+#[test]
+fn mixed_coverage_predicate_stack_runs() {
+    use crate::aims::realize::decide::{
+        decide, DecisionContext, DecisionSite, RcDecision, UseSemantics,
+    };
+
+    // Use-site with future use, class_covered=false → predicate stack
+    // emits the normal RcInc decision.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+        class_covered: false,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::Inc,
+        "class_covered=false must NOT suppress RcInc (got {:?})",
+        decision.rc
+    );
+
+    // Defined-dead site with class_covered=false → predicate stack emits Dec.
+    let decision = decide(&DecisionContext {
+        site: DecisionSite::DefinedDead,
+        is_rc_managed: true,
+        class_covered: false,
+    });
+    assert_eq!(
+        decision.rc,
+        RcDecision::Dec,
+        "class_covered=false must NOT suppress DefinedDead Dec (got {:?})",
+        decision.rc
+    );
+}
+
+/// Helper test: `AimsStateMap::is_class_covered` reads
+/// the set installed by `set_class_covered`. The full `populate_class_covered`
+/// fixed-point semantics are exercised via the pipeline path; here we pin
+/// the accessor contract a class id mapping in/out of the set.
+#[test]
+fn class_covered_accessor_reads_installed_set() {
+    let func = one_block_func(1, vec![]);
+    let mut state_map = AimsStateMap::new(&func);
+    assert!(
+        !state_map.is_class_covered(0),
+        "empty class_covered must report false for any class id"
+    );
+
+    let mut covered: rustc_hash::FxHashSet<u32> = rustc_hash::FxHashSet::default();
+    covered.insert(7);
+    state_map.set_class_covered(covered);
+    assert!(
+        state_map.is_class_covered(7),
+        "installed class 7 must report covered"
+    );
+    assert!(
+        !state_map.is_class_covered(8),
+        "non-installed class 8 must report not covered"
+    );
+    assert_eq!(state_map.class_covered_count(), 1);
+}
+
 /// Helper test: `ArcFunction::burden_emitted` records the
 /// vars touched by burden-op emission. Pin proves the populate pass sets
 /// the bit for each Burden* instruction's target var.

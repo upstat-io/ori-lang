@@ -347,6 +347,7 @@ fn emit_burden_ops_step(
         &immortals,
         config.contracts,
         state_map.apply_result_aliases(),
+        true,
         config.interner,
     );
 }
@@ -406,6 +407,22 @@ fn apply_phase_2_annotations(
     );
     func.cow_annotations = std::mem::take(&mut result.cow_annotations);
     func.drop_hints = std::mem::take(&mut result.drop_hints);
+
+    {
+        let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
+        crate::aims::realize::cleanup_redundant_project_alias_decs(
+            func,
+            state_map,
+            config.pool,
+            config.interner,
+        );
+    }
+    trace_pipeline_checkpoint(
+        func,
+        "cleanup_redundant_project_alias_decs",
+        config.interner,
+        config.observer,
+    );
 }
 
 /// Step 5a: FIP enforcement pre-check.
