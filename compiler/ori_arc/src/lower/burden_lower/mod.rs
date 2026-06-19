@@ -433,6 +433,35 @@ pub(in crate::lower::burden_lower) fn project_return_surplus_owner_dec_suppress_
     *PROJECT_RETURN_SURPLUS_OWNER_DEC_SUPPRESS_DISABLED
 }
 
+/// `ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS=1` restores the surplus
+/// per-alias whole-var `BurdenDec`s on a fresh `Construct` owner consumed
+/// ONLY through >=2 same-allocation whole-var `Let { Var }` borrow-view aliases
+/// ([`ownership_scans::compute_multi_borrow_view_alias_surplus`]). Default
+/// (unset): each alias's whole-var dec is suppressed (the owner's own
+/// edge-cleanup release is the single per-path release per RL-2 release-once)
+/// AND the owner's spurious keep-alive FRESH inc is suppressed (the lineage is
+/// borrow-read-only — no duplication, DP-3 `is_rc_inc_elidable`). The owner's
+/// born-at-alloc reference is released exactly once by its surviving
+/// scope-exit / edge-cleanup dec. With the toggle set, the surplus per-alias
+/// decs return (cleanup-on: the redundant-cleanup pass over-strips toward a
+/// leak; cleanup-off: the surplus decs over-release the one allocation →
+/// double-free). The generalization of the single-alias
+/// [`borrow_view_dst_surplus_dec_suppress_disabled`] keystone to the
+/// N-borrow-view-alias shape (`Config { settings, name }` whose `.settings`
+/// and `.name` are projected from distinct whole-var aliases of the same
+/// aggregate). Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`) + TF-4
+/// (Project borrow-view identity) + DP-3 (`is_rc_inc_elidable`).
+static MULTI_BORROW_VIEW_ALIAS_SURPLUS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS`
+/// toggle — consumed by the move-alias transfer scan
+/// (`ownership_scans::move_alias`).
+pub(in crate::lower::burden_lower) fn multi_borrow_view_alias_surplus_disabled() -> bool {
+    *MULTI_BORROW_VIEW_ALIAS_SURPLUS_DISABLED
+}
+
 /// Read-only accessor for the `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING` toggle —
 /// consumed by Phase 5 here and by the Phase-6 per-var elision
 /// (`aims::realize::burden_elim`) so both halves of the pair-coupling cure flip

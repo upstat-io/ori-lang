@@ -3307,12 +3307,18 @@ type Doc = { content: str }
 
 #[test]
 fn probe_config_projected_fields_compared_keep_negative() {
-    // NEGATIVE (the inline-struct projected-field boundary): a `Config { settings,
-    // name }` whose fields are PROJECTED + independently read (`.settings.length()`
-    // + `.name.length()`). The aggregate fields are released by explicit
-    // projection-path decs; the per-(field) alloc-aware net is 0. There are NO
-    // `==`/`!=` comparison operands, so the comparison-operand strip MUST NOT fire.
-    // Passes pre AND post the cure (must-not-regress + must-not-over-strip).
+    // POSITIVE PIN (the multi-borrow-view-alias surplus cure): a `Config {
+    // settings, name }` whose fields are borrow-read through DISTINCT whole-var
+    // aliases (`%6 = c` -> `Project %6.settings` -> `.length()`; `%11 = c` ->
+    // `Project %11.name` -> `.length()`). The aggregate `%4`, its Let-Var aliases
+    // `%6`/`%11`, are the SAME allocation; the base walk emits a surplus whole-var
+    // `BurdenDec` at EACH alias's borrow-project AND a spurious keep-alive FRESH
+    // inc — N+1 releases of ONE allocation (cleanup-on leaks both heap fields;
+    // cleanup-off double-frees). The Phase-5 multi-borrow-view-alias arm suppresses
+    // each alias's surplus dec + the keep-alive inc, leaving the owner's single
+    // edge-cleanup release (RL-2 `RL2_release_exactly_once`). There are NO
+    // `==`/`!=` comparison operands on the aggregate, so the comparison-operand
+    // strip MUST NOT fire. Spec: Annex E §AIMS RL-2 + TF-4 + DP-3.
     let src = r#"
 type Config = { settings: {str: int}, name: str }
 
@@ -3324,6 +3330,10 @@ type Config = { settings: {str: int}, name: str }
 }
 "#;
     assert_burden_path_self_sufficient(src, "config_projected_fields_compared");
+    // NEGATIVE half: the same program leaks / double-frees with the
+    // multi-borrow-view-alias surplus suppression DISABLED — the arm is the cure,
+    // not an incidental pass.
+    assert_broken_without_multi_borrow_view_alias_surplus(src, "config_projected_fields_compared");
 }
 
 #[test]
@@ -4784,6 +4794,29 @@ fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
         "[{label}] expected a leak / crash with the dead-forwarder-param release DISABLED \
          (the Phase-5 RL-5 dec is the cure) but the program exited 0 with no leak — the \
          positive pin may be passing for an unrelated reason"
+    );
+}
+
+/// Mutation-verify for the Phase-5 multi-borrow-view-alias surplus suppression:
+/// with the arm DISABLED the fresh `Construct` owner consumed only through >= 2
+/// same-allocation whole-var borrow-view aliases keeps its surplus per-alias
+/// decs + keep-alive inc, so the burden-only run leaks (cleanup-on) or
+/// double-frees (cleanup-off). Proves the arm is the cure, not an incidental
+/// pass.
+fn assert_broken_without_multi_borrow_view_alias_surplus(source: &str, label: &str) {
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
+        source,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS", "1"),
+        ],
+    );
+    assert!(
+        exit != 0 || stderr.to_lowercase().contains("leak"),
+        "[{label}] expected a leak / double-free with the multi-borrow-view-alias \
+         surplus suppression DISABLED (the Phase-5 RL-2 release-once arm is the cure) \
+         but the program exited 0 with no leak — the positive pin may be passing for \
+         an unrelated reason"
     );
 }
 

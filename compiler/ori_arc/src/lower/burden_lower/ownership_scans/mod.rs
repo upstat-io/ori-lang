@@ -89,8 +89,8 @@ pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live
 pub(super) use loop_closure_dead_param::compute_loop_closure_dead_param_lineage;
 pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
 pub(super) use move_alias::{
-    compute_readonly_borrow_orphan_inc_suppression, compute_transfer_via_move_alias,
-    SameAllocIdentity,
+    compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,
+    compute_transfer_via_move_alias, SameAllocIdentity,
 };
 pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use nested_construct_return_passthrough::compute_nested_construct_return_passthrough;

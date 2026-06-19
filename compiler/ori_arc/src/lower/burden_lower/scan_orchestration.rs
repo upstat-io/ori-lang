@@ -29,9 +29,9 @@ use super::ownership_scans::{
     compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
     compute_fresh_call_result_borrowed_arg_inc_dsts, compute_genuine_dup_move_aliases,
     compute_live_out_owned, compute_loop_invariant_dead_local_releases,
-    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
-    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
-    compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,
+    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
+    compute_sharing_view_surplus_inc_dsts, compute_sum_payload_iter_consume_dup_inc_suppression,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
@@ -505,6 +505,28 @@ pub(crate) fn emit_burden_ops<'a>(
         &dup_alias_dsts,
     );
     inc_suppressed_vars.extend(readonly_borrow_orphan_incs.iter().copied());
+
+    // Multi-borrow-view-alias surplus suppression (RL-2 release-once + TF-4 +
+    // DP-3): a fresh `Construct` owner consumed ONLY through >= 2 same-allocation
+    // whole-var `Let { Var }` borrow-view aliases (each projected for a
+    // borrow-read) keeps surplus per-alias whole-var decs + a spurious keep-alive
+    // FRESH inc. Suppress each alias's surplus dec (`transfer_via_move_alias`)
+    // and the owner's keep-alive inc (`inc_suppressed_vars`); the owner's
+    // born-at-alloc reference is released exactly once by its surviving
+    // edge-cleanup dec. The N-alias generalization of the single-alias
+    // borrow-view-dst keystone. Full rationale + gates:
+    // `compute_multi_borrow_view_alias_surplus`. Spec: Annex E §AIMS RL-2 + TF-4
+    // + DP-3.
+    if !super::multi_borrow_view_alias_surplus_disabled() {
+        let (alias_dec_suppress, owner_inc_suppress) = compute_multi_borrow_view_alias_surplus(
+            func,
+            &owned_vars_needing_rc,
+            &owned_consumed,
+            &alias_table.genuine_same_alloc_reps,
+        );
+        transfer_via_move_alias.extend(alias_dec_suppress.iter().copied());
+        inc_suppressed_vars.extend(owner_inc_suppress.iter().copied());
+    }
 
     // Symmetry for borrowed terminator-Invoke args: `invoke_terminator_borrowed_args`
     // (emit.rs) suppresses the terminator-last-use `BurdenDec` for a BORROWED
