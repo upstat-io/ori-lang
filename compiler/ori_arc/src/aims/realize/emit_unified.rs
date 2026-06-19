@@ -31,6 +31,20 @@ use super::transfer_anchor_net;
 static BURDEN_ELIM_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_ELIM").as_deref() == Ok("1"));
 
+/// `ORI_DISABLE_BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE=1` restores the Phase-6.66b
+/// single-iter-consume keep-alive's paired `BurdenDec` landing on the BORROWED PARAM
+/// itself (when the lineage's last non-iter use names the param). The keep-alive
+/// `[inc, dec]` pair bridges the buffer's life across `ori_iter_drop` for the
+/// reuse-after-iter shape and both halves reference the iter source alias; the dec
+/// on the borrowed param is an `RcDec on borrowed param` VF-1 ICE (the caller owns
+/// the borrowed param's release — `@iter` is an `ApplyToIterConsumingParam` transfer
+/// per `RL2_iter_consuming_no_caller_dec`). Default (unset): the paired dec is
+/// retargeted onto the non-param keep-alive alias `inc_arg` (balanced pair, same
+/// site, no borrowed-param dec).
+static BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE").as_deref() == Ok("1")
+});
+
 /// `ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE=1` declines the
 /// dead-at-bypass-entry fallback in `compute_take_project_source_plan`: an
 /// iterator-bearing take-project source enum dead-at-entry on the BYPASS edge of an
@@ -2019,81 +2033,134 @@ fn iter_consume_call_uses_arg(
 /// pass requires == 1). The keep-alive arg lineage MUST be a genuine borrow-view
 /// (no real source dec exists), so a fresh-owned lineage with its own decs is out
 /// of scope. Spec: Annex E §AIMS RL-1 + RL-2.
+/// One resolved Phase-6.66b keep-alive + paired-dec site: the keep-alive
+/// `BurdenInc` at `(inc_block, inc_at)` (before the `@iter`) and the paired
+/// `BurdenDec` at `(dec_block, dec_at)` (after the lineage's last non-iter use).
+/// Resolved BEFORE any block mutation (insertions shift later indices).
+struct KeepaliveSite {
+    inc_arg: ArcVarId,
+    inc_block: usize,
+    inc_at: usize,
+    dec_arg: ArcVarId,
+    dec_block: usize,
+    dec_at: usize,
+}
+
+/// Retarget the Phase-6.66b keep-alive paired dec onto the non-param `inc_arg`
+/// alias when `dec_arg` is a borrowed param — avoids `RcDec on borrowed param`
+/// (VF-1 `check_no_dec_on_borrowed`) while keeping the `[inc, dec]` pair balanced
+/// on the same allocation at the same site. Spec: Annex E §AIMS RL-2.
+pub(super) fn retarget_borrowed_keepalive_dec(
+    dec_arg: ArcVarId,
+    inc_arg: ArcVarId,
+    borrowed_param_vars: &FxHashSet<ArcVarId>,
+) -> ArcVarId {
+    if !*BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE_DISABLED
+        && borrowed_param_vars.contains(&dec_arg)
+        && !borrowed_param_vars.contains(&inc_arg)
+    {
+        inc_arg
+    } else {
+        dec_arg
+    }
+}
+
+/// Resolve the keep-alive + paired-dec [`KeepaliveSite`] for one iter-consume
+/// `rep`, or `None` when the shape does not qualify. Spec: Annex E §AIMS RL-1 + RL-2.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "threads the resolved func/jt_reps/contracts context for one site"
+)]
+fn resolve_keepalive_site(
+    func: &ArcFunction,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    rep: ArcVarId,
+    uses: &[IterConsumeUse],
+    iter_name: Name,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    borrowed_param_vars: &FxHashSet<ArcVarId>,
+) -> Option<KeepaliveSite> {
+    // Exactly ONE iter-consume use — the multi-use case is Phase 6.66's.
+    if uses.len() != 1 {
+        return None;
+    }
+    let u = uses[0];
+    // The single iter-consume MUST be the inline for-loop `@iter(arg [own])` body
+    // call (not a terminator-position user-callee iter-consume): the keep-alive
+    // pairs with the SAME-function `ori_iter_drop`. A terminator user-callee
+    // iter-consume frees inside the callee — Phase 6.65 owns that.
+    let iter_idx = u.instr?;
+    // Lineage must be live-out at a NON-iter position after the `@iter` — the
+    // reuse that the iter-drop would otherwise free out from under.
+    if !lineage_live_out_after_use(func, jt_reps, rep, u.block, u.instr) {
+        return None;
+    }
+    // The keep-alive names the value the `@iter` receives (the lineage arg at this
+    // use). The paired dec lands AFTER the lineage's LAST non-iter use.
+    let inc_arg = lineage_arg_at_use(func, jt_reps, rep, u)?;
+    // The `ori_iter_drop` paired with this `@iter` bounds where the reuse can begin
+    // — the last non-iter use (the reuse) must live AT OR AFTER it.
+    let (drop_block, drop_at, _) = paired_iter_drop_site(func, u.block, iter_idx, interner)?;
+    // The paired dec goes immediately after the lineage's last non-iter use in the
+    // iter-drop's block (the merged loop-exit / reuse block). The reuse
+    // (`@__index(%0 [borrow])`, a `Project`, a `Return`-feeding read) is a
+    // borrowed/last use of the lineage AFTER the drop; releasing the keep-alive
+    // duplicate there leaves no dangling ref.
+    let (dec_arg, dec_at) = lineage_last_noniter_use_after(
+        func, jt_reps, rep, drop_block, drop_at, iter_name, contracts,
+    )?;
+    let dec_arg = retarget_borrowed_keepalive_dec(dec_arg, inc_arg, borrowed_param_vars);
+    Some(KeepaliveSite {
+        inc_arg,
+        inc_block: u.block,
+        inc_at: iter_idx,
+        dec_arg,
+        dec_block: drop_block,
+        dec_at,
+    })
+}
+
 fn emit_single_iter_consume_reuse_keepalive(
     func: &mut ArcFunction,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
 ) {
-    // One resolved keep-alive + paired-dec site: the keep-alive `BurdenInc` at
-    // `(inc_block, inc_at)` (before the `@iter`) and the paired `BurdenDec` at
-    // `(dec_block, dec_at)` (after the lineage's last non-iter use). Resolved
-    // BEFORE any block mutation (insertions shift later indices).
-    struct Site {
-        inc_arg: ArcVarId,
-        inc_block: usize,
-        inc_at: usize,
-        dec_arg: ArcVarId,
-        dec_block: usize,
-        dec_at: usize,
-    }
     let mut keepalive_vars: FxHashSet<ArcVarId> = FxHashSet::default();
     let jt_reps = compute_jump_threaded_reps(func, None);
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
     let iter_name = interner.intern("iter");
 
+    // RL-2 borrowed-param paired-dec retarget set: when the lineage's last non-iter
+    // use names the BORROWED PARAM itself, the paired dec is retargeted onto the
+    // non-param `inc_arg` alias (`retarget_borrowed_keepalive_dec`) so it never
+    // decrements a borrowed param — VF-1 `check_no_dec_on_borrowed` (`@iter` is
+    // `ApplyToIterConsumingParam`: `AimsProof.Realization::RL2_iter_consuming_no_caller_dec`).
+    let borrowed_param_vars: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| matches!(p.ownership, crate::ownership::Ownership::Borrowed))
+        .map(|p| p.var)
+        .collect();
+
     let uses_per_rep = collect_iter_consume_uses_per_rep(func, pool, contracts, iter_name, &rep_of);
 
-    let mut sites: Vec<Site> = Vec::new();
-    for (rep, uses) in &uses_per_rep {
-        // Exactly ONE iter-consume use — the multi-use case is Phase 6.66's.
-        if uses.len() != 1 {
-            continue;
-        }
-        let u = uses[0];
-        // The single iter-consume MUST be the inline for-loop `@iter(arg [own])`
-        // body call (not a terminator-position user-callee iter-consume): the
-        // keep-alive pairs with the SAME-function `ori_iter_drop`. A terminator
-        // user-callee iter-consume frees inside the callee — Phase 6.65 owns that.
-        let Some(iter_idx) = u.instr else {
-            continue;
-        };
-        // Lineage must be live-out at a NON-iter position after the `@iter` — the
-        // reuse that the iter-drop would otherwise free out from under.
-        if !lineage_live_out_after_use(func, &jt_reps, *rep, u.block, u.instr) {
-            continue;
-        }
-        // The keep-alive names the value the `@iter` receives (the lineage arg at
-        // this use). The paired dec lands AFTER the lineage's LAST non-iter use.
-        let Some(inc_arg) = lineage_arg_at_use(func, &jt_reps, *rep, u) else {
-            continue;
-        };
-        // The `ori_iter_drop` paired with this `@iter` bounds where the reuse can
-        // begin — the last non-iter use (the reuse) must live AT OR AFTER it.
-        let Some((drop_block, drop_at, _)) =
-            paired_iter_drop_site(func, u.block, iter_idx, interner)
-        else {
-            continue;
-        };
-        // The paired dec goes immediately after the lineage's last non-iter use in
-        // the iter-drop's block (the merged loop-exit / reuse block). The reuse
-        // (`@__index(%0 [borrow])`, a `Project`, a `Return`-feeding read) is a
-        // borrowed/last use of the lineage AFTER the drop; releasing the keep-alive
-        // duplicate there leaves no dangling ref.
-        let Some((dec_arg, dec_at)) = lineage_last_noniter_use_after(
-            func, &jt_reps, *rep, drop_block, drop_at, iter_name, contracts,
-        ) else {
-            continue;
-        };
-        sites.push(Site {
-            inc_arg,
-            inc_block: u.block,
-            inc_at: iter_idx,
-            dec_arg,
-            dec_block: drop_block,
-            dec_at,
-        });
-    }
+    let sites: Vec<KeepaliveSite> = uses_per_rep
+        .iter()
+        .filter_map(|(rep, uses)| {
+            resolve_keepalive_site(
+                func,
+                &jt_reps,
+                *rep,
+                uses,
+                iter_name,
+                interner,
+                contracts,
+                &borrowed_param_vars,
+            )
+        })
+        .collect();
     if sites.is_empty() {
         return;
     }
@@ -4557,40 +4624,26 @@ fn suppress_single_borrowed_invoke_iter_consume_source(
 /// `RL2_iter_consuming_caller_dec_splits` (the field-grained iter-consume is the
 /// same RL-2 inward transfer at field grain — the consumed field's release is the
 /// callee's, the caller emits none for it). Spec: Annex E §AIMS RL-2.
-fn rewrite_aggregate_iter_consume_field_decs(
-    func: &mut ArcFunction,
+/// (a)+(b) collection phase of [`rewrite_aggregate_iter_consume_field_decs`]: maps
+/// each aggregate-rep to its single consumed field across borrowed `Invoke` args
+/// whose callee param carries the field-grained iter-consume contract. A rep with
+/// >1 distinct consumed field is dropped (no consistent partial skip).
+fn collect_aggregate_iter_consume_fields(
+    func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
-    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-) {
-    if std::env::var_os("ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL").is_some() {
-        return;
-    }
-    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
-
-    // (a)+(b): collect (aggregate-rep -> consumed field) for every borrowed
-    // `Invoke` arg whose callee param carries the field-grained iter-consume
-    // contract (and NOT whole-param iter-consume). A rep with >1 distinct
-    // consumed field is poisoned (no consistent skip set) -> drop it.
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+) -> FxHashMap<ArcVarId, u32> {
     let mut rep_consumed_field: FxHashMap<ArcVarId, Option<u32>> = FxHashMap::default();
     for block in &func.blocks {
-        let (callee, args, arg_ownership, is_indirect) = match &block.terminator {
+        let (callee, args, arg_ownership) = match &block.terminator {
             ArcTerminator::Invoke {
                 func: callee,
                 args,
                 arg_ownership,
                 ..
-            } => (Some(*callee), args, arg_ownership, false),
-            ArcTerminator::InvokeIndirect {
-                args,
-                arg_ownership,
-                ..
-            } => (None, args, arg_ownership, true),
-            _ => continue,
-        };
-        let Some(callee) = callee else {
+            } => (*callee, args, arg_ownership),
             // InvokeIndirect has no contract -> no field-grained signal.
-            let _ = is_indirect;
-            continue;
+            _ => continue,
         };
         let Some(contract) = contracts.get(&callee) else {
             continue;
@@ -4629,7 +4682,23 @@ fn rewrite_aggregate_iter_consume_field_decs(
             }
         }
     }
-    rep_consumed_field.retain(|_, f| f.is_some());
+    rep_consumed_field
+        .into_iter()
+        .filter_map(|(rep, f)| f.map(|field| (rep, field)))
+        .collect()
+}
+
+fn rewrite_aggregate_iter_consume_field_decs(
+    func: &mut ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if std::env::var_os("ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL").is_some() {
+        return;
+    }
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+
+    let rep_consumed_field = collect_aggregate_iter_consume_fields(func, contracts, &rep_of);
     if rep_consumed_field.is_empty() {
         return;
     }
@@ -4694,7 +4763,7 @@ fn rewrite_aggregate_iter_consume_field_decs(
                     true
                 }
                 ArcInstr::BurdenDec { var } => {
-                    if let Some(Some(field)) = rep_consumed_field.get(&rep_of(*var)) {
+                    if let Some(field) = rep_consumed_field.get(&rep_of(*var)) {
                         let v = *var;
                         let f = *field;
                         *instr = ArcInstr::BurdenDecPartial {

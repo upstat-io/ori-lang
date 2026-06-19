@@ -2163,4 +2163,46 @@ mod store_family {
             "per-arm finals yield no unique carrier: {carriers:?}"
         );
     }
+
+    use super::super::emit_unified::retarget_borrowed_keepalive_dec;
+
+    /// Positive pin: the Phase-6.66b keep-alive paired dec on a BORROWED PARAM is
+    /// retargeted onto the non-param `inc_arg` alias (so it never decrements the
+    /// borrowed param — VF-1 `check_no_dec_on_borrowed`).
+    #[test]
+    fn retarget_borrowed_keepalive_dec_moves_param_dec_to_alias() {
+        let param = ArcVarId::new(0);
+        let alias = ArcVarId::new(3);
+        let borrowed: FxHashSet<ArcVarId> = [param].into_iter().collect();
+        // dec_arg names the borrowed param -> retarget onto the alias inc_arg.
+        assert_eq!(
+            retarget_borrowed_keepalive_dec(param, alias, &borrowed),
+            alias,
+            "borrowed-param dec must retarget onto the non-param keep-alive alias"
+        );
+    }
+
+    /// Negative pin: a NON-borrowed `dec_arg` (a fresh owned collection's reuse
+    /// alias) is NEVER retargeted — the keep-alive dec stays where the lineage's
+    /// last non-iter use placed it.
+    #[test]
+    fn retarget_borrowed_keepalive_dec_leaves_owned_dec_unchanged() {
+        let alias = ArcVarId::new(3);
+        let owned_dec = ArcVarId::new(7);
+        // Empty borrowed set: dec_arg is owned -> unchanged.
+        let none: FxHashSet<ArcVarId> = FxHashSet::default();
+        assert_eq!(
+            retarget_borrowed_keepalive_dec(owned_dec, alias, &none),
+            owned_dec,
+            "an owned (non-borrowed) dec_arg must not be retargeted"
+        );
+        // dec_arg present but NOT a borrowed param -> unchanged even when the
+        // borrowed set is non-empty.
+        let borrowed: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
+        assert_eq!(
+            retarget_borrowed_keepalive_dec(owned_dec, alias, &borrowed),
+            owned_dec,
+            "a non-param dec_arg must not be retargeted"
+        );
+    }
 }
