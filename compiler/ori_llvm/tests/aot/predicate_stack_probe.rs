@@ -4964,19 +4964,20 @@ fn probe_construct_fed_forwarder_option_disjoint_no_double_free() {
 
 #[test]
 fn probe_nested_construct_fed_dead_param_option_recursive_node_no_leak() {
-    // POSITIVE PIN (the nested construct-fed dead-param lineage cure): a recursive
-    // `Node { value: int, next: Option<Node> }` matched out of an `Option<Node>`
-    // reading only the scalar `.value`. The matched sum-aggregate (`%10 = Construct
-    // Variant(Option.0)(%9)`) is fed to a DEAD merge-block param (`%16`) and released
-    // by the construct-fed pass; its payload is a NESTED heap `Construct Struct(Node)`
-    // (`%2`/`%7`) moved in via owning `Construct`-args, EACH also fed to its own dead
-    // param (`%14`/`%15`). The base walk gives each nested Construct a spurious
-    // FRESH-site keep-alive `BurdenInc` (its rep ALSO feeds a Jump-arg to its dead
-    // param → `use_counts >= 2` dup-proxy) → +1 leak per nested level. The parent
-    // aggregate's single dead-param release transitively frees the whole tree, so the
-    // cure suppresses the nested lineages' incs (Part B cont. 2, NO separate release —
-    // a second dec would double-free). RL-2 release-exactly-once + RL-5 dead-at-entry.
-    // Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
+    // POSITIVE PIN (burden self-sufficiency for the recursive-Node match-scalar
+    // shape): a recursive `Node { value: int, next: Option<Node> }` matched out of
+    // an `Option<Node>` reading only the scalar `.value`. The `match ... node.value`
+    // lowers to `Switch %14` on the scalar tag projection plus an inline
+    // `Project %12.1` payload extract — NOT a Jump-arg-to-dead-block-param shape, so
+    // NO dead merge-block param exists and the construct-fed dead-param scan
+    // (`compute_construct_fed_dead_param_lineage`) is INERT here. The base burden
+    // walk balances the two-node tree on its own: `transfer_via_move_alias`
+    // suppresses the per-Construct-link source decs and emits exactly one inline
+    // `burden_dec` for the outer aggregate (`%12`, which transitively frees the
+    // whole owning Construct chain) plus one for the projected inner Node (`%16`) —
+    // RL-2 release-exactly-once, verified leak-free / double-free-free under the
+    // gated burden-only probe (2 allocs → 2 frees, live=0). Spec: Annex E §AIMS
+    // RL-2.
     let src = r#"
 use std.testing { assert_eq }
 type Node = { value: int, next: Option<Node> }
@@ -4993,14 +4994,13 @@ type Node = { value: int, next: Option<Node> }
     ()
 }
 "#;
+    // No mutation-verify against `ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE`: that
+    // scan never fires for this `Switch`+inline-`Project` lowering, so toggling it
+    // off changes nothing — the base walk owns the balance. The genuine
+    // construct-fed dead-param mutation-verify lives on
+    // `probe_construct_fed_dead_param_for_yield_option_str` (a Jump-arg-to-dead-param
+    // lowering the scan actually cures).
     assert_burden_path_self_sufficient(
-        src,
-        "nested_construct_fed_dead_param_option_recursive_node",
-    );
-    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
-    // dead-param pass DISABLED — the nested-lineage suppression is the cure. Run on
-    // the DEFAULT backend (both-paths-fail lineage).
-    assert_leak_without_construct_fed_dead_param_release(
         src,
         "nested_construct_fed_dead_param_option_recursive_node",
     );
@@ -5008,11 +5008,14 @@ type Node = { value: int, next: Option<Node> }
 
 #[test]
 fn probe_nested_construct_fed_dead_param_result_recursive_node_no_leak() {
-    // POSITIVE PIN (sum-type matrix sibling): the same nested recursive-`Node`
-    // shape matched out of a `Result<Node, str>` instead of an `Option<Node>`. The
-    // `Ok(node) -> node.value` arm exercises the identical nested-Construct-fed
-    // dead-param lineage through the Result aggregate. Spec: Annex E §AIMS RL-5 +
-    // RL-4 + RL-2.
+    // POSITIVE PIN (sum-type matrix sibling): the same recursive-`Node`
+    // match-scalar shape matched out of a `Result<Node, str>` instead of an
+    // `Option<Node>`. The `Ok(node) -> node.value` arm lowers to the identical
+    // `Switch`+inline-`Project` form (no dead block-param), so the construct-fed
+    // scan is INERT and the base burden walk owns the two-node-tree balance —
+    // RL-2 release-exactly-once, verified under the gated burden-only probe. No
+    // mutation-verify (the scan never fires for this shape). Spec: Annex E §AIMS
+    // RL-2.
     let src = r#"
 use std.testing { assert_eq }
 type Node = { value: int, next: Option<Node> }
@@ -5030,10 +5033,6 @@ type Node = { value: int, next: Option<Node> }
 }
 "#;
     assert_burden_path_self_sufficient(
-        src,
-        "nested_construct_fed_dead_param_result_recursive_node",
-    );
-    assert_leak_without_construct_fed_dead_param_release(
         src,
         "nested_construct_fed_dead_param_result_recursive_node",
     );
