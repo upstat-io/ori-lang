@@ -5099,6 +5099,63 @@ type Node = { value: int, next: Option<Node> }
 }
 
 #[test]
+fn probe_double_wrap_niche_sum_cross_block_extract_no_double_free() {
+    // POSITIVE PIN (cross-block enum-cascade dominating-extract, RL-2): a
+    // `catch(catch(panic(..)))` double-wrap lowers to a chain of TRANSPARENT
+    // niche-family sum wrappers over ONE leaf `str` allocation
+    // (`Result<Result<never, str>, str>`). The outer-Ok match arm `Project`s the
+    // inner `Result` (itself a niche-family sum, NOT a leaf) and the base walk
+    // places the outer sum's CASCADE dec at that site — freeing the leaf `str`
+    // in a block that STRICTLY DOMINATES the inner-Err successor that re-extracts
+    // + retains the same leaf. The cure admits the DEPTH-≥2 niche-of-niche
+    // projection web (the live-extract merge places ONE release for the whole
+    // transparent nest; `RL2_release_exactly_once`). Verifies exit 0, no
+    // double-free, no leak, on the burden-only path. Spec: Annex E §AIMS RL-2 +
+    // TF-4.
+    let src = r#"
+@main () -> int = {
+    let inner_result = catch(
+        expr: catch(expr: panic(msg: "innermost panic message for the nested catch shape")),
+    );
+    let msg = match inner_result {
+        Err(e) -> e,
+        Ok(inner) -> match inner {
+            Err(e) -> e,
+            Ok(_) -> "no panic seen",
+        },
+    };
+    if msg.contains(substr: "innermost") then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "double_wrap_niche_sum_cross_block_extract");
+}
+
+#[test]
+fn probe_single_wrap_niche_sum_extract_no_regression_negative() {
+    // NEGATIVE / over-fire boundary PIN (the FLAT single-wrap shape the
+    // depth-≥2 merge gate MUST NOT touch): a single `catch(panic(..))` lowers to
+    // ONE niche-family sum wrapper (`Result<never, str>`) `Project`ed DIRECTLY to
+    // a LEAF `str` (no nested niche projection). The base walk handles the flat
+    // shape correctly (same-block extract + keep-alive); the depth-≥2 merge gate
+    // (`has_nested_niche_projection`) is FALSE here, so the overlapping Ok/Err
+    // candidate web keeps the gate-(g) decline (status quo). Firing the merge
+    // here double-frees the leaf (the `match_alias::test_match_arm_alias_result_str`
+    // over-fire boundary). Verifies exit 0, no double-free, on the burden-only
+    // path. Spec: Annex E §AIMS RL-2.
+    let src = r#"
+@main () -> int = {
+    let r = catch(expr: panic(msg: "single catch panic message that is reasonably long"));
+    let msg = match r {
+        Err(e) -> e,
+        Ok(_) -> "no panic",
+    };
+    if msg.contains(substr: "single") then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "single_wrap_niche_sum_extract_no_regression");
+}
+
+#[test]
 fn probe_owner_drop_deferred_past_borrow_view_intlist_field_no_uaf() {
     // Regression (TF-14 owner-drop borrow-view liveness): a fresh sole-owned-RC-
     // field struct (`Container { items: [int] }`) whose `[int]` field is projected
