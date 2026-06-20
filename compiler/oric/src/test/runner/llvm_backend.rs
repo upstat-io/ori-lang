@@ -104,10 +104,23 @@ impl TestRunner {
         // This ensures results are cached in Salsa's dependency graph and the Pool
         // is stored in PoolCache, avoiding redundant work when the same module is
         // imported by multiple test files.
+        // The prelude is processed as an additional imported-module slot so its
+        // `pub` generic free functions (e.g. `min`/`max`) participate in the
+        // imported-generic monomorphization pipeline exactly like an explicitly
+        // imported generic. Its slot index is `resolved.modules.len()` (appended
+        // last); `register_prelude_generic_sigs` keys `imported_generic_sigs`
+        // entries to that index below.
+        let all_import_modules: Vec<&crate::imports::ResolvedImportedModule> = resolved
+            .modules
+            .iter()
+            .chain(resolved.prelude.as_ref())
+            .collect();
+        let prelude_module_index = resolved.prelude.as_ref().map(|_| resolved.modules.len());
+
         let mut imported_type_results: Vec<TypeCheckResult> = Vec::new();
         let mut imported_canon_results: Vec<ori_ir::canon::SharedCanonResult> = Vec::new();
         let mut imported_pools: Vec<std::sync::Arc<ori_types::Pool>> = Vec::new();
-        for imp_module in &resolved.modules {
+        for &imp_module in &all_import_modules {
             // Type-check via shared helper (Salsa queries when SourceFile is
             // available, direct type checking otherwise).
             let Some((imp_tc, imp_pool)) = crate::query::type_check_module(
@@ -283,6 +296,31 @@ impl TestRunner {
                     (re_interned, func_ref.module_index, func_ref.original_name),
                 );
             }
+        }
+
+        // Register the prelude's `pub` generic free functions (min/max/…) so
+        // their MonoInstances resolve in build_imported_mono_functions — they
+        // are implicit (not ImportedFunctionRef entries) so the loop above
+        // never sees them.
+        if let (Some(prelude_idx), Some(prelude_module)) =
+            (prelude_module_index, resolved.prelude.as_ref())
+        {
+            let source_pool = &imported_pools[prelude_idx];
+            // SAFETY-of-borrows: split the cache/var_remap borrow from the
+            // pool borrow by cloning the Arc — the source pool is read-only.
+            let source_pool = std::sync::Arc::clone(source_pool);
+            let cache = &mut per_module_caches[prelude_idx];
+            let var_remap = &mut per_module_var_remaps[prelude_idx];
+            super::imported_mono::register_prelude_generic_sigs(
+                &mut imported_generic_sigs,
+                &prelude_module.parse_output,
+                &imported_type_results[prelude_idx].typed,
+                &source_pool,
+                prelude_idx,
+                &mut merged_pool,
+                cache,
+                var_remap,
+            );
         }
 
         // Build imported MonoFunction structs for imported generic

@@ -41,6 +41,22 @@ impl IrBuilder<'_, '_> {
         )
     }
 
+    /// Check if an LLVM type is a non-aggregate scalar integer (i1/i8/i32/i64).
+    ///
+    /// Returns `true` ONLY for `IntType` — float, pointer, struct, array, and
+    /// vector types return `false`. Narrower than [`Self::is_single_slot_type`]
+    /// (which also accepts float/pointer scalars): a niche-encoded sum lowered
+    /// to a pointer/float scalar is NOT a bare-discriminant integer and must
+    /// keep its own construction path.
+    ///
+    /// Used by `Construct EnumVariant` to detect a primitive sum (e.g.
+    /// `Ordering` = i8, or a future scalar niche) whose variant value IS the
+    /// integer discriminant, so the constructor emits `const_int(ty, variant)`
+    /// directly instead of an `insertvalue`/`build_struct` on a scalar.
+    pub fn is_scalar_int_type(&self, ty: LLVMTypeId) -> bool {
+        matches!(self.arena.get_type(ty), BasicTypeEnum::IntType(_))
+    }
+
     /// Register and return the LLVM type of an existing value.
     ///
     /// Used when an alloca must match a value already in SSA form (e.g.,

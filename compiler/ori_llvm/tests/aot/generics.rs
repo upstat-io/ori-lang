@@ -1431,6 +1431,62 @@ fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     );
 }
 
+// BUG-04-196: a generic body monomorphized over the builtin niche-scalar
+// `Ordering` sum constructs and projects/matches an `Ordering` variant.
+// `Ordering` lowers to a scalar `i8` but `Tag::Ordering` is a primitive sum
+// with no tagged-ptr/tagless/niche-encoded branch, so the
+// `CtorKind::EnumVariant` emitter fell through to the explicit-tag struct path
+// (`insert_value on non-struct value (index 0)`, construct side) and the
+// `Project { field: 0 }` tag read fell through to `extract_value` on the `i8`
+// (`extract_value on non-struct value (index 0)`, project/match side). The
+// interpreter passed; LLVM failed the whole module. The cure is a scalar-int
+// LLVM-type guard at both emission sites.
+
+/// Regression: a generic body over the builtin niche-scalar `Ordering` sum
+/// constructs an `Ordering` (`cmp<T>` body), projects its tag through a `match`
+/// (`classify`), and calls the `is_less`/`is_equal`/`is_greater` predicates on
+/// the result. Pre-fix this hit `insert_value` (construct) and `extract_value`
+/// (project) on the scalar `i8`; the scalar-int-LLVM-type guards in
+/// `emit_construct` and `emit_project` emit / read the `i8` discriminant
+/// directly (Less=0/Equal=1/Greater=2).
+#[test]
+fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_ordering() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_body_ordering_scalar_construct.ori"),
+        "generic_body_ordering_scalar_construct",
+    );
+}
+
+/// Guard-ordering pin for BUG-04-196: a tagged-pointer enum lowers to a bare
+/// LLVM `i64`, so `is_scalar_int_type` is TRUE for it. The scalar-int guard in
+/// `emit_construct` (and the symmetric one in `emit_project`) MUST fire AFTER
+/// the tagged-ptr check, never before — otherwise the constructor emits a bare
+/// `const_int(i64, variant)` and drops the `(payload | tag)` pointer bits,
+/// losing the iterator payload. Constructs `Holds(it: ...)` (Construct side)
+/// and matches the payload back out + consumes it (Project side); the program
+/// returns 0 ONLY when the payload pointer survived both emission sites. Fails
+/// on the pre-reorder (scalar-guard-first) code; passes after the re-order.
+#[test]
+fn test_tagged_ptr_construct_project_payload_survives() {
+    assert_aot_success(
+        include_str!("fixtures/generics/tagged_ptr_construct_project_payload_survives.ori"),
+        "tagged_ptr_construct_project_payload_survives",
+    );
+}
+
+/// Negative pin for BUG-04-196: the scalar-int guard must fire ONLY on
+/// scalar-int dst (Ordering). Generic bodies constructing aggregate sum
+/// variants — a user-defined `Triple`, `Option`, and `Result` — must keep the
+/// tagged-struct construction path and stay green (the guard must NOT fire on
+/// an aggregate dst).
+#[test]
+fn test_imported_generic_aggregate_construct_no_regression() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_aggregate_construct_no_regression.ori"),
+        "imported_generic_aggregate_construct_no_regression",
+    );
+}
+
 // Local terminal-move store
 // A fresh local read once (borrow projection) then STORED into a Holder as
 // its terminal use. The store IS the move — the Holder's release is the

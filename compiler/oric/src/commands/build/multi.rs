@@ -601,13 +601,21 @@ fn type_check_and_canonicalize_imports(
     Vec<std::sync::Arc<ori_types::Pool>>,
     Vec<ori_ir::canon::SharedCanonResult>,
 ) {
-    let count = resolved_imports.modules.len();
+    // Process the prelude as a trailing module slot so its `pub` generic free
+    // functions (min/max/…) participate in imported-generic monomorphization
+    // exactly like explicit imports. Its slot index is `modules.len()`.
+    let all_import_modules: Vec<&crate::imports::ResolvedImportedModule> = resolved_imports
+        .modules
+        .iter()
+        .chain(resolved_imports.prelude.as_ref())
+        .collect();
+    let count = all_import_modules.len();
     let mut imported_type_results: Vec<ori_types::TypeCheckResult> = Vec::with_capacity(count);
     let mut imported_pools: Vec<std::sync::Arc<ori_types::Pool>> = Vec::with_capacity(count);
     let mut imported_canon_results: Vec<ori_ir::canon::SharedCanonResult> =
         Vec::with_capacity(count);
 
-    for imp_module in &resolved_imports.modules {
+    for &imp_module in &all_import_modules {
         let Some((imp_tc, imp_pool)) = oric::query::type_check_module(
             db,
             &imp_module.parse_output,
@@ -668,7 +676,10 @@ pub(crate) fn build_imported_mono_state(
     // broader than the build dependency graph, which filters stdlib out.
     let resolved_imports = crate::imports::resolve_imports(db, parse_result, source_path);
 
-    if resolved_imports.modules.is_empty() {
+    // The prelude is processed as a trailing module slot (in
+    // `type_check_and_canonicalize_imports`), so a file with ONLY prelude
+    // imports still has imported-generic surfaces to build.
+    if resolved_imports.modules.is_empty() && resolved_imports.prelude.is_none() {
         return ImportedMonoState {
             merged_pool,
             re_interned_canons: Vec::new(),
@@ -681,34 +692,20 @@ pub(crate) fn build_imported_mono_state(
 
     // INVARIANT: the same per-module cache + var_remap is shared across canon-arena
     // and sig re-interning so scheme_var_ids + leaf Tag::Var ids stay coherent.
+    // Sized by the module-array length (explicit imports + trailing prelude slot).
+    let module_count = imported_canon_results.len();
     let mut per_module_caches: Vec<FxHashMap<ori_types::Idx, ori_types::Idx>> =
-        vec![FxHashMap::default(); resolved_imports.modules.len()];
+        vec![FxHashMap::default(); module_count];
     let mut per_module_var_remaps: Vec<FxHashMap<u32, u32>> =
-        vec![FxHashMap::default(); resolved_imports.modules.len()];
+        vec![FxHashMap::default(); module_count];
 
-    let re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
-        .iter()
-        .enumerate()
-        .map(|(module_idx, shared_canon)| {
-            let source_pool = &imported_pools[module_idx];
-            let cache = &mut per_module_caches[module_idx];
-            let var_remap = &mut per_module_var_remaps[module_idx];
-
-            let mut remapped: ori_ir::canon::CanonResult = (**shared_canon).clone();
-            remapped.arena.remap_types(|type_id| {
-                let source_idx = ori_types::Idx::from_raw(type_id.raw());
-                let target_idx = ori_types::re_intern_type_with_var_remap(
-                    source_pool,
-                    source_idx,
-                    &mut merged_pool,
-                    cache,
-                    var_remap,
-                );
-                ori_ir::TypeId::from_raw(target_idx.raw())
-            });
-            remapped
-        })
-        .collect();
+    let re_interned_canons = re_intern_imported_canons(
+        &imported_canon_results,
+        &imported_pools,
+        &mut per_module_caches,
+        &mut per_module_var_remaps,
+        &mut merged_pool,
+    );
 
     // Why: imported_generic_sigs is keyed by LOCAL name — MonoInstance.fn_name
     // is the call-site identifier (the local/aliased name from the use statement).
@@ -747,6 +744,26 @@ pub(crate) fn build_imported_mono_state(
         );
     }
 
+    // Register the prelude's `pub` generic free functions (min/max/…) — they
+    // are implicit (not ImportedFunctionRef entries) so the loop above never
+    // sees them. The prelude slot is the LAST module index.
+    if let Some(prelude_module) = resolved_imports.prelude.as_ref() {
+        let prelude_idx = resolved_imports.modules.len();
+        let source_pool = std::sync::Arc::clone(&imported_pools[prelude_idx]);
+        let cache = &mut per_module_caches[prelude_idx];
+        let var_remap = &mut per_module_var_remaps[prelude_idx];
+        crate::commands::register_prelude_generic_sigs_for_test_runner(
+            &mut imported_generic_sigs,
+            &prelude_module.parse_output,
+            &imported_type_results[prelude_idx].typed,
+            &source_pool,
+            prelude_idx,
+            &mut merged_pool,
+            cache,
+            var_remap,
+        );
+    }
+
     // Why: delegates to the SSOT builder shared with the JIT test runner —
     // one monomorphization mechanism for JIT + AOT.
     let imported_mono_fns = crate::commands::build_imported_mono_functions_for_test_runner(
@@ -762,4 +779,42 @@ pub(crate) fn build_imported_mono_state(
         re_interned_canons,
         imported_mono_fns,
     }
+}
+
+/// Re-intern each imported module's canon arena into the merged pool.
+///
+/// Clones every shared `CanonResult` and remaps its arena types through
+/// [`re_intern_type_with_var_remap`](ori_types::re_intern_type_with_var_remap),
+/// using the per-module cache + var-remap so `scheme_var_ids` + leaf `Tag::Var`
+/// ids stay coherent with the sig re-interning that shares the same maps.
+fn re_intern_imported_canons(
+    imported_canon_results: &[ori_ir::canon::SharedCanonResult],
+    imported_pools: &[std::sync::Arc<ori_types::Pool>],
+    per_module_caches: &mut [FxHashMap<ori_types::Idx, ori_types::Idx>],
+    per_module_var_remaps: &mut [FxHashMap<u32, u32>],
+    merged_pool: &mut ori_types::Pool,
+) -> Vec<ori_ir::canon::CanonResult> {
+    imported_canon_results
+        .iter()
+        .enumerate()
+        .map(|(module_idx, shared_canon)| {
+            let source_pool = &imported_pools[module_idx];
+            let cache = &mut per_module_caches[module_idx];
+            let var_remap = &mut per_module_var_remaps[module_idx];
+
+            let mut remapped: ori_ir::canon::CanonResult = (**shared_canon).clone();
+            remapped.arena.remap_types(|type_id| {
+                let source_idx = ori_types::Idx::from_raw(type_id.raw());
+                let target_idx = ori_types::re_intern_type_with_var_remap(
+                    source_pool,
+                    source_idx,
+                    merged_pool,
+                    cache,
+                    var_remap,
+                );
+                ori_ir::TypeId::from_raw(target_idx.raw())
+            });
+            remapped
+        })
+        .collect()
 }

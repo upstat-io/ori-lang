@@ -122,7 +122,11 @@ fn resolve_mono_target(
     candidates
         .iter()
         .find(|(params, _)| {
-            params.len() == arg_types.len() && params.iter().zip(&arg_types).all(|(p, a)| p == a)
+            params.len() == arg_types.len()
+                && params
+                    .iter()
+                    .zip(&arg_types)
+                    .all(|(p, a)| pool.structural_eq(*p, *a))
         })
         .map(|(_, mangled)| *mangled)
 }

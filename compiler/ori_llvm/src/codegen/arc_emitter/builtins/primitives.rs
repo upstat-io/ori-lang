@@ -37,10 +37,21 @@ declare_builtins! { emitter, ctx;
     ("Duration", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Duration", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Duration", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Duration", "nanoseconds") => emitter.emit_unit_accessor(ctx.arg_vals[0], 1),
+    ("Duration", "microseconds") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::duration::NS_PER_US),
+    ("Duration", "milliseconds") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::duration::NS_PER_MS),
+    ("Duration", "seconds") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::duration::NS_PER_S),
+    ("Duration", "minutes") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::duration::NS_PER_M),
+    ("Duration", "hours") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::duration::NS_PER_H),
     // Size
     ("Size", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Size", "bytes") => emitter.emit_unit_accessor(ctx.arg_vals[0], 1),
+    ("Size", "kilobytes") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::size::BYTES_PER_KB as i64),
+    ("Size", "megabytes") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::size::BYTES_PER_MB as i64),
+    ("Size", "gigabytes") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::size::BYTES_PER_GB as i64),
+    ("Size", "terabytes") => emitter.emit_unit_accessor(ctx.arg_vals[0], ori_ir::builtin_constants::size::BYTES_PER_TB as i64),
     // Ordering
     ("Ordering", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Ordering", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
@@ -161,6 +172,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             _ => None,
         }
+    }
+
+    /// Emit a Duration/Size unit accessor (`nanoseconds`, `seconds`, `bytes`,
+    /// `kilobytes`, ...).
+    ///
+    /// Duration is i64 nanoseconds, Size is i64 bytes; an accessor returns the
+    /// value divided by the unit's base-unit count (`ns_per_unit` /
+    /// `bytes_per_unit`). The base-unit accessor (`nanoseconds` / `bytes`) has
+    /// divisor 1 and is the identity. Matches eval's signed integer division
+    /// in `dispatch_duration_method` / `dispatch_size_method`.
+    pub(crate) fn emit_unit_accessor(
+        &mut self,
+        receiver: ValueId,
+        divisor: i64,
+    ) -> Option<ValueId> {
+        if divisor == 1 {
+            return Some(receiver);
+        }
+        let d = self.builder.const_i64(divisor);
+        Some(self.builder.sdiv(receiver, d, "unit_accessor"))
     }
 
     /// Emit a checked int -> byte conversion (panics outside 0..=255,

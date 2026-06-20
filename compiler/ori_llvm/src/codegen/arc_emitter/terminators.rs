@@ -399,8 +399,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.position_at_end(normal_block);
             return;
         }
-        let builtin_val =
-            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst));
+        let builtin_val = self
+            .try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
+            .or_else(|| self.try_emit_builtin_associated(callee, arc_func.var_type(dst)));
         self.intercepted_unwind = None;
 
         if let Some(val) = builtin_val {

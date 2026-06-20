@@ -116,6 +116,58 @@ pub(crate) fn build_imported_mono_functions(
     imported_mono_fns
 }
 
+/// Register every `pub` generic free function of the prelude module into
+/// `imported_generic_sigs`, keyed by its source name.
+///
+/// Prelude generic free functions (`min`, `max`, …) are implicitly available
+/// in every module but are NOT explicit `ImportedFunctionRef` entries, so the
+/// explicit-import registration loop never sees them. Without this, their
+/// recorded `MonoInstance`s find no generic sig in `build_imported_mono_functions`
+/// and the call site emits `unresolved function ... missing mono instance`.
+///
+/// `prelude_module_index` is the prelude's slot in the per-module re-interning
+/// arrays (`per_module_caches[prelude_module_index]` / `*_var_remaps`). The
+/// caller owns the merged pool; the sig is re-interned into it via the shared
+/// per-module var-remap so scheme-var ids stay coherent with the prelude's
+/// re-interned canon.
+#[cfg(feature = "llvm")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "prelude sig registration threads the same re-interning state the explicit-import loop uses"
+)]
+pub(crate) fn register_prelude_generic_sigs(
+    imported_generic_sigs: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
+    prelude_parse: &crate::parser::ParseOutput,
+    prelude_typed: &ori_types::TypedModule,
+    prelude_source_pool: &Pool,
+    prelude_module_index: usize,
+    merged_pool: &mut Pool,
+    per_module_cache: &mut FxHashMap<Idx, Idx>,
+    per_module_var_remap: &mut FxHashMap<u32, u32>,
+) {
+    for func in &prelude_parse.module.functions {
+        let Some(sig) = prelude_typed.functions.iter().find(|s| s.name == func.name) else {
+            continue;
+        };
+        if !sig.is_generic() {
+            continue;
+        }
+        // First registration wins — an explicit import shadowing a prelude name
+        // (e.g. `use mymod { min }`) already registered the explicit sig.
+        if imported_generic_sigs.contains_key(&func.name) {
+            continue;
+        }
+        let re_interned = ori_types::re_intern_sig_with_var_remap(
+            sig,
+            prelude_source_pool,
+            merged_pool,
+            per_module_cache,
+            per_module_var_remap,
+        );
+        imported_generic_sigs.insert(func.name, (re_interned, prelude_module_index, func.name));
+    }
+}
+
 /// Build the `body_type_map` (`generic_idx` → `concrete_idx`) for one mono
 /// instance on the merged pool.
 ///

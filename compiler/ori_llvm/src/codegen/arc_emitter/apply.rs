@@ -165,12 +165,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .iter()
             .map(|a| self.pool.resolve_fully(func.var_type(*a)))
             .collect();
+        // Structural type equality (not raw pool-Idx identity): a param `[int]`
+        // and an arg `[int]` interned to distinct Idx across the merged/imported
+        // pool boundary denote the same type and MUST match. See
+        // `Pool::structural_eq` (the SSOT both fallback sites call).
         let matched = entries.iter().find(|(params, _)| {
             params.len() == arg_types.len()
                 && params
                     .iter()
                     .zip(&arg_types)
-                    .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
+                    .all(|(p, a)| self.pool.structural_eq(*p, *a))
         });
         if matched.is_none() {
             for (params, _) in entries {
@@ -276,6 +280,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else if let Some(val) =
             self.try_emit_builtin_method(callee, args, func, func.var_type(dst))
         {
+            Some(val)
+        } else if let Some(val) = self.try_emit_builtin_associated(callee, func.var_type(dst)) {
             Some(val)
         } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
             let coerced_args = self.coerce_runtime_fn_args(callee, args, &arg_vals, func);

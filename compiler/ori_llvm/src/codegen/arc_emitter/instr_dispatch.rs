@@ -251,6 +251,75 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    /// Try to emit a niche-encoded enum tag extraction for `Project { field: 0 }`.
+    ///
+    /// Returns `true` when `val_ty` is niche-encoded and the projection was
+    /// emitted (the niche field value becomes the switch scrutinee, recorded in
+    /// [`niche_scrutinees`](Self::niche_scrutinees)); `false` otherwise.
+    fn try_emit_project_niche_tag(&mut self, dst: ArcVarId, value: ArcVarId, val_ty: Idx) -> bool {
+        let Some(encoding) = self.get_niche_encoding(val_ty) else {
+            return false;
+        };
+        let niche_idx = encoding.niche_field_index().unwrap();
+        let v = self.var(value);
+        let llvm_ty = self.resolve_type(val_ty);
+        let niche_val =
+            if let Some(extracted) = self.builder.extract_value(v, niche_idx, "niche.field") {
+                extracted
+            } else {
+                // Pointer-based access: GEP + load.
+                let field_ty = self
+                    .builder
+                    .struct_field_type(llvm_ty, niche_idx)
+                    .unwrap_or_else(|| self.builder.i64_type());
+                let gep = self
+                    .builder
+                    .struct_gep(llvm_ty, v, niche_idx, "niche.field.gep");
+                self.builder.load(field_ty, gep, "niche.field")
+            };
+        self.niche_scrutinees.insert(dst, val_ty);
+        self.def_var(dst, super::EmittedValue::Immediate(niche_val));
+        true
+    }
+
+    /// Try to emit a scalar-integer sum tag extraction for `Project { field: 0 }`.
+    ///
+    /// Returns `true` when `val_ty` lowers to a bare non-aggregate integer
+    /// (e.g. `Ordering` = i8) — the value IS the discriminant, so it is read
+    /// directly as the switch/comparison scrutinee; `false` otherwise.
+    ///
+    /// Symmetric to the scalar-int guard in `emit_construct`; without it, the
+    /// fall-through path would `extract_value(i8, 0)` (the `extract_value on
+    /// non-struct value` malformed IR). Keys on the resolved LLVM type via the
+    /// type-introspection SSOT, so aggregate struct/enum dst keep their path.
+    ///
+    /// The dst var carries the discriminant as `Tag::Int` (i64) in ARC IR, so
+    /// zero-extend the narrow tag (discriminants are non-negative 0..N-1) to
+    /// the dst's resolved width — otherwise the downstream decision-tree
+    /// `icmp eq` / `Switch` compares an i8 against i64 constants (`Both
+    /// operands to ICmp ... not of the same type`).
+    fn try_emit_project_scalar_tag(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        value: ArcVarId,
+        val_ty: Idx,
+    ) -> bool {
+        let val_llvm_ty = self.resolve_type(val_ty);
+        if !self.builder.is_scalar_int_type(val_llvm_ty) {
+            return false;
+        }
+        let tag = self.var(value);
+        let dst_ty = self.resolve_type(ty);
+        let widened = if dst_ty == val_llvm_ty {
+            tag
+        } else {
+            self.builder.zext(tag, dst_ty, "scalar.tag.zext")
+        };
+        self.def_var(dst, super::EmittedValue::Immediate(widened));
+        true
+    }
+
     /// Emit a `Project` instruction (field extraction).
     ///
     /// For tagged union payload fields (Result, Enum), delegates to
@@ -301,36 +370,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // Scalar-integer sum tag extraction (e.g. `Ordering` = i8): the value
+        // IS the discriminant. Extracted to a helper so the dispatch body
+        // stays under the `too_many_lines` cap.
+        if field == 0 && self.try_emit_project_scalar_tag(dst, ty, value, val_ty) {
+            return;
+        }
+
         // Niche-encoded enum tag extraction.
         // When Project { field: 0 } targets a niche-encoded enum, extract the
         // niche field value (not a logical variant index). The raw niche field
         // value is recorded in `niche_scrutinees` so Switch can emit the
         // correct comparison.
-        if field == 0 {
-            if let Some(encoding) = self.get_niche_encoding(val_ty) {
-                // Niche: extract the niche field from the struct.
-                let niche_idx = encoding.niche_field_index().unwrap();
-                let v = self.var(value);
-                let llvm_ty = self.resolve_type(val_ty);
-                let niche_val = if let Some(extracted) =
-                    self.builder.extract_value(v, niche_idx, "niche.field")
-                {
-                    extracted
-                } else {
-                    // Pointer-based access: GEP + load.
-                    let field_ty = self
-                        .builder
-                        .struct_field_type(llvm_ty, niche_idx)
-                        .unwrap_or_else(|| self.builder.i64_type());
-                    let gep = self
-                        .builder
-                        .struct_gep(llvm_ty, v, niche_idx, "niche.field.gep");
-                    self.builder.load(field_ty, gep, "niche.field")
-                };
-                self.niche_scrutinees.insert(dst, val_ty);
-                self.def_var(dst, super::EmittedValue::Immediate(niche_val));
-                return;
-            }
+        if field == 0 && self.try_emit_project_niche_tag(dst, value, val_ty) {
+            return;
         }
 
         let val = self.var(value);

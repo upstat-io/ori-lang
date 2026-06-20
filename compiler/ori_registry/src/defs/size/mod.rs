@@ -59,6 +59,9 @@ static SIZE_METHODS: &[MethodDef] = &[
         B,
     ),
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, B),
+    // Default::default() -> Self (0b). Associated (no receiver); the Default
+    // trait it satisfies is also listed in TypeDef.traits.
+    MethodDef::associated("default", &[], SELF),
     MethodDef::compound(
         "div",
         &SCALAR_PARAM,

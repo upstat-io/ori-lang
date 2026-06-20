@@ -71,6 +71,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // pointer variants use `(arg_ptr | tag)`. The eligibility
                 // check (`can_use_tagged_pointer`) guarantees each variant
                 // has at most one field, so `arg_vals` is `[ptr]` or `[]`.
+                //
+                // Ordering note: this MUST precede the scalar-int guard below.
+                // A tagged-pointer enum resolves to LLVM `i64`, so
+                // `is_scalar_int_type` is TRUE for it; emitting a bare
+                // `const_int(i64, variant)` there would drop the payload bits.
+                // Mirrors the Project side (`instr_dispatch.rs::emit_project`):
+                // tagged-ptr → tagless → scalar-int → niche.
                 if self.get_tagged_ptr_encoding(ty).is_some() {
                     let payload = if arg_vals.is_empty() {
                         // Unit variant: zero pointer slot, tag bits identify variant.
@@ -89,6 +96,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // no niche; box recursive back-edge fields directly.
                 if self.is_tagless_enum(ty) {
                     return self.emit_tagless_variant_construct(llvm_ty, ty, &arg_vals, args);
+                }
+
+                // Scalar-integer sum (e.g. `Ordering` = i8, or a future scalar
+                // niche): the resolved LLVM type is a bare non-aggregate integer
+                // and the variant value IS the discriminant. Emit `const_int`
+                // directly; the explicit-tag-struct dispatch below would
+                // otherwise build_struct/insert_value on a scalar (the
+                // `insert_value on non-struct value` malformed IR). Fires AFTER
+                // the tagged-ptr/tagless checks (a tagged-ptr enum also lowers
+                // to a scalar `i64` but is NOT a bare discriminant) and before
+                // the niche/explicit-tag paths — same order as the Project side.
+                if self.builder.is_scalar_int_type(llvm_ty) {
+                    return self.builder.const_int_of_type(llvm_ty, u64::from(*variant));
                 }
 
                 // Niche-encoded enum — no tag field, payload at index 0.

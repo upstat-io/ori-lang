@@ -962,6 +962,20 @@ rust_failures_json() {
         || echo '[]'
 }
 
+# Per-test failure scrape gated on the suite's final status. An `errored` suite
+# (nonzero exit, no parseable summary) has untrustworthy per-test results, so it
+# contributes NO entries to failures[] — the suite-level ERR (per_suite + totals
+# + the table row) is the SSOT. A non-errored suite scrapes normally. Mirrors the
+# errored re-derivation json_suite_full applies to per_suite.
+scrape_failures_unless_errored() {
+    local output_file="$1" suite_id="$2" status="$3"
+    if [ "$status" = "errored" ]; then
+        printf '[]'
+        return
+    fi
+    rust_failures_json "$output_file" "$suite_id"
+}
+
 # Ori failures: read the runner's --format json per-test payload via
 # diagnostics/parse_test_json.py --failures-json. Supersedes the bash escaper
 # entirely (the runner serde-escapes failure messages; json.dumps re-escapes on
@@ -992,19 +1006,19 @@ emit_json() {
 
     # Parse individual failures from each suite log
     local rust_failures ori_interp_failures ori_llvm_failures rt_failures rust_llvm_failures aot_failures
-    rust_failures=$(rust_failures_json "$RUST_OUTPUT" "rust_workspace")
-    rt_failures=$(rust_failures_json "$RUST_RT_OUTPUT" "rust_rt")
-    rust_llvm_failures=$(rust_failures_json "$RUST_LLVM_OUTPUT" "rust_llvm")
+    rust_failures=$(scrape_failures_unless_errored "$RUST_OUTPUT" "rust_workspace" "$RUST_STATUS")
+    rt_failures=$(scrape_failures_unless_errored "$RUST_RT_OUTPUT" "rust_rt" "$RUST_RT_STATUS")
+    rust_llvm_failures=$(scrape_failures_unless_errored "$RUST_LLVM_OUTPUT" "rust_llvm" "$RUST_LLVM_STATUS")
     local doctest_failures
-    doctest_failures=$(rust_failures_json "$DOCTEST_OUTPUT" "rust_doctest")
-    aot_failures=$(rust_failures_json "$AOT_OUTPUT" "aot")
+    doctest_failures=$(scrape_failures_unless_errored "$DOCTEST_OUTPUT" "rust_doctest" "$DOCTEST_STATUS")
+    aot_failures=$(scrape_failures_unless_errored "$AOT_OUTPUT" "aot" "$AOT_STATUS")
     ori_interp_failures=$(ori_failures_json "$ORI_INTERP_JSON" "ori_interp")
     ori_llvm_failures=$(ori_failures_json "$ORI_LLVM_JSON" "ori_llvm")
 
     # Combine all failures: strip each array's outer [ ], join the inner objects
     # with commas. Each helper emits a compact single-line JSON array.
     local all_failures="" inner
-    for failures in "$rust_failures" "$rt_failures" "$rust_llvm_failures" "$aot_failures" "$ori_interp_failures" "$ori_llvm_failures"; do
+    for failures in "$rust_failures" "$rt_failures" "$rust_llvm_failures" "$doctest_failures" "$aot_failures" "$ori_interp_failures" "$ori_llvm_failures"; do
         inner=$(json_array_inner "$failures")
         if [ -n "$inner" ]; then
             if [ -n "$all_failures" ]; then

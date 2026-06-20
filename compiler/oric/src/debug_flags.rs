@@ -888,6 +888,20 @@ flags! {
     /// Usage: `ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS
 
+    /// Restore the surplus per-alias decs on a multi-borrow-view-alias owner —
+    /// the N-borrow-view-alias generalization of the single-alias
+    /// `ORI_DISABLE_BORROW_VIEW_DST_SURPLUS_DEC_SUPPRESS` keystone (a
+    /// `Config { settings, name }` whose `.settings` and `.name` are projected
+    /// from distinct whole-var aliases of the same aggregate).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (raw `var`). Defined here for
+    /// documentation and `check-debug-flags.sh` consistency. With the toggle
+    /// set, the surplus per-alias decs return (over-release toward a double-free)
+    /// — bisects the multi-borrow-view-alias surplus-dec suppression arm.
+    /// Spec: Annex E §AIMS RL-2.
+    /// Usage: `ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS=1 ori build file.ori`
+    ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS
+
     /// Restore the surplus same-allocation dec on a use-once owned source whose
     /// SOLE owned RC field is projected-returned by a borrowed-receiver callee
     /// (`@unwrap(b) = b.value`, an `ApplyAliasSource::Project` apply-result alias)

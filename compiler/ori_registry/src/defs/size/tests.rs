@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn size_method_count() {
-    assert_eq!(SIZE.methods.len(), 34);
+    assert_eq!(SIZE.methods.len(), 35);
 }
 
 #[test]

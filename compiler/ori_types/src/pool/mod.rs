@@ -21,6 +21,7 @@ mod format;
 mod hashing;
 mod interning;
 pub mod re_intern;
+mod structural_eq;
 pub mod substitute;
 
 pub use collection_surface::walk_collection_types;

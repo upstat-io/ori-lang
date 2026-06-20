@@ -70,6 +70,7 @@ macro_rules! declare_builtins {
     };
 }
 
+mod associated;
 mod collections;
 mod compound_traits;
 mod compound_type_impls;
