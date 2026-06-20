@@ -187,7 +187,9 @@ use super::super::ArcIrEmitter;
 use super::trampolines::TrampolineKind;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit an iterator method.
+    /// Dispatch a named iterator method (`take` / `map` / `flatten` / `cycle`
+    /// / `collect` / …) to its per-method emitter. Returns the result
+    /// `ValueId`, or `None` for void-returning consumers (`for_each`).
     pub(crate) fn emit_iterator_method(
         &mut self,
         method: &str,
@@ -426,12 +428,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// has its own `debug_assert!` that strips in release; this assert is the
     /// load-bearing guard that catches a violation BEFORE `iterator_elem`
     /// reads garbage from the data field.
-    /// and §Panic & Assertion.
     ///
-    /// `pool.resolve_fully` is called first per
-    /// ("All type indices SHALL be fully resolved via `pool.resolve_fully(idx)`
-    /// before LLVM type construction") to chase any binding-chain aliases
-    /// before the iterator-tag check.
+    /// `pool.resolve_fully` is called first (every type index is fully
+    /// resolved before LLVM type construction) to chase any binding-chain
+    /// aliases before the iterator-tag check.
     fn flatten_inner_elem_size(&self, outer_elem_ty: Idx) -> i64 {
         let resolved = self.pool.resolve_fully(outer_elem_ty);
         let outer_tag = self.pool.tag(resolved);

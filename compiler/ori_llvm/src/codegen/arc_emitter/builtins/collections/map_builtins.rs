@@ -502,13 +502,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
         map_ty: Idx,
+        owns_data: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_map");
 
         let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
 
-        let owns_data = self.builder.const_bool(true);
+        // owns_data threads the ARC arg-ownership of the .iter() receiver into the
+        // runtime ctor, mirroring the list path: a borrowed-rooted receiver (the
+        // flatten inner `m.iter()` on a trampoline-closure param, co-owned by the
+        // outer `[{K:V}]`) → owns_data = false so the outer container's elem_dec_fn
+        // frees the map buffer exactly once.
+        let owns_data = self.builder.const_bool(owns_data);
         // Real dec functions: `collect_iter_element_defs()` propagates
         // borrowed status through transitive Project chains (tuple
         // destructuring), so AIMS skips RcDec on destructured k/v.

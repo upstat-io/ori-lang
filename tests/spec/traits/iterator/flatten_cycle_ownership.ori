@@ -27,6 +27,22 @@ use std.testing { assert_eq };
     assert_eq(actual: flatten_nested_int(), expected: [1, 2, 3, 4, 5])
 }
 
+// ---- flatten over a list of MAPS — the map.iter() owns_data codegen gap ----
+// The inner m.iter() is borrowed-rooted (co-owned by the outer [{int: int}]); the
+// map iterator must NOT double-free the map buffer (owns_data=false threaded at
+// emit_map_iter, mirroring the list path). Single-entry maps keep the flattened
+// order deterministic. Pre-fix: SIGABRT (map-iter Drop dec + outer elem_dec_fn dec).
+@flatten_maps () -> [int] = {
+    [{1: 10}, {2: 20}].iter()
+        .map(transform: (m: {int: int}) -> Iterator<(int, int)> = m.iter())
+        .flatten()
+        .map(transform: (kv: (int, int)) -> int = kv.0)
+        .collect()
+}
+@test_flatten_maps tests @flatten_maps () -> void = {
+    assert_eq(actual: flatten_maps(), expected: [1, 2])
+}
+
 // ---- flat_map, heap (str) inner ----
 @flat_map_str () -> [str] = {
     ["x", "y"].iter()

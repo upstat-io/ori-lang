@@ -403,7 +403,12 @@ declare_builtins! { emitter, ctx;
     },
     ("map", "iter") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value, ctx.receiver_ty)
+            // owns_data: same gate as the list path — a borrowed-rooted receiver
+            // (the flatten inner `m.iter()` on a trampoline-closure param) →
+            // owns_data = false so the outer container's elem_dec_fn frees the
+            // map buffer exactly once (no double-free).
+            let owns_data = !emitter.is_var_borrowed_rooted(ctx.arc_args[0]);
+            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value, ctx.receiver_ty, owns_data)
         } else {
             None
         }

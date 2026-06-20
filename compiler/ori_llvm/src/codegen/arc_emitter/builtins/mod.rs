@@ -546,7 +546,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_list_iter(receiver, receiver_ty, *element, true)
             }
             TypeInfo::Set { element } => self.emit_set_iter(receiver, *element),
-            TypeInfo::Map { key, value } => self.emit_map_iter(receiver, *key, *value, receiver_ty),
+            TypeInfo::Map { key, value } => {
+                self.emit_map_iter(receiver, *key, *value, receiver_ty, true)
+            }
             TypeInfo::Str => self.emit_str_iter(receiver),
             TypeInfo::Range => self.emit_range_iter(receiver),
             _ => None,

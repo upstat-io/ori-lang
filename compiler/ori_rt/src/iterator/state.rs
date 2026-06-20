@@ -198,6 +198,20 @@ pub(crate) enum IterState {
     },
 }
 
+/// Dec every owned element master in a flat `elem_size`-byte buffer exactly
+/// once via `dec`, regardless of cursor position. Shared by the `Cycled` and
+/// `Reversed` Drop arms — each OWNS its stored copies (`dec` is the V5-header
+/// `elem_dec_fn`), so the release count is `buffer.len() / elem_size`.
+fn dec_owned_buffer(buffer: &mut [u8], elem_size: i64, dec: extern "C" fn(*mut u8)) {
+    let es = elem_size.max(1) as usize;
+    let n = buffer.len() / es;
+    for i in 0..n {
+        // SAFETY: buffer holds n contiguous es-byte masters.
+        let elem = unsafe { buffer.as_mut_ptr().add(i * es) };
+        dec(elem);
+    }
+}
+
 impl Drop for IterState {
     fn drop(&mut self) {
         // Release RC references to data owned by source-level iterators.
@@ -290,16 +304,9 @@ impl Drop for IterState {
                 ..
             } => {
                 // The buffer OWNS its element copies (inc'd on store in
-                // next_cycled). Dec every stored master exactly once, regardless
-                // of how far buf_pos advanced. The source Option<Box> auto-drops
-                // after this body (gated by its own owns_data).
-                let es = (*elem_size).max(1) as usize;
-                let n = buffer.len() / es;
-                for i in 0..n {
-                    // SAFETY: buffer holds n contiguous es-byte masters.
-                    let elem = unsafe { buffer.as_mut_ptr().add(i * es) };
-                    dec(elem);
-                }
+                // next_cycled). The source Option<Box> auto-drops after this
+                // body (gated by its own owns_data).
+                dec_owned_buffer(buffer, *elem_size, *dec);
             }
             IterState::Reversed {
                 elements,
@@ -308,14 +315,8 @@ impl Drop for IterState {
                 ..
             } => {
                 // The elements buffer OWNS its copies (inc'd at collect time in
-                // ori_iter_rev). Dec every stored master exactly once.
-                let es = (*elem_size).max(1) as usize;
-                let n = elements.len() / es;
-                for i in 0..n {
-                    // SAFETY: elements holds n contiguous es-byte masters.
-                    let elem = unsafe { elements.as_mut_ptr().add(i * es) };
-                    dec(elem);
-                }
+                // ori_iter_rev).
+                dec_owned_buffer(elements, *elem_size, *dec);
             }
             _ => {}
         }

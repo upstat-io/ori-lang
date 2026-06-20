@@ -216,8 +216,8 @@ const SINGLE_ITER_CONSUMERS: &[(&str, usize)] = &[
     ("ori_iter_skip", 2),      // iter, n
     ("ori_iter_enumerate", 1), // iter
     ("ori_iter_flatten", 2),   // iter, inner_elem_size
-    ("ori_iter_cycle", 2),     // iter, elem_size
-    ("ori_iter_rev", 2),       // iter, elem_size
+    ("ori_iter_cycle", 4),     // iter, elem_size, elem_inc_fn, elem_dec_fn
+    ("ori_iter_rev", 4),       // iter, elem_size, elem_inc_fn, elem_dec_fn
     // Consumers — `iter, ...other_borrowed`
     ("ori_iter_collect", 3), // iter, elem_size, elem_inc_fn
     // collect_set excluded — already handled by ProtocolBuiltin::CollectSet.

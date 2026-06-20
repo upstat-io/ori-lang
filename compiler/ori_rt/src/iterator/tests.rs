@@ -677,8 +677,8 @@ fn max_sized_elem_passes_collect() {
 // Regression: the IterState::Reversed Drop arm must dec EVERY stored master via
 // elem_dec_fn, regardless of how far `pos` advanced (mirroring IterState::Map).
 // This is the sole coverage for the rev+heap buffered-replay locus: `rev()` is
-// mono-blocked from the Ori-spec LLVM path (BUG-02-061 iterator
-// missing-mono-instance) so the runtime ownership cure is pinned here.
+// mono-blocked from the Ori-spec LLVM path (the iterator missing-mono-instance
+// gap) so the runtime ownership cure is pinned here.
 
 static REVERSED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
@@ -729,6 +729,75 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
     });
     assert_eq!(
         REVERSED_DEC_COUNT.load(SeqCst),
+        0,
+        "null elem_dec_fn (scalar element) decs nothing"
+    );
+}
+
+// Regression: the IterState::Cycled Drop arm must dec EVERY stored buffer master
+// via elem_dec_fn, regardless of how far `buf_pos` advanced (mirroring
+// IterState::Reversed + IterState::Map). This pins the cycle+heap buffered-replay
+// locus — the reachable Class-B cure for `cycle()` on the LLVM/AOT path. Its own
+// counter (NOT REVERSED_DEC_COUNT) keeps it parallel-test-safe.
+static CYCLED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+extern "C" fn cycled_counting_dec(_elem: *mut u8) {
+    CYCLED_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn cycled_drop_decs_all_masters_regardless_of_buf_pos() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    // Full buffer (buf_pos = count): Drop decs all 3 stored masters exactly once.
+    CYCLED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Cycled {
+        source: None,
+        buffer: vec![0u8; 3 * 8],
+        buf_pos: 3,
+        elem_size: 8,
+        source_exhausted: true,
+        elem_inc_fn: None,
+        elem_dec_fn: Some(cycled_counting_dec),
+    });
+    assert_eq!(
+        CYCLED_DEC_COUNT.load(SeqCst),
+        3,
+        "Drop arm must dec all 3 stored buffer masters"
+    );
+
+    // Partially replayed (buf_pos mid-buffer): Drop STILL decs ALL 3 masters —
+    // NOT the consumed/un-replayed subset. A replay re-yields a master without
+    // moving the buffer's ownership; the consumer's collect-inc covers that alias.
+    CYCLED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Cycled {
+        source: None,
+        buffer: vec![0u8; 3 * 8],
+        buf_pos: 1,
+        elem_size: 8,
+        source_exhausted: true,
+        elem_inc_fn: None,
+        elem_dec_fn: Some(cycled_counting_dec),
+    });
+    assert_eq!(
+        CYCLED_DEC_COUNT.load(SeqCst),
+        3,
+        "Drop arm decs all masters regardless of buf_pos, never the un-replayed subset"
+    );
+
+    // Negative pin: a scalar element (null dec fn) decs nothing — no-op.
+    CYCLED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Cycled {
+        source: None,
+        buffer: vec![0u8; 3 * 8],
+        buf_pos: 3,
+        elem_size: 8,
+        source_exhausted: true,
+        elem_inc_fn: None,
+        elem_dec_fn: None,
+    });
+    assert_eq!(
+        CYCLED_DEC_COUNT.load(SeqCst),
         0,
         "null elem_dec_fn (scalar element) decs nothing"
     );
