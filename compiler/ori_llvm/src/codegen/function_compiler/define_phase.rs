@@ -155,6 +155,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         mut arc_func: ori_arc::ArcFunction,
         mut lambdas: Vec<ori_arc::ArcFunction>,
     ) -> Result<(), VerifyError> {
+        // ORI_DUMP_AFTER_ARC: the realized ArcFunction actually fed to LLVM
+        // emission on the JIT/test-compile path (impl methods + prepared bodies).
+        // The AOT-only ORI_DUMP_AFTER_ARC surface (oric finalize) never reaches
+        // `compile_module_with_tests`; this fills that gap so a decision-tree or
+        // RC mis-lowering can be inspected on the test path too.
+        if std::env::var_os("ORI_DUMP_AFTER_ARC").is_some() {
+            eprintln!(
+                "=== ARC IR (emit path) ===\n{}",
+                ori_arc::ir::format::format_function(&arc_func, self.pool, self.interner)
+            );
+        }
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
         // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.

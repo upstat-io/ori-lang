@@ -102,10 +102,20 @@ fn constructor_key_for_test_value(tv: &TestValue) -> u64 {
 
 /// Infer the `TestKind` from the collected test values.
 ///
-/// All test values at a given column should have the same kind (you don't
-/// mix `Tag` and `Int` tests at the same scrutinee position). This
-/// function determines the kind from the first value.
+/// Most columns are homogeneous, so the kind comes from the first value. The
+/// one valid heterogeneous mix is exact int literals with ranges at an int
+/// column (`match n { 0, 1..10, .. }`), which produces both `Int` and
+/// `IntRange` values. A range forces the comparison-chain path: the chain
+/// handles exact-equality (`Int`) and range edges together, whereas an int
+/// `Switch` cannot represent a range (every range collapses to a duplicate
+/// case).
 pub(in crate::decision_tree::compile) fn infer_test_kind(values: &[TestValue]) -> TestKind {
+    if values
+        .iter()
+        .any(|v| matches!(v, TestValue::IntRange { .. }))
+    {
+        return TestKind::IntRange;
+    }
     match values.first() {
         Some(TestValue::Int(_)) => TestKind::IntEq,
         Some(TestValue::Str(_)) => TestKind::StrEq,

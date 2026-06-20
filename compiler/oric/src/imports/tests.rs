@@ -82,6 +82,29 @@ fn resolve_module_path_not_found() {
 }
 
 #[test]
+fn resolve_stdlib_module_not_found_is_friendly_and_actionable() {
+    let db = CompilerDb::new();
+    let interner = db.interner();
+    // `std.testing` with no stdlib reachable (nonexistent current path, no
+    // ORI_STDLIB override) must produce an actionable message naming the fix,
+    // not the terse generic "Searched: ..." line.
+    let std_root = interner.intern("std");
+    let testing_mod = interner.intern("testing");
+    let path = ImportPath::Module(vec![std_root, testing_mod]);
+    let current = PathBuf::from("/nonexistent/project/src/main.ori");
+
+    let result = resolve_import(&db, &path, &current, None);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().message;
+    // Names the missing module.
+    assert!(msg.contains("std.testing"), "message: {msg}");
+    // Names the actionable fix (ORI_STDLIB) and the standard-library framing.
+    assert!(msg.contains("ORI_STDLIB"), "message: {msg}");
+    assert!(msg.contains("standard library"), "message: {msg}");
+    assert!(msg.contains("./library/std/"), "message: {msg}");
+}
+
+#[test]
 fn import_error_display() {
     let err = ImportError::new(ImportErrorKind::ModuleNotFound, "test error");
     assert_eq!(format!("{err}"), "test error");

@@ -54,7 +54,14 @@ pub(in crate::decision_tree) fn emit_str_chain(
     }
 }
 
-/// Emit range check chains (lo <= value && value <= hi).
+/// Emit a comparison chain for int dispatch that mixes exact literals and
+/// ranges (`match n { 0, 1..10, 10..100, _ }`).
+///
+/// Each edge becomes a `bool` test in decision-tree order — an exact `Int`
+/// edge tests `scrutinee == v`, an `IntRange` edge tests
+/// `lo <= scrutinee && scrutinee </<= hi`. A pure-int `Switch` cannot encode a
+/// range (each range would collapse to a single duplicate case), so any column
+/// containing a range routes here (`infer_test_kind`).
 pub(in crate::decision_tree) fn emit_range_chain(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     scrutinee: ArcVarId,
@@ -63,46 +70,125 @@ pub(in crate::decision_tree) fn emit_range_chain(
     ctx: &mut EmitContext,
 ) {
     for (tv, subtree) in edges {
-        if let TestValue::IntRange { lo, hi, inclusive } = tv {
-            // lo <= scrutinee
-            let lo_val =
-                lowerer
-                    .builder
-                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*lo)), None);
-            let lo_ok = lowerer.builder.emit_let(
-                Idx::BOOL,
-                ArcValue::PrimOp {
-                    op: PrimOp::Binary(ori_ir::BinaryOp::GtEq),
-                    args: vec![scrutinee, lo_val],
-                },
-                Some(ctx.span),
-            );
+        let matches = match tv {
+            TestValue::Int(v) => {
+                let expected =
+                    lowerer
+                        .builder
+                        .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*v)), None);
+                lowerer.builder.emit_let(
+                    Idx::BOOL,
+                    ArcValue::PrimOp {
+                        op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                        args: vec![scrutinee, expected],
+                    },
+                    Some(ctx.span),
+                )
+            }
+            TestValue::IntRange { lo, hi, inclusive } => {
+                // lo <= scrutinee
+                let lo_val =
+                    lowerer
+                        .builder
+                        .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*lo)), None);
+                let lo_ok = lowerer.builder.emit_let(
+                    Idx::BOOL,
+                    ArcValue::PrimOp {
+                        op: PrimOp::Binary(ori_ir::BinaryOp::GtEq),
+                        args: vec![scrutinee, lo_val],
+                    },
+                    Some(ctx.span),
+                );
 
-            // scrutinee <= hi (inclusive) or scrutinee < hi (exclusive)
-            let hi_val =
-                lowerer
-                    .builder
-                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*hi)), None);
-            let hi_op = if *inclusive {
-                PrimOp::Binary(ori_ir::BinaryOp::LtEq)
+                // scrutinee <= hi (inclusive) or scrutinee < hi (exclusive)
+                let hi_val =
+                    lowerer
+                        .builder
+                        .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*hi)), None);
+                let hi_op = if *inclusive {
+                    PrimOp::Binary(ori_ir::BinaryOp::LtEq)
+                } else {
+                    PrimOp::Binary(ori_ir::BinaryOp::Lt)
+                };
+                let hi_ok = lowerer.builder.emit_let(
+                    Idx::BOOL,
+                    ArcValue::PrimOp {
+                        op: hi_op,
+                        args: vec![scrutinee, hi_val],
+                    },
+                    Some(ctx.span),
+                );
+
+                // lo_ok && hi_ok
+                lowerer.builder.emit_let(
+                    Idx::BOOL,
+                    ArcValue::PrimOp {
+                        op: PrimOp::Binary(ori_ir::BinaryOp::And),
+                        args: vec![lo_ok, hi_ok],
+                    },
+                    Some(ctx.span),
+                )
+            }
+            // Other kinds never reach the range chain (infer_test_kind routes
+            // them elsewhere); skip defensively rather than mis-compile.
+            _ => continue,
+        };
+
+        let match_block = lowerer.builder.new_block();
+        let next_block = lowerer.builder.new_block();
+        lowerer
+            .builder
+            .terminate_branch(matches, match_block, next_block);
+
+        lowerer.builder.position_at(match_block);
+        emit_tree(lowerer, subtree, ctx);
+
+        lowerer.builder.position_at(next_block);
+    }
+
+    if let Some(default_tree) = default {
+        emit_tree(lowerer, default_tree, ctx);
+    } else {
+        lowerer.builder.terminate_unreachable();
+    }
+}
+
+/// Emit an if-else chain for list-length dispatch.
+///
+/// A list pattern tests the list's LENGTH, but the test is not pure equality:
+/// an exact-length pattern (`[a, b]`) matches `len == N`, while a rest pattern
+/// (`[head, ..tail]`) matches `len >= N`. A `Switch` cannot express `>=`, and an
+/// exact arm and a rest arm of the same minimum length collide as duplicate
+/// switch cases — so list-length dispatch is a comparison chain, like ranges.
+///
+/// `scrutinee` is the extracted list length (an `int`), in decision-tree
+/// (first-match) order: each exact edge tests `len == N`, each rest edge tests
+/// `len >= N`.
+pub(in crate::decision_tree) fn emit_list_len_chain(
+    lowerer: &mut crate::lower::ArcLowerer<'_>,
+    scrutinee: ArcVarId,
+    edges: &[(TestValue, DecisionTree)],
+    default: Option<&DecisionTree>,
+    ctx: &mut EmitContext,
+) {
+    for (tv, subtree) in edges {
+        if let TestValue::ListLen { len, is_exact } = tv {
+            let len_val = lowerer.builder.emit_let(
+                Idx::INT,
+                ArcValue::Literal(LitValue::Int(i64::from(*len))),
+                None,
+            );
+            // Exact length: `len == N`. Rest pattern: `len >= N`.
+            let op = if *is_exact {
+                PrimOp::Binary(ori_ir::BinaryOp::Eq)
             } else {
-                PrimOp::Binary(ori_ir::BinaryOp::Lt)
+                PrimOp::Binary(ori_ir::BinaryOp::GtEq)
             };
-            let hi_ok = lowerer.builder.emit_let(
+            let matches = lowerer.builder.emit_let(
                 Idx::BOOL,
                 ArcValue::PrimOp {
-                    op: hi_op,
-                    args: vec![scrutinee, hi_val],
-                },
-                Some(ctx.span),
-            );
-
-            // lo_ok && hi_ok
-            let in_range = lowerer.builder.emit_let(
-                Idx::BOOL,
-                ArcValue::PrimOp {
-                    op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                    args: vec![lo_ok, hi_ok],
+                    op,
+                    args: vec![scrutinee, len_val],
                 },
                 Some(ctx.span),
             );
@@ -111,7 +197,7 @@ pub(in crate::decision_tree) fn emit_range_chain(
             let next_block = lowerer.builder.new_block();
             lowerer
                 .builder
-                .terminate_branch(in_range, match_block, next_block);
+                .terminate_branch(matches, match_block, next_block);
 
             lowerer.builder.position_at(match_block);
             emit_tree(lowerer, subtree, ctx);

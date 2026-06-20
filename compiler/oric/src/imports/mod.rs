@@ -406,10 +406,26 @@ fn resolve_module_import_tracked(
     // Defer module_name allocation to error path — the success path above
     // never needs the joined string.
     let module_name = components.join(".");
-    Err(ImportError::new(
-        ImportErrorKind::ModuleNotFound,
-        format!("module '{module_name}' not found. Searched: ORI_STDLIB, ./library/, standard locations"),
-    ))
+    // Stdlib modules (`std.*`) get an actionable message naming the exact fix,
+    // since a missing standard library is almost always an environment problem
+    // (running outside the project, or ORI_STDLIB unset) rather than a typo.
+    let message = if components.first() == Some(&"std") {
+        format!(
+            "cannot find the Ori standard library module '{module_name}'. \
+             The standard library was not found in ORI_STDLIB, any 'library/' \
+             directory above the source file, '~/.local/share/ori/library/', or \
+             the standard system locations. To fix: set the ORI_STDLIB \
+             environment variable to your Ori 'library/' directory, or run from \
+             a directory that contains './library/std/'."
+        )
+    } else {
+        format!(
+            "module '{module_name}' not found. Searched: ORI_STDLIB, every \
+             'library/' directory above the source file, \
+             '~/.local/share/ori/library/', and the standard system locations."
+        )
+    };
+    Err(ImportError::new(ImportErrorKind::ModuleNotFound, message))
 }
 
 /// Generate candidate file paths for a module import.

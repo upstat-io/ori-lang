@@ -400,6 +400,11 @@ pub fn analyze_function(
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);
     post_convergence::populate_var_shapes(&mut state_map, func);
+    // TF-2 carrier: propagate call-result forward state (uniqueness/locality/
+    // shape) across `Let { Var }` aliases. MUST run after both
+    // `populate_call_result_states` and `populate_var_shapes` so every source
+    // side table is fully populated before alias inheritance.
+    post_convergence::propagate_alias_forward_state(&mut state_map, func);
 
     // effect_summary.may_share is available post-convergence.
     // Passed to TRMC gates for logging (not enforced in v1).

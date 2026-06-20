@@ -17,8 +17,8 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{
-    is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId,
-    ArgOwnership, CtorKind, RcStrategy, ValueRepr,
+    is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue,
+    ArcVarId, ArgOwnership, CtorKind, RcStrategy, ValueRepr,
 };
 
 use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
@@ -396,6 +396,72 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
                 _ => ShapeClass::NonReusable,
             };
             state_map.set_var_shape(dst, shape);
+        }
+    }
+}
+
+/// Propagate forward-state side-table entries (uniqueness, locality, shape)
+/// across `Let { dst, value: Var(src) }` aliases.
+///
+/// TF-2 (`Let { Var(v) }` -> `dst.state := state(v)`): a var-binding inherits
+/// its source's full lattice state. The side tables (`var_uniqueness`,
+/// `var_locality`, `var_shapes`) carry the FORWARD dimensions of call results
+/// because the backward dataflow re-initializes those dimensions from BOTTOM
+/// (per `populate_var_shapes` doc). `populate_call_result_states` writes those
+/// dimensions for `Apply`/`Invoke` dsts only; a `Let`-alias of such a result
+/// inherits none, so its `effective_uniqueness_at_block_*` query falls through
+/// to the BOTTOM lattice value (Unique). A seamless-slice result from
+/// `ori_list_slice_drop` (`MaybeShared` on the call dst) is then read as Unique
+/// at its alias's drop site, selecting the unique-owner free path on a shared
+/// allocation. Spec: aims-rules.md §3 TF-2.
+///
+/// Runs AFTER `populate_call_result_states` + `populate_var_shapes` so every
+/// source side table is fully populated. Fixpoint over the alias edge set
+/// handles transitive chains and arbitrary block ordering; monotone (each dst
+/// dimension transitions unset -> set at most once) so it terminates.
+pub(crate) fn propagate_alias_forward_state(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let mut aliases: Vec<(ArcVarId, ArcVarId)> = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                aliases.push((*dst, *src));
+            }
+        }
+    }
+
+    loop {
+        let mut changed = false;
+        for &(dst, src) in &aliases {
+            if state_map.is_excluded(dst) {
+                continue;
+            }
+            if state_map.contract_uniqueness(dst).is_none() {
+                if let Some(uniq) = state_map.contract_uniqueness(src) {
+                    state_map.set_var_uniqueness(dst, uniq);
+                    changed = true;
+                }
+            }
+            if state_map.contract_locality(dst).is_none() {
+                if let Some(loc) = state_map.contract_locality(src) {
+                    state_map.set_var_locality(dst, loc);
+                    changed = true;
+                }
+            }
+            if matches!(state_map.var_shape(dst), ShapeClass::NonReusable) {
+                let src_shape = state_map.var_shape(src);
+                if !matches!(src_shape, ShapeClass::NonReusable) {
+                    state_map.set_var_shape(dst, src_shape);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
         }
     }
 }
