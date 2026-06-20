@@ -33,6 +33,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             // (sret temporaries, indirect param storage) land in the right function.
             self.builder.set_current_function(func.func_id);
 
+            self.dump_arc_if_requested(&func.arc_func, "emit path, prepared");
+
             // Emit parent function
             let mut emitter = ArcIrEmitter::new(
                 self.builder,
@@ -128,6 +130,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
     /// Emit LLVM IR for a prepared lambda using the pre-computed nounwind set.
     fn emit_prepared_lambda(&mut self, lambda: &PreparedLambda) {
+        self.dump_arc_if_requested(&lambda.arc_func, "emit path, prepared lambda");
         self.builder.set_current_function(lambda.func_id);
         let mut emitter = ArcIrEmitter::new(
             self.builder,

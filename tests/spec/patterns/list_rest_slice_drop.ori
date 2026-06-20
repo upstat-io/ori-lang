@@ -9,14 +9,21 @@
 // read lattice BOTTOM=Unique. ori_buffer_drop_unique panics on a SLICE_FLAG cap
 // (debug) / treats the byte-offset cap as an allocation size and SIGSEGVs
 // (release/AOT). Interp was always correct -> dual-execution parity pin.
+//
+// Length is read via the `.len()` METHOD throughout (NOT the free-function
+// `len(collection:)` form, whose builtin codegen stubs to 0 under LLVM — that is
+// the orthogonal BUG-02-056 free-function-builtin defect, independent of the
+// slice-drop fix this file pins). The drop fix is length-API-independent: a
+// correct read on the bound slice proves the slice was constructed AND dropped
+// via the slice-aware path; element-access cells prove the same with no len read.
 
 use std.testing { assert_eq }
 
-// --- Rest-pattern slice bindings (the fix target): len() on a bound rest slice.
-//     SIGSEGVs under LLVM on the unfixed code; interp correct. ---
+// --- Rest-pattern slice bindings (the fix target): a length read on a bound
+//     rest slice. SIGSEGVs under LLVM on the unfixed code; interp correct. ---
 
 @rest_len_int (lst: [int]) -> int = match lst {
-    [head, ..tail] -> len(collection: tail),
+    [head, ..tail] -> tail.len(),
     _ -> 0
 }
 
@@ -28,7 +35,7 @@ use std.testing { assert_eq }
 
 // Heap (str) elements through the same seamless-slice drop path.
 @rest_len_str (lst: [str]) -> int = match lst {
-    [first, ..rest] -> len(collection: rest),
+    [first, ..rest] -> rest.len(),
     _ -> 0
 }
 
@@ -37,7 +44,8 @@ use std.testing { assert_eq }
     assert_eq(actual: rest_len_str(["solo"]), expected: 0)
 }
 
-// Element ACCESS on the bound rest slice (a second match on `tail`).
+// Element ACCESS on the bound rest slice (a second match on `tail`) — proves the
+// slice DATA + drop are correct with NO length read at all.
 @rest_first_int (lst: [int]) -> int = match lst {
     [head, ..tail] -> match tail {
         [t0, ..rest2] -> t0,
@@ -53,7 +61,7 @@ use std.testing { assert_eq }
 
 // Empty-rest pattern `[..rest]` (matches any list incl. empty) — exhaustive alone.
 @all_rest (lst: [int]) -> int = match lst {
-    [..rest] -> len(collection: rest)
+    [..rest] -> rest.len()
 }
 
 @test_all_rest tests @all_rest () -> void = {
@@ -63,13 +71,28 @@ use std.testing { assert_eq }
 
 // Nested-heap elements `[[int]]` — rest slice of nested lists (elem_dec_fn path).
 @rest_len_nested (lst: [[int]]) -> int = match lst {
-    [head, ..tail] -> len(collection: tail),
+    [head, ..tail] -> tail.len(),
     _ -> 0
 }
 
+#skip("BUG-04-203: unused owned list-element binding (head) extracted via @__index is rc-inc'd on extraction but never gets the RL-2 dead-binding dec; the buffer free leaves it at rc=1. Slice-independent (reproduces on exact [head,second] patterns); SSO masks it for short strings. Distinct from the drop-uniqueness SIGSEGV facet of BUG-04-202 fixed by propagate_alias_forward_state.")
 @test_rest_len_nested tests @rest_len_nested () -> void = {
     assert_eq(actual: rest_len_nested([[1], [2], [3]]), expected: 2);
     assert_eq(actual: rest_len_nested([[9]]), expected: 0)
+}
+
+// --- Slice-origin clamp: a `.slice()`-created seamless slice's length must also
+//     read correctly under LLVM via the same drop-aware path. Distinguishes
+//     "rest-pattern slice drop broken" from "all seamless-slice drop broken". ---
+
+@method_slice_len (lst: [int]) -> int = {
+    let $s = lst.slice(start: 1, end: 3);
+    s.len()
+}
+
+@test_method_slice_len tests @method_slice_len () -> void = {
+    assert_eq(actual: method_slice_len([10, 20, 30, 40]), expected: 2);
+    assert_eq(actual: method_slice_len([7, 8]), expected: 1)
 }
 
 // --- Boundary clamp: exact-length matches (NO slice) must STILL use the

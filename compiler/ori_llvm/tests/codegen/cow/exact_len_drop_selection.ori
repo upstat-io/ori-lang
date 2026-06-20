@@ -1,0 +1,31 @@
+// FileCheck pin: list-pattern drop-path SELECTION — negative clamp (narrowness).
+//
+// The companion of rest_slice_drop_selection.ori. An EXACT-length list pattern
+// `[a, b]` consumes the whole list and binds scalar elements via element ACCESS
+// (`ori_list_get`) — it produces NO seamless slice. The TF-2 alias-carrier fix
+// (propagate_alias_forward_state) routes a `..tail` rest-slice's drop to the
+// slice-aware shared-buffer dec; this pin proves that routing is NARROW by
+// asserting the non-slice path emits NONE of the seamless-slice operations
+// (`ori_list_slice` / `ori_list_slice_drop`). With no slice produced, the
+// slice-aware drop routing structurally cannot fire here — so the fix cannot
+// perturb a non-slice list pattern.
+//
+// Drop-fn selection (`ori_buffer_drop_unique` vs `ori_buffer_rc_dec`) is
+// deliberately NOT asserted: it is governed by interprocedural param-uniqueness
+// (a borrowed param emits no in-function drop; a local fresh list decs via
+// `ori_buffer_rc_dec` at baseline), NOT by the pattern shape — so it is not a
+// stable harness invariant. The slice-vs-no-slice structural split IS.
+//
+// @function: _ori_exact_len_drop
+// CHECK: ori_list_get
+// CHECK-NOT: ori_list_slice
+// CHECK-NOT: ori_list_slice_drop
+
+@exact_len_drop (xs: [int]) -> int = match xs {
+    [a, b] -> a + b,
+    _ -> 0
+}
+
+@main () -> void = {
+    print(msg: exact_len_drop([1, 2]).to_str())
+}

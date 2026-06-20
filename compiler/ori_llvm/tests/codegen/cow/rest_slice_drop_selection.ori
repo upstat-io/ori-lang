@@ -1,0 +1,23 @@
+// FileCheck pin: list-pattern drop-path SELECTION (BUG-04-202).
+//
+// A `match` arm binding a list rest pattern `[head, ..tail]` lowers `..tail` to a
+// seamless slice (negative cap, interior data pointer) that SHARES the
+// scrutinee's backing buffer. Its uniqueness is MaybeShared, so its drop MUST be
+// the slice-aware `ori_buffer_rc_dec` — NOT the unique-owner free path
+// `ori_buffer_drop_unique` (which panics / SIGSEGVs on a SLICE_FLAG cap). The
+// fix is the TF-2 alias carrier `propagate_alias_forward_state` that gives the
+// `..tail` binding its slice-Apply MaybeShared so `decide_drop_hint` routes here.
+//
+// @function: _ori_rest_slice_drop
+// CHECK: ori_list_slice_drop
+// CHECK: ori_buffer_rc_dec
+// CHECK-NOT: ori_buffer_drop_unique
+
+@rest_slice_drop (xs: [int]) -> int = match xs {
+    [head, ..tail] -> tail.len(),
+    _ -> 0
+}
+
+@main () -> void = {
+    print(msg: rest_slice_drop([1, 2, 3]).to_str())
+}

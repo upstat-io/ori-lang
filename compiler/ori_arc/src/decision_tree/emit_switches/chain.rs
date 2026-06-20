@@ -129,9 +129,10 @@ pub(in crate::decision_tree) fn emit_range_chain(
                     Some(ctx.span),
                 )
             }
-            // Other kinds never reach the range chain (infer_test_kind routes
-            // them elsewhere); skip defensively rather than mis-compile.
-            _ => continue,
+            // INVARIANT: infer_test_kind routes only Int/IntRange edges to the
+            // range chain. A different variant here is a decision-tree-compilation
+            // bug — surface it visibly rather than silently dropping the subtree.
+            _ => unreachable!("non-range TestValue {tv:?} reached the range chain"),
         };
 
         let match_block = lowerer.builder.new_block();
@@ -155,15 +156,12 @@ pub(in crate::decision_tree) fn emit_range_chain(
 
 /// Emit an if-else chain for list-length dispatch.
 ///
-/// A list pattern tests the list's LENGTH, but the test is not pure equality:
-/// an exact-length pattern (`[a, b]`) matches `len == N`, while a rest pattern
-/// (`[head, ..tail]`) matches `len >= N`. A `Switch` cannot express `>=`, and an
-/// exact arm and a rest arm of the same minimum length collide as duplicate
-/// switch cases — so list-length dispatch is a comparison chain, like ranges.
-///
-/// `scrutinee` is the extracted list length (an `int`), in decision-tree
-/// (first-match) order: each exact edge tests `len == N`, each rest edge tests
-/// `len >= N`.
+/// A list pattern tests LENGTH, not pure equality: an exact pattern (`[a, b]`)
+/// matches `len == N`, a rest pattern (`[head, ..tail]`) matches `len >= N`. A
+/// `Switch` cannot express `>=` (exact + rest of equal min-length collide as
+/// duplicate cases), so dispatch is a comparison chain like ranges. `scrutinee`
+/// is the extracted length (`int`); edges are in decision-tree (first-match)
+/// order.
 pub(in crate::decision_tree) fn emit_list_len_chain(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     scrutinee: ArcVarId,
@@ -203,6 +201,11 @@ pub(in crate::decision_tree) fn emit_list_len_chain(
             emit_tree(lowerer, subtree, ctx);
 
             lowerer.builder.position_at(next_block);
+        } else {
+            // INVARIANT: infer_test_kind routes only ListLen edges to the
+            // list-length chain. A different variant here is a decision-tree-
+            // compilation bug — surface it visibly, never silently drop the subtree.
+            unreachable!("non-ListLen TestValue {tv:?} reached the list-length chain");
         }
     }
 

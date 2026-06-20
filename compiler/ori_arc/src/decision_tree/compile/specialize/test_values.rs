@@ -102,13 +102,12 @@ fn constructor_key_for_test_value(tv: &TestValue) -> u64 {
 
 /// Infer the `TestKind` from the collected test values.
 ///
-/// Most columns are homogeneous, so the kind comes from the first value. The
-/// one valid heterogeneous mix is exact int literals with ranges at an int
-/// column (`match n { 0, 1..10, .. }`), which produces both `Int` and
-/// `IntRange` values. A range forces the comparison-chain path: the chain
-/// handles exact-equality (`Int`) and range edges together, whereas an int
-/// `Switch` cannot represent a range (every range collapses to a duplicate
-/// case).
+/// Most columns are homogeneous (kind = first value's). The one valid
+/// heterogeneous mix is exact int literals with ranges at an int column
+/// (`match n { 0, 1..10, .. }`), producing both `Int` and `IntRange`. A range
+/// forces the comparison-chain path (an int `Switch` cannot represent a range —
+/// every range collapses to a duplicate case); the chain handles exact-equality
+/// and range edges together.
 pub(in crate::decision_tree::compile) fn infer_test_kind(values: &[TestValue]) -> TestKind {
     if values
         .iter()
@@ -122,7 +121,11 @@ pub(in crate::decision_tree::compile) fn infer_test_kind(values: &[TestValue]) -
         Some(TestValue::Bool(_)) => TestKind::BoolEq,
         Some(TestValue::Float(_)) => TestKind::FloatEq,
         Some(TestValue::Char(_)) => TestKind::CharEq,
-        Some(TestValue::IntRange { .. }) => TestKind::IntRange,
+        // An IntRange-first column already returned IntRange via the any() guard
+        // above; reaching it here would mean that guard was bypassed.
+        Some(TestValue::IntRange { .. }) => {
+            unreachable!("IntRange-first column is caught by the any() guard above")
+        }
         Some(TestValue::ListLen { .. }) => TestKind::ListLen,
         Some(TestValue::Tag { .. }) | None => TestKind::EnumTag,
     }

@@ -1,4 +1,4 @@
-//! Integer/bool/char/list-length switch emitter.
+//! Integer/bool/char switch emitter.
 
 use crate::ir::ArcVarId;
 
@@ -6,7 +6,7 @@ use super::super::emit::{emit_tree, EmitContext};
 use super::super::{DecisionTree, TestValue};
 use super::select::{emit_select_chain, is_select_eligible};
 
-/// Emit a `Switch` terminator for integer/bool/list-length dispatch.
+/// Emit a `Switch` terminator for integer/bool/char dispatch.
 pub(in crate::decision_tree) fn emit_int_switch(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     scrutinee: ArcVarId,
@@ -28,7 +28,6 @@ pub(in crate::decision_tree) fn emit_int_switch(
             TestValue::Int(v) => (*v).cast_unsigned(),
             TestValue::Bool(v) => u64::from(*v),
             TestValue::Char(c) => u64::from(u32::from(*c)),
-            TestValue::ListLen { len, .. } => u64::from(*len),
             _ => 0,
         };
         case_blocks.push((case_val, block));

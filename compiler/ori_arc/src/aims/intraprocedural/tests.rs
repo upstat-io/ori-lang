@@ -4290,6 +4290,125 @@ fn populate_call_result_states_apply_no_contract_uses_conservative() {
     );
 }
 
+/// Helper: `ArcFunction` doing `v1 = Apply(callee, [p0]); v2 = Let Var(v1); return v2`.
+/// The `Let { Var }` alias (`v2`) is the shape `propagate_alias_forward_state`
+/// must carry the call-result forward state onto (TF-2: a var-binding inherits
+/// its source's full lattice state).
+fn func_with_apply_then_let_alias(callee_name: Name) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(1)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// BUG-04-202 LOAD-BEARING TEST (TF-2 alias carrier).
+///
+/// A `Let { Var(src) }` alias of an `Apply` result whose contract is
+/// `MaybeShared` (the seamless-slice `..tail` pattern binding aliasing the
+/// `ori_list_slice_drop` result) MUST inherit `MaybeShared` via
+/// `propagate_alias_forward_state`. Without it the alias's `contract_uniqueness`
+/// is None, `effective_uniqueness_at_block_*` falls through to lattice
+/// BOTTOM=Unique, `decide_drop_hint` selects the unique-owner free path, and
+/// codegen emits `ori_buffer_drop_unique` on a slice cap → bound-slice drop
+/// SIGSEGV.
+#[test]
+fn propagate_alias_forward_state_let_alias_inherits_maybe_shared() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_then_let_alias(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // The Apply dst (%1) carries the contract MaybeShared (populate_call_result_states).
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply dst must carry the MaybeShared contract"
+    );
+    // The Let-alias (%2) MUST inherit it via propagate_alias_forward_state (TF-2).
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "Let{{Var}} alias of a MaybeShared call result MUST inherit MaybeShared — \
+         TF-2 carrier; the seamless-slice bound-pattern drop-selection depends on it"
+    );
+    // Locality also propagates (CONSERVATIVE Unknown from the call result).
+    assert_eq!(
+        state_map.contract_locality(var(2)),
+        Some(Locality::Unknown),
+        "Let{{Var}} alias must inherit the call result's locality too"
+    );
+}
+
+/// Negative clamp: a `Let { Var }` alias of a `Unique`-contract call result
+/// inherits NOTHING (BOTTOM-skip) — `contract_uniqueness` stays None and
+/// `effective_*` correctly falls through to the lattice. Proves the alias
+/// propagation copies only the source's stored (non-BOTTOM) dimensions and does
+/// NOT broaden the side table.
+#[test]
+fn propagate_alias_forward_state_unique_source_alias_stays_unset() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_then_let_alias(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // Source %1: Unique is BOTTOM — not stored.
+    assert_eq!(state_map.contract_uniqueness(var(1)), None);
+    // Alias %2: nothing to inherit (source unset) — stays None.
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        None,
+        "alias of a Unique (BOTTOM, unstored) source must stay unset — \
+         propagation copies only stored non-BOTTOM dimensions"
+    );
+}
+
 /// `ApplyIndirect` populates with CONSERVATIVE per spec TF-5a.
 /// Spec says indirect calls receive "Same as TF-5"
 /// (CONSERVATIVE = `MaybeShared`), NOT excluded from the side table entirely.

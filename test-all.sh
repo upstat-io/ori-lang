@@ -19,6 +19,12 @@
 
 set -e
 
+# AOT identity-gate library: snapshot-integrity verdict + manifest helpers.
+# Sourced by BASH_SOURCE-relative path so it resolves regardless of cwd.
+TEST_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/aot_gate_lib.sh
+source "$TEST_ALL_DIR/scripts/aot_gate_lib.sh"
+
 # Check for flags
 VERBOSE=0
 PARALLEL=1
@@ -459,20 +465,8 @@ artifact_identity() {
 # Stage manifest the AOT harness publishes while snapshotting its per-process
 # artifacts (staged_artifacts_dir in compiler/ori_llvm/tests/aot/util/binary.rs).
 # Deleted at baseline capture, so post-leg presence proves THIS run staged.
+# Consumed by aot_snapshot_verdict() (scripts/aot_gate_lib.sh).
 AOT_STAGE_MANIFEST="build/aot-stage-manifest-debug.txt"
-
-# Stage-time source identities recorded in the manifest for the same artifacts
-# artifact_identity() stats, newline-joined in the same order. Empty output =
-# manifest missing or unparseable (gate falls back to the live compare).
-manifest_source_identity() {
-    local manifest="$1" ori_id rt_id
-    [ -f "$manifest" ] || return 0
-    ori_id=$(awk '$1 == "artifact" && $2 == "ori" { print $4; exit }' "$manifest")
-    rt_id=$(awk '$1 == "artifact" && $2 == "libori_rt.a" { print $4; exit }' "$manifest")
-    if [ -n "$ori_id" ] && [ -n "$rt_id" ]; then
-        printf '%s\n%s\n' "$ori_id" "$rt_id"
-    fi
-}
 
 suite_status() {
     local exit_code="${1:-0}" failed="${2:-0}"
@@ -707,30 +701,35 @@ else
 fi
 
 # Show verbose output if requested or on failure
-# AOT identity gate (Go model) — decide BEFORE any failure dump: invalidated
-# per-test output is noise, not signal. Decision table:
-#   manifest present, staged identities == baseline -> VALID (the per-process
-#     snapshot pinned the baseline inodes; later target/ churn never reached
-#     the leg — no invalidation even if artifact_identity changed mid-run)
-#   manifest present, staged identities != baseline -> INVALID (a build
-#     crossed the baseline->stage window; the AOT leg ran different artifacts
-#     than the rest of the run)
-#   manifest absent/unparseable -> conservative legacy live compare
+# AOT identity gate (snapshot-integrity) — decide BEFORE any failure dump:
+# invalidated per-test output is noise, not signal. aot_snapshot_verdict
+# (scripts/aot_gate_lib.sh) re-stats each staged file at <stage-dir>/<name>
+# against its manifest-recorded identity. Verdicts:
+#   valid       -> the per-PID hardlink snapshot stayed intact; mid-run target/
+#                  churn (test-all's own concurrent rebuilds) is harmless by
+#                  design and never invalidates
+#   invalid:*   -> a staged file went missing or drifted mid-leg
+#   fallback    -> no stage manifest published (snapshot staging never ran);
+#                  conservative live compare against the pre-run baseline
 AOT_INVALID=0
-if [ -n "${AOT_ARTIFACT_BASELINE:-}" ]; then
-    AOT_STAGED_IDENTITY=$(manifest_source_identity "$AOT_STAGE_MANIFEST")
-    if [ -n "$AOT_STAGED_IDENTITY" ]; then
-        if [ "$AOT_STAGED_IDENTITY" != "$AOT_ARTIFACT_BASELINE" ]; then
-            AOT_INVALID=1
-            echo ""
-            echo -e "${RED}AOT LEG INVALID - the AOT harness staged artifacts differing from the pre-run baseline (a build replaced them before staging); AOT counts are not trustworthy${NC}"
-        fi
-    elif [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
+AOT_VERDICT=$(aot_snapshot_verdict "$AOT_STAGE_MANIFEST" "${AOT_ARTIFACT_BASELINE:-}")
+case "$AOT_VERDICT" in
+    valid)
+        : # snapshot intact — AOT counts trustworthy
+        ;;
+    invalid:*)
         AOT_INVALID=1
         echo ""
-        echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run and no stage manifest was published (snapshot staging never ran); AOT counts are not trustworthy${NC}"
-    fi
-fi
+        echo -e "${RED}AOT LEG INVALID - the staged AOT snapshot was corrupted mid-leg (${AOT_VERDICT#invalid:}); AOT counts are not trustworthy${NC}"
+        ;;
+    fallback)
+        if [ -n "${AOT_ARTIFACT_BASELINE:-}" ] && [ "$(artifact_identity)" != "$AOT_ARTIFACT_BASELINE" ]; then
+            AOT_INVALID=1
+            echo ""
+            echo -e "${RED}AOT LEG INVALID - build artifacts changed mid-run and no stage manifest was published (snapshot staging never ran); AOT counts are not trustworthy${NC}"
+        fi
+        ;;
+esac
 
 if [[ $VERBOSE -eq 1 ]]; then
     echo ""

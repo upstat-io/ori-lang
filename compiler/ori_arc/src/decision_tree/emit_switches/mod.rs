@@ -7,8 +7,8 @@
 //! ## Submodules
 //!
 //! - [`tag`] — enum tag switch via `Switch` terminator
-//! - [`int`] — int/bool/char/list-length switch via `Switch` terminator
-//! - [`chain`] — string/float equality + range check via `Branch` chains
+//! - [`int`] — int/bool/char switch via `Switch` terminator
+//! - [`chain`] — string/float equality + range check + list-length comparison via `Branch` chains
 //! - [`select`] — branchless select chain optimization
 
 mod chain;
@@ -45,13 +45,11 @@ pub(super) fn emit_switch(
             int::emit_int_switch(lowerer, scrutinee, edges, default, ctx);
         }
         TestKind::ListLen => {
-            // A list-length test discriminates on the list's LENGTH, not the
-            // list value. Extract the length (field 0 of the {len, cap, data}
-            // fat pointer) into an int, then dispatch via a comparison chain:
-            // exact patterns test `len == N`, rest patterns test `len >= N`.
-            // A `Switch` cannot express `>=` (an exact and a rest arm of the
-            // same length collide as duplicate cases), and switching on the raw
-            // list feeds a {i64, i64, ptr} aggregate to the int Switch builder.
+            // Why: discriminate on the list's LENGTH, not the list value.
+            // Extract length (field 0 of the {len, cap, data} fat pointer) into
+            // an int, then chain — exact tests `len == N`, rest `len >= N`. A
+            // `Switch` cannot express `>=`, and switching the raw list would
+            // feed a {i64, i64, ptr} aggregate to the int Switch builder.
             let len_var = lowerer
                 .builder
                 .emit_project(Idx::INT, scrutinee, 0, Some(ctx.span));

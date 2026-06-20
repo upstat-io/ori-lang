@@ -413,7 +413,7 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// to the BOTTOM lattice value (Unique). A seamless-slice result from
 /// `ori_list_slice_drop` (`MaybeShared` on the call dst) is then read as Unique
 /// at its alias's drop site, selecting the unique-owner free path on a shared
-/// allocation. Spec: aims-rules.md §3 TF-2.
+/// allocation. Spec: Annex E §AIMS (TF-2 variable-binding transfer).
 ///
 /// Runs AFTER `populate_call_result_states` + `populate_var_shapes` so every
 /// source side table is fully populated. Fixpoint over the alias edge set

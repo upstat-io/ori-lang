@@ -208,7 +208,7 @@ fn identity_of_required(path: &Path) -> String {
 
 #[cfg(unix)]
 #[test]
-fn stage_snapshot_records_stage_time_source_identity() {
+fn stage_snapshot_records_stage_time_staged_identity() {
     let root = temp_test_dir("identity");
     let (src, stage) = (root.join("src"), root.join("stage"));
     write_file(&src.join("ori"), "binary-v1");
@@ -221,11 +221,11 @@ fn stage_snapshot_records_stage_time_source_identity() {
     assert_eq!(staged.len(), 1);
     assert_eq!(staged[0].name, "ori");
     assert_eq!(staged[0].strategy_used, "hardlink");
-    assert_eq!(staged[0].source_identity, pre_stage_identity);
+    assert_eq!(staged[0].staged_identity, pre_stage_identity);
 
     // Shape pin: dev:inode:mtime:size — four ':'-separated integer fields,
     // the exact tuple the test-all.sh identity gate stats for its baseline.
-    let fields: Vec<&str> = staged[0].source_identity.split(':').collect();
+    let fields: Vec<&str> = staged[0].staged_identity.split(':').collect();
     assert_eq!(fields.len(), 4, "identity must be dev:inode:mtime:size");
     for field in &fields {
         assert!(
@@ -252,20 +252,21 @@ fn hardlink_identity_describes_pinned_inode_after_source_swap() {
     // The recorded identity describes the PINNED inode (still readable via
     // the staged hardlink) — not whatever now lives at the source path.
     assert_eq!(
-        staged[0].source_identity,
+        staged[0].staged_identity,
         identity_of_required(&stage.join("ori")),
         "recorded identity must describe the pinned inode"
     );
     assert_ne!(
-        staged[0].source_identity,
+        staged[0].staged_identity,
         identity_of_required(&src.join("ori")),
         "a rename swap must move the live path off the pinned identity"
     );
     let _ = fs::remove_dir_all(&root);
 }
 
+#[cfg(unix)]
 #[test]
-fn copy_strategy_records_source_identity() {
+fn copy_strategy_records_staged_identity() {
     let root = temp_test_dir("copy-id");
     let (src, stage) = (root.join("src"), root.join("stage"));
     write_file(&src.join("ori"), "v1");
@@ -275,10 +276,18 @@ fn copy_strategy_records_source_identity() {
         Err(e) => panic!("stage_snapshot failed: {e}"),
     };
     assert_eq!(staged[0].strategy_used, "copy");
+    // Snapshot-integrity: the gate re-stats the STAGED copy, so the recorded
+    // identity is the copy's own (dst), never the source's. A fresh copy has a
+    // distinct inode from the source, so the two identities differ.
     assert_eq!(
-        staged[0].source_identity,
+        staged[0].staged_identity,
+        identity_of_required(&stage.join("ori")),
+        "copy strategy must record the STAGED identity the gate re-stats"
+    );
+    assert_ne!(
+        staged[0].staged_identity,
         identity_of_required(&src.join("ori")),
-        "copy strategy must record the SOURCE identity (the copy has its own inode)"
+        "a copy's staged inode differs from the source inode"
     );
     let _ = fs::remove_dir_all(&root);
 }
@@ -288,12 +297,12 @@ fn manifest_artifact_lines_carry_identity_in_fourth_field() {
     let artifacts = vec![
         StagedArtifact {
             name: "ori".to_string(),
-            source_identity: "64769:101:1700000000:4096".to_string(),
+            staged_identity: "64769:101:1700000000:4096".to_string(),
             strategy_used: "hardlink",
         },
         StagedArtifact {
             name: "libori_rt.a".to_string(),
-            source_identity: "64769:102:1700000001:8192".to_string(),
+            staged_identity: "64769:102:1700000001:8192".to_string(),
             strategy_used: "copy",
         },
     ];
@@ -325,7 +334,7 @@ fn manifest_artifact_lines_carry_identity_in_fourth_field() {
             panic!("unknown artifact line: {line}")
         };
         assert_eq!(fields[2], recorded.strategy_used);
-        assert_eq!(fields[3], recorded.source_identity);
+        assert_eq!(fields[3], recorded.staged_identity);
     }
     assert_eq!(artifact_lines, 2, "every staged artifact gets a record");
 }

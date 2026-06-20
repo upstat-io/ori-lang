@@ -22,6 +22,23 @@ use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
+    /// Dump a realized `ArcFunction`'s ARC IR to stderr when `ORI_DUMP_AFTER_ARC`
+    /// is set. Covers every JIT/test-compile emit path (immediate-emit impl
+    /// methods + prepared ordinary functions/lambdas); the AOT-only `oric`
+    /// finalize dump never reaches `compile_module_with_tests`.
+    pub(in crate::codegen::function_compiler) fn dump_arc_if_requested(
+        &self,
+        arc_func: &ori_arc::ArcFunction,
+        label: &str,
+    ) {
+        if std::env::var_os("ORI_DUMP_AFTER_ARC").is_some() {
+            eprintln!(
+                "=== ARC IR ({label}) ===\n{}",
+                ori_arc::ir::format::format_function(arc_func, self.pool, self.interner)
+            );
+        }
+    }
+
     // Monomorphized function support
 
     /// Declare monomorphized functions (phase 1).
@@ -155,16 +172,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         mut arc_func: ori_arc::ArcFunction,
         mut lambdas: Vec<ori_arc::ArcFunction>,
     ) -> Result<(), VerifyError> {
-        // ORI_DUMP_AFTER_ARC: the realized ArcFunction actually fed to LLVM
-        // emission on the JIT/test-compile path (impl methods + prepared bodies).
-        // The AOT-only ORI_DUMP_AFTER_ARC surface (oric finalize) never reaches
-        // `compile_module_with_tests`; this fills that gap so a decision-tree or
-        // RC mis-lowering can be inspected on the test path too.
-        if std::env::var_os("ORI_DUMP_AFTER_ARC").is_some() {
-            eprintln!(
-                "=== ARC IR (emit path) ===\n{}",
-                ori_arc::ir::format::format_function(&arc_func, self.pool, self.interner)
-            );
+        // Why: ORI_DUMP_AFTER_ARC's AOT surface (oric finalize) never reaches
+        // `compile_module_with_tests`, so the realized ArcFunction fed to LLVM
+        // on the JIT/test path was undumpable. This fills the gap — decision-tree
+        // / RC mis-lowering is now inspectable on the test path too.
+        self.dump_arc_if_requested(&arc_func, "emit path");
+        // Prepared lambda bodies on this path carry their own decision-tree / RC
+        // lowering.
+        for lambda in &lambdas {
+            self.dump_arc_if_requested(lambda, "emit path, lambda");
         }
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
