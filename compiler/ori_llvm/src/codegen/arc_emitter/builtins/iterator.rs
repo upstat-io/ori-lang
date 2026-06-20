@@ -494,15 +494,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        // The replay buffer OWNS its element copies: pass the element inc/dec fns
+        // (null for scalar elements) so next_cycled incs on store and Drop decs
+        // each stored master. Mirrors how Map threads key/val_dec_fn.
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let func_id = self.builder.runtime_fn("ori_iter_cycle");
-        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.cycle")
+        self.emit_rt_call(
+            func_id,
+            &[iter_ptr, elem_size_val, elem_inc_fn, elem_dec_fn],
+            "iter.cycle",
+        )
     }
 
     fn emit_iter_rev(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
         // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        // The collected buffer OWNS its element copies: pass the element inc/dec
+        // fns (null for scalar) so ori_iter_rev incs on collect and Drop decs each.
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let func_id = self.builder.runtime_fn("ori_iter_rev");
-        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.rev")
+        self.emit_rt_call(
+            func_id,
+            &[iter_ptr, elem_size_val, elem_inc_fn, elem_dec_fn],
+            "iter.rev",
+        )
     }
 }

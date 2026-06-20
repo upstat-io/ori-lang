@@ -9,7 +9,7 @@ use super::*;
 #[test]
 fn list_iter_basic() {
     let data: [i64; 3] = [10, 20, 30];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
@@ -25,7 +25,7 @@ fn list_iter_basic() {
 
 #[test]
 fn list_iter_empty() {
-    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
@@ -101,7 +101,7 @@ fn take_from_range() {
 #[test]
 fn skip_from_list() {
     let data: [i64; 5] = [10, 20, 30, 40, 50];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, true);
     let iter = ori_iter_skip(iter, 3);
 
     let mut out: i64 = 0;
@@ -127,7 +127,7 @@ extern "C" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
 #[test]
 fn map_doubles() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
 
     let mut out: i64 = 0;
@@ -155,7 +155,7 @@ extern "C" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
 #[test]
 fn filter_even() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
 
     let mut out: i64 = 0;
@@ -175,7 +175,7 @@ fn filter_even() {
 #[test]
 fn enumerate_list() {
     let data: [i64; 3] = [10, 20, 30];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     let iter = ori_iter_enumerate(iter);
 
     // Output: (i64 index, i64 element) = 16 bytes
@@ -203,7 +203,7 @@ fn count_range() {
 #[test]
 fn count_filtered() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
     assert_eq!(ori_iter_count(iter, 8), 3);
 }
@@ -241,7 +241,7 @@ fn collect_range() {
 fn map_filter_take() {
     // [1,2,3,4,5,6,7,8,9,10].iter().map(x -> x*2).filter(x -> x > 10).take(3)
     let data: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8, true);
     let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8); // all doubled are even
     let iter = ori_iter_take(iter, 3);
@@ -268,20 +268,20 @@ extern "C" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
 #[test]
 fn any_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, true);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 1);
 }
 
 #[test]
 fn any_not_found() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
 #[test]
 fn any_empty() {
-    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
@@ -290,20 +290,20 @@ fn any_empty() {
 #[test]
 fn all_true() {
     let data: [i64; 3] = [4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1);
 }
 
 #[test]
 fn all_false() {
     let data: [i64; 3] = [4, 2, 6];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
 #[test]
 fn all_empty() {
-    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1); // vacuously true
 }
 
@@ -312,7 +312,7 @@ fn all_empty() {
 #[test]
 fn find_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, true);
 
     // Option<i64> = { i64 tag, i64 payload } = 16 bytes
     // ARC enum convention: Some=0, None=1
@@ -328,7 +328,7 @@ fn find_found() {
 #[test]
 fn find_not_found() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
     // ARC enum convention: Some=0, None=1
     let mut out = [0u8; 16];
@@ -350,7 +350,7 @@ extern "C" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
 #[test]
 fn for_each_counts() {
     let data: [i64; 4] = [10, 20, 30, 40];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8, true);
 
     let mut counter: i64 = 0;
     ori_iter_for_each(iter, increment_counter, (&raw mut counter).cast(), 8);
@@ -359,7 +359,7 @@ fn for_each_counts() {
 
 #[test]
 fn for_each_empty() {
-    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
     let mut counter: i64 = 0;
     ori_iter_for_each(iter, increment_counter, (&raw mut counter).cast(), 8);
     assert_eq!(counter, 0);
@@ -379,7 +379,7 @@ extern "C" fn sum_fold(env: *mut u8, acc_ptr: *const u8, elem_ptr: *const u8, ou
 #[test]
 fn fold_sum() {
     let data: [i64; 4] = [1, 2, 3, 4];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8, true);
 
     let init: i64 = 0;
     let mut result: i64 = 0;
@@ -397,7 +397,7 @@ fn fold_sum() {
 
 #[test]
 fn fold_empty() {
-    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
 
     let init: i64 = 42;
     let mut result: i64 = 0;
@@ -417,7 +417,7 @@ fn fold_empty() {
 fn fold_with_filter() {
     // [1,2,3,4,5,6].filter(even).fold(0, +) = 2+4+6 = 12
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
 
     let init: i64 = 0;
@@ -440,8 +440,8 @@ fn fold_with_filter() {
 fn zip_equal_length() {
     let left: [i64; 3] = [1, 2, 3];
     let right: [i64; 3] = [10, 20, 30];
-    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8);
-    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8, true);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8, true);
     let iter = ori_iter_zip(l, r, 8);
 
     // Output: (i64, i64) = 16 bytes
@@ -461,8 +461,8 @@ fn zip_equal_length() {
 fn zip_unequal_length() {
     let left: [i64; 3] = [1, 2, 3];
     let right: [i64; 2] = [10, 20];
-    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8);
-    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 2, 0, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8, true);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 2, 0, 8, true);
     let iter = ori_iter_zip(l, r, 8);
 
     let mut out: [i64; 2] = [0, 0];
@@ -489,8 +489,8 @@ fn zip_count() {
 fn chain_two_lists() {
     let left: [i64; 2] = [1, 2];
     let right: [i64; 3] = [3, 4, 5];
-    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 2, 0, 8);
-    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 2, 0, 8, true);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8, true);
     let iter = ori_iter_chain(l, r);
 
     let mut out: i64 = 0;
@@ -545,7 +545,7 @@ fn list_iter_drop_releases_slice_rc() {
 
     // Create an iterator over the "slice" — 2 elements starting at byte offset 0
     let slice_cap = make_slice_cap(0);
-    let iter = ori_iter_from_list(data, 2, slice_cap, 8);
+    let iter = ori_iter_from_list(data, 2, slice_cap, 8, true);
 
     // Drop the iterator — should release the slice's RC reference
     ori_iter_drop(iter);
@@ -578,7 +578,7 @@ fn list_iter_drop_frees_slice_when_last_ref() {
 
     // Create an iterator with slice cap — sole owner (RC=1)
     let slice_cap = make_slice_cap(0);
-    let iter = ori_iter_from_list(data, 3, slice_cap, 8);
+    let iter = ori_iter_from_list(data, 3, slice_cap, 8, true);
 
     // Drop the iterator — should free the buffer entirely (RC 1→0)
     ori_iter_drop(iter);
@@ -640,7 +640,7 @@ fn assert_elem_size_accepts_typical() {
 fn normal_sized_elem_passes_collect() {
     let _g = crate::test_helpers::lock_rc();
     let data: [i64; 3] = [10, 20, 30];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     let mut out = [0u8; 24];
     ori_iter_collect(iter, 8, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
@@ -660,7 +660,7 @@ fn max_sized_elem_passes_collect() {
     // Exactly MAX_ELEM_SIZE should be accepted (boundary test)
     let max_size = state::MAX_ELEM_SIZE as i64;
     let data = vec![0u8; state::MAX_ELEM_SIZE];
-    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, true);
     let mut out = [0u8; 24];
     ori_iter_collect(iter, max_size, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
@@ -672,4 +672,64 @@ fn max_sized_elem_passes_collect() {
         let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
         crate::ori_list_free_data(data_ptr, cap, max_size);
     }
+}
+
+// Regression: the IterState::Reversed Drop arm must dec EVERY stored master via
+// elem_dec_fn, regardless of how far `pos` advanced (mirroring IterState::Map).
+// This is the sole coverage for the rev+heap buffered-replay locus: `rev()` is
+// mono-blocked from the Ori-spec LLVM path (BUG-02-061 iterator
+// missing-mono-instance) so the runtime ownership cure is pinned here.
+
+static REVERSED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+extern "C" fn counting_dec(_elem: *mut u8) {
+    REVERSED_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn reversed_drop_decs_all_masters_regardless_of_pos() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    // Full buffer (pos = count): Drop decs all 3 stored masters exactly once.
+    REVERSED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Reversed {
+        elements: vec![0u8; 3 * 8],
+        pos: 3,
+        elem_size: 8,
+        elem_dec_fn: Some(counting_dec),
+    });
+    assert_eq!(
+        REVERSED_DEC_COUNT.load(SeqCst),
+        3,
+        "Drop arm must dec all 3 stored masters"
+    );
+
+    // Partially yielded (pos advanced past some elements): Drop STILL decs ALL 3
+    // masters — NOT the consumed/un-yielded subset (the reviewers' incorrect model).
+    REVERSED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Reversed {
+        elements: vec![0u8; 3 * 8],
+        pos: 1,
+        elem_size: 8,
+        elem_dec_fn: Some(counting_dec),
+    });
+    assert_eq!(
+        REVERSED_DEC_COUNT.load(SeqCst),
+        3,
+        "Drop arm decs all masters regardless of pos, never the un-yielded subset"
+    );
+
+    // Negative pin: a scalar element (null dec fn) decs nothing — no-op.
+    REVERSED_DEC_COUNT.store(0, SeqCst);
+    drop(IterState::Reversed {
+        elements: vec![0u8; 3 * 8],
+        pos: 3,
+        elem_size: 8,
+        elem_dec_fn: None,
+    });
+    assert_eq!(
+        REVERSED_DEC_COUNT.load(SeqCst),
+        0,
+        "null elem_dec_fn (scalar element) decs nothing"
+    );
 }

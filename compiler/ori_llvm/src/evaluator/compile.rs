@@ -297,6 +297,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 arc_cache,
                 &mono_functions,
                 self.pool,
+                interner,
             );
         }
 

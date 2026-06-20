@@ -365,6 +365,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                 &mut arc_cache,
                 &mono_functions,
                 pool,
+                interner,
             );
         }
 

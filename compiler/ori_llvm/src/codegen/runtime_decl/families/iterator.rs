@@ -6,8 +6,8 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     // Iterator constructors — all extern "C"
     RtFn {
         name: "ori_iter_from_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
-        //        data   len   cap   elem_size
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
+        //        data   len   cap   elem_size  owns_data
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -121,16 +121,16 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_cycle",
-        // (iter, elem_size)
-        params: &[Ty::Ptr, Ty::I64],
+        // (iter, elem_size, elem_inc_fn, elem_dec_fn)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_rev",
-        // (iter, elem_size)
-        params: &[Ty::Ptr, Ty::I64],
+        // (iter, elem_size, elem_inc_fn, elem_dec_fn)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

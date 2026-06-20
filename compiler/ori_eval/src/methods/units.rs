@@ -268,9 +268,8 @@ fn dispatch_duration_method_str(ns: i64, method: &str, args: &[Value]) -> EvalRe
         // Associated functions routed through instance dispatch for test coverage.
         // In production, these are called via dispatch_associated_function.
         "from_nanoseconds" | "from_microseconds" | "from_milliseconds" | "from_seconds"
-        | "from_minutes" | "from_hours" | "from_nanos" | "from_micros" | "from_millis" | "zero" => {
-            dispatch_duration_associated(method, args)
-        }
+        | "from_minutes" | "from_hours" | "from_nanos" | "from_micros" | "from_millis" | "zero"
+        | "default" => dispatch_duration_associated(method, args),
         _ => Err(no_such_method(method, "Duration").into()),
     }
 }
@@ -474,7 +473,7 @@ fn dispatch_size_method_str(bytes: u64, method: &str, args: &[Value]) -> EvalRes
         }
         // Associated functions routed through instance dispatch for test coverage
         "from_bytes" | "from_kb" | "from_kilobytes" | "from_mb" | "from_megabytes" | "from_gb"
-        | "from_gigabytes" | "from_tb" | "from_terabytes" | "zero" => {
+        | "from_gigabytes" | "from_tb" | "from_terabytes" | "zero" | "default" => {
             dispatch_size_associated(method, args)
         }
         _ => Err(no_such_method(method, "Size").into()),

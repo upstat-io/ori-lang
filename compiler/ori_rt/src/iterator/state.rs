@@ -50,12 +50,20 @@ pub(crate) enum IterState {
     ///
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
     /// `elem_dec_fn` from the V5 RC header at cleanup time.
+    ///
+    /// `owns_data` records the ARC `@iter` arg-ownership decision: `true` when
+    /// the iterator received its own RC reference (moved/inc'd source), `false`
+    /// when the source is borrowed-co-owned (the flatten inner `sub.iter()`
+    /// runs inside an opaque map trampoline so the ARC pipeline cannot inc — the
+    /// outer container retains the single RC and frees the buffer once). `Drop`
+    /// decs only when `owns_data`; a borrowed iterator drops without dec.
     List {
         data: *mut u8,
         len: i64,
         pos: i64,
         cap: i64,
         elem_size: i64,
+        owns_data: bool,
     },
 
     /// Iterates over an integer range with step.
@@ -125,19 +133,36 @@ pub(crate) enum IterState {
     ///
     /// On the first pass, elements are collected into `buffer`. Once the source
     /// is exhausted, subsequent iterations replay from the buffer.
+    ///
+    /// `buffer` OWNS its element copies: each element is inc'd via `elem_inc_fn`
+    /// when stored (so the buffered fat-pointer aliases a live allocation
+    /// independent of the source-free that happens on exhaustion AND independent
+    /// of consumer behavior), and `Drop` decs every stored master via
+    /// `elem_dec_fn`. Null for scalar elements (no RC). The consumer's per-yield
+    /// inc (e.g. `ori_iter_collect`'s `elem_inc_fn`) is a SEPARATE ownership
+    /// domain covering the yielded aliases; the buffer never yields ownership.
     Cycled {
         source: Option<Box<IterState>>,
         buffer: Vec<u8>,
         buf_pos: usize,
         elem_size: i64,
         source_exhausted: bool,
+        elem_inc_fn: Option<extern "C" fn(*mut u8)>,
+        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
 
     /// Reverses iteration by collecting all elements then iterating backward.
+    ///
+    /// `elements` OWNS its copies: `ori_iter_rev` incs each at collect time (the
+    /// source is freed immediately after, so the collected fat-pointers must
+    /// hold their own ref), and `Drop` decs every stored master via
+    /// `elem_dec_fn`. Null for scalar elements. The inc happens once at collect
+    /// (single-pass), so no stored `elem_inc_fn` is needed on this variant.
     Reversed {
         elements: Vec<u8>,
         pos: i64,
         elem_size: i64,
+        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
 
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
@@ -191,14 +216,18 @@ impl Drop for IterState {
                 len,
                 cap,
                 elem_size,
+                owns_data,
                 ..
             } => {
+                // owns_data gates the dec on the ARC arg-ownership: a borrowed
+                // iterator (the flatten inner sub.iter() co-owned by an outer
+                // list) drops without dec so the outer elem_dec_fn frees once.
                 // cap != 0 indicates RC-managed data (from the compiler):
                 //   cap > 0 → regular list (cap is capacity)
                 //   cap < 0 → seamless slice (SLICE_FLAG set, ori_buffer_rc_dec handles it)
                 // cap == 0 indicates test data (stack-allocated, no cleanup).
                 // elem_dec_fn is read from the V5 RC header by ori_buffer_rc_dec.
-                if !data.is_null() && *cap != 0 {
+                if *owns_data && !data.is_null() && *cap != 0 {
                     crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, None);
                 }
             }
@@ -252,6 +281,40 @@ impl Drop for IterState {
                         *key_dec_fn,
                         *val_dec_fn,
                     );
+                }
+            }
+            IterState::Cycled {
+                buffer,
+                elem_size,
+                elem_dec_fn: Some(dec),
+                ..
+            } => {
+                // The buffer OWNS its element copies (inc'd on store in
+                // next_cycled). Dec every stored master exactly once, regardless
+                // of how far buf_pos advanced. The source Option<Box> auto-drops
+                // after this body (gated by its own owns_data).
+                let es = (*elem_size).max(1) as usize;
+                let n = buffer.len() / es;
+                for i in 0..n {
+                    // SAFETY: buffer holds n contiguous es-byte masters.
+                    let elem = unsafe { buffer.as_mut_ptr().add(i * es) };
+                    dec(elem);
+                }
+            }
+            IterState::Reversed {
+                elements,
+                elem_size,
+                elem_dec_fn: Some(dec),
+                ..
+            } => {
+                // The elements buffer OWNS its copies (inc'd at collect time in
+                // ori_iter_rev). Dec every stored master exactly once.
+                let es = (*elem_size).max(1) as usize;
+                let n = elements.len() / es;
+                for i in 0..n {
+                    // SAFETY: elements holds n contiguous es-byte masters.
+                    let elem = unsafe { elements.as_mut_ptr().add(i * es) };
+                    dec(elem);
                 }
             }
             _ => {}

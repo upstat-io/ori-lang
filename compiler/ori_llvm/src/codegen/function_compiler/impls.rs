@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Rewrite generic call targets to mangled mono names so the test body's
         // AIMS-contract lookups resolve (eval/AOT parity).
         if let Some(maps) = mono_target_maps {
-            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool);
+            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool, self.interner);
         }
 
         if let Err(err) = self.emit_arc_function(test.name, body_func_id, abi, arc_func, lambdas) {
@@ -226,7 +226,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Rewrite generic call targets to mangled mono names so the test body's
         // AIMS-contract lookups resolve (eval/AOT parity).
         if let Some(maps) = mono_target_maps {
-            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool);
+            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool, self.interner);
         }
 
         if let Err(err) = self.emit_arc_function(test.name, func_id, abi, arc_func, lambdas) {

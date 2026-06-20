@@ -46,8 +46,8 @@ mod state;
 mod type_builders;
 
 pub use env::TypeEnv;
-pub(crate) use expr::OP_TRAIT_MAP;
 pub use expr::{check_expr, infer_expr, resolve_parsed_type};
+pub(crate) use expr::{tag_to_type_tag, OP_TRAIT_MAP};
 
 use ori_ir::{ExprId, Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};

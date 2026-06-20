@@ -17,15 +17,24 @@ use super::state::{assert_elem_size, IterState};
 /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads the
 /// `elem_dec_fn` from the V5 RC header at cleanup time.
 ///
-/// The ARC pipeline is responsible for emitting `RcInc` before calling
-/// `.iter()` when the list variable has additional liveness (the inc gives
-/// the iterator its own reference). Dead list parameters in exit blocks
-/// are cleaned up by `emit_dead_at_entry_decs`.
+/// `owns_data` records the ARC `@iter` arg-ownership: `true` when the iterator
+/// received its own RC reference (moved/inc'd source), `false` when the source
+/// is borrowed-co-owned (the flatten inner `sub.iter()` runs inside an opaque
+/// map trampoline so the ARC pipeline cannot inc; the outer container retains
+/// the single RC). `Drop` decs only when `owns_data`. The ARC pipeline emits
+/// `RcInc` before `.iter()` when the list has additional liveness (the inc
+/// gives the iterator its own reference, so `owns_data` is `true`).
 ///
-/// For Rust unit tests with stack-allocated data, pass `cap = 0` — no
-/// cleanup is performed on drop.
+/// For Rust unit tests with stack-allocated data, pass `cap = 0` — no cleanup
+/// is performed on drop regardless of `owns_data`.
 #[no_mangle]
-pub extern "C" fn ori_iter_from_list(data: *mut u8, len: i64, cap: i64, elem_size: i64) -> *mut u8 {
+pub extern "C" fn ori_iter_from_list(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    owns_data: bool,
+) -> *mut u8 {
     assert_elem_size(elem_size, "ori_iter_from_list");
     let state = IterState::List {
         data,
@@ -33,6 +42,7 @@ pub extern "C" fn ori_iter_from_list(data: *mut u8, len: i64, cap: i64, elem_siz
         pos: 0,
         cap,
         elem_size,
+        owns_data,
     };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -191,6 +201,7 @@ pub extern "C" fn ori_iter_from_option(
             pos: 0,
             cap: 1,
             elem_size,
+            owns_data: true,
         };
         Box::into_raw(Box::new(state)).cast()
     } else {
@@ -200,6 +211,7 @@ pub extern "C" fn ori_iter_from_option(
             pos: 0,
             cap: 0,
             elem_size,
+            owns_data: true,
         };
         Box::into_raw(Box::new(state)).cast()
     }

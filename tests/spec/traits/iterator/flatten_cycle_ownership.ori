@@ -1,0 +1,83 @@
+// Matrix: nested-iterator (flatten/flat_map/cycle) source-ownership double-free.
+// The inner `sub.iter()` inside a map trampoline borrows a buffer co-owned by the
+// outer list; the iterator must NOT double-free it. Cells span inner-element type
+// (int scalar / str heap / nested-int heap) x pattern (flatten / flat_map / cycle)
+// x ownership (borrowed-inner vs owned-single-level negative pin) x early-exit.
+use std.testing { assert_eq };
+
+// ---- flatten, heap (str) inner — exercises the elem_dec_fn cascade (2nd-free site) ----
+@flatten_str () -> [str] = {
+    [["a", "b", "c"], ["d", "e"]].iter()
+        .map(transform: (sub: [str]) -> Iterator<str> = sub.iter())
+        .flatten()
+        .collect()
+}
+@test_flatten_str tests @flatten_str () -> void = {
+    assert_eq(actual: flatten_str(), expected: ["a", "b", "c", "d", "e"])
+}
+
+// ---- flatten, nested-int heap inner ----
+@flatten_nested_int () -> [int] = {
+    [[1, 2], [3, 4, 5]].iter()
+        .map(transform: (sub: [int]) -> Iterator<int> = sub.iter())
+        .flatten()
+        .collect()
+}
+@test_flatten_nested_int tests @flatten_nested_int () -> void = {
+    assert_eq(actual: flatten_nested_int(), expected: [1, 2, 3, 4, 5])
+}
+
+// ---- flat_map, heap (str) inner ----
+@flat_map_str () -> [str] = {
+    ["x", "y"].iter()
+        .flat_map(transform: (s: str) -> Iterator<str> = [s, s].iter())
+        .collect()
+}
+@test_flat_map_str tests @flat_map_str () -> void = {
+    assert_eq(actual: flat_map_str(), expected: ["x", "x", "y", "y"])
+}
+
+// ---- cycle, heap (str) inner — buffered-replay multi-alias (one source element copied N times) ----
+@cycle_str () -> [str] = {
+    ["a", "b"].iter().cycle().take(count: 5).collect()
+}
+@test_cycle_str tests @cycle_str () -> void = {
+    assert_eq(actual: cycle_str(), expected: ["a", "b", "a", "b", "a"])
+}
+
+// ---- cycle + take partial first pass — Drop arm decs only the buffered masters (c never buffered) ----
+@cycle_partial_str () -> [str] = {
+    ["a", "b", "c"].iter().cycle().take(count: 2).collect()
+}
+@test_cycle_partial_str tests @cycle_partial_str () -> void = {
+    assert_eq(actual: cycle_partial_str(), expected: ["a", "b"])
+}
+
+// ---- early-exit: flatten + take stops before exhaustion (drop-on-break) ----
+@flatten_take_early () -> [int] = {
+    [[1, 2, 3], [4, 5, 6]].iter()
+        .map(transform: (sub: [int]) -> Iterator<int> = sub.iter())
+        .flatten()
+        .take(count: 2)
+        .collect()
+}
+@test_flatten_take_early tests @flatten_take_early () -> void = {
+    assert_eq(actual: flatten_take_early(), expected: [1, 2])
+}
+
+// ---- NEGATIVE PIN: owned single-level iter must stay correct (owns_data=true path) ----
+// The fix (owns_data flag) MUST NOT regress the normal owned `xs.iter().collect()`:
+// the iterator owns the moved/transferred ref and must free it exactly once.
+@owned_single_level () -> [int] = {
+    [10, 20, 30].iter().collect()
+}
+@test_owned_single_level tests @owned_single_level () -> void = {
+    assert_eq(actual: owned_single_level(), expected: [10, 20, 30])
+}
+
+@owned_single_level_str () -> [str] = {
+    ["p", "q", "r"].iter().collect()
+}
+@test_owned_single_level_str tests @owned_single_level_str () -> void = {
+    assert_eq(actual: owned_single_level_str(), expected: ["p", "q", "r"])
+}

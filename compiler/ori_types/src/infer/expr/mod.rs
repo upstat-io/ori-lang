@@ -47,7 +47,7 @@ mod methods;
 mod operators;
 mod refutability;
 mod registry_bridge;
-pub(crate) use registry_bridge::OP_TRAIT_MAP;
+pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 mod sequences;
 mod structs;
 mod type_resolution;

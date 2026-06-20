@@ -250,6 +250,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         receiver_ty: Idx,
         elem_ty: Idx,
+        owns_data: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
@@ -257,9 +258,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let collection_idx = self.pool.resolve_fully(receiver_ty);
         let narrowed_elem_size = self.collection_elem_size(collection_idx, elem_ty);
         let elem_size_val = self.builder.const_i64(narrowed_elem_size as i64);
+        // owns_data threads the ARC arg-ownership of the .iter() receiver into the
+        // runtime: an owned receiver (the ARC pipeline gave the iterator its own
+        // RC ref) → true (Drop decs); a borrowed-rooted receiver (the flatten
+        // inner sub.iter() on a trampoline-closure param) → false (Drop does NOT
+        // dec; the outer container's elem_dec_fn frees the buffer once).
+        let owns_data_val = self.builder.const_bool(owns_data);
 
-        let list_iter =
-            self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")?;
+        let list_iter = self.emit_rt_call(
+            func_id,
+            &[data_ptr, len, cap, elem_size_val, owns_data_val],
+            "list.iter",
+        )?;
 
         // If the collection has narrowed int elements, inject a sext widening
         // trampoline at the iter() boundary. This converts narrowed elements

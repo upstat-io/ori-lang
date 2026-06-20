@@ -165,12 +165,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .iter()
             .map(|a| self.pool.resolve_fully(func.var_type(*a)))
             .collect();
-        // Structural type equality (not raw pool-Idx identity): a param `[int]`
-        // and an arg `[int]` interned to distinct Idx across the merged/imported
-        // pool boundary denote the same type and MUST match. See
-        // `Pool::structural_eq` (the SSOT both fallback sites call).
-        let matched = entries.iter().find(|(params, _)| {
-            params.len() == arg_types.len()
+        // Match by structural type equality across the merged/imported pool
+        // boundary: a param `[int]` and an arg `[int]` interned to distinct Idx
+        // denote the same type, so `Pool::structural_eq` is required, not raw
+        // Idx identity (the SSOT both fallback sites call).
+        //
+        // Skip the self-targeting entry when `callee` shadows a builtin method on
+        // the receiver — see `mono_dispatch::callee_shadows_builtin_method` for
+        // why the provenance-erased name+arg-types fallback would otherwise
+        // conflate a builtin-method call with the enclosing free function and
+        // self-loop instead of falling through to `try_emit_builtin_method`.
+        let skip_self_target = crate::codegen::mono_dispatch::callee_shadows_builtin_method(
+            self.pool,
+            self.interner,
+            callee,
+            args,
+            func,
+        );
+        let matched = entries.iter().find(|(params, mangled)| {
+            (!skip_self_target || *mangled != func.name)
+                && params.len() == arg_types.len()
                 && params
                     .iter()
                     .zip(&arg_types)

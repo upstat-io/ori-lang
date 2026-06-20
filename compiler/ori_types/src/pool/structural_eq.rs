@@ -12,8 +12,8 @@
 //! This predicate is the canonical home for structural type comparison.
 //! Consumers (mono-dispatch fallback resolution in `ori_llvm`, alias
 //! propagation in `ori_repr`) call [`Pool::structural_eq`]; they SHALL NOT
-//! maintain a private recursive `Tag`+children comparison (per
-//! `impl-hygiene.md` §Algorithmic DRY).
+//! maintain a private recursive `Tag`+children comparison (one canonical
+//! home for structural type comparison).
 //!
 //! The tested invariant `merkle_hash == structural_eq` (see `pool/tests.rs`)
 //! makes a per-`Idx` Merkle-hash comparison an equivalent answer, but this
@@ -103,8 +103,8 @@ impl Pool {
             }
 
             // Type variables / remaining specials: compare `data` directly.
-            // (A `Tag::Var` reaching here is a phase-contract violation per
-            // `typeck.md §PC-2`; comparing `data` is the conservative answer.)
+            // (A `Tag::Var` reaching here is a PC-2 phase-contract violation;
+            // comparing `data` is the conservative answer.)
             _ => self.data(a) == self.data(b),
         }
     }
@@ -114,3 +114,6 @@ impl Pool {
         sa.len() == sb.len() && sa.iter().zip(sb).all(|(a, b)| self.structural_eq(*a, *b))
     }
 }
+
+#[cfg(test)]
+mod tests;

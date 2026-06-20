@@ -174,7 +174,12 @@ pub extern "C" fn ori_iter_flatten(iter: *mut u8, inner_elem_size: i64) -> *mut 
 /// Buffers elements on the first pass, then replays from the buffer.
 /// Empty sources produce an empty cycle (no infinite loop).
 #[no_mangle]
-pub extern "C" fn ori_iter_cycle(iter: *mut u8, elem_size: i64) -> *mut u8 {
+pub extern "C" fn ori_iter_cycle(
+    iter: *mut u8,
+    elem_size: i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
     if iter.is_null() {
         return ptr::null_mut();
     }
@@ -186,6 +191,8 @@ pub extern "C" fn ori_iter_cycle(iter: *mut u8, elem_size: i64) -> *mut u8 {
         buf_pos: 0,
         elem_size,
         source_exhausted: false,
+        elem_inc_fn,
+        elem_dec_fn,
     };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -194,7 +201,12 @@ pub extern "C" fn ori_iter_cycle(iter: *mut u8, elem_size: i64) -> *mut u8 {
 ///
 /// This is an eager operation — all elements are collected into memory.
 #[no_mangle]
-pub extern "C" fn ori_iter_rev(iter: *mut u8, elem_size: i64) -> *mut u8 {
+pub extern "C" fn ori_iter_rev(
+    iter: *mut u8,
+    elem_size: i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
     use super::state::MAX_ELEM_SIZE;
 
     if iter.is_null() {
@@ -204,22 +216,31 @@ pub extern "C" fn ori_iter_rev(iter: *mut u8, elem_size: i64) -> *mut u8 {
     let state = unsafe { &mut *iter.cast::<IterState>() };
     let es = elem_size.max(1) as usize;
 
-    // Collect all elements
+    // Collect all elements. The `elements` buffer OWNS its copies: inc each
+    // stored master via `elem_inc_fn` so the collected fat-pointers stay live
+    // after the source is freed below. Dec'd once per master in Drop.
     let mut elements = Vec::new();
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
+        if let Some(inc) = elem_inc_fn {
+            // SAFETY: the freshly-appended es-byte master is at len - es.
+            let stored = unsafe { elements.as_mut_ptr().add(elements.len() - es) };
+            inc(stored);
+        }
     }
 
     let count = (elements.len() / es) as i64;
 
-    // Free the source iterator
+    // Free the source iterator (its Drop, gated by owns_data for a List source,
+    // decs the originals once; the collected masters survive via their own inc).
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 
     let rev_state = IterState::Reversed {
         elements,
         pos: count,
         elem_size,
+        elem_dec_fn,
     };
     Box::into_raw(Box::new(rev_state)).cast()
 }

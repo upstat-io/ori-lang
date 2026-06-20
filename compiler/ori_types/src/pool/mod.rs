@@ -81,7 +81,7 @@ pub struct Pool {
     /// Maps newtype `Name` -> underlying `Idx` for newtype declarations
     /// (`type N = Existing`).
     ///
-    /// Newtypes are layout-transparent per `repr.md §RP-24` (same `abi_size`,
+    /// Newtypes are layout-transparent (Spec: Clause 8.6.3 — same `abi_size`,
     /// `abi_alignment`, `layout`, `niche` as the inner type) but nominally
     /// distinct at the type level. Constructor calls `N(value)` and accessors
     /// `n.unwrap()` / `n.inner` should lower to no-op transparent wraps in
@@ -245,6 +245,17 @@ impl Pool {
     #[inline]
     pub fn data(&self, idx: Idx) -> u32 {
         self.items[idx.raw() as usize].data
+    }
+
+    /// Map a type index to its `ori_registry::TypeTag` when the type is a
+    /// builtin the registry knows. `None` for user-defined / generic /
+    /// non-builtin types. Lets backend consumers ask the builtin registry
+    /// "does this receiver type carry a builtin method named X?" without
+    /// re-deriving the `Tag` → `TypeTag` mapping (the SSOT is `registry_bridge`).
+    #[inline]
+    #[must_use]
+    pub fn builtin_type_tag(&self, idx: Idx) -> Option<ori_registry::TypeTag> {
+        crate::infer::tag_to_type_tag(self.tag(idx))
     }
 
     /// Get the item for a type index.

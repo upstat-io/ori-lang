@@ -1,0 +1,28 @@
+// AOT (L8): the prelude free function `compare` (body `left.compare(other:)`) shares
+// the interned source name of the Comparable METHOD it calls. The codegen mono name+arg-types
+// fallback (`prepare.rs:resolve_mono_target` + `apply.rs:lookup_mono_dispatch`) must NOT self-target
+// the builtin-method call into an infinite branch on the NATIVE AOT path — the receiver-scoped
+// discriminator (`mono_dispatch.rs:callee_shadows_builtin_method`) skips the self-target only for a
+// builtin-method dispatch, letting it fall through to int's real `compare`. A genuine cons-recursive
+// TRMC function (`tc_build`/`tc_sum`) coexists in the same binary and must still recurse correctly
+// (the discriminator must NOT over-fire on non-builtin-named self-recursion).
+type TcList = TcNil | TcCons(head: int, tail: TcList);
+
+@tc_build (n: int) -> TcList =
+    if n == 0 then TcNil else TcCons(head: n, tail: tc_build(n: n - 1));
+
+@tc_sum (xs: TcList) -> int = {
+    match xs {
+        TcNil -> 0,
+        TcCons(head:, tail:) -> head + tc_sum(xs: tail),
+    }
+};
+
+@main () -> int = {
+    let $total = tc_sum(xs: tc_build(n: 5));
+    let $a = compare(left: 5, right: 10).is_less();
+    let $b = compare(left: 15, right: 10).is_greater();
+    let $c = min(left: total, right: 100);
+    let $d = max(left: total, right: 100);
+    if total == 15 && a && b && c == 15 && d == 100 then 0 else 1
+}

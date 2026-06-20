@@ -541,7 +541,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // For Str: slice-aware ori_str_rc_inc(data, cap).
         self.emit_slice_aware_rc_inc(receiver, receiver_ty);
         match type_info {
-            TypeInfo::List { element } => self.emit_list_iter(receiver, receiver_ty, *element),
+            // The slice-aware inc above gave the iterator its own ref → owns_data = true.
+            TypeInfo::List { element } => {
+                self.emit_list_iter(receiver, receiver_ty, *element, true)
+            }
             TypeInfo::Set { element } => self.emit_set_iter(receiver, *element),
             TypeInfo::Map { key, value } => self.emit_map_iter(receiver, *key, *value, receiver_ty),
             TypeInfo::Str => self.emit_str_iter(receiver),

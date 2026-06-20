@@ -809,6 +809,20 @@ fn test_edge_trmc_tail_recursive_unaffected_by_fix() {
     );
 }
 
+/// L8 AOT: prelude free fn `compare` shares the interned source
+/// name of the Comparable method it calls. On the native AOT path the codegen
+/// mono name+arg-types fallback must NOT self-target the builtin-method call
+/// into an infinite branch; the receiver-scoped discriminator lets it fall
+/// through to int's real `compare`. A cons-recursive TRMC fn coexists and must
+/// still recurse (no over-fire). A regression makes the binary hang.
+#[test]
+fn test_trmc_prelude_compare_no_self_loop() {
+    assert_aot_success(
+        include_str!("fixtures/generics/trmc_prelude_compare_no_self_loop.ori"),
+        "trmc_prelude_compare_no_self_loop",
+    );
+}
+
 /// `for...yield` return. yield-style return uses Invoke + Resume
 /// terminators; verify the gate does NOT suppress decs on Resume
 /// blocks (`is_unwind_block` should stay true).

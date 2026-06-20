@@ -52,4 +52,47 @@ use std.testing { assert_eq }
     assert_eq(actual: collatz(n: 27, steps: 0), expected: 111)
 }
 
+// Regression: a TRMC-eligible cons-recursion coexisting with prelude-generic
+// min/max monomorphized at int in one compilation unit. Pins that genuine
+// tail-recursion-modulo-cons and generic-prelude mono coexist without the
+// tail-call detector misfiring on min/max. interp == LLVM.
+type TcList = TcNil | TcCons(head: int, tail: TcList);
+
+@tc_build (n: int) -> TcList =
+    if n == 0 then TcNil else TcCons(head: n, tail: tc_build(n: n - 1));
+
+@tc_sum (xs: TcList) -> int = {
+    match xs {
+        TcNil -> 0,
+        TcCons(head:, tail:) -> head + tc_sum(xs: tail),
+    }
+}
+
+@test_trmc_coexists_with_prelude_min_max_no_misfire tests @tc_build () -> void = {
+    let $total = tc_sum(xs: tc_build(n: 5));
+    assert_eq(actual: total, expected: 15);
+    assert_eq(actual: min(left: total, right: 100), expected: 15);
+    assert_eq(actual: max(left: total, right: 100), expected: 100)
+}
+
+// Regression: the prelude free function `compare` (whose body is
+// `left.compare(other: right)`) calls the Comparable METHOD also source-named
+// `compare`. The mono name+arg-types fallback in codegen mis-matched the builtin
+// method call against the free function's own mono and self-targeted it into an
+// infinite branch under `ori test --backend=llvm` (a dual-execution parity
+// break). The fallback now skips its self-targeting candidate only when the
+// callee shadows a builtin method on the receiver.
+@test_prelude_compare_under_trmc_no_self_loop tests @tc_build () -> void = {
+    assert_eq(actual: compare(left: 5, right: 10).is_less(), expected: true);
+    assert_eq(actual: compare(left: 15, right: 10).is_greater(), expected: true);
+    // Negative clamp: the discriminator skips the self-target ONLY when the callee
+    // shadows a builtin method on the receiver. A genuine self-recursive FREE function whose name
+    // is NOT a builtin method (`gcd`) MUST keep its self-target and recurse — proving the fix does
+    // not over-fire on ordinary recursion sharing the compiled module with the builtin-method call
+    // above. The generic-free-function over-fire clamp (`chain_self<T>`) lives in the AOT suite
+    // (`ori_llvm/tests/aot/fixtures/generics/edge_trmc_tail_recursive.ori`).
+    assert_eq(actual: gcd(a: 48, b: 18), expected: 6);
+    assert_eq(actual: countdown(n: 50, acc: 0), expected: 50)
+}
+
 @main () -> void = ();

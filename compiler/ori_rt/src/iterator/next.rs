@@ -69,11 +69,22 @@ impl IterState {
                 buf_pos,
                 elem_size: es,
                 source_exhausted,
-            } => Self::next_cycled(source, buffer, buf_pos, *es, source_exhausted, out_ptr),
+                elem_inc_fn,
+                ..
+            } => Self::next_cycled(
+                source,
+                buffer,
+                buf_pos,
+                *es,
+                source_exhausted,
+                *elem_inc_fn,
+                out_ptr,
+            ),
             Self::Reversed {
                 elements,
                 pos,
                 elem_size: es,
+                ..
             } => Self::next_reversed(elements, pos, *es, out_ptr),
             Self::Str {
                 data,
@@ -336,6 +347,7 @@ impl IterState {
         buf_pos: &mut usize,
         elem_size: i64,
         source_exhausted: &mut bool,
+        elem_inc_fn: Option<extern "C" fn(*mut u8)>,
         out_ptr: *mut u8,
     ) -> bool {
         let es = elem_size.max(1) as usize;
@@ -344,8 +356,15 @@ impl IterState {
             if let Some(ref mut src) = source {
                 let mut elem_buf = [0u8; MAX_ELEM_SIZE];
                 if src.next(elem_buf.as_mut_ptr(), elem_size) {
-                    // Buffer the element for future cycles
+                    // Buffer the element for future cycles. The buffer OWNS its
+                    // copy: inc the stored master so it stays live after the
+                    // source is freed on exhaustion and regardless of consumer
+                    // behavior. Dec'd once per master in Drop.
                     buffer.extend_from_slice(&elem_buf[..es]);
+                    if let Some(inc) = elem_inc_fn {
+                        let stored = buffer.as_mut_ptr().add(buffer.len() - es);
+                        inc(stored);
+                    }
                     ptr::copy_nonoverlapping(elem_buf.as_ptr(), out_ptr, es);
                     return true;
                 }

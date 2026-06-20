@@ -308,7 +308,12 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
+            // owns_data = the .iter() receiver is owned (ARC inc'd it → the iterator
+            // holds its own ref → Drop decs). A borrowed-rooted receiver (the flatten
+            // inner sub.iter() on a trampoline-closure param) → owns_data = false so the
+            // outer container's elem_dec_fn frees the buffer exactly once.
+            let owns_data = !emitter.is_var_borrowed_rooted(ctx.arc_args[0]);
+            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element, owns_data)
         } else {
             None
         }

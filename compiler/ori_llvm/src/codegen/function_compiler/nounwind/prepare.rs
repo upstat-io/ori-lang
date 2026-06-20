@@ -40,10 +40,11 @@ pub fn rewrite_apply_targets_for_monos(
     arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     mono_functions: &[crate::monomorphize::MonoFunction],
     pool: &ori_types::Pool,
+    interner: &StringInterner,
 ) {
     let maps = MonoTargetMaps::build(mono_functions, pool);
     for (_name, (arc_func, lambdas)) in arc_cache.iter_mut() {
-        maps.rewrite_function(arc_func, lambdas, pool);
+        maps.rewrite_function(arc_func, lambdas, pool, interner);
     }
 }
 
@@ -92,10 +93,23 @@ impl MonoTargetMaps {
         func: &mut ori_arc::ArcFunction,
         lambdas: &mut [ori_arc::ArcFunction],
         pool: &ori_types::Pool,
+        interner: &StringInterner,
     ) {
-        rewrite_func_call_targets(func, &self.mono_by_id, &self.mono_by_generic, pool);
+        rewrite_func_call_targets(
+            func,
+            &self.mono_by_id,
+            &self.mono_by_generic,
+            pool,
+            interner,
+        );
         for lambda in lambdas {
-            rewrite_func_call_targets(lambda, &self.mono_by_id, &self.mono_by_generic, pool);
+            rewrite_func_call_targets(
+                lambda,
+                &self.mono_by_id,
+                &self.mono_by_generic,
+                pool,
+                interner,
+            );
         }
     }
 }
@@ -108,6 +122,7 @@ fn resolve_mono_target(
     mono_by_id: &FxHashMap<ori_ir::canon::MonoInstanceId, Name>,
     mono_by_generic: &FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     pool: &ori_types::Pool,
+    interner: &StringInterner,
 ) -> Option<Name> {
     if let Some(id) = mono_instance_id {
         if let Some(&mangled) = mono_by_id.get(&id) {
@@ -119,10 +134,18 @@ fn resolve_mono_target(
         .iter()
         .map(|a| pool.resolve_fully(func.var_type(*a)))
         .collect();
+    // Skip the self-targeting candidate when `callee` shadows a builtin method on
+    // the receiver — see `mono_dispatch::callee_shadows_builtin_method` for why
+    // the provenance-erased name+arg-types fallback would otherwise conflate a
+    // builtin-method call with the enclosing free function and self-loop.
+    let skip_self_target = crate::codegen::mono_dispatch::callee_shadows_builtin_method(
+        pool, interner, callee, args, func,
+    );
     candidates
         .iter()
-        .find(|(params, _)| {
-            params.len() == arg_types.len()
+        .find(|(params, mangled)| {
+            (!skip_self_target || *mangled != func.name)
+                && params.len() == arg_types.len()
                 && params
                     .iter()
                     .zip(&arg_types)
@@ -136,6 +159,7 @@ fn rewrite_func_call_targets(
     mono_by_id: &FxHashMap<ori_ir::canon::MonoInstanceId, Name>,
     mono_by_generic: &FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     pool: &ori_types::Pool,
+    interner: &StringInterner,
 ) {
     use ori_arc::ir::{ArcInstr, ArcTerminator};
     // Snapshot args+mono_id for each Apply/Invoke so the rewrite step does
@@ -159,6 +183,7 @@ fn rewrite_func_call_targets(
                         mono_by_id,
                         mono_by_generic,
                         pool,
+                        interner,
                     ) {
                         if mangled != *callee {
                             out.push((b_idx, Some(i_idx), mangled));
@@ -181,6 +206,7 @@ fn rewrite_func_call_targets(
                     mono_by_id,
                     mono_by_generic,
                     pool,
+                    interner,
                 ) {
                     if mangled != *callee {
                         out.push((b_idx, None, mangled));

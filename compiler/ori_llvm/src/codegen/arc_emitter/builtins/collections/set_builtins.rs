@@ -341,8 +341,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
         self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
 
-        // Create iterator from the contiguous list.
-        self.emit_list_iter(list_val, elem_ty, elem_ty)
+        // Create iterator from the contiguous list. list_val is a fresh
+        // materialized buffer the iterator owns → owns_data = true.
+        self.emit_list_iter(list_val, elem_ty, elem_ty, true)
     }
 
     // Range methods
