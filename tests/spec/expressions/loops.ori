@@ -555,3 +555,221 @@ type Point = { x: int, y: int }
     };
     42
 }
+
+// =============================================================================
+// Regression: for-loop GUARD-position break/continue
+// `infer_for` pushed the loop context AFTER inferring the guard, so a
+// guard-position break/continue resolved against the ENCLOSING loop while the
+// for canon-desugar places the guard per-iteration inside the for's own loop —
+// ARC then double-terminated a block (ICE "block N already terminated"). Fix
+// pushes push_loop_context before guard inference (mirror of infer_while) and
+// routes for-loop guard-branch lowering through a shared is_terminated guard.
+// Spec: 16-control-flow.md § Loop Control — the guard runs per-iteration inside
+// the for, so a guard-position break/continue targets the for, not an enclosing
+// loop.
+// =============================================================================
+
+// Semantic pin (list/iterator): guard-position break targets the FOR. Builds +
+// runs (pre-fix: ARC ICE at build). x=1,2 run the body; x=3 breaks the for.
+@test_for_guard_break_targets_for tests @for_guard_break_targets_for () -> void = {
+    assert_eq(actual: for_guard_break_targets_for(), expected: 2)
+}
+
+@for_guard_break_targets_for () -> int = {
+    let count = 0;
+    loop {
+        for x in [1, 2, 3, 4, 5] if (if x == 3 then break else true) do count = count + 1;
+        break
+    };
+    count
+}
+
+// Semantic pin (range): same, range iterable shape.
+@test_for_guard_break_range tests @for_guard_break_range () -> void = {
+    assert_eq(actual: for_guard_break_range(), expected: 2)
+}
+
+@for_guard_break_range () -> int = {
+    let count = 0;
+    loop {
+        for x in 1..6 if (if x == 3 then break else true) do count = count + 1;
+        break
+    };
+    count
+}
+
+// Semantic pin (continue): guard-position continue skips to the next FOR
+// iteration. x=2,4 skipped via guard continue; body runs for x=1,3,5.
+@test_for_guard_continue_targets_for tests @for_guard_continue_targets_for () -> void = {
+    assert_eq(actual: for_guard_continue_targets_for(), expected: 3)
+}
+
+@for_guard_continue_targets_for () -> int = {
+    let count = 0;
+    loop {
+        for x in [1, 2, 3, 4, 5] if (if x % 2 == 0 then continue else true) do count = count + 1;
+        break
+    };
+    count
+}
+
+// Semantic pin (for-yield): guard-position break targets the for-yield, which
+// collects the elements yielded before the break.
+@test_for_yield_guard_break tests @for_yield_guard_break () -> void = {
+    let got = for_yield_guard_break();
+    let want = [10, 20];
+    assert_eq(actual: got, expected: want)
+}
+
+@for_yield_guard_break () -> [int] = {
+    loop {
+        let ys = for x in [1, 2, 3, 4, 5] if (if x == 3 then break else true) yield x * 10;
+        break ys
+    }
+}
+
+// Negative pin — `break value` in a for-do guard is E0860 (for-do is void-typed).
+// Only fires once the loop context is pushed before guard inference (the fix);
+// pre-fix the guard resolves against no/the-enclosing context.
+#compile_fail(code: "E0860")
+@test_for_guard_break_value_rejected tests _ () -> void = {
+    let sink = 0;
+    for x in [1, 2, 3] if (break 5) do sink = x
+}
+
+// Negative pin — `continue value` in a for-do guard is E0861.
+#compile_fail(code: "E0861")
+@test_for_guard_continue_value_rejected tests _ () -> void = {
+    let sink = 0;
+    for x in [1, 2, 3] if (continue 5) do sink = x
+}
+
+// Positive pin — bare `break` / `continue` in guard position stay valid in any
+// for form (the negative pins above must NOT reject the valueless forms).
+@test_for_guard_bare_break tests @for_guard_bare_break () -> void = {
+    assert_eq(actual: for_guard_bare_break(), expected: 2)
+}
+
+@for_guard_bare_break () -> int = {
+    // x=1,3 run body (count 1,2); x=2 skipped via guard continue; x=4 breaks.
+    let count = 0;
+    for x in [1, 2, 3, 4, 5] if (if x > 3 then break else (if x == 2 then continue else true)) do count = count + 1;
+    count
+}
+
+// Semantic pin (option iterable): guard-position break targets the for-option.
+// Some(7): guard breaks the for before the body runs → count stays 0.
+@test_for_guard_break_option tests @for_guard_break_option () -> void = {
+    assert_eq(actual: for_guard_break_option(), expected: 0)
+}
+
+@for_guard_break_option () -> int = {
+    let count = 0;
+    loop {
+        let opt = Some(7);
+        for x in opt if (if x == 7 then break else true) do count = count + 1;
+        break
+    };
+    count
+}
+
+// Semantic pin (yield-option iterable): guard-position break targets the
+// for-yield-option; Some(5) breaks before yield → empty collection.
+@test_for_yield_option_guard_break tests @for_yield_option_guard_break () -> void = {
+    let got = for_yield_option_guard_break();
+    let want: [int] = [];
+    assert_eq(actual: got, expected: want)
+}
+
+@for_yield_option_guard_break () -> [int] = {
+    loop {
+        let opt = Some(5);
+        let ys = for x in opt if (if x == 5 then break else true) yield x * 10;
+        break ys
+    }
+}
+
+// Non-regression (typeck-only) — a labeled `break:outer` in GUARD position
+// type-checks against the LABELED loop, NOT the innermost for (the fix's reorder
+// must not break labeled targeting). The labeled branch is dead at run time via
+// `go = false` (runtime labeled break-to-outer propagation is a separate
+// unimplemented surface); this pins the TYPECK property only,
+// mirroring while.ori `labeled_break_outer_from_while`.
+@test_for_guard_labeled_break_outer tests @for_guard_labeled_break_outer () -> void = {
+    assert_eq(actual: for_guard_labeled_break_outer(), expected: 99)
+}
+
+@for_guard_labeled_break_outer () -> int = {
+    let go = false;
+    loop:outer {
+        for x in [1, 2, 3] if (if go then break:outer 7 else true) do ();
+        break 99
+    }
+}
+
+// Guard-CONTINUE counterparts — every iterable shape (clamp: each break cell
+// has a continue counterpart). Guard-position continue skips to the next FOR
+// iteration; targets the for, not an enclosing loop.
+
+// range continue: x=1,3,5 run body (even skipped) → count=3.
+@test_for_guard_continue_range tests @for_guard_continue_range () -> void = {
+    assert_eq(actual: for_guard_continue_range(), expected: 3)
+}
+
+@for_guard_continue_range () -> int = {
+    let count = 0;
+    for x in 1..6 if (if x % 2 == 0 then continue else true) do count = count + 1;
+    count
+}
+
+// option continue: Some(4), 4 even → continue skips → count=0.
+@test_for_guard_continue_option tests @for_guard_continue_option () -> void = {
+    assert_eq(actual: for_guard_continue_option(), expected: 0)
+}
+
+@for_guard_continue_option () -> int = {
+    let count = 0;
+    let opt = Some(4);
+    for x in opt if (if x % 2 == 0 then continue else true) do count = count + 1;
+    count
+}
+
+// yield continue: odd elements yielded → [10, 30, 50].
+@test_for_yield_guard_continue tests @for_yield_guard_continue () -> void = {
+    let got = for_yield_guard_continue();
+    let want = [10, 30, 50];
+    assert_eq(actual: got, expected: want)
+}
+
+@for_yield_guard_continue () -> [int] = {
+    for x in [1, 2, 3, 4, 5] if (if x % 2 == 0 then continue else true) yield x * 10
+}
+
+// yield-option continue: Some(3), 3 odd → yielded → [30].
+@test_for_yield_option_guard_continue tests @for_yield_option_guard_continue () -> void = {
+    let got = for_yield_option_guard_continue();
+    // opt is Some(4): the guard's `continue` FIRES (4 is even), skipping the sole
+    // element, so the yield-option continue_block exits with an empty list.
+    let want: [int] = [];
+    assert_eq(actual: got, expected: want)
+}
+
+@for_yield_option_guard_continue () -> [int] = {
+    let opt = Some(4);
+    for x in opt if (if x % 2 == 0 then continue else true) yield x * 10
+}
+
+// Non-regression (typeck-only) — labeled `continue:outer` in GUARD position
+// type-checks against the LABELED loop. Dead at run time via `go = false`
+// (runtime labeled-continue propagation is the separate unimplemented surface).
+@test_for_guard_labeled_continue_outer tests @for_guard_labeled_continue_outer () -> void = {
+    assert_eq(actual: for_guard_labeled_continue_outer(), expected: 7)
+}
+
+@for_guard_labeled_continue_outer () -> int = {
+    let go = false;
+    loop:outer {
+        for x in [1, 2, 3] if (if go then continue:outer else true) do ();
+        break 7
+    }
+}

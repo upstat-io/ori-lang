@@ -233,42 +233,11 @@ impl ArcLowerer<'_> {
             None,
         );
 
-        if guard.is_valid() {
-            let guarded_block = self.builder.new_block();
-            self.builder
-                .terminate_branch(has_more, guarded_block, exit_prep_block);
-
-            self.builder.position_at(guarded_block);
-            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.bind_for_pattern(pattern, elem, elem_ty);
-            let guard_val = self.lower_expr(guard);
-
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            // Guard skip: jump back to header with unmodified mutable vars.
-            self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = header_mut_params
-                .iter()
-                .map(|&(_, _, param)| param)
-                .collect();
-            self.builder.terminate_jump(header_block, skip_args);
-        } else {
-            self.builder
-                .terminate_branch(has_more, body_block, exit_prep_block);
-        }
-
-        // Body: extract element, evaluate body, push to list.
-        self.builder.position_at(body_block);
-        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.bind_for_pattern(pattern, elem, elem_ty);
-
-        // Intern list_push before setting up LoopContext (break/continue need it).
+        // Intern list_push + install the for's LoopContext BEFORE the guard:
+        // a guard-position break/continue (including break value / continue value
+        // in for-yield) must push to this for's accumulator and target its
+        // exit_block / header_block, not an enclosing loop. Mirrors for_iterator.
         let list_push = self.interner.intern("ori_list_push");
-
-        // Set up LoopContext so break/continue work inside the yield body.
-        // Matches the for-do pattern in for_iterator.rs.
         let mutable_var_entries: Vec<_> = header_mut_params
             .iter()
             .map(|&(name, _, param)| (name, param))
@@ -284,6 +253,42 @@ impl ArcLowerer<'_> {
                 list_push_name: list_push,
             }),
         });
+
+        if guard.is_valid() {
+            let guarded_block = self.builder.new_block();
+            self.builder
+                .terminate_branch(has_more, guarded_block, exit_prep_block);
+
+            self.builder.position_at(guarded_block);
+            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+            self.bind_for_pattern(pattern, elem, elem_ty);
+            let guard_val = self.lower_expr(guard);
+
+            // Only branch on the guard value when a guard-position break/continue
+            // did NOT already terminate guarded_block.
+            if !self.builder.is_terminated() {
+                let guard_skip = self.builder.new_block();
+                self.builder
+                    .terminate_branch(guard_val, body_block, guard_skip);
+
+                // Guard skip: jump back to header with unmodified mutable vars.
+                self.builder.position_at(guard_skip);
+                let skip_args: Vec<_> = header_mut_params
+                    .iter()
+                    .map(|&(_, _, param)| param)
+                    .collect();
+                self.builder.terminate_jump(header_block, skip_args);
+            }
+        } else {
+            self.builder
+                .terminate_branch(has_more, body_block, exit_prep_block);
+        }
+
+        // Body: extract element, evaluate body, push to list.
+        // (Loop context already installed above, before the guard.)
+        self.builder.position_at(body_block);
+        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         let body_val = self.lower_expr(body);
 

@@ -242,12 +242,29 @@ impl Interpreter<'_> {
                 let mut scoped = self.scoped();
                 scoped.bind_can_pattern(&pat, val)?;
 
-                // Check guard
+                // Check guard. A guard-position break/continue targets THIS for
+                // (the guard runs per-iteration inside the for's own loop), so
+                // its control action is dispatched via to_loop_action exactly as
+                // the body's — only Error/Propagate signals become LoopAction::Error
+                // and propagate up.
                 if guard.is_valid() {
                     match scoped.eval_can(guard) {
                         Ok(v) if !v.is_truthy() => continue,
-                        Err(e) => return Err(e),
-                        _ => {}
+                        Ok(_) => {}
+                        Err(e) => match to_loop_action(e) {
+                            LoopAction::Continue => continue,
+                            LoopAction::ContinueWith(v) => {
+                                results.push(v);
+                                continue;
+                            }
+                            LoopAction::Break(v) => {
+                                if !matches!(v, Value::Void) {
+                                    results.push(v);
+                                }
+                                return Ok(Value::list(results));
+                            }
+                            LoopAction::Error(e) => return Err(e),
+                        },
                     }
                 }
 
@@ -277,12 +294,18 @@ impl Interpreter<'_> {
                 let mut scoped = self.scoped();
                 scoped.bind_can_pattern(&pat, val)?;
 
-                // Check guard
+                // Check guard. A guard-position break/continue targets THIS for;
+                // dispatched via to_loop_action exactly as the body's (only
+                // Error/Propagate signals become LoopAction::Error and propagate up).
                 if guard.is_valid() {
                     match scoped.eval_can(guard) {
                         Ok(v) if !v.is_truthy() => continue,
-                        Err(e) => return Err(e),
-                        _ => {}
+                        Ok(_) => {}
+                        Err(e) => match to_loop_action(e) {
+                            LoopAction::Continue | LoopAction::ContinueWith(_) => continue,
+                            LoopAction::Break(v) => return Ok(v),
+                            LoopAction::Error(e) => return Err(e),
+                        },
                     }
                 }
 

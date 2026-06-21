@@ -119,37 +119,10 @@ impl ArcLowerer<'_> {
             None,
         );
 
-        if guard.is_valid() {
-            let guarded_block = self.builder.new_block();
-            self.builder
-                .terminate_branch(has_more, guarded_block, exit_prep_block);
-
-            self.builder.position_at(guarded_block);
-            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.bind_for_pattern(pattern, elem, elem_ty);
-            let guard_val = self.lower_expr(guard);
-
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            // Guard skip: jump back to header with unmodified mutable vars.
-            self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = header_mut_params
-                .iter()
-                .map(|&(_, _, param_var)| param_var)
-                .collect();
-            self.builder.terminate_jump(header_block, skip_args);
-        } else {
-            self.builder
-                .terminate_branch(has_more, body_block, exit_prep_block);
-        }
-
-        // Body: extract element and bind.
-        self.builder.position_at(body_block);
-        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.bind_for_pattern(pattern, elem, elem_ty);
-
+        // Install this for's loop context BEFORE lowering the guard: the guard
+        // runs per-iteration inside the for's own loop, so a guard-position
+        // break/continue targets this for (its exit_block / header_block), not
+        // an enclosing loop. Mirrors the parser IN_LOOP guard + infer_while.
         let prev_loop = self.loop_ctx.take();
         let mutable_var_entries: Vec<_> = header_mut_params
             .iter()
@@ -161,6 +134,43 @@ impl ArcLowerer<'_> {
             mutable_vars: mutable_var_entries,
             yield_ctx: None,
         });
+
+        if guard.is_valid() {
+            let guarded_block = self.builder.new_block();
+            self.builder
+                .terminate_branch(has_more, guarded_block, exit_prep_block);
+
+            self.builder.position_at(guarded_block);
+            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+            self.bind_for_pattern(pattern, elem, elem_ty);
+            let guard_val = self.lower_expr(guard);
+
+            // A guard-position break/continue terminates guarded_block (it jumps
+            // straight to exit/header); only branch on the guard value when the
+            // guard did NOT already divert control.
+            if !self.builder.is_terminated() {
+                let guard_skip = self.builder.new_block();
+                self.builder
+                    .terminate_branch(guard_val, body_block, guard_skip);
+
+                // Guard skip: jump back to header with unmodified mutable vars.
+                self.builder.position_at(guard_skip);
+                let skip_args: Vec<_> = header_mut_params
+                    .iter()
+                    .map(|&(_, _, param_var)| param_var)
+                    .collect();
+                self.builder.terminate_jump(header_block, skip_args);
+            }
+        } else {
+            self.builder
+                .terminate_branch(has_more, body_block, exit_prep_block);
+        }
+
+        // Body: extract element and bind. Loop context already installed above
+        // (before the guard) so guard-position break/continue resolve to this for.
+        self.builder.position_at(body_block);
+        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         self.lower_expr(body);
 

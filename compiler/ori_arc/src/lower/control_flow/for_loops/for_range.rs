@@ -157,33 +157,9 @@ impl ArcLowerer<'_> {
             }
         };
 
-        if guard.is_valid() {
-            let guarded_block = self.builder.new_block();
-            self.builder
-                .terminate_branch(in_bounds, guarded_block, exit_prep_block);
-
-            self.builder.position_at(guarded_block);
-            self.bind_for_pattern(pattern, i_var, Idx::INT);
-            let guard_val = self.lower_expr(guard);
-
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = header_mut_params
-                .iter()
-                .map(|&(_, _, param_var)| param_var)
-                .collect();
-            self.builder.terminate_jump(latch_block, skip_args);
-        } else {
-            self.builder
-                .terminate_branch(in_bounds, body_block, exit_prep_block);
-        }
-
-        self.builder.position_at(body_block);
-        self.bind_for_pattern(pattern, i_var, Idx::INT);
-
+        // Install this for's loop context BEFORE lowering the guard: a
+        // guard-position break/continue targets this for (exit_block /
+        // latch_block), not an enclosing loop. Mirrors the parser IN_LOOP guard.
         let prev_loop = self.loop_ctx.take();
         let mutable_var_entries: Vec<_> = header_mut_params
             .iter()
@@ -195,6 +171,37 @@ impl ArcLowerer<'_> {
             mutable_vars: mutable_var_entries,
             yield_ctx: None,
         });
+
+        if guard.is_valid() {
+            let guarded_block = self.builder.new_block();
+            self.builder
+                .terminate_branch(in_bounds, guarded_block, exit_prep_block);
+
+            self.builder.position_at(guarded_block);
+            self.bind_for_pattern(pattern, i_var, Idx::INT);
+            let guard_val = self.lower_expr(guard);
+
+            // Only branch on the guard value when a guard-position break/continue
+            // did NOT already terminate guarded_block.
+            if !self.builder.is_terminated() {
+                let guard_skip = self.builder.new_block();
+                self.builder
+                    .terminate_branch(guard_val, body_block, guard_skip);
+
+                self.builder.position_at(guard_skip);
+                let skip_args: Vec<_> = header_mut_params
+                    .iter()
+                    .map(|&(_, _, param_var)| param_var)
+                    .collect();
+                self.builder.terminate_jump(latch_block, skip_args);
+            }
+        } else {
+            self.builder
+                .terminate_branch(in_bounds, body_block, exit_prep_block);
+        }
+
+        self.builder.position_at(body_block);
+        self.bind_for_pattern(pattern, i_var, Idx::INT);
 
         self.lower_expr(body);
 

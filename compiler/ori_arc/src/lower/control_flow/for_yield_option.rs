@@ -121,30 +121,12 @@ impl ArcLowerer<'_> {
         let elem = self.builder.emit_project(elem_ty, option_val, 1, None);
         self.bind_for_pattern(pattern, elem, elem_ty);
 
-        if guard.is_valid() {
-            let body_block = self.builder.new_block();
-            let guard_val = self.lower_expr(guard);
-
-            // Guard skip → jump to exit (element filtered out, list stays empty).
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            self.builder.position_at(guard_skip);
-            // Guard doesn't modify mutable vars — use pre-captured values
-            // (same pattern as none_block above, avoids fragile scope lookup).
-            let skip_args: Vec<_> = mut_info.iter().map(|&(_, pre_var, _)| pre_var).collect();
-            self.builder.terminate_jump(exit_block, skip_args);
-
-            self.builder.position_at(body_block);
-        }
-
-        // Intern list_push before setting up LoopContext (break/continue need it).
+        // Intern list_push + install the for's LoopContext BEFORE the guard:
+        // a guard-position break/continue must push to this for's accumulator and
+        // target its exit_block, not an enclosing loop. Option is not a loop —
+        // continue_block = exit_block (both break and continue exit immediately
+        // since there's only one element to visit).
         let list_push = self.interner.intern("ori_list_push");
-
-        // Set up LoopContext so break/continue work inside the yield body.
-        // Option is not a loop — continue_block = exit_block (both break and
-        // continue exit immediately since there's only one element to visit).
         let mutable_var_entries: Vec<_> = mut_info
             .iter()
             .map(|&(name, pre_var, _)| (name, pre_var))
@@ -161,27 +143,53 @@ impl ArcLowerer<'_> {
             }),
         });
 
-        let body_val = self.lower_expr(body);
+        if guard.is_valid() {
+            let guard_val = self.lower_expr(guard);
 
+            // Only branch on the guard value when a guard-position break/continue
+            // did NOT already terminate the some-block.
+            if !self.builder.is_terminated() {
+                let body_block = self.builder.new_block();
+                // Guard skip → jump to exit (element filtered out, list stays empty).
+                let guard_skip = self.builder.new_block();
+                self.builder
+                    .terminate_branch(guard_val, body_block, guard_skip);
+
+                self.builder.position_at(guard_skip);
+                // Guard doesn't modify mutable vars — use pre-captured values
+                // (same pattern as none_block above, avoids fragile scope lookup).
+                let skip_args: Vec<_> = mut_info.iter().map(|&(_, pre_var, _)| pre_var).collect();
+                self.builder.terminate_jump(exit_block, skip_args);
+
+                self.builder.position_at(body_block);
+            }
+        }
+
+        // Body: evaluate + push to list. Skipped entirely when a guard-position
+        // break/continue already diverted control (some-block terminated).
         if !self.builder.is_terminated() {
-            // Normal body completion: push result and jump to exit.
-            self.builder.emit_apply(
-                Idx::UNIT,
-                list_push,
-                vec![list_ptr, body_val, elem_size_var],
-                None,
-                None,
-            );
+            let body_val = self.lower_expr(body);
 
-            let exit_args: Vec<_> = mut_info
-                .iter()
-                .map(|&(name, pre_var, _)| {
-                    // Body may have modified mutable vars — look up current value.
-                    // Fall back to pre_var if scope was restructured (should not happen).
-                    self.scope.lookup(name).unwrap_or(pre_var)
-                })
-                .collect();
-            self.builder.terminate_jump(exit_block, exit_args);
+            if !self.builder.is_terminated() {
+                // Normal body completion: push result and jump to exit.
+                self.builder.emit_apply(
+                    Idx::UNIT,
+                    list_push,
+                    vec![list_ptr, body_val, elem_size_var],
+                    None,
+                    None,
+                );
+
+                let exit_args: Vec<_> = mut_info
+                    .iter()
+                    .map(|&(name, pre_var, _)| {
+                        // Body may have modified mutable vars — look up current value.
+                        // Fall back to pre_var if scope was restructured (should not happen).
+                        self.scope.lookup(name).unwrap_or(pre_var)
+                    })
+                    .collect();
+                self.builder.terminate_jump(exit_block, exit_args);
+            }
         }
 
         self.loop_ctx = prev_loop;

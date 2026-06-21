@@ -88,21 +88,12 @@ pub(crate) fn infer_for(
     bind_pattern(engine, arena, pat, elem_ty);
     engine.pop_context();
 
-    // Check guard if present (must be bool)
-    if guard.is_present() {
-        let guard_ty = infer_expr(engine, arena, guard);
-        let expected = Expected {
-            ty: Idx::BOOL,
-            origin: ExpectedOrigin::Context {
-                span: arena.get_expr(guard).span,
-                kind: ContextKind::LoopCondition,
-            },
-        };
-        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard).span);
-    }
-
-    // Push a loop context so `break` / `continue` inside the body resolve to
-    // this `for`. Value rules differ by form (Spec: Clause 16):
+    // Push the loop context BEFORE inferring the guard: the for-desugar places
+    // the guard per-iteration INSIDE the for's own loop, so a guard-position
+    // `break` / `continue` targets this for, not an enclosing loop. (Same
+    // ordering as `infer_while` for the condition — Spec: Clause 16.) The
+    // iterator is evaluated once outside the loop, so its inference (above)
+    // stays outside the pushed context. Value rules differ by form:
     // - `for...yield` permits `break value` (adds a final element) and
     //   `continue value` (substitutes the element).
     // - `for...do` is void-typed: `break value` is E0860, `continue value`
@@ -119,6 +110,20 @@ pub(crate) fn infer_for(
             LoopForm::ForDo
         },
     });
+
+    // Check guard if present (must be bool). Inferred under this for's loop
+    // context so a guard-position `break` / `continue` resolves to the for.
+    if guard.is_present() {
+        let guard_ty = infer_expr(engine, arena, guard);
+        let expected = Expected {
+            ty: Idx::BOOL,
+            origin: ExpectedOrigin::Context {
+                span: arena.get_expr(guard).span,
+                kind: ContextKind::LoopCondition,
+            },
+        };
+        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard).span);
+    }
 
     // Infer body type
     engine.push_context(ContextKind::LoopBody);
