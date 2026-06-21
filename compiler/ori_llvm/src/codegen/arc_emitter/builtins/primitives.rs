@@ -283,7 +283,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         type_info: &TypeInfo,
     ) -> Option<ValueId> {
         let func_name = match type_info {
-            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "ori_str_from_int",
+            TypeInfo::Int => "ori_str_from_int",
+            TypeInfo::Duration => "ori_str_from_duration",
+            TypeInfo::Size => "ori_str_from_size",
             TypeInfo::Float => "ori_str_from_float",
             TypeInfo::Bool => "ori_str_from_bool",
             TypeInfo::Char => "ori_str_from_char",

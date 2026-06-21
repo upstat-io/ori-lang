@@ -140,6 +140,8 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_next_char" => runtime::ori_str_next_char as *const () as usize,
         "ori_str_from_raw" => runtime::ori_str_from_raw as *const () as usize,
         "ori_str_from_int" => runtime::ori_str_from_int as *const () as usize,
+        "ori_str_from_duration" => runtime::ori_str_from_duration as *const () as usize,
+        "ori_str_from_size" => runtime::ori_str_from_size as *const () as usize,
         "ori_str_from_bool" => runtime::ori_str_from_bool as *const () as usize,
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
         "ori_str_from_char" => runtime::ori_str_from_char as *const () as usize,

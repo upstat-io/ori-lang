@@ -105,13 +105,19 @@ pub(super) fn emit_field_to_string<'a>(
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
             // Integer narrowing may produce i8/i16/i32 struct fields —
             // sext back to canonical i64 for the runtime formatting call.
+            // Duration/Size carry units; route to their unit-aware formatters.
             let widened = fc
                 .builder_mut()
                 .sext_to_i64_if_narrower(val, &format!("{name}.sext"));
-            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
+            let (rt_name, fallback) = match &info {
+                TypeInfo::Duration => ("ori_str_from_duration", "<duration>"),
+                TypeInfo::Size => ("ori_str_from_size", "<size>"),
+                _ => ("ori_str_from_int", "<int>"),
+            };
+            let f = fc.builder_mut().runtime_fn(rt_name);
             fc.builder_mut()
                 .call_with_sret(f, &[widened], str_ty_id, name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
+                .unwrap_or_else(|| emit_str_literal(fc, fallback, name, str_ty_id))
         }
         TypeInfo::Float => {
             // Float narrowing may produce f32 struct fields —

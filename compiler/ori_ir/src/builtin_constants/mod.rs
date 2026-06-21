@@ -9,7 +9,7 @@
 //!
 //! Each built-in type with associated constants gets its own submodule:
 //! - `duration`: Nanosecond conversion multipliers
-//! - `size`: Byte conversion multipliers (binary 1024-based)
+//! - `size`: Byte conversion multipliers (SI 1000-based)
 //! - `ordering`: Variant tag constants
 //! - `iterator`: Internal method names for type-directed specialization
 //!

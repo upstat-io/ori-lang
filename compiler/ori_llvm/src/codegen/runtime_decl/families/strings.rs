@@ -155,6 +155,20 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_str_from_duration",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_str_from_size",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_str_from_bool",
         params: &[Ty::Bool],
         ret: Some(Ty::Str),

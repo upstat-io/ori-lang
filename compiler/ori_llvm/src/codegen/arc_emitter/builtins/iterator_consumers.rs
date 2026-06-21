@@ -590,13 +590,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // pointer, so the trampoline uses out_ptr directly as the sret arg.
         //
         // Only types whose ori_str_from_* produces the same output as
-        // the interpreter's Printable::to_str() are supported. Excluded:
-        // - Duration/Size: formatted with units ("1s", "1kb") not raw ints
+        // the interpreter's Printable::to_str() are supported. Duration/Size
+        // route to their unit-aware formatters (matching the interpreter's
+        // "1s"/"1kb" output). Still excluded:
         // - Ordering: formatted as "Less"/"Equal"/"Greater" not ints
         // - Byte: formatted as hex ("0xff") not decimal
         // These need proper Printable method dispatch — future work.
         let rt_func_name = match tag {
             Tag::Int => "ori_str_from_int",
+            Tag::Duration => "ori_str_from_duration",
+            Tag::Size => "ori_str_from_size",
             Tag::Float => "ori_str_from_float",
             Tag::Bool => "ori_str_from_bool",
             Tag::Char => "ori_str_from_char",

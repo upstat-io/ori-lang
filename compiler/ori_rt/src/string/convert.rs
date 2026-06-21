@@ -11,6 +11,81 @@ pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
     OriStr::from_owned(&n.to_string())
 }
 
+/// Unit conversion constants for Duration/Size formatting.
+///
+/// `ori_rt` is a zero-dependency C-ABI staticlib (no `ori_ir` prod-dep), so the
+/// canonical `ori_ir::builtin_constants` values are copied here. The dual-execution
+/// parity test exercises every unit boundary, so a copy typo diverges interp<->AOT
+/// and fails parity.
+mod units {
+    pub const NS_PER_US: u64 = 1_000;
+    pub const NS_PER_MS: u64 = 1_000_000;
+    pub const NS_PER_S: u64 = 1_000_000_000;
+    pub const NS_PER_M: u64 = 60 * NS_PER_S;
+    pub const NS_PER_H: u64 = 60 * NS_PER_M;
+
+    pub const BYTES_PER_KB: u64 = 1_000;
+    pub const BYTES_PER_MB: u64 = 1_000_000;
+    pub const BYTES_PER_GB: u64 = 1_000_000_000;
+    pub const BYTES_PER_TB: u64 = 1_000_000_000_000;
+}
+
+/// Convert a Duration (i64 nanoseconds) to its unit string.
+///
+/// Mirrors `ori_eval::methods::units::format_duration`: sign-aware, picks the
+/// largest whole unit among ns/us/ms/s/m/h, `"0ns"` for zero.
+#[no_mangle]
+pub extern "C" fn ori_str_from_duration(ns: i64) -> OriStr {
+    let abs_ns = ns.unsigned_abs();
+    let sign = if ns < 0 { "-" } else { "" };
+
+    if abs_ns == 0 {
+        return OriStr::from_owned("0ns");
+    }
+
+    let s = if abs_ns.is_multiple_of(units::NS_PER_H) {
+        format!("{sign}{}h", abs_ns / units::NS_PER_H)
+    } else if abs_ns.is_multiple_of(units::NS_PER_M) {
+        format!("{sign}{}m", abs_ns / units::NS_PER_M)
+    } else if abs_ns.is_multiple_of(units::NS_PER_S) {
+        format!("{sign}{}s", abs_ns / units::NS_PER_S)
+    } else if abs_ns.is_multiple_of(units::NS_PER_MS) {
+        format!("{sign}{}ms", abs_ns / units::NS_PER_MS)
+    } else if abs_ns.is_multiple_of(units::NS_PER_US) {
+        format!("{sign}{}us", abs_ns / units::NS_PER_US)
+    } else {
+        format!("{sign}{abs_ns}ns")
+    };
+    OriStr::from_owned(&s)
+}
+
+/// Convert a Size to its unit string.
+///
+/// Mirrors `ori_eval::methods::units::format_size`: largest whole unit among
+/// b/kb/mb/gb/tb (SI 1000-based), `"0b"` for zero. The codegen ABI passes the
+/// byte count as i64; Size values are non-negative, so cast to u64 internally.
+#[no_mangle]
+pub extern "C" fn ori_str_from_size(bytes_i64: i64) -> OriStr {
+    let bytes = bytes_i64 as u64;
+
+    if bytes == 0 {
+        return OriStr::from_owned("0b");
+    }
+
+    let s = if bytes.is_multiple_of(units::BYTES_PER_TB) {
+        format!("{}tb", bytes / units::BYTES_PER_TB)
+    } else if bytes.is_multiple_of(units::BYTES_PER_GB) {
+        format!("{}gb", bytes / units::BYTES_PER_GB)
+    } else if bytes.is_multiple_of(units::BYTES_PER_MB) {
+        format!("{}mb", bytes / units::BYTES_PER_MB)
+    } else if bytes.is_multiple_of(units::BYTES_PER_KB) {
+        format!("{}kb", bytes / units::BYTES_PER_KB)
+    } else {
+        format!("{bytes}b")
+    };
+    OriStr::from_owned(&s)
+}
+
 /// Create an `OriStr` from a raw pointer + length (e.g., string literals).
 ///
 /// Uses SSO for strings <= 23 bytes (no heap allocation). For longer strings,
