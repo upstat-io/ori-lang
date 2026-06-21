@@ -198,7 +198,7 @@ pub struct TypedModule {
     /// [`Self::mono_instances`].
     ///
     /// Stored as `Vec<(ExprId, MonoInstanceId)>` sorted by `ExprId` (NOT
-    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `FxHashMap`) for Salsa compatibility — the
     /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot
     /// satisfy them. Mirrors the shape of `pattern_resolutions:
     /// Vec<(PatternKey, PatternResolution)>`. Lookup is binary search via
@@ -218,7 +218,7 @@ pub struct TypedModule {
     /// sees a `CanExpr::Assign { target: Index/Field }`.
     ///
     /// Stored as `Vec<(ExprId, AssignDesugar)>` sorted by `ExprId` (NOT
-    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `FxHashMap`) for Salsa compatibility — the
     /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot satisfy
     /// them. Mirrors `pattern_resolutions` / `mono_dispatch_map`. Lookup is
     /// binary search via [`Self::resolve_assign_desugar`]. Keys are
@@ -275,7 +275,7 @@ pub struct TypedModule {
     /// `Formattable.format(self:, spec:)` `MethodCall` (explicit impl present)
     /// and a `to_str()` + `FormatWith` re-route (Printable-only).
     /// Sorted ascending for binary-search lookup.
-    /// Spec: 14-expressions.md:1262 + 09-properties-of-types.md:231.
+    /// Spec: Clause 14 (string interpolation) + Clause 9 (Printable/Formattable).
     pub formattable_impl_types: Vec<Idx>,
 
     /// Pool idxs for the builtin `FormatSpec` struct + its `Option<_>` field

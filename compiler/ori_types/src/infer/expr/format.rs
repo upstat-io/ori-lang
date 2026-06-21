@@ -1,19 +1,14 @@
 //! Format-spec and interpolation validation for template literals.
 //!
-//! Home for the template-literal inference entry point plus its two
-//! validators, all previously inlined in the `infer/expr/mod.rs` dispatch
-//! module:
-//!
 //! - `infer_template_literal` — iterates template parts, recursively infers
 //!   each interpolant, and routes to the validator that matches the part's
 //!   format-spec presence. Returns `Idx::STR`.
-//! - `check_interpolation_printable` — validates `{expr}` interpolation
-//!   arguments implement `Printable` (`E2038`).
-//! - `validate_format_spec` — parses and validates `{expr:spec}` format
-//!   specifiers against the expression's inferred type (`E2034` / `E2035`).
-//!
-//! Relocated here to keep `infer/expr/mod.rs` a routing-only dispatch per
-//!.
+//! - `check_interpolation_printable` — validates a `{expr}` interpolation
+//!   argument implements `Printable` (`E2038`).
+//! - `check_interpolation_formattable` — validates a `{expr:spec}`
+//!   interpolation argument is `Formattable` (`E2038`).
+//! - `validate_format_spec` — parses and validates a `{expr:spec}` format
+//!   specifier against the expression's inferred type (`E2034` / `E2035`).
 
 use ori_ir::{ExprArena, Name, Span, TemplatePartRange};
 
@@ -24,10 +19,10 @@ use crate::{Idx, Tag, TypeCheckError};
 /// Infer the type of a template literal expression.
 ///
 /// Iterates template parts, recursively infers each interpolated expression,
-/// and routes to the appropriate validator based on whether a format spec is
-/// present (`{expr}` → [`check_interpolation_printable`], `{expr:spec}` →
-/// [`validate_format_spec`]). Returns `Idx::STR` — template literals always
-/// have type `str`.
+/// and routes to the validators that match whether a format spec is present
+/// (`{expr}` → [`check_interpolation_printable`]; `{expr:spec}` →
+/// [`check_interpolation_formattable`] + [`validate_format_spec`]). Returns
+/// `Idx::STR` — template literals always have type `str`.
 pub(crate) fn infer_template_literal(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

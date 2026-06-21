@@ -60,7 +60,7 @@ impl Lowerer<'_> {
             //   - primitive expr_ty → `FormatWith` (the `ori_format_*` fast path)
             //   - non-primitive with explicit `Formattable` impl → user `format()`
             //   - non-primitive Printable-only → `to_str()` + str `FormatWith`
-            // Spec: 14-expressions.md:1262 + 09-properties-of-types.md:231.
+            // Spec: Clause 14 (string interpolation) + Clause 9 (Printable/Formattable).
             // Otherwise (no spec), wrap non-string expressions in `.to_str()`.
             let str_expr = if format_spec != Name::EMPTY {
                 self.desugar_format_with(expr, expr_ty, format_spec, span)

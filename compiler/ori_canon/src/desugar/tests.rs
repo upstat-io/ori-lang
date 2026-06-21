@@ -110,7 +110,7 @@ fn desugar_template_literal_simple() {
     }
 }
 
-// Non-primitive `{expr:spec}` FormatWith desugar (BUG-04-193)
+// Non-primitive `{expr:spec}` FormatWith desugar
 
 /// Lower `` `{x:spec}` `` (single interpolation, with a format spec) and return
 /// the lowered result.
