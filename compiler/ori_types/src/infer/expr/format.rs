@@ -41,8 +41,14 @@ pub(crate) fn infer_template_literal(
             // {expr} — requires Printable for to_str() conversion (E2038)
             check_interpolation_printable(engine, part_ty, span);
         } else {
-            // {expr:spec} — validate format spec (E2034/E2035)
-            // Formattable requirement is implied; Printable not needed
+            // {expr:spec} — requires Formattable (E2038), AND validates the spec
+            // string (E2034/E2035). The capability check mirrors the desugar union
+            // in ori_canon (primitive | explicit Formattable impl | Printable via
+            // the blanket `impl<T: Printable> T: Formattable`): a type that is
+            // neither primitive, Formattable, nor Printable must be rejected, just
+            // as the no-spec form rejects a non-Printable type.
+            // Spec: Clause 14 (string interpolation), Clause 9 (Printable/Formattable).
+            check_interpolation_formattable(engine, part_ty, span);
             validate_format_spec(engine, part.format_spec, part_ty, span);
         }
     }
@@ -99,6 +105,67 @@ pub(crate) fn check_interpolation_printable(
                 .is_some_and(|reg| reg.has_impl(printable_idx, resolved))
         } else {
             // No well-known cache — skip check (isolated test context)
+            return;
+        }
+    };
+    if !has_impl {
+        engine.push_error(TypeCheckError::missing_printable(span, resolved));
+    }
+}
+
+/// Validate that an interpolated expression's type can be formatted with a
+/// format spec (E2038) — the `{expr:spec}` capability requirement.
+///
+/// Mirrors `check_interpolation_printable`, but accepts the full union the
+/// `ori_canon` desugar handles: primitive, an explicit `impl T: Formattable`, OR
+/// `Printable` (which becomes `Formattable` via the blanket
+/// `impl<T: Printable> T: Formattable`). A type that is none of these is
+/// rejected with E2038, just as the no-spec form rejects a non-`Printable` type.
+pub(crate) fn check_interpolation_formattable(
+    engine: &mut InferEngine<'_>,
+    expr_type: Idx,
+    span: Span,
+) {
+    let resolved = engine.resolve(expr_type);
+    let tag = engine.pool().tag(resolved);
+
+    // Skip unresolved variables, error sentinels, and Never (coerces to anything)
+    if matches!(tag, Tag::Var | Tag::Infer | Tag::Never) || resolved == Idx::ERROR {
+        return;
+    }
+
+    // A method-level RigidVar bound by `Printable` or `Formattable` satisfies the
+    // requirement by assumption (parallels the `check_interpolation_printable`
+    // RigidVar path; runs before WellKnownNames / TraitRegistry queries).
+    if let Some((p_name, f_name)) = engine.well_known().map(|wk| (wk.printable, wk.formattable)) {
+        if engine.rigid_var_satisfies_bound(resolved, p_name)
+            || engine.rigid_var_satisfies_bound(resolved, f_name)
+        {
+            return;
+        }
+    }
+
+    // WellKnownNames (primitives + compound types): primitives are `Printable`,
+    // hence `Formattable` via the blanket impl.
+    let satisfies_via_wellknown = engine
+        .well_known()
+        .is_some_and(|wk| wk.type_satisfies_trait(resolved, wk.printable, engine.pool()));
+    if satisfies_via_wellknown {
+        return;
+    }
+
+    // User-defined types: accept a `Printable` impl OR an explicit `Formattable`
+    // impl (the desugar's branch-2 path).
+    let has_impl = {
+        let names = engine.well_known().map(|wk| (wk.printable, wk.formattable));
+        if let Some((printable_name, formattable_name)) = names {
+            let printable_idx = engine.pool_mut().named(printable_name);
+            let formattable_idx = engine.pool_mut().named(formattable_name);
+            engine.trait_registry().is_some_and(|reg| {
+                reg.has_impl(printable_idx, resolved) || reg.has_impl(formattable_idx, resolved)
+            })
+        } else {
+            // No well-known cache — skip check (isolated test context).
             return;
         }
     };

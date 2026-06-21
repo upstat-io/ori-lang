@@ -485,10 +485,10 @@ impl<'a> ModuleChecker<'a> {
     }
 
     pub fn finish_with_pool(mut self) -> (TypeCheckResult, Pool) {
-        // BUG-04-193: the explicit-Formattable impl set + builtin FormatSpec
-        // type idxs ori_canon consumes to desugar non-primitive `{expr:spec}`.
-        // Computed before `pool` is moved out; extracted to a helper to keep
-        // this method within the line cap.
+        // The explicit-Formattable impl set + builtin FormatSpec type idxs
+        // ori_canon consumes to desugar non-primitive `{expr:spec}`. Computed
+        // before `pool` is moved out; extracted to a helper to keep this method
+        // within the line cap.
         let (formattable_impl_types, format_spec_types) = self.collect_formattable_metadata();
         let mut pool = self.pool;
         let deferred_mono_calls = self.deferred_mono_calls;

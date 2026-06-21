@@ -70,6 +70,7 @@ pub(crate) struct WellKnownNames {
     // Well-known trait names (frequently accessed by external code)
     pub hashable: Name,
     pub printable: Name,
+    pub formattable: Name,
     pub into_method: Name,
 
     // FFI C type names (resolved to primitives for ARC/codegen classification)
@@ -103,11 +104,12 @@ pub(crate) struct WellKnownNames {
 }
 
 /// Intern all 28 trait names and build the Name → bit position map.
-fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 28], Name, Name) {
+fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 28], Name, Name, Name) {
     use trait_bits as tb;
 
     let hashable = interner.intern("Hashable");
     let printable = interner.intern("Printable");
+    let formattable = interner.intern("Formattable");
 
     let map = [
         (interner.intern("Eq"), tb::EQ),
@@ -140,16 +142,16 @@ fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 28], Name, N
             interner.intern("DoubleEndedIterator"),
             tb::DOUBLE_ENDED_ITERATOR,
         ),
-        (interner.intern("Formattable"), tb::FORMATTABLE),
+        (formattable, tb::FORMATTABLE),
     ];
 
-    (map, hashable, printable)
+    (map, hashable, printable, formattable)
 }
 
 impl WellKnownNames {
     /// Intern all well-known names and build trait satisfaction tables.
     pub fn new(interner: &StringInterner) -> Self {
-        let (trait_bit_map, hashable, printable) = build_trait_bit_map(interner);
+        let (trait_bit_map, hashable, printable, formattable) = build_trait_bit_map(interner);
 
         // Iterator/DEI names are needed for both trait_bit_map and struct fields
         let iterator = interner.intern("Iterator");
@@ -196,6 +198,7 @@ impl WellKnownNames {
             double_ended_iterator,
             hashable,
             printable,
+            formattable,
             cptr: interner.intern("CPtr"),
             c_char: interner.intern("c_char"),
             c_short: interner.intern("c_short"),

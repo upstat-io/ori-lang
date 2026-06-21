@@ -2,7 +2,7 @@
 //!
 //! When a template interpolation carries a format spec on a NON-primitive
 //! expression, this routes the desugaring per spec
-//! (14-expressions.md:1262 + 09-properties-of-types.md:231):
+//! (Spec: Clause 14 string interpolation + Clause 9 Printable/Formattable):
 //!
 //! - Primitive `expr_ty` (int/float/bool/char/str): keep `CanExpr::FormatWith`
 //!   so the `ori_format_*` runtime fast path applies in both backends.
