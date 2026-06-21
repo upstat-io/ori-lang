@@ -97,7 +97,7 @@ pub(super) fn allocate_method_binders(
 /// impl-level (`impl<T: Bound>`) generics. Allocating impl-level generics as
 /// fresh `RigidVar`s (vs the `Tag::Named` fallback at
 /// `registration/type_resolution.rs`) is what makes a body-internal
-/// `receiver.method()` on an impl-level type parameter dispatch via the §10.1
+/// `receiver.method()` on an impl-level type parameter dispatch via the
 /// bound-chain (impl-level bound registered) or surface a method-not-found
 /// (impl-level param unbounded) — both impossible while impl-level `T` stayed
 /// an unresolved `Tag::Named`.

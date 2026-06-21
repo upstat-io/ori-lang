@@ -23,9 +23,9 @@
 //! Soundness gate: composition runs at type-instantiation time only — never
 //! lazily at codegen. Lazy composition would force Phase 5 to emit indirect
 //! dispatch on each burden walk. The `debug_assert!` in
-//! `ori_arc::lower::burden_lookup` (§03 hook) is the contractual end of this
+//! `ori_arc::lower::burden_lookup` (the lookup hook) is the contractual end of this
 //! invariant: when the lookup site exists, it consumes the registered spec
-//! and asserts presence per the §03 schema.
+//! and asserts presence per the burden schema.
 
 pub mod closure;
 pub mod scc;
@@ -106,7 +106,7 @@ pub fn compose_user_burden(
 /// supplied at monomorphization. Non-placeholder ids reaching this function
 /// indicate a template that mixes concrete `BurdenTypeId`s with placeholders
 /// — not a shape the shipped templates use — and we surface them as
-/// `Idx::ERROR` so the §03 lookup-site `debug_assert!` fires loudly.
+/// `Idx::ERROR` so the lookup-site `debug_assert!` fires loudly.
 fn substitute_type_id(placeholder: BurdenTypeId, type_args: &[Idx]) -> Idx {
     if placeholder == TYPE_PARAM_T {
         // First type param. Missing arg → ERROR (composition site bug).
@@ -115,8 +115,8 @@ fn substitute_type_id(placeholder: BurdenTypeId, type_args: &[Idx]) -> Idx {
         // Second type param. Missing arg → ERROR.
         type_args.get(1).copied().unwrap_or(Idx::ERROR)
     } else {
-        // Concrete BurdenTypeId reaching composition is out of scope for §02.1
-        // shipped templates. Surface as ERROR so the §03 lookup-site assertion
+        // Concrete BurdenTypeId reaching composition is out of scope for the
+        // shipped templates. Surface as ERROR so the lookup-site assertion
         // catches it instead of silently miscompiling.
         Idx::ERROR
     }

@@ -399,7 +399,7 @@ impl TypeCheckError {
     /// Create a "`break` with value in a void-typed loop" error (E0860).
     ///
     /// Emitted when `break value` appears inside `while...do` or `for...do`,
-    /// which have type `void`. Spec: `14-expressions.md` § Break and Continue.
+    /// which have type `void`. Spec: Clause 14 § Break and Continue.
     pub fn break_value_in_void_loop(span: Span, loop_kind: VoidLoopKind) -> Self {
         Self {
             span,
@@ -417,7 +417,7 @@ impl TypeCheckError {
     ///
     /// Emitted when `continue value` appears inside `loop`, `while`, or
     /// `for...do`. Only `for...yield` substitutes a `continue value`.
-    /// Spec: `14-expressions.md` § Break and Continue.
+    /// Spec: Clause 14 § Break and Continue.
     pub fn continue_value_in_non_collecting_loop(
         span: Span,
         loop_kind: NonCollectingLoopKind,

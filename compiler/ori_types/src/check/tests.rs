@@ -130,7 +130,7 @@ fn module_checker_finish_with_pool() {
 
 #[test]
 fn flush_composed_burdens_registers_spec_against_type_registry() {
-    // Verification test for the §02.2 flush wiring: confirms that
+    // Verification test for the flush wiring: confirms that
     // composed burdens drained from a body-pass engine reach
     // `TypeRegistry::burden(idx)` via
     // `ModuleChecker::flush_composed_burdens`. Models the path
@@ -139,8 +139,7 @@ fn flush_composed_burdens_registers_spec_against_type_registry() {
     // a composed spec for that slot, (3) verify `TypeRegistry::burden`
     // returns the registered spec.
     //
-    // F2 close-out pin (Plan TPR Round 1): the §02.1 claim of
-    // "monomorphization wired" requires composed specs to reach the
+    // The "monomorphization wired" claim requires composed specs to reach the
     // registry through code, not API stub. This test fails if the flush
     // is reverted (composed burden accumulator drained but never
     // registered).
@@ -210,7 +209,7 @@ fn flush_composed_burdens_registers_spec_against_type_registry() {
             "Flushed spec is what TypeRegistry::burden returns at the monomorphized slot"
         ),
         None => {
-            panic!("flush_composed_burdens did not reach TypeRegistry — the §02.1 wiring is broken")
+            panic!("flush_composed_burdens did not reach TypeRegistry — the monomorphization wiring is broken")
         }
     }
 

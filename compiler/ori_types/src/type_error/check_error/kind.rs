@@ -393,7 +393,7 @@ pub enum TypeErrorKind {
 
     /// Pre-condition contract type must be bool (E2044).
     ///
-    /// Spec: Clause 10 § Function-Level Contracts — `pre(cond)` requires
+    /// Spec: Clause 15 § Function-Level Contracts — `pre(cond)` requires
     /// `cond` to type-check as `bool`. A non-bool expression is rejected here.
     PreContractNotBool {
         /// Inferred type of the contract expression.
@@ -402,13 +402,13 @@ pub enum TypeErrorKind {
 
     /// Post-condition contract cannot apply to a void-returning function (E2046).
     ///
-    /// Spec: Clause 10 § Function-Level Contracts — `post(r -> ...)` binds
+    /// Spec: Clause 15 § Function-Level Contracts — `post(r -> ...)` binds
     /// the return value to `r`; void-returning functions have no value to bind.
     PostContractVoidReturn,
 
     /// Pre-condition contract references an unknown identifier (E2047).
     ///
-    /// Spec: Clause 10 § Function-Level Contracts — `pre(cond)` may only
+    /// Spec: Clause 15 § Function-Level Contracts — `pre(cond)` may only
     /// reference function parameters and module-level bindings. Free names
     /// (locals not yet introduced, typos) are rejected with this code in lieu
     /// of the generic E2003 to surface contract-scope as the cause.

@@ -252,7 +252,7 @@ impl WellKnownNames {
         } else if name == self.ordering || name == self.ordering_upper {
             Some(Idx::ORDERING)
         } else if name == self.error {
-            // Spec: Clause 9.5 — surface annotation `Error` resolves to
+            // Surface annotation `Error` resolves to
             // Idx::ERROR (the Tag::Error slot). infer_field's Tag::Error arm
             // handles `.message → str` as the spec-mandated accessor, so
             // `let e: Error = ...` resolves here instead of falling through to

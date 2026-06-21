@@ -405,7 +405,7 @@ impl TraitRegistry {
         }
     }
 
-    // === Bound-Chain Dispatch (§10.1) ===
+    // === Bound-Chain Dispatch ===
 
     /// Find a trait method via the bound chain of a generic type parameter.
     ///

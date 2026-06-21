@@ -455,7 +455,7 @@ fn extract_var_direct_match() {
 
 // === extend_var_subst_with_roots ===
 //
-// Regression pins for the §04.2.B root-cause fix: rank-weighted union-find
+// Regression pins for the rank-weighted union-find fix:
 //  can make a fresh instantiation var the root of a
 // scheme var's equivalence class. `substitute_var` finds the scheme var's
 // direct entry in `var_subst` but a pool-walk that lands on the ROOT's

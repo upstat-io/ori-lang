@@ -1,7 +1,7 @@
 //! Tests for the end-of-body defaulting pre-pass.
 //!
-//! Covers the matrix authored as part of the §11.1 polymorphic-constructor
-//! extension: empty-literal defaulting (the original surface) plus the
+//! Covers the polymorphic-constructor extension matrix:
+//! empty-literal defaulting (the original surface) plus the
 //! introducer-only walks for `None` / `Ok` / `Err`, with negative pins for
 //! `Some` (NOT a defaulting root — `infer_some` reuses the inner's type) and
 //! for unbound payload generics under `Ok` / `Err` (payload vars must survive
@@ -372,10 +372,10 @@ fn ok_introducer_only_walk_preserves_unrelated_payload_generic_e2005() {
     );
 }
 
-// Empty literal regression — the original §03 surface stays green.
+// Empty literal regression — the original empty-literal surface stays green.
 
 /// Bare `let xs = []` defaults to `[Never]` per the existing empty-literal
-/// behavior. Pre-§11.1 cure path; pinned here to guard against the rename
+/// behavior. Pinned here to guard against the rename
 /// or the introducer-only refactor accidentally regressing the original
 /// `EmptyLiteralRoot` classification.
 #[test]

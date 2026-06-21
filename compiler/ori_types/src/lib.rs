@@ -8,7 +8,7 @@
 //! - [`TypeFlags`]: Pre-computed metadata for O(1) queries
 //! - [`Pool`]: Unified type pool with interning
 //!
-//! Per design spec 02-design-principles.md:
+//! Type-pool design principles:
 //! - All types have Clone, Eq, Hash for Salsa compatibility
 //! - Interned type representations for efficiency
 //! - Flat structures for cache locality

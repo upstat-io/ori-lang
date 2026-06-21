@@ -272,13 +272,13 @@ fn semantic_pin_result_composition_counts() {
     assert_eq!(composed.user_drop, None);
 }
 
-// === §02.4.B Channel<T> composition (registry-layer surface) ===
+// === Channel<T> composition (registry-layer surface) ===
 
 fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
         Some(spec) => spec,
         None => {
-            panic!("Channel template missing from BURDEN_TABLE — §02.4.B registration regression")
+            panic!("Channel template missing from BURDEN_TABLE — registration regression")
         }
     }
 }
@@ -340,7 +340,7 @@ fn compose_channel_str_substitutes_element_burden_to_str() {
 #[test]
 fn compose_channel_distinct_t_produces_distinct_specs() {
     // Positive (signature side): Channel<int> and Channel<str> compose to
-    // structurally distinct UserBurdenSpec instances. Carries the §02.2
+    // structurally distinct UserBurdenSpec instances. Carries the
     // dedup contract — the BurdenSignature naturally distinguishes them
     // via element_burden Idx contents (codex blind-spot #3 cure).
     let pool = Pool::new();
@@ -363,7 +363,7 @@ fn compose_channel_distinct_t_produces_distinct_specs() {
 #[test]
 fn compose_channel_map_payload_carries_map_idx() {
     // Positive (nested generic): composing Channel<{str: int}> uses the
-    // §02.1 substitution mechanism only — the inner map's BurdenSpec is
+    // substitution mechanism only — the inner map's BurdenSpec is
     // looked up SEPARATELY at codegen via the map's own Idx. No inline
     // expansion at composition time; recursive composition is via the
     // type graph. Confirms the channel template participates in the same
@@ -412,7 +412,7 @@ fn semantic_pin_channel_composition_counts() {
 fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
     // Negative pin: a hypothetical Channel<T> template where the
     // composition path lost the element_burden slot would produce
-    // structurally identical specs for every T — defeating the §02.2
+    // structurally identical specs for every T — defeating the
     // dedup contract (Channel<int> would collide with Channel<str>).
     //
     // We model the regression by composing TWO Channel<T> with different

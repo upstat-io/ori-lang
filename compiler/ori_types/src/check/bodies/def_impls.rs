@@ -58,7 +58,7 @@ fn check_def_impl_method(
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
         allocate_method_binders(checker, method);
 
-    // §09.2: allocate the def-impl's `Self` `RigidVar` BEFORE resolving
+    // Allocate the def-impl's `Self` `RigidVar` BEFORE resolving
     // params/return so `(self)` param annotations and `Self` return
     // annotations resolve to this RigidVar instead of the
     // `engine.fresh_var()` fallback at `infer/expr/type_resolution.rs:184`
@@ -87,7 +87,7 @@ fn check_def_impl_method(
             // synthesize a SelfType annotation for it). Bind `self`'s type
             // to the def-impl's Self RigidVar instead of a fresh var so
             // the receiver type at body-internal `self.method()` calls
-            // can dispatch via `§10.1` bound-chain on a stable RigidVar
+            // can dispatch via the bound-chain on a stable RigidVar
             // identity rather than an unbound `Tag::Var` that leaks as
             // `E2005` at PC-2 validation.
             None if p.name == self_kw => self_rigid,
@@ -168,14 +168,14 @@ fn check_def_impl_method(
                 }
             }
 
-            // §09.2/§10.1: the def-impl's `Self` RigidVar is bound by the
+            // the def-impl's `Self` RigidVar is bound by the
             // implemented trait — register it so a body-internal `self.m()`
-            // call resolves the trait's methods via the §10.1 bound-chain
+            // call resolves the trait's methods via the bound-chain
             // (`impl_lookup.rs` `find_trait_method_via_bound_chain`). Without
             // this, `self.m()` on the Self RigidVar finds no bound, returns
-            // NotFound, and (post-§06.5) reports a spurious "no method on
+            // NotFound, and reports a spurious "no method on
             // generic type" — the dispatch never truly resolved (it relied on
-            // the silent-accept poison §06.5 removed).
+            // a silent-accept poison since removed).
             engine.bind_method_rigid_bound(self_rigid, def_impl_trait);
 
             engine.push_context(ContextKind::FunctionReturn {
@@ -256,7 +256,7 @@ fn check_def_impl_method(
         checker.pool(),
     );
 
-    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    // Shared PC-2 validation + store/push/accumulate spine.
     super::finalize_body_and_export(
         checker,
         &sig,

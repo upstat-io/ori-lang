@@ -102,7 +102,7 @@ pub(crate) fn infer_for(
     }
 
     // Push a loop context so `break` / `continue` inside the body resolve to
-    // this `for`. Value rules differ by form (spec: 16-control-flow.md):
+    // this `for`. Value rules differ by form (Spec: Clause 16):
     // - `for...yield` permits `break value` (adds a final element) and
     //   `continue value` (substitutes the element).
     // - `for...do` is void-typed: `break value` is E0860, `continue value`
@@ -207,7 +207,7 @@ pub(crate) fn infer_while(
     _span: Span,
 ) -> Idx {
     // Push the loop context BEFORE inferring the condition: the spec desugar
-    // `loop { if !cond then break; body }` (16-control-flow.md §16.2.4) places the
+    // `loop { if !cond then break; body }` (Spec: Clause 16.2.4) places the
     // condition INSIDE the while's own loop, so condition-position `break` /
     // `continue` target this while, not the enclosing loop. `while...do` is
     // void-typed: `break value` is E0860 and `continue value` is E0861.
@@ -245,7 +245,7 @@ pub(crate) fn infer_while(
 /// Infer the type of a break expression.
 ///
 /// A labeled `break:name` resolves its value-permission and break-type
-/// unification against the LABELED target loop (per spec 16-control-flow.md),
+/// unification against the LABELED target loop (per Spec: Clause 16),
 /// not the innermost loop. An unlabeled `break` targets the innermost loop.
 pub(crate) fn infer_break(
     engine: &mut InferEngine<'_>,
@@ -308,7 +308,7 @@ pub(crate) fn infer_break(
 /// `for...do` it is E0861 — those loops do not accumulate values.
 ///
 /// A labeled `continue:name value` resolves against the LABELED target loop's
-/// form (per spec 16-control-flow.md), not the innermost loop. An unlabeled
+/// form (per Spec: Clause 16), not the innermost loop. An unlabeled
 /// `continue` targets the innermost loop.
 pub(crate) fn infer_continue(
     engine: &mut InferEngine<'_>,

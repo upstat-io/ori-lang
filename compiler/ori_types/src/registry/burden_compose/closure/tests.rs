@@ -1,7 +1,7 @@
 //! Matrix tests for closure capture composition.
 //!
-//! Per §04.2 `success_criteria` + Test Strategy, the matrix covers the four
-//! capture-shape variants enumerated in the §04.2 body:
+//! The matrix covers the four
+//! capture-shape variants:
 //!   (1) Capture-by-value of an Owned binding → `owned_fields[i]` populated.
 //!   (2) Capture-by-reference → `borrowed_fields[i]` populated; owned untouched.
 //!   (3) Captures-of-captures (nested closures) → outer's `owned_field` carries
@@ -11,7 +11,7 @@
 //!       lifetime; the projection itself does not own — parent owns.
 //!
 //! Plus boundary pins for `compiled_drop` `FnSym` uniqueness per closure `Idx` +
-//! the per-`Idx` mangling key shared with §04.1's recursive-type drop functions
+//! the per-`Idx` mangling key shared with the recursive-type drop functions
 //! per `_ori_drop$<idx_raw>` at `drop_gen.rs:45`.
 
 use super::{compose_closure_burden_spec, mint_closure_drop_fn_sym, ClosureCapture};
@@ -30,7 +30,7 @@ fn closure_idx(raw: u32) -> Idx {
 
 #[test]
 fn closure_with_single_owned_str_capture_populates_one_owned_field() {
-    // §04.2 success_criterion: capture-by-value of Owned binding produces
+    // success criterion: capture-by-value of Owned binding produces
     // owned_fields entry with field_type = captured binding's resolved Idx.
     let ci = closure_idx(0);
     let captures = [ClosureCapture {
@@ -61,7 +61,7 @@ fn closure_with_single_owned_str_capture_populates_one_owned_field() {
 
 #[test]
 fn closure_with_multiple_owned_captures_preserves_capture_order() {
-    // §04.2 success_criterion: field_index corresponds to caller's argument
+    // success criterion: field_index corresponds to caller's argument
     // order at the PartialApply site. Captures supplied in order [STR, INT,
     // STR] MUST land in owned_fields[0..3] with the same Idx sequence.
     let ci = closure_idx(1);
@@ -92,7 +92,7 @@ fn closure_with_multiple_owned_captures_preserves_capture_order() {
 
 #[test]
 fn closure_with_single_borrowed_capture_populates_borrowed_fields_not_owned() {
-    // §04.2 success_criterion: capture-by-reference is borrow; stored in
+    // success criterion: capture-by-reference is borrow; stored in
     // borrowed_fields[i]; no drop on env field (borrows do not own).
     let ci = closure_idx(2);
     let captures = [ClosureCapture {
@@ -119,7 +119,7 @@ fn closure_with_single_borrowed_capture_populates_borrowed_fields_not_owned() {
 
 #[test]
 fn closure_with_mixed_owned_and_borrowed_captures_populates_both_field_sets() {
-    // §04.2 success_criterion: a single closure can mix capture modes — each
+    // success criterion: a single closure can mix capture modes — each
     // capture's field_index in its respective field set.
     let ci = closure_idx(3);
     let owned = [ClosureCapture {
@@ -142,9 +142,9 @@ fn closure_with_mixed_owned_and_borrowed_captures_populates_both_field_sets() {
 
 #[test]
 fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
-    // §04.2 success_criterion: outer env field IS Closure<...> with its OWN
-    // compiled_drop. Recursion handled identically to recursive types per
-    // §04.1 — outer closure's drop body recursively invokes inner closure's
+    // success criterion: outer env field IS Closure<...> with its OWN
+    // compiled_drop. Recursion handled identically to recursive types
+    // — outer closure's drop body recursively invokes inner closure's
     // compiled_drop via the inner field's UserBurdenSpec lookup at codegen.
     //
     // Composition records the inner closure's Idx in owned_fields[i].field_type;
@@ -179,7 +179,7 @@ fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
 
 #[test]
 fn closure_capturing_projection_uses_borrowed_field_with_parent_idx() {
-    // §04.2 success_criterion: capture of projection treated as borrowed_fields
+    // success criterion: capture of projection treated as borrowed_fields
     // entry — the projection itself does not own; parent owns. The field_type
     // is the projected field's resolved Idx, not the parent's.
     let ci = closure_idx(6);
@@ -205,7 +205,7 @@ fn closure_capturing_projection_uses_borrowed_field_with_parent_idx() {
 
 #[test]
 fn closure_compiled_drop_fn_sym_matches_per_idx_mangling_key() {
-    // §04.2 + §04.1 mangling contract: closure drop functions share the
+    // mangling contract: closure drop functions share the
     // `_ori_drop$<idx_raw>` mangling key with recursive-type drop functions
     // per `drop_gen.rs:45`. mint_closure_drop_fn_sym MUST delegate to
     // scc::mint_compiled_drop_fn_sym so the per-Idx distinctness contract
@@ -220,7 +220,7 @@ fn closure_compiled_drop_fn_sym_matches_per_idx_mangling_key() {
     assert_eq!(
         spec.compiled_drop,
         Some(expected),
-        "closure compiled_drop MUST follow the Idx-derived mangling shared with §04.1",
+        "closure compiled_drop MUST follow the Idx-derived mangling shared with recursive-type drops",
     );
     let direct = mint_closure_drop_fn_sym(ci);
     assert_eq!(
@@ -231,7 +231,7 @@ fn closure_compiled_drop_fn_sym_matches_per_idx_mangling_key() {
 
 #[test]
 fn closure_drop_fn_syms_for_distinct_closures_are_distinct() {
-    // §04.2 + §04.1 per-Idx distinctness: two closures with distinct Idx values
+    // per-Idx distinctness: two closures with distinct Idx values
     // MUST get distinct compiled_drop FnSyms even when their capture shapes are
     // structurally identical.
     let a = closure_idx(8);
@@ -252,7 +252,7 @@ fn closure_drop_fn_syms_for_distinct_closures_are_distinct() {
 
 #[test]
 fn closure_with_zero_captures_yields_empty_field_sets_but_still_heap_alloc() {
-    // §04.2 + the closure env-header layout: even a closure with zero
+    // The closure env-header layout: even a closure with zero
     // captures has self_heap_alloc=true at the spec level — the env-header is
     // the load-bearing allocation site for the drop_fn slot. The codegen path
     // emit_rc_dec_closure (rc_ops.rs:266-268) short-circuits when env_ptr is
@@ -276,7 +276,7 @@ fn closure_with_zero_captures_yields_empty_field_sets_but_still_heap_alloc() {
 
 #[test]
 fn closure_burden_default_invariants_no_variants_no_element() {
-    // §04.2 success_criterion: element_burden: None; variant_burdens: empty.
+    // success criterion: element_burden: None; variant_burdens: empty.
     // Closures are neither collections nor sums.
     let ci = closure_idx(11);
     let owned = [ClosureCapture {
@@ -296,7 +296,7 @@ fn closure_burden_default_invariants_no_variants_no_element() {
 
 #[test]
 fn closure_owned_borrowed_partition_is_a_pure_function_of_classification_input() {
-    // §04.2 borrow-check-refinement-sync verification (no-drift):
+    // borrow-check-refinement-sync verification (no-drift):
     //
     // `compose_closure_burden_spec` is a PURE mapping of its `owned_captures`
     // / `borrowed_captures` inputs — it does NOT classify captures itself.

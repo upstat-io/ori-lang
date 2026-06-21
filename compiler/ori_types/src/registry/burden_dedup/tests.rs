@@ -169,7 +169,7 @@ fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
     let mut registry = TypeRegistry::new();
 
     // Use the pre-interned primitive Idxs as the 6 stand-in element
-    // types. All 6 carry empty burden in the §01 BURDEN_TABLE — meaning
+    // types. All 6 carry empty burden in the BURDEN_TABLE — meaning
     // codegen would look them up and find no work — but for the dedup
     // matrix the only thing that matters is that the SPEC built around
     // them differs structurally per concrete T/E.
@@ -463,7 +463,7 @@ fn empty_default_spec_dedup_collapses() {
     assert_eq!(registry.burden_signature_count(), 1);
 }
 
-// === §02.4.B Channel<T> signature dedup ===
+// === Channel<T> signature dedup ===
 
 /// Build a `Channel<T>`-shaped `UserBurdenSpec` matching the
 /// `compose_user_burden(channel_template, [t])` output:
@@ -486,7 +486,7 @@ fn channel_int_registers_with_distinct_signature_from_channel_str() {
     // Positive: Channel<int> and Channel<str> register as distinct
     // entries — their BurdenSignatures differ because the element_burden
     // Idx is folded into the FNV-1a hash (`burden_dedup.rs` fold rule).
-    // §02.2 dedup contract is preserved over the §02.4.B Channel<T>
+    // the dedup contract is preserved over the Channel<T>
     // composition shape (codex blind-spot #3 cure: signature distinctness
     // grounded in element burden contents).
     let mut registry = TypeRegistry::new();
@@ -514,7 +514,7 @@ fn channel_int_registers_with_distinct_signature_from_channel_str() {
 #[test]
 fn channel_int_registered_twice_collapses_to_one_signature() {
     // Positive: a second `Channel<int>` registration short-circuits to the
-    // first canonical Idx — proves the §02.2 dedup gate fires on the
+    // first canonical Idx — proves the dedup gate fires on the
     // Channel<T> composition path the same way it fires on Result<T,E> /
     // Option<T>. Catches a regression where Channel composition would
     // accidentally bypass `register_user_burden`'s signature-index probe.
@@ -542,7 +542,7 @@ fn channel_int_registered_twice_collapses_to_one_signature() {
 #[test]
 fn channel_nested_map_payload_registers_distinct_from_channel_int() {
     // Positive: Channel<{str: int}> registers at a distinct signature from
-    // Channel<int> — exercises the §02.1 nested-generic recursion through
+    // Channel<int> — exercises the nested-generic recursion through
     // the dedup path without `ori_arc::drop::burden_bridge` (registry
     // purity preserved).
     let mut registry = TypeRegistry::new();

@@ -212,8 +212,8 @@ pub(super) fn check_where_clauses(
 /// When the resolved type still carries unresolved binders
 /// (`HAS_VAR | HAS_BOUND_VAR | HAS_RIGID_VAR`), the constraint is conservatively
 /// skipped — best-effort enforcement, mirrors the `TF-5` fast-path gate. A
-/// follow-up commit (§05 B.2 inline-bound enforcement) will extend coverage
-/// to `generic_param_metadata.bounds` (the `<T: Eq>` inline form).
+/// follow-up will extend coverage to `generic_param_metadata.bounds`
+/// (the `<T: Eq>` inline form).
 ///
 /// # Three phases
 /// 1. Mutable resolve: walk each `WhereConstraint`, resolve `ty`, prepare

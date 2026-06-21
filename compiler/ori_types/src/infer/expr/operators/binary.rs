@@ -196,7 +196,7 @@ pub(crate) fn infer_binary(
             }
 
             // Comparison operators on user-defined types require the corresponding
-            // trait per Spec 14-expressions.md: equality (==, !=) requires `Eq`,
+            // trait per Spec: Clause 14: equality (==, !=) requires `Eq`,
             // ordering (< <= > >=) requires `Comparable`. Compound types (List,
             // Option, Result, etc.) have their own evaluator dispatch — we validate
             // Named (non-generic user types) and Applied (generic instantiations

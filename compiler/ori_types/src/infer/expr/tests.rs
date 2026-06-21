@@ -2306,7 +2306,7 @@ fn test_eq_satisfied_by_list() {
 
     assert!(
         super::calls::type_satisfies_trait(list_ty, "Eq", &pool),
-        "[int] should satisfy Eq (equals() implemented in §3.14)"
+        "[int] should satisfy Eq"
     );
 }
 
@@ -2317,7 +2317,7 @@ fn test_eq_satisfied_by_map() {
 
     assert!(
         super::calls::type_satisfies_trait(map_ty, "Eq", &pool),
-        "{{str: int}} should satisfy Eq (equals() implemented in §3.14)"
+        "{{str: int}} should satisfy Eq"
     );
 }
 
@@ -2328,7 +2328,7 @@ fn test_eq_satisfied_by_set() {
 
     assert!(
         super::calls::type_satisfies_trait(set_ty, "Eq", &pool),
-        "Set<int> should satisfy Eq (equals() implemented in §3.14)"
+        "Set<int> should satisfy Eq"
     );
 }
 
@@ -2339,7 +2339,7 @@ fn test_eq_satisfied_by_option() {
 
     assert!(
         super::calls::type_satisfies_trait(opt_ty, "Eq", &pool),
-        "Option<int> should satisfy Eq (equals() implemented in §3.14)"
+        "Option<int> should satisfy Eq"
     );
 }
 
@@ -2350,7 +2350,7 @@ fn test_eq_satisfied_by_result() {
 
     assert!(
         super::calls::type_satisfies_trait(res_ty, "Eq", &pool),
-        "Result<str, int> should satisfy Eq (equals() implemented in §3.14)"
+        "Result<str, int> should satisfy Eq"
     );
 }
 
@@ -2361,7 +2361,7 @@ fn test_eq_satisfied_by_tuple() {
 
     assert!(
         super::calls::type_satisfies_trait(tuple_ty, "Eq", &pool),
-        "(int, str) should satisfy Eq (equals() implemented in §3.14)"
+        "(int, str) should satisfy Eq"
     );
 }
 

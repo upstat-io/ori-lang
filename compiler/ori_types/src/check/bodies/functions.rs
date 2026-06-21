@@ -185,7 +185,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             let _ = engine.check_type(guard_ty, &expected_bool, span);
         }
 
-        // Spec: Clause 10 (Function-Level Contracts).
+        // Spec: Clause 15 (Function-Level Contracts).
         // pre() contracts: scope check (E2047) precedes type check (E2044).
         validate_pre_contracts(&mut engine, arena, func);
 
@@ -226,7 +226,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             }
         }
 
-        // Spec: Clause 10 (Function-Level Contracts).
+        // Spec: Clause 15 (Function-Level Contracts).
         // post() contracts: void-return rejection (E2046). Runs after body
         // inference so sig.return_type is fully resolved.
         validate_post_contracts(&mut engine, arena, func, sig.return_type);
@@ -433,7 +433,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 
 /// Validate every `pre()` contract on `func`.
 ///
-/// Spec: Clause 10 (Function-Level Contracts).
+/// Spec: Clause 15 (Function-Level Contracts).
 ///
 /// Two checks per contract, in order:
 ///
@@ -467,7 +467,7 @@ fn validate_pre_contracts(engine: &mut InferEngine<'_>, arena: &ExprArena, func:
 
 /// Validate every `post()` contract on `func`.
 ///
-/// Spec: Clause 10 (Function-Level Contracts).
+/// Spec: Clause 15 (Function-Level Contracts).
 ///
 /// `post()` is rejected when the function returns `void` (E2046) — there is
 /// no result value for the post-lambda to bind. The parser guarantees every

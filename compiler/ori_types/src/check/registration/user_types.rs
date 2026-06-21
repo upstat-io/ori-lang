@@ -451,7 +451,7 @@ fn validate_and_merge_repr_attrs(
                     }
                     valid_attrs.push(*attr);
                 } else if is_newtype {
-                    // Spec §26.4.9: "#repr applies only to struct types."
+                    // Spec: Clause 26.4.9: "#repr applies only to struct types."
                     // Newtypes are implicitly transparent; explicit #repr is an error.
                     checker.push_error(TypeCheckError::invalid_repr_attribute(
                         decl.span,

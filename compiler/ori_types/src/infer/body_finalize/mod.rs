@@ -263,7 +263,7 @@ enum ResultSlot {
 /// `EmptyLiteralRoot` — empty collection literal (`[]`, `{}`,
 /// `[...]`, `{...}`). The entire stored type is walked; every reachable
 /// unbound var is defaulted to `Idx::NEVER`. This is the original
-/// pre-§11.1 behavior.
+/// empty-literal defaulting behavior.
 ///
 /// `IntroducerSlot(slot)` — polymorphic constructor (`Ok(_)`, `Err(_)`)
 /// that introduces a fresh `Tag::Var` only in `slot` of the resulting

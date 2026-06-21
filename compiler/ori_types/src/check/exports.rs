@@ -286,7 +286,7 @@ fn try_resolve_deferred_call(
     // whose var_id is the root rather than the declared callee
     // scheme var. Without this extension, a 3-hop generic chain
     // where the middle layer takes the deferred path leaks
-    // Tag::Var leaves into the realized ARC IR and fires the §04.2
+    // Tag::Var leaves into the realized ARC IR and fires the
     // PC-2 seam assertion.
     // SSOT — shared with the
     // eager-path site at infer::expr::calls::monomorphization and

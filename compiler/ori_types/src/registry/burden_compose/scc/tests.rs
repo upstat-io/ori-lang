@@ -326,7 +326,7 @@ fn non_recursive_with_recursive_field_assigns_compiled_drop_fn_sym() {
 #[test]
 fn user_drop_some_forces_compiled_drop_even_when_non_recursive() {
     // type Leaf { value: int } with user @drop impl.
-    // Per §04.1: compiled_drop = Some iff (non-singleton SCC) OR (self-loop)
+    // compiled_drop = Some iff (non-singleton SCC) OR (self-loop)
     // OR (user_drop = Some). The AUGMENT-shape compiled drop wraps the user
     // @drop body, so a Drop-impl type MUST have compiled_drop populated.
     let leaf_idx = idx(70);
@@ -379,7 +379,7 @@ fn variant_retained_owned_field_contributes_to_scc() {
     // type Tree = Leaf | Branch(Tree, Tree)
     // — Branch's retained_owned[*].field_type references Tree itself,
     // forming a self-loop singleton SCC via the variant_burdens edge
-    // path (§04.1 (d)).
+    // path (edge case (d)).
     let tree_idx = idx(80);
     let tree_spec = UserBurdenSpec {
         self_heap_alloc: true,
@@ -401,7 +401,7 @@ fn variant_retained_owned_field_contributes_to_scc() {
 #[test]
 fn element_burden_contributes_to_scc() {
     // type Container { ... } whose element_burden references itself
-    // forms a self-loop via the §04.1 (c) edge path.
+    // forms a self-loop via the edge-case (c) path.
     let container_idx = idx(90);
     let container_spec = UserBurdenSpec {
         self_heap_alloc: true,
@@ -423,7 +423,7 @@ fn element_burden_contributes_to_scc() {
 #[test]
 fn borrowed_field_contributes_to_scc() {
     // type SelfBorrow { back: &Self }  (target-only Tag::Borrowed, but the
-    // SCC edge still applies via §04.1 (b)).
+    // SCC edge still applies via edge case (b)).
     let sb_idx = idx(100);
     let sb_spec = UserBurdenSpec {
         self_heap_alloc: true,

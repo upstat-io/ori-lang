@@ -15,7 +15,7 @@ use super::InferEngine;
 ///
 /// Records the break-value-type unification target plus whether `break value`
 /// and `continue value` are permitted in this loop form. Per spec
-/// (`14-expressions.md` / `16-control-flow.md`):
+/// (Spec: Clause 14 / Clause 16):
 /// - `loop { }` permits `break value`, forbids `continue value`.
 /// - `for...yield` permits both.
 /// - `while...do` / `for...do` forbid both (the loop has type `void`).

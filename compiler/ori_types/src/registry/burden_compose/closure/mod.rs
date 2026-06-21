@@ -1,6 +1,5 @@
 //! Closure capture composition — `UserBurdenSpec` population at
-//! closure-type-registration time per §04.2 of
-//! `plans/aims-burden-tracking/section-04-recursive-closures-drop-value.md`.
+//! closure-type-registration time.
 //!
 //! Spec: Annex E §AIMS — closure environments are heap-allocated values whose
 //! burden is composed at the lambda-expression type-check site. The composed
@@ -66,7 +65,7 @@ pub struct ClosureCapture {
 /// - `borrowed_captures` — captured-by-reference captures. One
 ///   `UserBorrowedField` per entry; same `field_path` convention.
 ///
-/// Output: `UserBurdenSpec` populated per §04.2:
+/// Output: `UserBurdenSpec` populated as:
 /// - `self_heap_alloc: true`
 /// - `owned_fields` / `borrowed_fields` mapped from inputs
 /// - `element_burden: None`, `variant_burdens: []`

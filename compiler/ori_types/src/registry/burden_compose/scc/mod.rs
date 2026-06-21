@@ -99,7 +99,7 @@ pub fn compute_scc_partition(corpus: &[(Idx, &UserBurdenSpec)]) -> Vec<Vec<Idx>>
 
 /// Iterate every type-Idx referenced by a `UserBurdenSpec`.
 ///
-/// Edges enumerated per §04.1 design (a)-(d):
+/// Edges enumerated (a)-(d):
 ///
 /// - (a) `owned_fields[*].field_type`
 /// - (b) `borrowed_fields[*].field_type`
@@ -123,7 +123,7 @@ fn collect_edges<F: FnMut(Idx)>(spec: &UserBurdenSpec, mut emit: F) {
 }
 
 /// Decide whether a type's `UserBurdenSpec` SHALL carry `compiled_drop =
-/// Some(_)`. Per §04.1 decision rule:
+/// Some(_)`. Decision rule:
 /// `compiled_drop = Some iff (in non-singleton SCC) OR (self-loop) OR
 /// (user_drop = Some(_))`.
 ///
@@ -171,7 +171,7 @@ fn has_self_loop(spec: &UserBurdenSpec, this_idx: Idx) -> bool {
     found
 }
 
-/// Apply the §04.1 SCC + self-loop + `user_drop` decision rule to a corpus,
+/// Apply the SCC + self-loop + `user_drop` decision rule to a corpus,
 /// returning per-Idx `Option<FnSym>` mapping for `compiled_drop`.
 ///
 /// `Idx` not present in the corpus has no entry in the returned map.

@@ -196,7 +196,7 @@ fn collect_projections(
         ExprKind::Let { init, .. } => {
             // The canonical partial-move shape: `let f = v.field`.
             // Recognise direct projection initializers only — chained or
-            // call-wrapped initializers fall outside §03.4 scope.
+            // call-wrapped initializers fall outside the partial-move scope.
             if let Some((agg, field, span)) = direct_projection(ctx, init) {
                 if is_non_drop_aggregate_for(ctx, init_receiver(ctx, init)) {
                     out.insert((agg, field), span);
@@ -607,7 +607,7 @@ impl ExprIdRawIndex for ExprId {
     }
 }
 
-// -- E2048 EDROP_PARTIAL_MOVE validator (§04.3 of aims-burden-tracking) ---
+// -- E2048 EDROP_PARTIAL_MOVE validator ---
 
 /// Validate that no `let $f = v.field` binding occurs where `v`'s type
 /// implements `Drop`.

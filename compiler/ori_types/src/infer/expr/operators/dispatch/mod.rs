@@ -359,7 +359,7 @@ pub(crate) fn has_comparable_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
 /// Recognizes `#derive(Eq)`, manual `impl T: Eq`, and generic
 /// (`impl<T: Eq> Pair<T>: Eq`) impls. Verifying the trait by name prevents an
 /// unrelated `eq` method from bypassing the equality-operator gate.
-/// Spec: 14-expressions.md "Equality" — operands shall implement `Eq`.
+/// Spec: Clause 14 "Equality" — operands shall implement `Eq`.
 pub(crate) fn has_eq_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
     type_implements_named_trait(engine, ty, "eq", "Eq")
 }
