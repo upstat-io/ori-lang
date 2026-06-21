@@ -252,12 +252,11 @@ impl WellKnownNames {
         } else if name == self.ordering || name == self.ordering_upper {
             Some(Idx::ORDERING)
         } else if name == self.error {
-            // §09.5: surface annotation `Error` resolves to Idx::ERROR
-            // (Tag::Error slot 8 per types.md §TY-5). infer_field's Tag::Error
-            // arm handles `.message → str` as the spec-mandated accessor.
-            // Closes the gap where `let e: Error = ...` previously fell through
-            // to `fresh_named_var("Error")` at type_resolution.rs:175,
-            // leaving `e` as an unresolved Tag::Var.
+            // Spec: Clause 9.5 — surface annotation `Error` resolves to
+            // Idx::ERROR (the Tag::Error slot). infer_field's Tag::Error arm
+            // handles `.message → str` as the spec-mandated accessor, so
+            // `let e: Error = ...` resolves here instead of falling through to
+            // a fresh unresolved Tag::Var.
             Some(Idx::ERROR)
         } else {
             None
@@ -354,7 +353,7 @@ impl WellKnownNames {
         }
     }
 
-    // ── Trait satisfaction (bitfield-based O(1) lookup) ────────────────
+    // Trait satisfaction (bitfield-based O(1) lookup)
 
     /// Check if a primitive type inherently satisfies a trait.
     ///

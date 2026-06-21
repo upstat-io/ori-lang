@@ -30,7 +30,7 @@ pub enum AmbiguousTypeSite {
     /// Closure parameter position within a `Lambda` expression whose
     /// parameter type could not be inferred from the receiver/context.
     /// Signals the user should write the full `typed_lambda` form
-    /// (`(x: T) -> R = body`) per spec `grammar.ebnf:550-553`.
+    /// (`(x: T) -> R = body`) per the grammar.
     LambdaParam,
 }
 
@@ -393,7 +393,7 @@ pub enum TypeErrorKind {
 
     /// Pre-condition contract type must be bool (E2044).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts — `pre(cond)` requires
+    /// Spec: Clause 10 § Function-Level Contracts — `pre(cond)` requires
     /// `cond` to type-check as `bool`. A non-bool expression is rejected here.
     PreContractNotBool {
         /// Inferred type of the contract expression.
@@ -402,13 +402,13 @@ pub enum TypeErrorKind {
 
     /// Post-condition contract cannot apply to a void-returning function (E2046).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts — `post(r -> ...)` binds
+    /// Spec: Clause 10 § Function-Level Contracts — `post(r -> ...)` binds
     /// the return value to `r`; void-returning functions have no value to bind.
     PostContractVoidReturn,
 
     /// Pre-condition contract references an unknown identifier (E2047).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts — `pre(cond)` may only
+    /// Spec: Clause 10 § Function-Level Contracts — `pre(cond)` may only
     /// reference function parameters and module-level bindings. Free names
     /// (locals not yet introduced, typos) are rejected with this code in lieu
     /// of the generic E2003 to surface contract-scope as the cause.
@@ -443,8 +443,8 @@ pub enum TypeErrorKind {
 
     /// `Value` and `Drop` on the same type (E2049).
     ///
-    /// Per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value` declares
-    /// inline storage with bitwise copy semantics and no ARC. The
+    /// Per Annex E §AIMS: `Value` declares inline storage with bitwise
+    /// copy semantics and no ARC. The
     /// refcount-zero cleanup path that `@drop` hooks into never fires
     /// for `Value` types, so pairing them is contradictory. Fires at
     /// either the type-declaration registration surface (Surface 1 —
@@ -460,8 +460,8 @@ pub enum TypeErrorKind {
 
     /// `break value` in a void-typed loop (E0860).
     ///
-    /// Spec: `14-expressions.md` § Break and Continue + `16-control-flow.md`
-    /// § Loop Control — `while...do` and `for...do` have type `void`, so a
+    /// Spec: Clause 14 (Break and Continue) + Clause 16 (Loop Control) —
+    /// `while...do` and `for...do` have type `void`, so a
     /// value attached to `break` has no destination. Only `loop { }` and
     /// `for...yield` carry a break value.
     BreakValueInVoidLoop {
@@ -471,8 +471,8 @@ pub enum TypeErrorKind {
 
     /// `continue value` in a non-collecting loop (E0861).
     ///
-    /// Spec: `14-expressions.md` § Break and Continue + `16-control-flow.md`
-    /// § Loop Control — `loop`, `while`, and `for...do` do not accumulate
+    /// Spec: Clause 14 (Break and Continue) + Clause 16 (Loop Control) —
+    /// `loop`, `while`, and `for...do` do not accumulate
     /// values, so a value attached to `continue` has no destination. Only
     /// `for...yield` substitutes a `continue value`.
     ContinueValueInNonCollectingLoop {

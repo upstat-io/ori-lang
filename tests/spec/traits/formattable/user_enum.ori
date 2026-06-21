@@ -1,5 +1,5 @@
-// Spec: 14-expressions.md:1262 Formattable Trait — user enum implementations
-// BUG-04-193 matrix: user sum-type (enum) with an explicit Formattable impl,
+// Spec: Clause 14 (Formattable trait, string interpolation) — user enum impls
+// Matrix: user sum-type (enum) with an explicit Formattable impl,
 // interpolated with a format spec, must dispatch the user format() on BOTH
 // the interpreter AND the LLVM backend (dual-execution parity). Pre-fix the
 // LLVM lowering routes every non-primitive FormatWith to ori_format_int and

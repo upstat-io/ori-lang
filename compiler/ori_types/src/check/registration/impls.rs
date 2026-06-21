@@ -268,7 +268,7 @@ fn populate_drop_burden_if_applicable(
     // When `impl T: Drop` is being registered AND T's trait set already
     // carries `Value` (recorded at the type-decl registration site via
     // `TypeRegistry::record_value_marker`), the two markers mutually
-    // exclude per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value`
+    // exclude per Annex E §AIMS: `Value`
     // declares inline storage with no ARC, so the refcount-zero cleanup
     // path that `@drop` hooks into never fires.
     //

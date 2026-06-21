@@ -1,7 +1,6 @@
 //! Unit tests for the `pattern_is_irrefutable` predicate (Axis 7).
 //!
-//! Spec citation: `15-patterns.md:276-281` (irrefutability context table) +
-//! `15-patterns.md:332-340` (List Pattern Exhaustiveness table).
+//! Spec: Clause 15 (irrefutability context table + List Pattern Exhaustiveness table).
 //!
 //! Coverage scope: every `BindingPattern` variant + nested-path arms +
 //! `Idx::ERROR` poison degradation. The registry-backed struct walk
@@ -205,12 +204,11 @@ fn test_pattern_is_irrefutable_struct_all_simple() {
     assert_eq!(pattern_is_irrefutable(&mut engine, &pat, Idx::INT), Ok(()));
 }
 
-// Note: `test_pattern_is_irrefutable_struct_with_refutable_inner` (using
-// concrete `Idx::INT` outer with refutable inner) was removed in Round 1 of
-// the BUG-02-022 code TPR — per the §3.2 no-double-diagnostic contract, the
-// predicate now returns `Ok(())` for concrete-non-struct outer types so
-// bind_pattern's E2001 type-mismatch fires alone (no doubling). The recursion
-// behavior for refutable inner sub-patterns is pinned by
+// Note: there is deliberately no `test_pattern_is_irrefutable_struct_with_refutable_inner`
+// (concrete `Idx::INT` outer with refutable inner). Per the no-double-diagnostic
+// contract (BUG-02-022), the predicate returns `Ok(())` for concrete-non-struct
+// outer types so bind_pattern's E2001 type-mismatch fires alone (no doubling).
+// The recursion behavior for refutable inner sub-patterns is pinned by
 // `test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison`
 // below (uses `Tag::Var` outer, which DOES recurse with `Idx::ERROR` poison).
 
@@ -280,8 +278,8 @@ fn test_pattern_is_irrefutable_outer_tag_var_recurses_with_poison() {
 
 #[test]
 fn test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison() {
-    // Same F10 contract for the struct branch: refutable List sub-pattern
-    // surfaces even when the outer struct type is Tag::Var.
+    // Same poison-recursion contract for the struct branch: refutable List
+    // sub-pattern surfaces even when the outer struct type is Tag::Var.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -359,7 +357,7 @@ fn test_pattern_is_irrefutable_struct_field_preserves_mutability() {
 fn test_binding_pattern_refutability_matrix_count() {
     // Axis 8 — Self-verifying matrix completeness.
     //
-    // (a) Spec/15-patterns.md:332-340 enumerates 5 CANONICAL List shapes:
+    // (a) Spec: Clause 15 enumerates 5 CANONICAL List shapes:
     //     [], [$x], [$x, $y], [$x, ..rest], [..rest]. Each has a spec test
     //     in tests/spec/declarations/let-irrefutable/list-shapes.ori.
     let canonical_spec_shape_tests = [
@@ -372,7 +370,7 @@ fn test_binding_pattern_refutability_matrix_count() {
     assert_eq!(
         canonical_spec_shape_tests.len(),
         5,
-        "Spec/15-patterns.md:332-340 enumerates 5 canonical List shapes"
+        "Spec: Clause 15 enumerates 5 canonical List shapes"
     );
 
     // (b) Full Axis 1 cell count = canonical 5 + 4 regression cells.

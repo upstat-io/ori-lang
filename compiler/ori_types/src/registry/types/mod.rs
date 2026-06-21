@@ -46,8 +46,8 @@ pub struct TypeRegistry {
     /// is the correctness floor).
     burden_by_signature: FxHashMap<BurdenSignature, Idx>,
 
-    /// Types carrying the `Value` marker (per Annex E §AIMS +
-    /// `ori-syntax.md §Prelude`). Populated at Surface 1
+    /// Types carrying the `Value` marker (per Annex E §AIMS).
+    /// Populated at Surface 1
     /// (`register_user_types`) when a type declaration carries `Value` in
     /// its trait set; queried at Surface 2 (`register_impl`) to enforce
     /// E2049's mutual exclusion against `impl T: Drop`. Set instead of
@@ -59,7 +59,7 @@ pub struct TypeRegistry {
     /// Burden side-table for monomorphized generic-builtin instances
     /// (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, `Result<T, E>`, `Range<T>`)
     /// that have NO `TypeEntry` — they are structural pool types, not
-    /// user-declared nominals (per `types.md §RG-1`). `register_user_burden`
+    /// user-declared nominals (per RG-1). `register_user_burden`
     /// writes here when `typeid` is absent from `types_by_idx`; `burden(idx)`
     /// reads this as a fallback. Keyed by bare `Idx` — same shape as
     /// `value_marker_types` for non-nominal pool indices. This is the
@@ -538,7 +538,7 @@ impl TypeRegistry {
     /// field when one exists or to the `collection_burdens` side-table when it
     /// does not. The side-table home is the post-Signatures-freeze burden-only
     /// write path for monomorphized generic-builtin instances that carry no
-    /// `TypeEntry` (per `types.md §RG-1`). SSOT for the
+    /// `TypeEntry` (per RG-1). SSOT for the
     /// `register_user_burden` storage-dispatch so the structural-match and
     /// fresh-insert paths cannot diverge.
     fn write_spec_to_idx(&mut self, typeid: Idx, spec: UserBurdenSpec) {

@@ -33,11 +33,11 @@ fn check_impl_block(
     traits: &[TraitDef],
     impl_index: usize,
 ) {
-    // §10.1.2: impl-level generics (`impl<T: Bound>`) bind as `RigidVar`s so a
+    // Impl-level generics (`impl<T: Bound>`) bind as `RigidVar`s so a
     // body-internal `receiver.method()` whose receiver is an impl-level type
-    // parameter reaches the §10.1 bound-chain (bounded calls dispatch, unbounded
+    // parameter reaches the bound-chain (bounded calls dispatch, unbounded
     // calls surface method-not-found) instead of resolving to an unresolved
-    // `Tag::Named` (`registration/type_resolution.rs`). The `RigidVar`s are
+    // `Tag::Named`. The `RigidVar`s are
     // allocated at `register_impls` (Pass 0c) and stored on the checker keyed by
     // `module.impls` position; REUSE them here (Pass 4) via `prealloc` so a
     // method mono recorded at a Pass-3 call site already sees the impl binder in
@@ -110,7 +110,7 @@ fn check_impl_block(
     clippy::too_many_lines,
     reason = "rank-scope-wrapped body-inference closure with method-binder setup \
               matches the canonical body-checking shape shared with check_function; \
-              splitting across helpers would obscure §SG-5 enter/exit pairing"
+              splitting across helpers would obscure the rank-scope enter/exit pairing"
 )]
 fn check_impl_method(
     checker: &mut ModuleChecker<'_>,
@@ -125,11 +125,9 @@ fn check_impl_method(
         return;
     };
 
-    // Phase B Step 5: bind method-level type generics as fresh RigidVars.
-    // Phase B-Residual-2 (a): also collect method-level const generics for
-    // body-scope binding below.
-    // Phase B-Residual-2 (c): also collect inline `<T: Bound>` assumptions
-    // for body-internal trait dispatch.
+    // Bind method-level type generics as fresh RigidVars; also collect
+    // method-level const generics for body-scope binding below, and inline
+    // `<T: Bound>` assumptions for body-internal trait dispatch.
     // REUSE the method-level `RigidVar`s allocated at Pass 0c
     // (`register_impls`), keyed by body `ExprId`, so the body's generic types
     // reference the identical `RigidVar` Idxs the pass-3 call-site recording
@@ -141,7 +139,7 @@ fn check_impl_method(
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
         allocate_generic_binders(checker, method.generics, method_prealloc.as_ref());
 
-    // §10.1.2: merge impl-level (`impl<T>`) + method-level (`@m<U>`) RigidVar
+    // Merge impl-level (`impl<T>`) + method-level (`@m<U>`) RigidVar
     // overlays so an impl-level type-param annotation (`x: T`) resolves to the
     // impl `RigidVar` allocated once in `check_impl_block`, not a fresh
     // `Tag::Named`. Method-level binders win on a name collision (inner scope).
@@ -200,8 +198,8 @@ fn check_impl_method(
         self_type,
     );
 
-    // §B.2 step 2: push method-level RigidVar bindings into the TypeEnv child
-    // map. Body-level type-annotation lookups (e.g., `let x: T = expr;` inside
+    // Push method-level RigidVar bindings into the TypeEnv child map.
+    // Body-level type-annotation lookups (e.g., `let x: T = expr;` inside
     // the method body) consult `param_env`; the child-map shadowing here is
     // what makes those lookups see the method-level `RigidVar` rather than
     // any impl-level `Tag::Named("T")` that happens to share the name.
@@ -209,9 +207,9 @@ fn check_impl_method(
         param_env.bind(mname, rigid_idx);
     }
 
-    // Phase B-Residual-2 (a): bind method-level const generics as their
-    // declared type. For `@first_n<$N: int>`, bind N -> int so the body can
-    // reference N (e.g., `take(count: N)`). Mirrors functions.rs:54-58.
+    // Bind method-level const generics as their declared type. For
+    // `@first_n<$N: int>`, bind N -> int so the body can reference N (e.g.,
+    // `take(count: N)`).
     for cp in &method_const_params {
         param_env.bind(cp.name, cp.const_type);
     }
@@ -234,9 +232,9 @@ fn check_impl_method(
     let return_type_ref = &mut return_type;
     let const_params_for_engine = method_const_params.clone();
     let inline_bounds_for_engine = method_inline_bounds.clone();
-    // §10.1.2: impl-level bounds (`impl<T: Bound>`) registered on the engine
+    // Impl-level bounds (`impl<T: Bound>`) registered on the engine
     // alongside method-level ones so body-internal dispatch on an impl-level
-    // `RigidVar` resolves via the §10.1 bound-chain.
+    // `RigidVar` resolves via the bound-chain.
     let impl_bounds_for_engine = impl_inline_bounds.to_vec();
     let (
         expr_types,
@@ -253,36 +251,36 @@ fn check_impl_method(
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
 
-            // Phase B-Residual-2 (a): bind method-level const generics on the
-            // engine for `$N` const-position lookups inside the body
-            // (e.g., `to_fixed<$N>()`). Identifier-position lookups (`count: N`)
-            // are already covered by `param_env.bind` above.
+            // Bind method-level const generics on the engine for `$N`
+            // const-position lookups inside the body (e.g., `to_fixed<$N>()`).
+            // Identifier-position lookups (`count: N`) are already covered by
+            // `param_env.bind` above.
             for cp in &const_params_for_engine {
                 engine.bind_method_const(cp.name, cp.const_type);
             }
 
-            // Phase B-Residual-2 (c): register inline `<T: Bound>` trait-bound
-            // assumptions on the engine so body-internal trait dispatch
-            // (e.g., `Printable.to_str(prefix)` in string interpolation when
+            // Register inline `<T: Bound>` trait-bound assumptions on the
+            // engine so body-internal trait dispatch (e.g.,
+            // `Printable.to_str(prefix)` in string interpolation when
             // `prefix : T` and `T: Printable`) succeeds for the RigidVar.
             for (rigid_idx, trait_names) in &inline_bounds_for_engine {
                 for &tname in trait_names {
                     engine.bind_method_rigid_bound(*rigid_idx, tname);
                 }
             }
-            // §10.1.2: register impl-level bounds on the same engine.
+            // Register impl-level bounds on the same engine.
             for (rigid_idx, trait_names) in &impl_bounds_for_engine {
                 for &tname in trait_names {
                     engine.bind_method_rigid_bound(*rigid_idx, tname);
                 }
             }
 
-            // Rank scope per §CK-2 / §GN-1. Method-level binders live at
-            // strictly higher rank than impl-level bindings; the push/pop
-            // pair here is manually matched (no RAII) — exit MUST happen on
-            // every path, including error recovery, hence the explicit
-            // `engine.exit_rank_scope()` immediately before the result
-            // tuple is built.
+            // Rank scope (CK-2: rank discipline; GN-1: generalization rule).
+            // Method-level binders live at strictly higher rank than
+            // impl-level bindings; the push/pop pair here is manually matched
+            // (no RAII) — exit MUST happen on every path, including error
+            // recovery, hence the explicit `engine.exit_rank_scope()`
+            // immediately before the result tuple is built.
             engine.enter_rank_scope();
 
             engine.push_context(ContextKind::FunctionReturn {
@@ -351,7 +349,7 @@ fn check_impl_method(
                 &[],
             );
 
-            // Pop rank scope (matching push above per §SG-5 one-to-one rule).
+            // Pop rank scope (matching push above, one-to-one rule).
             engine.exit_rank_scope();
 
             // Deep-resolve var-links so late-resolved generic-builtin
@@ -394,7 +392,7 @@ fn check_impl_method(
         checker.pool(),
     );
 
-    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    // Shared PC-2 validation + store/push/accumulate spine.
     super::finalize_body_and_export(
         checker,
         &sig,

@@ -290,7 +290,7 @@ fn refutable_pattern_message_nested_struct_field() {
     let msg = error.format_message_rich(&identity_type, &test_name_resolver);
     // RefutablePattern has no pool-dependent rich formatting, so the rich path
     // delegates to the SSOT `message()` renderer — yielding the spec-conformant
-    // generic "struct field" prefix (Spec 15-patterns.md), not the field name.
+    // generic "struct field" prefix (Spec: Clause 15), not the field name.
     assert!(msg.contains("at struct field"), "got: {msg}");
     assert!(msg.contains("requires"), "got: {msg}");
     assert!(msg.contains("element"), "got: {msg}");

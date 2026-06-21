@@ -59,7 +59,7 @@ pub fn register_traits(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module)
 /// `GenericMethod` violations reference the method's OWN type parameters,
 /// which exist at every level of the hierarchy regardless of `Self` rebinding.
 ///
-/// Spec: Clause 8.8 (trait objects); types.md §BI-6 (object safety);
+/// BI-6 object safety. Spec: Clause 8.8 (trait objects);
 /// `compiler_repo/docs/ori_lang/proposals/approved/object-safety-rules-proposal.md`.
 pub fn register_object_safety_violations(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
     // Pass 1: read-only — collect inherited GenericMethod violations

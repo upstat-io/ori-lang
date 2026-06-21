@@ -222,7 +222,7 @@ pub(super) fn refresh_method_mono_body_type_maps(
 
         // Reconstruct the `var_id → concrete` substitution from the eager map's
         // leaf (Var / RigidVar / BoundVar) entries. `Pool::data` on a variable
-        // item IS its `var_id` (per types.md TK-1).
+        // item IS its `var_id` (per TK-1).
         let mut var_subst: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
         for &(key, val) in &inst.body_type_map {
             if matches!(pool.tag(key), Tag::Var | Tag::RigidVar | Tag::BoundVar) {
@@ -336,8 +336,7 @@ fn try_resolve_deferred_call(
     // see for eager-path calls. The new instance lands at the current
     // `mono_instances.len()` slot; this entry flows through the same
     // dedup-remap pipeline as eager entries (see `check/mod.rs` export
-    // pipeline). Closes the gap noted in
-    // §C.2 sub-step 1b-deferred.
+    // pipeline).
     #[expect(
         clippy::cast_possible_truncation,
         reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"

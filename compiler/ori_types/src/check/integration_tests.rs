@@ -1686,11 +1686,11 @@ impl Counter {
 
 // Deferred Monomorphization — Union-Find Root Extension
 //
-// Regression pins for §04.2.B. Rank-weighted union-find can make a fresh
+// Rank-weighted union-find can make a fresh
 // instantiation var the root of a scheme var's equivalence class. Without
 // `extend_var_subst_with_roots` the deferred-resolve path leaves the root
 // var's `Tag::Var` leaf unsubstituted in the callee body, leaking through
-// to ARC IR where the §04.2 PC-2 seam fires. These tests verify that a
+// to ARC IR where the PC-2 seam fires. These tests verify that a
 // multi-hop generic forwarding chain produces fully-concrete MonoInstances
 // for every intermediate callee — signalling the root-extension fired on
 // the deferred path.
@@ -1941,7 +1941,7 @@ fn deferred_mono_resolution_multi_param_forwarding() {
     assert_eq!(g_str_int[0].concrete_return_type, Idx::INT);
 }
 
-// ── Hash-First Import Resolution ──
+// === Hash-First Import Resolution ===
 
 /// Verify that hash-first import resolution produces identical results
 /// to AST fallback, and measure the hit rate.
@@ -2478,7 +2478,7 @@ fn test_lambda_param_from_map_iter_iterator_elem_unchanged() {
 
 #[test]
 fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
-    // Negative pin (per tests.md §Matrix Clamping): a list-iterator receiver
+    // Negative pin: a list-iterator receiver
     // still routes through the `is_iterator()` branch — widening the Map
     // arm to match `Tag::Iterator` would project map_key/map_value on a
     // non-Map idx and break this inference.

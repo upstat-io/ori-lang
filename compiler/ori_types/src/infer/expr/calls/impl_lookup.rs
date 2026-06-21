@@ -131,9 +131,8 @@ pub(crate) fn pool_base_name(pool: &Pool, ty: Idx) -> Option<Name> {
 /// references whose name is in this set are treated as binders; other
 /// `Tag::Named` references are nominal type lookups requiring exact-Idx match.
 ///
-/// Engine half of the dispatch path per `typeck.md §EN-2` (engine owns
-/// inference state) and `types.md §RG-2` (registry stays a
-/// frozen-after-registration data store).
+/// Engine half of the dispatch path: the engine owns inference state (EN-2)
+/// while the registry stays a frozen-after-registration data store (RG-2).
 pub(crate) fn match_self_type(
     pool: &Pool,
     pattern: Idx,
@@ -313,7 +312,7 @@ fn lookup_method_by_base_match(
 ///    each `entry.self_type` against the receiver, and returns the resolved
 ///    candidate with its impl-level substitution map. This is what makes
 ///    `b: Box<int>` dispatch to `impl<U> Box<U> { @m<T> ... }` work despite
-///    `Applied(Box, [Named(U)]) ≠ Applied(Box, [Int])` per.
+///    `Applied(Box, [Named(U)]) ≠ Applied(Box, [Int])`.
 pub(super) fn lookup_impl_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
@@ -378,7 +377,7 @@ pub(super) fn lookup_impl_method(
         FallbackResult::None => {}
     }
 
-    // §10.1 bound-chain dispatch on `Tag::RigidVar` receivers.
+    // Bound-chain dispatch on `Tag::RigidVar` receivers.
     //
     // When the receiver is a generic type parameter (`@f<T: Clone> ...`),
     // primary `lookup_method_checked` keyed on the rigid var's `Idx` always

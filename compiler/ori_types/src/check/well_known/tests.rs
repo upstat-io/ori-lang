@@ -6,7 +6,7 @@ use super::trait_bits;
 use super::{TraitSet, WellKnownNames};
 use crate::Idx;
 
-// ── TraitSet construction ───────────────────────────────────────────
+// === TraitSet construction ===
 
 #[test]
 fn empty_set_contains_nothing() {
@@ -63,7 +63,7 @@ fn from_bits_duplicate_bits_are_idempotent() {
     assert_eq!(set.count(), 1);
 }
 
-// ── TraitSet operations ─────────────────────────────────────────────
+// === TraitSet operations ===
 
 #[test]
 fn union_combines_bits() {
@@ -110,7 +110,7 @@ fn union_is_associative() {
     assert_eq!(a.union(b).union(c), a.union(b.union(c)));
 }
 
-// ── TraitSet::count ─────────────────────────────────────────────────
+// === TraitSet::count ===
 
 #[test]
 fn count_empty() {
@@ -134,7 +134,7 @@ fn count_multiple() {
     assert_eq!(set.count(), 5);
 }
 
-// ── TraitSet is Copy ────────────────────────────────────────────────
+// === TraitSet is Copy ===
 
 #[test]
 fn trait_set_is_copy() {
@@ -143,7 +143,7 @@ fn trait_set_is_copy() {
     assert_eq!(a, b); // both still usable
 }
 
-// ── trait_bits completeness ─────────────────────────────────────────
+// === trait_bits completeness ===
 
 #[test]
 fn bit_positions_are_unique() {
@@ -201,7 +201,7 @@ fn bit_positions_are_contiguous() {
     }
 }
 
-// ── TraitSet edge cases ─────────────────────────────────────────────
+// === TraitSet edge cases ===
 
 #[test]
 fn contains_bit_beyond_count_is_false_for_empty() {
@@ -220,7 +220,7 @@ fn high_bit_positions_work() {
     assert!(!set.contains(62));
 }
 
-// ── Primitive satisfaction (bitfield vs string-based equivalence) ───
+// === Primitive satisfaction (bitfield vs string-based equivalence) ===
 
 /// All well-known trait names in the satisfaction system.
 const ALL_TRAIT_NAMES: &[&str] = &[
@@ -368,7 +368,7 @@ fn check_prim_traits(
     }
 }
 
-// ── Specific primitive satisfaction checks ──────────────────────────
+// === Specific primitive satisfaction checks ===
 
 fn make_wk() -> (StringInterner, WellKnownNames) {
     let interner = StringInterner::new();
@@ -496,7 +496,7 @@ fn non_primitive_idx_returns_false() {
     assert!(!wk.primitive_satisfies_trait(dynamic, eq));
 }
 
-// ── Compound type satisfaction ──────────────────────────────────────
+// === Compound type satisfaction ===
 
 #[test]
 #[expect(
@@ -602,7 +602,7 @@ fn str_compound_iterable() {
     assert!(wk.type_satisfies_trait(Idx::STR, interner.intern("Eq"), &pool));
 }
 
-// ── trait_bit_map sync ──────────────────────────────────────────────
+// === trait_bit_map sync ===
 
 #[test]
 fn trait_bit_map_covers_all_trait_names() {

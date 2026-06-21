@@ -202,7 +202,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
         checker.type_registry_mut().set_repr(idx, None);
     }
 
-    // Value-marker wiring (Annex E §AIMS + `ori-syntax.md §Prelude`).
+    // Value-marker wiring (Spec: Annex E §AIMS — Value marker semantics).
     //
     // When this declaration carries the `Value` marker (currently surfaced via
     // `decl.derives` — the parser routes both pre-proposal `#derive(Value)`
@@ -256,9 +256,9 @@ fn populate_value_burden_if_applicable(
         }
     }
 
-    // Field-constraint enforcement (Spec Annex E §Built-in Type
-    // Representations + `ori-syntax.md §Prelude`: `Value` requires all fields
-    // to be `Value`). Walk every declared field; a non-`Value` field
+    // Field-constraint enforcement (Spec: Annex E §Built-in Type
+    // Representations — `Value` requires all fields to be `Value`). Walk
+    // every declared field; a non-`Value` field
     // (`str`/`[T]`/`{K:V}`/`Set<T>` or any heap-bearing user type) is the
     // latent silent-RC-drop — registering an empty `UserBurdenSpec` for a
     // type with a heap-bearing field would drop that field's RC obligation.

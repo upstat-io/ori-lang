@@ -1,7 +1,6 @@
 //! Tests for [`crate::check::validators::validate_body_types`].
 //!
-//! Twelve-cell matrix (T1–T12) per §02.4 of
-//!:
+//! Twelve-cell matrix (T1–T12):
 //!
 //! - **Negative cells** (T1–T3): an unbound `Tag::Var` in `expr_types` or in
 //!   `FunctionSig.param_types` MUST emit exactly one `E2005` against the
@@ -9,19 +8,17 @@
 //! - **Positive cells** (T4–T7): well-formed types must NOT emit — covers
 //!   resolved primitives, `VarState::Link` resolution, `Tag::BoundVar`
 //!   scheme bodies, and the `VarState::Generalized` exemption.
-//! - **Cascade** (T8): `Tag::Error` short-circuits the walk via `HAS_ERROR`
-//!   per /.
+//! - **Cascade** (T8): `Tag::Error` short-circuits the walk via `HAS_ERROR`.
 //! - **Determinism** (T9): signature diagnostics precede body diagnostics,
 //!   body diagnostics emit in ascending `ExprIndex` order regardless of
 //!   `FxHashMap` insertion order.
-//! - **Semantic pin for §02.0** (T10): a `Tag::Scheme` wrapping an unbound
+//! - **Semantic pin** (T10): a `Tag::Scheme` wrapping an unbound
 //!   `Tag::Var` body MUST fire `E2005`; this test regresses to zero
 //!   diagnostics if the scheme `HAS_VAR`-propagation fix is reverted.
 //! - **Nested compound** (T11): two-level descent via `Pool::visit_children`
 //!   through dedicated compound tags (`Tag::Option` wrapping `Tag::List`).
 //! - **Dedup** (T12): multiple unbound vars under one `ExprIndex` collapse
-//!   to a single diagnostic per ` by (Code,
-//!   Span)`.
+//!   to a single diagnostic by (Code, Span).
 
 use rustc_hash::FxHashMap;
 
@@ -47,7 +44,7 @@ const SIG_SPAN: Span = Span::new(100, 101);
 /// closure in `test_e2005_message_for_lambda_param`. Distinct from
 /// [`BODY_SPAN`] so the narrow-to-param-span contract can be pinned — if
 /// the validator falls back to the whole-lambda span, `errors[0].span`
-/// would be `BODY_SPAN` and the plan §06.1 item 2 assertion fails.
+/// would be `BODY_SPAN` and the narrow-span assertion fails.
 const PARAM_SPAN: Span = Span::new(15, 16);
 
 /// Build an `FxHashMap<ExprIndex, Idx>` from `entries`, invoke
@@ -57,7 +54,7 @@ const PARAM_SPAN: Span = Span::new(15, 16);
 ///
 /// `scheme_var_ids` is passed through to the validator for the exempt
 /// root set. Existing tests pass `&[]` for monomorphic
-/// scenarios; new tests (T13+) supply real scheme var ids.
+/// scenarios; scheme-var-exemption tests (T13+) supply real scheme var ids.
 fn run(
     pool: &Pool,
     entries: &[(ExprIndex, Idx)],
@@ -90,9 +87,9 @@ fn run(
 }
 
 /// `run` variant that supplies a per-`ExprIndex` `ExprKind` lookup. Used by
-/// the §06.1 cells that assert site-specific E2005 wording — the validator
+/// the cells that assert site-specific E2005 wording — the validator
 /// classifies the error site from the `ExprKind` at the top-level body
-/// expression entry point per plan §06.1.
+/// expression entry point.
 fn run_with_expr_kinds(
     pool: &Pool,
     entries: &[(ExprIndex, Idx, Option<ExprKind>)],
@@ -104,8 +101,8 @@ fn run_with_expr_kinds(
 }
 
 /// `run_with_expr_kinds` variant that additionally supplies a
-/// `param_span_of` closure. Used by the plan §06.1 item 2 cells that pin
-/// the narrow-to-parameter-span contract for `LambdaParam` sites — the
+/// `param_span_of` closure. Used by the cells that pin the
+/// narrow-to-parameter-span contract for `LambdaParam` sites — the
 /// validator must pick up the Lambda's nth parameter's span (not the
 /// whole-Lambda span) when an unresolved `Tag::Var` surfaces at parameter
 /// slot `n` of the Lambda's inferred function type.
@@ -147,19 +144,19 @@ fn run_with_expr_kinds_and_param_spans(
 /// A minimal `FunctionSig` with no params and an `int` return — used when
 /// the cell exercises body-side behavior only. Built via the canonical
 /// `FunctionSig::simple` constructor, so no fixture boilerplate leaks into
-/// this file (per §02.4.1 — keep `FunctionSig` construction off this
-/// module, use the canonical API).
+/// this file — keep `FunctionSig` construction off this module, use the
+/// canonical API.
 fn empty_sig() -> FunctionSig {
     FunctionSig::simple(Name::from_raw(1), vec![], Idx::INT)
 }
 
 // Negative cells — unbound Tag::Var must emit E2005
 
-/// — an unbound `Tag::Var` surviving the bodies
-/// pass in `expr_types` is a phase-contract violation; the validator emits
-/// exactly one `E2005` at the expression's span.
+/// An unbound `Tag::Var` surviving the bodies pass in `expr_types` is a
+/// phase-contract violation; the validator emits exactly one `E2005` at the
+/// expression's span.
 ///
-/// Plan §02.4 T1 (Negative / Base).
+/// T1 (Negative / Base).
 #[test]
 fn body_expr_types_with_unbound_var_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -175,13 +172,12 @@ fn body_expr_types_with_unbound_var_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// — `Tag::Applied` is the dedicated tag for
-/// user-registered generic types (distinct from `Tag::Option`/`Tag::Result`
-/// and their dedicated siblings). Using an `Applied(Name, [Var])` exercises
-/// the validator's `Pool::visit_children` descent through a user-generic
-/// argument list.
+/// `Tag::Applied` is the dedicated tag for user-registered generic types
+/// (distinct from `Tag::Option`/`Tag::Result` and their dedicated
+/// siblings). Using an `Applied(Name, [Var])` exercises the validator's
+/// `Pool::visit_children` descent through a user-generic argument list.
 ///
-/// Plan §02.4 T2 (Negative / Applied).
+/// T2 (Negative / Applied).
 #[test]
 fn applied_generic_with_unbound_var_argument_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -197,12 +193,12 @@ fn applied_generic_with_unbound_var_argument_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// — signatures entering the Bodies group may
-/// carry fresh `Tag::Var`s for elided annotations; those vars MUST resolve
-/// before Bodies exit, and the validator emits at `sig_span` (the function
-/// declaration span) when one survives.
+/// Signatures entering the Bodies group may carry fresh `Tag::Var`s for
+/// elided annotations; those vars MUST resolve before Bodies exit, and the
+/// validator emits at `sig_span` (the function declaration span) when one
+/// survives.
 ///
-/// Plan §02.4 T3 (Negative / Signature).
+/// T3 (Negative / Signature).
 #[test]
 fn signature_with_unbound_param_type_emits_at_sig_span() {
     let mut pool = Pool::new();
@@ -221,10 +217,10 @@ fn signature_with_unbound_param_type_emits_at_sig_span() {
 
 // Positive cells — fast-path gates and well-formed scheme bodies
 
-/// — `!HAS_VAR` short-circuit fires before any walk
-/// on a fully-resolved primitive. `int` never violates PC-2.
+/// `!HAS_VAR` short-circuit fires before any walk on a fully-resolved
+/// primitive. `int` never violates PC-2.
 ///
-/// Plan §02.4 T4 (Positive / Resolved Int).
+/// T4 (Positive / Resolved Int).
 #[test]
 fn body_expr_types_with_resolved_int_emits_no_diagnostic() {
     let pool = Pool::new();
@@ -234,13 +230,12 @@ fn body_expr_types_with_resolved_int_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-/// — flags are cached at intern time, but
-/// `VarState::Link` may mutate later. The validator calls
-/// `Pool::resolve_fully` BEFORE the `HAS_VAR` gate at every walk step, so
-/// a var linked to `int` after interning resolves through and trips no
-/// diagnostic.
+/// Flags are cached at intern time, but `VarState::Link` may mutate later.
+/// The validator calls `Pool::resolve_fully` BEFORE the `HAS_VAR` gate at
+/// every walk step, so a var linked to `int` after interning resolves
+/// through and trips no diagnostic.
 ///
-/// Plan §02.4 T5 (Positive / Linked).
+/// T5 (Positive / Linked).
 #[test]
 fn body_expr_types_with_linked_var_resolves_and_emits_nothing() {
     let mut pool = Pool::new();
@@ -254,13 +249,13 @@ fn body_expr_types_with_linked_var_resolves_and_emits_nothing() {
     assert!(errors.is_empty());
 }
 
-/// — `Tag::BoundVar` sets `HAS_BOUND_VAR`, NOT
-/// `HAS_VAR`. A scheme body referencing a `BoundVar` therefore trips no
-/// `HAS_VAR` flag on the outer scheme; the top-level fast-path gate skips
-/// silently. This is the legitimate shape of a generalized polymorphic
-/// binding after generalization.
+/// `Tag::BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR`. A scheme body
+/// referencing a `BoundVar` therefore trips no `HAS_VAR` flag on the outer
+/// scheme; the top-level fast-path gate skips silently. This is the
+/// legitimate shape of a generalized polymorphic binding after
+/// generalization.
 ///
-/// Plan §02.4 T6 (Positive / Scheme `BoundVar`).
+/// T6 (Positive / Scheme `BoundVar`).
 #[test]
 fn scheme_body_with_bound_var_emits_no_diagnostic() {
     let mut pool = Pool::new();
@@ -278,25 +273,21 @@ fn scheme_body_with_bound_var_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-///,. Post-`expr_types` port, a
-/// `Tag::Var(VarState::Generalized)` surviving in `expr_types` is a
-/// partial-migration LEAK: the scheme body was rewritten to `Tag::BoundVar`
-/// by `rewrite_generalized_to_bound_var`, but the expression position
-/// carrying the lambda's body sub-expression was not re-pointed at the
-/// rewritten Idx. Stripping the validator's `VarState::Generalized` arm
-/// exposes the leak as `E2005` — a regression alarm, not a false positive.
+/// Post-`expr_types` port, a `Tag::Var(VarState::Generalized)` surviving in
+/// `expr_types` is a partial-migration LEAK: the scheme body was rewritten
+/// to `Tag::BoundVar` by `rewrite_generalized_to_bound_var`, but the
+/// expression position carrying the lambda's body sub-expression was not
+/// re-pointed at the rewritten Idx. Stripping the validator's
+/// `VarState::Generalized` arm exposes the leak as `E2005` — a regression
+/// alarm, not a false positive.
 ///
-/// This test is RED until the post-generalize `expr_types` /
-/// `FunctionSig` port ships AND the validator
-/// exemption arm is stripped. At that point the
-/// only remaining way for a `VarState::Generalized` to reach `expr_types`
-/// is a genuine port-side failure, and firing `E2005` is the correct
-/// behavior — the validator becomes the leak alarm. Prior to those two
-/// items landing, this assertion fails because the exemption still
-/// silences `Generalized` at `validators/mod.rs::collect_first_unbound_var`.
+/// Once the post-generalize `expr_types` / `FunctionSig` port ships AND the
+/// validator exemption arm is stripped, the only remaining way for a
+/// `VarState::Generalized` to reach `expr_types` is a genuine port-side
+/// failure, and firing `E2005` is the correct behavior — the validator
+/// becomes the leak alarm.
 ///
-/// Replaces the former `generalized_var_in_expr_types_emits_no_diagnostic`
-/// (the prior exemption-is-correct assertion); Cell L of the leak-alarm matrix.
+/// Cell L of the leak-alarm matrix.
 #[test]
 fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
@@ -326,13 +317,13 @@ fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
 
 // Cascade / Determinism / Semantic pin
 
-///, — `Tag::Error` poisons a type
-/// and MUST suppress cascading diagnostics. A tuple carrying BOTH a
-/// `Tag::Var` and `Idx::ERROR` propagates both `HAS_VAR` and `HAS_ERROR`;
-/// the validator's `HAS_ERROR` short-circuit fires at the top-level gate
-/// and the co-located unbound var is silently masked.
+/// `Tag::Error` poisons a type and MUST suppress cascading diagnostics. A
+/// tuple carrying BOTH a `Tag::Var` and `Idx::ERROR` propagates both
+/// `HAS_VAR` and `HAS_ERROR`; the validator's `HAS_ERROR` short-circuit
+/// fires at the top-level gate and the co-located unbound var is silently
+/// masked.
 ///
-/// Plan §02.4 T8 (Cascade).
+/// T8 (Cascade).
 #[test]
 fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
     let mut pool = Pool::new();
@@ -350,10 +341,10 @@ fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
     );
 }
 
-/// — diagnostics must emit in a
-/// reproducible order regardless of `FxHashMap` iteration. The validator's
-/// contract is: signature positions first (in declaration order), then
-/// body expressions in ascending `ExprIndex` order.
+/// Diagnostics must emit in a reproducible order regardless of `FxHashMap`
+/// iteration. The validator's contract is: signature positions first (in
+/// declaration order), then body expressions in ascending `ExprIndex`
+/// order.
 ///
 /// This test exercises both halves of the contract:
 ///   1. Signature diagnostic precedes body diagnostics.
@@ -361,7 +352,7 @@ fn tuple_with_error_and_unbound_var_suppresses_diagnostic() {
 ///      the map is populated with the higher index first — the validator's
 ///      `sort_unstable_by_key` step is the only reason this passes.
 ///
-/// Plan §02.4 T9 (Determinism).
+/// T9 (Determinism).
 #[test]
 fn mixed_sig_and_body_vars_emit_sig_first_then_ascending_expr_index() {
     let mut pool = Pool::new();
@@ -405,19 +396,19 @@ fn mixed_sig_and_body_vars_emit_sig_first_then_ascending_expr_index() {
     }
 }
 
-/// Semantic pin for `§02.0` (Pool scheme-flag propagation fix).
+/// Semantic pin for Pool scheme-flag propagation.
 ///
 /// A `Tag::Scheme` wrapping an unbound `Tag::Var` body MUST have `HAS_VAR`
-/// set on the outer scheme `Idx`. Without the `§02.0` fix extending
-/// `PROPAGATE_MASK` through `Tag::Scheme` in `Pool::compute_flags`, the
-/// outer flags would be `HAS_VAR=false` and the validator's top-level
-/// `!HAS_VAR` gate would return early — the scheme body would never be
-/// walked and the PC-2 violation would be invisible.
+/// set on the outer scheme `Idx`. Without `PROPAGATE_MASK` extending
+/// through `Tag::Scheme` in `Pool::compute_flags`, the outer flags would be
+/// `HAS_VAR=false` and the validator's top-level `!HAS_VAR` gate would
+/// return early — the scheme body would never be walked and the PC-2
+/// violation would be invisible.
 ///
-/// This test would FAIL (emit zero diagnostics instead of one) if `§02.0`
-/// were reverted. It is the permanent regression guard for the fix.
+/// This test would FAIL (emit zero diagnostics instead of one) if the
+/// propagation were reverted. It is the permanent regression guard.
 ///
-/// Plan §02.4 T10 (Semantic pin for §02.0).
+/// T10 (Semantic pin for scheme-flag propagation).
 #[test]
 fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -427,8 +418,8 @@ fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
     let scheme = pool.scheme(&[0], var);
     assert!(
         pool.flags(scheme).contains(TypeFlags::HAS_VAR),
-        "§02.0 must propagate HAS_VAR through Tag::Scheme; without it \
-         this test would silently pass with zero diagnostics"
+        "scheme-flag propagation must propagate HAS_VAR through Tag::Scheme; \
+         without it this test would silently pass with zero diagnostics"
     );
 
     let errors = run(&pool, &[(0, scheme)], &empty_sig(), &[]);
@@ -443,13 +434,13 @@ fn scheme_wrapping_unbound_var_body_emits_one_e2005() {
 
 // Nested compound / Dedup
 
-/// propagation — compound tags must transitively
-/// propagate `HAS_VAR` through nested layers. Uses `Tag::Option` wrapping
-/// `Tag::List` wrapping a `Tag::Var` to exercise two levels of dedicated
-/// (non-Applied) compound tags, confirming the validator's recursive
-/// descent via `Pool::visit_children` reaches leaves at arbitrary depth.
+/// Compound tags must transitively propagate `HAS_VAR` through nested
+/// layers. Uses `Tag::Option` wrapping `Tag::List` wrapping a `Tag::Var` to
+/// exercise two levels of dedicated (non-Applied) compound tags, confirming
+/// the validator's recursive descent via `Pool::visit_children` reaches
+/// leaves at arbitrary depth.
 ///
-/// Plan §02.4 T11 (Nested compound).
+/// T11 (Nested compound).
 #[test]
 fn option_list_var_two_level_nesting_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -463,9 +454,8 @@ fn option_list_var_two_level_nesting_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// — multiple
-/// unbound type variables at a single `ExprIndex` MUST collapse to one
-/// `E2005`. The validator sets an `emitted` flag inside its
+/// Multiple unbound type variables at a single `ExprIndex` MUST collapse to
+/// one `E2005`. The validator sets an `emitted` flag inside its
 /// `visit_children` closure to short-circuit further emissions at the
 /// same position.
 ///
@@ -475,7 +465,7 @@ fn option_list_var_two_level_nesting_emits_one_e2005() {
 /// the first child's unbound var trips the emission, and the `emitted`
 /// flag suppresses the second.
 ///
-/// Plan §02.4 T12 (Dedup).
+/// T12 (Dedup).
 #[test]
 fn map_with_two_unbound_vars_emits_one_e2005_not_two() {
     let mut pool = Pool::new();
@@ -642,13 +632,13 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 // Poly-lambda return-type position semantic pins (T17-T19).
 //
 // These three tests pin the typeck-boundary invariant for polymorphic
-// lambda return-type positions per and:
-// a poly-lambda return may carry `Tag::BoundVar` (the `§SC-1` target shape)
-// OR `Tag::Var(VarState::Generalized)` (the currently shipped-pool
-// divergence explicitly documented in `validators/mod.rs::collect_first_unbound_var`),
-// and BOTH are legitimate. A surviving `Tag::Var(VarState::Unbound)` is a
-// genuine PC-2 violation and MUST fire `E2005`, even when wrapped inside a
-// `Tag::Function` / `Tag::Scheme` chain that matches the poly-lambda shape.
+// lambda return-type positions: a poly-lambda return may carry
+// `Tag::BoundVar` (the SC-1 target shape) OR `Tag::Var(VarState::Generalized)`
+// (the currently shipped-pool divergence documented in
+// `collect_first_unbound_var`), and BOTH are legitimate. A surviving
+// `Tag::Var(VarState::Unbound)` is a genuine PC-2 violation and MUST fire
+// `E2005`, even when wrapped inside a `Tag::Function` / `Tag::Scheme` chain
+// that matches the poly-lambda shape.
 //
 // The pool construction `Scheme([id], Function([Var], Var))` mirrors the
 // typed IR shape produced by `check_function_bodies` for a polymorphic
@@ -656,9 +646,8 @@ fn genuine_unbound_var_in_generic_body_still_emits_e2005() {
 // exercises `HAS_VAR` propagation through `Tag::Function` as well as
 // `Tag::Scheme`, distinct from T10's direct `Scheme([0], Var)` shape.
 
-///,, — the
-/// `§SC-1` target shape for a polymorphic lambda return is `Tag::BoundVar`.
-/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (TF-1), so
+/// The SC-1 target shape for a polymorphic lambda return is `Tag::BoundVar`.
+/// `BoundVar` sets `HAS_BOUND_VAR`, NOT `HAS_VAR` (TF-1: presence flags), so
 /// the outer scheme short-circuits at the validator's top-level
 /// `!HAS_VAR` gate and emits no diagnostic. This is the legitimate
 /// spec-target form of a generalized polymorphic lambda.
@@ -677,7 +666,7 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     let scheme = pool.scheme(&[0], lambda_ty);
     assert!(
         !pool.flags(scheme).contains(TypeFlags::HAS_VAR),
-        "scheme over BoundVar-returning lambda must NOT set HAS_VAR per §TF-1"
+        "scheme over BoundVar-returning lambda must NOT set HAS_VAR per TF-1"
     );
     assert!(pool.flags(scheme).contains(TypeFlags::HAS_BOUND_VAR));
 
@@ -686,27 +675,22 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
     assert!(errors.is_empty());
 }
 
-///,. Post-`expr_types` port, a
-/// polymorphic-lambda return position carrying a
+/// Post-`expr_types` port, a polymorphic-lambda return position carrying a
 /// `Tag::Var(VarState::Generalized)` inside its `Tag::Scheme` wrapper is a
-/// partial-migration LEAK — the target shape is
-/// `Tag::BoundVar` all the way down (covered by
-/// `polylambda_return_type_with_boundvar_emits_no_diagnostic` above), and
-/// any surviving `Tag::Var` inside a polymorphic scheme body after the
-/// rewrite pass runs is a genuine `§SC-1` divergence. Stripping the
+/// partial-migration LEAK — the target shape is `Tag::BoundVar` all the way
+/// down (covered by `polylambda_return_type_with_boundvar_emits_no_diagnostic`
+/// above), and any surviving `Tag::Var` inside a polymorphic scheme body
+/// after the rewrite pass runs is a genuine SC-1 divergence. Stripping the
 /// validator's `VarState::Generalized` exemption exposes the leak as
 /// `E2005` via the `HAS_VAR` propagation through `Tag::Scheme` →
 /// `Tag::Function` → `Tag::Var`.
 ///
-/// This test is RED until the `expr_types` / `FunctionSig` port AND the
-/// validator exemption strip land.
-/// Prior to those items, the exemption still silences `Generalized` and
-/// the E2005 assertion fails. Post-ship, the only way a `Generalized` var
-/// reaches a scheme-wrapped expression position is a genuine port-side
-/// failure, and firing `E2005` is the leak alarm's correct behavior.
+/// Once the `expr_types` / `FunctionSig` port AND the validator exemption
+/// strip land, the only way a `Generalized` var reaches a scheme-wrapped
+/// expression position is a genuine port-side failure, and firing `E2005`
+/// is the leak alarm's correct behavior.
 ///
-/// Replaces the former `polylambda_return_type_with_generalized_var_emits_no_diagnostic`
-/// (the prior exemption-is-correct assertion); Cell L of the leak-alarm matrix.
+/// Cell L of the leak-alarm matrix.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
@@ -725,7 +709,7 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     assert!(
         pool.flags(scheme).contains(TypeFlags::HAS_VAR),
         "scheme over Var(Generalized)-returning lambda MUST set HAS_VAR \
-         because Var carries HAS_VAR per §TF-1 — this is the flag the \
+         because Var carries HAS_VAR per TF-1 — this is the flag the \
          leak-alarm relies on to walk into the scheme body and locate \
          the surviving Tag::Var"
     );
@@ -747,9 +731,9 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-/// — a polymorphic-lambda return-type position
-/// carrying a surviving `Tag::Var(VarState::Unbound)` is a genuine PC-2
-/// violation and MUST fire `E2005`. This is the negative pin:
+/// A polymorphic-lambda return-type position carrying a surviving
+/// `Tag::Var(VarState::Unbound)` is a genuine PC-2 violation and MUST fire
+/// `E2005`. This is the negative pin:
 /// if any future refactor either (a) extends the
 /// `VarState::Generalized` exemption to cover `Unbound` at this position,
 /// or (b) silently drops the PC-2 walk inside `Tag::Function` /
@@ -787,27 +771,25 @@ fn polylambda_return_type_with_unbound_var_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-// §05.1 additions (Plan `empty-container-typeck-phase-contract` §05.1.2 T13
-// + §05.1.4 semantic and negative pins). Tests are synthetic unit tests
-// that drive `validate_body_types` directly, mirroring the T1–T12 harness.
+// Empty-container fault-tolerance + semantic/negative pins. Tests are
+// synthetic unit tests that drive `validate_body_types` directly, mirroring
+// the T1–T12 harness.
 
-/// fault-tolerance — two
-/// unbound `Tag::Var`s at DISTINCT `ExprIndex` positions MUST emit two
-/// independent `E2005` diagnostics (no cross-ExprIndex dedup). Distinct
-/// from T12 (`map_with_two_unbound_vars_emits_one_e2005_not_two`) which
-/// verifies same-ExprIndex collapse — this test is the count-2 companion
-/// for the planned Item 17 fault-tolerance spec file
-/// `empty_list_multiple_unannotated.ori` (scheduled under §05.2 of the
-/// `empty-container-typeck-phase-contract` plan; the `.ori` fixture ships
-/// with the §05.2 corpus, at which point the spec-side `#compile_fail(code:
-/// "E2005")` and this Rust-side `diagnostics.len() == 2` together anchor
-/// the multi-error fault-tolerance contract).
+/// Fault-tolerance — two unbound `Tag::Var`s at DISTINCT `ExprIndex`
+/// positions MUST emit two independent `E2005` diagnostics (no
+/// cross-ExprIndex dedup). Distinct from T12
+/// (`map_with_two_unbound_vars_emits_one_e2005_not_two`) which verifies
+/// same-ExprIndex collapse — this test is the count-2 companion for the
+/// fault-tolerance spec file `empty_list_multiple_unannotated.ori`; the
+/// spec-side `#compile_fail(code: "E2005")` and this Rust-side
+/// `diagnostics.len() == 2` together anchor the multi-error
+/// fault-tolerance contract.
 ///
 /// Models the repro `let xs = []; let ys = []; xs.len() + ys.len()`: two
 /// distinct let-bindings with independent unbound element vars, each
 /// carried by its own `ExprIndex`.
 ///
-/// Plan §05.1.2 T13 + §05.R TPR-05-R2-002.
+/// T13.
 #[test]
 fn validate_body_types_emits_one_e2005_per_unbound_var() {
     let mut pool = Pool::new();
@@ -836,17 +818,16 @@ fn validate_body_types_emits_one_e2005_per_unbound_var() {
 /// element `Tag::Var` inside a `Tag::List` reaches `expr_types` and is
 /// rejected at the typeck boundary with `E2005`
 /// (`TypeErrorKind::AmbiguousType`). Once the validator emits E2005, the
-/// driver's codegen gate () suppresses emission — the
-/// "not a codegen error" half of the pin is the diagnostic kind itself:
-/// an `AmbiguousType` is a typeck-origin diagnostic, not a codegen-origin
-/// one.
+/// driver's codegen gate suppresses emission — the "not a codegen error"
+/// half of the pin is the diagnostic kind itself: an `AmbiguousType` is a
+/// typeck-origin diagnostic, not a codegen-origin one.
 ///
-/// Reverting Sections 01 (Value Restriction) or 03 (bodies-pass wiring)
-/// allows the element var to survive to codegen and surface as an
-/// "unresolved type variable at codegen" failure instead; this pin asserts
-/// the E2005 path is the one that fires.
+/// Reverting the Value Restriction or the bodies-pass wiring allows the
+/// element var to survive to codegen and surface as an "unresolved type
+/// variable at codegen" failure instead; this pin asserts the E2005 path
+/// is the one that fires.
 ///
-/// Plan §05.1.4 SP-1.
+/// SP-1.
 #[test]
 fn empty_list_bare_use_emits_ambiguous_type_before_codegen() {
     let mut pool = Pool::new();
@@ -867,17 +848,18 @@ fn empty_list_bare_use_emits_ambiguous_type_before_codegen() {
 
 /// Semantic pin SP-2: `Tag::Error` at one `ExprIndex` MUST NOT spuriously
 /// induce an `E2005` at a sibling well-formed `ExprIndex`. Verifies the
-/// validator is monotone (`typeck.md §ER-2`) across sibling expression
-/// positions — error presence in one `ExprIndex` neither propagates to
-/// nor suppresses a CONCRETE resolved type at another `ExprIndex`.
+/// validator is monotone (ER-2: monotone recovery) across sibling
+/// expression positions — error presence in one `ExprIndex` neither
+/// propagates to nor suppresses a CONCRETE resolved type at another
+/// `ExprIndex`.
 ///
 /// Distinct from T8 (`tuple_with_error_and_unbound_var_suppresses_diagnostic`)
 /// which verifies intra-type cascade suppression; SP-2 verifies
 /// cross-ExprIndex monotonicity: the Error-typed slot emits nothing (it is
-/// poison per `types.md §TK-3`), and the int-typed slot emits nothing
-/// (it is fully resolved per T4's fast-path).
+/// poison per TK-3: Error tag), and the int-typed slot emits nothing (it is
+/// fully resolved per T4's fast-path).
 ///
-/// Plan §05.1.4 SP-2.
+/// SP-2.
 #[test]
 fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
     let pool = Pool::new();
@@ -894,30 +876,28 @@ fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
 
 /// Negative pin NP-1: an unannotated signature parameter carries a fresh
 /// `Tag::Var` that the `ori_types::check::bodies` end-of-body defaulting
-/// pre-pass does NOT cover — defaulting is scoped to vars reachable from
-/// empty-literal expression roots (`typeck.md §PC-2` "End-of-body
-/// defaulting pre-pass"). An unannotated param `@f (x) -> int = 0` is
-/// unreachable from any empty-literal root; the validator catches it at
-/// `SIG_SPAN` with `E2005`.
+/// pre-pass does NOT cover — PC-2: defaulting is scoped to vars reachable
+/// from empty-literal expression roots. An unannotated param
+/// `@f (x) -> int = 0` is unreachable from any empty-literal root; the
+/// validator catches it at `SIG_SPAN` with `E2005`.
 ///
 /// Companion spec file:
-/// `compiler_repo/tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`
-/// (shipped §03 corpus). The Rust pin proves the diagnostic identity
-/// (E2005 at `sig_span`), which the `.ori` file cannot assert directly
-/// beyond the error-code match.
+/// `compiler_repo/tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`.
+/// The Rust pin proves the diagnostic identity (E2005 at `sig_span`),
+/// which the `.ori` file cannot assert directly beyond the error-code match.
 ///
 /// Distinct from T3 (`signature_with_unbound_param_type_emits_at_sig_span`)
 /// which establishes the baseline sig-position emission. NP-1 explicitly
-/// documents the §03-defaulting exclusion — defaulting is scope-by-var,
-/// not scope-by-position; sig-position vars stay Unbound and fire E2005.
+/// documents the defaulting exclusion — defaulting is scope-by-var, not
+/// scope-by-position; sig-position vars stay Unbound and fire E2005.
 ///
-/// Plan §05.1.4 NP-1.
+/// NP-1.
 #[test]
 fn unannotated_signature_param_emits_ambiguous_type_not_codegen_error() {
     let mut pool = Pool::new();
     let param_var = pool.fresh_var();
     // @f(x: <unbound>) -> int — sig-position Var, no empty-literal root
-    // anywhere in the body, so §03 defaulting cannot touch it.
+    // anywhere in the body, so the empty-literal defaulting cannot touch it.
     let sig = FunctionSig::simple(Name::from_raw(1), vec![param_var], Idx::INT);
 
     let errors = run(&pool, &[], &sig, &[]);
@@ -956,7 +936,7 @@ fn unannotated_signature_param_emits_ambiguous_type_not_codegen_error() {
 /// therefore a genuine capture (not in the scheme's bound list) and fires
 /// E2005.
 ///
-/// Plan §05.1.4 NP-2.
+/// NP-2.
 #[test]
 fn scheme_body_with_captured_outer_var_emits_one_e2005() {
     let mut pool = Pool::new();
@@ -993,28 +973,28 @@ fn scheme_body_with_captured_outer_var_emits_one_e2005() {
     assert_eq!(errors[0].span, BODY_SPAN);
 }
 
-// §06.1 — E2005 diagnostic dispatch by ExprKind
+// E2005 diagnostic dispatch by ExprKind.
 //
-// Three cells that pin the site-specific wording added per plan §06.1.
-// Positive pins T17 + T18 assert the specialized message text for empty-list
-// and lambda-param sites (plan items 3). Negative pin T19 asserts that a
-// signature-position var (no ExprKind in scope) still produces the generic
-// `"cannot infer type in expression"` wording (plan item 4).
+// Three cells that pin the site-specific wording. Positive pins T17 + T18
+// assert the specialized message text for empty-list and lambda-param
+// sites. Negative pin T19 asserts that a signature-position var (no
+// ExprKind in scope) still produces the generic
+// `"cannot infer type in expression"` wording.
 
 /// Positive pin: empty-list literal site produces the specialized
 /// `"cannot infer the type of this empty list"` wording with a
 /// `[int]`-annotation hint, and the span points at the list expression.
 ///
-/// Drives plan §06.1 items 3 (wording) and 2 (span discipline). Fails if
-/// (a) `AmbiguousTypeSite::EmptyList` is not selected at a bare `[]` site,
-/// (b) the message text drifts, or (c) the diagnostic's span does not
-/// match the body-expression span supplied by `span_of`.
+/// Drives the specialized wording and span discipline. Fails if (a)
+/// `AmbiguousTypeSite::EmptyList` is not selected at a bare `[]` site, (b)
+/// the message text drifts, or (c) the diagnostic's span does not match
+/// the body-expression span supplied by `span_of`.
 #[test]
 fn test_e2005_message_for_empty_list() {
     let mut pool = Pool::new();
     let elem_var = pool.fresh_var();
     let list_var = pool.list(elem_var);
-    // ExprKind::List(empty range) — the bare `[]` shape per plan §06.1.
+    // ExprKind::List(empty range) — the bare `[]` shape.
     let empty_list_kind = ExprKind::List(ExprRange::EMPTY);
 
     let errors = run_with_expr_kinds(
@@ -1027,7 +1007,7 @@ fn test_e2005_message_for_empty_list() {
     assert_eq!(errors.len(), 1, "one E2005 per unbound element var");
     assert_eq!(
         errors[0].span, BODY_SPAN,
-        "span must match the List ExprId's span (plan §06.1 item 2)"
+        "span must match the List ExprId's span"
     );
     match &errors[0].kind {
         TypeErrorKind::AmbiguousType { site, .. } => {
@@ -1043,7 +1023,7 @@ fn test_e2005_message_for_empty_list() {
         errors[0].message(),
         "cannot infer the type of this empty list; \
          add a type annotation like `let x: [int] = []`",
-        "plan §06.1 specialized wording for empty-list site"
+        "specialized wording for empty-list site"
     );
 }
 
@@ -1052,10 +1032,10 @@ fn test_e2005_message_for_empty_list() {
 /// typed-lambda-annotation hint, and the primary diagnostic span narrows
 /// to the specific parameter token (NOT the whole-Lambda span).
 ///
-/// Drives plan §06.1 items 3 (wording) and 2 (span discipline). Fails if
-/// (a) `AmbiguousTypeSite::LambdaParam` is not selected at a `Lambda` site,
-/// (b) the message text drifts, or (c) the diagnostic's span falls back to
-/// the whole-Lambda span instead of narrowing to [`PARAM_SPAN`] — a
+/// Drives the specialized wording and span discipline. Fails if (a)
+/// `AmbiguousTypeSite::LambdaParam` is not selected at a `Lambda` site, (b)
+/// the message text drifts, or (c) the diagnostic's span falls back to the
+/// whole-Lambda span instead of narrowing to [`PARAM_SPAN`] — a
 /// whole-Lambda span is too wide for an actionable "add a type annotation
 /// to this parameter" message.
 ///
@@ -1079,7 +1059,7 @@ fn test_e2005_message_for_lambda_param() {
     // `expr_types[lambda_expr_idx]` by InferEngine for a lambda whose
     // parameter type could not be resolved.
     let lambda_ty = pool.function(&[param_var], Idx::INT);
-    // ExprKind::Lambda — site-classification trigger per §06.1. Actual
+    // ExprKind::Lambda — site-classification trigger. Actual
     // params/body/ret_ty values don't need to be arena-resolvable here —
     // the validator only (a) dispatches on the discriminant for site
     // classification and (b) calls `param_span_of(expr_idx, i)` for the
@@ -1118,7 +1098,7 @@ fn test_e2005_message_for_lambda_param() {
     );
     assert_eq!(
         errors[0].span, PARAM_SPAN,
-        "plan §06.1 item 2: span must narrow to the parameter token \
+        "span must narrow to the parameter token \
          (PARAM_SPAN), NOT the whole-Lambda span (BODY_SPAN)"
     );
     match &errors[0].kind {
@@ -1135,7 +1115,7 @@ fn test_e2005_message_for_lambda_param() {
         errors[0].message(),
         "cannot infer the type of this closure parameter; \
          add a full typed-lambda annotation like `(x: int) -> ReturnT = body`",
-        "plan §06.1 specialized wording for lambda-param site"
+        "specialized wording for lambda-param site"
     );
 }
 
@@ -1143,9 +1123,9 @@ fn test_e2005_message_for_lambda_param() {
 /// signature position, not a lambda body) STILL produces the generic
 /// `"cannot infer type in expression"` wording.
 ///
-/// Drives plan §06.1 item 4. Guards against over-eager specialized
-/// dispatch — regular unannotated function parameters must NOT pick up
-/// the typed-lambda wording. Signature positions have no `ExprKind` in
+/// Guards against over-eager specialized dispatch — regular unannotated
+/// function parameters must NOT pick up the typed-lambda wording.
+/// Signature positions have no `ExprKind` in
 /// scope (the validator cannot look one up from a `FunctionSig` position),
 /// so the site defaults to `AmbiguousTypeSite::Expression`.
 #[test]
@@ -1176,6 +1156,6 @@ fn test_e2005_message_falls_back_to_generic_for_signature_var() {
     assert_eq!(
         errors[0].message(),
         "cannot infer type in expression",
-        "plan §06.1 item 4: sig-position vars stay on generic wording"
+        "sig-position vars stay on generic wording"
     );
 }

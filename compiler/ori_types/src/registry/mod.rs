@@ -8,9 +8,9 @@
 //!
 //! ```text
 //! Pool (types as Idx)
-//!     └── TypeRegistry (user-defined types)
-//!     └── TraitRegistry (traits and implementations)
-//!     └── MethodRegistry (unified method lookup)
+//!     |-- TypeRegistry (user-defined types)
+//!     |-- TraitRegistry (traits and implementations)
+//!     |-- MethodRegistry (unified method lookup)
 //! ```
 //!
 //! # Design Decisions

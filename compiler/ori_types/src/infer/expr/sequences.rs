@@ -292,7 +292,7 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
                 // Note: maybe_generalize reads the *original* init expression (before
                 // unwrapping), not bound_ty — the unwrap changes the type, not the
                 // expression kind. See maybe_generalize's doc comment in blocks.rs.
-                // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+                // Spec: Clause 14
                 maybe_generalize(engine, arena, *init, bound_ty)
             };
 

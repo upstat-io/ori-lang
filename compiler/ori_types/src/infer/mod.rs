@@ -76,12 +76,12 @@ pub type ExprIndex = usize;
 ///
 /// ```text
 /// InferEngine
-/// ├── UnifyEngine (unification, resolution, generalization)
-/// │   └── Pool (type storage, interning, flags)
-/// ├── TypeEnv (name → type scheme bindings)
-/// ├── expr_types (expression → inferred type)
-/// ├── context_stack (error context tracking)
-/// └── errors (accumulated type errors)
+/// |-- UnifyEngine (unification, resolution, generalization)
+/// |   `-- Pool (type storage, interning, flags)
+/// |-- TypeEnv (name -> type scheme bindings)
+/// |-- expr_types (expression -> inferred type)
+/// |-- context_stack (error context tracking)
+/// `-- errors (accumulated type errors)
 /// ```
 pub struct InferEngine<'pool> {
     /// The unification engine (owns mutable pool access).

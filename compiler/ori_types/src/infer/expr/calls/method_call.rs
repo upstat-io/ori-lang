@@ -61,7 +61,7 @@ pub(crate) fn infer_method_call(
                 &arg_spans,
                 span,
             );
-            // §09.5 BD-2: propagate outer expected into builtin ret_ty so a
+            // BD-2: propagate outer expected into builtin ret_ty so a
             // generic-return builtin (e.g. collect's default [T]) unifies
             // with the LHS annotation at the call site.
             if let Some(exp) = expected {
@@ -74,11 +74,11 @@ pub(crate) fn infer_method_call(
 
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
-    // §06.5: a genuine `NotFound` (NOT `Ambiguous`, which already pushed E2023)
+    // A genuine `NotFound` (NOT `Ambiguous`, which already pushed E2023)
     // must surface a diagnostic, not silently poison via `Idx::ERROR`.
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
-        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking
+        // BD-2: propagate outer expected into sig.ret BEFORE arg-checking
         // so the generic return slot is constrained by the LHS annotation.
         // Closes the `let e: Error = msg.into()` gap where the generic T in
         // `into<T>(self) -> T` previously stayed an unresolved fresh var.
@@ -113,9 +113,9 @@ pub(crate) fn infer_method_call(
 
     // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
+    // Surface a method-not-found diagnostic for a genuine NotFound on a
     // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
+    // class (BUG-02-044 + rigid-receiver negative case). Skipped for
     // Ambiguous (already emitted) + unresolved Var (deferred) + into.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
@@ -149,9 +149,9 @@ pub(crate) fn infer_method_call_named(
                 .iter()
                 .map(|arg| infer_expr(engine, arena, arg.value))
                 .collect();
-            // Per Plan TPR finding A4: use arena.get_expr(arg.value).span
-            // (value-only span) instead of arg.span (whole `name: value` range)
-            // so diagnostics anchor at the closure body, not the keyword.
+            // Use arena.get_expr(arg.value).span (value-only span) instead of
+            // arg.span (whole `name: value` range) so diagnostics anchor at the
+            // closure body, not the keyword.
             let arg_spans: Vec<Span> = call_args
                 .iter()
                 .map(|arg| arena.get_expr(arg.value).span)
@@ -165,7 +165,7 @@ pub(crate) fn infer_method_call_named(
                 &arg_spans,
                 span,
             );
-            // §09.5 BD-2: propagate outer expected into builtin ret_ty
+            // BD-2: propagate outer expected into builtin ret_ty
             // (mirrors infer_method_call positional path).
             if let Some(exp) = expected {
                 let _ = engine.check_type(ret_ty, exp, span);
@@ -179,7 +179,7 @@ pub(crate) fn infer_method_call_named(
     let outcome = lookup_impl_method(engine, resolved, method);
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
-        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
+        // BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
@@ -224,9 +224,9 @@ pub(crate) fn infer_method_call_named(
 
     // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
+    // Surface a method-not-found diagnostic for a genuine NotFound on a
     // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
+    // class (BUG-02-044 + rigid-receiver negative case). Skipped for
     // Ambiguous (already emitted) + unresolved Var (deferred) + into.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
@@ -305,7 +305,7 @@ fn resolve_receiver_and_builtin(
     };
 
     // For unresolved type variables, defer resolution UNLESS the var has
-    // registered trait bounds (§10.1 bound-chain dispatch on top-level
+    // registered trait bounds (bound-chain dispatch on top-level
     // function type-params, which use `pool.fresh_named_var` and surface
     // as `Tag::Var` rather than `Tag::RigidVar`). Bounded vars must
     // continue through `lookup_impl_method` so the bound chain runs;
@@ -317,7 +317,7 @@ fn resolve_receiver_and_builtin(
             // A NAMED unbound var that is a generic type parameter (`@f<T>(x: T)`,
             // surfaced via `fresh_named_var`, name not a registered trait) has no
             // methods statically, so `x.m()` MUST surface a diagnostic via the
-            // NotFound path (§06.5), NOT defer. An ANONYMOUS unbound var (genuine
+            // NotFound path, NOT defer. An ANONYMOUS unbound var (genuine
             // inference var) and a capability/trait-namespace named var (`Http`,
             // name IS a registered trait) defer — see `is_named_generic_var`.
             if !is_named_generic_var(engine, resolved) {
@@ -428,9 +428,9 @@ fn check_range_float_iteration(
 /// tag has no registry mapping — type variables, named types, projections,
 /// etc.), the suggestion falls back to the generic "wrap in iterator" message.
 ///
-/// Replaces the hardcoded tag set (`List | Set | Map | Str | Range | Option`)
-/// flagged by Phase 5 Code TPR Round 0 (codex F4 + gemini F2 + opencode F3 —
-/// LEAK:scattered-knowledge violation duplicating registry method knowledge).
+/// Replaces a hardcoded tag set (`List | Set | Map | Str | Range | Option`)
+/// — that form was a LEAK:scattered-knowledge violation duplicating registry
+/// method knowledge.
 pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
     use super::super::registry_bridge::tag_to_type_tag;
     let has_iter = tag_to_type_tag(inner_tag)

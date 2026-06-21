@@ -82,8 +82,8 @@ pub(crate) fn infer_block(
                     // Value Restriction: only non-capturing lambdas may be generalized.
                     // All other initializers (list literals, map literals, struct constructions,
                     // constants) are monomorphic — their Vars must stay Unbound so the
-                    // Section 02 validator can surface E2005 on empty containers.
-                    // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+                    // body-types validator can surface E2005 on empty containers.
+                    // Spec: Clause 14
                     maybe_generalize(engine, arena, *init, init_ty)
                 };
 
@@ -169,7 +169,7 @@ pub(crate) fn infer_let(
         }
 
         // Value Restriction: only non-capturing lambdas may be generalized.
-        // Spec: docs/ori_lang/v2026/spec/14-expressions.md:1224-1228
+        // Spec: Clause 14
         maybe_generalize(engine, arena, init, init_ty)
     };
 

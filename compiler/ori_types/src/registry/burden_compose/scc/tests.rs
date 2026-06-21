@@ -1,8 +1,7 @@
 //! Matrix tests for SCC-based cycle detection + per-type compiled drop-glue
 //! assignment.
 //!
-//! 8-cell matrix axes (per `tests.md §Matrix Testing Rule` — 4 axes × 2
-//! polarities):
+//! 8-cell matrix axes (4 axes × 2 polarities):
 //!   (a) Self-loop singleton — positive / negative
 //!   (b) Mutually-recursive pair — positive / negative
 //!   (c) Mutually-recursive triple — positive / negative
@@ -26,7 +25,7 @@ use crate::registry::burden::{
 };
 use crate::Idx;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────
+// === Helpers ===
 
 fn idx(raw: u32) -> Idx {
     // Use the dynamic range explicitly so synthetic node Idx values do not
@@ -94,13 +93,13 @@ fn assert_fn_sym_matches_mangling(out: &rustc_hash::FxHashMap<Idx, FnSym>, idx: 
     }
 }
 
-// ─── (a) Self-loop singleton — positive ──────────────────────────────────
+// === (a) Self-loop singleton — positive ===
 
 #[test]
 fn recursive_singleton_node_assigns_compiled_drop_fn_sym() {
     // type Node { next: Option<Node> } — Option<Node> contributes an
     // element_burden edge back to Node, producing a self-loop singleton
-    // SCC. Per §04.1 decision rule, this MUST receive compiled_drop.
+    // SCC. Per the decision rule, this MUST receive compiled_drop.
     let node_idx = idx(0);
     let node_spec = UserBurdenSpec {
         self_heap_alloc: true,
@@ -118,7 +117,7 @@ fn recursive_singleton_node_assigns_compiled_drop_fn_sym() {
     assert_fn_sym_matches_mangling(&out, node_idx);
 }
 
-// ─── (a) Self-loop singleton — negative ──────────────────────────────────
+// === (a) Self-loop singleton — negative ===
 
 #[test]
 fn non_self_loop_singleton_leaves_compiled_drop_none() {
@@ -141,7 +140,7 @@ fn non_self_loop_singleton_leaves_compiled_drop_none() {
     );
 }
 
-// ─── (b) Mutually-recursive pair — positive ──────────────────────────────
+// === (b) Mutually-recursive pair — positive ===
 
 #[test]
 fn mutually_recursive_pair_each_carries_distinct_compiled_drop_fn_sym() {
@@ -168,7 +167,7 @@ fn mutually_recursive_pair_each_carries_distinct_compiled_drop_fn_sym() {
     );
 }
 
-// ─── (b) Mutually-recursive pair — negative ──────────────────────────────
+// === (b) Mutually-recursive pair — negative ===
 
 #[test]
 fn non_recursive_pair_of_types_leaves_compiled_drop_none() {
@@ -191,7 +190,7 @@ fn non_recursive_pair_of_types_leaves_compiled_drop_none() {
     assert!(!out.contains_key(&b_idx));
 }
 
-// ─── (c) Mutually-recursive triple — positive ────────────────────────────
+// === (c) Mutually-recursive triple — positive ===
 
 #[test]
 fn mutually_recursive_triple_each_carries_distinct_compiled_drop_fn_sym() {
@@ -232,7 +231,7 @@ fn mutually_recursive_triple_each_carries_distinct_compiled_drop_fn_sym() {
     assert!(cycle.contains(&c_idx));
 }
 
-// ─── (c) Mutually-recursive triple — negative ────────────────────────────
+// === (c) Mutually-recursive triple — negative ===
 
 #[test]
 fn non_recursive_triple_leaves_compiled_drop_none() {
@@ -259,7 +258,7 @@ fn non_recursive_triple_leaves_compiled_drop_none() {
     assert!(!out.contains_key(&c_idx));
 }
 
-// ─── (d) Non-recursive baseline — positive (no compiled_drop) ────────────
+// === (d) Non-recursive baseline — positive (no compiled_drop) ===
 
 #[test]
 fn non_recursive_pair_leaves_compiled_drop_none() {
@@ -282,7 +281,7 @@ fn non_recursive_pair_leaves_compiled_drop_none() {
     );
 }
 
-// ─── (d) Non-recursive negative — wrapping a recursive type ──────────────
+// === (d) Non-recursive negative — wrapping a recursive type ===
 
 #[test]
 fn non_recursive_with_recursive_field_assigns_compiled_drop_fn_sym() {
@@ -322,7 +321,7 @@ fn non_recursive_with_recursive_field_assigns_compiled_drop_fn_sym() {
     );
 }
 
-// ─── Decision-rule clause pin: user_drop drives compiled_drop ────────────
+// === Decision-rule clause pin: user_drop drives compiled_drop ===
 
 #[test]
 fn user_drop_some_forces_compiled_drop_even_when_non_recursive() {
@@ -350,7 +349,7 @@ fn user_drop_some_forces_compiled_drop_even_when_non_recursive() {
     );
 }
 
-// ─── Decision-rule unit-level coverage ───────────────────────────────────
+// === Decision-rule unit-level coverage ===
 
 #[test]
 fn needs_compiled_drop_clauses_match_spec() {
@@ -373,7 +372,7 @@ fn needs_compiled_drop_clauses_match_spec() {
     assert!(!needs_compiled_drop(1, false, &dummy));
 }
 
-// ─── Variant-burden edge: enum SCC participation ─────────────────────────
+// === Variant-burden edge: enum SCC participation ===
 
 #[test]
 fn variant_retained_owned_field_contributes_to_scc() {
@@ -397,7 +396,7 @@ fn variant_retained_owned_field_contributes_to_scc() {
     );
 }
 
-// ─── element_burden edge participation ───────────────────────────────────
+// === element_burden edge participation ===
 
 #[test]
 fn element_burden_contributes_to_scc() {
@@ -419,7 +418,7 @@ fn element_burden_contributes_to_scc() {
     );
 }
 
-// ─── borrowed_field edge participation ───────────────────────────────────
+// === borrowed_field edge participation ===
 
 #[test]
 fn borrowed_field_contributes_to_scc() {
@@ -441,7 +440,7 @@ fn borrowed_field_contributes_to_scc() {
     );
 }
 
-// ─── FnSym mangling key invariant pin ────────────────────────────────────
+// === FnSym mangling key invariant pin ===
 
 #[test]
 fn mint_compiled_drop_fn_sym_carries_idx_raw_plus_one() {
@@ -462,7 +461,7 @@ fn mint_compiled_drop_fn_sym_carries_idx_raw_plus_one() {
     assert_ne!(fn_a, fn_b, "distinct Idx MUST yield distinct FnSym");
 }
 
-// ─── Empty corpus determinism ────────────────────────────────────────────
+// === Empty corpus determinism ===
 
 #[test]
 fn empty_corpus_yields_empty_partition() {

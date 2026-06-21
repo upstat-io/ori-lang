@@ -348,7 +348,7 @@ pub fn substitute_named_in_pool(
 }
 
 /// Substitute every `Tag::SelfType` occurrence reachable from `ty` with
-/// `target`. Used by §10.1 bound-chain method dispatch to bind the trait
+/// `target`. Used by bound-chain method dispatch to bind the trait
 /// method's `Self` placeholders to the receiver's concrete `Tag::RigidVar`
 /// (or other concrete type) so chained calls like `val.clone().to_str()`
 /// see the receiver's type for the second dispatch instead of falling
@@ -359,7 +359,7 @@ pub fn substitute_self_in_pool(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
 
 #[expect(
     clippy::too_many_lines,
-    reason = "Tag-dispatch table — line count tracks variant count (16 tag arms), not algorithmic complexity. Per impl-hygiene.md §Algorithmic DRY, splitting into per-tag helpers would be cosmetic since each arm differs only in accessor/constructor method names."
+    reason = "Tag-dispatch table — line count tracks variant count (16 tag arms), not algorithmic complexity. Splitting into per-tag helpers would be cosmetic since each arm differs only in accessor/constructor method names."
 )]
 fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
     match pool.tag(ty) {
@@ -482,7 +482,7 @@ fn substitute_self_inner(pool: &mut Pool, ty: Idx, target: Idx) -> Idx {
         }
         // Primitives, vars (Var/BoundVar/RigidVar), Struct/Enum literals,
         // Projection, Infer, Error, Named, Channel, Borrowed, Scheme, Alias,
-        // ModuleNs — carry no `Tag::SelfType` children for §10.1's purpose.
+        // ModuleNs — carry no `Tag::SelfType` children for this dispatch path.
         // Scheme is intentionally skipped: trait method signatures with Self
         // returns wrap as `Tag::Function`, not `Tag::Scheme` (method-level
         // generics are a separate axis from `Self`).
@@ -684,9 +684,7 @@ impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Id
 ///
 /// Two-pass structure mirrors the three shipped call sites (typeck
 /// `maybe_record_mono_instance`, typeck `build_mono_instance`, test-runner
-/// imported-mono construction) — extracted as the SSOT per
-/// after `/impl-hygiene-review`
-/// 2026-04-20 Phase 3 F1 (Critical).
+/// imported-mono construction) — the single SSOT for that map construction.
 ///
 /// Pass 1 — existing-pool scan:
 ///   For every dynamic `Idx` (skip pre-interned primitives) whose
@@ -765,8 +763,7 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
 /// NOT be overwritten; the helper only ADDS root-var entries that were not
 /// already keys.
 ///
-/// **Invoked by every monomorphization path** to maintain the SSOT invariant
-/// per and `§SSOT`:
+/// **Invoked by every monomorphization path** to maintain the SSOT invariant:
 /// - Eager typeck: `infer::expr::calls::monomorphization::maybe_record_mono_instance`
 /// - Deferred typeck: `check::exports::resolve_deferred_mono_calls`
 /// - JIT imported-mono: `oric::test::runner::imported_mono`

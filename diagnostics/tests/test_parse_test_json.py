@@ -222,6 +222,128 @@ def test_failures_json_captures_file_errors_and_llvm_compile_fail():
     assert kinds == ["file_error", "llvm_compile_fail"]
 
 
+# --- source-path attribution (w-463b8148): every failure carries its .ori path ---
+
+def test_failure_entries_carry_source_path_for_every_kind():
+    obj = _valid_summary(
+        failed=2,
+        error_files=1,
+        files=[{
+            "path": "tests/spec/traits/iterator/map.ori",
+            "results": [
+                {
+                    "name": "map_doubles_each_element",
+                    "targets": ["map"],
+                    "outcome": {"Failed": "assert_eq mismatch"},
+                    "duration_ns": 1,
+                },
+                {
+                    "name": "map_on_empty_list",
+                    "targets": ["map"],
+                    "outcome": {"LlvmCompileFail": "codegen exploded"},
+                    "duration_ns": 0,
+                },
+            ],
+            "passed": 0,
+            "failed": 2,
+            "skipped": 0,
+            "skipped_unchanged": 0,
+            "llvm_compile_fail": 1,
+            "duration_ns": 1,
+            "errors": ["type error: cannot unify"],
+            "llvm_compile_error": True,
+        }],
+    )
+    entries = parse_test_json._failure_entries(obj, "ori_llvm")
+    # all three failure kinds present, each attributed to the owning .ori path
+    assert len(entries) == 3
+    assert {e["failure_kind"] for e in entries} == {
+        "assertion_failure", "llvm_compile_fail", "file_error",
+    }
+    for entry in entries:
+        assert entry["source_path"] == "tests/spec/traits/iterator/map.ori"
+
+
+def test_source_path_empty_when_runner_omits_path():
+    # fail-closed: a file_summary with no path attributes to "" (downstream
+    # records parity=unknown), never silently dropped.
+    obj = _valid_summary(
+        failed=1,
+        files=[{
+            "results": [{
+                "name": "orphan_test",
+                "targets": [],
+                "outcome": {"Failed": "boom"},
+                "duration_ns": 1,
+            }],
+            "passed": 0,
+            "failed": 1,
+            "skipped": 0,
+            "skipped_unchanged": 0,
+            "llvm_compile_fail": 0,
+            "duration_ns": 1,
+            "errors": [],
+            "llvm_compile_error": False,
+        }],
+    )
+    entries = parse_test_json._failure_entries(obj, "ori_interp")
+    assert len(entries) == 1
+    assert entries[0]["source_path"] == ""
+
+
+# --- per-failure leak_free source signal (w-dea4820e) ---
+
+def test_leak_positive_classifies_rc_leak_failures():
+    # The runtime emits "N RC allocation(s) not freed (memory leak)" under
+    # ORI_CHECK_LEAKS=1; the spec runner wraps it as "ARC leak: ...". Each form
+    # marks the failure leak_positive so the per-node leak_free leg has a signal.
+    obj = _valid_summary(
+        failed=3,
+        files=[{
+            "path": "tests/spec/collections/cow/push.ori",
+            "results": [
+                {
+                    "name": "push_leaks_under_check",
+                    "targets": ["push"],
+                    "outcome": {"Failed": "2 RC allocation(s) not freed (memory leak)"},
+                    "duration_ns": 1,
+                },
+                {
+                    "name": "push_arc_leak_variant",
+                    "targets": ["push"],
+                    "outcome": {"Failed": "ARC leak: 1 allocation(s) not freed"},
+                    "duration_ns": 1,
+                },
+                {
+                    "name": "push_plain_assertion",
+                    "targets": ["push"],
+                    "outcome": {"Failed": "assert_eq mismatch: 3 != 4"},
+                    "duration_ns": 1,
+                },
+            ],
+            "passed": 0,
+            "failed": 3,
+            "skipped": 0,
+            "skipped_unchanged": 0,
+            "llvm_compile_fail": 0,
+            "duration_ns": 1,
+            "errors": [],
+            "llvm_compile_error": False,
+        }],
+    )
+    entries = parse_test_json._failure_entries(obj, "ori_llvm")
+    by_name = {e["test_id"]: e for e in entries}
+    assert by_name["push_leaks_under_check"]["leak_positive"] is True
+    assert by_name["push_arc_leak_variant"]["leak_positive"] is True
+    # a non-leak assertion failure is leak_positive False (NOT unknown — the
+    # per-node verdict fail-closes leak_free to unknown for nodes with no signal)
+    assert by_name["push_plain_assertion"]["leak_positive"] is False
+    # the leak signal travels with the .ori source path from w-463b8148
+    assert all(
+        e["source_path"] == "tests/spec/collections/cow/push.ori" for e in entries
+    )
+
+
 # --- summary-line reconstruction ---
 
 def test_summary_line_basic():

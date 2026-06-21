@@ -46,7 +46,7 @@ fn suggest_iterator_fix_for_struct_uses_generic_message() {
 
 #[test]
 fn suggest_iterator_fix_for_option_recommends_iter() {
-    // Option is in the suggestion-friendly set per Plan TPR finding A12 —
+    // Option is in the suggestion-friendly set —
     // `Option<T>::iter()` exists and yields a 0-or-1-element iterator.
     let s = suggest_iterator_fix(Tag::Option);
     assert!(
@@ -73,8 +73,8 @@ fn suggest_iterator_fix_full_friendly_set() {
 
 #[test]
 fn suggest_iterator_fix_tuple_uses_generic_message() {
-    // Tuple is intentionally NOT in the suggestion-friendly set per Plan
-    // TPR finding A13 — tuples have no `.iter()` method.
+    // Tuple is intentionally NOT in the suggestion-friendly set —
+    // tuples have no `.iter()` method.
     let s = suggest_iterator_fix(Tag::Tuple);
     assert!(
         !s.message.contains(".iter()"),
@@ -83,7 +83,7 @@ fn suggest_iterator_fix_tuple_uses_generic_message() {
     );
 }
 
-// §09.6 — Tag::Map receiver projection in `unify_closure_param_with_iterator_elem`.
+// Tag::Map receiver projection in `unify_closure_param_with_iterator_elem`.
 // The helper is the SSOT for receiver -> lambda-param propagation; these cells
 // exercise it (and both dispatching call paths) directly with constructed types.
 
@@ -184,7 +184,7 @@ mod map_receiver_lambda_param {
 
     #[test]
     fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
-        // Negative pin (per tests.md §Matrix Clamping): an Iterator<int>
+        // Negative pin (Matrix Clamping): an Iterator<int>
         // receiver routes the `is_iterator()` branch; the param resolves to
         // int, NOT a synthetic tuple. Widening the Map arm to match
         // `Tag::Iterator` breaks this clamp.
@@ -205,7 +205,7 @@ mod map_receiver_lambda_param {
     }
 }
 
-// §09.N — fold/rfold receiver-tag parity via the shared `receiver_element_type`
+// fold/rfold receiver-tag parity via the shared `receiver_element_type`
 // SSOT. The `fold`/`rfold` arm binds the closure's SECOND param (the element)
 // to the receiver element. These cells pin the `Tag::Map` ((K, V) tuple) +
 // `Tag::Str` (char) coverage that previously diverged from

@@ -10,8 +10,8 @@
 //! - `owned_fields[i]` — one entry per captured-by-value capture (`Idx` = the
 //!   captured binding's resolved type Idx).
 //! - `borrowed_fields[i]` — one entry per captured-by-reference capture (per
-//!   `Tag::Borrowed`-target lifetime tie-back to parent variable; see `arc.md
-//!   §RT-2` closure env-header layout).
+//!   `Tag::Borrowed`-target lifetime tie-back to parent variable; the closure
+//!   env-header layout carries the refcount + `drop_fn` slot ahead of captures).
 //! - `element_burden: None` — closures are not collections.
 //! - `variant_burdens: []` — closures are not sums.
 //! - `compiled_drop: Some(env_drop_fn_sym)` — minted at registration, body

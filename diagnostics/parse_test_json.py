@@ -23,7 +23,13 @@ Modes (exactly one):
                   not output). Mirrors the parse_ori_results prefix convention.
   --failures-json emit a JSON array of Ori failure objects via json.dumps. Each
                   object: test_id, test_id_kind, suite, failure_kind,
-                  error_message. Requires --suite. Reads the runner JSON.
+                  error_message, source_path, leak_positive. Requires --suite.
+                  Reads the runner JSON. source_path carries the failing test's
+                  owning .ori file path (files[].path) so downstream per-node
+                  parity attribution has a source signal; "" when the runner
+                  omits it. leak_positive is True when the failure message
+                  carries the ORI_CHECK_LEAKS=1 RC-leak signature, the per-node
+                  leak_free verdict leg's source signal.
   --summary-line  emit the reconstructed human summary line (the console UX
                   the JSON consumption replaces the runner's text render with).
   --fail-lines    emit one human-readable `FAIL: <name> - <msg>` line per failed
@@ -50,6 +56,26 @@ import sys
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_PARSE_ERROR = 3
+
+# A failure message indicating an ORI_CHECK_LEAKS=1 RC leak. The runtime emits
+# "N RC allocation(s) not freed (memory leak)" (compiler/ori_rt/src/lib.rs); the
+# AOT leg's assert_aot_success surfaces it as "leaked memory"; the spec runner
+# wraps it as "ARC leak: N allocation(s) not freed". Matching any of these lets
+# a per-failure leak_free source signal be derived for the per-node verdict.
+_LEAK_MSG_RE = re.compile(
+    r"not freed|memory leak|leaked memory|ARC leak", re.IGNORECASE
+)
+
+
+def _is_leak_failure(message):
+    """True iff a failure message carries the ORI_CHECK_LEAKS=1 leak signature.
+
+    Drives the per-failure leak_positive field consumed by the per-node
+    leak_free verdict leg. A failure with no leak signature is leak_positive
+    False; the downstream per-node verdict fail-closes leak_free to unknown for
+    nodes with no leak signal at all."""
+    return bool(message) and bool(_LEAK_MSG_RE.search(message))
+
 
 # cargo libtest failure line: `test <name> ... FAILED`.
 _RUST_FAIL_RE = re.compile(r"^test\s+(?P<name>.*?)\s+\.\.\.\s+FAILED$")
@@ -107,6 +133,7 @@ def _failure_entries(obj, suite):
     strings and serde-escaped every message; json.dumps re-escapes on emit."""
     entries = []
     for file_summary in obj.get("files", []):
+        source_path = file_summary.get("path", "")
         for result in file_summary.get("results", []):
             outcome = result.get("outcome")
             name = result.get("name", "")
@@ -118,6 +145,8 @@ def _failure_entries(obj, suite):
                     "suite": suite,
                     "failure_kind": "assertion_failure",
                     "error_message": msg,
+                    "source_path": source_path,
+                    "leak_positive": _is_leak_failure(msg),
                 })
             elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
                 reason = outcome["LlvmCompileFail"]
@@ -127,14 +156,18 @@ def _failure_entries(obj, suite):
                     "suite": suite,
                     "failure_kind": "llvm_compile_fail",
                     "error_message": reason,
+                    "source_path": source_path,
+                    "leak_positive": _is_leak_failure(reason),
                 })
         for error in file_summary.get("errors", []):
             entries.append({
-                "test_id": file_summary.get("path", ""),
+                "test_id": source_path,
                 "test_id_kind": "ori_spec",
                 "suite": suite,
                 "failure_kind": "file_error",
                 "error_message": error,
+                "source_path": source_path,
+                "leak_positive": _is_leak_failure(error),
             })
     return entries
 

@@ -325,8 +325,8 @@ impl TypeCheckError {
     /// trait set already carries `Value`). The span always points at the
     /// second registration so users see the rejected declaration.
     ///
-    /// Per Annex E §AIMS + `ori-syntax.md §Prelude`: `Value` declares
-    /// inline storage with bitwise copy and no ARC. The refcount-zero
+    /// Per Spec: Annex E §AIMS: `Value` declares inline storage with
+    /// bitwise copy and no ARC. The refcount-zero
     /// cleanup path that `@drop` hooks into never fires for `Value`
     /// types; the two markers are mutually exclusive.
     pub fn value_drop_conflict(span: Span, type_name: Name) -> Self {

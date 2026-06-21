@@ -2,8 +2,8 @@
 //!
 //! Coverage: type-arg substitution × template-shape × nesting depth.
 //! - Sum templates: Option<T> (single payload, Some arm), Result<T, E> (two arms).
-//! - Mixed Value/HeapType: `Result<ValueType, HeapType>` per proposal
-//!   §Value Trait Composition.
+//! - Mixed Value/HeapType: `Result<ValueType, HeapType>` per the Value Trait
+//!   Composition rule.
 //! - Nested generics: outer `Option<Result<int, str>>` composes to a field-type
 //!   `Idx` referencing the inner Result's monomorphized id (recursive
 //!   composition is via the type graph, NOT inline expansion).
@@ -23,10 +23,9 @@ use crate::registry::burden::UserBurdenSpec;
 use crate::{Idx, Pool, TypeRegistry};
 
 // Fetch the Option<T> / Result<T, E> templates from BURDEN_TABLE. Helpers
-// follow the canonical "panic when registry shape drifts" pattern from
-// `compiler_repo/compiler/ori_registry/src/burden/table/tests.rs` —
-// workspace clippy denies `expect`/`unwrap` even in tests per `tests.md`
-// §Test Hygiene.
+// follow the canonical "panic when registry shape drifts" pattern: workspace
+// clippy denies `expect`/`unwrap` even in tests, so a missing template panics
+// explicitly rather than unwrapping.
 fn option_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_OPTION) {
         Some(spec) => spec,
@@ -51,7 +50,7 @@ fn find_variant(
     }
 }
 
-// ─── Positive: Result<int, str> ──────────────────────────────────────────
+// === Positive: Result<int, str> ===
 
 #[test]
 fn compose_result_int_str_yields_two_variant_burdens() {
@@ -101,7 +100,7 @@ fn compose_result_int_str_err_arm_field_type_is_str() {
     );
 }
 
-// ─── Positive: Result<{str: int}, str> — recursive composition via type graph ───
+// === Positive: Result<{str: int}, str> — recursive composition via type graph ===
 
 #[test]
 fn compose_result_with_map_payload_substitutes_map_idx() {
@@ -122,7 +121,7 @@ fn compose_result_with_map_payload_substitutes_map_idx() {
     assert_eq!(err.transfers_on_match[0].field_type, Idx::STR);
 }
 
-// ─── Positive: Option<Result<int, str>> — nested generic ─────────────────
+// === Positive: Option<Result<int, str>> — nested generic ===
 
 #[test]
 fn compose_option_with_result_payload_carries_inner_result_idx() {
@@ -130,9 +129,9 @@ fn compose_option_with_result_payload_carries_inner_result_idx() {
     // Idx as the Some arm's field_type. No inline expansion: the inner
     // Result's burden lives under its own Idx in TypeRegistry::burden.
     //
-    // §02.2 dedup ensures that two compositions of `Result<int, str>` from
+    // Dedup ensures that two compositions of `Result<int, str>` from
     // different parent contexts share the same UserBurdenSpec entry. This
-    // test predates §02.2; we exercise composition only.
+    // test exercises composition only.
     let mut pool = Pool::new();
     let registry = TypeRegistry::new();
     // Synthesize an Idx that stands in for "Result<int, str>'s monomorphized
@@ -169,11 +168,11 @@ fn compose_option_with_result_payload_carries_inner_result_idx() {
     );
 }
 
-// ─── Positive: mixed Value/HeapType ─────────────────────────────────────
+// === Positive: mixed Value/HeapType ===
 
 #[test]
 fn compose_result_with_value_and_heap_args_carries_both() {
-    // Per proposal §Value Trait Composition: Value-trait members have empty
+    // Per the Value Trait Composition rule: Value-trait members have empty
     // BurdenSpec entries. Composition does not in-line expand — it carries
     // each concrete Idx; codegen looks up each one's burden separately.
     // Here `int` plays the Value role (empty burden table entry per
@@ -203,23 +202,20 @@ fn compose_result_with_value_and_heap_args_carries_both() {
     // codegen happens downstream via per-Idx burden lookup.
 }
 
-// ─── Negative pin: instantiation-time wiring is load-bearing ────────────
+// === Negative pin: instantiation-time wiring is load-bearing ===
 
 #[test]
 fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
     // BEFORE composition runs, a freshly-allocated monomorphized Idx has
-    // no entry in `TypeRegistry::burden`. This proves that the §02.1
+    // no entry in `TypeRegistry::burden`. This proves that the
     // wiring (composing AND registering on first instantiation) is the
     // load-bearing step — without it, codegen would see `None` and the
-    // §03 burden-lookup `debug_assert!` (forward-referenced — see TODO
-    // below) would fire.
+    // burden-lookup `debug_assert!` would fire.
     //
-    // §03 forward-reference: the `debug_assert!("monomorphized TypeId
-    // has registered UserBurdenSpec")` lives in
-    // `ori_arc::lower::burden_lookup` and consumes the composed entry.
-    // §02.4.A's "ContextHole-shaped variables inherit BurdenSpec from
-    // their underlying TypeId" verification depends on this same
-    // lookup path.
+    // The `debug_assert!("monomorphized TypeId has registered
+    // UserBurdenSpec")` lives in `ori_arc::lower::burden_lookup` and
+    // consumes the composed entry. ContextHole-shaped variables inherit
+    // BurdenSpec from their underlying TypeId via this same lookup path.
     let mut pool = Pool::new();
     let registry = TypeRegistry::new();
     let fresh_idx = pool.applied(ori_ir::Name::from_raw(0xDEAD_BEEF), &[Idx::INT, Idx::STR]);
@@ -229,21 +225,21 @@ fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
         "lookup before composition runs returns None — proves instantiation-time wiring is the load-bearing step"
     );
 
-    // After composition, if §02.1 integration is wired through to a registry
-    // mutation surface (currently API-gapped — see §02.1 deliverable note),
-    // this assertion would flip. Today the composition function alone
-    // produces the spec; the registry-insertion call site is the integration
-    // point §02.1's checklist item 2 names. The negative pin above is the
-    // local proof that without an insertion call, lookup yields None.
+    // After composition, if the integration is wired through to a registry
+    // mutation surface (currently API-gapped), this assertion would flip.
+    // Today the composition function alone produces the spec; the
+    // registry-insertion call site is the integration point. The negative
+    // pin above is the local proof that without an insertion call, lookup
+    // yields None.
 }
 
-// ─── Semantic pin: regression-pin counts ────────────────────────────────
+// === Semantic pin: regression-pin counts ===
 
 #[test]
 fn semantic_pin_result_composition_counts() {
     // Pins the exact composition shape for Result<int, str> so any
     // future change to recursion / flattening / field-drop semantics
-    // surfaces as a regression. Per `tests.md §Matrix Clamping`.
+    // surfaces as a regression (matrix-clamping semantic pin).
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = result_template();
@@ -276,7 +272,7 @@ fn semantic_pin_result_composition_counts() {
     assert_eq!(composed.user_drop, None);
 }
 
-// ─── §02.4.B Channel<T> composition (registry-layer surface) ────────────
+// === §02.4.B Channel<T> composition (registry-layer surface) ===
 
 fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
@@ -395,8 +391,8 @@ fn compose_channel_map_payload_carries_map_idx() {
 fn semantic_pin_channel_composition_counts() {
     // Pins the exact composition shape for Channel<int> so any future
     // change to the channel template (e.g., switching from element_burden
-    // to inline owned_fields) surfaces as a regression. Per
-    // `tests.md §Matrix Clamping`.
+    // to inline owned_fields) surfaces as a regression (matrix-clamping
+    // semantic pin).
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = channel_template();
@@ -442,7 +438,7 @@ fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
     );
 }
 
-// ─── Value Trait Composition ────────────────────────────────────────────
+// === Value Trait Composition ===
 
 /// Mixed Value/Heap composition — `Result<ValueType, HeapType>` (e.g.,
 /// `Result<int, str>`) produces `variant_burdens` with asymmetric arms: Ok
@@ -507,7 +503,7 @@ fn result_value_heap_composition_inherits_distinct_variant_burdens() {
     );
 }
 
-/// `Option<ValueType>` with niche encoding (per `repr.md §7 NI-3`) composes
+/// `Option<ValueType>` with niche encoding (NI-3) composes
 /// identically to the tagged-variant form at the BURDEN level. Niche
 /// encoding operates on PHYSICAL layout; burden composition operates on
 /// LOGICAL variants — the two are orthogonal.
@@ -521,8 +517,8 @@ fn option_value_type_niche_encoded_inherits_empty_burden() {
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = option_template();
-    // `int` is Value-role (niche-encoded `Option<int>` per `repr.md §7
-    // NI-3` is physically `int + sentinel`, but burden composition sees
+    // `int` is Value-role (niche-encoded `Option<int>` per NI-3 is
+    // physically `int + sentinel`, but burden composition sees
     // logical None / Some(int) arms unchanged).
     let type_args = [Idx::INT];
 

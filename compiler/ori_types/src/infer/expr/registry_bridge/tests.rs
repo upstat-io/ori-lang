@@ -13,7 +13,7 @@ fn with_engine(f: impl FnOnce(&mut crate::InferEngine<'_>)) {
     f(&mut engine);
 }
 
-// ── tag_to_type_tag tests ──
+// tag_to_type_tag tests
 
 /// Every `Tag` with builtin methods maps to the correct `TypeTag`.
 #[test]
@@ -117,7 +117,7 @@ fn all_tag_variants_covered() {
     );
 }
 
-// ── return_tag_to_idx: primitive/concrete tests ──
+// return_tag_to_idx: primitive/concrete tests
 
 #[test]
 fn concrete_primitives_return_fixed_idx() {
@@ -174,7 +174,7 @@ fn fresh_returns_type_variable() {
     });
 }
 
-// ── return_tag_to_idx: projection tests ──
+// return_tag_to_idx: projection tests
 
 #[test]
 fn option_of_element_on_list() {
@@ -273,7 +273,7 @@ fn err_type_extracts_result_err() {
     });
 }
 
-// ── return_tag_to_idx: fixed-inner wrappers ──
+// return_tag_to_idx: fixed-inner wrappers
 
 #[test]
 fn list_of_byte_fixed_inner() {
@@ -306,7 +306,7 @@ fn dei_of_char_fixed_inner() {
     });
 }
 
-// ── return_tag_to_idx: composite returns ──
+// return_tag_to_idx: composite returns
 
 #[test]
 fn next_result_on_iterator() {
@@ -396,7 +396,7 @@ fn iterator_of_tuple_int_element_on_iterator() {
     });
 }
 
-// ── binary_op_strategy: semantic pin tests ──
+// binary_op_strategy: semantic pin tests
 // These verify that the registry bridge correctly maps BinaryOp to OpDefs
 // for each primitive type. This is the permanent guard that ensures the
 // type checker's registry-based validation matches expected behavior.
@@ -585,7 +585,7 @@ fn str_add_strategy_is_runtime_call() {
     }
 }
 
-// ── unary_op_strategy: semantic pin tests ──
+// unary_op_strategy: semantic pin tests
 
 use ori_ir::UnaryOp;
 
@@ -654,7 +654,7 @@ fn non_builtin_unary_returns_none() {
     assert_eq!(is_unary_op_supported(Tag::Enum, UnaryOp::Not), None);
 }
 
-// ── registry_satisfies_trait: equivalence tests ──
+// registry_satisfies_trait: equivalence tests
 // These verify the bridge produces identical results to the old
 // hardcoded arrays in traits.rs for every (type, trait) combination.
 

@@ -1,7 +1,7 @@
 //! Method-dispatch diagnostics: `into`-not-implemented + the general
-//! method-not-found emit. Extracted from `impl_lookup.rs` to keep that module
-//! under the 500-line cap (§10.R-010); the emit logic is a distinct
-//! responsibility (diagnostic construction) from the lookup/resolution paths.
+//! method-not-found emit. Lives apart from `impl_lookup.rs` to keep that module
+//! under the 500-line cap; the emit logic is a distinct responsibility
+//! (diagnostic construction) from the lookup/resolution paths.
 
 use ori_ir::{Name, Span};
 
@@ -61,7 +61,7 @@ pub(super) fn emit_into_not_implemented(
 
 /// Emit a "no method `m` on generic type parameter" diagnostic for a genuine
 /// `NotFound` method lookup on a RIGID receiver (a generic type parameter with
-/// no matching trait bound): §10.1, e.g. `@f<T>(x)=x.hello()`.
+/// no matching trait bound): bound-chain dispatch, e.g. `@f<T>(x)=x.hello()`.
 ///
 /// Caller MUST gate this on the outcome having been `LookupOutcome::NotFound`
 /// (NOT `Ambiguous` — that path already pushed `E2023`).
@@ -81,8 +81,7 @@ pub(super) fn emit_into_not_implemented(
 ///
 /// Receiver-kind discipline:
 /// - `Idx::ERROR` / `Tag::Error` receiver: skip — error-recovery monotonicity
-///   (never cascade on an already-poisoned receiver per `HYG:§Error Recovery
-///   Monotonicity`).
+///   (never cascade on an already-poisoned receiver).
 /// - `Tag::RigidVar` / NAMED unbound `Tag::Var`: emit with an "add a trait
 ///   bound" suggestion (a generic parameter has no methods without a bound).
 /// - every other receiver (concrete, anonymous `Tag::Var`, `Tag::Infer`,

@@ -115,7 +115,7 @@ impl BurdenSignature {
     }
 }
 
-// ─── Hash folding ───────────────────────────────────────────────────────
+// === Hash folding ===
 
 fn fold_spec<F>(
     h: &mut FnvHasher,
@@ -259,7 +259,7 @@ where
     // signature contribution at this position.
 }
 
-// ─── FNV-1a 64-bit hasher ───────────────────────────────────────────────
+// === FNV-1a 64-bit hasher ===
 //
 // The compiler crate's workspace lints deny `unwrap_used` / `expect_used`,
 // so we avoid relying on `std::hash::Hasher` blanket methods that may

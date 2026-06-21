@@ -47,7 +47,7 @@ fn check_module_with_no_function_bodies_produces_no_errors() {
 
 /// Regression: a function with an unannotated parameter must produce `E2005`
 /// (`AmbiguousType`) at typeck. Exercises `check_function` (Pass 2 per CK-1)
-/// via `validate_body_types` wired in §03.1.
+/// via `validate_body_types`.
 ///
 /// `x` in `@f (x) -> int = 0` is an unannotated parameter — its type is a
 /// fresh `Tag::Var` in `FunctionSig.param_types`. The body `0` never uses
@@ -79,7 +79,7 @@ fn check_function_with_unannotated_param_emits_ambiguous_type() {
 /// typed IR to downstream phases (PC-2).
 ///
 /// A block-wrapped lambda `{ x -> x }` is not a direct lambda binding and is
-/// NOT generalizable per (Value Restriction). The parameter
+/// NOT generalizable per the Value Restriction. The parameter
 /// `x`'s type remains an unbound `Tag::Var`. No empty literals exist, so the
 /// end-of-body defaulting pass does not fire — only `validate_body_types`
 /// catches the surviving var in `expr_types`.
@@ -137,8 +137,8 @@ fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// Exercises the body-position validator walk complement to the
 /// sig-position test above.
 ///
-/// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
-/// (Value Restriction); its parameter stays `Tag::Var`.
+/// A block-wrapped lambda `{ x -> x }` is ungeneralizable under the Value
+/// Restriction; its parameter stays `Tag::Var`.
 /// The enclosing impl method is `(self) -> void`, so no sig vars exist —
 /// the only path to a surviving var is through body `expr_types`, which
 /// `validate_body_types` must walk.
@@ -190,8 +190,8 @@ fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// Exercises the body-position validator walk — the complement of the
 /// sig-position test above.
 ///
-/// A block-wrapped lambda `{ x -> x }` is ungeneralizable per
-/// (Value Restriction); its parameter stays `Tag::Var`.
+/// A block-wrapped lambda `{ x -> x }` is ungeneralizable under the Value
+/// Restriction; its parameter stays `Tag::Var`.
 /// The enclosing def-impl method is `() -> void`, so no sig vars exist — the
 /// only path to a surviving var is through body `expr_types`, which
 /// `validate_body_types` must walk via `run_validator`.
@@ -233,14 +233,13 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
     );
 }
 
-/// Pins the §09.2 fix: `def impl Trait { @m (self) -> int = { 99 } }`
+/// Pins the def-impl Self binding: `def impl Trait { @m (self) -> int = { 99 } }`
 /// compiles clean because `check_def_impl_method` wraps body-checking with
-/// `with_impl_scope(self_rigid, ...)` (`impls.rs:572`) so `Self` resolves to
-/// a registered `Tag::RigidVar` allocated before param-type resolution
-/// (`impls.rs:492`), NOT a fabricated fresh `Tag::Var`. Without §09.2, the
-/// `(self)` parameter's `None if p.name == self_kw` arm would fall through
-/// to a fresh var that is never constrained, surfacing as `E2005` at
-/// validator time.
+/// `with_impl_scope(self_rigid, ...)` so `Self` resolves to a registered
+/// `Tag::RigidVar` allocated before param-type resolution, NOT a fabricated
+/// fresh `Tag::Var`. Without that wrap, the `(self)` parameter's
+/// `None if p.name == self_kw` arm would fall through to a fresh var that
+/// is never constrained, surfacing as `E2005` at validator time.
 #[test]
 fn test_def_impl_method_body_binds_self_to_registered_rigid_var() {
     let (result, _interner) = parse_and_check(
@@ -255,9 +254,9 @@ fn test_def_impl_method_body_binds_self_to_registered_rigid_var() {
 
 /// Pins method-call dispatch on `self` inside a def-impl body. The body
 /// `self.inner()` requires `Self` to resolve to the def-impl's registered
-/// `Tag::RigidVar` so trait-method lookup walks the bound-chain (§10.1) and
-/// finds `inner` on the same `Identity` trait. Verifies §09.2 is more than a
-/// type-binding fix — it makes `self`-receiver dispatch reachable.
+/// `Tag::RigidVar` so trait-method lookup walks the bound-chain and finds
+/// `inner` on the same `Identity` trait. Verifies the Self binding is more
+/// than a type-binding fix — it makes `self`-receiver dispatch reachable.
 #[test]
 fn test_def_impl_method_body_dispatches_self_method_calls() {
     let (result, _interner) = parse_and_check(
@@ -271,11 +270,11 @@ fn test_def_impl_method_body_dispatches_self_method_calls() {
 }
 
 /// Negative control: a def-impl method WITHOUT a `self` parameter must
-/// remain well-typed under §09.2 — the `with_impl_scope` wrap is still
-/// applied (the registered `Tag::RigidVar` is available), but the body
-/// never references `Self`, so nothing triggers `impl_self_type()`. Pins
-/// the false-positive boundary: §09.2 must not regress no-self def-impl
-/// methods (e.g., trait-level associated-style functions).
+/// remain well-typed — the `with_impl_scope` wrap is still applied (the
+/// registered `Tag::RigidVar` is available), but the body never references
+/// `Self`, so nothing triggers `impl_self_type()`. Pins the false-positive
+/// boundary: the Self binding must not regress no-self def-impl methods
+/// (e.g., trait-level associated-style functions).
 #[test]
 fn test_def_impl_without_self_param_does_not_bind_self() {
     let (result, _interner) = parse_and_check(
@@ -288,14 +287,14 @@ fn test_def_impl_without_self_param_does_not_bind_self() {
     );
 }
 
-/// Pins the §09.4 fix: an untyped lambda passed to `[int].map(...)` infers
-/// its parameter from the receiver's element type via
-/// `unify_closure_param_with_iterator_elem` (`closure_unify.rs:127-149`)
-/// dispatched from `unify_higher_order_constraints` in `method_call.rs`.
-/// Without §09.4, the unannotated `x` would stay as a fresh `Tag::Var`,
-/// surfacing as `E2005` after `+ 1` constrains it only as some addable
-/// type. With §09.4, the receiver `[int]` propagates `int` to `x` before
-/// the body checks, so the body is well-typed and no error fires.
+/// Pins receiver-element propagation: an untyped lambda passed to
+/// `[int].map(...)` infers its parameter from the receiver's element type
+/// via `unify_closure_param_with_iterator_elem` dispatched from
+/// `unify_higher_order_constraints`. Without it, the unannotated `x` would
+/// stay as a fresh `Tag::Var`, surfacing as `E2005` after `+ 1` constrains
+/// it only as some addable type. With it, the receiver `[int]` propagates
+/// `int` to `x` before the body checks, so the body is well-typed and no
+/// error fires.
 #[test]
 fn test_lambda_param_inferred_from_list_map_receiver() {
     let (result, _interner) =
@@ -345,13 +344,12 @@ fn test_lambda_params_inferred_from_list_fold_receiver() {
 ///
 /// Originally this program reached codegen with an unresolved `Tag::Var`
 /// element type and surfaced as "unresolved type variable at codegen" in
-/// `ori_llvm/type_info/store.rs`. The combined effect of Sections 01
-/// (Value Restriction), 02 (`validate_body_types` + end-of-body defaulting),
-/// 03.1–03.4 (wiring the validator into all four body passes), and the
-/// defaulting pre-pass means the empty-list element `Tag::Var`
-/// is resolved via unification with `push(value: 10)` (`T := int`) BEFORE
-/// defaulting even runs — the program now type-checks cleanly and is safe
-/// to hand to codegen (PC-2).
+/// `ori_llvm/type_info/store.rs`. The combined effect of the Value
+/// Restriction, `validate_body_types` + end-of-body defaulting, wiring the
+/// validator into all four body passes, and the defaulting pre-pass means
+/// the empty-list element `Tag::Var` is resolved via unification with
+/// `push(value: 10)` (`T := int`) BEFORE defaulting even runs — the program
+/// now type-checks cleanly and is safe to hand to codegen (PC-2).
 ///
 /// The test pins end-to-end typeck behavior: the full input flows
 /// through every pass without diagnostics. Its companion AOT test
@@ -363,9 +361,9 @@ fn test_lambda_params_inferred_from_list_fold_receiver() {
 /// pass landed, inference resolves the element type via `push`'s `value: T`
 /// constraint, so the validator's `PC-2` rejection path is not exercised
 /// here. Canonical validator coverage for the four body passes lives in
-/// the `unannotated_param` / `ungeneralizable_body_lambda` tests above
-/// (§03.1–§03.4). This test is complementary: it confirms the original
-/// bug's surface repro is fixed end-to-end.
+/// the `unannotated_param` / `ungeneralizable_body_lambda` tests above.
+/// This test is complementary: it confirms the original bug's surface repro
+/// is fixed end-to-end.
 #[test]
 fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     let (result, _interner) = parse_and_check(
@@ -386,7 +384,7 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
 // end-of-body-group normalization pass that re-points those storage
 // locations at the already-rewritten scheme-body Idxs exists.
 
-/// Cell H — `expr_types` port (positive pin for §SC-1 target shape).
+/// Cell H — `expr_types` port (positive pin for the SC-1 target shape).
 ///
 /// Program `@f () -> int = { let $id = x -> x; id(42) }` generalizes
 /// `$id` to `∀a. a -> a`. Generalization rewrites the scheme body to
@@ -431,7 +429,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
     );
 }
 
-/// Cell I — `FunctionSig` port (positive pin for §SC-1 target shape).
+/// Cell I — `FunctionSig` port (positive pin for the SC-1 target shape).
 ///
 /// Top-level polymorphic function `@id<T> (x: T) -> T = x` collects its
 /// signature during pass 1 (`CK-4`) as `FunctionSig.param_types = [Var(a)]`,
@@ -560,8 +558,7 @@ fn validator_strip_polylambda_typechecks_no_e2005() {
 /// post-typeck.
 ///
 /// Delegates compound-tag traversal to `Pool::visit_children` — the same
-/// canonical walker used by `validate_body_types`
-///
+/// canonical walker used by `validate_body_types`.
 fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(Idx)) {
     let resolved = pool.resolve_fully(ty);
     match pool.tag(resolved) {
@@ -571,7 +568,7 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
                 report(resolved);
             }
         }
-        // BoundVar leaves are the §SC-1 target shape — do NOT report.
+        // BoundVar leaves are the SC-1 target shape — do NOT report.
         Tag::BoundVar | Tag::RigidVar => {}
         _ => {
             pool.visit_children(resolved, |child| {
@@ -581,20 +578,19 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
     }
 }
 
-// §09.5 method-call return BD-2 — 5-cell TDD matrix
+// Method-call return BD-2 — 5-cell TDD matrix
 //
 // Pins the BD-2 gate that propagates an outer `Check(T)` annotation into a
-// method-call's generic-return slot at typeck time. Without §09.5 the LHS
+// method-call's generic-return slot at typeck time. Without the gate the LHS
 // annotation does NOT flow through `infer_method_call`'s synth-then-check
 // shape, leaving the call's return as an unresolved `Tag::Var` that surfaces
 // downstream as `E2005` on subsequent field/method access.
 //
-// Tests written BEFORE the fix per CLAUDE.md §TDD step 4 — they MUST fail on
-// the current tree (cell 1/3/4 surface E2005 / E2036; cells 2/5 may pass
-// already as regression baselines). The §05.5 implementation collapses all
-// failures.
+// Tests written BEFORE the fix (TDD) — they MUST fail on the current tree
+// (cell 1/3/4 surface E2005 / E2036; cells 2/5 may pass already as
+// regression baselines). The implementation collapses all failures.
 
-/// §09.5 cell 1 (positive): `let e: Error = msg.into()` compiles clean and
+/// Cell 1 (positive): `let e: Error = msg.into()` compiles clean and
 /// `e.message` resolves to `str`. The LHS annotation `Error` must propagate
 /// through `into()`'s generic return slot via BD-2 so `e` is bound to
 /// `Error` (not a fresh `Tag::Var`). Pins the `str_to_error.ori` failure
@@ -611,7 +607,7 @@ fn test_method_call_return_bd2_into_to_error_resolves_field_access() {
     );
 }
 
-/// §09.5 cell 2 (regression — collect default): the existing `[T]` default
+/// Cell 2 (regression — collect default): the existing `[T]` default
 /// for `.collect()` remains clean. The new `MethodCall` BD-2 gate must NOT
 /// regress the no-Set-annotation collect path that has always worked via
 /// the registered `Collect` impl's default return.
@@ -626,7 +622,7 @@ fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
     );
 }
 
-/// §09.5 cell 3 (negative): `let n: int = msg.into()` where no `Into<int>`
+/// Cell 3 (negative): `let n: int = msg.into()` where no `Into<int>`
 /// impl exists on `str` must surface a diagnostic. Either `E2036`
 /// (`IntoNotImplemented`) at method-resolution time OR `E2001` (Mismatch)
 /// once LHS-driven instantiation finds no matching impl. The gate must
@@ -649,13 +645,13 @@ fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
     );
 }
 
-/// §09.5 cell 4 (regression — no annotation): without LHS annotation the
+/// Cell 4 (regression — no annotation): without LHS annotation the
 /// method-call BD-2 gate MUST NOT fire — the synth path stays unchanged.
 /// `let _e = msg.into()` (no target type, unused binding) currently
 /// resolves `into`'s generic return as a fresh var via the existing synth
-/// path; the §09.5 gate's `expected.has_expectation()` short-circuit
-/// (parallels §09.3 `check_ok` early-return) MUST preserve this — no new
-/// errors introduced. Pins the gate's no-spurious-fire invariant.
+/// path; the gate's `expected.has_expectation()` short-circuit (parallels
+/// the `check_ok` early-return) MUST preserve this — no new errors
+/// introduced. Pins the gate's no-spurious-fire invariant.
 #[test]
 fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
     let (result, _interner) =
@@ -667,7 +663,7 @@ fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
     );
 }
 
-/// §09.5 cell 6 (positive — user-defined Convert<T>): the gate must
+/// Cell 6 (positive — user-defined Convert<T>): the gate must
 /// propagate LHS annotation into a USER-DEFINED generic-return trait
 /// method's slot. Independent of builtin/prelude types (Into/Error/collect)
 /// — pins the gate's correctness on user-defined registered types alone.
@@ -690,13 +686,13 @@ fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
     );
 }
 
-/// §09.5 cell 5 (interaction — nested in `map_err`): the LHS annotation
+/// Cell 5 (interaction — nested in `map_err`): the LHS annotation
 /// `Result<int, Error>` propagates through `map_err`'s `(E) -> E2` closure
 /// to the closure's return position; the closure body's `msg.into()` then
 /// receives `Check(Error)` and instantiates `into<T = Error>` correctly.
 /// Pins recursive-propagation: BD-2 composes across generic-return
-/// method-calls AND closure-return propagation (§09.4 wired
-/// closure-param-from-receiver; this pins the closure-return direction).
+/// method-calls AND closure-return propagation (closure-param-from-receiver
+/// was wired earlier; this pins the closure-return direction).
 #[test]
 #[ignore = "BUG-02-029: closure-return BD-2 propagation absent — outer Check(Result<T,E2>) does not flow through map_err's (E) -> E2 closure signature into closure body. §09.4 wired closure-param-from-receiver; symmetric closure-return-from-outer-expected gap. Sibling cure surface to §09.4 in unify_higher_order_constraints."]
 fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
@@ -710,14 +706,14 @@ fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     );
 }
 
-// §06.5 unknown-method diagnostic — silent-poison class closure (BUG-02-044 +
-// §10.1 rigid-receiver negative). A genuine NotFound method lookup on a
+// Unknown-method diagnostic — silent-poison class closure (BUG-02-044 +
+// rigid-receiver negative). A genuine NotFound method lookup on a
 // diagnosable receiver must emit a diagnostic, NOT silently poison via
-// Idx::ERROR. (/improve-tooling-adjacent compiler fix 2026-06-07.)
+// Idx::ERROR.
 
 #[test]
 fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
-    // Negative clamp on the §06.5 emit's SCOPE: a `NotFound` on a CONCRETE
+    // Negative clamp on the emit's SCOPE: a `NotFound` on a CONCRETE
     // receiver must NOT emit. Typeck's concrete-receiver dispatch is incomplete
     // (builtin trait assoc-fns like `int.default()`, field-callables like
     // `s.transform(...)`, builtin collection methods like `list.updated(...)`),
@@ -746,7 +742,7 @@ fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
 
 #[test]
 fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
-    // §10.1 negative case: `@f<T>(x: T)` has no bound providing `hello`, so
+    // Negative case: `@f<T>(x: T)` has no bound providing `hello`, so
     // `x.hello()` must report a method-not-found (with an add-a-bound hint),
     // not silently accept.
     let (result, _interner) =
@@ -785,7 +781,7 @@ fn test_capability_namespace_receiver_no_spurious_error() {
 
 #[test]
 fn test_capability_no_self_method_dispatch_resolves_clean() {
-    // §10.2: a no-self capability/associated method call (`Http.get(url:)`,
+    // A no-self capability/associated method call (`Http.get(url:)`,
     // `@get` has no `self`) on a capability namespace must type-check with ZERO
     // errors. The cap marker var stays a unifiable `Tag::Var` (so caller-side
     // `with...in` provision unifies it with the concrete provider) and its
@@ -808,7 +804,7 @@ fn test_capability_no_self_method_dispatch_resolves_clean() {
 #[test]
 fn test_method_on_bounded_rigid_receiver_resolves_clean() {
     // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
-    // §10.1 bound-chain — no spurious method-not-found from the §06.5 emit.
+    // bound-chain — no spurious method-not-found from the emit.
     let (result, _interner) = parse_and_check(
         "trait Greet { @hello (self) -> str }\n@f<T: Greet> (x: T) -> str = x.hello();",
     );
@@ -821,7 +817,7 @@ fn test_method_on_bounded_rigid_receiver_resolves_clean() {
 
 #[test]
 fn test_unbounded_impl_level_generic_receiver_reports_error() {
-    // §10.1.2 negative: an IMPL-level generic param (`impl<T>`, no bound) used as
+    // Negative: an IMPL-level generic param (`impl<T>`, no bound) used as
     // a method receiver inside a method body must surface a method-not-found —
     // same invariant as the function-level `@f<T>` case. Before impl-level
     // generics were allocated as RigidVars (in `check_impl_block`), `x: T`
@@ -842,8 +838,8 @@ fn test_unbounded_impl_level_generic_receiver_reports_error() {
 
 #[test]
 fn test_bounded_impl_level_generic_receiver_resolves_clean() {
-    // §10.1.2 positive boundary: with the impl-level `T: Greet` bound registered
-    // on the impl RigidVar, `x.hello()` resolves via the §10.1 bound-chain in
+    // Positive boundary: with the impl-level `T: Greet` bound registered
+    // on the impl RigidVar, `x.hello()` resolves via the bound-chain in
     // typeck itself (not merely masked by the evaluator's dispatch) — no spurious
     // method-not-found.
     let (result, _interner) = parse_and_check(

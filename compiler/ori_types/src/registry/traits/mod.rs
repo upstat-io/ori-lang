@@ -469,7 +469,7 @@ pub enum MethodLookupResult<'a> {
     NotFound,
 }
 
-/// Result of a bound-chain method lookup (§10.1).
+/// Result of a bound-chain method lookup.
 ///
 /// Returned by `TraitRegistry::find_trait_method_via_bound_chain`. Distinct
 /// from `MethodLookupResult` because the resolved method is a trait-level

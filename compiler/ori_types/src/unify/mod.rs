@@ -212,7 +212,7 @@ impl<'pool> UnifyEngine<'pool> {
         let b_tag = self.pool.tag(b);
 
         // Error type propagates (don't report cascading errors). `Error` is a
-        // legitimate type (types.md §TY-5: Error == Idx::ERROR) sharing the
+        // legitimate type (TY-5: Error == Idx::ERROR) sharing the
         // poison slot, so `Result<str, Error>` carries HAS_ERROR. Suppressing the
         // whole unification here leaves variables nested alongside the error type
         // unbound, surfacing a spurious E2005 (e.g. `let r: Result<str, Error> =

@@ -15,13 +15,11 @@
 //!
 //! ```text
 //! Base Environment (frozen after Pass 1)
-//!     │
-//!     ├─ child for function foo
-//!     │   ├─ param: x -> int
-//!     │   └─ param: y -> str
-//!     │
-//!     └─ child for function bar
-//!         └─ param: n -> int
+//!   - child for function foo
+//!     - param: x -> int
+//!     - param: y -> str
+//!   - child for function bar
+//!     - param: n -> int
 //! ```
 //!
 //! # File layout
@@ -94,13 +92,11 @@ pub(super) struct BodyOutputs {
     pub assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
 }
 
-/// Shared post-inference spine for every body-checking pass (§03.1, §03.2,
-/// §03.3, §03.4).
+/// Shared post-inference spine for every body-checking pass.
 ///
 /// Runs the PC-2 validator, stores expression types into the checker, pushes
 /// accumulated errors / warnings, and extends pattern-resolution / mono /
-/// deferred-call vectors. Per the F15 scope note ("extract ONLY the spine,
-/// not a giant wrapper"), this covers only the post-body common work — each
+/// deferred-call vectors. Covers only the post-body common work — each
 /// caller still owns its own parameter binding, inference closure, and
 /// signature construction / export.
 pub(super) fn finalize_body_and_export(
@@ -163,8 +159,7 @@ pub(super) fn finalize_body_and_export(
     // Accumulate pattern resolutions, mono outputs, and deferred calls.
     // `accumulate_mono_session` extends both `mono_instances` and
     // `mono_dispatch_pre_dedup` together so dispatch entries are
-    // re-anchored from body-local to module-wide positions in lockstep
-    //
+    // re-anchored from body-local to module-wide positions in lockstep.
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
@@ -192,10 +187,9 @@ pub(super) fn finalize_body_and_export(
 /// `u32::MAX`). Falls back to `Span::DUMMY` on the impossible overflow path
 /// rather than indexing the arena with `ExprId::INVALID`.
 ///
-/// Consumers: `check_function` / `check_test` in `functions.rs` (§03.1 /
-/// §03.2) and `check_impl_method` / `check_def_impl_method` in `impls.rs`
-/// (§03.3 / §03.4). Lives in `mod.rs` so both submodules can call it per
-/// — the four body passes share the
+/// Consumers: `check_function` / `check_test` in `functions.rs` and
+/// `check_impl_method` / `check_def_impl_method` in `impls.rs`. Lives in
+/// `mod.rs` so both submodules can call it — the four body passes share the
 /// identical validation skeleton.
 pub(super) fn run_validator(
     checker: &mut ModuleChecker<'_>,
@@ -210,10 +204,10 @@ pub(super) fn run_validator(
         let arena = checker.arena();
         let pool = checker.pool();
         let mut errs: Vec<TypeCheckError> = Vec::new();
-        // Bundle source-attribution closures per (>3
-        // params → config struct). All three closures need the same
-        // `arena` borrow; `ValidatorContext` bundles them into a single
-        // argument of `validate_body_types`.
+        // Bundle source-attribution closures (>3 params → config struct).
+        // All three closures need the same `arena` borrow;
+        // `ValidatorContext` bundles them into a single argument of
+        // `validate_body_types`.
         let span_of = |expr_index| {
             u32::try_from(expr_index)
                 .map(|raw| arena.get_expr(ExprId::new(raw)).span)
@@ -224,8 +218,8 @@ pub(super) fn run_validator(
                 .ok()
                 .map(|raw| arena.get_expr(ExprId::new(raw)).kind)
         };
-        // Plan §06.1 item 2: resolve the param-token span for a Lambda
-        // ExprIndex + 0-based param index. Returns `None` when the
+        // Resolve the param-token span for a Lambda ExprIndex + 0-based
+        // param index. Returns `None` when the
         // ExprIndex does not point at a `Lambda` (validator falls back
         // to the lambda-wide span) or when `param_index` is out of
         // range. Spans flow from the parser-allocated `Param.span` at

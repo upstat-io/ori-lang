@@ -62,7 +62,7 @@ use crate::{
 
 /// Identity tuple for `MonoInstance` deduplication at `finish_with_pool()`.
 ///
-/// Encodes the full distinguishing identity per `output/mod.rs MonoInstance`
+/// Encodes the full distinguishing identity per the `MonoInstance`
 /// invariant: `(fn_name, generic_args, impl_args, method_args,
 /// concrete_param_types, receiver_type)`. Two instances are duplicates iff
 /// every field of the tuple matches; the dedup at finish-time uses an
@@ -112,30 +112,25 @@ mod test_utils;
 ///
 /// ```text
 /// ModuleChecker
-/// ├── Immutable Context
-/// │   ├── arena: &ExprArena     (expression lookup)
-/// │   └── interner: &StringInterner (name resolution)
-/// │
-/// ├── Type Storage
-/// │   └── pool: Pool            (unified type pool)
-/// │
-/// ├── Registries
-/// │   ├── types: TypeRegistry   (structs, enums)
-/// │   ├── traits: TraitRegistry (traits, impls)
-/// │   └── methods: MethodRegistry (built-in methods)
-/// │
-/// ├── Function State
-/// │   ├── signatures: HashMap<Name, FunctionSig>
-/// │   └── base_env: Option<TypeEnv>
-/// │
-/// ├── Scope Context
-/// │   ├── current_function: Option<Idx>
-/// │   ├── current_impl_self: Option<Idx>
-/// │   ├── current_capabilities: HashSet<Name>
-/// │   └── provided_capabilities: HashSet<Name>
-/// │
-/// └── Diagnostics
-///     └── errors: Vec<TypeCheckError>
+/// - Immutable Context
+///   - arena: &ExprArena     (expression lookup)
+///   - interner: &StringInterner (name resolution)
+/// - Type Storage
+///   - pool: Pool            (unified type pool)
+/// - Registries
+///   - types: TypeRegistry   (structs, enums)
+///   - traits: TraitRegistry (traits, impls)
+///   - methods: MethodRegistry (built-in methods)
+/// - Function State
+///   - signatures: HashMap<Name, FunctionSig>
+///   - base_env: Option<TypeEnv>
+/// - Scope Context
+///   - current_function: Option<Idx>
+///   - current_impl_self: Option<Idx>
+///   - current_capabilities: HashSet<Name>
+///   - provided_capabilities: HashSet<Name>
+/// - Diagnostics
+///   - errors: Vec<TypeCheckError>
 /// ```
 pub struct ModuleChecker<'a> {
     // === Immutable Context ===
@@ -531,8 +526,8 @@ impl<'a> ModuleChecker<'a> {
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
-        // Per §C.2 sub-step 1b-deferred, the resolver publishes dispatch entries
-        // into `mono_dispatch_pre_dedup` for each successfully-resolved deferred
+        // The deferred resolver publishes dispatch entries into
+        // `mono_dispatch_pre_dedup` for each successfully-resolved deferred
         // call, using the `DeferredMonoCall.call_expr_id` recorded at inference
         // time. Pre-dedup ids are remapped through the same dedup pipeline as
         // eager-path entries below.
@@ -597,16 +592,14 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: self.impl_sigs,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
-            // Phase C.2 sub-step 1b: populated from
-            // `mono_dispatch_pre_dedup` after remapping pre-dedup
-            // `MonoInstanceId`s through dedup + sort, then sorted by
-            // `ExprId` for binary-search lookup per `output/mod.rs:405-410`.
-            // Phase C.2 sub-step 1b-deferred (shipped): the deferred-
-            // resolution path `exports::resolve_deferred_mono_calls` now
-            // publishes pre-dedup entries via `DeferredMonoCall.call_expr_id`,
-            // so transitive (generic-calls-generic) instantiations land in
-            // this map alongside eager-path instantiations. Both flow
-            // through the same dedup-remap pipeline.
+            // Populated from `mono_dispatch_pre_dedup` after remapping
+            // pre-dedup `MonoInstanceId`s through dedup + sort, then sorted
+            // by `ExprId` for binary-search lookup. The deferred-resolution
+            // path `exports::resolve_deferred_mono_calls` publishes pre-dedup
+            // entries via `DeferredMonoCall.call_expr_id`, so transitive
+            // (generic-calls-generic) instantiations land in this map
+            // alongside eager-path instantiations. Both flow through the
+            // same dedup-remap pipeline.
             mono_dispatch_map,
             type_descriptors,
             exported_type_metadata,
@@ -626,7 +619,7 @@ impl<'a> ModuleChecker<'a> {
 /// `pre-dedup → dedup → sorted` permutation.
 ///
 /// Returns the deduped+sorted instances and the remapped dispatch map sorted by
-/// `ExprId` for binary-search lookup per `output/mod.rs:405-410`.
+/// `ExprId` for binary-search lookup.
 fn dedup_and_remap_mono_instances(
     mut mono_instances: Vec<crate::MonoInstance>,
     mono_dispatch_pre_dedup: Vec<(ori_ir::ExprId, crate::MonoInstanceId)>,
@@ -649,12 +642,12 @@ fn dedup_and_remap_mono_instances(
     // Identity tuple: (fn_name, generic_args, impl_args, method_args,
     // concrete_param_types, receiver_type) — see `MonoIdentityKey` alias.
     //
-    // Phase C.2 sub-step 1b: dedup tracks `old_idx → new_idx` so the
-    // pre-dedup `mono_dispatch_map` entries (which carry pre-dedup
-    // `MonoInstanceId`s) can be remapped to point at the same
-    // canonical instance after non-adjacent duplicates collapse.
-    // FxHashMap stays deterministic (FxHasher has no per-process
-    // random seed), satisfying Salsa SL-1.
+    // Dedup tracks `old_idx → new_idx` so the pre-dedup
+    // `mono_dispatch_map` entries (which carry pre-dedup `MonoInstanceId`s)
+    // can be remapped to point at the same canonical instance after
+    // non-adjacent duplicates collapse. FxHashMap stays deterministic
+    // (FxHasher has no per-process random seed), satisfying Salsa SL-1
+    // (query purity).
     let pre_dedup_len = mono_instances.len();
     let mut seen: rustc_hash::FxHashMap<MonoIdentityKey, u32> = rustc_hash::FxHashMap::default();
     let mut deduped: Vec<crate::MonoInstance> = Vec::with_capacity(pre_dedup_len);
@@ -708,8 +701,8 @@ fn dedup_and_remap_mono_instances(
 
     // Apply the composed `pre-dedup → dedup → sorted` remap to the
     // dispatch entries, then sort by `ExprId` for the
-    // `Vec<(ExprId, MonoInstanceId)>` binary-search shape per
-    // `output/mod.rs:405-410` (mirrors `pattern_resolutions`).
+    // `Vec<(ExprId, MonoInstanceId)>` binary-search shape (mirrors
+    // `pattern_resolutions`).
     let mut mono_dispatch_map: Vec<(ori_ir::ExprId, crate::MonoInstanceId)> =
         mono_dispatch_pre_dedup
             .into_iter()

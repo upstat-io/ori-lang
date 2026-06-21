@@ -27,7 +27,7 @@ pub fn check_function_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
 /// Type check a single function body.
 #[expect(
     clippy::too_many_lines,
-    reason = "Per-function body-check pipeline — line count tracks the number of sequential phases (sig clone, exempt-set build, child-env, param/const/capability binding, fn_type build, span capture, with_function_scope closure containing engine setup + §10.1 bound registration + §10.2 capability bounds + guard check + body check + defaulting + normalization, finalize_body_and_export, sig writeback). Each phase is necessary and ordered; extracting into helpers would multiply borrows of `checker`/`sig`/`engine` across function boundaries without structural win per impl-hygiene.md §Algorithmic DRY."
+    reason = "Per-function body-check pipeline — line count tracks the number of sequential phases (sig clone, exempt-set build, child-env, param/const/capability binding, fn_type build, span capture, with_function_scope closure containing engine setup + bound registration + capability bounds + guard check + body check + defaulting + normalization, finalize_body_and_export, sig writeback). Each phase is necessary and ordered; extracting into helpers would multiply borrows of `checker`/`sig`/`engine` across function boundaries without structural win."
 )]
 fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     // Look up the pre-collected signature. Cloned into a mutable local so the
@@ -42,7 +42,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
     // Build the exempt var-id set once, before entering the inference
     // closure. The engine method receives `&FxHashSet<u32>` — avoids an
-    // `infer → check::validators` upward import per. Capability marker var_ids
+    // `infer → check::validators` upward import. Capability marker var_ids
     // are merged in after the capability loop below.
     let mut exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
@@ -127,8 +127,8 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         // Track current function for deferred mono call recording
         engine.set_current_function(Some(func_name));
 
-        // §10.1: register top-level function generic-param trait bounds on
-        // the engine so body-internal method-call dispatch on
+        // Register top-level function generic-param trait bounds on the
+        // engine so body-internal method-call dispatch on
         // `Tag::Var`/`Tag::RigidVar` receivers can walk the bound chain
         // and resolve trait methods. Two sources to merge:
         //
@@ -160,9 +160,9 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             }
         }
 
-        // §10.2: register each capability trait as a bound on its cap_ty
+        // Register each capability trait as a bound on its cap_ty
         // fresh_var. Body-internal `Cap.method(...)` then routes through
-        // §10.1 bound-chain dispatch.
+        // the bound-chain dispatch.
         for &(var_id, cap_name) in &capability_var_bounds {
             engine.bind_rigid_bound_by_var_id(var_id, cap_name);
         }
@@ -185,7 +185,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             let _ = engine.check_type(guard_ty, &expected_bool, span);
         }
 
-        // Spec: 10-patterns.md § Function-Level Contracts.
+        // Spec: Clause 10 (Function-Level Contracts).
         // pre() contracts: scope check (E2047) precedes type check (E2044).
         validate_pre_contracts(&mut engine, arena, func);
 
@@ -226,7 +226,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             }
         }
 
-        // Spec: 10-patterns.md § Function-Level Contracts.
+        // Spec: Clause 10 (Function-Level Contracts).
         // post() contracts: void-return rejection (E2046). Runs after body
         // inference so sig.return_type is fully resolved.
         validate_post_contracts(&mut engine, arena, func, sig.return_type);
@@ -283,7 +283,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         )
     });
 
-    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    // Shared PC-2 validation + store/push/accumulate spine.
     super::finalize_body_and_export(
         checker,
         &sig,
@@ -303,11 +303,11 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         },
     );
 
-    // (Plan TPR Round 1 Codex-F2): write the defaulted signature
-    // back to the checker's signature map so cross-function lookups and the
-    // cross-module identity channel (`output/mod.rs:442-457` param_hashes /
-    // return_hash) see the post-defaulted types instead of the pre-defaulted
-    // ones. Prevents incremental-cache divergence on re-checks.
+    // Write the defaulted signature back to the checker's signature map so
+    // cross-function lookups and the cross-module identity channel
+    // (param_hashes / return_hash) see the post-defaulted types instead of
+    // the pre-defaulted ones. Prevents incremental-cache divergence on
+    // re-checks.
     checker.signatures.insert(func.name, sig);
 }
 
@@ -381,10 +381,8 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // defaulting helpers debug-assert this flag (see `check_function`).
     engine.mark_body_inference_complete();
 
-    // default unbound vars reachable from empty-literal expr
-    // roots before exporting types. Defaulting lands BEFORE Section 03.2's
-    // validate_body_types wiring arrives, so when that wiring lands tests
-    // with empty literals still type-check without E2005.
+    // default unbound vars reachable from empty-literal expr roots before
+    // exporting types, so tests with empty literals type-check without E2005.
     let mut expr_types = engine.take_expr_types();
     engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
 
@@ -407,7 +405,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let composed_burdens = engine.take_composed_burdens();
     let assign_desugars = engine.take_assign_desugars();
 
-    // Shared PC-2 validation + store/push/accumulate spine (§03.1–§03.4).
+    // Shared PC-2 validation + store/push/accumulate spine.
     super::finalize_body_and_export(
         checker,
         &sig,
@@ -435,7 +433,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 
 /// Validate every `pre()` contract on `func`.
 ///
-/// Spec: 10-patterns.md § Function-Level Contracts.
+/// Spec: Clause 10 (Function-Level Contracts).
 ///
 /// Two checks per contract, in order:
 ///
@@ -445,7 +443,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 ///    constants. Free names emit E2047.
 /// 2. **Type (E2044)** — if scope passed, infer the condition's type and
 ///    require `bool`. Skipped when scope check failed to avoid cascading
-///    diagnostics per `typeck.md §ER-4`.
+///    diagnostics (ER-4: follow-on suppression).
 fn validate_pre_contracts(engine: &mut InferEngine<'_>, arena: &ExprArena, func: &Function) {
     for contract in &func.pre_contracts {
         let scope_errors = collect_pre_contract_scope_errors(engine, arena, contract.condition);
@@ -469,7 +467,7 @@ fn validate_pre_contracts(engine: &mut InferEngine<'_>, arena: &ExprArena, func:
 
 /// Validate every `post()` contract on `func`.
 ///
-/// Spec: 10-patterns.md § Function-Level Contracts.
+/// Spec: Clause 10 (Function-Level Contracts).
 ///
 /// `post()` is rejected when the function returns `void` (E2046) — there is
 /// no result value for the post-lambda to bind. The parser guarantees every

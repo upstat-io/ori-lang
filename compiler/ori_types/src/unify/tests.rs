@@ -841,7 +841,7 @@ fn occurs_check_finds_var_in_dei() {
     assert!(matches!(result, Err(UnifyError::InfiniteType { .. })));
 }
 
-// BUG-02-007 — Generalization compound-tag delegation (impl-hygiene §Algorithmic DRY).
+// Generalization compound-tag delegation.
 //
 // `collect_free_vars_inner` historically open-coded a tag-dispatch ladder over
 // the seven simple containers, Map, Result, Borrowed, Function, Tuple, and

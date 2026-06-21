@@ -436,7 +436,7 @@ impl TypeCheckError {
             }
             // RefutablePattern carries no pool-dependent rich formatting; delegate
             // to the SSOT renderer (`message()`) so the rich path cannot drift from
-            // the spec-conformant text (per .claude/rules/types.md §DI message SSOT).
+            // the spec-conformant text (`message()` is the single SSOT renderer).
             TypeErrorKind::RefutablePattern { .. } => self.message(),
             TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
                 format!(

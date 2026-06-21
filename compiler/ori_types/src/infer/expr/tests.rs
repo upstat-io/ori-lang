@@ -2365,7 +2365,7 @@ fn test_eq_satisfied_by_tuple() {
     );
 }
 
-// Trait Satisfaction Tests — Len satisfied by tuple (§3.0.1)
+// Trait Satisfaction Tests — Len satisfied by tuple
 
 #[test]
 fn test_len_satisfied_by_tuple() {
@@ -2825,7 +2825,7 @@ fn printable_satisfaction_primitives_and_compounds() {
     }
 }
 
-// Into Trait — Builtin Method Resolution (§3.17)
+// Into Trait — Builtin Method Resolution
 
 /// `int.into()` resolves to `float` via `resolve_builtin_method`.
 #[test]
@@ -3092,7 +3092,7 @@ fn test_has_comparable_returns_false_without_registry() {
     );
 }
 
-// ── Value Restriction Tests ──────────────────────────────────────────
+// === Value Restriction Tests ===
 
 #[test]
 fn test_should_generalize_non_capturing_lambda_returns_true() {
@@ -3825,8 +3825,9 @@ fn test_try_block_let_lambda_generalizes() {
 // captured via call args, method args, block bodies, list / map / struct
 // literals, and match arm bodies.
 
-/// Helper for the 7 F1 + F7 tests: wrap a single-statement capturing body in a
-/// `(x) -> <body>` lambda and assert `should_generalize` rejects it.
+/// Helper for the capture-via-compound-node tests: wrap a single-statement
+/// capturing body in a `(x) -> <body>` lambda and assert `should_generalize`
+/// rejects it.
 ///
 /// The param `x` (name 100) is introduced so the lambda has a parameter; the
 /// captured outer binding is `name(10)`, which must NOT be in the param list
@@ -3857,7 +3858,7 @@ fn assert_lambda_with_body_does_not_generalize(arena: &mut ExprArena, body: Expr
     );
 }
 
-/// F1 + F7: `(x) -> foo(outer)` — capture flows through `Call.args`, not
+/// `(x) -> foo(outer)` — capture flows through `Call.args`, not
 /// `Call.func`. Old code only walked `func`; `args` were in the `_ => false`
 /// wildcard. `foo` is a `FunctionRef` (module-level @name — never a capture
 /// of lambda params), so the test isolates the arg-slice blindspot.
@@ -3871,7 +3872,7 @@ fn test_capturing_lambda_via_call_arg_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> [].push(outer)` — capture flows through `MethodCall.args`,
+/// `(x) -> [].push(outer)` — capture flows through `MethodCall.args`,
 /// not `MethodCall.receiver`. Receiver is an empty list literal (itself
 /// non-capturing under either old or new rule) so the test isolates the
 /// args-slice blindspot.
@@ -3893,7 +3894,7 @@ fn test_capturing_lambda_via_method_arg_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> { outer }` — capture flows through `Block.result`.
+/// `(x) -> { outer }` — capture flows through `Block.result`.
 /// Old code had `Block` in the `_ => false` wildcard; new code must walk
 /// both `result` and every `stmts` entry.
 #[test]
@@ -3910,7 +3911,7 @@ fn test_capturing_lambda_via_block_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> [outer, 1]` — capture flows through list-literal elements.
+/// `(x) -> [outer, 1]` — capture flows through list-literal elements.
 /// Old code had `List` in `_ => false`; new code must walk every element.
 #[test]
 fn test_capturing_lambda_via_list_literal_does_not_generalize() {
@@ -3922,7 +3923,7 @@ fn test_capturing_lambda_via_list_literal_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> {"key": outer}` — capture flows through map-entry values.
+/// `(x) -> {"key": outer}` — capture flows through map-entry values.
 /// Old code had `Map` in `_ => false`; new code must walk every key and value
 /// in each `MapEntry`.
 #[test]
@@ -3939,7 +3940,7 @@ fn test_capturing_lambda_via_map_literal_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> Point { x: outer }` — capture flows through struct-literal
+/// `(x) -> Point { x: outer }` — capture flows through struct-literal
 /// field initializer values. Old code had `Struct` in `_ => false`; new code
 /// must walk every `FieldInit.value`.
 #[test]
@@ -3961,7 +3962,7 @@ fn test_capturing_lambda_via_struct_literal_does_not_generalize() {
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 
-/// F1 + F7: `(x) -> match x { _ -> outer }` — capture flows through
+/// `(x) -> match x { _ -> outer }` — capture flows through
 /// match-arm bodies. Old code had `Match` in `_ => false`; new code must walk
 /// each arm's body (and guard, where present). Scrutinee here is the param
 /// `x`, which is NOT a capture — the capture comes exclusively from the arm
@@ -3989,13 +3990,13 @@ fn test_capturing_lambda_via_match_arm_does_not_generalize() {
 /// expression typechecks against `int` directly and the returned type is
 /// the outer `Result<int, str>` — no double-wrap to `Result<Result<int, _>, _>`.
 /// Note: when the result is itself a constructor like `Ok(x)`, full propagation
-/// requires §09.3 (constructor-side BD-2). §09.1 alone covers the boundary.
+/// requires constructor-side BD-2; the boundary BD-2 alone covers this case.
 #[test]
 fn test_try_block_propagates_expected_result_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { 42 } — bare int result, no Ok wrapper (Ok BD-2 is §09.3)
+    // try { 42 } — bare int result, no Ok wrapper (Ok BD-2 is constructor-side)
     let int_result = alloc(&mut arena, ExprKind::Int(42));
     let stmts = arena.alloc_stmt_range(0, 0);
     let try_seq = ori_ir::FunctionSeq::Try {
@@ -4150,8 +4151,8 @@ fn test_check_some_propagates_option_type_into_inner() {
 }
 
 /// Synth fallback regression guard: `Ok(42)` with no outer annotation
-/// still synthesizes to `Result<int, fresh_var>`. §09.3 BD-2 must not
-/// disturb the existing synth path when the expectation is absent.
+/// still synthesizes to `Result<int, fresh_var>`. Constructor-side BD-2 must
+/// not disturb the existing synth path when the expectation is absent.
 #[test]
 fn test_check_ok_without_expectation_falls_back_to_synthesis() {
     test_engine!(pool, engine);

@@ -441,7 +441,7 @@ fn self_in_receiver_position_is_allowed() {
     );
 }
 
-// ── Super-trait inheritance (Phase B.1 — register_object_safety_violations) ──
+// === Super-trait inheritance (Phase B.1 — register_object_safety_violations) ===
 
 /// Helper: build a `TraitDef` with one generic method `@<method_name><T> (self) -> T`.
 /// The trait's direct items therefore violate object-safety Rule 3 (`GenericMethod`).
@@ -705,7 +705,7 @@ fn no_super_trait_means_no_inheritance() {
     );
 }
 
-// ── E2029: Derive Hashable without Eq ────────────────────────────────
+// === E2029: Derive Hashable without Eq ===
 
 #[test]
 fn derive_hashable_without_eq_emits_error() {
@@ -1171,7 +1171,7 @@ fn repr_c_plus_aligned_still_valid() {
     );
 }
 
-// ── E2049: Value + Drop mutual exclusion ───────────────────────────────
+// === E2049: Value + Drop mutual exclusion ===
 
 /// Helper: build a minimal `impl Point: Drop { @drop (self) -> void = ... }`
 /// `ImplDef` over a struct named `Point`. The body `ExprId` is `INVALID`
@@ -1186,7 +1186,7 @@ fn make_drop_impl_for(
     let drop_method = interner.intern("drop");
     let self_name = interner.intern("self");
     let params = arena.alloc_params(vec![make_param(self_name, None)]);
-    // Idx::UNIT corresponds to TypeId::from_raw(6) per §TY-5.
+    // TY-5: Idx::UNIT corresponds to TypeId::from_raw(6) (pre-interned primitive index).
     let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
     ori_ir::ImplDef {
         generics: ori_ir::GenericParamRange::EMPTY,

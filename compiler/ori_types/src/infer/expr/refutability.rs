@@ -3,10 +3,9 @@
 //! `let <pat> = expr` SHALL require an irrefutable pattern per Spec Clause 15.4.
 //! Refutable patterns are rejected with error code E2001 listing the uncovered shape.
 //!
-//! See `compiler_repo/docs/ori_lang/v2026/spec/15-patterns.md:332-340` for the
-//! canonical List Pattern Exhaustiveness table (`[]`, `[$x]`, `[$x, $y]`,
-//! `[$x, ..rest]`, `[..rest]`). The irrefutability context requirement
-//! (`let` / `for` MUST be irrefutable) is at `15-patterns.md:276-281`.
+//! See Spec: Clause 15 for the canonical List Pattern Exhaustiveness table
+//! (`[]`, `[$x]`, `[$x, $y]`, `[$x, ..rest]`, `[..rest]`). The irrefutability
+//! context requirement (`let` / `for` MUST be irrefutable) is in Spec: Clause 15.
 
 use ori_ir::{BindingPattern, FieldBinding, Name};
 
@@ -69,7 +68,7 @@ pub(crate) fn pattern_is_irrefutable(
         }
 
         BindingPattern::Tuple(pats) => {
-            // §3.2 no-double-diagnostic contract: distinguish unresolved/poison
+            // No-double-diagnostic contract: distinguish unresolved/poison
             // outer (recurse with Idx::ERROR sentinels so type-INDEPENDENT inner
             // refutability fires) from concrete non-tuple outer (return Ok(())
             // so bind_pattern's E2001 type-mismatch fires alone, no doubling).
@@ -90,7 +89,7 @@ pub(crate) fn pattern_is_irrefutable(
         }
 
         BindingPattern::Struct { fields } => {
-            // §3.2 no-double-diagnostic contract: same distinction as Tuple branch.
+            // No-double-diagnostic contract: same distinction as Tuple branch.
             let resolved = engine.resolve(ty);
             let tag = engine.pool().tag(resolved);
             let field_types = match tag {

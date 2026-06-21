@@ -1,8 +1,8 @@
 //! `resolve_impl_signature` — resolve a looked-up impl/trait method to a
 //! concrete `ImplMethodSig` (impl-binder substitution → method-Scheme
-//! instantiation → arity check). Extracted from `impl_lookup.rs` to keep that
-//! module under the 500-line cap (§10.R-010); signature resolution is a
-//! distinct responsibility from method lookup.
+//! instantiation → arity check). Lives apart from `impl_lookup.rs` to keep that
+//! module under the 500-line cap; signature resolution is a distinct
+//! responsibility from method lookup.
 
 use rustc_hash::FxHashMap;
 
@@ -160,8 +160,8 @@ pub(super) fn resolve_impl_signature(
 ///
 /// Composition order is load-bearing: resolve → substitute `Tag::Named`
 /// impl refs → substitute `Tag::RigidVar` impl binders to concrete receiver
-/// types. `substitute_named_in_pool` rewrites only `Tag::Named`; §10.1.2 made
-/// impl binders `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
+/// types. `substitute_named_in_pool` rewrites only `Tag::Named`; impl binders
+/// are `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
 /// -> T` return needs the second pass to resolve `T` to the concrete receiver
 /// type — without it the `RigidVar(T)` survives to mono recording and fails
 /// its `is_fully_concrete` gate. SSOT scan: `build_impl_rigid_var_subst`.
