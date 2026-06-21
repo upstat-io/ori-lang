@@ -56,6 +56,9 @@ impl TypeCheckError {
             TypeErrorKind::UndefinedField { ty, .. } => {
                 format!("no such field on type {}", ty.display_name())
             }
+            TypeErrorKind::UnknownMethod { ty, .. } => {
+                format!("no method on type {}", ty.display_name())
+            }
             TypeErrorKind::ArityMismatch {
                 expected,
                 found,
@@ -353,6 +356,7 @@ impl TypeCheckError {
             TypeErrorKind::UnknownIdent { .. }
             | TypeErrorKind::UnresolvedTrait { .. }
             | TypeErrorKind::UndefinedField { .. }
+            | TypeErrorKind::UnknownMethod { .. }
             | TypeErrorKind::RigidMismatch { .. }
             | TypeErrorKind::ImportError { .. }
             | TypeErrorKind::NotAStruct { .. } => ErrorCode::E2003,

@@ -77,6 +77,15 @@ pub enum TypeErrorKind {
         available: Vec<Name>,
     },
 
+    /// Method call on a concrete receiver with no matching builtin method,
+    /// trait/inherent impl method, or callable struct field.
+    UnknownMethod {
+        /// Receiver type the method was called on.
+        ty: Idx,
+        /// Method name that does not resolve.
+        method: Name,
+    },
+
     /// Wrong number of arguments/elements.
     ArityMismatch {
         /// Expected count.

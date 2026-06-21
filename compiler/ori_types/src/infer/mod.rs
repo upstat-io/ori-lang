@@ -117,6 +117,13 @@ pub struct InferEngine<'pool> {
     /// Type registry for struct/enum/newtype lookup during inference.
     type_registry: Option<&'pool TypeRegistry>,
 
+    /// Builtin-type extension methods (`extend str { @m }`, `extend [T] { @m }`)
+    /// keyed by builtin `TypeTag`. Populated from `module.extends` at body-check
+    /// entry. Consulted by `emit_unknown_method` so an `extend`-provided method on
+    /// a builtin receiver is not false-rejected as unknown (TR-9 dispatch stays
+    /// target-only; the evaluator resolves the actual call).
+    builtin_extensions: FxHashMap<ori_registry::TypeTag, FxHashSet<Name>>,
+
     /// Current function type for `self` references (recursive calls in patterns).
     self_type: Option<Idx>,
 
@@ -302,6 +309,7 @@ impl<'pool> InferEngine<'pool> {
             trait_registry: None,
             signatures: None,
             type_registry: None,
+            builtin_extensions: FxHashMap::default(),
             self_type: None,
             impl_self_type: None,
             loop_contexts: Vec::new(),

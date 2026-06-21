@@ -31,8 +31,9 @@ use super::bodies::{
     check_def_impl_bodies, check_function_bodies, check_impl_bodies, check_test_bodies,
 };
 use super::registration::{
-    register_builtin_types, register_consts, register_derived_impls, register_extern_burdens,
-    register_impls, register_object_safety_violations, register_traits, register_user_types,
+    register_builtin_extensions, register_builtin_types, register_consts, register_derived_impls,
+    register_extern_burdens, register_impls, register_object_safety_violations, register_traits,
+    register_user_types,
 };
 use super::signatures::collect_signatures;
 use super::ModuleChecker;
@@ -203,6 +204,9 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     register_traits(checker, module);
     register_object_safety_violations(checker, module);
     register_impls(checker, module);
+    // Index builtin-type extension methods (`extend str { @m }`) so they are not
+    // false-rejected as unknown by `emit_unknown_method` (BUG-02-041 class C).
+    register_builtin_extensions(checker, module);
 
     // Pass 0d: Register derived implementations
     register_derived_impls(checker, module);

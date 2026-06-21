@@ -21,8 +21,18 @@
 //! ```
 
 use ori_diagnostic::Suggestion;
+use ori_ir::Name;
 
 use super::TypeProblem;
+
+/// Comma-joined list of `n` backtick-wrapped positional placeholders
+/// (`` `{0}`, `{1}`, … ``) for a `text_with_names` message carrying `n` names.
+fn numbered_placeholders(n: usize) -> String {
+    (0..n)
+        .map(|i| format!("`{{{i}}}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 impl TypeProblem {
     /// Generate suggestions for fixing this problem.
@@ -156,9 +166,12 @@ impl TypeProblem {
             ],
 
             Self::MissingArguments { missing } => {
-                let names: Vec<_> = missing.iter().map(|n| format!("`{n:?}`")).collect();
-                vec![Suggestion::text(
-                    format!("add missing arguments: {}", names.join(", ")),
+                vec![Suggestion::text_with_names(
+                    format!(
+                        "add missing arguments: {}",
+                        numbered_placeholders(missing.len())
+                    ),
+                    missing.clone(),
                     0,
                 )]
             }
@@ -176,15 +189,17 @@ impl TypeProblem {
                 field_name,
                 available,
             } => {
-                let mut suggestions = vec![Suggestion::text(
-                    format!("add the missing field `{field_name:?}`"),
+                let mut suggestions = vec![Suggestion::text_with_names(
+                    "add the missing field `{0}`",
+                    vec![*field_name],
                     1,
                 )];
 
                 if !available.is_empty() {
-                    let names: Vec<_> = available.iter().take(5).map(|n| format!("`{n:?}`")).collect();
-                    suggestions.push(Suggestion::text(
-                        format!("available fields: {}", names.join(", ")),
+                    let shown: Vec<Name> = available.iter().take(5).copied().collect();
+                    suggestions.push(Suggestion::text_with_names(
+                        format!("available fields: {}", numbered_placeholders(shown.len())),
+                        shown,
                         2,
                     ));
                 }
@@ -192,13 +207,15 @@ impl TypeProblem {
                 suggestions
             }
 
-            Self::ExtraField { field_name } => vec![Suggestion::text(
-                format!("remove the extra field `{field_name:?}`"),
+            Self::ExtraField { field_name } => vec![Suggestion::text_with_names(
+                "remove the extra field `{0}`",
+                vec![*field_name],
                 0,
             )],
 
-            Self::FieldTypeMismatch { field_name, .. } => vec![Suggestion::text(
-                format!("check the type of field `{field_name:?}`"),
+            Self::FieldTypeMismatch { field_name, .. } => vec![Suggestion::text_with_names(
+                "check the type of field `{0}`",
+                vec![*field_name],
                 1,
             )],
 
@@ -206,19 +223,19 @@ impl TypeProblem {
                 attempted: _,
                 suggestion,
                 distance: _,
-            } => vec![Suggestion::did_you_mean(format!("{suggestion:?}"))],
+            } => vec![Suggestion::text_with_names("did you mean `{0}`?", vec![*suggestion], 0)],
 
-            Self::WrongRecordType { expected, found } => vec![Suggestion::text(
-                format!("expected type `{expected:?}`, got `{found:?}`"),
+            Self::WrongRecordType { expected, found } => vec![Suggestion::text_with_names(
+                "expected type `{0}`, got `{1}`",
+                vec![*expected, *found],
                 1,
             )],
 
             // === Type Variable Problems ===
             Self::RigidMismatch { rigid_name, .. } => vec![
-                Suggestion::text(
-                    format!(
-                        "type parameter `{rigid_name:?}` cannot be unified with a concrete type"
-                    ),
+                Suggestion::text_with_names(
+                    "type parameter `{0}` cannot be unified with a concrete type",
+                    vec![*rigid_name],
                     1,
                 ),
                 Suggestion::text(
@@ -239,28 +256,29 @@ impl TypeProblem {
             ],
 
             Self::EscapingVariable { var_name } => {
-                let name_info = match var_name {
-                    Some(name) => format!(" (`{name:?}`)"),
-                    None => String::new(),
-                };
-                vec![Suggestion::text(
-                    format!(
-                        "type variable{name_info} escapes its scope; add a type annotation to fix it"
+                let (msg, names): (&str, Vec<Name>) = match var_name {
+                    Some(name) => (
+                        "type variable (`{0}`) escapes its scope; add a type annotation to fix it",
+                        vec![*name],
                     ),
-                    1,
-                )]
+                    None => (
+                        "type variable escapes its scope; add a type annotation to fix it",
+                        Vec::new(),
+                    ),
+                };
+                vec![Suggestion::text_with_names(msg, names, 1)]
             }
 
             // === Capability Problems ===
-            Self::MissingCapability { required } => vec![Suggestion::text(
-                format!("add `uses {required:?}` to the function signature"),
+            Self::MissingCapability { required } => vec![Suggestion::text_with_names(
+                "add `uses {0}` to the function signature",
+                vec![*required],
                 0,
             )],
 
-            Self::CapabilityConflict { provided, required } => vec![Suggestion::text(
-                format!(
-                    "capability `{provided:?}` doesn't satisfy requirement `{required:?}`"
-                ),
+            Self::CapabilityConflict { provided, required } => vec![Suggestion::text_with_names(
+                "capability `{0}` doesn't satisfy requirement `{1}`",
+                vec![*provided, *required],
                 1,
             )],
 
@@ -318,11 +336,6 @@ impl TypeProblem {
                 1,
             )],
         }
-    }
-
-    /// Get the highest-priority suggestion message, if any.
-    pub fn top_suggestion(&self) -> Option<String> {
-        self.suggestions().first().map(|s| s.message.clone())
     }
 }
 

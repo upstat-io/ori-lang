@@ -1,0 +1,9 @@
+// Spec: typeck §PC-2 — `str` does not implement IndexSet; `.updated` on a `str`
+// receiver must be REJECTED at typecheck, not deferred to runtime.
+// Regression: bug-tracker/plans/BUG-02-041/
+
+#[compile_fail("updated")]
+@unknown_method_on_str tests _ () -> void = {
+    let _x = "x".updated(key: 0, value: "H");
+    ()
+}

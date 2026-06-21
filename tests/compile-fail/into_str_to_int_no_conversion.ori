@@ -1,0 +1,10 @@
+// Spec: §3.17 Into Trait — `str.into()` to a non-`Error` concrete type has no
+// valid `Into<int>` conversion and must be REJECTED (not silently accepted via
+// the dual-purpose `Idx::ERROR` poison-absorption path).
+// Regression: bug-tracker/plans/BUG-02-028/
+
+#[compile_fail("E2036")]
+@into_to_int_no_conversion tests _ () -> void = {
+    let _n: int = "x".into();
+    ()
+}

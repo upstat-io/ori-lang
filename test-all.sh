@@ -157,15 +157,18 @@ export ORI_VERIFY_EACH=1
 # spurious result. The signature is stable across cargo versions.
 BUILD_RACE_RE='os error 2|could not write output|error: failed to write|No such file or directory \(os error 2\)'
 
-# cargo_race_retry <output_file> <cargo args...>
-# Runs a cargo invocation; on a build-artifact race (signature above) waits and
-# retries ONCE (the racing build usually finishes in seconds). A genuine
-# compile/test failure (no race signature) returns immediately — never masked.
+# cargo_race_retry <output_file> <runner-command...>
+# Runs an arbitrary runner command (e.g. `cargo test ...` OR `cargo nextest run
+# ...`); on a build-artifact race (signature above) waits and retries ONCE (the
+# racing build usually finishes in seconds). A genuine compile/test failure (no
+# race signature) returns immediately — never masked. Callers pass the FULL
+# command including `cargo` so both the cargo-test and nextest legs share one
+# race-retry surface.
 cargo_race_retry() {
     local out="$1"; shift
     local attempt
     for attempt in 1 2; do
-        if cargo "$@" > "$out" 2>&1; then
+        if "$@" > "$out" 2>&1; then
             return 0
         fi
         if [[ $attempt -eq 1 ]] && grep -qE "$BUILD_RACE_RE" "$out"; then
@@ -187,9 +190,13 @@ rust_test_leg() {
     local out="$1"; shift
     if [ -n "$NEXTEST_ACTIVE" ]; then
         # --no-fail-fast: full-suite run (no early abort), matching the cargo path.
-        cargo nextest run --no-fail-fast "$@" > "$out" 2>&1
+        # Route through cargo_race_retry so a concurrent-build race (os error 2 /
+        # failed to exec) retries once and, if persistent, fails the leg (nonzero
+        # exit) instead of letting nextest's Summary count exec-failures as real
+        # failures — parse_rust_results then classifies the leg ERRORED.
+        cargo_race_retry "$out" cargo nextest run --no-fail-fast "$@"
     else
-        cargo_race_retry "$out" test "$@"
+        cargo_race_retry "$out" cargo test "$@"
     fi
 }
 
@@ -368,7 +375,18 @@ parse_rust_results() {
     local prefix=$2
     local passed failed ignored
 
-    if grep -qE "Summary \[" "$output_file" 2>/dev/null; then
+    if [ -n "$NEXTEST_ACTIVE" ] && grep -qE "$BUILD_RACE_RE" "$output_file" 2>/dev/null; then
+        # Concurrent-build race (os error 2 / failed to exec) in the nextest
+        # output: the `[double-spawn] failed to exec` exec-failures are counted
+        # as `failed` in nextest's Summary line, so parsing that count serializes
+        # a phantom regression. The aggregate Summary cannot separate exec-
+        # failures from real failures, so force the errored sentinel: zero the
+        # counts and let the leg's nonzero exit drive suite_status -> errored (a
+        # non-verdict / INCOMPLETE), never a `failed` count. rust_test_leg already
+        # retried once via cargo_race_retry; reaching here means the race persisted.
+        echo "  ⚠ ${prefix}: build-artifact race (os error 2) in nextest output — classifying leg ERRORED (non-verdict), not parsing the contaminated Summary" >&2
+        passed=0; failed=0; ignored=0
+    elif grep -qE "Summary \[" "$output_file" 2>/dev/null; then
         # cargo-nextest aggregate summary line, e.g.
         #   Summary [   0.090s] 296 tests run: 296 passed, 0 skipped
         #   Summary [   1.2s ] 100 tests run: 95 passed, 3 failed, 2 skipped
@@ -564,7 +582,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     # compiles at run time and runs as the single compiler in Phase 2).
     echo "=== Pre-building all debug test artifacts (serial, race-free) ==="
     PRECOMPILE_OUTPUT=$(mktemp)
-    if cargo_race_retry "$PRECOMPILE_OUTPUT" test --no-run -q --workspace --lib --bins --tests; then
+    if cargo_race_retry "$PRECOMPILE_OUTPUT" cargo test --no-run -q --workspace --lib --bins --tests; then
         echo "  ✓ Debug test binaries pre-built"
     else
         echo -e "  ${RED}✗ Debug test-binary pre-build FAILED${NC}"
@@ -574,7 +592,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     # so when active they must ALSO be pre-built serially here — a Phase-2 plain
     # `cargo nextest run` would otherwise compile and reintroduce the rmeta race.
     if [ -n "$NEXTEST_ACTIVE" ]; then
-        if cargo nextest run --no-run --workspace --lib --bins --tests > "$PRECOMPILE_OUTPUT" 2>&1; then
+        if cargo_race_retry "$PRECOMPILE_OUTPUT" cargo nextest run --no-run --workspace --lib --bins --tests; then
             echo "  ✓ nextest test binaries pre-built"
         else
             echo -e "  ${RED}✗ nextest test-binary pre-build FAILED${NC}"

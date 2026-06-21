@@ -54,6 +54,7 @@ const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 const SELF: ReturnTag = ReturnTag::SelfType;
 const FRESH: ReturnTag = ReturnTag::Fresh;
+const LIST_ELEM: ReturnTag = ReturnTag::ListOf(TypeProjection::Element);
 const OPT_ELEM: ReturnTag = ReturnTag::OptionOf(TypeProjection::Element);
 const IDX_PAIRS: ReturnTag = ReturnTag::ListOfTupleIntElement;
 const DEI_ELEM: ReturnTag = ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element);
@@ -116,6 +117,8 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("sum",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("take",        &INT_PARAM,            SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("take_while",  &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
+    MethodDef::compound("to_dynamic",  &[],                   LIST_ELEM, None,               Ownership::Borrow, false),
+    MethodDef::compound("to_fixed",    &[],                   LIST_ELEM, None,               Ownership::Borrow, false),
     MethodDef::compound("to_str",      &[],                   STR,       Some("Printable"),  Ownership::Borrow, false),
     MethodDef::compound("unique",      &[],                   SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("updated",     &INDEX_ELEMENT_PARAMS, SELF,      Some("IndexSet"),   Ownership::Borrow, false),

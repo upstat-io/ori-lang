@@ -58,8 +58,9 @@ impl TypeCheckError {
                 similar: vec![],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                format!("constant `${name:?}` is not defined in this scope"),
+            suggestions: vec![Suggestion::text_with_names(
+                "constant `${0}` is not defined in this scope",
+                vec![name],
                 0,
             )],
         }

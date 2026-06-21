@@ -128,6 +128,7 @@ impl ModuleChecker<'_> {
         let impl_self = self.current_impl_self;
         let current_caps = self.current_capabilities.clone();
         let provided_caps = self.provided_capabilities.clone();
+        let builtin_exts = self.builtin_extensions.clone();
         let mut engine = InferEngine::new(&mut self.pool);
         engine.set_interner(interner);
         engine.set_well_known(well_known);
@@ -135,6 +136,7 @@ impl ModuleChecker<'_> {
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
+        engine.set_builtin_extensions(builtin_exts);
         engine.set_capabilities(current_caps, provided_caps);
         if let Some(self_ty) = impl_self {
             engine.set_impl_self_type(self_ty);
@@ -170,6 +172,7 @@ impl ModuleChecker<'_> {
             .base_env
             .as_ref()
             .map(|base| base.names().collect::<rustc_hash::FxHashSet<_>>());
+        let builtin_exts = self.builtin_extensions.clone();
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
         engine.set_well_known(well_known);
@@ -177,6 +180,7 @@ impl ModuleChecker<'_> {
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
+        engine.set_builtin_extensions(builtin_exts);
         engine.set_capabilities(current_caps, provided_caps);
         if let Some(snapshot) = module_scope_snapshot {
             engine.set_module_scope_snapshot(snapshot);

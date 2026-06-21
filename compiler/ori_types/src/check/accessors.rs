@@ -79,6 +79,14 @@ impl<'a> ModuleChecker<'a> {
         &mut self.pool
     }
 
+    /// Install the builtin-type extension-method index (from `module.extends`).
+    pub(crate) fn set_builtin_extensions(
+        &mut self,
+        idx: rustc_hash::FxHashMap<ori_registry::TypeTag, rustc_hash::FxHashSet<ori_ir::Name>>,
+    ) {
+        self.builtin_extensions = idx;
+    }
+
     /// Get the type registry.
     #[inline]
     pub fn type_registry(&self) -> &TypeRegistry {

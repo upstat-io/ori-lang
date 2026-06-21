@@ -189,6 +189,10 @@ pub struct ModuleChecker<'a> {
     provided_capabilities: FxHashSet<Name>,
     /// Constant types.
     const_types: FxHashMap<Name, Idx>,
+    /// Builtin-type extension methods keyed by `TypeTag`, from `module.extends`.
+    /// Set on each inference engine so an `extend <builtin> { @m }` method is not
+    /// false-rejected as unknown.
+    builtin_extensions: FxHashMap<ori_registry::TypeTag, FxHashSet<Name>>,
 
     /// Impl-level `RigidVar` substitution maps, one per `module.impls` entry in
     /// registration order. Allocated at `register_impls` (before any body pass)
@@ -295,6 +299,7 @@ impl<'a> ModuleChecker<'a> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
+            builtin_extensions: FxHashMap::default(),
             impl_rigid_var_maps: Vec::new(),
             method_rigid_var_maps: FxHashMap::default(),
             errors: Vec::new(),
@@ -340,6 +345,7 @@ impl<'a> ModuleChecker<'a> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
+            builtin_extensions: FxHashMap::default(),
             impl_rigid_var_maps: Vec::new(),
             method_rigid_var_maps: FxHashMap::default(),
             errors: Vec::new(),

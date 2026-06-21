@@ -853,3 +853,35 @@ fn test_bounded_impl_level_generic_receiver_resolves_clean() {
         result.typed.errors
     );
 }
+
+/// BUG-02-028 poison negative pin (matrix cell #7): a genuinely-poisoned
+/// subexpression (`1 + unknown_var` with `unknown_var` unbound) must surface
+/// EXACTLY ONE error (the unbound identifier) and suppress the cascade —
+/// poison on `Idx::ERROR` keeps absorbing per UN-4. Separating the user-`Error`
+/// type from the poison sentinel MUST NOT regress this; this pin stays GREEN
+/// across the fix.
+#[test]
+fn test_poison_unbound_ident_suppresses_cascade() {
+    let (result, _interner) = parse_and_check("@f () -> int = 1 + unknown_var;");
+    assert_eq!(
+        result.typed.errors.len(),
+        1,
+        "poison must suppress the arithmetic cascade — exactly one (unbound-ident) error expected, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// BUG-02-028 poison negative pin (matrix cell #8): a poisoned element inside a
+/// compound (list) literal must NOT add a secondary diagnostic on the compound
+/// — `HAS_ERROR` propagates and UN-4 absorbs at the compound level. Stays GREEN
+/// across the user-`Error`/poison `Idx` separation.
+#[test]
+fn test_poison_in_compound_literal_no_secondary_diagnostic() {
+    let (result, _interner) = parse_and_check("@f () -> [int] = [1, unknown_var, 3];");
+    assert_eq!(
+        result.typed.errors.len(),
+        1,
+        "poisoned list element must not cascade onto the compound — exactly one error expected, got: {:?}",
+        result.typed.errors
+    );
+}

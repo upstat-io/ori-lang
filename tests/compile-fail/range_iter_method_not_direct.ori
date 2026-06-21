@@ -1,0 +1,13 @@
+// Spec: typeck §PC-2 — direct-Range iterator methods (`map`/`filter`/`fold`) are
+// NOT in the registry Range surface and are not eval-runtime-supported (the
+// legitimate path is `.iter().map(...)`). They typecheck today only because the
+// `!treat_as_rigid` gate over-accepts unknown methods on concrete receivers;
+// after the gate drop they must REJECT (unmasking the real type error).
+// Regression: bug-tracker/plans/BUG-02-041/ (matrix cell #13)
+
+#[compile_fail("map")]
+@range_map_direct_rejected tests _ () -> void = {
+    let r = (0..5);
+    let _ = r.map(fn: x -> x + 1);
+    ()
+}

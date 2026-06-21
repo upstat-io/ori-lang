@@ -323,3 +323,72 @@ fn bad_operand_label_is_specific() {
         "label should describe the operator problem, got: {label_text}"
     );
 }
+
+// Capability/name diagnostics MUST resolve the interned Name in the `= help:`
+// SUGGESTION text via the render-time interner, NOT leak the raw
+// `Name(shard=.., local=..)` Debug form baked at construction time.
+// Positive pin: suggestion renders the resolved name. Negative pin: no `Name(` leak.
+
+#[test]
+fn missing_capability_suggestion_resolves_name() {
+    let (pool, interner) = test_env();
+    let suspend = interner.intern("Suspend");
+    let renderer = TypeErrorRenderer::new(&pool, &interner);
+
+    let error = TypeCheckError::missing_capability(Span::new(0, 5), suspend, &[]);
+    let diag = renderer.render(&error);
+
+    assert!(
+        diag.suggestions.iter().any(|s| s.contains("uses Suspend")),
+        "suggestion should render `uses Suspend`: {:?}",
+        diag.suggestions
+    );
+    assert!(
+        !diag.suggestions.iter().any(|s| s.contains("Name(")),
+        "suggestion must not leak raw interned-Name Debug form: {:?}",
+        diag.suggestions
+    );
+}
+
+#[test]
+fn unknown_ident_suggestion_resolves_name() {
+    let (pool, interner) = test_env();
+    let name = interner.intern("my_variable");
+    let renderer = TypeErrorRenderer::new(&pool, &interner);
+
+    let error = TypeCheckError::unknown_ident(Span::new(0, 11), name, vec![]);
+    let diag = renderer.render(&error);
+
+    assert!(
+        diag.suggestions.iter().any(|s| s.contains("my_variable")),
+        "suggestion should render the identifier name: {:?}",
+        diag.suggestions
+    );
+    assert!(
+        !diag.suggestions.iter().any(|s| s.contains("Name(")),
+        "suggestion must not leak raw interned-Name Debug form: {:?}",
+        diag.suggestions
+    );
+}
+
+#[test]
+fn undefined_field_suggestion_resolves_name() {
+    let (pool, interner) = test_env();
+    let field = interner.intern("legnth");
+    let avail = interner.intern("length");
+    let renderer = TypeErrorRenderer::new(&pool, &interner);
+
+    let error = TypeCheckError::undefined_field(Span::new(0, 10), Idx::INT, field, vec![avail]);
+    let diag = renderer.render(&error);
+
+    assert!(
+        diag.suggestions.iter().any(|s| s.contains("length")),
+        "available-field suggestion should render the field name: {:?}",
+        diag.suggestions
+    );
+    assert!(
+        !diag.suggestions.iter().any(|s| s.contains("Name(")),
+        "suggestion must not leak raw interned-Name Debug form: {:?}",
+        diag.suggestions
+    );
+}

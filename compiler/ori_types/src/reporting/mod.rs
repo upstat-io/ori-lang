@@ -51,7 +51,7 @@ impl<'a> TypeErrorRenderer<'a> {
         Self::add_context(&mut diag, &error.context);
 
         // Add suggestions
-        Self::add_suggestions(&mut diag, &error.suggestions);
+        self.add_suggestions(&mut diag, &error.suggestions);
 
         diag
     }
@@ -105,6 +105,9 @@ impl<'a> TypeErrorRenderer<'a> {
             }
             TypeErrorKind::UndefinedField { field, .. } => {
                 format!("unknown field `{}`", self.format_name(*field))
+            }
+            TypeErrorKind::UnknownMethod { method, .. } => {
+                format!("no method `{}`", self.format_name(*method))
             }
             TypeErrorKind::ArityMismatch {
                 expected, found, ..
@@ -400,14 +403,34 @@ impl<'a> TypeErrorRenderer<'a> {
     ///
     /// Text-only suggestions (no substitutions) go to `diag.suggestions` as
     /// plain strings. Span-bearing suggestions go to `diag.structured_suggestions`.
-    fn add_suggestions(diag: &mut Diagnostic, suggestions: &[Suggestion]) {
+    ///
+    /// Name-bearing suggestions (`names` non-empty) have their `{N}`
+    /// placeholders resolved here via the interner-backed `format_name`, so the
+    /// raw `Name(..)` Debug form never reaches the user (the SSOT for `Name`
+    /// rendering is render-time, matching the message + label paths).
+    fn add_suggestions(&self, diag: &mut Diagnostic, suggestions: &[Suggestion]) {
         for suggestion in suggestions {
             if suggestion.is_text_only() {
-                diag.suggestions.push(suggestion.message.clone());
+                diag.suggestions
+                    .push(self.resolve_suggestion_names(suggestion));
             } else {
                 diag.structured_suggestions.push(suggestion.clone());
             }
         }
+    }
+
+    /// Resolve `{N}` placeholders in a suggestion's message from its `names`
+    /// operands via the interner-backed `format_name`. No-op (returns the
+    /// message verbatim) when `names` is empty.
+    fn resolve_suggestion_names(&self, suggestion: &Suggestion) -> String {
+        if suggestion.names.is_empty() {
+            return suggestion.message.clone();
+        }
+        let mut rendered = suggestion.message.clone();
+        for (i, name) in suggestion.names.iter().enumerate() {
+            rendered = rendered.replace(&format!("{{{i}}}"), &self.format_name(*name));
+        }
+        rendered
     }
 }
 

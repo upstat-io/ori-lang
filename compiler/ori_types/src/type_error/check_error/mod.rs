@@ -83,14 +83,15 @@ impl TypeCheckError {
     /// Create an unknown identifier error.
     pub fn unknown_ident(span: Span, name: Name, similar: Vec<Name>) -> Self {
         let suggestions = if similar.is_empty() {
-            vec![Suggestion::text(
-                format!("check spelling or add a definition for `{name:?}`"),
+            vec![Suggestion::text_with_names(
+                "check spelling or add a definition for `{0}`",
+                vec![name],
                 1,
             )]
         } else {
             similar
                 .iter()
-                .map(|s| Suggestion::did_you_mean(format!("{s:?}")))
+                .map(|s| Suggestion::text_with_names("did you mean `{0}`?", vec![*s], 0))
                 .collect()
         };
 
@@ -107,11 +108,13 @@ impl TypeCheckError {
         let suggestions = if available.is_empty() {
             vec![Suggestion::text("this type has no fields", 1)]
         } else {
-            // Try to find a similar field name
             let mut suggestions = Vec::new();
             for &avail in &available {
-                // In real implementation, we'd use edit_distance here
-                suggestions.push(Suggestion::text(format!("available field: `{avail:?}`"), 2));
+                suggestions.push(Suggestion::text_with_names(
+                    "available field: `{0}`",
+                    vec![avail],
+                    2,
+                ));
             }
             if suggestions.len() > 5 {
                 suggestions.truncate(5);
@@ -128,6 +131,24 @@ impl TypeCheckError {
             },
             context: ErrorContext::default(),
             suggestions,
+        }
+    }
+
+    /// Create an unknown-method error for a concrete receiver.
+    ///
+    /// Emitted when a method call on a concrete (non-generic, non-placeholder)
+    /// receiver resolves to no builtin method, no trait/inherent impl method,
+    /// and no callable struct field — a genuine absence.
+    pub fn unknown_method(span: Span, ty: Idx, method: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnknownMethod { ty, method },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text_with_names(
+                "check spelling, or implement `{0}` via an `impl` block",
+                vec![method],
+                1,
+            )],
         }
     }
 
@@ -212,8 +233,9 @@ impl TypeCheckError {
                 available: available.to_vec(),
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                format!("add `uses {required:?}` to the function signature"),
+            suggestions: vec![Suggestion::text_with_names(
+                "add `uses {0}` to the function signature",
+                vec![required],
                 0,
             )],
         }

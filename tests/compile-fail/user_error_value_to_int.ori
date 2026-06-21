@@ -1,0 +1,12 @@
+// Spec: §3.17 — a user-`Error`-returning callee assigned to a mismatched
+// concrete type must be REJECTED. The silent-absorption hole is class-wide
+// (any user-`Error` value vs a concrete `T`), not `.into()`-specific.
+// Regression: bug-tracker/plans/BUG-02-028/
+
+@mkerr () -> Error = todo();
+
+#[compile_fail("E2001")]
+@user_error_value_to_int tests _ () -> void = {
+    let _n: int = mkerr();
+    ()
+}

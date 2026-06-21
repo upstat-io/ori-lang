@@ -74,6 +74,13 @@ impl TypeCheckError {
                     format_type(*ty)
                 )
             }
+            TypeErrorKind::UnknownMethod { ty, method } => {
+                format!(
+                    "no method `{}` on type `{}`",
+                    format_name(*method),
+                    format_type(*ty)
+                )
+            }
             TypeErrorKind::ArityMismatch {
                 expected,
                 found,

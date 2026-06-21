@@ -87,3 +87,35 @@ fn impl_eq_without_prelude_emits_diagnostic_not_ice() {
         "unresolved trait",
     );
 }
+
+/// L12 production-path pin: drive real source through parse -> typeck -> the
+/// production renderer (`render_type_errors`) and assert the E2014 `= help:`
+/// suggestion resolves the interned `Name` (renders `uses Suspend`) and does
+/// NOT leak the raw `Name(shard=.., local=..)` Debug form.
+#[test]
+fn missing_capability_help_renders_resolved_name_via_production_path() {
+    use ori_ir::StringInterner;
+    use ori_lexer::lex;
+    use ori_parse::parse;
+    use ori_types::{check_module_with_imports, render_type_errors};
+
+    let source = "@needs () -> int uses Suspend = 42\n\n@main () -> int = needs()\n";
+    let interner = StringInterner::new();
+    let tokens = lex(source, &interner);
+    let parsed = parse(&tokens, &interner);
+    let (result, pool) =
+        check_module_with_imports(&parsed.module, &parsed.arena, &interner, |_c| {});
+
+    assert!(result.has_errors(), "expected the E2014 capability error");
+    let diags = render_type_errors(result.errors(), &pool, &interner);
+    let help_texts: Vec<String> = diags.iter().flat_map(|d| d.suggestions.clone()).collect();
+
+    assert!(
+        help_texts.iter().any(|s| s.contains("uses Suspend")),
+        "help suggestion should render `uses Suspend`: {help_texts:?}"
+    );
+    assert!(
+        !help_texts.iter().any(|s| s.contains("Name(")),
+        "help suggestion must not leak raw Name Debug form: {help_texts:?}"
+    );
+}

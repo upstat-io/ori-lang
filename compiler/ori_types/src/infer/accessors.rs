@@ -75,6 +75,27 @@ impl<'pool> InferEngine<'pool> {
         self.type_registry = Some(registry);
     }
 
+    /// Install the builtin-type extension-method index (from `module.extends`).
+    pub fn set_builtin_extensions(
+        &mut self,
+        ext: FxHashMap<ori_registry::TypeTag, FxHashSet<Name>>,
+    ) {
+        self.builtin_extensions = ext;
+    }
+
+    /// True iff an `extend <builtin> { @method }` provides `method` on the builtin
+    /// `type_tag` receiver. Lets `emit_unknown_method` avoid false-rejecting an
+    /// extension-provided method (the evaluator owns the actual dispatch).
+    pub fn builtin_extension_provides(
+        &self,
+        type_tag: ori_registry::TypeTag,
+        method: Name,
+    ) -> bool {
+        self.builtin_extensions
+            .get(&type_tag)
+            .is_some_and(|methods| methods.contains(&method))
+    }
+
     /// Set module-level constant types for `$name` reference resolution.
     pub fn set_const_types(&mut self, consts: &'pool FxHashMap<Name, Idx>) {
         self.const_types = Some(consts);
