@@ -331,6 +331,7 @@ impl TypeCheckError {
                     loop_kind.description()
                 )
             }
+            TypeErrorKind::OrPatternBindingMismatch { reason, .. } => reason.message().to_string(),
         }
     }
 
@@ -476,6 +477,15 @@ impl TypeCheckError {
             TypeErrorKind::BreakValueInVoidLoop { .. } => ErrorCode::E0860,
             // E0861: continue value in a non-collecting loop
             TypeErrorKind::ContinueValueInNonCollectingLoop { .. } => ErrorCode::E0861,
+
+            // E2052/E2053: or-pattern binding divergence (CF-1) — name vs type
+            TypeErrorKind::OrPatternBindingMismatch { reason, .. } => {
+                use super::kind::OrBindingMismatchReason;
+                match reason {
+                    OrBindingMismatchReason::NameDivergence => ErrorCode::E2052,
+                    OrBindingMismatchReason::TypeDivergence { .. } => ErrorCode::E2053,
+                }
+            }
         }
     }
 }

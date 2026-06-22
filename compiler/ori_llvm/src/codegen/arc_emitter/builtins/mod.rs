@@ -138,11 +138,8 @@ pub(super) struct BuiltinCtx<'a> {
     /// Type pool index of the receiver (for parametric type queries).
     pub receiver_ty: Idx,
     /// Type pool index of the destination variable (return type of the method).
-    /// Used by niche-aware codegen to determine the result type's layout.
-    #[expect(
-        dead_code,
-        reason = "consumed when niche monadic methods are implemented"
-    )]
+    /// Used by result-type-directed builtins (e.g. `str.into() : Error`
+    /// constructs the dst Error struct) + niche-aware codegen.
     pub dst_ty: Idx,
     /// Full type info (for extracting inner types, element types, etc.).
     pub type_info: &'a TypeInfo,
@@ -281,6 +278,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let receiver_ty = arc_func.var_type(args[0]);
         let type_info = self.type_info.get(receiver_ty);
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
+
+        // Traceable accessors on the user-facing `Error` struct.
+        // The struct (`{ message: str }`, distinct from the `Idx::ERROR` poison
+        // sentinel) has no `builtin_type_name`, so its Traceable methods would
+        // fall through to an unresolved call. A fresh struct-`Error` carries no
+        // trace storage, so the read accessors return empty defaults (matching a
+        // traceless eval `Value::Error`); `.message` + clone/debug/to_str fall
+        // through to the normal struct path. Keyed on the pool's SSOT Idx.
+        let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
+            receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
+        });
+        if is_error_struct {
+            match method_name {
+                "trace_entries" => {
+                    let llvm = self.resolve_type(dst_ty);
+                    return Some(self.builder.const_zero_ty(llvm));
+                }
+                "trace" => return self.emit_literal_ori_str(""),
+                "has_trace" => return Some(self.builder.const_bool(false)),
+                "with_trace" => return Some(arg_vals[0]),
+                _ => {}
+            }
+        }
 
         // Types with builtin names dispatch through the declarative submodule chain
         if let Some(type_name) = type_info.builtin_type_name() {
@@ -520,6 +540,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         self.emit_slice_aware_rc_inc(val, ty);
         Some(val)
+    }
+
+    /// Emit `str.into() : Error` — construct the user-facing
+    /// `Error` struct `{ message: str }` from the receiver string.
+    ///
+    /// The receiver is borrowed (the caller retains its reference), so the
+    /// constructed `Error` takes its own ref to the message (slice-aware
+    /// RC inc) before the message str becomes the struct's field 0. Mirrors
+    /// the evaluator's `Value::error(s)` (`ori_eval/methods/collections.rs`)
+    /// so interp↔LLVM observable behavior agrees (message preserved).
+    pub(crate) fn emit_str_into_error(
+        &mut self,
+        receiver_str: ValueId,
+        str_ty: ori_types::Idx,
+        error_ty: ori_types::Idx,
+    ) -> Option<ValueId> {
+        self.emit_slice_aware_rc_inc(receiver_str, str_ty);
+        let llvm_ty = self.resolve_type(error_ty);
+        Some(
+            self.builder
+                .build_struct(llvm_ty, &[receiver_str], "error.into"),
+        )
     }
 
     /// Emit an implicit `.iter` call for a collection type.

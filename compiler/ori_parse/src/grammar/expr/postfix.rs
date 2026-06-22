@@ -259,6 +259,18 @@ impl Parser<'_> {
     /// parse-time disambiguation half; resolve-time comparison fallback is the
     /// parser/typeck breadth sections' deliverable.
     fn parse_call_site_type_args(&mut self) -> ParsedTypeRange {
+        self.try_parse_type_args(&TokenKind::LParen)
+    }
+
+    /// Shared speculative `<type_args>`-commit core for BOTH call-site turbofish
+    /// seams: the postfix `receiver.method<T>(args)` form (commit on `(`) and the
+    /// primary-position type-path `Type<args>.method(...)` form (commit on `.`).
+    /// When the current token is `<`, snapshot (SN-3) → parse a `type_args` list in
+    /// `IN_TYPE` context (CF-1) → commit the parsed range ONLY when it is immediately
+    /// followed by `commit_on`; otherwise restore so `<` stays the less-than operator.
+    /// One disambiguation mechanism covers both positions (per the call-site
+    /// method-generics grammar-alignment proposal).
+    pub(crate) fn try_parse_type_args(&mut self, commit_on: &TokenKind) -> ParsedTypeRange {
         if !self.cursor.check(&TokenKind::Lt) {
             return ParsedTypeRange::EMPTY;
         }
@@ -266,7 +278,7 @@ impl Parser<'_> {
         let parsed = self.with_context(ParseContext::IN_TYPE, |p| {
             p.parse_optional_generic_args_range()
         });
-        if !parsed.is_empty() && self.cursor.check(&TokenKind::LParen) {
+        if !parsed.is_empty() && self.cursor.check(commit_on) {
             parsed
         } else {
             self.restore(snap);
@@ -603,6 +615,40 @@ mod method_call_turbofish_tests {
             "type P = { foo: int }\n",
             "@main () -> bool = {\n    let $p = P { foo: 3 };\n    let $y = 5;\n    p.foo > y\n}\n",
         ));
+        assert_has_comparison(&output);
+    }
+
+    // ---- Primary-position type-path turbofish: `Type<args>.method()` ----
+
+    #[test]
+    fn type_path_turbofish_assoc_fn_parses() {
+        // `Box<int>.new(v: 5)` — type-args on a primary-position type name,
+        // committed because a `.` immediately follows the balanced `>`.
+        let (it, output) = parse_ok(concat!(
+            "type Box<T> = { value: T }\n",
+            "impl<T> Box<T> { @new (v: T) -> Box<T> = Box { value: v }; }\n",
+            "@main () -> int = {\n    let r: Box<int> = Box<int>.new(v: 5);\n    r.value\n}\n",
+        ));
+        find_method_call(&it, &output, "new").expect("MethodCall for `new`");
+    }
+
+    #[test]
+    fn bare_type_path_assoc_fn_still_parses() {
+        // Regression: the bare associated-function form keeps parsing.
+        let (it, output) = parse_ok(concat!(
+            "type Box<T> = { value: T }\n",
+            "impl<T> Box<T> { @new (v: T) -> Box<T> = Box { value: v }; }\n",
+            "@main () -> int = {\n    let r: Box<int> = Box.new(v: 9);\n    r.value\n}\n",
+        ));
+        find_method_call(&it, &output, "new").expect("MethodCall for `new`");
+    }
+
+    #[test]
+    fn primary_ident_less_than_stays_comparison() {
+        // `a < b` in primary position, no trailing `.` — stays comparison; the
+        // speculative type-arg path must restore.
+        let (_it, output) =
+            parse_ok("@main () -> bool = {\n    let $a = 3;\n    let $b = 5;\n    a < b\n}\n");
         assert_has_comparison(&output);
     }
 }

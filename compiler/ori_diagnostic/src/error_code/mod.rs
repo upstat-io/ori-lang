@@ -163,6 +163,8 @@ define_error_codes! {
     E2049, "`EVALUE_DROP_CONFLICT`: type marked Value cannot implement Drop";
     E2050, "Type does not support index assignment";
     E2051, "Cannot assign through a parameter binding";
+    E2052, "`EOR_PATTERN_NAME_DIVERGENCE`: or-pattern alternatives bind different variable names";
+    E2053, "`EOR_PATTERN_TYPE_DIVERGENCE`: or-pattern alternatives bind a name at different types";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

@@ -26,6 +26,47 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
     register_sign_type(checker);
     register_format_type_type(checker);
     register_format_spec_type(checker);
+    register_error_type(checker);
+}
+
+/// Register the user-facing `Error` struct (`{ message: str }`) as a distinct
+/// interned struct, separate from the `Idx::ERROR` poison sentinel.
+/// The struct does NOT carry `TypeFlags::HAS_ERROR` (its only field `str` carries
+/// none), so `unify(Error_struct, T)` reaches the real mismatch path instead of
+/// the poison early-exit. `pool.error_struct_idx` records the Idx as the SSOT for
+/// routing the registered Error back to its `TypeTag::Error` behavior table.
+fn register_error_type(checker: &mut ModuleChecker<'_>) {
+    let error_name = checker.interner().intern("Error");
+    let message_name = checker.interner().intern("message");
+
+    let named_idx = checker.pool_mut().named(error_name);
+
+    let pool_fields = [(message_name, Idx::STR)];
+    let struct_idx = checker.pool_mut().struct_type(error_name, &pool_fields);
+    checker.pool_mut().set_resolution(named_idx, struct_idx);
+    // SSOT: surface `Error` annotations + `str.into()` returns resolve to
+    // `named_idx`; record it so engine-less bridges route it to TypeTag::Error.
+    checker.pool_mut().set_error_struct_idx(named_idx);
+
+    let field_defs = vec![FieldDef {
+        name: message_name,
+        ty: Idx::STR,
+        span: Span::DUMMY,
+        visibility: Visibility::Public,
+    }];
+
+    let hash = checker.pool().hash(named_idx);
+    checker.type_registry_mut().register_struct(
+        error_name,
+        named_idx,
+        vec![], // No type params
+        field_defs,
+        Span::DUMMY,
+        Visibility::Public,
+        hash,
+        None,
+        None, // burden: builtin types carry no UserBurdenSpec
+    );
 }
 
 /// Register the `Ordering` enum (Less, Equal, Greater).

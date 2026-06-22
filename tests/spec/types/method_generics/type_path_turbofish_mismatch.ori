@@ -1,0 +1,19 @@
+// Spec: 08-declarations.md § Associated Functions
+// Proposal: docs/ori_lang/proposals/approved/call-site-method-generics-grammar-alignment-proposal.md
+//
+// Negative L2 semantic pin for `Type<args>.method()`: the receiver type-arguments
+// are READ before associated-function resolution, so `Box<str>.new(v: 5)` forces
+// `v: str` and rejects the int `5`. This pin fails ONLY if the receiver type-args
+// are read — if they were ignored, `T` would infer to `int` from `5` and succeed.
+
+#compile_fail(code: "E2001", message: "cannot use number as string")
+
+type Box<T> = { value: T }
+
+impl<T> Box<T> {
+    @new (v: T) -> Box<T> = Box { value: v };
+}
+
+@bad () -> void = {
+    let r = Box<str>.new(v: 5);
+}

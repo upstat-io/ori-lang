@@ -6,12 +6,34 @@
 use ori_diagnostic::Suggestion;
 use ori_ir::{Name, Span};
 
-use super::kind::{ErrorContext, NonCollectingLoopKind, TypeErrorKind, VoidLoopKind};
+use super::kind::{
+    ErrorContext, NonCollectingLoopKind, OrBindingMismatchReason, TypeErrorKind, VoidLoopKind,
+};
 use super::TypeCheckError;
 use crate::type_error::TypeProblem;
 use crate::Idx;
 
 impl TypeCheckError {
+    /// Create an or-pattern binding-divergence error (E2052 name / E2053 type).
+    ///
+    /// Per Spec Clause 15 (patterns): or-pattern `A | B` alternatives SHALL
+    /// bind identical names + types. `reason` selects the code + message.
+    pub fn or_pattern_binding_mismatch(
+        span: Span,
+        name: Name,
+        reason: OrBindingMismatchReason,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::OrPatternBindingMismatch { name, reason },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "bind the same names (and types) in every `|` alternative, or use a guard",
+                0,
+            )],
+        }
+    }
+
     /// Create a "duplicate impl" error (E2010).
     ///
     /// Emitted when `impl Type: Trait` is defined more than once.

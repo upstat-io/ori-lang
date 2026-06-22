@@ -131,7 +131,9 @@ pub fn resolve_parsed_type(
                     "Duration" | "duration" => return Idx::DURATION,
                     "Size" | "size" => return Idx::SIZE,
                     "ordering" | "Ordering" => return Idx::ORDERING,
-                    "Error" => return Idx::ERROR,
+                    // `Error` is a registered builtin struct, NOT a
+                    // primitive — fall through to nominal-type resolution (no
+                    // re-map to the Idx::ERROR poison sentinel).
                     _ => {}
                 }
             }

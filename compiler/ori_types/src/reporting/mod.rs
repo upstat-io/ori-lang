@@ -341,6 +341,18 @@ impl<'a> TypeErrorRenderer<'a> {
                     loop_kind.description()
                 )
             }
+            TypeErrorKind::OrPatternBindingMismatch { name, reason } => {
+                use crate::OrBindingMismatchReason;
+                let var = self.format_name(*name);
+                match reason {
+                    OrBindingMismatchReason::NameDivergence => {
+                        format!("or-pattern binds `{var}` on only some alternatives")
+                    }
+                    OrBindingMismatchReason::TypeDivergence { .. } => {
+                        format!("or-pattern binds `{var}` at different types across alternatives")
+                    }
+                }
+            }
         }
     }
 

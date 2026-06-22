@@ -3,6 +3,7 @@
 mod conditionals;
 mod loops;
 mod matches;
+mod or_pattern;
 mod substitution;
 
 pub(crate) use conditionals::infer_if;

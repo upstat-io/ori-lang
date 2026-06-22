@@ -457,6 +457,20 @@ impl TypeCheckError {
                     loop_kind.description()
                 )
             }
+            TypeErrorKind::OrPatternBindingMismatch { name, reason } => {
+                use super::kind::OrBindingMismatchReason;
+                let var = format_name(*name);
+                match reason {
+                    OrBindingMismatchReason::NameDivergence => format!(
+                        "or-pattern binds `{var}` on only some alternatives: every `|` alternative must bind the same names, or the arm body reads `{var}` unbound when a non-binding alternative matches"
+                    ),
+                    OrBindingMismatchReason::TypeDivergence { found, other } => format!(
+                        "or-pattern binds `{var}` at `{}` in one alternative but `{}` in another: a name shared across `|` alternatives must have the same type",
+                        format_type(*found),
+                        format_type(*other)
+                    ),
+                }
+            }
         }
     }
 

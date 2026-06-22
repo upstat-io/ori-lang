@@ -163,6 +163,15 @@ pub struct ExprArena {
     /// Salsa `Eq + Hash` contract on `ExprArena` stays deterministic (mirrors the
     /// `canon::arena` `MonoInstance` side-table pattern).
     method_call_type_args: Vec<(ExprId, ParsedTypeRange)>,
+
+    /// Receiver-position type arguments for a primary-position type-path turbofish
+    /// `Type<args>.method(...)` (e.g. `Box<int>.new(v: 5)`), keyed by the receiver
+    /// expression's `ExprId`. SEPARATE from `method_call_type_args` (those are the
+    /// method's own turbofish `obj.method<T>(...)`); these are the TYPE's instantiation
+    /// arguments, threaded into associated-function resolution so the receiver type is
+    /// concrete before the method is looked up. Same sparse `Vec` shape for the Salsa
+    /// `Eq + Hash` determinism contract.
+    receiver_type_args: Vec<(ExprId, ParsedTypeRange)>,
 }
 
 impl ExprArena {
@@ -201,6 +210,7 @@ impl ExprArena {
             access_steps: Vec::with_capacity(estimated_exprs / 32),
             // Sparse — turbofish call sites are rare; no capacity pre-allocation.
             method_call_type_args: Vec::new(),
+            receiver_type_args: Vec::new(),
         }
     }
 
@@ -323,6 +333,28 @@ impl ExprArena {
             .map_or(ParsedTypeRange::EMPTY, |(_, range)| *range)
     }
 
+    /// Record receiver-position type arguments for a primary-position type-path
+    /// turbofish (`Type<args>.method(...)`), keyed by the receiver expression's
+    /// `ExprId`. An `EMPTY` range is a no-op (sparse table; absence means "no
+    /// receiver turbofish").
+    #[inline]
+    pub fn set_receiver_type_args(&mut self, id: ExprId, type_args: ParsedTypeRange) {
+        if !type_args.is_empty() {
+            self.receiver_type_args.push((id, type_args));
+        }
+    }
+
+    /// Get the receiver-position type arguments recorded for a receiver expression.
+    /// Returns `ParsedTypeRange::EMPTY` when none were recorded (the common case).
+    /// Linear scan — type-path turbofish sites are rare, so the table is small.
+    #[inline]
+    pub fn receiver_type_args(&self, id: ExprId) -> ParsedTypeRange {
+        self.receiver_type_args
+            .iter()
+            .find(|(eid, _)| *eid == id)
+            .map_or(ParsedTypeRange::EMPTY, |(_, range)| *range)
+    }
+
     // -- Match Pattern Storage --
 
     /// Allocate a match pattern, return ID.
@@ -429,6 +461,7 @@ impl ExprArena {
         self.template_parts.clear();
         self.access_steps.clear();
         self.method_call_type_args.clear();
+        self.receiver_type_args.clear();
     }
 
     /// Check if arena is empty.
@@ -463,6 +496,7 @@ impl PartialEq for ExprArena {
             && self.template_parts == other.template_parts
             && self.access_steps == other.access_steps
             && self.method_call_type_args == other.method_call_type_args
+            && self.receiver_type_args == other.receiver_type_args
     }
 }
 
@@ -494,6 +528,7 @@ impl Hash for ExprArena {
         self.template_parts.hash(state);
         self.access_steps.hash(state);
         self.method_call_type_args.hash(state);
+        self.receiver_type_args.hash(state);
     }
 }
 

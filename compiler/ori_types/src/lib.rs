@@ -86,8 +86,8 @@ pub use triviality::{classify_triviality, Triviality};
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, AmbiguousTypeSite,
     ArityMismatchKind, ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind,
-    NonCollectingLoopKind, SequenceKind, Severity, TypeCheckError, TypeCheckWarning,
-    TypeCheckWarningKind, TypeErrorKind, TypeProblem, VoidLoopKind,
+    NonCollectingLoopKind, OrBindingMismatchReason, SequenceKind, Severity, TypeCheckError,
+    TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem, VoidLoopKind,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;

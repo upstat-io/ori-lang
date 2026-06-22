@@ -22,6 +22,7 @@
 //! - [`constructors`]: Type/struct/operator/derive error factories
 //! - [`constructors_expr`]: Impl/trait/expression error factories
 
+mod aux_kinds;
 mod constructors;
 mod constructors_expr;
 mod format;
@@ -30,7 +31,7 @@ mod message;
 
 pub use kind::{
     AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, NonCollectingLoopKind,
-    TypeErrorKind, VoidLoopKind,
+    OrBindingMismatchReason, TypeErrorKind, VoidLoopKind,
 };
 
 use ori_diagnostic::Suggestion;

@@ -55,7 +55,9 @@ pub(crate) struct WellKnownNames {
     pub size_upper: Name, // "Size"
     pub ordering: Name,
     pub ordering_upper: Name, // "Ordering"
-    pub error: Name,          // "Error" — user-facing builtin Error type (Idx::ERROR slot)
+    // `Error` is no longer a well-known primitive name: it is a
+    // registered builtin struct resolved via the TypeRegistry, not a `Name`
+    // fast-path comparison. No `error:` field — resolution goes nominal.
 
     // Well-known generic type names
     pub option: Name,
@@ -187,7 +189,6 @@ impl WellKnownNames {
             size_upper: interner.intern("Size"),
             ordering: interner.intern("ordering"),
             ordering_upper: interner.intern("Ordering"),
-            error: interner.intern("Error"),
             option: interner.intern("Option"),
             result: interner.intern("Result"),
             set: interner.intern("Set"),
@@ -251,14 +252,12 @@ impl WellKnownNames {
             Some(Idx::SIZE)
         } else if name == self.ordering || name == self.ordering_upper {
             Some(Idx::ORDERING)
-        } else if name == self.error {
-            // Surface annotation `Error` resolves to
-            // Idx::ERROR (the Tag::Error slot). infer_field's Tag::Error arm
-            // handles `.message → str` as the spec-mandated accessor, so
-            // `let e: Error = ...` resolves here instead of falling through to
-            // a fresh unresolved Tag::Var.
-            Some(Idx::ERROR)
         } else {
+            // `Error` is NOT a primitive: it is a registered builtin
+            // struct (`{ message: str }`, register_error_type) distinct from the
+            // `Idx::ERROR` poison sentinel. Returning `None` lets surface
+            // annotation `Error` fall through to nominal-type → TypeRegistry
+            // resolution, which resolves the registered struct Idx.
             None
         }
     }

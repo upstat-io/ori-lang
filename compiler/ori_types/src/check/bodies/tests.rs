@@ -854,7 +854,7 @@ fn test_bounded_impl_level_generic_receiver_resolves_clean() {
     );
 }
 
-/// BUG-02-028 poison negative pin (matrix cell #7): a genuinely-poisoned
+/// Poison negative pin (matrix cell #7): a genuinely-poisoned
 /// subexpression (`1 + unknown_var` with `unknown_var` unbound) must surface
 /// EXACTLY ONE error (the unbound identifier) and suppress the cascade —
 /// poison on `Idx::ERROR` keeps absorbing per UN-4. Separating the user-`Error`
@@ -871,7 +871,7 @@ fn test_poison_unbound_ident_suppresses_cascade() {
     );
 }
 
-/// BUG-02-028 poison negative pin (matrix cell #8): a poisoned element inside a
+/// Poison negative pin (matrix cell #8): a poisoned element inside a
 /// compound (list) literal must NOT add a secondary diagnostic on the compound
 /// — `HAS_ERROR` propagates and UN-4 absorbs at the compound level. Stays GREEN
 /// across the user-`Error`/poison `Idx` separation.
@@ -882,6 +882,43 @@ fn test_poison_in_compound_literal_no_secondary_diagnostic() {
         result.typed.errors.len(),
         1,
         "poisoned list element must not cascade onto the compound — exactly one error expected, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Poison negative pin (matrix cell #9): a `match` whose scrutinee is
+/// a poisoned (unbound-ident) subexpression must surface EXACTLY ONE error (the
+/// unbound identifier) and NOT cascade onto the arms — poison on `Idx::ERROR`
+/// absorbs the arm-type unification per UN-4. Separating the user-`Error` struct
+/// from the poison sentinel MUST NOT make `match` on poison cascade.
+#[test]
+fn test_poison_match_scrutinee_no_arm_cascade() {
+    let (result, _interner) =
+        parse_and_check("@f () -> int = match unknown_var { 0 -> 1, _ -> 2 };");
+    assert_eq!(
+        result.typed.errors.len(),
+        1,
+        "poisoned match scrutinee must not cascade onto the arms — exactly one error expected, got: {:?}",
+        result.typed.errors
+    );
+}
+
+/// Poison negative pin (matrix cell #13): field access on a poisoned
+/// (unbound-ident) receiver must surface EXACTLY ONE error (the unbound
+/// identifier) and NOT cascade through the `Tag::Error` field-access arm.
+/// Separating the user-`Error` struct from the poison sentinel re-routes the
+/// USER-`Error` `.message` path to normal struct-field resolution, but a POISON
+/// receiver still hits `Idx::ERROR` — its field access must stay cascade-free.
+#[test]
+fn test_poison_field_access_no_cascade() {
+    // `-> str` matches the `.message -> str` field-access result, isolating the
+    // no-cascade property: only the unbound-ident error remains (a non-`str`
+    // return would add a legitimate result-type mismatch, not a cascade).
+    let (result, _interner) = parse_and_check("@f () -> str = unknown_var.message;");
+    assert_eq!(
+        result.typed.errors.len(),
+        1,
+        "poisoned receiver field access must not cascade — exactly one error expected, got: {:?}",
         result.typed.errors
     );
 }

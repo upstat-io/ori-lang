@@ -388,7 +388,13 @@ fn concrete_tag_to_idx(engine: &mut InferEngine<'_>, receiver_ty: Idx, type_tag:
         TypeTag::Ordering => Idx::ORDERING,
         TypeTag::Duration => Idx::DURATION,
         TypeTag::Size => Idx::SIZE,
-        TypeTag::Error => Idx::ERROR,
+        // `TypeTag::Error` denotes the user-facing `Error` TYPE
+        // (e.g. the `str.into() : Error` return), NOT the poison sentinel.
+        // Resolve to the registered `Error` struct Idx so the value is a real
+        // type that mismatches non-`Error` targets (E2001), not poison that
+        // unify absorbs. Falls back to `Idx::ERROR` only if the prelude struct
+        // was not registered (no-prelude builds).
+        TypeTag::Error => engine.pool().error_struct_idx().unwrap_or(Idx::ERROR),
 
         // Parameterized: construct in pool from receiver's inner type
         TypeTag::Option => {

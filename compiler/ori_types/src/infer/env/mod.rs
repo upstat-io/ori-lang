@@ -161,6 +161,15 @@ impl TypeEnv {
         self.0.bindings.contains_key(&name)
     }
 
+    /// Iterate `(name, type)` bound in THIS scope only (excludes the parent chain).
+    ///
+    /// Snapshots the bindings one or-pattern alternative produced in an isolated
+    /// child scope, for cross-alternative reconciliation: or-pattern
+    /// alternatives must bind a consistent name-set (Spec: Clause 15 patterns).
+    pub fn local_bindings(&self) -> impl Iterator<Item = (Name, Idx)> + '_ {
+        self.0.bindings.iter().map(|(name, b)| (*name, b.ty))
+    }
+
     /// Iterate over all bound names in this environment.
     ///
     /// Includes names from parent scopes. Names may be duplicated

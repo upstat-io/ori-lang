@@ -5,7 +5,7 @@
 
 @mkerr () -> Error = todo();
 
-#[compile_fail("E2001")]
+#compile_fail(code: "E2001")
 @user_error_value_to_int tests _ () -> void = {
     let _n: int = mkerr();
     ()

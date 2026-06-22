@@ -95,6 +95,15 @@ pub struct Pool {
     /// `FunctionRef`, `TypeRef`) before any pool lookup.
     newtype_ctors: FxHashMap<ori_ir::Name, Idx>,
 
+    // === User-facing `Error` struct ===
+    /// `Idx` of the registered user-facing `Error` struct (`{ message: str }`),
+    /// distinct from the `Idx::ERROR` poison sentinel. Set once during builtin
+    /// registration. SSOT for "is this Idx the user-`Error` type?" — queried by
+    /// the registry-bridge Tag↔TypeTag maps + the codegen `TypeInfo` builder so
+    /// engine-less sites can route the registered Error to the `TypeTag::Error`
+    /// behavior table without re-mapping it to poison. `None` until registered.
+    error_struct_idx: Option<Idx>,
+
     // === Type Variables ===
     /// State for each type variable.
     var_states: Vec<VarState>,
@@ -147,6 +156,7 @@ impl Pool {
             intern_map: FxHashMap::default(),
             resolutions: FxHashMap::default(),
             newtype_ctors: FxHashMap::default(),
+            error_struct_idx: None,
             var_states: Vec::new(),
             next_var_id: 0,
         };
@@ -155,6 +165,25 @@ impl Pool {
         pool.intern_primitives();
 
         pool
+    }
+
+    /// Record the `Idx` of the registered user-facing `Error` struct.
+    /// Set once during builtin registration; the SSOT for distinguishing the
+    /// user-`Error` type from the `Idx::ERROR` poison sentinel.
+    pub fn set_error_struct_idx(&mut self, idx: Idx) {
+        self.error_struct_idx = Some(idx);
+    }
+
+    /// The registered user-facing `Error` struct `Idx`, or `None` before
+    /// registration. Queried by engine-less Tag↔TypeTag bridges + the codegen
+    /// `TypeInfo` builder to route the registered Error to its behavior table.
+    pub fn error_struct_idx(&self) -> Option<Idx> {
+        self.error_struct_idx
+    }
+
+    /// `true` iff `idx` is the registered user-facing `Error` struct.
+    pub fn is_error_struct(&self, idx: Idx) -> bool {
+        self.error_struct_idx == Some(idx)
     }
 
     /// Pre-intern all primitive types at their fixed indices.

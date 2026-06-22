@@ -238,6 +238,12 @@ impl<'tcx> TypeInfoStore<'tcx> {
         reason = "type info dispatch table over all Tag variants"
     )]
     fn compute_type_info_inner(&self, idx: Idx) -> TypeInfo {
+        // the registered user-facing `Error` struct (distinct Idx
+        // from the `Idx::ERROR` poison i64 sentinel) flows as a REAL struct
+        // `{ message: str }` — codegen lays it out generically (the i64
+        // `TypeInfo::Error` carries no message and is poison-only). The
+        // `str.into()` builtin constructs it; field access + the Traceable
+        // methods route through the normal struct path.
         match self.pool.tag(idx) {
             // Primitives (should already be pre-populated, but handle gracefully)
             Tag::Int => TypeInfo::Int,

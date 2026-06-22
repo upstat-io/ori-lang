@@ -14,6 +14,7 @@ use super::method_diagnostics::{
     emit_into_not_implemented, emit_unknown_method, is_named_generic_var,
 };
 use super::monomorphization::maybe_record_method_mono_instance;
+use crate::infer::expr::type_resolution::resolve_parsed_type_list;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
@@ -69,7 +70,9 @@ pub(crate) fn infer_method_call(
             }
             return ret_ty;
         }
-        ReceiverDispatch::Continue { resolved } => resolved,
+        ReceiverDispatch::Continue { resolved } => {
+            apply_receiver_type_args(engine, arena, resolved, receiver, span)
+        }
     };
 
     let arg_ids = arena.get_expr_list(args);
@@ -115,7 +118,7 @@ pub(crate) fn infer_method_call(
     emit_into_not_implemented(engine, resolved, method, span);
     // Surface a method-not-found diagnostic for a genuine NotFound on a
     // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + rigid-receiver negative case). Skipped for
+    // class (concrete-receiver NotFound + rigid-receiver negative case). Skipped for
     // Ambiguous (already emitted) + unresolved Var (deferred) + into.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
@@ -172,7 +175,9 @@ pub(crate) fn infer_method_call_named(
             }
             return ret_ty;
         }
-        ReceiverDispatch::Continue { resolved } => resolved,
+        ReceiverDispatch::Continue { resolved } => {
+            apply_receiver_type_args(engine, arena, resolved, receiver, span)
+        }
     };
 
     let call_args = arena.get_call_args(args);
@@ -226,13 +231,61 @@ pub(crate) fn infer_method_call_named(
     emit_into_not_implemented(engine, resolved, method, span);
     // Surface a method-not-found diagnostic for a genuine NotFound on a
     // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + rigid-receiver negative case). Skipped for
+    // class (concrete-receiver NotFound + rigid-receiver negative case). Skipped for
     // Ambiguous (already emitted) + unresolved Var (deferred) + into.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
     }
 
     Idx::ERROR
+}
+
+/// Instantiate a primary-position type-path turbofish receiver (`Box<int>.new(...)`)
+/// with its parsed receiver type-arguments (recorded in the arena side-table keyed by
+/// the receiver `ExprId`), so the receiver type is concrete BEFORE associated-function
+/// resolution. Mirrors the `Box<int>` annotation path in `type_resolution.rs`
+/// (well-known generics use their dedicated pool constructors). Returns `resolved`
+/// unchanged when there are no receiver type-args or the receiver is not a bare
+/// nominal type-name (`Tag::Named`).
+fn apply_receiver_type_args(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    resolved: Idx,
+    receiver: ExprId,
+    _span: Span,
+) -> Idx {
+    let type_args = arena.receiver_type_args(receiver);
+    if type_args.is_empty() {
+        return resolved;
+    }
+    let arg_idxs = resolve_parsed_type_list(engine, arena, type_args);
+    match engine.pool().tag(resolved) {
+        // The receiver type-name already instantiated to `Applied(Box, [fresh_var])`
+        // (the generic struct's params became fresh inference vars). Bind each fresh
+        // arg-var to the explicit turbofish arg so the receiver is concrete BEFORE
+        // associated-function resolution; the value-arg check then sees the bound type.
+        Tag::Applied => {
+            let existing = engine.pool().applied_args(resolved);
+            for (&recv_arg, &explicit) in existing.iter().zip(arg_idxs.iter()) {
+                let _ = engine.unify_types(recv_arg, explicit);
+            }
+            resolved
+        }
+        // A bare nominal type-name with no instantiated args: build `Applied(base, args)`
+        // matching the `Box<int>` annotation path (well-known generics use their
+        // dedicated pool constructors so the entry matches an annotation's).
+        Tag::Named => {
+            let base_name = engine.pool().named_name(resolved);
+            let wk = engine.well_known();
+            let resolved_wk = if let Some(wk) = wk {
+                wk.resolve_generic(engine.pool_mut(), base_name, &arg_idxs)
+            } else {
+                None
+            };
+            resolved_wk.unwrap_or_else(|| engine.pool_mut().applied(base_name, &arg_idxs))
+        }
+        _ => resolved,
+    }
 }
 
 /// Result of resolving a method receiver and checking builtin dispatch.

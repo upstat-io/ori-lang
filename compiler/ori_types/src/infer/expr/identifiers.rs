@@ -71,6 +71,17 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         }
     }
 
+    // 6.5. Built-in `Error(message)` constructor.
+    // MUST precede step 7: the user-facing `Error` is now a registered builtin
+    // struct (`{ message: str }`), so step 7's `resolve_type_constructor_info`
+    // would catch it as a bare `UnitVariant` type (not callable → "expected a
+    // function, found Error"). The `Error(str) -> Error` constructor (formerly
+    // step 8) builds `(str) -> named("Error")`, which resolves to the struct Idx.
+    if name_str == Some("Error") {
+        let error_type = engine.pool_mut().named(name);
+        return engine.pool_mut().function(&[Idx::STR], error_type);
+    }
+
     // 7. TypeRegistry: newtype constructors, enum variant constructors
     //    Extract data with immutable borrow, then release before pool_mut
     if let Some(ctor) = resolve_type_constructor_info(engine, name) {
@@ -136,13 +147,7 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         };
     }
 
-    // 8. Built-in Error constructor (after TypeRegistry so user-defined Error variants win)
-    if name_str == Some("Error") {
-        let error_type = engine.pool_mut().named(name);
-        return engine.pool_mut().function(&[Idx::STR], error_type);
-    }
-
-    // 9. Unknown identifier — find similar names for typo suggestions
+    // 7. Unknown identifier — find similar names for typo suggestions
     let similar = engine
         .env()
         .find_similar(name, 3, |n| engine.lookup_name(n));

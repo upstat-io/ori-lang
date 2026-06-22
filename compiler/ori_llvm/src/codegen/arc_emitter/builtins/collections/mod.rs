@@ -17,6 +17,8 @@ mod string_builtins;
 declare_builtins! { emitter, ctx;
     // str
     ("str", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    // `str.into() : Error` constructs the user-facing Error struct.
+    ("str", "into") => emitter.emit_str_into_error(ctx.arg_vals[0], ctx.receiver_ty, ctx.dst_ty),
     ("str", "length") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "len") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "is_empty") => emitter.emit_str_is_empty(ctx.arg_vals[0]),
