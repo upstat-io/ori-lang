@@ -3,7 +3,7 @@
 //! Handles lowering of `FunctionSeq` variants (Try, Match, `ForPattern`)
 //! into primitive `CanExpr` nodes.
 
-use ori_ir::canon::{CanBindingPattern, CanExpr, CanId, CanRange};
+use ori_ir::canon::{CanBindingPattern, CanExpr, CanId};
 use ori_ir::{Mutability, Name, Span, TypeId};
 
 use super::Lowerer;
@@ -14,7 +14,7 @@ impl Lowerer<'_> {
     /// Lower a `FunctionSeq` (`ExprArena` side-table) into primitive `CanExpr` nodes.
     ///
     /// Each `FunctionSeq` variant is desugared:
-    /// - `Try { stmts, result }` → `Block` with Try-wrapped statements
+    /// - `Try { stmts, result }` → `Block` over a normal statement range (a source `?` is already a `CanExpr::Try`)
     /// - `Match { scrutinee, arms }` → `Match` with decision tree
     /// - `ForPattern { over, map, arm, default }` → `For` with match body
     pub(super) fn lower_function_seq(
@@ -26,11 +26,13 @@ impl Lowerer<'_> {
         let seq = self.src.get_function_seq(seq_id).clone();
         match seq {
             ori_ir::FunctionSeq::Try { stmts, result, .. } => {
-                let lowered_stmts = self.lower_try_stmts(stmts);
-                // Tail-less try block: `result == ExprId::INVALID`. Use the
-                // optional-child helper (as `lower_block` does) so the block
-                // lowers to `CanExpr::Block { result: CanId::INVALID }` rather
-                // than indexing the sentinel into the source arena.
+                // Why: a source-level `?` is already `CanExpr::Try` (from `lower_expr`);
+                // the try block boundary is this enclosing `CanExpr::Block`, so the
+                // statements lower as a normal range. Spec: Clause 16.7.3.
+                let lowered_stmts = self.lower_stmt_range(stmts);
+                // Why: tail-less try block (`result == ExprId::INVALID`) uses the
+                // optional-child helper (like `lower_block`) so it lowers to
+                // `CanExpr::Block { result: CanId::INVALID }`, not a sentinel index.
                 let result = self.lower_optional(result);
                 self.push(
                     CanExpr::Block {
@@ -55,20 +57,18 @@ impl Lowerer<'_> {
                 // The arm's pattern becomes a match inside the for body.
                 let iter = self.lower_expr(over);
 
-                // If there's a map transform, emit Error — ForPattern map
-                // semantics are not fully specified yet. Emitting a MethodCall
-                // with a wrong method name (e.g., "concat") would cause
-                // backends to dispatch incorrectly.
+                // Why: a `map` transform emits Error — ForPattern map semantics
+                // are unspecified; a wrong method name (e.g. "concat") would
+                // misdispatch in the backends.
                 let iter = if map.is_some() {
                     self.push(CanExpr::Error, span, ty)
                 } else {
                     iter
                 };
 
-                // Lower the arm body directly.
-                // Note: we do NOT lower the default expression — ForPattern
-                // default handling is deferred. Lowering it would allocate
-                // orphaned nodes in the arena.
+                // Why: the `default` expr is NOT lowered — ForPattern default
+                // handling is deferred, and lowering it would allocate orphaned
+                // arena nodes.
                 let body = self.lower_expr(arm.body);
 
                 // Use a simple for with the binding from the arm pattern.
@@ -98,53 +98,5 @@ impl Lowerer<'_> {
                 )
             }
         }
-    }
-
-    // Try Statement Lowering
-
-    /// Lower try statements — each statement wrapped in Try.
-    fn lower_try_stmts(&mut self, range: ori_ir::StmtRange) -> CanRange {
-        let stmts = self.src.get_stmt_range(range);
-        if stmts.is_empty() {
-            return CanRange::EMPTY;
-        }
-
-        let stmts: Vec<_> = stmts.to_vec();
-
-        // Lower all statements before building the expr list.
-        let lowered: Vec<CanId> = stmts
-            .iter()
-            .map(|stmt| match &stmt.kind {
-                ori_ir::StmtKind::Let {
-                    pattern,
-                    ty: _,
-                    init,
-                    mutable,
-                } => {
-                    let value = self.lower_expr(*init);
-                    let tried_value = self.push(CanExpr::Try(value), stmt.span, TypeId::ERROR);
-                    let pattern = self.lower_binding_pattern(*pattern);
-                    self.push(
-                        CanExpr::Let {
-                            pattern,
-                            init: tried_value,
-                            mutable: *mutable,
-                        },
-                        stmt.span,
-                        TypeId::UNIT,
-                    )
-                }
-                ori_ir::StmtKind::Expr(expr) => {
-                    let value = self.lower_expr(*expr);
-                    self.push(CanExpr::Try(value), stmt.span, TypeId::ERROR)
-                }
-            })
-            .collect();
-
-        let start = self.arena.start_expr_list();
-        for can_id in lowered {
-            self.arena.push_expr_list_item(can_id);
-        }
-        self.arena.finish_expr_list(start)
     }
 }

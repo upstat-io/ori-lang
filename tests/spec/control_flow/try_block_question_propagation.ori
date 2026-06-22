@@ -1,0 +1,26 @@
+// Spec: Clause 16.7.3 — try block with in-block `?` over an Option carrier.
+// Regression: ori_canon::lower_try_stmts double-wrapped each `?` statement in a
+// second CanExpr::Try, panicking arc lowering (PC-2 Tag::int) at AOT. The cure
+// collapses lower_try_stmts to lower_stmt_range (the source `?` is already a
+// CanExpr::Try, and the try block boundary is the enclosing CanExpr::Block).
+use std.testing { assert, assert_eq }
+
+@safe_head (xs: [int]) -> Option<int> = if xs.len() > 0 then Some(xs[0]) else None;
+
+@head_keep (xs: [int]) -> Option<[int]> = try {
+    let $h = safe_head(xs: xs)?;
+    Some(xs)
+};
+
+@t_try_question_some tests _ () -> void = {
+    let r = head_keep(xs: [10, 20, 30]);
+    match r {
+        Some(v) -> assert_eq(actual: v.len(), expected: 3),
+        None -> assert(cond: false),
+    }
+}
+
+@t_try_question_none_propagates tests _ () -> void = {
+    let r = head_keep(xs: []);
+    assert_eq(actual: is_none(option: r), expected: true)
+}

@@ -12,7 +12,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `dual-exec-debug.sh` | Compare interpreter vs AOT output | Wrong output — is it eval or codegen? |
 | `dual-exec-verify.sh` | Batch interpreter vs LLVM verification | CI parity gate, coverage audits |
 | `codegen-audit.sh` | Static RC/COW/ABI analysis of LLVM IR | RC corruption, double-free, ABI mismatch |
-| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`) |
+| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`, `--rc-remarks`) |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
@@ -97,9 +97,34 @@ diagnostics/rc-stats.sh --block-level file.ori               # Per-block breakdo
 diagnostics/rc-stats.sh --optimized file.ori                  # After LLVM optimization passes
 diagnostics/rc-stats.sh --block-level --optimized file.ori   # Per-block on optimized IR
 diagnostics/rc-stats.sh --compare-awk file.ori               # Migration check: compare JSON vs legacy awk
+diagnostics/rc-stats.sh --rc-remarks file.ori                # Per-function surviving-RC summary from the burden-sole remark stream
 ```
 
 Consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` — SSOT is `RcOpKind` in `rc_histogram.rs`. Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release. Per-block balance is informational; only function-level balance affects exit code.
+
+`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the burden-sole gating `ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). The RC verdict is valid ONLY on the burden-sole path.
+
+### RC-survivor remark stream
+
+The compiler emits one JSONL `missed` remark per surviving RC operation when given a sink path:
+
+```bash
+ori build file.ori --emit-rc-remarks survivors.jsonl   # CLI flag (auto-composes burden-sole gating)
+ORI_RC_REMARKS=survivors.jsonl ori build file.ori       # env var (compose the gating yourself)
+```
+
+The stream opens with a `header` record (`schema_version`, `compiler_sha`, `source_file`, `burden_path`) followed by per-op `missed` remarks (`rc_op`, `function`, `debug_loc`, `cause`, `cow_mode`). It is the AIMS analog of LLVM's `-fsave-optimization-record`.
+
+Analyze the stream with the `ori-rc-remarks` tool (standalone crate at `compiler_repo/tools/ori-rc-remarks`):
+
+```bash
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- survivors.jsonl              # summary
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --stats survivors.jsonl      # cause-cluster ranking
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --view survivors.jsonl        # source-annotated survivor view
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --diff base.jsonl cand.jsonl  # two-build comparison
+```
+
+These are the opt-stats / opt-viewer / opt-diff analogs for AIMS RC survivors.
 
 ### ir-dump.sh — LLVM IR Dump
 

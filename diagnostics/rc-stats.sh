@@ -8,6 +8,9 @@
 #   --block-level      Show per-block RC operation breakdown
 #   --optimized        Analyze optimized IR (post-optimization histogram)
 #   --compare-awk      Compare JSON totals with legacy awk parser (migration verification)
+#   --rc-remarks       Consume the burden-sole --emit-rc-remarks survivor stream
+#                      (per-function surviving-RC-op summary; the eventual-supersede
+#                      of the ORI_AUDIT histogram — the burden-sole RC verdict surface)
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
@@ -45,6 +48,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OPTIMIZED=0
 BLOCK_LEVEL=0
 COMPARE_AWK=0
+RC_REMARKS=0
 USE_COLOR=auto
 FILE=""
 
@@ -54,6 +58,7 @@ while [[ $# -gt 0 ]]; do
         --block-level) BLOCK_LEVEL=1; shift ;;
         --optimized) OPTIMIZED=1; shift ;;
         --compare-awk) COMPARE_AWK=1; shift ;;
+        --rc-remarks) RC_REMARKS=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
         -h|--help)
@@ -114,6 +119,50 @@ trap 'rm -rf "$tmpdir"' EXIT
 echo "Analyzing $(basename "$FILE")..." >&2
 
 ORI_BIN="${ORI_BIN:-cargo run -p oric --bin ori --}"
+
+# --- RC-remarks mode: consume the burden-sole --emit-rc-remarks survivor stream.
+# The remark stream is the burden-sole RC verdict surface (arc.md §STOP); this
+# is the eventual-supersede of the ORI_AUDIT histogram below. The flag
+# auto-composes the burden-sole gating, so the header's burden_path is true.
+if [[ "$RC_REMARKS" -eq 1 ]]; then
+    remarks="$tmpdir/rc-remarks.jsonl"
+    # shellcheck disable=SC2086
+    $ORI_BIN build "$FILE" --emit-rc-remarks "$remarks" -o "$tmpdir/test_bin" \
+        2>"$tmpdir/stderr.txt" || true
+    if [[ ! -s "$remarks" ]]; then
+        echo "Error: no RC-remark stream produced for $FILE" >&2
+        sed -n '1,20p' "$tmpdir/stderr.txt" >&2
+        exit 2
+    fi
+    python3 - "$remarks" <<'PYEOF'
+import json, sys
+from collections import Counter, defaultdict
+survivors = defaultdict(int)
+causes = defaultdict(Counter)
+burden_path = None
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line:
+        continue
+    o = json.loads(line)
+    if o.get("record") == "header":
+        burden_path = o.get("burden_path")
+        continue
+    fn = o.get("function") or "<unknown>"
+    survivors[fn] += 1
+    c = o.get("cause") or {}
+    causes[fn][f"{c.get('lattice_dim', '-')}/{c.get('proof_failure', '-')}"] += 1
+print(f"RC survivors (burden_path={burden_path}):")
+print(f"{'survivors':>10}  function  [top cause]")
+for fn, n in sorted(survivors.items(), key=lambda kv: (-kv[1], kv[0])):
+    top = causes[fn].most_common(1)[0][0] if causes[fn] else "-"
+    print(f"{n:>10}  {fn}  [{top}]")
+total = sum(survivors.values())
+print(f"\ntotal: {total} surviving RC op(s) across {len(survivors)} function(s)")
+PYEOF
+    exit 0
+fi
+
 # shellcheck disable=SC2086
 ORI_AUDIT_CODEGEN=1 $ORI_BIN build "$FILE" -o "$tmpdir/test_bin" 2>"$tmpdir/stderr.txt" || true
 

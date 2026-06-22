@@ -838,7 +838,6 @@ fn test_edge_for_yield_return_preserves_unwind_decs() {
 /// unwind paths; verify the gate doesn't suppress decs on the unwind
 /// side.
 #[test]
-#[ignore = "BUG-04-092: lower_try Tag::int aggregate-shape mismatch in canon blocks reaching BUG-04-090's AIMS RC surface; un-ignore when BUG-04-092 lands"]
 fn test_edge_try_block_return_preserves_unwind_decs() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_try_block_return.ori"),
