@@ -70,6 +70,7 @@ pub use aims::contract::{ContractMapExt, MemoryContract};
 pub use aims::interprocedural::{
     augment_contracts_with_impl_callees, compute_impl_method_contracts,
 };
+pub use aims::realize::rc_remark::write_rc_remarks_header;
 pub use aims::realize::rl31_disjoint::{prove_param_noalias, NoaliasProof};
 pub use pipeline::{
     compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_arc_pipeline_with_observer,

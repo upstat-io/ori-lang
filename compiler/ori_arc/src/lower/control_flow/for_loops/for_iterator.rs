@@ -30,6 +30,7 @@ impl ArcLowerer<'_> {
         elem_ty: Idx,
         guard: CanId,
         body: CanId,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
@@ -123,12 +124,12 @@ impl ArcLowerer<'_> {
         // runs per-iteration inside the for's own loop, so a guard-position
         // break/continue targets this for (its exit_block / header_block), not
         // an enclosing loop. Mirrors the parser IN_LOOP guard + infer_while.
-        let prev_loop = self.loop_ctx.take();
         let mutable_var_entries: Vec<_> = header_mut_params
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
-        self.loop_ctx = Some(LoopContext {
+        self.loop_ctx_stack.push(LoopContext {
+            label,
             exit_block,
             continue_block: header_block,
             mutable_vars: mutable_var_entries,
@@ -183,7 +184,7 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, body_args);
         }
 
-        self.loop_ctx = prev_loop;
+        self.loop_ctx_stack.pop();
 
         // Exit prep: normal loop exhaustion path. Passes unit (no break
         // value) + current mutable var values to the exit block.

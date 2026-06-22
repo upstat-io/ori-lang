@@ -551,6 +551,56 @@ fn accumulate_with_output_only() {
 }
 
 #[test]
+fn accumulate_emit_rc_remarks_lookahead_form() {
+    // Simulates: ori build file.ori --emit-rc-remarks /tmp/rc.jsonl
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--emit-rc-remarks".to_string(),
+        "/tmp/rc.jsonl".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks,
+        Some(std::path::PathBuf::from("/tmp/rc.jsonl")),
+        "--emit-rc-remarks <path> two-token form must populate emit_rc_remarks"
+    );
+}
+
+#[test]
+fn accumulate_emit_rc_remarks_equals_form() {
+    // Simulates: ori build file.ori --emit-rc-remarks=/tmp/rc.jsonl
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--emit-rc-remarks=/tmp/rc.jsonl".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks,
+        Some(std::path::PathBuf::from("/tmp/rc.jsonl")),
+        "--emit-rc-remarks=<path> form must populate emit_rc_remarks"
+    );
+}
+
+#[test]
+fn emit_rc_remarks_default_none() {
+    // No flag → emit_rc_remarks stays None (the dev ORI_RC_REMARKS surface is unaffected).
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks, None,
+        "absent --emit-rc-remarks must leave emit_rc_remarks None"
+    );
+}
+
+#[test]
 fn accumulate_explicit_aggressive_survives_trailing_flags() {
     // Simulates: ori build file.ori --repr-opt=aggressive --release --emit=llvm-ir
     let args = vec![

@@ -161,5 +161,7 @@ type ShapeBox = SBox(shape: Shape);
 // same name + same type param on both alternatives, should typecheck) is deferred:
 // the two identical-`T` payload positions resolve to distinct type vars upstream of
 // the reconcile, wrongly tripping E2053. Tracked as BUG-02-062 (sound over-rejection);
-// re-add the positive cell here when it lands. The generic-type-DIVERGENCE reject cell
-// above (`or_generic_type_divergence`, E2053) already exercises the type-variable interior.
+// re-add the positive cell here when it lands. Only the CONCRETE type-divergence reject
+// path is pinned (`test_or_type_divergence` at line 47, using Mixed/AsInt/AsStr); the
+// generic type-variable interior (same-`T` accept AND repeated-type-param divergence) has
+// no current pin and is deferred to BUG-02-062 — do not claim coverage that does not exist.

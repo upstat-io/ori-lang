@@ -126,7 +126,7 @@ impl ArcLowerer<'_> {
                 interner: self.interner,
                 pool: self.pool,
                 scope: lambda_scope,
-                loop_ctx: None,
+                loop_ctx_stack: Vec::new(),
                 problems: &mut lambda_problems,
                 lambdas: self.lambdas,
                 hash_length: None,

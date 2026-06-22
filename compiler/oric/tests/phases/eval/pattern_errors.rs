@@ -51,9 +51,9 @@ fn test_eval_error_new() {
 
 #[test]
 fn test_control_action_break() {
-    let action = ControlAction::Break(Value::int(42));
+    let action = ControlAction::Break(Value::int(42), ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    if let ControlAction::Break(v) = action {
+    if let ControlAction::Break(v, _) = action {
         assert_eq!(v, Value::int(42));
     } else {
         panic!("expected ControlAction::Break");
@@ -62,9 +62,9 @@ fn test_control_action_break() {
 
 #[test]
 fn test_control_action_continue() {
-    let action = ControlAction::Continue(Value::Void);
+    let action = ControlAction::Continue(Value::Void, ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    if let ControlAction::Continue(v) = action {
+    if let ControlAction::Continue(v, _) = action {
         assert!(matches!(v, Value::Void));
     } else {
         panic!("expected ControlAction::Continue");

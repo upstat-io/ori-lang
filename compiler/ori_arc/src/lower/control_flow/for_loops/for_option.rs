@@ -32,6 +32,7 @@ impl ArcLowerer<'_> {
         elem_ty: Idx,
         guard: CanId,
         body: CanId,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         let some_block = self.builder.new_block();
         let none_block = self.builder.new_block();
@@ -98,8 +99,8 @@ impl ArcLowerer<'_> {
         // enclosing loop. Option is not a loop — continue funnels to exit.
         let mutable_var_entries: Vec<_> =
             mut_info.iter().map(|&(name, var, _)| (name, var)).collect();
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
+        self.loop_ctx_stack.push(LoopContext {
+            label,
             exit_block,
             continue_block,
             mutable_vars: mutable_var_entries,
@@ -145,7 +146,7 @@ impl ArcLowerer<'_> {
             }
         }
 
-        self.loop_ctx = prev_loop;
+        self.loop_ctx_stack.pop();
 
         // Exit: restore scope with merged mutable vars (result param discarded).
         self.builder.position_at(exit_block);

@@ -174,7 +174,7 @@ pub fn lower_function_can(
         interner,
         pool,
         scope,
-        loop_ctx: None,
+        loop_ctx_stack: Vec::new(),
         problems,
         lambdas: &mut lambdas,
         hash_length: None,

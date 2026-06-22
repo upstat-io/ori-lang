@@ -83,8 +83,9 @@ pub(crate) fn verify_burden_balance(func: &ArcFunction) -> Vec<BurdenBalanceErro
 }
 
 /// Defining-site kind of `var` — the attribution dimension classifying
-/// WHICH emission family produced the imbalanced lineage.
-fn var_def_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
+/// WHICH emission family produced the imbalanced lineage. Reused by the
+/// RC-remark emitter (`aims::realize::rc_remark`) for the `def_kind` taxonomy.
+pub(crate) fn var_def_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
     if func.params.iter().any(|p| p.var == var) {
         return "param";
     }
@@ -122,8 +123,9 @@ fn var_def_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
     "undef"
 }
 
-/// `var`'s machine repr label for attribution.
-fn var_repr_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
+/// `var`'s machine repr label for attribution. Reused by the RC-remark emitter
+/// (`aims::realize::rc_remark`) for the `var_repr` taxonomy.
+pub(crate) fn var_repr_kind(func: &ArcFunction, var: ArcVarId) -> &'static str {
     match func.var_repr(var) {
         Some(crate::ir::ValueRepr::Scalar) => "scalar",
         Some(crate::ir::ValueRepr::RcPointer) => "rc-pointer",

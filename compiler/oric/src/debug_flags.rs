@@ -184,6 +184,16 @@ flags! {
     /// Usage: `ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
     ORI_DISABLE_PREDICATE_STACK_RC
 
+    /// Output path for the AIMS RC-survivor remark stream (JSONL).
+    ///
+    /// Consumed in `ori_arc::aims::realize::rc_remark` (which can't depend on
+    /// `oric`). Defined here for documentation and `check-debug-flags.sh`
+    /// consistency. CLI alternative: `--emit-rc-remarks <path>` (composes the
+    /// burden-sole-path gating so the stream is a valid verdict surface).
+    /// Valid verdict only on the burden-sole path (`ORI_DISABLE_PREDICATE_STACK_RC=1`).
+    /// Usage: `ORI_RC_REMARKS=out.jsonl ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
+    ORI_RC_REMARKS
+
     /// Disable the lineage-aware Phase-6 burden-op re-balance (group-by-rep
     /// net-targeted one-release elision) in `ori_arc::aims::realize::burden_elim`,
     /// falling back to the decoupled per-var elision.

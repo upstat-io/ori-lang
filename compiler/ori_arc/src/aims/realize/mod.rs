@@ -27,6 +27,7 @@ pub mod decide;
 mod dimension_consumer;
 mod emit_unified;
 pub mod metrics;
+pub mod rc_remark;
 pub mod rl31_disjoint;
 #[cfg(test)]
 mod tests;

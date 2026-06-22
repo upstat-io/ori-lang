@@ -39,6 +39,8 @@ pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
         options.output = Some(PathBuf::from(output));
     } else if let Some(dir) = arg.strip_prefix("--out-dir=") {
         options.out_dir = Some(PathBuf::from(dir));
+    } else if let Some(remarks) = arg.strip_prefix("--emit-rc-remarks=") {
+        options.emit_rc_remarks = Some(PathBuf::from(remarks));
     } else if let Some(emit) = arg.strip_prefix("--emit=") {
         if let Some(e) = EmitType::parse(emit) {
             options.emit = Some(e);

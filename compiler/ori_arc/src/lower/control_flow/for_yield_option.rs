@@ -36,6 +36,7 @@ impl ArcLowerer<'_> {
         shape: ForYieldShape,
         option_val: ArcVarId,
         elem_ty: Idx,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         let ForYieldShape {
             pattern,
@@ -131,8 +132,8 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, pre_var, _)| (name, pre_var))
             .collect();
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
+        self.loop_ctx_stack.push(LoopContext {
+            label,
             exit_block,
             continue_block: exit_block,
             mutable_vars: mutable_var_entries,
@@ -192,7 +193,7 @@ impl ArcLowerer<'_> {
             }
         }
 
-        self.loop_ctx = prev_loop;
+        self.loop_ctx_stack.pop();
 
         // Exit: restore scope with final mutable var values, extract result.
         self.builder.position_at(exit_block);

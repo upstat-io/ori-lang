@@ -286,29 +286,34 @@ impl Interpreter<'_> {
                 guard,
                 body,
                 is_yield,
+                label,
                 ..
             } => {
                 let iter_val = self.eval_can(iter)?;
                 let span = self.can_span(can_id);
-                self.eval_can_for(pattern, &iter_val, guard, body, is_yield)
+                self.eval_can_for(pattern, &iter_val, guard, body, is_yield, label)
                     .map_err(|e| Self::attach_span(e, span))
             }
-            CanExpr::Loop { body, .. } => self.eval_can_loop(body),
-            CanExpr::Break { value: v, .. } => {
+            CanExpr::Loop { body, label, .. } => self.eval_can_loop(body, label),
+            CanExpr::Break {
+                value: v, label, ..
+            } => {
                 let val = if v.is_valid() {
                     self.eval_can(v)?
                 } else {
                     Value::Void
                 };
-                Err(ControlAction::Break(val))
+                Err(ControlAction::Break(val, label))
             }
-            CanExpr::Continue { value: v, .. } => {
+            CanExpr::Continue {
+                value: v, label, ..
+            } => {
                 let val = if v.is_valid() {
                     self.eval_can(v)?
                 } else {
                     Value::Void
                 };
-                Err(ControlAction::Continue(val))
+                Err(ControlAction::Continue(val, label))
             }
 
             // Bindings

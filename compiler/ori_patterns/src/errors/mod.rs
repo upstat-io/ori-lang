@@ -18,7 +18,7 @@
 pub mod diagnostics;
 
 use crate::value::Value;
-use ori_ir::{BinaryOp, Span};
+use ori_ir::{BinaryOp, Name, Span};
 use std::fmt;
 
 /// Result of evaluation.
@@ -44,10 +44,14 @@ pub type EvalResult = Result<Value, ControlAction>;
 pub enum ControlAction {
     /// A runtime error (the only variant that represents failure).
     Error(Box<EvalError>),
-    /// Break from a loop, optionally with a value.
-    Break(Value),
-    /// Continue to next iteration, optionally with a substitution value (for...yield).
-    Continue(Value),
+    /// Break from a loop, optionally with a value. `label` is the target loop
+    /// label (`Name::EMPTY` = innermost; non-empty = nearest enclosing match).
+    /// Spec: Clause 16.3.3.
+    Break(Value, Name),
+    /// Continue to next iteration, optionally with a substitution value
+    /// (for...yield). `label` is the target loop label (`Name::EMPTY` =
+    /// innermost). Spec: Clause 16.3.3.
+    Continue(Value, Name),
     /// Propagation from `?` operator — carries the original Err/None value.
     Propagate(Value),
 }
@@ -59,8 +63,8 @@ impl ControlAction {
     pub fn into_eval_error(self) -> EvalError {
         match self {
             ControlAction::Error(e) => *e,
-            ControlAction::Break(v) => EvalError::new(format!("break:{v}")),
-            ControlAction::Continue(v) => EvalError::new(format!("continue:{v}")),
+            ControlAction::Break(v, _) => EvalError::new(format!("break:{v}")),
+            ControlAction::Continue(v, _) => EvalError::new(format!("continue:{v}")),
             ControlAction::Propagate(v) => EvalError::new(format!("propagated error: {v:?}")),
         }
     }

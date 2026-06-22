@@ -63,8 +63,8 @@ const DEI_ELEM: ReturnTag = ReturnTag::DoubleEndedIteratorOf(TypeProjection::Ele
 #[rustfmt::skip]
 static LIST_METHODS: &[MethodDef] = &[
     //                  name           params                 returns    trait               receiver           backend
-    MethodDef::compound("all",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
-    MethodDef::compound("any",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
+    MethodDef::compound("all",         &CLOSURE_PARAM,        BOOL,      None,               Ownership::Borrow, false),
+    MethodDef::compound("any",         &CLOSURE_PARAM,        BOOL,      None,               Ownership::Borrow, false),
     MethodDef::compound("append",      &ONE_SELF_BORROW,      SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("chunk",       &INT_PARAM,            FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("clone",       &[],                   SELF,      Some("Clone"),      Ownership::Borrow, false),
@@ -126,6 +126,7 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("zip",         &FRESH_PARAM,          FRESH,     None,               Ownership::Borrow, false),
 ];
 
+/// Builtin `[T]` list type definition: methods, operators, memory strategy.
 pub static LIST: TypeDef = TypeDef {
     tag: TypeTag::List,
     name: "List",

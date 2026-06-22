@@ -212,6 +212,7 @@ impl Interpreter<'_> {
         guard: CanId,
         body: CanId,
         is_yield: bool,
+        label: ori_ir::Name,
     ) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
@@ -251,7 +252,7 @@ impl Interpreter<'_> {
                     match scoped.eval_can(guard) {
                         Ok(v) if !v.is_truthy() => continue,
                         Ok(_) => {}
-                        Err(e) => match to_loop_action(e) {
+                        Err(e) => match to_loop_action(e, label) {
                             LoopAction::Continue => continue,
                             LoopAction::ContinueWith(v) => {
                                 results.push(v);
@@ -270,7 +271,7 @@ impl Interpreter<'_> {
 
                 match scoped.eval_can(body) {
                     Ok(v) => results.push(v),
-                    Err(e) => match to_loop_action(e) {
+                    Err(e) => match to_loop_action(e, label) {
                         LoopAction::Continue => {}
                         LoopAction::ContinueWith(v) => results.push(v),
                         LoopAction::Break(v) => {
@@ -301,7 +302,7 @@ impl Interpreter<'_> {
                     match scoped.eval_can(guard) {
                         Ok(v) if !v.is_truthy() => continue,
                         Ok(_) => {}
-                        Err(e) => match to_loop_action(e) {
+                        Err(e) => match to_loop_action(e, label) {
                             LoopAction::Continue | LoopAction::ContinueWith(_) => continue,
                             LoopAction::Break(v) => return Ok(v),
                             LoopAction::Error(e) => return Err(e),
@@ -311,7 +312,7 @@ impl Interpreter<'_> {
 
                 match scoped.eval_can(body) {
                     Ok(_) => {}
-                    Err(e) => match to_loop_action(e) {
+                    Err(e) => match to_loop_action(e, label) {
                         LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                         LoopAction::Break(v) => return Ok(v),
                         LoopAction::Error(e) => return Err(e),
@@ -323,13 +324,13 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a canonical infinite loop.
-    pub(super) fn eval_can_loop(&mut self, body: CanId) -> EvalResult {
+    pub(super) fn eval_can_loop(&mut self, body: CanId, label: ori_ir::Name) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
         loop {
             match self.eval_can(body) {
                 Ok(_) => {}
-                Err(e) => match to_loop_action(e) {
+                Err(e) => match to_loop_action(e, label) {
                     LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                     LoopAction::Break(v) => return Ok(v),
                     LoopAction::Error(e) => return Err(e),

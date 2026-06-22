@@ -64,6 +64,22 @@ fn computed_list_return(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: 
             let pair = engine.pool_mut().tuple(&[elem, other_elem]);
             engine.pool_mut().list(pair)
         }
+        // map returns List<U> where U is a fresh var pinned to the closure return by
+        // unify_higher_order_constraints (closure_unify map arm).
+        "map" => {
+            let elem = engine.fresh_var();
+            engine.pool_mut().list(elem)
+        }
+        // filter returns List<T> — same element type as the receiver (predicate preserves it).
+        "filter" => {
+            let elem = engine.pool().list_elem(receiver_ty);
+            engine.pool_mut().list(elem)
+        }
+        // find returns Option<T> — T is the receiver element type.
+        "find" => {
+            let elem = engine.pool().list_elem(receiver_ty);
+            engine.pool_mut().option(elem)
+        }
         _ => engine.fresh_var(),
     }
 }

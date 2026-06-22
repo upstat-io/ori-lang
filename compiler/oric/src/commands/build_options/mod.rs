@@ -85,6 +85,13 @@ pub struct BuildOptions {
     /// Storing the raw string avoids a compile-time dependency on `ori_llvm` in
     /// `BuildOptions` (which is used in non-LLVM builds too).
     pub sanitizer_env: Option<String>,
+    /// Output path for the AIMS RC-survivor remark stream (`--emit-rc-remarks <path>`).
+    ///
+    /// When set, `build_file` bridges it to the `ORI_RC_REMARKS` env var so the
+    /// `ori_arc` realization-time emitter (which cannot depend on `oric`) emits
+    /// the JSONL stream. The env var is the dev surface; this is the production
+    /// CLI surface. Burden-sole-path gating is composed alongside.
+    pub emit_rc_remarks: Option<PathBuf>,
 }
 
 impl Default for BuildOptions {
@@ -117,6 +124,7 @@ impl Default for BuildOptions {
             link_mode_explicit: false,
             jobs_explicit: false,
             sanitizer_env: None,
+            emit_rc_remarks: None,
         }
     }
 }
@@ -164,6 +172,9 @@ impl BuildOptions {
         }
         if other.out_dir.is_some() {
             self.out_dir.clone_from(&other.out_dir);
+        }
+        if other.emit_rc_remarks.is_some() {
+            self.emit_rc_remarks.clone_from(&other.emit_rc_remarks);
         }
         if other.emit.is_some() {
             self.emit = other.emit;
@@ -391,6 +402,9 @@ pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) ->
     while i < args.len() {
         if args[i] == "-o" && i + 1 < args.len() {
             options.output = Some(std::path::PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else if args[i] == "--emit-rc-remarks" && i + 1 < args.len() {
+            options.emit_rc_remarks = Some(std::path::PathBuf::from(&args[i + 1]));
             i += 2;
         } else {
             let parsed = parse_build_options(&args[i..=i]);

@@ -22,6 +22,7 @@ impl ArcLowerer<'_> {
         iter_val: ArcVarId,
         iter_ty: Idx,
         tag: Tag,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         tracing::debug!(
             pattern = ?shape.pattern,
@@ -31,11 +32,11 @@ impl ArcLowerer<'_> {
         );
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_yield_option(shape, iter_val, elem_ty)
+            self.lower_for_yield_option(shape, iter_val, elem_ty, label)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(shape, iter_handle, elem_ty)
+            self.lower_for_yield_iterator(shape, iter_handle, elem_ty, label)
         }
     }
 
@@ -119,6 +120,7 @@ impl ArcLowerer<'_> {
         shape: ForYieldShape,
         iter_val: ArcVarId,
         elem_ty: Idx,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         let ForYieldShape {
             pattern,
@@ -242,8 +244,8 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
+        self.loop_ctx_stack.push(LoopContext {
+            label,
             exit_block,
             continue_block: header_block,
             mutable_vars: mutable_var_entries,
@@ -314,7 +316,7 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, back_args);
         }
 
-        self.loop_ctx = prev_loop;
+        self.loop_ctx_stack.pop();
 
         // Exit prep: normal loop exhaustion path.
         self.builder.position_at(exit_prep_block);

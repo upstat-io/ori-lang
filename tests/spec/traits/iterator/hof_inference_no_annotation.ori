@@ -1,0 +1,131 @@
+// Spec: Section 16 — Type Inference (higher-order method return inference)
+// Generic-return higher-order methods (.map/.filter/.find) infer their result
+// type from the closure/named-function return WITHOUT an outer result
+// annotation — the result element type is fixed by the closure return (.map)
+// or the receiver element (.filter/.find). Concrete-return methods
+// (.any/.all → bool) resolve unannotated too (registry Concrete returns).
+// Negative pins (no over-pinning, no auto-derived Eq) live in the compile-fail
+// corpus: tests/compile-fail/hof_inference_no_over_pinning.ori.
+
+use std.testing { assert, assert_eq }
+
+@named_double (x: int) -> int = x * 2;
+@named_pos (x: int) -> bool = x > 0;
+
+// .map with a typed lambda, no result annotation
+@map_lambda_unann () -> int = {
+    let $r = [1, 2, 3].map(transform: (x: int) -> x * 2);
+    r.length()
+}
+@test_map_lambda_unann tests @map_lambda_unann () -> void = {
+    assert_eq(actual: map_lambda_unann(), expected: 3)
+}
+
+// .map value pin — confirms the resolved element type is correct (doubled)
+@map_lambda_value () -> int = {
+    let $r = [1, 2, 3].map(transform: (x: int) -> x * 2);
+    r[1]
+}
+@test_map_lambda_value tests @map_lambda_value () -> void = {
+    assert_eq(actual: map_lambda_value(), expected: 4)
+}
+
+// .map with an untyped lambda
+@map_untyped_lambda_unann () -> int = {
+    let $r = [1, 2, 3].map(transform: x -> x * 2);
+    r.length()
+}
+@test_map_untyped_lambda_unann tests @map_untyped_lambda_unann () -> void = {
+    assert_eq(actual: map_untyped_lambda_unann(), expected: 3)
+}
+
+// .map with a named function
+@map_named_unann () -> int = {
+    let $r = [1, 2, 3].map(transform: named_double);
+    r.length()
+}
+@test_map_named_unann tests @map_named_unann () -> void = {
+    assert_eq(actual: map_named_unann(), expected: 3)
+}
+
+// .filter with a typed lambda
+@filter_lambda_unann () -> int = {
+    let $r = [1, 2, 3].filter(predicate: (x: int) -> x > 1);
+    r.length()
+}
+@test_filter_lambda_unann tests @filter_lambda_unann () -> void = {
+    assert_eq(actual: filter_lambda_unann(), expected: 2)
+}
+
+// .filter with an untyped lambda
+@filter_untyped_lambda_unann () -> int = {
+    let $r = [1, 2, 3].filter(predicate: x -> x > 1);
+    r.length()
+}
+@test_filter_untyped_lambda_unann tests @filter_untyped_lambda_unann () -> void = {
+    assert_eq(actual: filter_untyped_lambda_unann(), expected: 2)
+}
+
+// .filter with a named function
+@filter_named_unann () -> int = {
+    let $r = [1, 2, 3].filter(predicate: named_pos);
+    r.length()
+}
+@test_filter_named_unann tests @filter_named_unann () -> void = {
+    assert_eq(actual: filter_named_unann(), expected: 3)
+}
+
+// .find with a typed lambda (returns Option<T>)
+@find_lambda_unann () -> bool = {
+    let $r = [1, 2, 3].find(where: (x: int) -> x == 2);
+    r.is_some()
+}
+@test_find_lambda_unann tests @find_lambda_unann () -> void = {
+    assert(cond: find_lambda_unann())
+}
+
+// .find with an untyped lambda
+@find_untyped_lambda_unann () -> bool = {
+    let $r = [1, 2, 3].find(where: x -> x == 2);
+    r.is_some()
+}
+@test_find_untyped_lambda_unann tests @find_untyped_lambda_unann () -> void = {
+    assert(cond: find_untyped_lambda_unann())
+}
+
+// .find with a named function
+@find_named_unann () -> bool = {
+    let $r = [1, 2, 3].find(where: named_pos);
+    r.is_some()
+}
+@test_find_named_unann tests @find_named_unann () -> void = {
+    assert(cond: find_named_unann())
+}
+
+// .any returns bool — resolves unannotated even with the result used as the value
+@any_control () -> bool = {
+    let $r = [1, 2, 3].any(predicate: named_pos);
+    r
+}
+@test_any_control tests @any_control () -> void = {
+    assert(cond: any_control())
+}
+
+// .any in a no-expectation position (result unused) — pins the registry Concrete(bool)
+// return; pre-fix .any/.all were ReturnTag::Fresh and leaked E2005 here.
+@any_no_expectation () -> int = {
+    let $r = [1, 2, 3].any(predicate: named_pos);
+    0
+}
+@test_any_no_expectation tests @any_no_expectation () -> void = {
+    assert_eq(actual: any_no_expectation(), expected: 0)
+}
+
+// .all in a no-expectation position (result unused) — same Concrete(bool) pin
+@all_no_expectation () -> int = {
+    let $r = [1, 2, 3].all(predicate: named_pos);
+    0
+}
+@test_all_no_expectation tests @all_no_expectation () -> void = {
+    assert_eq(actual: all_no_expectation(), expected: 0)
+}

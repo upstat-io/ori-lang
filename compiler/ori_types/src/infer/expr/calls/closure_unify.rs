@@ -45,10 +45,16 @@ pub(super) fn unify_higher_order_constraints(
                 return;
             };
             let resolved_ret = engine.resolve(ret_ty);
-            if !engine.pool().tag(resolved_ret).is_iterator() {
+            let ret_tag = engine.pool().tag(resolved_ret);
+            // map's result element lives in either an iterator-shaped return (Iterator/DEI
+            // receivers) or a List-shaped return (List receivers, shaped by computed_list_return).
+            let elem_var = if ret_tag.is_iterator() {
+                engine.pool().iterator_elem(resolved_ret)
+            } else if ret_tag == Tag::List {
+                engine.pool().list_elem(resolved_ret)
+            } else {
                 return;
-            }
-            let elem_var = engine.pool().iterator_elem(resolved_ret);
+            };
             let resolved_closure = engine.resolve(closure_ty);
             if engine.pool().tag(resolved_closure) == Tag::Function {
                 let closure_ret = engine.pool().function_return(resolved_closure);

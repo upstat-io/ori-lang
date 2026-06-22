@@ -398,9 +398,34 @@ type Point = { x: int, y: int }
 // Complex Patterns
 // =============================================================================
 //
-// Why: labeled `break:outer value` targets the value-permitting outer `loop`
-// (type-checks); executing labeled break to an outer loop needs eval support.
-#skip("BUG-07-038: labeled break/continue to an outer loop needs eval support")
+// Regression: labeled `break:outer value` from a nested BARE inner `loop`
+// propagates to the outer labeled `loop` (Spec: Clause 16.3.3). Nested bare
+// loops carry NO iterator/accumulator, so this pins the label-routing
+// value-correctness on BOTH backends with no abandon-path RC surface — the
+// permanent regression guard for the ControlAction.label (eval) + LoopContext
+// stack (ARC) threading. Fails if the fix is reverted (innermost consumes
+// `break:outer`, never reaching the outer loop).
+@test_nested_loop_labeled_break tests @nested_loop_labeled_break () -> void = {
+    assert_eq(actual: nested_loop_labeled_break(), expected: 2)
+}
+
+@nested_loop_labeled_break () -> int = {
+    loop:outer {
+        loop {
+            break:outer 2
+        }
+    }
+}
+
+// Regression: nested labeled `break:outer` from an inner `for` propagates to
+// the outer labeled `loop` (Spec: Clause 16.3.3) — VALUE-correct on both
+// backends (interp + LLVM AOT both yield 8). The label is threaded through
+// ControlAction (eval) + the LoopContext stack (ARC). The LLVM abandon-path
+// inner-iterator RC cleanup (the inner `for` iterator is not `ori_iter_drop`'d
+// when `break:outer` skips its exit) is aims-burden drop-placement domain per
+// arc.md §STOP — routed there, not hand-patched. The bare-loop pin above
+// guards the same value-routing leak-free on both backends.
+#skip("BUG-04-194: labeled-break abandon-path inner-loop RC cleanup is aims-burden drop-placement; BUG-03-008 value-correctness verified both backends + pinned leak-free by test_nested_loop_labeled_break")
 @test_find_first tests @find_first () -> void = {
     assert_eq(actual: find_first(), expected: 8)
 }

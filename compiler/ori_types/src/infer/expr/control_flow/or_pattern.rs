@@ -91,18 +91,17 @@ fn reconcile_or_alternative(
                 *name,
                 OrBindingMismatchReason::NameDivergence,
             )),
-            Some(&alt_ty) => {
-                if !types_match(engine, *canon_ty, alt_ty) {
-                    engine.push_error(TypeCheckError::or_pattern_binding_mismatch(
-                        span,
-                        *name,
-                        OrBindingMismatchReason::TypeDivergence {
-                            found: *canon_ty,
-                            other: alt_ty,
-                        },
-                    ));
-                }
+            Some(&alt_ty) if !types_match(engine, *canon_ty, alt_ty) => {
+                engine.push_error(TypeCheckError::or_pattern_binding_mismatch(
+                    span,
+                    *name,
+                    OrBindingMismatchReason::TypeDivergence {
+                        found: *canon_ty,
+                        other: alt_ty,
+                    },
+                ));
             }
+            Some(_) => {}
         }
     }
 }

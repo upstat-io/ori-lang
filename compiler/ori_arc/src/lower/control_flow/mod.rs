@@ -252,13 +252,30 @@ impl ArcLowerer<'_> {
     /// Lower a `break` expression to ARC IR.
     ///
     /// For-do: exit block expects `[break_value, mut_var_0, mut_var_1, ...]`.
+    /// Resolve the loop-context-stack index a break/continue with `label`
+    /// targets. `Name::EMPTY` (unlabeled) → innermost (top of stack); a
+    /// non-empty label → the nearest enclosing loop whose label matches,
+    /// searched top-down. `None` when no enclosing loop matches (the
+    /// label-resolution error path — typeck already rejected it as E0871).
+    /// Spec: Clause 16.3.3.
+    fn resolve_loop_ctx_index(&self, label: ori_ir::Name) -> Option<usize> {
+        if label == ori_ir::Name::EMPTY {
+            self.loop_ctx_stack.len().checked_sub(1)
+        } else {
+            self.loop_ctx_stack
+                .iter()
+                .rposition(|ctx| ctx.label == label)
+        }
+    }
+
     /// For-yield: optionally pushes break value to list, then jumps to exit
     /// with `[mut_var_0, mut_var_1, ...]`.
-    pub(crate) fn lower_break(&mut self, value: CanId) -> ArcVarId {
+    pub(crate) fn lower_break(&mut self, value: CanId, label: ori_ir::Name) -> ArcVarId {
+        // Resolve which enclosing loop this (possibly labeled) break targets.
+        let idx = self.resolve_loop_ctx_index(label);
         // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
-        let yield_info = self
-            .loop_ctx
-            .as_ref()
+        let yield_info = idx
+            .and_then(|i| self.loop_ctx_stack.get(i))
             .and_then(|ctx| ctx.yield_ctx.as_ref())
             .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
 
@@ -274,17 +291,18 @@ impl ArcLowerer<'_> {
                     None,
                 );
             }
-            // Re-borrow loop_ctx for jump args (mutable borrows are done).
-            if let Some(ref ctx) = self.loop_ctx {
+            // Re-borrow the matched loop context for jump args (mutable borrows done).
+            if let Some(ctx) = idx.and_then(|i| self.loop_ctx_stack.get(i)) {
                 let exit_block = ctx.exit_block;
+                let mutable_vars = ctx.mutable_vars.clone();
                 let mut args: Vec<ArcVarId> = Vec::new();
-                for &(name, fallback) in &ctx.mutable_vars {
+                for &(name, fallback) in &mutable_vars {
                     args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
                     exit_bb = exit_block.index(),
                     has_value = value.is_valid(),
-                    mutable_args = ctx.mutable_vars.len(),
+                    mutable_args = mutable_vars.len(),
                     "for-yield break: jump to exit"
                 );
                 self.builder.terminate_jump(exit_block, args);
@@ -297,10 +315,11 @@ impl ArcLowerer<'_> {
                 self.emit_unit()
             };
 
-            if let Some(ref ctx) = self.loop_ctx {
+            if let Some(ctx) = idx.and_then(|i| self.loop_ctx_stack.get(i)) {
                 let exit_block = ctx.exit_block;
+                let mutable_vars = ctx.mutable_vars.clone();
                 let mut args = vec![break_val];
-                for &(name, fallback) in &ctx.mutable_vars {
+                for &(name, fallback) in &mutable_vars {
                     args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
@@ -323,11 +342,12 @@ impl ArcLowerer<'_> {
     /// For-do: jumps to header with `[mut_var_0, mut_var_1, ...]`.
     /// For-yield: optionally pushes value to list, then jumps to header
     /// with `[mut_var_0, mut_var_1, ...]`.
-    pub(crate) fn lower_continue(&mut self, value: CanId) -> ArcVarId {
+    pub(crate) fn lower_continue(&mut self, value: CanId, label: ori_ir::Name) -> ArcVarId {
+        // Resolve which enclosing loop this (possibly labeled) continue targets.
+        let idx = self.resolve_loop_ctx_index(label);
         // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
-        let yield_info = self
-            .loop_ctx
-            .as_ref()
+        let yield_info = idx
+            .and_then(|i| self.loop_ctx_stack.get(i))
             .and_then(|ctx| ctx.yield_ctx.as_ref())
             .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
 
@@ -343,26 +363,27 @@ impl ArcLowerer<'_> {
                     None,
                 );
             }
-            // Re-borrow loop_ctx for jump args (mutable borrows are done).
-            if let Some(ref ctx) = self.loop_ctx {
+            // Re-borrow the matched loop context for jump args (mutable borrows done).
+            if let Some(ctx) = idx.and_then(|i| self.loop_ctx_stack.get(i)) {
                 let continue_block = ctx.continue_block;
+                let mutable_vars = ctx.mutable_vars.clone();
                 let mut args: Vec<ArcVarId> = Vec::new();
-                for &(name, fallback) in &ctx.mutable_vars {
+                for &(name, fallback) in &mutable_vars {
                     args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
                     continue_bb = continue_block.index(),
                     has_value = value.is_valid(),
-                    mutable_args = ctx.mutable_vars.len(),
+                    mutable_args = mutable_vars.len(),
                     "for-yield continue: jump to header"
                 );
                 self.builder.terminate_jump(continue_block, args);
             }
-        } else if let Some(ref ctx) = self.loop_ctx {
+        } else if let Some(ctx) = idx.and_then(|i| self.loop_ctx_stack.get(i)) {
             // For-do continue: jump to header with mutable vars only.
             let continue_block = ctx.continue_block;
-            let args: Vec<_> = ctx
-                .mutable_vars
+            let mutable_vars = ctx.mutable_vars.clone();
+            let args: Vec<_> = mutable_vars
                 .iter()
                 .map(|&(name, fallback)| self.scope.lookup(name).unwrap_or(fallback))
                 .collect();

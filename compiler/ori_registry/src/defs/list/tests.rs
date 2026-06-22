@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn list_method_count() {
-    assert_eq!(LIST.methods.len(), 59);
+    assert_eq!(LIST.methods.len(), 61);
 }
 
 #[test]
@@ -139,8 +139,6 @@ fn list_higher_order_methods_return_fresh() {
         "filter",
         "flat_map",
         "find",
-        "any",
-        "all",
         "fold",
         "reduce",
         "for_each",

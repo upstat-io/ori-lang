@@ -204,7 +204,7 @@ fn check_binding_pattern(
         };
         engine.type_registry().and_then(|reg| {
             let (type_entry, variant_def) = reg.lookup_variant_def(name)?;
-            // CRITICAL: variant must belong to the scrutinee's type, not any enum
+            // INVARIANT: variant must belong to the scrutinee's type, not any enum
             if type_entry.name != scrutinee_name {
                 return None;
             }
@@ -262,7 +262,7 @@ fn check_variant_pattern(
             }
         }
         Tag::Named | Tag::Applied => {
-            resolve_variant_fields(engine, name, tag, resolved, inner_ids.len())
+            resolve_variant_fields(engine, name, resolved, inner_ids.len())
         }
         _ => inner_ids.iter().map(|_| engine.fresh_var()).collect(),
     };
@@ -407,7 +407,6 @@ fn check_struct_pattern(
 fn resolve_variant_fields(
     engine: &mut InferEngine<'_>,
     variant_name: Name,
-    scrutinee_tag: Tag,
     resolved_scrutinee: Idx,
     fallback_count: usize,
 ) -> Vec<Idx> {
@@ -428,7 +427,7 @@ fn resolve_variant_fields(
         }
         Some((type_params, field_types)) => {
             // Generic enum: substitute type parameters with concrete type arguments
-            let type_args = if scrutinee_tag == Tag::Applied {
+            let type_args = if engine.pool().tag(resolved_scrutinee) == Tag::Applied {
                 engine.pool().applied_args(resolved_scrutinee)
             } else {
                 vec![]

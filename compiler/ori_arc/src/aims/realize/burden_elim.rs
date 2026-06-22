@@ -78,6 +78,7 @@ use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::dimensions::{AccessClass, Consumption, Locality};
 use crate::aims::lattice::AimsState;
 use crate::aims::transfer::is_rc_inc_elidable;
+use crate::aims::verify::burden_balance::{var_def_kind, var_repr_kind};
 use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
 use crate::graph::{compute_predecessors, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
@@ -85,6 +86,8 @@ use crate::lower::burden_lower::{
     collect_move_edges_and_store_consumes, genuine_dup_pair_coupling_disabled,
     local_construct_pair_coupling_disabled,
 };
+
+use super::rc_remark::{emit_rc_survivor_remark, rc_remarks_enabled, RcSurvivorSite};
 
 /// `ORI_DISABLE_LINEAGE_REBALANCE=1` skips the per-same-alloc-rep lineage
 /// re-balance ([`mark_lineage_rebalance_removals`]), leaving the per-var
@@ -325,7 +328,70 @@ fn eliminate_whole_function(
     alias_dsts
         .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
     mark_whole_var_removals(&balances, &rebalanced_vars, &alias_dsts, &mut remove);
+    // Observability-only (Spec: Annex E §AIMS): emit one `missed` remark per VAR
+    // whose BurdenInc SURVIVED the final disposition (kept in `remove`). Per-VAR,
+    // post-`mark_whole_var_removals` — the final keep/elide verdict after the
+    // lineage-rebalance + pair-atomic + DP-2/DP-3 gates. A per-op verdict
+    // mislabels kept incs (VF-1 balance). Reads state only; the census guard is
+    // preserved (no instruction added/moved/altered).
+    emit_survivor_remarks(func, state_map, &remove, interner);
     compact_removed(func, &remove);
+}
+
+/// Emit one observability-only `missed` remark per VAR whose `BurdenInc`
+/// survives Phase-6 elimination (its op is kept — `remove` is false). Per-VAR,
+/// not per-op: a var's whole-var incs are kept/elided atomically, so one remark
+/// per surviving var reflects the final disposition. No-op (zero walk) when
+/// `ORI_RC_REMARKS` is unset. Reads `AimsState` + the reused `burden_balance`
+/// taxonomy helpers; emits no instruction.
+fn emit_survivor_remarks(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    remove: &[Vec<bool>],
+    interner: &ori_ir::StringInterner,
+) {
+    if !rc_remarks_enabled() {
+        return;
+    }
+    let function_name = interner.lookup(func.name);
+    let mut emitted: FxHashSet<ArcVarId> = FxHashSet::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let block_id = ArcBlockId::new(block_idx as u32);
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let ArcInstr::BurdenInc { var } = instr else {
+                continue;
+            };
+            if remove[block_idx][instr_idx] || !emitted.insert(*var) {
+                continue;
+            }
+            let state = state_map.var_state_at_definition(block_id, *var);
+            // Raw byte-offset span of the surviving op site (None for synthetic
+            // ops, or when spans are absent on a cache-hit IR). oric resolves it
+            // to file:line via LineOffsetTable (carry here, resolve oric-side).
+            let span = func
+                .spans
+                .get(block_idx)
+                .and_then(|b| b.get(instr_idx))
+                .copied()
+                .flatten()
+                .map(|s| (s.start, s.end));
+            emit_rc_survivor_remark(&RcSurvivorSite {
+                var: *var,
+                consumption: state.consumption,
+                locality: state.locality,
+                cardinality: state.cardinality,
+                def_kind: var_def_kind(func, *var),
+                var_repr: var_repr_kind(func, *var),
+                instr,
+                span,
+                function_name,
+            });
+        }
+    }
 }
 
 /// Read-only structural scan: every `Let { Var }` alias dst whose alias-chain
@@ -436,6 +502,7 @@ fn classify_burden_ops(
             match instr {
                 ArcInstr::BurdenInc { var } => {
                     let state = state_map.var_state_at_definition(block_id, *var);
+                    let elidable = inc_elidable_at_realization(&state);
                     tracing::trace!(
                         target: "ori_arc::aims::realize",
                         ?var,
@@ -443,12 +510,12 @@ fn classify_burden_ops(
                         consumption = ?state.consumption,
                         locality = ?state.locality,
                         uniqueness = ?state.uniqueness,
-                        elidable = inc_elidable_at_realization(&state),
+                        elidable,
                         "burden-inc elision decision (converged-at-def)"
                     );
                     let entry = balances.entry(*var).or_insert_with(WholeVarBalance::seed);
                     entry.inc_sites.push((block_idx, instr_idx));
-                    entry.all_inc_elidable &= inc_elidable_at_realization(&state);
+                    entry.all_inc_elidable &= elidable;
                 }
                 ArcInstr::BurdenDec { var }
                 | ArcInstr::BurdenDecPartial { var, .. }

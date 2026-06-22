@@ -8,18 +8,18 @@
 //! For-loop variant implementations (iterator, option, range) live in
 //! the sibling [`for_loops`](super::for_loops) module.
 
-use ori_ir::canon::{CanBindingPatternId, CanId};
+use ori_ir::canon::CanId;
 use ori_types::Idx;
 
 use crate::ir::ArcVarId;
 
-use super::super::expr::{ArcLowerer, ForYieldShape, LoopContext};
+use super::super::expr::{ArcLowerer, ForLoop, ForYieldShape, LoopContext};
 
 impl ArcLowerer<'_> {
     // Loop
 
     /// Lower `Loop { body }` — infinite loop with break/continue.
-    pub(crate) fn lower_loop(&mut self, body: CanId, ty: Idx) -> ArcVarId {
+    pub(crate) fn lower_loop(&mut self, body: CanId, ty: Idx, label: ori_ir::Name) -> ArcVarId {
         let header_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
 
@@ -56,12 +56,12 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(*name, *param_var);
         }
 
-        let prev_loop = self.loop_ctx.take();
         let mutable_var_entries: Vec<_> = header_params
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
-        self.loop_ctx = Some(LoopContext {
+        self.loop_ctx_stack.push(LoopContext {
+            label,
             exit_block,
             continue_block: header_block,
             mutable_vars: mutable_var_entries,
@@ -89,7 +89,7 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, continue_args);
         }
 
-        self.loop_ctx = prev_loop;
+        self.loop_ctx_stack.pop();
 
         // Exit block: result value + mutable var params so post-loop code
         // sees the final values of mutable variables (not pre-loop values).
@@ -126,15 +126,16 @@ impl ArcLowerer<'_> {
     /// Block param layout:
     /// - header: `[i_var, mut0, mut1, ...]`
     /// - latch:  `[mut0, mut1, ...]` (`i_var` from header dominates latch)
-    pub(crate) fn lower_for(
-        &mut self,
-        pattern: CanBindingPatternId,
-        iter: CanId,
-        guard: CanId,
-        body: CanId,
-        ty: Idx,
-        is_yield: bool,
-    ) -> ArcVarId {
+    pub(crate) fn lower_for(&mut self, for_loop: ForLoop) -> ArcVarId {
+        let ForLoop {
+            pattern,
+            iter,
+            guard,
+            body,
+            ty,
+            is_yield,
+            label,
+        } = for_loop;
         let iter_val = self.lower_expr(iter);
         let iter_ty = self.expr_type(iter);
         let tag = self.pool.tag(iter_ty);
@@ -153,20 +154,20 @@ impl ArcLowerer<'_> {
                 body,
                 result_ty: ty,
             };
-            return self.lower_for_yield(shape, iter_val, iter_ty, tag);
+            return self.lower_for_yield(shape, iter_val, iter_ty, tag, label);
         }
 
         if tag == ori_types::Tag::Range {
             // Direct counter-based loop for ranges.
-            self.lower_for_range(pattern, iter_val, iter_ty, guard, body)
+            self.lower_for_range(pattern, iter_val, iter_ty, guard, body, label)
         } else if tag == ori_types::Tag::Option {
             // Direct 0-or-1 iteration — cheaper than allocating an iterator.
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_option(pattern, iter_val, elem_ty, guard, body)
+            self.lower_for_option(pattern, iter_val, elem_ty, guard, body, label)
         } else if tag.is_iterator() {
             // Already an iterator — use __iter_next loop.
             let elem_ty = self.pool.iterator_elem(iter_ty);
-            self.lower_for_iterator(pattern, iter_val, elem_ty, guard, body)
+            self.lower_for_iterator(pattern, iter_val, elem_ty, guard, body, label)
         } else {
             // List, Map, Set, Str, etc. — convert to iterator via .iter(),
             // then use the iterator-based loop.
@@ -180,7 +181,7 @@ impl ArcLowerer<'_> {
             let iter_result =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
-            self.lower_for_iterator(pattern, iter_result, elem_ty, guard, body)
+            self.lower_for_iterator(pattern, iter_result, elem_ty, guard, body, label)
         }
     }
 

@@ -20,6 +20,10 @@ use super::{ArcIrBuilder, ArcProblem, VariantCtors};
 
 /// Context for the enclosing loop (used by `break`/`continue`).
 pub(crate) struct LoopContext {
+    /// Target label of this loop (`Name::EMPTY` = unlabeled). A labeled
+    /// break/continue walks the loop-context stack for the matching label.
+    /// Spec: Clause 16.3.3.
+    pub label: Name,
     /// Block to jump to on `break`.
     pub exit_block: crate::ir::ArcBlockId,
     /// Block to jump to on `continue`.
@@ -48,6 +52,22 @@ pub(crate) struct ForYieldShape {
     pub result_ty: Idx,
 }
 
+/// The full `CanExpr::For` shape lowered by `lower_for`.
+///
+/// Bundles the binding pattern, iterable, guard, body, result type, yield
+/// flag, and label — the seven for-loop inputs destructured together from the
+/// `CanExpr::For` node and threaded into the variant-specific lowering paths.
+#[derive(Clone, Copy)]
+pub(crate) struct ForLoop {
+    pub pattern: ori_ir::canon::CanBindingPatternId,
+    pub iter: CanId,
+    pub guard: CanId,
+    pub body: CanId,
+    pub ty: Idx,
+    pub is_yield: bool,
+    pub label: Name,
+}
+
 /// Context for break/continue inside a for-yield loop.
 ///
 /// Enables `lower_break`/`lower_continue` to push values to the
@@ -74,7 +94,10 @@ pub(crate) struct ArcLowerer<'a> {
     pub(crate) interner: &'a StringInterner,
     pub(crate) pool: &'a Pool,
     pub(crate) scope: ArcScope,
-    pub(crate) loop_ctx: Option<LoopContext>,
+    /// Stack of enclosing loop contexts (innermost at top). A labeled
+    /// break/continue walks this top-down for the matching `label`; an
+    /// unlabeled signal targets the top (innermost). Spec: Clause 16.3.3.
+    pub(crate) loop_ctx_stack: Vec<LoopContext>,
     pub(crate) problems: &'a mut Vec<ArcProblem>,
     pub(crate) lambdas: &'a mut Vec<ArcFunction>,
     /// Resolved `#` (hash length) value for the current index expression.
@@ -303,17 +326,26 @@ impl ArcLowerer<'_> {
                 decision_tree,
                 arms,
             } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
-            CanExpr::Loop { body, .. } => self.lower_loop(body, ty),
+            CanExpr::Loop { body, label, .. } => self.lower_loop(body, ty, label),
             CanExpr::For {
                 pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
+                label,
                 ..
-            } => self.lower_for(pattern, iter, guard, body, ty, is_yield),
-            CanExpr::Break { value, .. } => self.lower_break(value),
-            CanExpr::Continue { value, .. } => self.lower_continue(value),
+            } => self.lower_for(ForLoop {
+                pattern,
+                iter,
+                guard,
+                body,
+                ty,
+                is_yield,
+                label,
+            }),
+            CanExpr::Break { value, label, .. } => self.lower_break(value, label),
+            CanExpr::Continue { value, label, .. } => self.lower_continue(value, label),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
 
             // Collections & constructors
