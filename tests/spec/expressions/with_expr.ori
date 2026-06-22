@@ -31,7 +31,7 @@ impl MockCounter: Counter {
 
 // SKIP: Capability provision to called functions not yet implemented.
 // The `with Counter = mock` binding doesn't propagate to use_counter().
-#skip("BUG-07-038: capability provision to called functions not implemented")
+#skip("BUG-04-208: cross-function capability provision not implemented in codegen/ARC")
 @test_basic_with tests @basic_with () -> void = {
     let mock = MockCounter { value: 10 };
     let result = with Counter = mock in use_counter();
@@ -102,7 +102,7 @@ impl MockLogger: Logger {
 }
 
 // SKIP: Same issue as test_basic_with - capability provision to called functions not implemented.
-#skip("BUG-07-038: capability provision to called functions not implemented")
+#skip("BUG-04-208: cross-function capability provision not implemented in codegen/ARC")
 @test_multiple_capabilities tests @multiple_capabilities () -> void = {
     let counter = MockCounter { value: 10 };
     let logger = MockLogger { messages: [] };

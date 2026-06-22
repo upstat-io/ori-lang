@@ -1,0 +1,17 @@
+// BUG-04-124: derived Comparable + Hashable over a tuple field.
+// The tuple field is the only differing component; the second element breaks
+// the lexicographic tie. On the pre-fix stub (Compare->Equal, Hash->0) the
+// checks collapse, the program returns 1, and assert_aot_success fails.
+#[derive(Eq, Comparable, Hashable)]
+type TupHolder = { tag: int, t: (int, str) }
+
+@main () -> int = {
+    let a = TupHolder { tag: 0, t: (5, "a") };
+    let b = TupHolder { tag: 0, t: (5, "b") };
+    let c = TupHolder { tag: 0, t: (9, "a") };
+    if a.compare(other: b).is_less()
+        && a.compare(other: c).is_less()
+        && a.hash() != b.hash()
+        && a.hash() != c.hash()
+    then 0 else 1
+}

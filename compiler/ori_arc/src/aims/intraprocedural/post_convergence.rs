@@ -419,51 +419,179 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// source side table is fully populated. Fixpoint over the alias edge set
 /// handles transitive chains and arbitrary block ordering; monotone (each dst
 /// dimension transitions unset -> set at most once) so it terminates.
-pub(crate) fn propagate_alias_forward_state(state_map: &mut AimsStateMap, func: &ArcFunction) {
-    let mut aliases: Vec<(ArcVarId, ArcVarId)> = Vec::new();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                aliases.push((*dst, *src));
-            }
-        }
-    }
+/// Per-dst forward-alias propagation kind (TF-2/4/8/11; BUG-04-097).
+///
+/// - `Full` (TF-2 `Let { Var }`): the dst inherits the source's FULL lattice
+///   state (uniqueness + locality + shape). Single source; first-write-wins.
+/// - `View` (TF-4 `Project`): a projected field is a borrowed `NonReusable`
+///   VIEW of the aggregate -- inherit uniqueness + locality ONLY (with a CN-6
+///   re-check: `Unique` at wide locality demotes to `MaybeShared`), NEVER the
+///   aggregate's shape. Single source; first-write-wins.
+/// - `Join` (TF-8 `Select` / TF-11 Jump-arg -> block-param phi): the dst is the
+///   lattice-JOIN (LUB) over ALL sources -- NEVER a meet, NEVER first-write-wins
+///   (`Select(Unique, MaybeShared) -> MaybeShared`, the wider value). Re-joined
+///   every fixpoint pass (monotone upward; terminates at finite lattice height),
+///   so a loop back-edge phi arg converges. Shape NOT propagated (a Select/phi
+///   merges DISTINCT allocations -- same-allocation reuse is the union-find's
+///   job in `project_aliases`, kept distinct from this fact-join).
+///
+/// TF-15/15a `Set` / `SetTag` are EXCLUDED -- in-place mutations with no `dst`,
+/// no forward transfer; mutation safety is TF-11-backward + DP-5 + RL-10.
+enum AliasKind {
+    Full,
+    View,
+    Join,
+}
 
+pub(crate) fn propagate_alias_forward_state(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let edges = collect_alias_forward_edges(func);
     loop {
         let mut changed = false;
-        for &(dst, src) in &aliases {
+        for (dst, kind, sources) in &edges {
+            let dst = *dst;
             if state_map.is_excluded(dst) {
                 continue;
             }
-            if state_map.contract_uniqueness(dst).is_none() {
-                if let Some(uniq) = state_map.contract_uniqueness(src) {
-                    state_map.set_var_uniqueness(dst, uniq);
-                    changed = true;
-                }
-            }
-            if state_map.contract_locality(dst).is_none() {
-                if let Some(loc) = state_map.contract_locality(src) {
-                    state_map.set_var_locality(dst, loc);
-                    changed = true;
-                }
-            }
-            if matches!(state_map.var_shape(dst), ShapeClass::NonReusable) {
-                let src_shape = state_map.var_shape(src);
-                if !matches!(src_shape, ShapeClass::NonReusable) {
-                    state_map.set_var_shape(dst, src_shape);
-                    changed = true;
-                }
-            }
+            let step_changed = match kind {
+                AliasKind::Full => step_full_alias(state_map, dst, sources[0]),
+                AliasKind::View => step_view_alias(state_map, dst, sources[0]),
+                AliasKind::Join => step_join_alias(state_map, dst, sources),
+            };
+            changed |= step_changed;
         }
         if !changed {
             break;
         }
     }
+}
+
+/// Build the per-dst forward-alias edge model `(dst, kind, sources)`. Multi-source
+/// `Join` dsts LUB over all sources; single-source `Full`/`View` carry one src.
+fn collect_alias_forward_edges(func: &ArcFunction) -> Vec<(ArcVarId, AliasKind, Vec<ArcVarId>)> {
+    let mut edges: Vec<(ArcVarId, AliasKind, Vec<ArcVarId>)> = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } => edges.push((*dst, AliasKind::Full, vec![*src])),
+                ArcInstr::Project { dst, value, .. } => {
+                    edges.push((*dst, AliasKind::View, vec![*value]));
+                }
+                ArcInstr::Select {
+                    dst,
+                    true_val,
+                    false_val,
+                    ..
+                } => edges.push((*dst, AliasKind::Join, vec![*true_val, *false_val])),
+                // TF-15/15a Set/SetTag (+ every other variant): no forward edge.
+                _ => {}
+            }
+        }
+    }
+    // TF-11 phi: each block-param joins the per-predecessor Jump arg at its
+    // index. Reuse the `project_aliases` edge attribution (handles back-edges)
+    // rather than re-deriving the predecessor scan; the same-allocation
+    // union-find there stays DISTINCT from this forward fact-join.
+    for (param, edge_args) in super::project_aliases::compute_param_edge_args(func) {
+        let sources: Vec<ArcVarId> = edge_args.iter().map(|e| e.arg).collect();
+        if !sources.is_empty() {
+            edges.push((param, AliasKind::Join, sources));
+        }
+    }
+    edges
+}
+
+/// TF-2 `Let { Var }`: dst inherits the source's FULL lattice state (uniqueness +
+/// locality + shape). First-write-wins per dimension. Returns whether any
+/// dimension changed.
+fn step_full_alias(state_map: &mut AimsStateMap, dst: ArcVarId, src: ArcVarId) -> bool {
+    let mut changed = false;
+    if state_map.contract_uniqueness(dst).is_none() {
+        if let Some(uniq) = state_map.contract_uniqueness(src) {
+            state_map.set_var_uniqueness(dst, uniq);
+            changed = true;
+        }
+    }
+    if state_map.contract_locality(dst).is_none() {
+        if let Some(loc) = state_map.contract_locality(src) {
+            state_map.set_var_locality(dst, loc);
+            changed = true;
+        }
+    }
+    if matches!(state_map.var_shape(dst), ShapeClass::NonReusable) {
+        let src_shape = state_map.var_shape(src);
+        if !matches!(src_shape, ShapeClass::NonReusable) {
+            state_map.set_var_shape(dst, src_shape);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// TF-4 `Project`: dst inherits uniqueness + locality ONLY (NO shape), with the
+/// CN-6 re-check that demotes `Unique` to `MaybeShared` at wide locality.
+/// First-write-wins per dimension. Returns whether any dimension changed.
+fn step_view_alias(state_map: &mut AimsStateMap, dst: ArcVarId, src: ArcVarId) -> bool {
+    let mut changed = false;
+    if state_map.contract_uniqueness(dst).is_none() {
+        if let Some(mut uniq) = state_map.contract_uniqueness(src) {
+            // CN-6: Unique demotes to MaybeShared at wide locality.
+            if uniq == Uniqueness::Unique
+                && matches!(
+                    state_map.contract_locality(src),
+                    Some(Locality::HeapEscaping | Locality::Unknown)
+                )
+            {
+                uniq = Uniqueness::MaybeShared;
+            }
+            state_map.set_var_uniqueness(dst, uniq);
+            changed = true;
+        }
+    }
+    if state_map.contract_locality(dst).is_none() {
+        if let Some(loc) = state_map.contract_locality(src) {
+            state_map.set_var_locality(dst, loc);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// TF-8 `Select` / TF-11 phi: LUB over all sources for uniqueness + locality,
+/// re-joined every pass (monotone upward, NOT first-write-wins). No shape.
+/// Returns whether any dimension changed.
+fn step_join_alias(state_map: &mut AimsStateMap, dst: ArcVarId, sources: &[ArcVarId]) -> bool {
+    let mut changed = false;
+    if let Some(joined) = sources
+        .iter()
+        .filter_map(|s| state_map.contract_uniqueness(*s))
+        .reduce(Uniqueness::join)
+    {
+        if state_map
+            .contract_uniqueness(dst)
+            .is_none_or(|cur| joined > cur)
+        {
+            state_map.set_var_uniqueness(dst, joined);
+            changed = true;
+        }
+    }
+    if let Some(joined) = sources
+        .iter()
+        .filter_map(|s| state_map.contract_locality(*s))
+        .reduce(Locality::join)
+    {
+        if state_map
+            .contract_locality(dst)
+            .is_none_or(|cur| joined > cur)
+        {
+            state_map.set_var_locality(dst, joined);
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// Detect TRMC (Tail Recursive Modulo Constructor) candidates.

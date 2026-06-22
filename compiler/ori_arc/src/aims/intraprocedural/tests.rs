@@ -4409,6 +4409,184 @@ fn propagate_alias_forward_state_unique_source_alias_stays_unset() {
     );
 }
 
+/// BUG-04-097 M1 — TF-4 Project forward View inherits the source's narrowed
+/// contract uniqueness. `v1 = Apply(callee)` carries a `MaybeShared` return
+/// contract; `v2 = Project v1.0` is a borrowed view of that result. The
+/// extended `propagate_alias_forward_state` (Project edge, `AliasKind::View`)
+/// copies `contract_uniqueness` source -> dst so downstream COW/drop-hint reads
+/// the narrowed fact on the projected alias, not the conservative lattice.
+/// Pre-fix (TF-2-only edge collector) left `v2` unset (None).
+#[test]
+fn propagate_alias_forward_state_project_view_inherits_maybe_shared() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): v1 = Apply(callee, p0); v2 = Project v1.0; return v2
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+        }),
+    );
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply dst carries the MaybeShared contract"
+    );
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "TF-4 Project View MUST inherit the source's MaybeShared contract \
+         uniqueness (BUG-04-097 M1) — the pre-fix TF-2-only collector left it unset"
+    );
+}
+
+/// BUG-04-097 M4 — TF-8 Select takes the lattice JOIN (LUB) over its operands,
+/// NOT a meet / first-write-wins. `v3 = Select(cond, v1, v2)` where `v1` is a
+/// `MaybeShared`-contract call result and `v2` a `Unique`-contract one: the
+/// stored side-table join is `MaybeShared` (the wider value; `Unique` is the
+/// unstored lattice BOTTOM so the join reduces to the `MaybeShared` source).
+/// Asserts the Select dst is `MaybeShared`, never the optimistic Unique a meet /
+/// first-write-wins would pick.
+#[test]
+fn propagate_alias_forward_state_select_joins_to_maybe_shared() {
+    let ms_callee = Name::from_raw(100);
+    let uniq_callee = Name::from_raw(101);
+    // func(p0): v1 = Apply(ms_callee)[MaybeShared]; v2 = Apply(uniq_callee)[Unique];
+    //           v3 = Select(p0, v1, v2); return v3
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: ms_callee,
+                    args: vec![],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: uniq_callee,
+                    args: vec![],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Select {
+                    dst: var(3),
+                    ty: ty(0),
+                    cond: var(0),
+                    true_val: var(1),
+                    false_val: var(2),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        ms_callee,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+        }),
+    );
+    sigs.insert(
+        uniq_callee,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+        }),
+    );
+    let classifier = TestClassifier::all_ref(4);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(3)),
+        Some(Uniqueness::MaybeShared),
+        "TF-8 Select MUST join (LUB) to MaybeShared (the wider value), never the \
+         optimistic Unique a meet/first-write-wins would pick (BUG-04-097 M4/M11)"
+    );
+}
+
+/// BUG-04-097 M7 — TF-15/15a Set/SetTag are EXCLUDED from forward propagation.
+/// A `Set { base, field, value }` is an in-place mutation with no `dst`; the
+/// extended pass MUST NOT manufacture a forward contract fact for the base from
+/// it. `v0` is only ever a Set base here (no contract-defining instruction), so
+/// its side-table uniqueness stays unset.
+#[test]
+fn propagate_alias_forward_state_set_base_inherits_no_forward_fact() {
+    // func(p0, p1): Set p0.0 = p1; return p0   (p0 is only a Set base)
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![
+            crate::test_helpers::owned_param(0, ty(0)),
+            crate::test_helpers::owned_param(1, ty(0)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Set {
+                base: var(0),
+                field: 0,
+                value: var(1),
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(0)),
+        None,
+        "TF-15 Set base MUST NOT inherit a forward contract fact — Set/SetTag are \
+         excluded from forward propagation (BUG-04-097 M7)"
+    );
+}
+
 /// `ApplyIndirect` populates with CONSERVATIVE per spec TF-5a.
 /// Spec says indirect calls receive "Same as TF-5"
 /// (CONSERVATIVE = `MaybeShared`), NOT excluded from the side table entirely.

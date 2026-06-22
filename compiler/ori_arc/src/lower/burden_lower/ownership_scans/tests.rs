@@ -802,12 +802,10 @@ fn sole_carrier_claim_declines_block_param_rooted_source() {
     );
 }
 
-// ───────────────────────────────────────────────────────────────────────────
 // compute_fresh_call_result_borrowed_arg_inc_dsts (RL-1 / DP-3): a fresh
 // self-allocating Invoke result (`@to_str`) whose SOLE use is a borrowed
 // body-`Apply` arg has its surplus fresh-site inc suppressed. Spec: Annex E
 // §AIMS RL-1 (`incElidable`) + DP-3 (Once ∧ Affine).
-// ───────────────────────────────────────────────────────────────────────────
 
 use crate::ir::ValueRepr;
 

@@ -57,6 +57,17 @@ impl ArcScope {
         self.bindings.get(&name).copied()
     }
 
+    /// Remove a binding, returning the prior var if one was bound.
+    ///
+    /// Surgical un-bind for scope-frame exit (e.g. `with Cap = v in body`
+    /// pops `Cap` on body exit) without disturbing other bindings — a
+    /// whole-scope clone-restore would discard body-internal reassignments
+    /// to outer mutable vars.
+    pub fn remove(&mut self, name: Name) -> Option<ArcVarId> {
+        self.mutable_names.remove(&name);
+        self.bindings.remove(&name)
+    }
+
     /// Check whether a name refers to a mutable variable.
     pub fn is_mutable(&self, name: Name) -> bool {
         self.mutable_names.contains(&name)

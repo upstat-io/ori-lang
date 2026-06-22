@@ -379,18 +379,28 @@ fn lower_function_ref_emits_partial_apply() {
 }
 
 #[test]
-fn lower_with_capability_is_transparent() {
+fn lower_with_capability_binds_provider_for_body() {
+    // `with Cap = 42 in Cap` — the body READS the capability. The arm lowers
+    // the provider into a defined var, binds the capability name to it, then
+    // lowers the body; the body's capability-ref MUST resolve to that var
+    // (a `Let Var(_)`), NOT the unbound-ident Unit fallthrough.
+    let cap_name = Name::from_raw(300);
     let mut arena = CanArena::with_capacity(100);
-    let inner = arena.push(CanNode::new(
+    let provider = arena.push(CanNode::new(
         ori_ir::canon::CanExpr::Int(42),
         Span::new(5, 10),
         TypeId::from_raw(Idx::INT.raw()),
     ));
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(cap_name),
+        Span::new(11, 14),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
     let with_cap = arena.push(CanNode::new(
         ori_ir::canon::CanExpr::WithCapability {
-            capability: Name::from_raw(300),
-            provider: inner, // provider is unused at codegen level
-            body: inner,
+            capability: cap_name,
+            provider,
+            body,
         },
         Span::new(0, 15),
         TypeId::from_raw(Idx::INT.raw()),
@@ -409,12 +419,24 @@ fn lower_with_capability_is_transparent() {
 
     let func = lower_single_expr(&canon, with_cap, Idx::INT);
 
-    // WithCapability is transparent — just evaluates the body
+    // The provider (Int(42)) is lowered into a defining instruction.
     assert!(func.blocks[0].body.iter().any(|instr| {
         matches!(
             instr,
             ArcInstr::Let {
                 value: ArcValue::Literal(LitValue::Int(42)),
+                ..
+            }
+        )
+    }));
+
+    // The body's capability ref resolves to the bound provider var
+    // (a `Let Var(_)`), proving the binding propagated — NOT a Unit fallthrough.
+    assert!(func.blocks[0].body.iter().any(|instr| {
+        matches!(
+            instr,
+            ArcInstr::Let {
+                value: ArcValue::Var(_),
                 ..
             }
         )

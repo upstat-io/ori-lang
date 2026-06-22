@@ -1,0 +1,68 @@
+// BUG-04-097 M9/M10 — seamless-slice result reached through a NON-Let derived
+// alias (Select / Project / phi) onto a drop site.
+//
+// A seamless slice shares the source buffer, so its contract uniqueness is
+// MaybeShared. When that slice result is reached through a derived alias
+// (a Select branch, a struct field projection, a loop-carried block-param) and
+// then dropped, the alias MUST inherit the MaybeShared fact — not fall through
+// to the conservative lattice BOTTOM (Unique) and select the unique-owner free
+// path on the shared backing buffer (a double-free / UAF). The extended
+// propagate_alias_forward_state (TF-4 Project / TF-8 Select / TF-11 phi forward
+// fact-join) carries MaybeShared onto the alias so the drop is correct.
+//
+// L9 (dual-exec parity): interp and LLVM produce identical results.
+// L10 (leak-free): zero RC leaks under ORI_CHECK_LEAKS=1.
+
+use std.testing { assert_eq }
+
+// --- Select-derived alias of a seamless slice, both live across the drop ---
+
+@slice_through_select (flag: bool) -> int = {
+    let xs = [10, 20, 30, 40, 50];
+    let s = xs.slice(start: 1, end: 4);
+    let other = [99, 98];
+    let chosen = if flag then s else other;
+    chosen.len() + xs.len()
+}
+
+@test_slice_through_select_true tests @slice_through_select () -> void = {
+    // s = [20,30,40] (len 3); xs len 5 -> 8
+    assert_eq(actual: slice_through_select(flag: true), expected: 8)
+}
+
+@test_slice_through_select_false tests @slice_through_select () -> void = {
+    // other = [99,98] (len 2); xs len 5 -> 7
+    assert_eq(actual: slice_through_select(flag: false), expected: 7)
+}
+
+// --- Projection-derived alias: slice stored in a struct, read back, dropped ---
+
+type SliceHolder = { view: [int], origin: [int] }
+
+@slice_through_projection () -> int = {
+    let xs = [1, 2, 3, 4, 5, 6];
+    let h = SliceHolder { view: xs.slice(start: 2, end: 5), origin: xs };
+    h.view.len() + h.origin.len()
+}
+
+@test_slice_through_projection tests @slice_through_projection () -> void = {
+    // view = [3,4,5] (len 3); origin len 6 -> 9
+    assert_eq(actual: slice_through_projection(), expected: 9)
+}
+
+// --- Loop-carried (phi) alias of a slice, re-bound each iteration ---
+
+@slice_through_loop_phi () -> int = {
+    let xs = [7, 8, 9, 10];
+    let mut acc = 0;
+    for i in 0..3 do {
+        let view = xs.slice(start: 0, end: i + 1);
+        acc = acc + view.len()
+    }
+    acc + xs.len()
+}
+
+@test_slice_through_loop_phi tests @slice_through_loop_phi () -> void = {
+    // iter i=0 len1, i=1 len2, i=2 len3 -> 6; xs len 4 -> 10
+    assert_eq(actual: slice_through_loop_phi(), expected: 10)
+}

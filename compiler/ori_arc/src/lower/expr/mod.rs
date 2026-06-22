@@ -367,7 +367,35 @@ impl ArcLowerer<'_> {
             } => self.lower_range(start, end, step, inclusive, ty, span),
             // Transparent wrappers (sync runtime — just evaluate inner expression)
             CanExpr::Unsafe(inner) | CanExpr::Await(inner) => self.lower_expr(inner),
-            CanExpr::WithCapability { body, .. } => self.lower_expr(body),
+            // `with Cap = provider in body` — bind the capability name to the
+            // lowered provider for the body so the body's `Cap` references
+            // resolve, mirroring the evaluator's `with_binding`. The provider
+            // is bound via the ordinary lowering path (emit_let); its drop is
+            // the downstream ARC realization's job — no hand-rolled RcDec here.
+            CanExpr::WithCapability {
+                capability,
+                provider,
+                body,
+            } => {
+                let provider_var = self.lower_expr(provider);
+                // Surgical save/restore of the capability slot only: a nested
+                // same-named `with` restores the outer binding on exit, and
+                // body-internal reassignments to other (outer) vars survive.
+                // Capture the prior binding's mutability so a shadowed mutable
+                // outer var restores with its SSA-merge tracking intact.
+                let prior = self.scope.lookup(capability);
+                let prior_mutable = prior.is_some() && self.scope.is_mutable(capability);
+                self.scope.bind(capability, provider_var);
+                let result = self.lower_expr(body);
+                match prior {
+                    Some(p) if prior_mutable => self.scope.bind_mutable(capability, p),
+                    Some(p) => self.scope.bind(capability, p),
+                    None => {
+                        self.scope.remove(capability);
+                    }
+                }
+                result
+            }
 
             CanExpr::Try(inner) => self.lower_try(inner, ty, span),
             CanExpr::Cast {

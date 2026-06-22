@@ -127,6 +127,25 @@ fn test_aot_derive_hash_different_values() {
     );
 }
 
+// Derived Comparable/Hashable over Result + tuple fields must emit real
+// structural compare/hash, not a const_i8(1)/const_i64(0) field stub.
+
+#[test]
+fn test_aot_derive_result_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_result_field_compare_hash.ori"),
+        "derive_result_field_compare_hash",
+    );
+}
+
+#[test]
+fn test_aot_derive_tuple_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_tuple_field_compare_hash.ori"),
+        "derive_tuple_field_compare_hash",
+    );
+}
+
 // 3.5.4: Derive Printable
 
 #[test]

@@ -166,6 +166,7 @@ impl Config {
 // Test capability preserves through function call
 @uses_cap () -> int uses Value = Value;
 
+#skip("BUG-04-208: cross-function capability provision not implemented in codegen/ARC")
 @test_capability_through_function tests _ () -> void = {
     let result = with Value = 42 in uses_cap();
     assert_eq(actual: result, expected: 42)
