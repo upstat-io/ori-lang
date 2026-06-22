@@ -1,0 +1,16 @@
+// Walking-skeleton fixture: produces >=1 surviving (non-elidable) RC op on the
+// burden-sole path. `duplicate` reads its str param through an alias AND the
+// live source, so the RL-1 duplication BurdenInc is KEPT (not DP-3 elidable) and
+// survives Phase-6 elimination as a `missed` remark.
+@duplicate (s: str) -> int = {
+    let a = s;
+    let len_a = a.length();
+    let len_s = s.length();
+    len_a + len_s
+}
+
+@main () -> int = {
+    let n = duplicate(s: "rc-remarks walking-skeleton survivor fixture");
+    print(msg: "rc-remarks survivor fixture compiled");
+    n - n
+}
