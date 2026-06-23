@@ -1,9 +1,6 @@
-// Regression pin: method-mono dispatch on a nested-generic receiver
-// `Option<[int]>.unwrap()`. The method-mono recorder substitutes the full
-// concrete receiver `Idx` (`Applied(Option, [List(int)])`), distinct from the
-// `Option<int>` receiver, so the collector/mangler/lookup resolve a dedicated
-// MonoFunction. A regression that re-collapses the nested receiver would
-// re-surface a missing-mono-instance E5001 at LLVM verification.
+// Regression pin: nested-generic receiver method-mono dispatch
+// (`Option<[int]>.unwrap()`) — the recorder substitutes the full concrete
+// receiver Idx, so a re-collapse re-surfaces a missing-mono E5001 at codegen.
 @main () -> int = {
     let $simple = Some(42);
     let $complex = Some([10, 20, 30]);

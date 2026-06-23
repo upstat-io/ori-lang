@@ -1,0 +1,38 @@
+// Spec: 14-expressions.md § Conversion Expressions
+// A protocol-builtin `__cast` Apply emitted inside a generic-`<T>`-bodied
+// function resolves its mono via codegen interception (no E5001).
+// Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq };
+
+@conv_int_to_float <T> (marker: T, n: int) -> float = n as float;
+
+@test_cast_int_to_float_in_generic_body tests _ () -> void = {
+    let f = conv_int_to_float(marker: "g", n: 5);
+
+    assert_eq(actual: f, expected: 5.0)
+}
+
+@conv_float_to_int <T> (marker: T, f: float) -> int = f as int;
+
+@test_cast_float_to_int_in_generic_body tests _ () -> void = {
+    let r = conv_float_to_int(marker: 0, f: 3.9);
+
+    assert_eq(actual: r, expected: 3)
+}
+
+@conv_int_to_byte <T> (marker: T, n: int) -> byte = n as byte;
+
+@test_cast_int_to_byte_in_generic_body tests _ () -> void = {
+    let b = conv_int_to_byte(marker: true, n: 200);
+
+    assert_eq(actual: b as int, expected: 200)
+}
+
+@measure_str_len <T> (marker: T, s: str) -> int = s.len() as int;
+
+@test_cast_str_len_in_generic_body tests _ () -> void = {
+    let n = measure_str_len(marker: 0, s: "hello");
+
+    assert_eq(actual: n, expected: 5)
+}

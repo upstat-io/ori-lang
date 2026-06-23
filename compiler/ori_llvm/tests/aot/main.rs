@@ -10,6 +10,7 @@ pub mod apply_alias_coverage;
 pub mod arc;
 pub mod borrow_independence;
 pub mod borrowed_invoke_leak;
+pub mod builtin_apply_in_generic;
 pub mod burden_branch_release;
 pub mod burden_dup_inc;
 pub mod burden_loop_invariant_dead_local;

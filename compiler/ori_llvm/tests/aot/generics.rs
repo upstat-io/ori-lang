@@ -34,12 +34,11 @@ fn test_method_generic_layout() {
     );
 }
 
-// Regression: method-mono dispatch on a nested-generic receiver
-// `Option<[int]>.unwrap()`. The method-mono recorder substitutes the full
-// concrete receiver `Idx` (`Applied(Option, [List(int)])`), distinct from the
-// `Option<int>` receiver, so the collector/mangler/lookup resolve a dedicated
-// MonoFunction. A regression that re-collapses the nested `[int]` element to the
-// generic shell re-surfaces a missing-mono-instance E5001 at LLVM verification.
+/// Regression: method-mono dispatch on a nested-generic receiver
+/// `Option<[int]>.unwrap()`. The recorder substitutes the full concrete receiver
+/// `Idx` (`Applied(Option, [List(int)])`), distinct from `Option<int>`, so the
+/// collector/mangler/lookup resolve a dedicated `MonoFunction`; a re-collapse of the
+/// nested `[int]` to the generic shell re-surfaces a missing-mono-instance E5001.
 #[test]
 fn test_option_complex_arg_unwrap() {
     assert_aot_success(
@@ -481,8 +480,8 @@ fn test_generic_forwarder_hop2_returns_list_intact() {
 
 /// Four-hop generic forwarder chain over `[int]`. Stresses fixpoint
 /// convergence at depth ≥ 4 — guards against off-by-one in the SCC
-/// convergence bound (interprocedural/mod.rs:233 IC-7 formula updated by
-/// the fix from `× 6` dimension-count to `× 15` height-weighted).
+/// convergence bound (the `IC-7` height-weighted iteration-limit formula in
+/// `ori_arc` interprocedural analysis).
 #[test]
 fn test_generic_forwarder_hop4_returns_list_intact() {
     assert_aot_success(

@@ -1657,6 +1657,56 @@ impl<T> Box<T> {
     );
 }
 
+/// Regression: a generic-receiver inherent method on a nested-generic receiver
+/// (`Box<[int]>`, whose type argument is itself a generic) records a `MonoInstance`
+/// whose `impl_args` carries the full nested type — distinct from scalar `Box<int>`.
+/// A recorder that collapsed the nested `[int]` to the generic shell would dedup
+/// the two receivers into one instance, re-surfacing the missing-mono condition.
+#[test]
+fn method_on_nested_generic_receiver_records_distinct_instance() {
+    let source = r"
+type Box<T> = { value: T };
+@unbox_int (b: Box<int>) -> int = b.unwrap();
+@unbox_list (b: Box<[int]>) -> [int] = b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_int tests @unbox_int () -> void = ();
+@test_list tests @unbox_list () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("unwrap");
+    assert_eq!(
+        instances.len(),
+        2,
+        "Box<int>.unwrap() and Box<[int]>.unwrap() should produce 2 distinct instances, got: {instances:?}"
+    );
+    // Exactly one instance is the scalar `Box<int>` ([int] impl_args); the other
+    // is the nested-generic `Box<[int]>`, whose impl_args is NOT [int]. Equal
+    // impl_args would mean the recorder collapsed the nested generic to the shell.
+    assert_ne!(
+        instances[0].impl_args,
+        instances[1].impl_args,
+        "nested-generic Box<[int]> and scalar Box<int> must record distinct impl_args, got: {:?}",
+        instances.iter().map(|m| &m.impl_args).collect::<Vec<_>>()
+    );
+    let scalar_count = instances
+        .iter()
+        .filter(|m| m.impl_args == vec![crate::GenericArg::Type(Idx::INT)])
+        .count();
+    assert_eq!(
+        scalar_count, 1,
+        "exactly one instance is the scalar Box<int> ([int] impl_args); the nested Box<[int]> carries the list type, got: {:?}",
+        instances.iter().map(|m| &m.impl_args).collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn inherent_method_on_non_generic_receiver_records_nothing() {
     // The impl is NOT generic over the receiver's type params, so the method
