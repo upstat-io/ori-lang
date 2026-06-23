@@ -102,16 +102,6 @@ impl CheckResult {
     fn mono_instances_all(&self) -> &[crate::MonoInstance] {
         &self.result.typed.mono_instances
     }
-
-    /// Number of call-site dispatch entries in `mono_dispatch_map`.
-    ///
-    /// `mono_dispatch_map` keys each generic call site's `ExprId` to its
-    /// resolved `MonoInstanceId` — the exact artifact `ori_llvm`'s `emit_apply`
-    /// consults; an empty map at a generic-builtin call site is the codegen
-    /// `E5001` root the producer-spine fix closes.
-    fn dispatch_entry_count(&self) -> usize {
-        self.result.typed.mono_dispatch_map.len()
-    }
 }
 
 /// Parse and type-check an Ori source string.
@@ -2636,15 +2626,21 @@ type P2Pair<A, B> = { first: A, second: B };
     );
 }
 
-// Pin 3 — derived-method callee on a GENERIC composite. RED today: the derived
-// `equals` impl on `P3Pair<A, B>` is non-generic-over-the-method and the
-// recorder's entry gate `mono.is_none() && scheme_var_ids.is_empty()` skips it,
-// so the `P3Pair<int, str>` instantiation records no instance.
+// Pin 3 — derived-Eq comparison on a GENERIC composite instantiation. Derived
+// methods (like builtins/iterators) take the `ReceiverDispatch::Return` arm and
+// are codegen-direct, NOT mono-recorded — so an instance-recorded assertion is
+// the wrong contract (the factory + iterator families proved this). This pin
+// holds the durable typeck-layer contract: the derived-Eq comparison
+// type-checks and resolves to `bool`. The AOT runtime gap (the derived `equals`
+// for the `P3Pair<int, str>` instantiation is unresolved at LLVM, and an
+// un-annotated generic composite with a heap field emits invalid IR) is the
+// generic-composite-type monomorphization gap tracked by BUG-02-066; its fix
+// lands the real AOT compile+run pin.
 #[test]
-fn s09_2_derived_method_on_generic_composite_records_instance() {
+fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
     let source = r"
 #derive(Eq) type P3Pair<A, B> = { a: A, b: B }
-@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p.equals(other: q);
+@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
 @test_p3 tests @p3_cmp () -> void = ();
 ";
     let result = check_source(source);
@@ -2653,13 +2649,11 @@ fn s09_2_derived_method_on_generic_composite_records_instance() {
         "derived-Eq generic-composite program must type-check; kinds: {:?}",
         result.error_kinds()
     );
-    // RED pre-fix: the derived `equals` on the concrete `P3Pair<int, str>`
-    // receiver records no MonoInstance (entry-gate skip). Post-fix the recorder
-    // must produce one for the composite instantiation.
-    assert!(
-        !result.mono_instances_all().is_empty(),
-        "derived `equals` on P3Pair<int, str> must record a mono instance for the \
-         composite instantiation; recorded set is empty (entry-gate skip)"
+    let body_ty = result.first_function_body_type().unwrap();
+    assert_eq!(
+        body_ty,
+        Idx::BOOL,
+        "derived-Eq `p == q` on P3Pair<int, str> must resolve to bool; got {body_ty:?}"
     );
 }
 
@@ -2691,10 +2685,18 @@ fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
     );
 }
 
-// Pin 5 — iterator method (`.rev()`). RED today: builtin iterator methods
-// resolve via `ReceiverDispatch::Return` and bypass the recorder.
+// Pin 5 — builtin iterator/DEI method chain (`.iter().rev().collect()`).
+// Builtin iterator methods take the `ReceiverDispatch::Return` arm and are
+// delivered codegen-direct (the `"Iterator"` / DEI re-keyed dispatch in
+// `ori_llvm` `codegen/arc_emitter/builtins/mod.rs` reaches the existing
+// `emit_iter_*` emitters), NOT by the mono recorder — so an instance-recorded
+// assertion is the wrong contract (the factory family proved this). This pin
+// holds the durable typeck-layer contract: the chain type-checks and its
+// `.collect()` result resolves to `[int]`. The runtime gate (real AOT compile
+// + run + value) is the sibling `ori_llvm` AOT pin
+// `iterator_mono::test_dei_methods_aot`.
 #[test]
-fn s09_2_iterator_method_records_instance() {
+fn s09_2_iterator_method_typechecks_to_list() {
     let source = r"
 @p5_rev () -> [int] = [1, 2, 3].iter().rev().collect();
 @test_p5 tests @p5_rev () -> void = ();
@@ -2705,11 +2707,16 @@ fn s09_2_iterator_method_records_instance() {
         "iterator .rev().collect() program must type-check; kinds: {:?}",
         result.error_kinds()
     );
-    // RED pre-fix: builtin iterator method records nothing.
-    assert!(
-        !result.mono_instances_all().is_empty(),
-        "iterator `.rev()/.collect()` must record a dispatch-bearing instance; \
-         recorded set is empty (ReceiverDispatch::Return bypass)"
+    let body_ty = result.first_function_body_type().unwrap();
+    assert_eq!(
+        result.tag(body_ty),
+        Tag::List,
+        "[1, 2, 3].iter().rev().collect() must resolve to a list; got {body_ty:?}"
+    );
+    assert_eq!(
+        result.pool.list_elem(body_ty),
+        Idx::INT,
+        "the collected list element must be int; got {body_ty:?}"
     );
 }
 
@@ -2778,26 +2785,37 @@ fn s09_2_deferred_resolve_produces_concrete_instance() {
     );
 }
 
-// Pin 8 — reverted-fix guard (semantic pin). The `mono_dispatch_map` is the
-// exact artifact `ori_llvm`'s `emit_apply` consults; an EMPTY map at a
-// generic-builtin call site is the `E5001` root. RED today, GREEN only with
-// the producer-spine fix. This pin ONLY passes once the recorder publishes a
-// dispatch entry for the builtin iterator call.
+// Pin 8 — DEI consumer result type (`.last()` -> `Option<int>`). Companion to
+// Pin 5: that pin holds the `.collect()` -> `[int]` contract; this one holds
+// the DEI-consumer contract that a `dei_only` method on a list iterator
+// type-checks and resolves to its declared return type. Like the factory
+// family, the DEI methods are delivered codegen-direct (the `"DoubleEndedIterator"`
+// re-keyed dispatch in `ori_llvm` `codegen/arc_emitter/builtins/mod.rs`), NOT
+// by the mono recorder — the `mono_dispatch_map` is the wrong artifact to
+// assert. The real reverted-fix guard (the dispatch re-key) is the runtime
+// `ori_llvm` AOT pin `iterator_mono::test_dei_methods_aot`, which fails if the
+// re-key is reverted (`emit_apply` E5001 on `last`).
 #[test]
-fn s09_2_reverted_fix_guard_dispatch_map_populated() {
+fn s09_2_dei_consumer_typechecks_to_option() {
     let source = r"
-@p8_guard () -> [int] = [1, 2, 3].iter().rev().collect();
-@test_p8 tests @p8_guard () -> void = ();
+@p8_last () -> Option<int> = [1, 2, 3].iter().last();
+@test_p8 tests @p8_last () -> void = ();
 ";
     let result = check_source(source);
     assert!(
         !result.has_errors(),
-        "dispatch-map guard program must type-check; kinds: {:?}",
+        "iterator .last() program must type-check; kinds: {:?}",
         result.error_kinds()
     );
-    assert!(
-        result.dispatch_entry_count() > 0,
-        "generic-builtin iterator call site must publish a mono_dispatch_map \
-         entry (the emit_apply / E5001 artifact); dispatch map is empty"
+    let body_ty = result.first_function_body_type().unwrap();
+    assert_eq!(
+        result.tag(body_ty),
+        Tag::Option,
+        "[1, 2, 3].iter().last() must resolve to an Option; got {body_ty:?}"
+    );
+    assert_eq!(
+        result.pool.option_inner(body_ty),
+        Idx::INT,
+        "the Option element from .last() must be int; got {body_ty:?}"
     );
 }

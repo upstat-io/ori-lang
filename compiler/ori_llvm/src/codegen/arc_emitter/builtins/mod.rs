@@ -320,7 +320,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .or_else(|| traits::dispatch(self, &ctx))
                 .or_else(|| option_result::dispatch(self, &ctx))
                 .or_else(|| iterator::dispatch(self, &ctx))
-                .or_else(|| compound_traits::dispatch(self, &ctx));
+                .or_else(|| compound_traits::dispatch(self, &ctx))
+                .or_else(|| self.try_emit_dei_rekeyed(&ctx));
 
             if result.is_some() {
                 return result;
@@ -409,6 +410,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         None
+    }
+
+    /// Re-key a `DoubleEndedIterator` method dispatch onto an `"Iterator"`
+    /// receiver.
+    ///
+    /// `rev` / `last` / `rfind` / `rfold` / `next_back` register under the
+    /// `"DoubleEndedIterator"` key (registry `dei_only`), but every iterator
+    /// handle realizes as `TypeInfo::Iterator` (`type_name` `"Iterator"`) at
+    /// codegen — there is no DEI `TypeInfo` variant. The type checker proved the
+    /// receiver is double-ended, so dispatch the same `BuiltinCtx` under
+    /// `"DoubleEndedIterator"` to reach the existing `emit_iter_*` emitters.
+    fn try_emit_dei_rekeyed(&mut self, base: &BuiltinCtx<'_>) -> Option<ValueId> {
+        if base.type_name != "Iterator" || !ori_registry::is_dei_only(base.method) {
+            return None;
+        }
+        let dei_ctx = BuiltinCtx {
+            type_name: "DoubleEndedIterator",
+            ..*base
+        };
+        iterator::dispatch(self, &dei_ctx)
     }
 
     /// Emit the eval-parity `no method '<name>' on type <type>` runtime panic.
