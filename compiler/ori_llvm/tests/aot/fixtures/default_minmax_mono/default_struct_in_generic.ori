@@ -1,0 +1,12 @@
+#[derive(Default, Eq)]
+type Cfg = { port: int, name: str }
+
+@build_default <T> (marker: T) -> Cfg = Cfg.default();
+
+@consume_default <T> (marker: T, c: Cfg) -> int = c.port;
+
+@main () -> int = {
+    let c = build_default(marker: 42);
+    let p = consume_default(marker: "x", c: c);
+    if p == 0 && c.name == "" then 0 else 1
+}

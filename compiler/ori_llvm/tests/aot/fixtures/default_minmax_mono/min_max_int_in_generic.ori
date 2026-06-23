@@ -1,0 +1,10 @@
+@minmax_int <T> (marker: T, a: int, b: int) -> int = {
+    let lo = min(left: a, right: b);
+    let hi = max(left: a, right: b);
+    hi - lo
+}
+
+@main () -> int = {
+    let d = minmax_int(marker: "g", a: 3, b: 7);
+    if d == 4 then 0 else 1
+}

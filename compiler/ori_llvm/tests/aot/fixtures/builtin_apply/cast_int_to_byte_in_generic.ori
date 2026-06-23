@@ -1,0 +1,6 @@
+@conv <T> (marker: T, n: int) -> byte = n as byte;
+
+@main () -> int = {
+    let b = conv(marker: true, n: 200);
+    if b.to_int() == 200 then 0 else 1
+}
