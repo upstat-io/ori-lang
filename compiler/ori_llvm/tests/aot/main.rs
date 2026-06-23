@@ -26,6 +26,7 @@ pub mod conversions;
 pub mod corpus_under_flag_gate;
 pub mod cow_map_set;
 pub mod cross;
+pub mod default_minmax_mono_in_generic;
 pub mod depth;
 pub mod derives;
 pub mod drop_augment;
