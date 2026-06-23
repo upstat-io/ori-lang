@@ -206,7 +206,7 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     //
     // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
     // correctly identifies the params as non-invariant.
-    // (Same pattern as tail_call/rewrite.rs lines 50-68.)
+    // (Same pattern as the fresh-param prologue in tail_call/rewrite.rs.)
     let param_types: Vec<ori_types::Idx> = func.params.iter().map(|p| p.ty).collect();
     let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = param_types
         .iter()
@@ -268,7 +268,7 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     // Step 6: Prepend Let bindings that define original param vars from
     // fresh block params. The header body references original param vars,
     // so these bindings bridge fresh block params → original names.
-    // (Same pattern as tail_call/rewrite.rs lines 104-124.)
+    // (Same pattern as the param-rebinding step in tail_call/rewrite.rs.)
     //
     // Done after Steps 4-5 so that the recursive block body replacement
     // and base-case return rewriting are complete.

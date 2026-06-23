@@ -419,7 +419,7 @@ fn verify_flags_surviving_variant_dec_with_attribution() {
     );
 }
 
-// --- M3 + Phase-7 elision pins (broad-shape collection-source freeing) ---
+// M3 + Phase-7 elision pins (broad-shape collection-source freeing)
 
 /// Single-block reps map where each var is its own rep (no same-alloc aliasing).
 fn identity_reps(n: u32) -> FxHashMap<ArcVarId, ArcVarId> {
@@ -1761,7 +1761,7 @@ fn dead_owned_collection_skips_user_function_arg() {
     );
 }
 
-// === Dead-no-use INLINE-AGGREGATE pass (M1) ===
+// Dead-no-use INLINE-AGGREGATE pass (M1)
 
 /// Build a bare dead-no-use struct: `%1 = Construct Struct(Doc)(%0)` where `Doc =
 /// { content: str }` (an `Aggregate` repr, `NonTrivial` triviality), with ZERO
@@ -5450,7 +5450,7 @@ fn single_iter_consume_without_reuse_gets_no_keepalive() {
     );
 }
 
-// === Phase 6.68c — N>=2 callee-returned scalar-list cross-call surplus-inc strip ===
+// Phase 6.68c — N>=2 callee-returned scalar-list cross-call surplus-inc strip
 
 /// Build a `@main`-shaped function mirroring the `for w in words yield w` two-call
 /// returned-`[int]` leak. `n_acquires` user-callee `[int]`-returning `Invoke`s;

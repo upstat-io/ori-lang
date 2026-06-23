@@ -34,7 +34,7 @@ fn build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
     // bindings AND Jump → block-param edges. Both must be inside the loop
     // because a Jump may introduce a block-param alias that a subsequent
     // Let re-aliases — the Let pass must see those block-param aliases.
-    // Matches the canonical pattern in interprocedural/extract.rs:244-277.
+    // Matches the canonical alias-fixpoint pattern in interprocedural/extract.rs.
     let mut changed = true;
     while changed {
         changed = false;

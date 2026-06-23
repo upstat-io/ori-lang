@@ -293,3 +293,63 @@ type NestHolder = { tag: int, n: (int, (int, int)) }
 // handling and reusing the same compare_result_boxed_payload primitive
 // emit_result_eq already drives; it is structurally covered, not end-to-end
 // testable within this fix's scope.
+
+// ===========================================================================
+// Option field — Compare + Hash. The derived Option hash must match the interp
+// oracle exactly: Some(x) -> hash_combine(1, h(x)), None -> 0 (NOT the XOR fold
+// the codegen previously used). Golden exact-value pins catch the XOR drift.
+// ===========================================================================
+
+#[derive(Eq, Comparable, Hashable)]
+type OptHolder = { tag: int, o: Option<int> }
+
+@test_option_field_some_payload_orders tests @opt_ord () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: Some(2) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@opt_ord () -> Ordering = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: Some(2) };
+    a.compare(other: b)
+}
+
+@test_option_field_none_before_some tests @opt_none_some () -> void = {
+    let a = OptHolder { tag: 0, o: None };
+    let b = OptHolder { tag: 0, o: Some(0) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@opt_none_some () -> Ordering = {
+    let a = OptHolder { tag: 0, o: None };
+    let b = OptHolder { tag: 0, o: Some(0) };
+    a.compare(other: b)
+}
+
+@test_option_field_hash_differs tests @opt_hash_ne () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: None };
+    assert(cond: a.hash() != b.hash())
+}
+@opt_hash_ne () -> bool = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: None };
+    a.hash() != b.hash()
+}
+
+@test_option_field_hash_exact_some tests @opt_hash_exact_some () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    assert(cond: a.hash() == 4416004066344191788)
+}
+@opt_hash_exact_some () -> int = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    a.hash()
+}
+
+@test_option_field_hash_exact_none tests @opt_hash_exact_none () -> void = {
+    let a = OptHolder { tag: 0, o: None };
+    assert(cond: a.hash() == 590684067820433389)
+}
+@opt_hash_exact_none () -> int = {
+    let a = OptHolder { tag: 0, o: None };
+    a.hash()
+}

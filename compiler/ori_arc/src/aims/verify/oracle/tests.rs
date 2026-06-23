@@ -262,7 +262,7 @@ fn oracle_detects_may_deallocate_mismatch() {
     );
 }
 
-// --- 05.PRE: Failing tests that expose known soundness bugs in the current oracle ---
+// 05.PRE: Failing tests that expose known soundness bugs in the current oracle
 
 /// The oracle must detect RC operations on parameter aliases created via `Let` bindings.
 /// Bug: current oracle only checks direct parameter vars, not aliases.
@@ -524,7 +524,7 @@ fn oracle_detects_may_allocate_from_partial_apply() {
     );
 }
 
-// --- 05.1.3 Additional matrix tests ---
+// 05.1.3 Additional matrix tests
 
 /// Transitive alias chain: param0 -> v1 -> v2, `RcInc` on v2 detected.
 #[test]
@@ -660,7 +660,7 @@ fn oracle_detects_owned_transfer_via_partial_apply() {
     assert_eq!(contracts[0].consumption, Consumption::Linear);
 }
 
-// --- 05.2 Effect derivation tests ---
+// 05.2 Effect derivation tests
 
 /// `may_allocate` detected from `Construct` instruction in the function.
 #[test]
@@ -896,7 +896,7 @@ fn oracle_accepts_conservative_may_allocate_effect() {
     );
 }
 
-// --- Display impl tests ---
+// Display impl tests
 
 /// Display for `ParamAccess` mismatch produces actionable diagnostic text.
 #[test]

@@ -57,7 +57,7 @@ use super::{instr_transfer_vars, BurdenLowerCtx};
 ///
 /// When E2043 typeck rejection guarantees equal predecessor exit sets the
 /// INTERSECT degenerates to pick-any; INTERSECT remains the correct merge —
-/// robust across both rejection states and structurally simpler than
+/// correct across both rejection states and structurally simpler than
 /// special-casing per typeck status.
 ///
 /// **Union rebuild**: `moved_out_fields_union` rebuilt as the pointwise

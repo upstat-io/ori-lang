@@ -1142,7 +1142,7 @@ fn two_exit_loop_declines_loop_exit() {
     );
 }
 
-// ----- Third root family: self-allocating-builtin Invoke results (carrier-succ) -----
+// Third root family: self-allocating-builtin Invoke results (carrier-succ)
 
 /// A may-unwind `Invoke` whose callee `Name` + per-arg ownership are caller-chosen
 /// (the builtin-family fixtures need a REAL interned builtin name).

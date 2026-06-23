@@ -2,15 +2,15 @@
 //!
 //! Walks every block backward; for each `BurdenInc` / `BurdenDec` /
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` site, queries
-//! the AIMS lattice via DP-2 (`is_rc_dec_unnecessary` at
-//! `aims/transfer/mod.rs:403`) or DP-3 (`is_rc_inc_elidable` at
-//! `aims/transfer/mod.rs:411`); on `true`, removes the instruction.
+//! the AIMS lattice via DP-2 (`is_rc_dec_unnecessary` in
+//! `aims/transfer/mod.rs`) or DP-3 (`is_rc_inc_elidable` in
+//! `aims/transfer/mod.rs`); on `true`, removes the instruction.
 //!
 //! # Pipeline position
 //!
 //! Runs inside `emit_rc_unified` between Phase 2.1 (project-escape Incs) and
 //! Phase 3 (coalesce). Burden ops are TF-N/A in both forward and backward
-//! transfer (verified at `aims/transfer/mod.rs:94-104, 287-297`), so the
+//! transfer (verified by the TF-N/A transfer rules in `aims/transfer/mod.rs`), so the
 //! per-block state queried via `var_state_at_block_exit(block, var)` is the
 //! state at every burden-op site within that block: burden ops carry no
 //! transfer effect, so `block_exit_state[var]` = state at every burden-op
@@ -58,7 +58,7 @@
 //! # References
 //!
 //! - DP-2 + DP-3 — predicate truth tables.
-//! - `aims/transfer/mod.rs:403,411` — predicate source.
+//! - `aims/transfer/mod.rs` (`is_rc_dec_unnecessary` / `is_rc_inc_elidable`) — predicate source.
 //! - Koka Perceus paired dup/drop elimination (Reinking et al., PLDI 2021).
 
 #[cfg(test)]

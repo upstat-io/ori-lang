@@ -94,9 +94,7 @@ impl Lowerer<'_> {
     /// lowerer's accumulator. The accumulator is sorted in `Lowerer::finish`
     /// for binary-search lookup downstream (sub-steps 1d/1e/1f).
     pub(crate) fn record_mono_dispatch_if_present(&mut self, call_expr_id: ExprId, can_id: CanId) {
-        let map = &self.typed.mono_dispatch_map;
-        if let Ok(idx) = map.binary_search_by_key(&call_expr_id.raw(), |(eid, _)| eid.raw()) {
-            let (_, mono_id) = map[idx];
+        if let Some(&mono_id) = self.typed.mono_dispatch_map.get(call_expr_id) {
             self.mono_dispatch_map_can.push((can_id, mono_id));
         }
     }

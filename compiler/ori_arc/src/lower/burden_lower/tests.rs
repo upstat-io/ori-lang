@@ -4207,7 +4207,7 @@ fn partial_apply_owned_capture_passed_to_owned_callee_emits_two_transfer_point_b
 /// move-vs-duplication classifier: `dup_alias_dsts` are the DUPLICATION case
 /// (own inc + matching dec), not the MOVE case (inc-suppressed, no source dec).
 /// Positive pin: exactly one inc + one dec for the alias (net 0). Negative pin:
-/// re-suppressing the dup-alias dec re-introduces the §09.2-regressing gap where
+/// re-suppressing the dup-alias dec re-introduces the regressing gap where
 /// the alias inc orphans (net +1) once the predicate stack is deleted.
 #[test]
 fn dup_alias_at_terminator_nontransfer_emits_paired_burden_inc_dec() {
@@ -4304,7 +4304,7 @@ fn dup_alias_at_terminator_nontransfer_emits_paired_burden_inc_dec() {
     );
 
     // VF-1 semantic pin: faithful Phase-5 emission nets the burden ledger to 0
-    // for the duplication alias — neither orphaned inc (net +1, the §09.2 gap)
+    // for the duplication alias — neither orphaned inc (net +1, the gap)
     // nor orphaned dec (net -1).
     let imbalances = crate::aims::verify::burden_balance::verify_burden_balance(&func);
     assert!(
@@ -4915,7 +4915,7 @@ fn count_burden_incs(func: &ArcFunction, var: ArcVarId) -> usize {
 /// ownership-transfer exception suppresses every last-use dec — the release is
 /// discharged at the Return transfer point (the caller inherits it), not at any
 /// move-alias site. Negative pin: a stray inc OR dec on any chain member would
-/// fail VF-1 per-var (orphan), regressing the §09.2 burden-as-sole-emitter path.
+/// fail VF-1 per-var (orphan), regressing the burden-as-sole-emitter path.
 #[test]
 fn move_alias_chain_to_return_emits_no_burden_ops() {
     let registry = TypeRegistry::new();
@@ -6567,7 +6567,7 @@ fn forwarder_contract() -> crate::aims::contract::MemoryContract {
 
 /// Positive pin: an `Apply` result of an `RcPointer` type whose callee is a
 /// transfer-through-return forwarder receives ZERO result-`BurdenInc` (RL-1
-/// elision). Reverting the elision re-introduces the §09.2 forwarder LEAK
+/// elision). Reverting the elision re-introduces the forwarder LEAK
 /// (alloc(+1) + spurious result-inc − path decs = net +1).
 #[test]
 fn rcptr_forwarder_result_gets_no_result_burden_inc() {
@@ -8985,7 +8985,7 @@ fn final_read_release_declines_non_unique_call_result() {
     );
 }
 
-// ===== RL-4 branch-exclusive terminal-move edge release =====
+// RL-4 branch-exclusive terminal-move edge release
 // (`ownership_scans::compute_branch_exclusive_edge_releases`)
 
 use super::ownership_scans::ForwarderReleasePos;

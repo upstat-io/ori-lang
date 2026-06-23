@@ -143,12 +143,16 @@ pub(crate) fn resolve_parsed_type_simple(
                 return idx;
             }
             let named_idx = checker.pool_mut().named(*name);
-            // FFI types (CPtr, c_int, etc.) need Pool resolutions so downstream
-            // phases (ARC classifier, LLVM TypeInfoStore) can classify them as
-            // trivial scalars. Without this, they remain unresolved Named types
-            // that produce TypeInfo::Error in codegen.
-            if let Some(concrete) = checker.resolve_ffi_concrete(*name) {
-                checker.pool_mut().set_resolution(named_idx, concrete);
+            // FFI types (CPtr, c_int, ...) get a Pool resolution so downstream
+            // phases classify them as trivial scalars; the CAbiKind carrier keeps
+            // the C-ABI width identity that resolution discards (pair via attach_ffi_carrier).
+            if let (Some(concrete), Some(kind)) = (
+                checker.resolve_ffi_concrete(*name),
+                checker.resolve_ffi_cabi_kind(*name),
+            ) {
+                checker
+                    .pool_mut()
+                    .attach_ffi_carrier(named_idx, concrete, kind);
             }
             named_idx
         }

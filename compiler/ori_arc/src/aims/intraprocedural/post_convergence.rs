@@ -1011,16 +1011,10 @@ pub(crate) fn populate_class_payload_of_with_liveness(
         }
     }
 
-    let class_ids_to_materialize: Vec<u32> = class_payload_of
-        .iter()
-        .flat_map(|(&child_class, parent_classes)| {
-            std::iter::once(child_class).chain(parent_classes.iter().copied())
-        })
-        .collect();
-    for class_id in class_ids_to_materialize {
-        state_map.ensure_singleton_class(class_id);
-    }
-
+    // Singleton class_members entries are materialized per-edge inside
+    // `record_payload_edge_lifetime` (ensure_singleton_class on arg_class +
+    // dst_class). A trailing re-materialization over class_payload_of would
+    // cover exactly that same set, so it is omitted.
     tracing::debug!(
         func = ?func.name,
         edges = class_payload_of.len(),

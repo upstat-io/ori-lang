@@ -10,25 +10,86 @@ use ori_ir::{
     StructLitField, TokenKind,
 };
 
-/// Bitset of tags that can start a postfix operation.
-/// Bit N is set if tag N can start a postfix op.
-/// Uses two u64s to cover tags 0-127.
+/// A postfix operator, identified by the token that starts it. Single source of
+/// truth for the postfix-token set: `POSTFIX_BITSET` (the O(1) fast-exit gate) is
+/// derived from `from_tag`, and `apply_postfix_ops` dispatches through `from_tag`
+/// with a compiler-enforced exhaustive match — so the gate and the dispatch
+/// cannot drift (a new variant forces a `from_tag` arm + a dispatch arm, and the
+/// bitset picks it up automatically). Mirrors the `OPER_TABLE` exhaustiveness
+/// discipline in `operators.rs` (parse.md §PR-7).
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum PostfixOp {
+    /// `(` — function call.
+    Call,
+    /// `.` — field access / method call.
+    Dot,
+    /// `[` — index.
+    Index,
+    /// `{` — struct literal (only after a bare identifier in struct-lit context).
+    StructLit,
+    /// `?` — try.
+    Try,
+    /// `as` — cast.
+    Cast,
+    /// `->` — single-parameter lambda shorthand (only after a bare identifier).
+    Lambda,
+}
+
+impl PostfixOp {
+    /// Map a token tag to the postfix op it can start, if any. The SSOT for the
+    /// postfix-token set — every other postfix-tag fact derives from this.
+    const fn from_tag(tag: u8) -> Option<PostfixOp> {
+        match tag {
+            TokenKind::TAG_LPAREN => Some(PostfixOp::Call),
+            TokenKind::TAG_DOT => Some(PostfixOp::Dot),
+            TokenKind::TAG_LBRACKET => Some(PostfixOp::Index),
+            TokenKind::TAG_LBRACE => Some(PostfixOp::StructLit),
+            TokenKind::TAG_QUESTION => Some(PostfixOp::Try),
+            TokenKind::TAG_AS => Some(PostfixOp::Cast),
+            TokenKind::TAG_ARROW => Some(PostfixOp::Lambda),
+            _ => None,
+        }
+    }
+
+    /// The token tag that starts this op (inverse of `from_tag`); test-only —
+    /// used to pin the `from_tag` ↔ dispatch ↔ bitset round-trip.
+    #[cfg(test)]
+    const fn start_tag(self) -> u8 {
+        match self {
+            PostfixOp::Call => TokenKind::TAG_LPAREN,
+            PostfixOp::Dot => TokenKind::TAG_DOT,
+            PostfixOp::Index => TokenKind::TAG_LBRACKET,
+            PostfixOp::StructLit => TokenKind::TAG_LBRACE,
+            PostfixOp::Try => TokenKind::TAG_QUESTION,
+            PostfixOp::Cast => TokenKind::TAG_AS,
+            PostfixOp::Lambda => TokenKind::TAG_ARROW,
+        }
+    }
+
+    /// Every variant — the exhaustiveness fixture for the round-trip test.
+    #[cfg(test)]
+    const ALL: [PostfixOp; 7] = [
+        PostfixOp::Call,
+        PostfixOp::Dot,
+        PostfixOp::Index,
+        PostfixOp::StructLit,
+        PostfixOp::Try,
+        PostfixOp::Cast,
+        PostfixOp::Lambda,
+    ];
+}
+
+/// Bitset of tags that can start a postfix operation, derived from
+/// `PostfixOp::from_tag` so it never drifts from the dispatch. Bit N is set iff
+/// tag N starts a postfix op. Uses two u64s to cover tags 0-127.
 const POSTFIX_BITSET: [u64; 2] = {
     let mut bits = [0u64; 2];
-    let tags: [u8; 7] = [
-        TokenKind::TAG_LPAREN,   // 80
-        TokenKind::TAG_DOT,      // 89
-        TokenKind::TAG_LBRACKET, // 84
-        TokenKind::TAG_LBRACE,   // 82
-        TokenKind::TAG_QUESTION, // 96
-        TokenKind::TAG_AS,       // 43
-        TokenKind::TAG_ARROW,    // 93
-    ];
-    let mut i = 0;
-    while i < tags.len() {
-        let t = tags[i] as usize;
-        bits[t / 64] |= 1u64 << (t % 64);
-        i += 1;
+    let mut tag = 0u8;
+    while tag < 128 {
+        if PostfixOp::from_tag(tag).is_some() {
+            bits[(tag / 64) as usize] |= 1u64 << (tag % 64);
+        }
+        tag += 1;
     }
     bits
 };
@@ -68,75 +129,92 @@ impl Parser<'_> {
 
             // Fast exit: O(1) bitset check — if current tag can't start any
             // postfix op, break immediately without testing each alternative.
-            if !is_postfix_tag(self.cursor.current_tag()) {
+            let tag = self.cursor.current_tag();
+            if !is_postfix_tag(tag) {
                 break;
             }
+            // `is_postfix_tag` guarantees membership, so `from_tag` is total here;
+            // the `else` is unreachable in practice (both derive from `from_tag`).
+            let Some(op) = PostfixOp::from_tag(tag) else {
+                break;
+            };
 
-            if self.cursor.check(&TokenKind::LParen) {
-                self.cursor.advance();
-                expr = self.in_error_context_result(ErrorContext::FunctionCall, |p| {
-                    p.parse_postfix_call(expr)
-                })?;
-            } else if self.cursor.check(&TokenKind::Dot) {
-                self.cursor.advance();
-                expr = self.parse_postfix_dot(expr)?;
-            } else if self.cursor.check(&TokenKind::LBracket) {
-                self.cursor.advance();
-                let index = self.in_error_context_result(
-                    ErrorContext::IndexExpression,
-                    Self::parse_index_expr,
-                )?;
-                self.cursor.expect(&TokenKind::RBracket)?;
-                let span = self
-                    .arena
-                    .get_expr(expr)
-                    .span
-                    .merge(self.cursor.previous_span());
-                expr = self.arena.alloc_expr(Expr::new(
-                    ExprKind::Index {
-                        receiver: expr,
-                        index,
-                    },
-                    span,
-                ));
-            } else if self.cursor.check(&TokenKind::LBrace) && self.allows_struct_lit() {
-                let expr_data = self.arena.get_expr(expr);
-                if let ExprKind::Ident(name) = &expr_data.kind {
-                    let struct_name = *name;
-                    let start_span = expr_data.span;
+            // Exhaustive over `PostfixOp` — a new variant is a compile error here
+            // (parse.md §PR-7 registration-sync discipline).
+            match op {
+                PostfixOp::Call => {
                     self.cursor.advance();
-                    expr = self.in_error_context_result(ErrorContext::StructLiteral, |p| {
-                        p.parse_postfix_struct_lit(struct_name, start_span)
+                    expr = self.in_error_context_result(ErrorContext::FunctionCall, |p| {
+                        p.parse_postfix_call(expr)
                     })?;
-                } else {
+                }
+                PostfixOp::Dot => {
+                    self.cursor.advance();
+                    expr = self.parse_postfix_dot(expr)?;
+                }
+                PostfixOp::Index => {
+                    self.cursor.advance();
+                    let index = self.in_error_context_result(
+                        ErrorContext::IndexExpression,
+                        Self::parse_index_expr,
+                    )?;
+                    self.cursor.expect(&TokenKind::RBracket)?;
+                    let span = self
+                        .arena
+                        .get_expr(expr)
+                        .span
+                        .merge(self.cursor.previous_span());
+                    expr = self.arena.alloc_expr(Expr::new(
+                        ExprKind::Index {
+                            receiver: expr,
+                            index,
+                        },
+                        span,
+                    ));
+                }
+                PostfixOp::StructLit => {
+                    if !self.allows_struct_lit() {
+                        break;
+                    }
+                    let expr_data = self.arena.get_expr(expr);
+                    if let ExprKind::Ident(name) = &expr_data.kind {
+                        let struct_name = *name;
+                        let start_span = expr_data.span;
+                        self.cursor.advance();
+                        expr = self.in_error_context_result(ErrorContext::StructLiteral, |p| {
+                            p.parse_postfix_struct_lit(struct_name, start_span)
+                        })?;
+                    } else {
+                        break;
+                    }
+                }
+                PostfixOp::Try => {
+                    self.cursor.advance();
+                    let span = self
+                        .arena
+                        .get_expr(expr)
+                        .span
+                        .merge(self.cursor.previous_span());
+                    expr = self.arena.alloc_expr(Expr::new(ExprKind::Try(expr), span));
+                }
+                PostfixOp::Cast => {
+                    self.cursor.advance();
+                    expr = self.in_error_context_result(ErrorContext::TypeAnnotation, |p| {
+                        p.parse_postfix_cast(expr)
+                    })?;
+                }
+                PostfixOp::Lambda => {
+                    let expr_data = self.arena.get_expr(expr);
+                    if let ExprKind::Ident(name) = &expr_data.kind {
+                        let param_span = expr_data.span;
+                        let param_name = *name;
+                        self.cursor.advance();
+                        expr = self.in_error_context_result(ErrorContext::Closure, |p| {
+                            p.parse_postfix_lambda(param_name, param_span)
+                        })?;
+                    }
                     break;
                 }
-            } else if self.cursor.check(&TokenKind::Question) {
-                self.cursor.advance();
-                let span = self
-                    .arena
-                    .get_expr(expr)
-                    .span
-                    .merge(self.cursor.previous_span());
-                expr = self.arena.alloc_expr(Expr::new(ExprKind::Try(expr), span));
-            } else if self.cursor.check(&TokenKind::As) {
-                self.cursor.advance();
-                expr = self.in_error_context_result(ErrorContext::TypeAnnotation, |p| {
-                    p.parse_postfix_cast(expr)
-                })?;
-            } else if self.cursor.check(&TokenKind::Arrow) {
-                let expr_data = self.arena.get_expr(expr);
-                if let ExprKind::Ident(name) = &expr_data.kind {
-                    let param_span = expr_data.span;
-                    let param_name = *name;
-                    self.cursor.advance();
-                    expr = self.in_error_context_result(ErrorContext::Closure, |p| {
-                        p.parse_postfix_lambda(param_name, param_span)
-                    })?;
-                }
-                break;
-            } else {
-                break;
             }
         }
 
@@ -489,6 +567,52 @@ impl Parser<'_> {
         use crate::context::ParseContext;
         self.with_context(ParseContext::IN_INDEX, Self::parse_expr)
             .into_result()
+    }
+}
+
+#[cfg(test)]
+mod postfix_op_table_tests {
+    //! Pins the single-source-of-truth link between `PostfixOp::from_tag`, the
+    //! `apply_postfix_ops` dispatch, and the derived `POSTFIX_BITSET` — the
+    //! postfix analogue of `operators.rs` PR-7 `OPER_TABLE` exhaustiveness.
+
+    use super::{is_postfix_tag, PostfixOp, POSTFIX_BITSET};
+
+    /// `start_tag` and `from_tag` are inverses for every variant: each op's
+    /// start tag resolves back to that exact op.
+    #[test]
+    fn from_tag_roundtrips_every_variant() {
+        for op in PostfixOp::ALL {
+            assert_eq!(
+                PostfixOp::from_tag(op.start_tag()),
+                Some(op),
+                "from_tag must invert start_tag for {op:?}",
+            );
+        }
+    }
+
+    /// Every variant's start tag is set in the derived bitset — the fast-exit
+    /// gate cannot drift from the dispatch.
+    #[test]
+    fn bitset_covers_every_variant() {
+        for op in PostfixOp::ALL {
+            assert!(
+                is_postfix_tag(op.start_tag()),
+                "POSTFIX_BITSET must include the start tag of {op:?}",
+            );
+        }
+    }
+
+    /// The bitset has EXACTLY the variant start tags set — no extra bit, no
+    /// missing bit. Counts set bits and compares to the variant count.
+    #[test]
+    fn bitset_has_exactly_variant_tags() {
+        let set_bits: u32 = POSTFIX_BITSET.iter().map(|w| w.count_ones()).sum();
+        assert_eq!(
+            set_bits as usize,
+            PostfixOp::ALL.len(),
+            "POSTFIX_BITSET set-bit count must equal the PostfixOp variant count",
+        );
     }
 }
 

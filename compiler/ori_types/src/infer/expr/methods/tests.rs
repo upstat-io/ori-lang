@@ -22,10 +22,8 @@ fn fresh_return_methods_are_documented() {
         }
     }
 
-    // Semantic pin: assert the exact set of Fresh-return methods.
-    // If a new method with `ReturnTag::Fresh` is added, this test fails,
-    // forcing the developer to either add a computed_returns entry or
-    // explicitly document that a fresh var is the correct return.
+    // Semantic pin on the exact Fresh-return method set: a new `ReturnTag::Fresh`
+    // method fails this until it gets a computed_returns entry or documents the fresh var.
     let names: Vec<String> = fresh_methods
         .iter()
         .map(|(tag, name)| format!("{tag:?}.{name}"))
@@ -34,8 +32,6 @@ fn fresh_return_methods_are_documented() {
     // Known Fresh-return methods (order matches BUILTIN_TYPES × sorted methods):
     let expected = [
         "Error.trace_entries",
-        "List.all",
-        "List.any",
         "List.chunk",
         "List.filter",
         "List.find",
@@ -81,6 +77,34 @@ fn fresh_return_methods_are_documented() {
         "Fresh-return methods changed. Update this list and verify \
          computed_returns.rs handles new entries."
     );
+}
+
+/// Positive clamp: `List.all` / `List.any` and the `Iterator`
+/// equivalents return `bool` regardless of the predicate, so the registry MUST
+/// classify them `ReturnTag::Concrete(TypeTag::Bool)` — never `ReturnTag::Fresh`.
+/// Pins the correct classification directly and rejects a regression that
+/// re-adds them to the `Fresh`-return set (which would produce an unconstrained
+/// type variable for a method that always returns bool).
+#[test]
+fn all_any_quantifiers_return_concrete_bool() {
+    use ori_registry::find_method;
+
+    for tag in [TypeTag::List, TypeTag::Iterator] {
+        for name in ["all", "any"] {
+            let def = find_method(tag, name)
+                .unwrap_or_else(|| panic!("{tag:?}.{name} must be registered"));
+            assert_eq!(
+                def.returns,
+                ReturnTag::Concrete(TypeTag::Bool),
+                "{tag:?}.{name} must return Concrete(Bool), not Fresh"
+            );
+            assert_ne!(
+                def.returns,
+                ReturnTag::Fresh,
+                "{tag:?}.{name} must NOT be ReturnTag::Fresh"
+            );
+        }
+    }
 }
 
 /// Verify `range_method_requires_iteration` correctly identifies Range iteration methods.
@@ -275,10 +299,8 @@ fn computed_returns_produce_structured_types() {
         "Iterator.flatten should return an Iterator"
     );
 
-    // Result.trace_entries — must return [TraceEntry] (Tag::List with Named element).
-    // We set up a StringInterner so computed_trace_entries() takes the structured path
-    // instead of falling back to fresh_var(). This pins the exact return type and
-    // would detect deletion of the trace_entries branch in computed_returns.rs.
+    // Result.trace_entries pins [TraceEntry] (Tag::List, Named element) via the structured
+    // computed_trace_entries() path (interner set); guards the trace_entries branch.
     let interner = ori_ir::StringInterner::new();
     engine.set_interner(&interner);
 

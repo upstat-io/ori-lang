@@ -232,8 +232,8 @@ pub struct AimsStateMap {
     ///
     /// Consumed by `class_lifetime_extends_past_path_sensitive` to widen the
     /// A-live witness set with Project-derived aliases of B-members. Project
-    /// apply-aliases live in a DIFFERENT class than their source (PIN-2 at
-    /// `ssa_alias_classes.rs:131`), so `class_members(class_a)` cannot see
+    /// apply-aliases live in a DIFFERENT class than their source (PIN-2 in
+    /// `ssa_alias_classes.rs`), so `class_members(class_a)` cannot see
     /// them; this side-table bridges the gap WITHOUT unifying classes
     /// (preserves "different RC slot" architectural rule).
     project_alias_sources: FxHashMap<ArcVarId, ProjectSources>,

@@ -306,9 +306,7 @@ fn record_admitted_candidate(
 }
 
 /// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
-/// `None` (declined). Extracted from
-/// [`compute_borrowed_invoke_collection_lineage`] for the 100-line cap; the
-/// per-root gate sequence is unchanged.
+/// `None` (declined).
 #[expect(
     clippy::too_many_arguments,
     reason = "the per-root gate sequence threads the full claimed-set context \

@@ -480,7 +480,7 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
     );
 }
 
-// RcAtomicity — §06.3 carrier SITE pins.
+// RcAtomicity carrier SITE pins.
 //
 // The carrier exists with both variants; the construction-site default is
 // `Atomic` (every realization-emitted RcInc/RcDec is atomic today, matching

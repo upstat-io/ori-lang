@@ -33,7 +33,7 @@ use crate::lower::burden_lower::emit_burden_ops;
 use crate::ownership::Ownership;
 use crate::ArcClass;
 
-// --- Mock classifier ---------------------------------------------------------
+// Mock classifier
 
 struct AllRefClassifier;
 
@@ -54,7 +54,7 @@ fn b(n: u32) -> ArcBlockId {
     ArcBlockId::new(n)
 }
 
-// --- Helpers -----------------------------------------------------------------
+// Helpers
 
 /// Count Burden* instructions in a function.
 fn count_burden_ops(func: &ArcFunction) -> usize {
@@ -106,7 +106,7 @@ fn drive_steps_4_and_4b(
     analyze_function(func, &classifier, &sigs, &[], Vec::new())
 }
 
-// --- Fixture builders --------------------------------------------------------
+// Fixture builders
 
 /// (a) Straight-line construct + return in single block. Burden walker
 /// emits `BurdenInc` on the Construct arg (transfer point) and `BurdenDec` at
@@ -217,7 +217,7 @@ fn closure_env_capture() -> ArcFunction {
     }
 }
 
-// --- Tests -------------------------------------------------------------------
+// Tests
 
 /// (a) Straight-line burden-emitted IR converges. Post-emission re-analyze
 /// produces an identical-shape `AimsStateMap` because TF-N/A treats burden ops

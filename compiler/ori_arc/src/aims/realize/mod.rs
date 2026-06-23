@@ -104,8 +104,6 @@ pub struct FipEvidence {
 /// # Pipeline position
 ///
 /// Runs AFTER `analyze_function()` (step 4) and BEFORE `verify()` (step 6).
-/// Replaces old steps 4 (`emit_arg_ownership`), 6 (`emit_rc_ops`), and
-/// 7 (`emit_reuse`).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn realize_rc_reuse(
     func: &mut ArcFunction,
@@ -195,8 +193,7 @@ pub struct AnnotationEnv<'a> {
 ///
 /// # Pipeline position
 ///
-/// Runs AFTER `merge_blocks()` (step 9). Replaces old steps 11a
-/// (`compute_aims_cow_annotations`) and 12 (`compute_aims_drop_hints`).
+/// Runs AFTER `merge_blocks()` (step 9).
 ///
 /// # Panics
 ///

@@ -52,7 +52,7 @@ use crate::{Idx, Item, Rank, Tag, TypeFlags};
 // clones are O(n); avoid accidental cloning outside the merge path.
 #[derive(Clone)]
 pub struct Pool {
-    // === Core Storage (parallel arrays) ===
+    // Core Storage (parallel arrays)
     /// All type items (tag + data).
     items: Vec<Item>,
     /// Pre-computed flags for each item (flags[i] corresponds to items[i]).
@@ -60,16 +60,16 @@ pub struct Pool {
     /// Stable hashes for each item (hashes[i] corresponds to items[i]).
     hashes: Vec<u64>,
 
-    // === Extra Data ===
+    // Extra Data
     /// Variable-length data for complex types.
     /// Layout depends on tag (see documentation on each type).
     extra: Vec<u32>,
 
-    // === Deduplication ===
+    // Deduplication
     /// Hash -> Idx mapping for deduplication.
     intern_map: FxHashMap<u64, Idx>,
 
-    // === Named Type Resolution ===
+    // Named Type Resolution
     /// Maps Named/Applied Idx -> concrete Struct/Enum Idx.
     ///
     /// Populated during type registration to bridge the gap between
@@ -77,7 +77,18 @@ pub struct Pool {
     /// Pool definitions (Struct/Enum with full field data).
     resolutions: FxHashMap<Idx, Idx>,
 
-    // === Newtype Registry ===
+    // FFI C-ABI kind carrier
+    /// Maps an FFI `c_*` type's distinct `Tag::Named` `Idx` -> its symbolic
+    /// `CAbiKind`. Set at FFI type resolution alongside `resolutions`; the
+    /// Named `Idx` keeps its `set_resolution(-> Idx::INT/FLOAT)` for value
+    /// ergonomics (`f(x: 42)` still type-checks), while this side table carries
+    /// the C-ABI width identity the `set_resolution` discards. `ori_repr` reads
+    /// it at `AbiBoundary::Ffi` and maps the kind to the target-concrete width.
+    /// Keyed by the distinct per-c_* Named `Idx` — no collision (each `c_*`
+    /// Name interns a distinct Named `Idx`).
+    cabi_kinds: FxHashMap<Idx, ori_ir::CAbiKind>,
+
+    // Newtype Registry
     /// Maps newtype `Name` -> underlying `Idx` for newtype declarations
     /// (`type N = Existing`).
     ///
@@ -95,7 +106,7 @@ pub struct Pool {
     /// `FunctionRef`, `TypeRef`) before any pool lookup.
     newtype_ctors: FxHashMap<ori_ir::Name, Idx>,
 
-    // === User-facing `Error` struct ===
+    // User-facing `Error` struct
     /// `Idx` of the registered user-facing `Error` struct (`{ message: str }`),
     /// distinct from the `Idx::ERROR` poison sentinel. Set once during builtin
     /// registration. SSOT for "is this Idx the user-`Error` type?" — queried by
@@ -104,7 +115,7 @@ pub struct Pool {
     /// behavior table without re-mapping it to poison. `None` until registered.
     error_struct_idx: Option<Idx>,
 
-    // === Type Variables ===
+    // Type Variables
     /// State for each type variable.
     var_states: Vec<VarState>,
     /// Counter for generating fresh variable IDs.
@@ -155,6 +166,7 @@ impl Pool {
             extra: Vec::with_capacity(1024),
             intern_map: FxHashMap::default(),
             resolutions: FxHashMap::default(),
+            cabi_kinds: FxHashMap::default(),
             newtype_ctors: FxHashMap::default(),
             error_struct_idx: None,
             var_states: Vec::new(),
@@ -262,7 +274,7 @@ impl Pool {
         hasher.finish()
     }
 
-    // === Query Methods ===
+    // Query Methods
 
     /// Get the tag for a type index.
     #[inline]

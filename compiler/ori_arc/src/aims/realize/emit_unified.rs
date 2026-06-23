@@ -3542,7 +3542,7 @@ fn strip_returned_collection_multi_call_surplus_inc(
 }
 
 /// Compute the `(block, instr_index)` of each surplus cross-call `BurdenInc` to
-/// strip for Phase 6.68c. Split out for direct unit pins.
+/// strip for Phase 6.68c.
 ///
 /// A lineage rep (keyed by `same_alloc_reps`) qualifies when ALL hold (the
 /// over-fire boundary):
@@ -3713,8 +3713,8 @@ type ReturnedCollectionAcquires = Vec<(ArcVarId, usize)>;
 ///   spurious live-across inc lands in ANOTHER acquire's `call_block`, so
 ///   `call_block` is what the surplus-inc strip keys on.
 ///
-/// Split out of [`compute_returned_collection_surplus_inc_strips`] at the
-/// acquire-collection / surplus-selection concept seam. Spec: Annex E §AIMS RL-1.
+/// Keyed at the acquire-collection / surplus-selection concept seam.
+/// Spec: Annex E §AIMS RL-1.
 fn collect_returned_collection_acquires(
     func: &ArcFunction,
     pool: &Pool,
@@ -5221,7 +5221,7 @@ fn emit_burden_dead_no_use_aggregate_decs(
 }
 
 /// Compute the `(dead_successor_idx, var)` branch-dead releases for
-/// [`emit_burden_branch_dead_value_decs`]. Split out for direct unit pins.
+/// [`emit_burden_branch_dead_value_decs`].
 ///
 /// A FRESH owned non-scalar value (heap `str` `FatValue` / collection `RcPointer` /
 /// heap-bearing inline aggregate) defined before a control-flow split, USED (and
@@ -5457,7 +5457,7 @@ fn aggregate_borrow_read_relocatable(
 }
 
 /// Compute the `(call_block, recv, normal_succ, unwind_succ)` relocations for
-/// [`relocate_borrowed_terminator_aggregate_dec`]. Split out for direct unit pins.
+/// [`relocate_borrowed_terminator_aggregate_dec`].
 ///
 /// A FRESH burden-carrying inline aggregate (a sum variant / struct / tuple /
 /// Option / Result holding a heap field — `is_burden_carrying_aggregate`) passed at
@@ -5824,8 +5824,7 @@ pub(super) struct ComparisonOperandStrips {
 }
 
 /// Compute the M3 + M4 strips for the USED-and-compared aggregate-with-heap-field
-/// derived-`Eq` / derived-`Clone` `a == b` / `a != c` leak. Split out for direct
-/// unit pins.
+/// derived-`Eq` / derived-`Clone` `a == b` / `a != c` leak.
 ///
 /// ROOT: a multi-use aggregate `%src` (struct / enum / Option / Result holding a
 /// heap field) compared via `==` / `!=` gets ONE construct-keep-alive `BurdenInc
@@ -6290,8 +6289,7 @@ fn emit_burden_take_project_source_decs(
     }
 }
 
-/// The strip-and-emit plan for [`emit_burden_take_project_source_decs`]. Split out
-/// for direct unit pins.
+/// The strip-and-emit plan for [`emit_burden_take_project_source_decs`].
 struct TakeProjectSourcePlan {
     /// In-class take-project source vars whose Phase-5 `BurdenInc`/`BurdenDec` ops
     /// must be stripped (the spurious copy/last-use pairs the oracle suppresses).
@@ -6507,7 +6505,7 @@ enum IterHandleRelease {
 }
 
 /// Compute the `(last_live_block_idx, var)` dead iterator-handle releases for
-/// [`emit_burden_dead_iterator_handle_decs`]. Split out for direct unit pins.
+/// [`emit_burden_dead_iterator_handle_decs`].
 ///
 /// The freeing-value candidate set is two kinds:
 ///   (a) a bare iterator handle — an `@iter`-family `Apply`/`Invoke` RESULT of
@@ -6867,8 +6865,7 @@ fn lineage_has_any_use(
 }
 
 /// Compute the `(last_use_sink_block_idx, var)` dead owned-collection / mutation-
-/// result releases for [`emit_burden_dead_owned_collection_decs`]. Split out for
-/// direct unit pins.
+/// result releases for [`emit_burden_dead_owned_collection_decs`].
 ///
 /// Returns at most one release per (lineage, last-use sink block): the lineage's
 /// SSA value live at the END of each block that makes the last borrowed use of a
@@ -7106,7 +7103,7 @@ fn is_self_allocating_aggregate(var: ArcVarId, func: &ArcFunction, pool: &Pool) 
 }
 
 /// Compute the `(defining_block_idx, var)` dead-no-use INLINE-AGGREGATE releases
-/// for [`emit_burden_dead_no_use_aggregate_decs`]. Split out for direct unit pins.
+/// for [`emit_burden_dead_no_use_aggregate_decs`].
 ///
 /// The dead-no-use inline-aggregate candidate class (`[AggFields]`/`[InlineEnum]`
 /// scope-exit release): a bare `let a = Doc { field: <heap> }` / `let c = Link(..)`
@@ -7236,7 +7233,7 @@ fn compute_dead_no_use_aggregate_releases(
 }
 
 /// Compute the `(terminal_block_idx, var)` dead-collection-source releases for
-/// [`emit_burden_dead_collection_source_decs`]. Split out for direct unit pins.
+/// [`emit_burden_dead_collection_source_decs`].
 ///
 /// Returns at most one release per (lineage, terminal block): the block-param /
 /// in-scope alias of the leaked owned collection-source at each normal terminal

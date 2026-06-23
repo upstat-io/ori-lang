@@ -15,7 +15,7 @@
 //! - Select operands — `Select(cond, true_val, false_val)` operands refer to
 //!   different runtime RC slots; only one is selected at runtime, the
 //!   unselected one needs an independent `RcDec`. Existing compensating `RcInc`
-//!   at `walk.rs:141-195` handles Select correctly through per-source dec
+//!   in `walk.rs` handles Select correctly through per-source dec
 //!   independence (PIN-2).
 //! - `ApplyAliasSource::Project { arg, field }` — the apply returned `arg.field`
 //!   (a different RC slot than `arg`'s root). Same "different RC slot"

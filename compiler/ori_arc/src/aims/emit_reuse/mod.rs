@@ -3,8 +3,7 @@
 //! Detects reuse opportunities where a dying unique value can be recycled
 //! for a subsequent same-type allocation, then emits in-place `Set`
 //! instructions (static-unique path) or expanded `IsShared`+`Branch` CFG
-//! (dynamic path). Replaces `reset_reuse` + `expand_reuse` from the old
-//! pipeline.
+//! (dynamic path).
 //!
 //! # Algorithm
 //!

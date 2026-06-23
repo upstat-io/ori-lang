@@ -52,7 +52,7 @@
 //! - Uses `Pool` for interned type storage
 //! - Uses `InferEngine` for Hindley-Milner inference
 
-use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+use ori_ir::{ExprArena, ExprId, Name, SparseSideTable, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
@@ -280,40 +280,7 @@ impl<'a> ModuleChecker<'a> {
 
     /// Create a new module checker.
     pub fn new(arena: &'a ExprArena, interner: &'a StringInterner) -> Self {
-        let well_known = WellKnownNames::new(interner);
-        Self {
-            arena,
-            interner,
-            pool: Pool::new(),
-            well_known,
-            types: TypeRegistry::new(),
-            traits: TraitRegistry::new(),
-            methods: MethodRegistry::new(),
-            import_env: TypeEnv::new(),
-            module_aliases: FxHashMap::default(),
-            signatures: FxHashMap::default(),
-            base_env: None,
-            expr_types: Vec::new(),
-            current_function: None,
-            current_impl_self: None,
-            current_capabilities: FxHashSet::default(),
-            provided_capabilities: FxHashSet::default(),
-            const_types: FxHashMap::default(),
-            builtin_extensions: FxHashMap::default(),
-            impl_rigid_var_maps: Vec::new(),
-            method_rigid_var_maps: FxHashMap::default(),
-            errors: Vec::new(),
-            warnings: Vec::new(),
-            pattern_resolutions: Vec::new(),
-            assign_desugars: Vec::new(),
-            impl_sigs: Vec::new(),
-            trait_impl_fn_names: Vec::new(),
-            mono_instances: Vec::new(),
-            mono_dispatch_pre_dedup: Vec::new(),
-            deferred_mono_calls: Vec::new(),
-            imported_type_metadata: Vec::new(),
-            imported_collection_surfaces: Vec::new(),
-        }
+        Self::build(arena, interner, TypeRegistry::new(), TraitRegistry::new())
     }
 
     /// Create a module checker with pre-populated registries.
@@ -321,6 +288,19 @@ impl<'a> ModuleChecker<'a> {
     /// Use this when imports have already been resolved and you need
     /// to register imported types/traits before checking.
     pub fn with_registries(
+        arena: &'a ExprArena,
+        interner: &'a StringInterner,
+        types: TypeRegistry,
+        traits: TraitRegistry,
+    ) -> Self {
+        Self::build(arena, interner, types, traits)
+    }
+
+    /// Shared constructor body for [`Self::new`] and [`Self::with_registries`].
+    /// The two public constructors differ ONLY in `types`/`traits` (fresh vs
+    /// pre-populated); every other field is initialized identically here — the
+    /// single source of truth for the `ModuleChecker` field set.
+    fn build(
         arena: &'a ExprArena,
         interner: &'a StringInterner,
         types: TypeRegistry,
@@ -519,17 +499,14 @@ impl<'a> ModuleChecker<'a> {
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 
-        // Sort and dedup pattern resolutions for O(log n) binary search.
+        // Dedup pattern resolutions (sorted by key first so duplicate keys are
+        // adjacent); the final `SparseSideTable::from_unsorted` re-sorts for the
+        // O(log n) binary-search shape. `assign_desugar_map` is sorted by the
+        // table; the `AssignTarget` desugar plans carry unique `ExprId` keys.
         let mut pattern_resolutions = self.pattern_resolutions;
         pattern_resolutions.sort_by_key(|(k, _)| *k);
-
-        // Sort the `AssignTarget` desugar plans by AST `ExprId` for
-        // binary-search lookup downstream (`ori_canon` reads via
-        // `TypedModule::resolve_assign_desugar`). `ExprId` does not derive
-        // `Ord`, so sort on the raw `u32` (arena-monotonic → same order).
-        let mut assign_desugar_map = self.assign_desugars;
-        assign_desugar_map.sort_by_key(|(eid, _)| eid.raw());
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
+        let assign_desugar_map = self.assign_desugars;
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
         // The deferred resolver publishes dispatch entries into
@@ -594,7 +571,7 @@ impl<'a> ModuleChecker<'a> {
             types,
             errors: self.errors,
             warnings: self.warnings,
-            pattern_resolutions,
+            pattern_resolutions: SparseSideTable::from_unsorted(pattern_resolutions),
             impl_sigs: self.impl_sigs,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
@@ -606,14 +583,14 @@ impl<'a> ModuleChecker<'a> {
             // (generic-calls-generic) instantiations land in this map
             // alongside eager-path instantiations. Both flow through the
             // same dedup-remap pipeline.
-            mono_dispatch_map,
+            mono_dispatch_map: SparseSideTable::from_unsorted(mono_dispatch_map),
             type_descriptors,
             exported_type_metadata,
             exported_collection_surfaces,
             collection_burdens,
             formattable_impl_types,
             format_spec_types,
-            assign_desugar_map,
+            assign_desugar_map: SparseSideTable::from_unsorted(assign_desugar_map),
         };
 
         (TypeCheckResult::from_typed(typed), pool)
@@ -705,24 +682,17 @@ fn dedup_and_remap_mono_instances(
     let mono_instances: Vec<crate::MonoInstance> =
         indexed.into_iter().map(|(_, inst)| inst).collect();
 
-    // Apply the composed `pre-dedup → dedup → sorted` remap to the
-    // dispatch entries, then sort by `ExprId` for the
-    // `Vec<(ExprId, MonoInstanceId)>` binary-search shape (mirrors
-    // `pattern_resolutions`).
-    let mut mono_dispatch_map: Vec<(ori_ir::ExprId, crate::MonoInstanceId)> =
-        mono_dispatch_pre_dedup
-            .into_iter()
-            .map(|(eid, crate::MonoInstanceId(old))| {
-                let dedup_idx = old_to_dedup[old as usize];
-                let final_idx = dedup_to_sorted[dedup_idx as usize];
-                (eid, crate::MonoInstanceId(final_idx))
-            })
-            .collect();
-    // `ExprId` does not derive `Ord` (matches `ori_ir/src/expr_id/expr.rs`
-    // — only `Copy, Clone, Eq, PartialEq, Hash`); sort on the raw u32
-    // index instead. ExprIds are arena-allocated monotonically so this
-    // is the same order an `Ord` impl would produce.
-    mono_dispatch_map.sort_by_key(|(eid, _)| eid.raw());
+    // Apply the composed `pre-dedup → dedup → sorted` remap to the dispatch
+    // entries. The caller wraps the result in `SparseSideTable::from_unsorted`,
+    // which sorts by `ExprId` for the O(log n) binary-search shape.
+    let mono_dispatch_map: Vec<(ori_ir::ExprId, crate::MonoInstanceId)> = mono_dispatch_pre_dedup
+        .into_iter()
+        .map(|(eid, crate::MonoInstanceId(old))| {
+            let dedup_idx = old_to_dedup[old as usize];
+            let final_idx = dedup_to_sorted[dedup_idx as usize];
+            (eid, crate::MonoInstanceId(final_idx))
+        })
+        .collect();
 
     (mono_instances, mono_dispatch_map)
 }

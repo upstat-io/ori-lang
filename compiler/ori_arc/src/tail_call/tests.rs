@@ -1633,7 +1633,7 @@ fn constant_stack_invoke_cross_block_tail_is_false() {
     );
 }
 
-// Burden-faithful release-cleanup tests — the post-§06.1 release sites
+// Burden-faithful release-cleanup tests — the release sites
 // co-emit a paired `BurdenDec` adjacent to each release `RcDec` (Spec: Annex
 // E §AIMS RL-2 / RL-4 / RL-5). Tail-call detection must treat a cleanup block
 // body of `[RcDec, BurdenDec]` (or any whole-var release mix) as release

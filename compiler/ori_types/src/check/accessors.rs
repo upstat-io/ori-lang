@@ -67,6 +67,12 @@ impl<'a> ModuleChecker<'a> {
         self.well_known.resolve_ffi_concrete(name)
     }
 
+    /// Resolve an FFI type name to its symbolic `CAbiKind`.
+    #[inline]
+    pub fn resolve_ffi_cabi_kind(&self, name: Name) -> Option<ori_ir::CAbiKind> {
+        self.well_known.resolve_ffi_cabi_kind(name)
+    }
+
     /// Get the type pool.
     #[inline]
     pub fn pool(&self) -> &Pool {

@@ -361,7 +361,7 @@ proptest! {
 //    Used for downstream monotonicity tests (04.4).
 
 proptest! {
-    // --- lattice_leq axioms (reflexive + antisymmetric only) ---
+    // lattice_leq axioms (reflexive + antisymmetric only)
 
     #[test]
     fn lattice_leq_reflexive(a in enriched_canonical_strategy()) {
@@ -384,7 +384,7 @@ proptest! {
         }
     }
 
-    // --- componentwise_leq axioms (full partial order) ---
+    // componentwise_leq axioms (full partial order)
 
     #[test]
     fn componentwise_leq_reflexive(a in enriched_canonical_strategy()) {

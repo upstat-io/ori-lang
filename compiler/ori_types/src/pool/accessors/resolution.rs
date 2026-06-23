@@ -9,7 +9,7 @@ use crate::{Idx, Tag};
 use super::super::{Pool, VarState};
 
 impl Pool {
-    // === Named Type Resolution Registration ===
+    // Named Type Resolution Registration
 
     /// Register a resolution from a Named/Applied type to its concrete definition.
     ///
@@ -18,6 +18,31 @@ impl Pool {
     /// codegen can resolve types without accessing `TypeRegistry`.
     pub fn set_resolution(&mut self, named: Idx, concrete: Idx) {
         self.resolutions.insert(named, concrete);
+    }
+
+    /// Record the `CAbiKind` of an FFI `c_*` type's distinct Named `Idx`.
+    /// Called at FFI resolution alongside `set_resolution`; the kind carries
+    /// the C-ABI width identity the resolution-to-`Idx::INT` discards.
+    /// `ori_repr` reads it at the extern ABI boundary.
+    pub fn set_cabi_kind(&mut self, named: Idx, kind: ori_ir::CAbiKind) {
+        self.cabi_kinds.insert(named, kind);
+    }
+
+    /// Look up the `CAbiKind` of a type `Idx`. `None` for any non-FFI type —
+    /// the carrier never leaks to non-FFI types (the width-leakage guard).
+    #[must_use]
+    pub fn cabi_kind(&self, idx: Idx) -> Option<ori_ir::CAbiKind> {
+        self.cabi_kinds.get(&idx).copied()
+    }
+
+    /// Attach the FFI carrier — concrete resolution + `CAbiKind` width identity
+    /// — to a `Named` FFI type `Idx`, as a pair. Single home for the FFI
+    /// named-type registration step shared by every resolution site; the two
+    /// attachments always travel together, so a half-attached state (resolution
+    /// without kind) is unrepresentable through this entry point.
+    pub fn attach_ffi_carrier(&mut self, named: Idx, concrete: Idx, kind: ori_ir::CAbiKind) {
+        self.set_resolution(named, concrete);
+        self.set_cabi_kind(named, kind);
     }
 
     /// Register a newtype constructor: `type N = Existing` produces an entry
@@ -30,8 +55,9 @@ impl Pool {
     ///
     /// Consumers (`ori_arc::lower`) call `newtype_underlying(name)` at call
     /// sites to detect newtype constructor invocations and emit transparent
-    /// `Let { Var(arg) }` instead of unresolvable `PartialApply`. See
-    /// for the layout-transparent invariant this preserves.
+    /// `Let { Var(arg) }` instead of unresolvable `PartialApply`, preserving
+    /// the layout-transparent newtype invariant (a newtype shares its
+    /// underlying type's representation).
     pub fn register_newtype_ctor(&mut self, name: ori_ir::Name, underlying: Idx) {
         self.newtype_ctors.insert(name, underlying);
     }
@@ -205,7 +231,7 @@ impl Pool {
         None
     }
 
-    // === Variable Lookup ===
+    // Variable Lookup
 
     /// Find the pool [`Idx`] for a `Tag::Var` item whose `data` (`var_id`)
     /// matches `var_id`, or `None` if no such entry exists.

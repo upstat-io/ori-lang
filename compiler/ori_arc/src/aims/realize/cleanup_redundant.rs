@@ -80,7 +80,7 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
         return;
     }
     // Skip cure when function contains Apply
-    // @ori_catch_recover. Catch lowering at lower/constructs.rs:237-289
+    // @ori_catch_recover. Catch lowering in lower/constructs.rs
     // returns a fresh str (the panic msg) via this builtin; the str's RC
     // trajectory interacts with class_outer's transitive drops AND the
     // for-loop iter chain in ways the simple K/N/source-dec model

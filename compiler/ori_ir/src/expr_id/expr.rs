@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 /// - Memory: 4 bytes (vs 8 bytes for Box)
 /// - Equality: O(1) integer compare
 /// - Cache locality: indices into contiguous array
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ExprId(u32);
 

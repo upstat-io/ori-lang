@@ -82,11 +82,10 @@ impl UnifyEngine<'_> {
     /// Inner traversal for collecting free variables.
     ///
     /// Delegates compound-tag child traversal to the canonical
-    /// `Pool::visit_children` walker (TF-3)
-    /// rather than open-coding a parallel tag-dispatch ladder
-    /// . Mirrors the shape of
-    /// `check::validators::collect_first_unbound_var` — the in-repo
-    /// reference for this delegation pattern.
+    /// `Pool::visit_children` walker (TF-3) rather than open-coding a parallel
+    /// tag-dispatch ladder. Mirrors the shape of
+    /// `check::validators::collect_first_unbound_var` — the in-repo reference
+    /// for this delegation pattern.
     fn collect_free_vars_inner(&self, ty: Idx, min_rank: Rank, vars: &mut Vec<u32>) {
         // Fast path: no variables. `Tag::BoundVar` sets `HAS_BOUND_VAR`, not
         // `HAS_VAR` (TF-1), so scheme bodies whose only inner
@@ -116,8 +115,8 @@ impl UnifyEngine<'_> {
 
             // Every compound tag — recurse via the canonical child walker.
             // No `_ => {}` arm silently drops a compound variant;
-            // `visit_children` handles `Tag::Named` / `Tag::Alias` /
-            // `Tag::Projection` as leaves (`pool/descriptor.rs:365`).
+            // `Pool::visit_children` handles `Tag::Named` / `Tag::Alias` /
+            // `Tag::Projection` as leaves.
             _ => {
                 self.pool.visit_children(ty, |child| {
                     self.collect_free_vars_inner(child, min_rank, vars);

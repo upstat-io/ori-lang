@@ -5,7 +5,7 @@ use super::*;
 use crate::pool::construct::EnumVariant;
 use crate::tag::Tag;
 
-// === Structural Equality Reference Implementation (02.3) ===
+// Structural Equality Reference Implementation (02.3)
 //
 // Recursively compares types by structure (tag + children), ignoring Idx
 // values. Used to cross-check Merkle hash correctness: hash equality must
@@ -169,7 +169,7 @@ fn pool_starts_with_primitives() {
     assert_eq!(pool.len(), Idx::FIRST_DYNAMIC as usize);
 }
 
-// === Cross-Pool Merkle Hash Stability Tests ===
+// Cross-Pool Merkle Hash Stability Tests
 //
 // These tests verify the core Merkle hashing invariant:
 //   For any type T interned in Pool P1 as idx1 and in Pool P2 as idx2,
@@ -774,8 +774,7 @@ fn merkle_depth_5_function_stable() {
     );
 }
 
-// === Collision Detection & Distribution Tests (02.2) ===
-
+// Collision Detection & Distribution Tests (02.2)
 /// Generate a large set of distinct types in a pool and verify that no two
 /// distinct types share a Merkle hash. Since the pool deduplicates by hash,
 /// a collision would cause two structurally different types to silently merge
@@ -1006,8 +1005,7 @@ fn merkle_hash_distribution_uniform() {
     }
 }
 
-// === Structural Equality Verification Tests (02.3) ===
-
+// Structural Equality Verification Tests (02.3)
 /// Helper: generate a matching set of types in two shifted pools.
 /// Returns parallel vectors: `types_1[i]` and `types_2[i]` are the same structure.
 fn generate_matched_types(p1: &mut Pool, p2: &mut Pool) -> (Vec<Idx>, Vec<Idx>) {
@@ -1277,4 +1275,21 @@ fn scheme_wrapping_resolved_body_does_not_set_has_var() {
         "Scheme with resolved body must not have HAS_VAR"
     );
     assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
+}
+
+#[test]
+fn cabi_kind_round_trips_and_defaults_none() {
+    use ori_ir::{CAbiKind, StringInterner};
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let name = interner.intern("c_long");
+    let named = pool.named(name);
+    // Unset -> None (leakage guard: non-FFI Idx never carries a kind).
+    assert_eq!(pool.cabi_kind(Idx::INT), None);
+    assert_eq!(pool.cabi_kind(named), None);
+    // Round-trip.
+    pool.set_cabi_kind(named, CAbiKind::CLong);
+    assert_eq!(pool.cabi_kind(named), Some(CAbiKind::CLong));
+    // Still no leak to a primitive.
+    assert_eq!(pool.cabi_kind(Idx::INT), None);
 }

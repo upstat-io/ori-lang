@@ -4,7 +4,7 @@
 //! signatures, resolved patterns, monomorphization instances, and the
 //! cross-module export sidecars (type descriptors, repr metadata).
 
-use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind};
+use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind, SparseSideTable};
 
 use crate::pool::TypeDescriptor;
 use crate::registry::burden::UserBurdenSpec;
@@ -151,7 +151,7 @@ pub struct TypedModule {
     /// Sorted by `PatternKey` for O(log n) binary search via `resolve_pattern()`.
     /// Only patterns that were resolved are stored — unresolved bindings are
     /// normal variable bindings and have no entry.
-    pub pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+    pub pattern_resolutions: SparseSideTable<PatternKey, PatternResolution>,
 
     /// Impl method signatures for codegen.
     ///
@@ -206,7 +206,7 @@ pub struct TypedModule {
     ///
     /// Empty for non-generic call sites — only populated when a generic
     /// callee is instantiated with concrete arguments at the call site.
-    pub mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>,
+    pub mono_dispatch_map: SparseSideTable<ExprId, MonoInstanceId>,
 
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
     ///
@@ -226,7 +226,7 @@ pub struct TypedModule {
     /// accumulation extends without re-anchoring.
     ///
     /// Empty when no index/field assignment appears in the module.
-    pub assign_desugar_map: Vec<(ExprId, AssignDesugar)>,
+    pub assign_desugar_map: SparseSideTable<ExprId, AssignDesugar>,
 
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
@@ -299,12 +299,12 @@ impl TypedModule {
             types: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
-            pattern_resolutions: Vec::new(),
+            pattern_resolutions: SparseSideTable::new(),
             impl_sigs: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
-            mono_dispatch_map: Vec::new(),
-            assign_desugar_map: Vec::new(),
+            mono_dispatch_map: SparseSideTable::new(),
+            assign_desugar_map: SparseSideTable::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
@@ -356,12 +356,9 @@ impl TypedModule {
     /// Returns `Some(&PatternResolution)` if the pattern was resolved to a
     /// unit variant, `None` if it's a normal variable binding.
     ///
-    /// Uses O(log n) binary search on the sorted `pattern_resolutions` vec.
+    /// Uses O(log n) binary search on the sorted `pattern_resolutions` table.
     pub fn resolve_pattern(&self, key: PatternKey) -> Option<&PatternResolution> {
-        self.pattern_resolutions
-            .binary_search_by_key(&key, |(k, _)| *k)
-            .ok()
-            .map(|idx| &self.pattern_resolutions[idx].1)
+        self.pattern_resolutions.get(key)
     }
 
     /// Look up the type-directed desugar plan for an `AssignTarget` `ExprId`.
@@ -370,10 +367,7 @@ impl TypedModule {
     /// this `AssignTarget` node, `None` otherwise. Uses O(log n) binary search
     /// on the sorted `assign_desugar_map`.
     pub fn resolve_assign_desugar(&self, key: ExprId) -> Option<&AssignDesugar> {
-        self.assign_desugar_map
-            .binary_search_by_key(&key.raw(), |(eid, _)| eid.raw())
-            .ok()
-            .map(|idx| &self.assign_desugar_map[idx].1)
+        self.assign_desugar_map.get(key)
     }
 
     /// Whether `ty` carries an explicit `impl T: Formattable`.

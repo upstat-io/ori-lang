@@ -34,9 +34,7 @@ pub(super) fn compute_terminator_transfer_per_block(
         .collect()
 }
 
-/// Build the transfer-var set for a single block's terminator. Extracted from
-/// `compute_terminator_transfer_per_block` to keep cognitive complexity per
-/// function under workspace limits.
+/// Build the transfer-var set for a single block's terminator.
 fn terminator_transfer_vars(
     block: &ArcBlock,
     all_blocks: &[ArcBlock],

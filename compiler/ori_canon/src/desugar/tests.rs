@@ -300,8 +300,7 @@ fn assign_type_result(n: usize, target: ExprId, level_types: Vec<Idx>) -> TypeCh
     }
     typed
         .assign_desugar_map
-        .push((target, AssignDesugar { level_types }));
-    typed.assign_desugar_map.sort_by_key(|(eid, _)| eid.raw());
+        .insert(target, AssignDesugar { level_types });
     TypeCheckResult::ok(typed)
 }
 

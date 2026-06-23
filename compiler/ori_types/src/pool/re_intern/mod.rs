@@ -48,7 +48,7 @@ use rustc_hash::FxHashMap;
 
 use crate::{FunctionSig, Idx, Pool, Tag, TypeFlags, VarState, DEFAULT_RANK};
 
-// --- Public API ------------------------------------------------------------
+// Public API
 
 /// Re-intern a single type from `source` pool into `target` pool.
 ///
@@ -188,7 +188,7 @@ pub fn re_intern_sig_with_var_remap(
     result
 }
 
-// --- Internals --------------------------------------------------------------
+// Internals
 
 /// Returns true iff the source type is eligible for the Merkle-hash fast path
 /// in [`re_intern_type_with_var_remap`].
@@ -291,7 +291,19 @@ fn re_intern_by_tag(
         // Named: [name_lo, name_hi] — structural, no child types
         Tag::Named => {
             let name = source.named_name(idx);
-            target.named(name)
+            let new_named = target.named(name);
+            // Carry the FFI C-ABI kind side table (keyed by the Named Idx) — re-
+            // interning the Named structure alone drops it; its paired resolution
+            // to a pre-interned primitive carries free (primitive Idx is pool-stable).
+            if let Some(kind) = source.cabi_kind(idx) {
+                target.set_cabi_kind(new_named, kind);
+                if let Some(resolved) = source.resolve(idx) {
+                    if resolved.is_primitive() {
+                        target.set_resolution(new_named, resolved);
+                    }
+                }
+            }
+            new_named
         }
 
         Tag::Applied => re_intern_applied(source, idx, target, cache, var_remap),

@@ -1,7 +1,6 @@
 //! For-yield Option lowering — `for x in option yield body`.
 //!
-//! Produces a 0-or-1 element list. Extracted from `for_yield.rs` to stay
-//! under the 500-line file limit.
+//! Produces a 0-or-1 element list.
 
 use ori_ir::Name;
 use ori_types::{Idx, Tag};

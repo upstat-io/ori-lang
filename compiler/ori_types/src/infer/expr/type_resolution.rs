@@ -150,26 +150,35 @@ pub fn resolve_parsed_type(
                 return engine.instantiate(ty);
             }
 
-            // FFI types (CPtr, c_int, etc.) are not in the TypeRegistry but are
-            // valid concrete types. Create a Named Pool entry with a resolution
-            // so downstream phases (ARC, LLVM) can classify them correctly.
-            // Without this, they become unbound type variables that crash codegen.
+            // FFI types (CPtr, c_int, ...) are valid concrete types absent from
+            // the TypeRegistry; give the Named entry a resolution so downstream
+            // phases (ARC, LLVM) classify them instead of leaving unbound vars.
             if let Some(wk) = engine.well_known() {
-                if let Some(concrete_idx) = wk.resolve_ffi_concrete(*name) {
+                // Capture both carrier components before the wk borrow ends
+                // (both Copy), then attach the pair via attach_ffi_carrier.
+                let concrete = wk.resolve_ffi_concrete(*name);
+                let kind = wk.resolve_ffi_cabi_kind(*name);
+                if let (Some(concrete_idx), Some(kind)) = (concrete, kind) {
                     let named_idx = engine.pool_mut().named(*name);
-                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
+                    engine
+                        .pool_mut()
+                        .attach_ffi_carrier(named_idx, concrete_idx, kind);
                     return named_idx;
                 }
             } else if let Some(name_str) = engine.lookup_name(*name) {
-                let concrete = match name_str {
-                    "CPtr" | "c_int" | "c_long" | "c_longlong" | "c_size" | "c_short"
-                    | "c_char" => Some(Idx::INT),
-                    "c_float" | "c_double" => Some(Idx::FLOAT),
-                    _ => None,
-                };
-                if let Some(concrete_idx) = concrete {
+                // well_known-absent fallback: derive BOTH the kind AND the
+                // ergonomic concrete Idx from the single str-surface inventory
+                // `CAbiKind::from_name` — no separate hardcoded c_* list here.
+                if let Some(kind) = ori_ir::CAbiKind::from_name(name_str) {
+                    let concrete_idx = if kind.is_float() {
+                        Idx::FLOAT
+                    } else {
+                        Idx::INT
+                    };
                     let named_idx = engine.pool_mut().named(*name);
-                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
+                    engine
+                        .pool_mut()
+                        .attach_ffi_carrier(named_idx, concrete_idx, kind);
                     return named_idx;
                 }
             }

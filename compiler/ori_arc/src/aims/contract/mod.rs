@@ -199,8 +199,7 @@ impl MemoryContract {
 /// Some(ReturnAliasShape::Direct)`. The bool is a derived special case of
 /// the enum, kept as a separate field to avoid breaking the existing
 /// callee-side consumers (`helpers.rs::should_suppress_return_transfer_dec`,
-/// `walk.rs:108`, `walk_dec.rs:219`, `dead_cleanup/mod.rs:152/211`,
-/// `forward_walk.rs:193`).
+/// `walk.rs`, `walk_dec.rs`, `dead_cleanup/mod.rs`, `forward_walk.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnAliasShape {
     /// Callee returns the parameter unchanged (e.g., `@id<T>(x: T) -> T = x`).

@@ -75,16 +75,11 @@ pub(crate) struct WellKnownNames {
     pub formattable: Name,
     pub into_method: Name,
 
-    // FFI C type names (resolved to primitives for ARC/codegen classification)
-    pub cptr: Name,
-    pub c_char: Name,
-    pub c_short: Name,
-    pub c_int: Name,
-    pub c_long: Name,
-    pub c_longlong: Name,
-    pub c_float: Name,
-    pub c_double: Name,
-    pub c_size: Name,
+    // FFI C type names paired with their `CAbiKind`, interned once from the
+    // canonical `ori_ir::CAbiKind::ALL` inventory. Mirrors `trait_bit_map`: a
+    // Name-keyed table scanned by u32 equality (no interner lock on the hot
+    // path), single-sourced on `ori_ir::CAbiKind::c_name`.
+    ffi_cabi: [(Name, ori_ir::CAbiKind); 9],
 
     // Well-known keyword names
     pub self_kw: Name,
@@ -105,7 +100,7 @@ pub(crate) struct WellKnownNames {
     iterator_compound_traits: TraitSet,
 }
 
-/// Intern all 28 trait names and build the Name → bit position map.
+/// Intern the well-known trait names and build the Name → bit position map.
 fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 28], Name, Name, Name) {
     use trait_bits as tb;
 
@@ -200,15 +195,7 @@ impl WellKnownNames {
             hashable,
             printable,
             formattable,
-            cptr: interner.intern("CPtr"),
-            c_char: interner.intern("c_char"),
-            c_short: interner.intern("c_short"),
-            c_int: interner.intern("c_int"),
-            c_long: interner.intern("c_long"),
-            c_longlong: interner.intern("c_longlong"),
-            c_float: interner.intern("c_float"),
-            c_double: interner.intern("c_double"),
-            c_size: interner.intern("c_size"),
+            ffi_cabi: ori_ir::CAbiKind::ALL.map(|k| (interner.intern(k.c_name()), k)),
             into_method: interner.intern("into"),
             self_kw: interner.intern("self"),
             trait_bit_map,
@@ -334,22 +321,33 @@ impl WellKnownNames {
     /// checking) while giving codegen the information it needs.
     ///
     /// Returns `Some(Idx)` for known FFI types, `None` otherwise.
+    ///
+    /// Derives the ergonomic concrete `Idx` from the c_* kind rather than
+    /// re-enumerating the FFI name set: the float kinds map to `Idx::FLOAT`,
+    /// all others to `Idx::INT`. Membership is single-sourced on
+    /// [`Self::resolve_ffi_cabi_kind`].
     #[inline]
     pub fn resolve_ffi_concrete(&self, name: Name) -> Option<Idx> {
-        if name == self.cptr
-            || name == self.c_int
-            || name == self.c_long
-            || name == self.c_longlong
-            || name == self.c_size
-            || name == self.c_short
-            || name == self.c_char
-        {
-            Some(Idx::INT)
-        } else if name == self.c_float || name == self.c_double {
-            Some(Idx::FLOAT)
-        } else {
-            None
-        }
+        self.resolve_ffi_cabi_kind(name)
+            .map(|k| if k.is_float() { Idx::FLOAT } else { Idx::INT })
+    }
+
+    /// Resolve an FFI C type `Name` to its symbolic [`ori_ir::CAbiKind`].
+    ///
+    /// Paired with [`Self::resolve_ffi_concrete`]: the concrete `Idx` (i64/f64)
+    /// is the value-ergonomic resolution; this is the C-ABI width identity the
+    /// resolution discards, recorded on the distinct Named `Idx` for `ori_repr`
+    /// to read at the extern ABI boundary. Target-agnostic — the kind is
+    /// symbolic; `ori_repr` maps it to the target width.
+    ///
+    /// Scans the `ffi_cabi` table built from [`ori_ir::CAbiKind::ALL`]; the
+    /// name pairing lives in `ori_ir::CAbiKind::c_name`, not here.
+    #[inline]
+    pub fn resolve_ffi_cabi_kind(&self, name: Name) -> Option<ori_ir::CAbiKind> {
+        self.ffi_cabi
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, k)| *k)
     }
 
     // Trait satisfaction (bitfield-based O(1) lookup)
@@ -401,7 +399,7 @@ impl WellKnownNames {
 
     /// Convert a trait `Name` to its bit position in [`TraitSet`].
     ///
-    /// Linear scan over 27 entries — fast enough for `u32` comparisons.
+    /// Linear scan over the trait-bit map — fast enough for `u32` comparisons.
     #[inline]
     fn trait_bit(&self, name: Name) -> Option<u32> {
         for &(n, bit) in &self.trait_bit_map {

@@ -5,17 +5,23 @@
 //! for all field types via a single `TypeInfo` match.
 //!
 //! Submodules:
-//! - [`wrapper_cmp`]: inline Option/Result/Tuple comparison
+//! - [`wrapper_cmp`]: inline Option comparison/hash + the shared `hash_combine`
+//! - [`result_cmp`]: inline Result comparison/hash
+//! - [`tuple_cmp`]: inline Tuple comparison/hash
 //! - [`thunks`]: thunk generator functions for list/map callbacks
 
+mod option_thunk;
+mod result_cmp;
+mod result_thunk;
+mod runtime_calls;
 mod thunks;
+mod tuple_cmp;
 mod wrapper_cmp;
 
 use ori_ir::{DerivedTrait, FieldOp};
 use ori_types::Idx;
 use tracing::trace;
 
-use super::super::arc_emitter::narrowed_collection_element_width;
 use super::super::function_compiler::FunctionCompiler;
 use super::super::type_info::TypeInfo;
 use super::super::value_id::{LLVMTypeId, ValueId};
@@ -102,9 +108,13 @@ pub(super) fn emit_field_operation<'a>(
         },
 
         TypeInfo::Str => match op {
-            FieldOp::Equals => emit_str_eq_call(fc, lhs, expect_rhs(rhs), name, str_ty_id),
-            FieldOp::Compare => emit_str_compare_call(fc, lhs, expect_rhs(rhs), name, str_ty_id),
-            FieldOp::Hash => emit_str_hash_call(fc, lhs, name, str_ty_id),
+            FieldOp::Equals => {
+                runtime_calls::emit_str_eq_call(fc, lhs, expect_rhs(rhs), name, str_ty_id)
+            }
+            FieldOp::Compare => {
+                runtime_calls::emit_str_compare_call(fc, lhs, expect_rhs(rhs), name, str_ty_id)
+            }
+            FieldOp::Hash => runtime_calls::emit_str_hash_call(fc, lhs, name, str_ty_id),
         },
 
         // List/Set/Map: byte-level (scalar) or thunk-driven (deep) equality;
@@ -172,16 +182,18 @@ fn emit_collection_field_op<'a>(
 ) -> ValueId {
     match op {
         FieldOp::Equals => match info {
-            TypeInfo::List { element } | TypeInfo::Set { element } => emit_list_eq_call(
-                fc,
-                lhs,
-                expect_rhs(rhs),
-                collection_type,
-                *element,
-                name,
-                str_ty_id,
-            ),
-            TypeInfo::Map { key, value } => emit_map_eq_call(
+            TypeInfo::List { element } | TypeInfo::Set { element } => {
+                runtime_calls::emit_list_eq_call(
+                    fc,
+                    lhs,
+                    expect_rhs(rhs),
+                    collection_type,
+                    *element,
+                    name,
+                    str_ty_id,
+                )
+            }
+            TypeInfo::Map { key, value } => runtime_calls::emit_map_eq_call(
                 fc,
                 lhs,
                 expect_rhs(rhs),
@@ -248,252 +260,31 @@ fn emit_wrapper_field_op<'a>(
         },
         TypeInfo::Result { ok, err } => match op {
             FieldOp::Equals => {
-                wrapper_cmp::emit_result_eq(fc, lhs, expect_rhs(rhs), *ok, *err, name, str_ty_id)
+                result_cmp::emit_result_eq(fc, lhs, expect_rhs(rhs), *ok, *err, name, str_ty_id)
             }
-            FieldOp::Compare => fc.builder_mut().const_i8(1),
-            FieldOp::Hash => fc.builder_mut().const_i64(0),
+            FieldOp::Compare => result_cmp::emit_result_compare(
+                fc,
+                lhs,
+                expect_rhs(rhs),
+                *ok,
+                *err,
+                name,
+                str_ty_id,
+            ),
+            FieldOp::Hash => result_cmp::emit_result_hash(fc, lhs, *ok, *err, name, str_ty_id),
         },
         TypeInfo::Tuple { elements } => {
             let elems = elements.clone();
             match op {
                 FieldOp::Equals => {
-                    wrapper_cmp::emit_tuple_eq(fc, lhs, expect_rhs(rhs), &elems, name, str_ty_id)
+                    tuple_cmp::emit_tuple_eq(fc, lhs, expect_rhs(rhs), &elems, name, str_ty_id)
                 }
-                FieldOp::Compare => fc.builder_mut().const_i8(1),
-                FieldOp::Hash => fc.builder_mut().const_i64(0),
+                FieldOp::Compare => {
+                    tuple_cmp::emit_tuple_compare(fc, lhs, expect_rhs(rhs), &elems, name, str_ty_id)
+                }
+                FieldOp::Hash => tuple_cmp::emit_tuple_hash(fc, lhs, &elems, name, str_ty_id),
             }
         }
         _ => emit_fallback(fc, op, lhs, rhs, name),
-    }
-}
-
-// String runtime helpers (alloca+store+call pattern)
-
-/// Call `ori_str_eq(a: ptr, b: ptr) -> bool` via alloca+store pattern.
-fn emit_str_eq_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let lhs_alloca = fc.entry_alloca(str_ty_id, "lhs_str");
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.entry_alloca(str_ty_id, "rhs_str");
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let eq_fn = fc.builder_mut().runtime_fn("ori_str_eq");
-    fc.builder_mut()
-        .call(eq_fn, &[lhs_alloca, rhs_alloca], name)
-        .unwrap_or_else(|| fc.builder_mut().const_bool(false))
-}
-
-/// Call `ori_str_compare(a: ptr, b: ptr) -> i8` via alloca+store pattern.
-fn emit_str_compare_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let lhs_alloca = fc.entry_alloca(str_ty_id, "cmp_lhs_str");
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.entry_alloca(str_ty_id, "cmp_rhs_str");
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let cmp_fn = fc.builder_mut().runtime_fn("ori_str_compare");
-    fc.builder_mut()
-        .call(cmp_fn, &[lhs_alloca, rhs_alloca], name)
-        .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
-}
-
-/// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.
-fn emit_str_hash_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    val: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let val_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.str"));
-    fc.builder_mut().store(val, val_alloca);
-
-    let hash_fn = fc.builder_mut().runtime_fn("ori_str_hash");
-    fc.builder_mut()
-        .call(hash_fn, &[val_alloca], name)
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0))
-}
-
-/// Emit list equality comparison via the appropriate runtime function.
-///
-/// For scalar element types (int, float, bool, byte, char), uses
-/// `ori_list_eq_scalar` (byte-level memcmp — correct because byte
-/// representation matches semantic equality for scalars).
-///
-/// For non-scalar element types (str, nested collections, structs),
-/// uses `ori_list_eq_deep` with a per-element equality callback,
-/// because byte-level comparison fails (e.g., two independently
-/// allocated heap strings have different data pointers but equal content).
-fn emit_list_eq_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    collection_type: Idx,
-    element_type: Idx,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let info = fc.type_info().get(element_type);
-    let elem_size = compute_elem_size(fc, collection_type, element_type, &info);
-
-    let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs_list"));
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs_list"));
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let elem_size_val = fc.builder_mut().const_i64(elem_size);
-
-    // Try deep comparison for non-scalar element types
-    let elem_eq_thunk = if needs_deep_comparison(&info) {
-        thunks::get_or_create_derive_eq_thunk(fc, element_type, &info)
-    } else {
-        None
-    };
-
-    if let Some(thunk) = elem_eq_thunk {
-        let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_deep");
-        fc.builder_mut()
-            .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val, thunk], name)
-            .unwrap_or_else(|| fc.builder_mut().const_bool(false))
-    } else {
-        let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_scalar");
-        fc.builder_mut()
-            .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val], name)
-            .unwrap_or_else(|| fc.builder_mut().const_bool(false))
-    }
-}
-
-/// Call `ori_map_eq(a, b, key_size, val_size, key_eq, key_hash, val_eq) -> bool`
-/// via alloca+store pattern.
-///
-/// Generates or references thunks for key equality, key hashing, and value
-/// equality based on the key and value types.
-fn emit_map_eq_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    collection_type: Idx,
-    key_type: Idx,
-    val_type: Idx,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs_map"));
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs_map"));
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let key_info = fc.type_info().get(key_type);
-    let val_info = fc.type_info().get(val_type);
-
-    let key_size = compute_elem_size(fc, collection_type, key_type, &key_info);
-    let val_size = compute_elem_size(fc, collection_type, val_type, &val_info);
-    let key_size_val = fc.builder_mut().const_i64(key_size);
-    let val_size_val = fc.builder_mut().const_i64(val_size);
-
-    // Get or create thunk function pointers for key_eq, key_hash, val_eq
-    let key_eq = thunks::get_or_create_derive_eq_thunk(fc, key_type, &key_info);
-    let key_hash = thunks::get_or_create_derive_hash_thunk(fc, key_type, &key_info);
-    let val_eq = thunks::get_or_create_derive_eq_thunk(fc, val_type, &val_info);
-
-    let (Some(key_eq), Some(key_hash), Some(val_eq)) = (key_eq, key_hash, val_eq) else {
-        trace!(
-            ?key_info,
-            ?val_info,
-            "map eq: unsupported key/val type for thunks"
-        );
-        return fc.builder_mut().const_bool(false);
-    };
-
-    let eq_fn = fc.builder_mut().runtime_fn("ori_map_eq");
-    fc.builder_mut()
-        .call(
-            eq_fn,
-            &[
-                lhs_alloca,
-                rhs_alloca,
-                key_size_val,
-                val_size_val,
-                key_eq,
-                key_hash,
-                val_eq,
-            ],
-            name,
-        )
-        .unwrap_or_else(|| fc.builder_mut().const_bool(false))
-}
-
-/// Check if an element type requires deep (callback-based) comparison
-/// rather than byte-level memcmp.
-fn needs_deep_comparison(info: &TypeInfo) -> bool {
-    matches!(
-        info,
-        TypeInfo::Str
-            | TypeInfo::List { .. }
-            | TypeInfo::Set { .. }
-            | TypeInfo::Map { .. }
-            | TypeInfo::Struct { .. }
-            | TypeInfo::Enum { .. }
-            | TypeInfo::Option { .. }
-            | TypeInfo::Result { .. }
-            | TypeInfo::Tuple { .. }
-    )
-}
-
-/// Compute element size in bytes for a given `TypeInfo`.
-///
-/// For compound types (Struct, Option, Result, Tuple), resolves the LLVM
-/// type to compute the actual store size. Structs with fat-pointer fields
-/// (e.g., `str` = 24 bytes) cannot use `fields.len() * 8`.
-///
-/// `collection_idx` is the enclosing collection type whose backing buffer
-/// stores elements of `ty` (e.g. the `[int]` / `{K: V}` type). For narrowed
-/// int elements the stride is keyed on THAT collection's `ReprPlan` entry via
-/// the [`narrowed_collection_element_width`] SSOT — never a `ReprPlan`-wide
-/// scan, which conflates widths across distinct narrowed collections.
-fn compute_elem_size<'a>(
-    fc: &FunctionCompiler<'_, 'a, 'a, '_>,
-    collection_idx: Idx,
-    ty: Idx,
-    info: &TypeInfo,
-) -> i64 {
-    match info {
-        TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
-        TypeInfo::Char => 4,
-        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => 24,
-        TypeInfo::Struct { .. }
-        | TypeInfo::Option { .. }
-        | TypeInfo::Result { .. }
-        | TypeInfo::Tuple { .. } => {
-            let llvm_ty = fc.resolve_type(ty);
-            crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
-        }
-        _ => {
-            // Integer narrowing phase C: when `ty` is an int element narrowed
-            // within THIS collection's backing buffer, the stride is 1/2/4
-            // instead of canonical 8. The width is read from the specific
-            // `collection_idx` entry, so two narrowed int collections of
-            // different widths each get their own stride.
-            if let Some(plan) = fc.repr_plan() {
-                let resolved = fc.pool().resolve_fully(ty);
-                if fc.pool().tag(resolved) == ori_types::Tag::Int {
-                    if let Some(width) =
-                        narrowed_collection_element_width(plan, fc.pool(), collection_idx)
-                    {
-                        return i64::from(width.size_bytes());
-                    }
-                }
-            }
-            8
-        }
     }
 }

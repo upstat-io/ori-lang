@@ -59,6 +59,7 @@ mod arena;
 pub mod ast;
 pub mod builtin_constants;
 mod builtin_type;
+pub mod cabi;
 pub mod canon;
 mod comment;
 mod derives;
@@ -72,6 +73,7 @@ mod name;
 mod parsed_type;
 mod pattern_resolution;
 mod span;
+mod sparse_side_table;
 pub mod tag_constants;
 mod token;
 mod traits;
@@ -179,6 +181,7 @@ pub use ast::{
     WhereClause,
 };
 pub use builtin_type::BuiltinType;
+pub use cabi::CAbiKind;
 pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
 pub use derives::{DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
@@ -193,6 +196,7 @@ pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use pattern_resolution::{PatternKey, PatternResolution};
 pub use span::{Span, SpanError};
+pub use sparse_side_table::SparseSideTable;
 pub use tag_constants::{
     min_tag_bytes, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_CAP, FIELD_DATA, FIELD_LEN,
     OPTION_TAG_NONE, OPTION_TAG_SOME, OPTION_VARIANT_NONE, OPTION_VARIANT_SOME, RANGE_FIELD_END,
