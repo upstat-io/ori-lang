@@ -34,6 +34,20 @@ fn test_method_generic_layout() {
     );
 }
 
+// Regression: method-mono dispatch on a nested-generic receiver
+// `Option<[int]>.unwrap()`. The method-mono recorder substitutes the full
+// concrete receiver `Idx` (`Applied(Option, [List(int)])`), distinct from the
+// `Option<int>` receiver, so the collector/mangler/lookup resolve a dedicated
+// MonoFunction. A regression that re-collapses the nested `[int]` element to the
+// generic shell re-surfaces a missing-mono-instance E5001 at LLVM verification.
+#[test]
+fn test_option_complex_arg_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/option_complex_arg_unwrap.ori"),
+        "option_complex_arg_unwrap",
+    );
+}
+
 #[test]
 fn test_generic_pair_with_strings() {
     assert_aot_success(
