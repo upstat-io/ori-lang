@@ -295,7 +295,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.try_emit_builtin_method(callee, args, func, func.var_type(dst))
         {
             Some(val)
-        } else if let Some(val) = self.try_emit_builtin_associated(callee, func.var_type(dst)) {
+        } else if let Some(val) = self.try_emit_builtin_associated(callee, args, func.var_type(dst))
+        {
             Some(val)
         } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
             let coerced_args = self.coerce_runtime_fn_args(callee, args, &arg_vals, func);

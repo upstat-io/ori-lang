@@ -92,6 +92,26 @@ impl CheckResult {
             .filter(|m| m.fn_name == name_id)
             .collect()
     }
+
+    /// All mono instances recorded for the module (name-agnostic).
+    ///
+    /// Lets a pin assert on the recorded-instance SET when the recorded
+    /// `fn_name` of a builtin-resolved method/ctor is not known in advance
+    /// (the §09.3 fix chooses it); the presence/absence of ANY instance for a
+    /// builtin-only program is the producer-spine observable.
+    fn mono_instances_all(&self) -> &[crate::MonoInstance] {
+        &self.result.typed.mono_instances
+    }
+
+    /// Number of call-site dispatch entries in `mono_dispatch_map`.
+    ///
+    /// `mono_dispatch_map` keys each generic call site's `ExprId` to its
+    /// resolved `MonoInstanceId` — the exact artifact `ori_llvm`'s `emit_apply`
+    /// consults; an empty map at a generic-builtin call site is the codegen
+    /// `E5001` root the producer-spine fix closes.
+    fn dispatch_entry_count(&self) -> usize {
+        self.result.typed.mono_dispatch_map.len()
+    }
 }
 
 /// Parse and type-check an Ori source string.
@@ -2537,5 +2557,247 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
         !result.has_errors(),
         "iterator receiver inference must be unchanged by the Map arm; kinds: {:?}",
         result.error_kinds()
+    );
+}
+
+// §09.2 Producer-Spine TDD Matrix — typeck mono-instance recording
+//
+// The producer spine is `maybe_record_mono_instance` (free-function path) +
+// `maybe_record_method_mono_instance` (method path) feeding
+// `TypedModule.mono_instances` + `mono_dispatch_map`. The §09.1 RCA pins the
+// dominant AOT "missing mono instance" failures on recorder-NOT-attempted:
+//   - from_* factory assoc-fns + iterator methods (rev/next/collect) take the
+//     `ReceiverDispatch::Return` builtin arm in `infer_method_call` /
+//     `infer_method_call_named` and early-return `ret_ty` WITHOUT calling
+//     `maybe_record_method_mono_instance`.
+//   - derived methods (debug/equals/compare) are skipped at the entry gate
+//     `if mono.is_none() && sig.scheme_var_ids.is_empty() { return; }`.
+//
+// Pins assert on the RECORDED MonoInstance set (`mono_instances`) and the
+// dispatch map (`mono_dispatch_map`) — the typeck output `ori_canon` → ARC →
+// `ori_llvm`/`ori_eval` consume — NOT downstream codegen. Each program
+// type-checks cleanly so a RED is "no instance recorded", never a type error.
+// Matrix shape per the §7 producer-spine table: eager direct-param / eager
+// indirect-param / derived-method / builtin-ctor / iterator-method / deferred-
+// route / deferred-resolve / reverted-fix guard.
+
+// Pin 1 — eager direct-param generic (`@id<T>(x: T)`). Boundary pin: the eager
+// `maybe_record_mono_instance` direct-param path already works; the fix must
+// not break it. GREEN today.
+#[test]
+fn s09_2_eager_direct_param_records_complete_instance() {
+    let source = r"
+@p1_id <T> (x: T) -> T = x;
+@p1_caller () -> int = p1_id(x: 42);
+@test_p1 tests @p1_caller () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "direct-param generic program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let instances = result.mono_instances_for("p1_id");
+    assert_eq!(
+        instances.len(),
+        1,
+        "eager direct-param `p1_id(x: 42)` must record exactly one instance, got: {instances:?}"
+    );
+    assert_eq!(instances[0].concrete_param_types, vec![Idx::INT]);
+    assert_eq!(instances[0].concrete_return_type, Idx::INT);
+}
+
+// Pin 2 — eager INDIRECT generic-param (`T` only inside `Pair<T, int>`, never a
+// direct param). Boundary pin for `extract_indirect_scheme_var`. GREEN today.
+#[test]
+fn s09_2_eager_indirect_param_records_complete_instance() {
+    let source = r#"
+type P2Pair<A, B> = { first: A, second: B };
+@p2_firstof <T> (p: P2Pair<T, int>) -> T = p.first;
+@p2_use () -> str = p2_firstof(p: P2Pair { first: "hi", second: 0 });
+@test_p2 tests @p2_use () -> void = ();
+"#;
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "indirect-param generic program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let instances = result.mono_instances_for("p2_firstof");
+    assert_eq!(
+        instances.len(),
+        1,
+        "eager indirect-param `p2_firstof` (T in Pair<T, int>) must record one instance, got: {instances:?}"
+    );
+    assert_eq!(
+        instances[0].concrete_return_type,
+        Idx::STR,
+        "indirect T resolves to str"
+    );
+}
+
+// Pin 3 — derived-method callee on a GENERIC composite. RED today: the derived
+// `equals` impl on `P3Pair<A, B>` is non-generic-over-the-method and the
+// recorder's entry gate `mono.is_none() && scheme_var_ids.is_empty()` skips it,
+// so the `P3Pair<int, str>` instantiation records no instance.
+#[test]
+fn s09_2_derived_method_on_generic_composite_records_instance() {
+    let source = r"
+#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
+@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p.equals(other: q);
+@test_p3 tests @p3_cmp () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "derived-Eq generic-composite program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    // RED pre-fix: the derived `equals` on the concrete `P3Pair<int, str>`
+    // receiver records no MonoInstance (entry-gate skip). Post-fix the recorder
+    // must produce one for the composite instantiation.
+    assert!(
+        !result.mono_instances_all().is_empty(),
+        "derived `equals` on P3Pair<int, str> must record a mono instance for the \
+         composite instantiation; recorded set is empty (entry-gate skip)"
+    );
+}
+
+// Pin 4 — builtin Duration ctor (`Duration.from_seconds`). The factory family
+// is a non-generic builtin (`MethodKind::Associated` in `ori_registry`, not in
+// `impl_sigs`), so a recorded MonoInstance would be skipped by
+// `collect_mono_functions` — the family is delivered codegen-direct via
+// `try_emit_builtin_associated`, not by the mono recorder. This pin holds the
+// typeck-layer contract: the call type-checks and its return resolves to
+// `Duration`. The runtime gate (real AOT compile + run + value) is the sibling
+// `ori_llvm` AOT pin `unit_factories::test_duration_from_factories_aot`.
+#[test]
+fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
+    let source = r"
+@p4_mk () -> Duration = Duration.from_seconds(s: 5);
+@test_p4 tests @p4_mk () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Duration ctor program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let body_ty = result.first_function_body_type().unwrap();
+    assert_eq!(
+        body_ty,
+        Idx::DURATION,
+        "Duration.from_seconds(s: 5) must resolve to Duration; got {body_ty:?}"
+    );
+}
+
+// Pin 5 — iterator method (`.rev()`). RED today: builtin iterator methods
+// resolve via `ReceiverDispatch::Return` and bypass the recorder.
+#[test]
+fn s09_2_iterator_method_records_instance() {
+    let source = r"
+@p5_rev () -> [int] = [1, 2, 3].iter().rev().collect();
+@test_p5 tests @p5_rev () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "iterator .rev().collect() program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    // RED pre-fix: builtin iterator method records nothing.
+    assert!(
+        !result.mono_instances_all().is_empty(),
+        "iterator `.rev()/.collect()` must record a dispatch-bearing instance; \
+         recorded set is empty (ReceiverDispatch::Return bypass)"
+    );
+}
+
+// Pin 6 — deferred-route NEGATIVE clamp. A generic-calling-generic
+// (`wrap6<U>` body calls `id6(x: y)` while `y: U` is still a variable) MUST
+// route to `record_deferred_mono_call`, never record a bogus EAGER instance
+// whose concrete types still carry a `Tag::Var`. GREEN today.
+#[test]
+fn s09_2_deferred_route_records_no_var_typed_instance() {
+    let source = r"
+@p6_id <T> (x: T) -> T = x;
+@p6_wrap <U> (y: U) -> U = p6_id(x: y);
+@p6_caller () -> int = p6_wrap(y: 42);
+@test_p6 tests @p6_caller () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "generic-calling-generic program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    // No recorded instance may carry an unresolved Var in its concrete types —
+    // the deferred path must NOT leak a half-resolved eager instance.
+    for inst in result.mono_instances_all() {
+        for &pt in &inst.concrete_param_types {
+            assert_ne!(
+                result.tag(pt),
+                Tag::Var,
+                "deferred route leaked a Var-typed concrete param into instance {inst:?}"
+            );
+        }
+        assert_ne!(
+            result.tag(inst.concrete_return_type),
+            Tag::Var,
+            "deferred route leaked a Var-typed concrete return into instance {inst:?}"
+        );
+    }
+}
+
+// Pin 7 — deferred-resolve POSITIVE. When the outer generic `p7_wrap` is
+// instantiated at `p7_caller` (`U = int`), the deferred `p7_id` call resolves
+// to a concrete `p7_id<int>` instance via `resolve_deferred_mono_calls` —
+// `p7_id` is NEVER called directly with a concrete arg. GREEN today.
+#[test]
+fn s09_2_deferred_resolve_produces_concrete_instance() {
+    let source = r"
+@p7_id <T> (x: T) -> T = x;
+@p7_wrap <U> (y: U) -> U = p7_id(x: y);
+@p7_caller () -> int = p7_wrap(y: 42);
+@test_p7 tests @p7_caller () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "deferred-resolve program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let id_instances = result.mono_instances_for("p7_id");
+    assert!(
+        id_instances
+            .iter()
+            .any(|m| m.concrete_param_types == vec![Idx::INT]
+                && m.concrete_return_type == Idx::INT),
+        "deferred `p7_id` (called only from generic `p7_wrap`) must resolve to a \
+         concrete p7_id<int> instance, got: {id_instances:?}"
+    );
+}
+
+// Pin 8 — reverted-fix guard (semantic pin). The `mono_dispatch_map` is the
+// exact artifact `ori_llvm`'s `emit_apply` consults; an EMPTY map at a
+// generic-builtin call site is the `E5001` root. RED today, GREEN only with
+// the producer-spine fix. This pin ONLY passes once the recorder publishes a
+// dispatch entry for the builtin iterator call.
+#[test]
+fn s09_2_reverted_fix_guard_dispatch_map_populated() {
+    let source = r"
+@p8_guard () -> [int] = [1, 2, 3].iter().rev().collect();
+@test_p8 tests @p8_guard () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "dispatch-map guard program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    assert!(
+        result.dispatch_entry_count() > 0,
+        "generic-builtin iterator call site must publish a mono_dispatch_map \
+         entry (the emit_apply / E5001 artifact); dispatch map is empty"
     );
 }

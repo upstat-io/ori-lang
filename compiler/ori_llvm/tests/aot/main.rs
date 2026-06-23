@@ -94,6 +94,7 @@ pub mod template_str_chain;
 pub mod traits;
 pub mod trmc;
 pub mod tuples;
+pub mod unit_factories;
 pub mod value_empty_burden;
 pub mod wasm;
 pub mod wrapper_rc_retain;

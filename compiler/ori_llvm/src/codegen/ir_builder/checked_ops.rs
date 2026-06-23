@@ -73,13 +73,22 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     /// Build checked integer multiplication: panics on overflow.
     pub fn checked_mul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.emit_checked_binop(
-            "llvm.smul.with.overflow",
-            lhs,
-            rhs,
-            name,
-            "integer overflow on multiplication",
-        )
+        self.checked_mul_msg(lhs, rhs, name, "integer overflow on multiplication")
+    }
+
+    /// Build checked integer multiplication with a caller-supplied overflow
+    /// panic message. `checked_mul` is the canonical
+    /// `"integer overflow on multiplication"` form; unit factories supply the
+    /// interpreter's `"integer overflow in <duration|size> factory conversion"`
+    /// for dual-execution parity.
+    pub fn checked_mul_msg(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        panic_msg: &str,
+    ) -> ValueId {
+        self.emit_checked_binop("llvm.smul.with.overflow", lhs, rhs, name, panic_msg)
     }
 
     /// Build checked integer negation: panics on overflow.

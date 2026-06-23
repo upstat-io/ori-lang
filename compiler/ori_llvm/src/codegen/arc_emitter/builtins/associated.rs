@@ -12,6 +12,7 @@
 //! `dispatch_associated_function`, which keys the same dispatch on the type name
 //! at the `Type.method()` call site.
 
+use ori_arc::ir::ArcVarId;
 use ori_ir::Name;
 use ori_registry::{MethodKind, ReturnTag, TypeTag};
 use ori_types::Idx;
@@ -30,6 +31,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(in crate::codegen::arc_emitter) fn try_emit_builtin_associated(
         &mut self,
         callee: Name,
+        args: &[ArcVarId],
         dst_ty: Idx,
     ) -> Option<ValueId> {
         let method_name = self.interner.lookup(callee);
@@ -50,8 +52,69 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return Some(self.builder.const_zero_ty(llvm_ty));
         }
 
+        // Parametrized `(val: int) -> Self` unit factories
+        // (`Duration.from_seconds`, `Size.from_kilobytes`, ...) scale the int
+        // operand by the unit's base-unit factor. Duration/Size are both stored
+        // as a bare `i64` (nanoseconds / bytes), so the result is the scaled
+        // operand. Mirrors `ori_eval`'s `duration_from_int` / `size_from_int`
+        // (`ori_eval/src/methods/units.rs`): checked multiply (panic on
+        // overflow); Size rejects a negative operand.
+        if method.params.len() == 1 && method.returns == ReturnTag::SelfType {
+            if let Some(factor) = unit_factory_factor(type_tag, method_name) {
+                let val = self.var(*args.first()?);
+                if type_tag == TypeTag::Size {
+                    let zero = self.builder.const_i64(0);
+                    let non_neg = self.builder.icmp_sge(val, zero, "size_factory.nonneg");
+                    self.emit_unwrap_branch(non_neg, "Size cannot be negative", "size_factory")?;
+                }
+                if factor == 1 {
+                    return Some(val);
+                }
+                let factor_val = self.builder.const_i64(factor);
+                // Factory-specific overflow message matches `ori_eval`'s
+                // `integer_overflow("<duration|size> factory conversion")` for
+                // dual-execution parity.
+                let overflow_msg = match type_tag {
+                    TypeTag::Size => "integer overflow in size factory conversion",
+                    _ => "integer overflow in duration factory conversion",
+                };
+                return Some(self.builder.checked_mul_msg(
+                    val,
+                    factor_val,
+                    "unit_factory",
+                    overflow_msg,
+                ));
+            }
+        }
+
         None
     }
+}
+
+/// Base-unit scale factor for a Duration/Size factory associated function,
+/// mirroring `ori_eval`'s `duration_from_int` / `size_from_int` multipliers
+/// (`ori_eval/src/methods/units.rs`). Returns `None` when `method` is not a
+/// scaled factory on `type_tag`.
+fn unit_factory_factor(type_tag: TypeTag, method: &str) -> Option<i64> {
+    use ori_ir::builtin_constants::{duration, size};
+    #[expect(
+        clippy::match_same_arms,
+        reason = "base-unit arms (factor 1) kept per-type for Duration/Size grouping clarity"
+    )]
+    Some(match (type_tag, method) {
+        (TypeTag::Duration, "from_nanoseconds" | "from_nanos") => 1,
+        (TypeTag::Duration, "from_microseconds" | "from_micros") => duration::NS_PER_US,
+        (TypeTag::Duration, "from_milliseconds" | "from_millis") => duration::NS_PER_MS,
+        (TypeTag::Duration, "from_seconds") => duration::NS_PER_S,
+        (TypeTag::Duration, "from_minutes") => duration::NS_PER_M,
+        (TypeTag::Duration, "from_hours") => duration::NS_PER_H,
+        (TypeTag::Size, "from_bytes") => 1,
+        (TypeTag::Size, "from_kilobytes" | "from_kb") => size::BYTES_PER_KB as i64,
+        (TypeTag::Size, "from_megabytes" | "from_mb") => size::BYTES_PER_MB as i64,
+        (TypeTag::Size, "from_gigabytes" | "from_gb") => size::BYTES_PER_GB as i64,
+        (TypeTag::Size, "from_terabytes" | "from_tb") => size::BYTES_PER_TB as i64,
+        _ => return None,
+    })
 }
 
 /// Map an `ori_types::Tag` to the `ori_registry::TypeTag` used for registry
