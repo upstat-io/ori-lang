@@ -47,6 +47,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "concat",      // list.concat (COW concat)
     "insert",      // list.insert (COW insert)
     "iter",        // list.iter (iterator takes ownership of data buffer)
+    "merge",       // map.merge ({...a, ...b} COW merge — receiver consumed)
     "pop",         // list.pop (COW pop)
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)
@@ -72,6 +73,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
 const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "add",    // list + list (COW concat)
     "concat", // list.concat(other)
+    "merge",  // map.merge(other) — other map's buffer is consumed
     "push",   // list.push(value) — element stored in list buffer
 ];
 

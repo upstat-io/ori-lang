@@ -389,6 +389,20 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("map", "merge") => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Map { key, value } = ctx.type_info {
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                let r = emitter.emit_map_merge(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value, cm, ctx.receiver_ty);
+                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
+                r
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("map", "updated") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::Map { key, value } = ctx.type_info {

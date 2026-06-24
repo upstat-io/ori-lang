@@ -52,3 +52,42 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
     assert_eq(actual: Rectangle(w: 3, h: 4).debug(), expected: "Rectangle(3, 4)")
 }
 @multi_variant () -> str = Rectangle(w: 3, h: 4).debug();
+
+// --- Char field renders single-quoted (Debug), not the i32 codepoint ---
+// Regression: derive_codegen field path previously rendered char fields via
+// ori_str_from_int ("65"), diverging from the evaluator ("'A'").
+
+#[derive(Debug)]
+type Letter = { ch: char }
+
+#[derive(Debug)]
+type Token = Sym(ch: char) | Pair(a: char, b: char);
+
+@test_struct_char_field tests @struct_char () -> void = {
+    assert_eq(actual: Letter { ch: 'A' }.debug(), expected: "Letter { ch: 'A' }")
+}
+@struct_char () -> str = Letter { ch: 'A' }.debug();
+
+@test_variant_char_field tests @variant_char () -> void = {
+    assert_eq(actual: Sym(ch: 'x').debug(), expected: "Sym('x')");
+    assert_eq(actual: Pair(a: 'a', b: 'b').debug(), expected: "Pair('a', 'b')")
+}
+@variant_char () -> str = Sym(ch: 'x').debug();
+
+// Regression: a byte field renders as hex (0x41) for Debug, matching the
+// evaluator — NOT the raw decimal codepoint.
+#[derive(Debug)]
+type ByteBox = { b: byte }
+
+#[derive(Debug)]
+type ByteTok = BSym(b: byte) | BPair(a: byte, b: byte);
+
+@test_struct_byte_field tests @struct_byte () -> void = {
+    assert_eq(actual: ByteBox { b: 65 as byte }.debug(), expected: "ByteBox { b: 0x41 }")
+}
+@struct_byte () -> str = ByteBox { b: 65 as byte }.debug();
+
+@test_variant_byte_field tests @variant_byte () -> void = {
+    assert_eq(actual: BSym(b: 65 as byte).debug(), expected: "BSym(0x41)")
+}
+@variant_byte () -> str = BSym(b: 65 as byte).debug();

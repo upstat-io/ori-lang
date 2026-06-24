@@ -225,15 +225,12 @@ fn emit_user_type_field_op<'a>(
         FieldOp::Compare => DerivedTrait::Comparable,
         FieldOp::Hash => DerivedTrait::Hashable,
     };
-    let nested_name = fc.type_idx_to_name(field_type);
     let method = fc.intern(trait_kind.method_name());
-    if let Some(type_name) = nested_name {
-        if let Some((fid, abi)) = fc.get_method_function(type_name, method) {
-            return match op {
-                FieldOp::Hash => emit_method_call_for_derive(fc, fid, &abi, &[lhs], name),
-                _ => emit_method_call_for_derive(fc, fid, &abi, &[lhs, expect_rhs(rhs)], name),
-            };
-        }
+    if let Some((fid, abi)) = fc.get_derived_method_for_type(field_type, method) {
+        return match op {
+            FieldOp::Hash => emit_method_call_for_derive(fc, fid, &abi, &[lhs], name),
+            _ => emit_method_call_for_derive(fc, fid, &abi, &[lhs, expect_rhs(rhs)], name),
+        };
     }
     emit_fallback(fc, op, lhs, rhs, name)
 }

@@ -10,8 +10,10 @@
 //! during mono instance recording in the type checker.
 
 mod extract;
+mod materialize;
 
 pub use extract::extract_var_from_types;
+pub(crate) use materialize::materialize_applied_body;
 
 use rustc_hash::FxHashMap;
 
@@ -74,6 +76,7 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
         Tag::Tuple => substitute_tuple(pool, ty, var_subst),
         Tag::Applied => substitute_applied(pool, ty, var_subst),
         Tag::Struct => substitute_struct(pool, ty, var_subst),
+        Tag::Enum => substitute_enum(pool, ty, var_subst),
 
         // Schemes have their own bound variables; primitives and other tags
         // don't contain variables.
@@ -312,6 +315,43 @@ fn substitute_struct(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) 
 
     if changed {
         pool.struct_type(name, &new_fields)
+    } else {
+        ty
+    }
+}
+
+/// Substitute in an Enum type (variant payload types, preserving variant names).
+///
+/// The `Tag::Enum` twin of [`substitute_struct`]: substitutes each variant
+/// payload `Idx` via `var_subst`, payload-name-agnostic (the Pool enum
+/// representation carries no field names).
+fn substitute_enum(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let name = pool.enum_name(ty);
+    let variants = pool.enum_variants(ty);
+
+    let mut changed = false;
+    let new_variants: Vec<crate::pool::EnumVariant> = variants
+        .iter()
+        .map(|(variant_name, payloads)| {
+            let new_payloads: Vec<Idx> = payloads
+                .iter()
+                .map(|&payload_ty| {
+                    let new_ty = substitute_in_pool(pool, payload_ty, var_subst);
+                    if new_ty != payload_ty {
+                        changed = true;
+                    }
+                    new_ty
+                })
+                .collect();
+            crate::pool::EnumVariant {
+                name: *variant_name,
+                field_types: new_payloads,
+            }
+        })
+        .collect();
+
+    if changed {
+        pool.enum_type(name, &new_variants)
     } else {
         ty
     }

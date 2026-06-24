@@ -11,6 +11,7 @@
 
 mod enum_comparable;
 mod enum_eq;
+mod enum_format;
 mod enum_hashable;
 
 use ori_ir::{CombineOp, DerivedTrait, Name, StructBody};
@@ -33,10 +34,12 @@ pub(super) fn compile_enum_match_variants<'a>(
     type_name_str: &str,
     variants: &[VariantDef],
     struct_body: &StructBody,
+    mono: bool,
 ) {
     match *struct_body {
         StructBody::ForEachField { combine, field_op } => {
-            let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+            let setup =
+                setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
             match combine {
                 CombineOp::AllTrue => {
                     enum_eq::emit_enum_all_true(fc, &setup, variants, field_op);
@@ -52,16 +55,30 @@ pub(super) fn compile_enum_match_variants<'a>(
         }
         StructBody::CloneFields => {
             // Clone on enum = identity return (value type in LLVM)
-            let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+            let setup =
+                setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
             let self_val = setup.self_val.expect("Clone has self");
             emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
             verify_derive_function(fc, setup.func_id, "compile_enum_clone");
         }
-        _ => {
+        StructBody::FormatFields { separator, .. } => {
+            enum_format::compile_enum_format(
+                fc,
+                trait_kind,
+                type_name,
+                type_idx,
+                type_name_str,
+                variants,
+                separator,
+                mono,
+            );
+        }
+        StructBody::DefaultConstruct => {
+            // Default has SumBody::NotSupported and never reaches enum dispatch.
             tracing::trace!(
                 name = %type_name_str,
                 derive = %trait_kind.method_name(),
-                "enum derive strategy not yet implemented for this struct_body"
+                "DefaultConstruct does not apply to sum types"
             );
         }
     }

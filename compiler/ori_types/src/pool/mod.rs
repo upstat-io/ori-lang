@@ -395,6 +395,14 @@ impl Pool {
     pub fn is_empty(&self) -> bool {
         self.items.len() <= Idx::FIRST_DYNAMIC as usize
     }
+
+    /// Iterate every pool `Idx` in interning order (`Idx(0)..Idx(len)`). SSOT for
+    /// a full-pool linear walk: the saturating `usize -> u32` length conversion
+    /// and `Idx::from_raw` mapping live here, not duplicated at each scan site.
+    /// Callers layer their own tag/flag/resolution filter on top.
+    pub fn iter_indices(&self) -> impl Iterator<Item = Idx> {
+        (0..u32::try_from(self.len()).unwrap_or(u32::MAX)).map(Idx::from_raw)
+    }
 }
 
 impl Default for Pool {

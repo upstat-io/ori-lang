@@ -310,6 +310,14 @@ pub struct CodegenContext {
     pub method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     pub type_idx_to_name: FxHashMap<Idx, Name>,
+    /// Per-instantiation derived-method dispatch: `(concrete_resolved_idx, method_name)` →
+    /// (`FunctionId`, ABI). A generic composite (`P3Pair<int,str>`, `Box<Box<int>>`)
+    /// emits one derived method per concrete instantiation, each keyed here by the
+    /// materialized concrete `Struct`/`Enum` `Idx` (`pool.resolve_fully(Applied)`), so
+    /// nested + multi-instantiation dispatch resolves the layout-correct body
+    /// Resolution prefers this map; non-generic types fall back to the
+    /// type-name-keyed `method_functions`.
+    pub mono_derive_functions: FxHashMap<(Idx, Name), (FunctionId, FunctionAbi)>,
     /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
     ///
     /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR

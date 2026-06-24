@@ -87,8 +87,9 @@ pub(super) fn compile_for_each_field<'a>(
     fields: &[FieldDef],
     field_op: FieldOp,
     combine: CombineOp,
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     match combine {
         CombineOp::AllTrue => emit_all_true_body(fc, &setup, fields, field_op),
         CombineOp::Lexicographic => emit_lexicographic_body(fc, &setup, fields, field_op),
@@ -314,8 +315,9 @@ pub(super) fn compile_format_fields<'a>(
     separator: &str,
     suffix: &str,
     include_names: bool,
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     let self_val = setup.self_val.expect("FormatFields has self");
     let str_ty_id = setup.str_ty_id.expect("FormatFields needs str_ty_id");
 
@@ -347,6 +349,13 @@ pub(super) fn compile_format_fields<'a>(
             fc.builder_mut()
                 .extract_value(self_val, mem_i, &format!("fmt.{field_name_str}"));
         if let Some(fv) = field_val {
+            // A boxed recursive back-edge field is extracted as an RC `ptr`
+            // (its LLVM field type is `ptr`); render it via the pointer path.
+            let boxed = crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
+                fc.type_info().pool(),
+                setup.type_idx,
+                field.ty,
+            );
             let field_str = emit_field_to_string(
                 fc,
                 trait_kind,
@@ -354,6 +363,7 @@ pub(super) fn compile_format_fields<'a>(
                 field.ty,
                 &format!("fmt.{field_name_str}"),
                 str_ty_id,
+                boxed,
             );
             let old = result;
             result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"), str_ty_id);
@@ -395,8 +405,9 @@ pub(super) fn compile_clone_fields<'a>(
     type_idx: Idx,
     type_name_str: &str,
     fields: &[FieldDef],
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     let self_val = setup.self_val.expect("CloneFields has self");
 
     // RC-increment each heap-allocated field so the clone has independent
@@ -436,8 +447,9 @@ pub(super) fn compile_default_construct<'a>(
     type_idx: Idx,
     type_name_str: &str,
     _fields: &[FieldDef],
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
 
     // `const_zero` on a struct type recursively zeros all fields:
     // int → 0, float → 0.0, bool → false, ptr → null, str → {0, 0, null}

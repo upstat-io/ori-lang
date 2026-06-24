@@ -314,6 +314,69 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.list_struct_type()
     }
 
+    /// Emit `a.merge(b)` — COW map merge desugared from `{...a, ...b}`.
+    ///
+    /// Calls `ori_map_merge_cow(a_data, a_len, a_cap, b_data, b_len, b_cap,
+    ///         key_size, val_size, key_eq, key_hash, key_inc, val_inc, key_dec,
+    ///         val_dec, cow_mode, out_ptr)`. Both operands are consumed (`merge` is in
+    /// `consuming_receiver_builtins` + `consuming_second_arg_builtins`): `a`
+    /// is the accumulator; each occupied entry of `b` is inc'd into the result,
+    /// then `b`'s buffer is released by `ori_map_merge_cow` itself. The caller
+    /// emits NO scope-exit dec for either operand (both marked `Owned`).
+    pub(crate) fn emit_map_merge(
+        &mut self,
+        receiver: ValueId,
+        other: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+        cow_mode: ValueId,
+        map_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_merge_cow");
+
+        let (a_data, a_cap, a_len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
+        let (b_data, b_cap, b_len, _bks, _bvs) =
+            self.extract_map_components(other, key_ty, val_ty, Some(map_ty));
+
+        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+        let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
+        let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+        let key_dec = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
+
+        let map_struct = self.map_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "merge.out", map_struct);
+
+        self.emit_rt_call(
+            func_id,
+            &[
+                a_data,
+                a_len,
+                a_cap,
+                b_data,
+                b_len,
+                b_cap,
+                key_size_val,
+                val_size_val,
+                key_eq,
+                key_hash,
+                key_inc,
+                val_inc,
+                key_dec,
+                val_dec,
+                cow_mode,
+                out,
+            ],
+            "merge",
+        );
+
+        Some(self.builder.load(map_struct, out, "merge.val"))
+    }
+
     /// Emit `map.insert(key, value)` — COW insert returning the (possibly mutated) map.
     ///
     /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,

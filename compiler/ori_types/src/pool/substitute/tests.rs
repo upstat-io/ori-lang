@@ -578,3 +578,163 @@ fn extend_var_subst_with_roots_via_pool_preserves_existing_entries() {
     assert_eq!(var_subst.get(&scheme_var_id), Some(&Idx::INT));
     assert_eq!(var_subst.len(), 2);
 }
+
+// materialize_applied_body
+
+use super::materialize_applied_body;
+use ori_ir::Name;
+use rustc_hash::FxHashSet;
+
+/// Build a pool carrying a generic struct `S<A, B> = { a: A, b: B }`: interns the
+/// generic body (fields `Named(A)`/`Named(B)`), records `Named(S) → generic
+/// struct`, and returns `(struct_name, type_params_map, generic_struct_idx)`.
+fn generic_struct_fixture(
+    pool: &mut Pool,
+    interner: &ori_ir::StringInterner,
+) -> (Name, FxHashMap<Name, Vec<Name>>, Idx) {
+    let s = interner.intern("S");
+    let a = interner.intern("A");
+    let b = interner.intern("B");
+    let fa = interner.intern("a");
+    let fb = interner.intern("b");
+    let named_a = pool.named(a);
+    let named_b = pool.named(b);
+    let generic = pool.struct_type(s, &[(fa, named_a), (fb, named_b)]);
+    let named_s = pool.named(s);
+    pool.set_resolution(named_s, generic);
+    let mut type_params: FxHashMap<Name, Vec<Name>> = FxHashMap::default();
+    type_params.insert(s, vec![a, b]);
+    (s, type_params, generic)
+}
+
+// Multi-param distinct interning. `S<int, str>` and `S<str, int>` must
+// materialize to DISTINCT concrete struct Idxs with distinct concrete field
+// bodies (positive pin: distinct args intern distinctly).
+#[test]
+fn materialize_interns_distinct_bodies_for_distinct_args() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, _) = generic_struct_fixture(&mut pool, &interner);
+
+    let applied_is = pool.applied(s, &[Idx::INT, Idx::STR]);
+    let applied_si = pool.applied(s, &[Idx::STR, Idx::INT]);
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, applied_is, &type_params, &mut in_progress);
+    materialize_applied_body(&mut pool, applied_si, &type_params, &mut in_progress);
+
+    let body_is = pool
+        .resolve(applied_is)
+        .unwrap_or_else(|| panic!("S<int,str> must materialize"));
+    let body_si = pool
+        .resolve(applied_si)
+        .unwrap_or_else(|| panic!("S<str,int> must materialize"));
+    assert_ne!(
+        body_is, body_si,
+        "distinct generic args must intern distinct concrete bodies"
+    );
+    assert_eq!(
+        pool.struct_fields(body_is),
+        vec![
+            (interner.intern("a"), Idx::INT),
+            (interner.intern("b"), Idx::STR)
+        ],
+    );
+    assert_eq!(
+        pool.struct_fields(body_si),
+        vec![
+            (interner.intern("a"), Idx::STR),
+            (interner.intern("b"), Idx::INT)
+        ],
+    );
+}
+
+// Merkle interning distinctness. The materialized concrete struct Idx must
+// differ from the generic `StructDef` Idx (distinct field hashes → distinct
+// `Idx` per TI-1/TI-3), so `S<int,str>` interns as a SEPARATE pool entry.
+#[test]
+fn materialized_concrete_struct_distinct_from_generic_definition() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, generic) = generic_struct_fixture(&mut pool, &interner);
+
+    let applied = pool.applied(s, &[Idx::INT, Idx::STR]);
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, applied, &type_params, &mut in_progress);
+
+    let concrete = pool
+        .resolve(applied)
+        .unwrap_or_else(|| panic!("must materialize"));
+    assert_ne!(
+        concrete, generic,
+        "the materialized concrete struct must be a distinct pool entry from the generic definition"
+    );
+    assert_ne!(
+        pool.hash(concrete),
+        pool.hash(generic),
+        "concrete + generic struct bodies must have distinct Merkle hashes"
+    );
+}
+
+// Self-referential composite termination. `List<T> = Nil | Cons(T,
+// List<T>)` materialized at `List<int>` must TERMINATE (no stack overflow /
+// infinite intern) under the in-progress recursion guard, and the recursive
+// `tail` payload must resolve to the in-progress concrete enum.
+#[test]
+fn materialize_self_referential_enum_terminates() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let list = interner.intern("List");
+    let t = interner.intern("T");
+    let nil = interner.intern("Nil");
+    let cons = interner.intern("Cons");
+
+    // Generic body: Nil (unit) | Cons(Named(T), Applied(List, [Named(T)]))
+    let named_t = pool.named(t);
+    let tail_generic = pool.applied(list, &[named_t]);
+    let generic = pool.enum_type(
+        list,
+        &[
+            crate::pool::EnumVariant {
+                name: nil,
+                field_types: vec![],
+            },
+            crate::pool::EnumVariant {
+                name: cons,
+                field_types: vec![named_t, tail_generic],
+            },
+        ],
+    );
+    let named_list = pool.named(list);
+    pool.set_resolution(named_list, generic);
+    let mut type_params: FxHashMap<Name, Vec<Name>> = FxHashMap::default();
+    type_params.insert(list, vec![t]);
+
+    let applied = pool.applied(list, &[Idx::INT]);
+    let mut in_progress = FxHashSet::default();
+    // The assertion is reaching this line at all — non-termination would stack
+    // overflow inside the call.
+    materialize_applied_body(&mut pool, applied, &type_params, &mut in_progress);
+
+    let concrete = pool
+        .resolve(applied)
+        .unwrap_or_else(|| panic!("List<int> must materialize"));
+    assert_eq!(pool.tag(concrete), Tag::Enum);
+    let variants = pool.enum_variants(concrete);
+    let (_, cons_payloads) = &variants[1];
+    assert_eq!(cons_payloads[0], Idx::INT, "Cons head must be concrete int");
+    // The recursive tail `Applied(List,[int])` must resolve to the SAME concrete
+    // enum (the in-progress entry), proving termination via the guard.
+    let tail = cons_payloads[1];
+    assert_eq!(pool.tag(tail), Tag::Applied);
+    assert_eq!(
+        pool.resolve(tail),
+        Some(concrete),
+        "the recursive tail must resolve to the materialized concrete enum"
+    );
+    // The in-progress guard must be empty after completion (no leaked entries).
+    assert!(
+        in_progress.is_empty(),
+        "in_progress guard must drain on completion"
+    );
+}

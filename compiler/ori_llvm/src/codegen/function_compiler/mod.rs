@@ -625,6 +625,48 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             .get(&(type_name, method_name))
             .cloned()
     }
+
+    /// Resolve a derived method for a (possibly generic-composite) receiver/field
+    /// type `Idx`. Prefers the per-instantiation map keyed by the materialized
+    /// concrete `Idx` (`pool.resolve_fully`); falls back to the type-name-keyed
+    /// `method_functions` for non-generic types.
+    pub(crate) fn get_derived_method_for_type(
+        &self,
+        type_idx: Idx,
+        method_name: Name,
+    ) -> Option<(FunctionId, FunctionAbi)> {
+        let resolved = self.pool.resolve_fully(type_idx);
+        if let Some(hit) = self
+            .codegen_ctx
+            .mono_derive_functions
+            .get(&(resolved, method_name))
+        {
+            return Some(hit.clone());
+        }
+        let type_name = self.type_idx_to_name(type_idx)?;
+        self.get_method_function(type_name, method_name)
+    }
+
+    /// Register a per-instantiation derived method keyed by the materialized
+    /// concrete `Idx`. Called by derive codegen after each
+    /// generic-composite instantiation's method is emitted.
+    pub(crate) fn register_mono_derive_function(
+        &mut self,
+        concrete_idx: Idx,
+        method_name: Name,
+        func_id: FunctionId,
+        abi: FunctionAbi,
+    ) {
+        self.codegen_ctx
+            .mono_derive_functions
+            .insert((concrete_idx, method_name), (func_id, abi));
+    }
+
+    /// Map a type `Idx` (concrete instantiation `Applied` or its resolved body)
+    /// to a type `Name` so receiver-based method dispatch resolves it.
+    pub(crate) fn map_type_idx_to_name(&mut self, idx: Idx, name: Name) {
+        self.codegen_ctx.type_idx_to_name.insert(idx, name);
+    }
 }
 
 #[cfg(test)]

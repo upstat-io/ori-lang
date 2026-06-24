@@ -69,6 +69,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let &first_arg = args.first()?;
         let receiver_ty = func.var_type(first_arg);
+        // A generic-composite receiver resolves to its materialized
+        // concrete body; prefer the per-instantiation derived method keyed on
+        // that Idx before the type-name-keyed map.
+        let resolved = self.pool.resolve_fully(receiver_ty);
+        if let Some(hit) = self.ctx.mono_derive_functions.get(&(resolved, name)) {
+            return Some(hit);
+        }
         let type_name = self.ctx.type_idx_to_name.get(&receiver_ty)?;
         self.ctx.method_functions.get(&(*type_name, name))
     }
@@ -87,6 +94,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let return_ty = func.var_type(dst);
+        // A generic-composite return type (e.g. `Default` on
+        // `P3Pair<int,str>`) resolves to its materialized concrete body; prefer
+        // the per-instantiation derived method keyed on that Idx before the
+        // last-instantiation-wins type-name-keyed map.
+        let resolved = self.pool.resolve_fully(return_ty);
+        if let Some(hit) = self.ctx.mono_derive_functions.get(&(resolved, name)) {
+            return Some(hit);
+        }
         let type_name = self.ctx.type_idx_to_name.get(&return_ty)?;
         self.ctx.method_functions.get(&(*type_name, name))
     }

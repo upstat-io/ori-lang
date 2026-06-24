@@ -676,9 +676,7 @@ fn max_sized_elem_passes_collect() {
 
 // Regression: the IterState::Reversed Drop arm must dec EVERY stored master via
 // elem_dec_fn, regardless of how far `pos` advanced (mirroring IterState::Map).
-// This is the sole coverage for the rev+heap buffered-replay locus: `rev()` is
-// mono-blocked from the Ori-spec LLVM path (the iterator missing-mono-instance
-// gap) so the runtime ownership cure is pinned here.
+// Pins the rev+heap Drop ownership invariant directly at the runtime level.
 
 static REVERSED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
@@ -695,6 +693,7 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
         pos: 3,
+        front: 0,
         elem_size: 8,
         elem_dec_fn: Some(counting_dec),
     });
@@ -705,11 +704,12 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
     );
 
     // Partially yielded (pos advanced past some elements): Drop STILL decs ALL 3
-    // masters — NOT the consumed/un-yielded subset (the reviewers' incorrect model).
+    // masters — NOT the consumed/un-yielded subset.
     REVERSED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
         pos: 1,
+        front: 0,
         elem_size: 8,
         elem_dec_fn: Some(counting_dec),
     });
@@ -724,6 +724,7 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
         pos: 3,
+        front: 0,
         elem_size: 8,
         elem_dec_fn: None,
     });

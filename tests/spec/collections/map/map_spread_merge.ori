@@ -1,0 +1,56 @@
+// Map spread `{...a, ...b}` desugars to `a.merge(b)` (COW merge, consuming
+// both operands). Pins interp + LLVM-JIT parity for the basic-spread merge
+// across key/value element types, and the "later wins" override on key
+// collision. The AOT leg (L8) + leak-freedom (L10) are covered by the sibling
+// AOT test cow_map_set::test_aot_map_spread_merge_basic_override_struct_empty.
+// Regression for BUG-04-189 (missing `merge` mono instance + premature-free of
+// the merged operands at the LLVM/AOT backend).
+
+use std.testing { assert, assert_eq }
+
+type Pt = { x: int, y: int }
+
+@merge_str_int tests _ () -> void = {
+    let $a = {"x": 1, "y": 2};
+    let $b = {"z": 3};
+    let $m = {...a, ...b};
+    assert_eq(actual: m["x"].unwrap(), expected: 1);
+    assert_eq(actual: m["y"].unwrap(), expected: 2);
+    assert_eq(actual: m["z"].unwrap(), expected: 3)
+}
+
+@merge_int_str tests _ () -> void = {
+    let $a = {1: "one", 2: "two"};
+    let $b = {3: "three"};
+    let $m = {...a, ...b};
+    assert_eq(actual: m[1].unwrap(), expected: "one");
+    assert_eq(actual: m[3].unwrap(), expected: "three")
+}
+
+@merge_str_struct tests _ () -> void = {
+    let $a = {"p": Pt { x: 1, y: 2 }};
+    let $b = {"q": Pt { x: 3, y: 4 }};
+    let $m = {...a, ...b};
+    assert_eq(actual: m["p"].unwrap().x, expected: 1);
+    assert_eq(actual: m["q"].unwrap().y, expected: 4)
+}
+
+// Later-wins: an explicit key in `b` overrides the same key from `a`.
+@merge_later_wins tests _ () -> void = {
+    let $a = {"k": 1, "keep": 9};
+    let $b = {"k": 2};
+    let $m = {...a, ...b};
+    assert_eq(actual: m["k"].unwrap(), expected: 2);
+    assert_eq(actual: m["keep"].unwrap(), expected: 9)
+}
+
+// Empty operands on either side preserve the non-empty map's entries.
+@merge_empty_operand tests _ () -> void = {
+    let $a = {1: 10};
+    let $b: {int: int} = {};
+    let $m = {...a, ...b};
+    let $n = {...b, ...a};
+    assert_eq(actual: m[1].unwrap(), expected: 10);
+    assert_eq(actual: n[1].unwrap(), expected: 10);
+    assert(cond: m[2].is_none())
+}

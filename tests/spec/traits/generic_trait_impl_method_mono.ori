@@ -1,0 +1,45 @@
+// Regression: trait-impl methods on a generic receiver (`impl<T> Box<T>: Trait`)
+// must monomorphize per concrete instantiation and emit at LLVM/AOT, not fail
+// with "missing mono instance". Distinct from inherent-method mono — this is the
+// trait-impl sibling on a generic receiver shell. Dual-backend (interpreter + LLVM).
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+trait Get<T> {
+  @get (self) -> T
+}
+
+impl<T> Box<T>: Get<T> {
+  @get (self) -> T = self.value;
+}
+
+trait Tag {
+  @tag (self) -> int
+}
+
+impl<T> Box<T>: Tag {
+  @tag (self) -> int = 1;
+}
+
+@test_get_int tests _ () -> void = {
+  let $b = Box { value: 7 };
+  assert_eq(actual: b.get(), expected: 7)
+}
+
+@test_get_str tests _ () -> void = {
+  let $b = Box { value: "hi" };
+  assert_eq(actual: b.get(), expected: "hi")
+}
+
+@test_get_list tests _ () -> void = {
+  let $b = Box { value: [1, 2, 3] };
+  assert_eq(actual: b.get(), expected: [1, 2, 3])
+}
+
+@test_tag_multi tests _ () -> void = {
+  let $bi = Box { value: 9 };
+  let $bs = Box { value: "x" };
+  assert_eq(actual: bi.tag(), expected: 1);
+  assert_eq(actual: bs.tag(), expected: 1)
+}

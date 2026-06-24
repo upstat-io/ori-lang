@@ -15,6 +15,21 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    // Raw protocol methods — return the (Option<T>, Self) tuple
+    ("Iterator", "next") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iter_next_protocol(ctx.arg_vals[0], *element, ctx.dst_ty)
+        } else {
+            None
+        }
+    },
+    ("DoubleEndedIterator", "next_back") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iter_next_back_protocol(ctx.arg_vals[0], *element, ctx.dst_ty)
+        } else {
+            None
+        }
+    },
     // Simple adapters
     ("Iterator", "take") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
@@ -181,7 +196,7 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 
 use crate::codegen::type_info::TypeInfo;
-use crate::codegen::{LLVMTypeId, ValueId};
+use crate::codegen::ValueId;
 
 use super::super::ArcIrEmitter;
 use super::trampolines::TrampolineKind;
@@ -241,52 +256,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             _ => None,
         }
-    }
-
-    // Internal: for-loop __iter_next
-
-    /// Emit `__iter_next(iter)` — the for-loop iteration protocol.
-    ///
-    /// Calls `ori_iter_next(iter, scratch, elem_size)` and returns a decomposed
-    /// `(tag, scratch_ptr, elem_llvm_ty)` triple. The tag is an i64 (0=done,
-    /// 1=has element) and the scratch pointer holds the element data.
-    ///
-    /// The caller is responsible for registering the decomposed result in
-    /// `iter_next_decomposed` so that `emit_project` can extract the tag
-    /// (field 0) and element (field 1) without building an intermediate
-    /// `{i64, T}` wrapper struct.
-    pub(in crate::codegen) fn emit_iter_next(
-        &mut self,
-        iter_ptr: ValueId,
-        elem_ty: Idx,
-    ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
-        let func_id = self.builder.runtime_fn("ori_iter_next");
-
-        // Use canonical element size/type — narrowing is confined to the
-        // list storage boundary (emit_list_iter), never the iterator pipeline.
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-
-        // Allocate scratch buffer for the element (canonical type).
-        let elem_llvm_ty = self.resolve_type(elem_ty);
-        let scratch = self.builder.create_entry_alloca(
-            self.current_function,
-            "iter_next.scratch",
-            elem_llvm_ty,
-        );
-
-        // Call ori_iter_next(iter, scratch, elem_size) -> i8 (0=done, 1=has element)
-        let has_next_i8 = self.emit_rt_call(
-            func_id,
-            &[iter_ptr, scratch, elem_size_val],
-            "iter_next.has",
-        )?;
-
-        // Zero-extend i8 → i64 for ARC IR tag (projected as Idx::INT).
-        let i64_ty = self.builder.i64_type();
-        let tag = self.builder.zext(has_next_i8, i64_ty, "iter_next.tag");
-
-        Some((tag, scratch, elem_llvm_ty))
     }
 
     // Simple adapters

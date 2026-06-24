@@ -1100,3 +1100,72 @@ fn generalize_delegation_is_load_bearing_for_nested_struct_in_list() {
     let vars = engine.pool().scheme_vars(scheme);
     assert_eq!(vars.len(), 1);
 }
+
+// `instantiate()` on a scheme body carrying a STRUCT field whose field ty is a
+// `Tag::BoundVar` must substitute the inline field var to the fresh instantiation
+// var via the `var_subst` path. Without a `Tag::Struct` arm in `substitute`
+// (`_ => ty`), the field would stay `BoundVar`.
+#[test]
+fn instantiate_substitutes_inline_struct_bound_var_field() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let bound_id = pool.allocate_var_id_with_rank(Rank::FIRST.next());
+    let bound_node = pool.bound_var(bound_id);
+    let struct_body = pool.struct_type(Name::from_raw(11), &[(Name::from_raw(12), bound_node)]);
+    let scheme = pool.scheme(&[bound_id], struct_body);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    let instance = engine.instantiate(scheme);
+
+    assert_eq!(
+        engine.pool().tag(instance),
+        Tag::Struct,
+        "instantiated scheme body must remain a Struct; got {instance:?}",
+    );
+    let (_, field_ty) = engine.pool().struct_field(instance, 0);
+    assert_eq!(
+        engine.pool().tag(field_ty),
+        Tag::Var,
+        "the inline struct field BoundVar must be substituted to a fresh Var; got {:?}",
+        engine.pool().tag(field_ty),
+    );
+}
+
+// `instantiate()` on a scheme body carrying an ENUM variant payload that is a
+// `Tag::BoundVar` must substitute the inline payload var to the fresh
+// instantiation var. Without a `Tag::Enum` arm in `substitute` (`_ => ty`), the
+// payload would stay `BoundVar`.
+#[test]
+fn instantiate_substitutes_inline_enum_bound_var_payload() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let bound_id = pool.allocate_var_id_with_rank(Rank::FIRST.next());
+    let bound_node = pool.bound_var(bound_id);
+    let enum_body = pool.enum_type(
+        Name::from_raw(21),
+        &[crate::EnumVariant {
+            name: Name::from_raw(22),
+            field_types: vec![bound_node],
+        }],
+    );
+    let scheme = pool.scheme(&[bound_id], enum_body);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    let instance = engine.instantiate(scheme);
+
+    assert_eq!(
+        engine.pool().tag(instance),
+        Tag::Enum,
+        "instantiated scheme body must remain an Enum; got {instance:?}",
+    );
+    let (_, payloads) = engine.pool().enum_variant(instance, 0);
+    assert_eq!(payloads.len(), 1, "variant must keep its single payload");
+    assert_eq!(
+        engine.pool().tag(payloads[0]),
+        Tag::Var,
+        "the inline enum payload BoundVar must be substituted to a fresh Var; got {:?}",
+        engine.pool().tag(payloads[0]),
+    );
+}

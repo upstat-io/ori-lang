@@ -203,7 +203,7 @@ pub(super) fn resolve_deferred_mono_calls(
 pub(super) fn refresh_method_mono_body_type_maps(
     pool: &mut Pool,
     mono_instances: &mut [crate::MonoInstance],
-    struct_type_params: &rustc_hash::FxHashMap<Name, Vec<Name>>,
+    generic_type_params: &rustc_hash::FxHashMap<Name, Vec<Name>>,
 ) {
     use crate::{Idx, Tag};
 
@@ -246,7 +246,7 @@ pub(super) fn refresh_method_mono_body_type_maps(
         refreshed.sort_by_key(|(k, _)| k.raw());
         refreshed.dedup_by_key(|(k, _)| k.raw());
 
-        crate::infer::register_concrete_applied_resolutions(pool, &refreshed, struct_type_params);
+        crate::infer::register_concrete_applied_resolutions(pool, &refreshed, generic_type_params);
         inst.body_type_map = refreshed;
     }
 }

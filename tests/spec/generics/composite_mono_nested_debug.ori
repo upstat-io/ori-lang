@@ -1,0 +1,15 @@
+// Regression: nested generic composite `Box<Box<int>>`. Both
+// instantiation levels must materialize concrete bodies so derived `debug`
+// resolves the inner type concretely. Dual-backend.
+use std.testing { assert_eq }
+
+#derive(Debug) type Box<T> = { value: T }
+
+@nested_dbg (b: Box<Box<int>>) -> str = b.debug();
+
+@test_nested_box_debug tests _ () -> void = {
+    let $inner = Box { value: 7 };
+    let $outer = Box { value: inner };
+    let $s = nested_dbg(b: outer);
+    assert_eq(actual: s.contains(substr: "7"), expected: true)
+}

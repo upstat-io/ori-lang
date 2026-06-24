@@ -8,7 +8,6 @@ use ori_registry::burden::table::{
 use rustc_hash::FxHashMap;
 
 use super::super::super::InferEngine;
-use super::super::structs::substitute_named_types;
 use crate::pool::substitute::{extract_var_from_types, substitute_in_pool};
 use crate::registry::burden_compose::compose_user_burden;
 use crate::{GenericArg, Idx, MonoInstance, Pool, Tag, TypeFlags};
@@ -97,10 +96,10 @@ pub(super) fn maybe_record_mono_instance(
         &mut var_subst,
     );
 
-    // Collect struct type params before taking pool_mut(), so
-    // register_concrete_applied_resolutions can build Named->Idx
-    // substitutions for struct fields (which use Named tags, not Var tags).
-    let struct_type_params = collect_struct_type_params(engine);
+    // Collect generic-composite type params before taking pool_mut(), so
+    // register_concrete_applied_resolutions can build Named->Idx substitutions
+    // for struct fields and enum payloads (which use Named tags, not Var tags).
+    let generic_type_params = collect_generic_type_params(engine);
 
     // Concrete case: all type params resolved -- build full MonoInstance.
     let pool = engine.pool_mut();
@@ -114,7 +113,7 @@ pub(super) fn maybe_record_mono_instance(
     // `extra_named` is empty here — the shared helper reduces to the canonical
     // build + sort + dedup + Applied-resolution registration.
     let body_type_map =
-        build_and_register_body_type_map(pool, &var_subst, &[], &struct_type_params);
+        build_and_register_body_type_map(pool, &var_subst, &[], &generic_type_params);
 
     // Register the concrete struct resolution for each concrete param / return
     // type (e.g. `Box<[int]>`) — the free-function analogue of the method path's
@@ -123,9 +122,9 @@ pub(super) fn maybe_record_mono_instance(
     // per-instantiation burden from the substituted field types instead of the
     // generic `Box<T>` (empty `owned_fields`) fallback.
     for &pt in &concrete_param_types {
-        resolve_applied_type(pool, pt, &struct_type_params);
+        resolve_applied_type(pool, pt, &generic_type_params);
     }
-    resolve_applied_type(pool, concrete_return_type, &struct_type_params);
+    resolve_applied_type(pool, concrete_return_type, &generic_type_params);
 
     let instance = MonoInstance::new_top_level(
         fn_name,
@@ -364,7 +363,7 @@ fn build_method_body_type_map(
         &sig.scheme_var_ids,
         var_subst,
     );
-    let struct_type_params = collect_struct_type_params(engine);
+    let generic_type_params = collect_generic_type_params(engine);
     // Name-keyed binder entries the var-keyed helper cannot reach — both the
     // impl-level `Tag::Named(binder)` binders (when `mono` is `Some`) AND the
     // method-level `<T>` binders (the body's `VarState::Rigid { name }` rigid
@@ -382,7 +381,7 @@ fn build_method_body_type_map(
     extra_named.extend(method_named);
     let pool = engine.pool_mut();
     let body_type_map =
-        build_and_register_body_type_map(pool, var_subst, &extra_named, &struct_type_params);
+        build_and_register_body_type_map(pool, var_subst, &extra_named, &generic_type_params);
 
     // The receiver's own concrete Applied type (e.g. `Box<str>`) is the `self`
     // type — never a value in `body_type_map`, which carries only binder
@@ -394,7 +393,7 @@ fn build_method_body_type_map(
     // The mono-dispatch shell key derives from the receiver's `Tag::Applied`
     // structure directly (`Pool::generic_shell`), so this resolution does not
     // collapse the `(method, Box<_>)` dispatch key.
-    resolve_applied_type(pool, receiver, &struct_type_params);
+    resolve_applied_type(pool, receiver, &generic_type_params);
 
     (body_type_map, extra_named)
 }
@@ -403,18 +402,14 @@ fn build_method_body_type_map(
 /// i.e. it is a fully concrete monomorphic type safe to record in a
 /// `MonoInstance`.
 fn is_fully_concrete(engine: &InferEngine<'_>, ty: Idx) -> bool {
-    let unresolved = TypeFlags::HAS_VAR
-        | TypeFlags::HAS_INFER
-        | TypeFlags::HAS_BOUND_VAR
-        | TypeFlags::HAS_RIGID_VAR;
-    !engine.pool().flags(ty).intersects(unresolved)
+    !engine.pool().flags(ty).has_any_var_or_infer()
 }
 
 /// Collect every user-defined generic type's `name → type_params` so
 /// [`register_concrete_applied_resolutions`] can build `Named → Idx`
-/// substitutions for struct fields (which use `Tag::Named`, not `Tag::Var`).
-/// Read-only on the registry; call BEFORE taking `pool_mut()`.
-fn collect_struct_type_params(engine: &InferEngine<'_>) -> FxHashMap<Name, Vec<Name>> {
+/// substitutions for struct fields and enum payloads (which use `Tag::Named`,
+/// not `Tag::Var`). Read-only on the registry; call BEFORE taking `pool_mut()`.
+fn collect_generic_type_params(engine: &InferEngine<'_>) -> FxHashMap<Name, Vec<Name>> {
     engine
         .type_registry()
         .map(|tr| {
@@ -437,7 +432,7 @@ fn build_and_register_body_type_map(
     pool: &mut Pool,
     var_subst: &FxHashMap<u32, Idx>,
     extra_named: &[(Name, Idx)],
-    struct_type_params: &FxHashMap<Name, Vec<Name>>,
+    generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) -> Vec<(Idx, Idx)> {
     let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
     // Merge impl-level `Tag::RigidVar(var_id) → concrete` entries into the
@@ -468,7 +463,7 @@ fn build_and_register_body_type_map(
     }
     body_type_map.sort_by_key(|(k, _)| k.raw());
     body_type_map.dedup_by_key(|(k, _)| k.raw());
-    register_concrete_applied_resolutions(pool, &body_type_map, struct_type_params);
+    register_concrete_applied_resolutions(pool, &body_type_map, generic_type_params);
     body_type_map
 }
 
@@ -485,11 +480,17 @@ fn build_and_register_body_type_map(
 /// never flow through a generic call. The `compose_for_idx` accumulator dedups
 /// repeat hits, so running both is idempotent in effect.
 pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngine<'_>) {
+    // Materialize each concrete generic-composite `Applied` body BEFORE burden
+    // composition so the codegen-direct derived-method path and the struct/enum
+    // burden arms below read concrete field/payload types, not the generic param.
+    materialize_concrete_applied_composites(engine);
+
     // The concrete types produced by this monomorphization sit in the
     // engine's pool. Walking the entire pool every call is quadratic;
-    // `collect_candidate_indices` restricts to generic-builtin tags whose
-    // flags show no remaining type variables. Composed specs accumulate in
-    // the engine's `composed_burdens` Vec, drained at body-pass end via
+    // `collect_candidate_indices` restricts to generic-builtin tags + the
+    // just-materialized concrete user-composite `Applied`s whose flags show no
+    // remaining type variables. Composed specs accumulate in the engine's
+    // `composed_burdens` Vec, drained at body-pass end via
     // `take_composed_burdens` and flushed into the TypeRegistry burden
     // surface by `ModuleChecker::flush_composed_burdens`.
     let snapshot_indices: Vec<Idx> = {
@@ -501,6 +502,43 @@ pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngin
     }
 }
 
+/// Materialize the concrete pool body for every fully-resolved generic-composite
+/// `Applied` in the engine's pool that lacks a resolution. Reads the
+/// `name → declared param names` map from the registry, then drives the shared
+/// `materialize_applied_body` helper (which interns the concrete `Struct`/`Enum`
+/// and records `set_resolution(applied -> concrete)`). Read-only registry scan
+/// first, then a single mutable pool walk; idempotent (already-resolved
+/// `Applied`s short-circuit inside the helper).
+fn materialize_concrete_applied_composites(engine: &mut InferEngine<'_>) {
+    let generic_type_params = collect_generic_type_params(engine);
+    if generic_type_params.is_empty() {
+        return;
+    }
+    let candidates: Vec<Idx> = {
+        let pool = engine.pool();
+        pool.iter_indices()
+            // Offer every unresolved `Applied` to the helper, which
+            // resolves each arg through its var-links and skips only genuinely
+            // generic instantiations. A raw `HAS_VAR` filter here would drop an
+            // inferred construct's type whose arg is a concrete-linked Var.
+            .filter(|&idx| pool.tag(idx) == Tag::Applied && pool.resolve(idx).is_none())
+            .collect()
+    };
+    if candidates.is_empty() {
+        return;
+    }
+    let pool = engine.pool_mut();
+    let mut in_progress = rustc_hash::FxHashSet::default();
+    for applied in candidates {
+        crate::pool::substitute::materialize_applied_body(
+            pool,
+            applied,
+            &generic_type_params,
+            &mut in_progress,
+        );
+    }
+}
+
 /// Collect every pool Idx whose tag matches a builtin generic template AND
 /// whose flags show no remaining type variables (fully-resolved monomorph).
 /// Walking the full pool here is a placeholder — once the body-pass
@@ -508,17 +546,17 @@ pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngin
 /// `body_type_map` of the just-recorded `MonoInstance`.
 fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
     let mut out = Vec::new();
-    // Pool length read once; the accumulator dedups duplicate hits across
-    // multiple monomorphization sites within the same body. Saturating
-    // `usize -> u32` mirrors the workspace pattern at `pool/substitute/mod.rs:541`;
-    // a single body's pool cannot reach `u32::MAX` entries in practice.
-    let len_u32 = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-    for raw in 0..len_u32 {
-        let idx = Idx::from_raw(raw);
-        if !matches!(
-            pool.tag(idx),
+    for idx in pool.iter_indices() {
+        let tag = pool.tag(idx);
+        // Builtin generic templates always candidate; a user-composite
+        // `Applied` candidates ONLY once materialized (a concrete resolution is
+        // recorded) so `compose_for_idx`'s struct/enum arm reads the concrete
+        // body. A generic (unmaterialized) `Applied` is skipped.
+        let is_candidate = matches!(
+            tag,
             Tag::Option | Tag::Result | Tag::List | Tag::Map | Tag::Set | Tag::Range
-        ) {
+        ) || (tag == Tag::Applied && pool.resolve(idx).is_some());
+        if !is_candidate {
             continue;
         }
         let flags = pool.flags(idx);
@@ -558,6 +596,24 @@ pub(crate) fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
             if let Some(composed) =
                 crate::check::registration::burden_compute::compute_struct_burden_from_field_types(
                     &field_types,
+                    engine.pool(),
+                )
+            {
+                engine.record_composed_burden(idx, composed);
+            }
+            return;
+        }
+        // Enum twin of the struct arm: a concrete user-defined
+        // generic enum (`Either<[int], int>`) composes its per-instantiation
+        // burden from the materialized concrete variant payloads, read via
+        // `Pool::enum_variants`. Without it the builtin-template match below
+        // falls through (`Tag::Enum` is not Option/Result/[T]/{K:V}/Set/Range)
+        // and the enum heap payload's drop is mis-attributed.
+        if engine.pool().tag(resolved) == Tag::Enum {
+            let variants = engine.pool().enum_variants(resolved);
+            if let Some(composed) =
+                crate::check::registration::burden_compute::compute_enum_burden_from_variant_payloads(
+                    &variants,
                     engine.pool(),
                 )
             {
@@ -807,87 +863,34 @@ fn record_deferred_mono_call(
 pub(crate) fn register_concrete_applied_resolutions(
     pool: &mut Pool,
     body_type_map: &[(Idx, Idx)],
-    struct_type_params: &FxHashMap<Name, Vec<Name>>,
+    generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) {
     for &(_generic_idx, concrete_idx) in body_type_map {
         if pool.tag(concrete_idx) == Tag::Applied {
-            resolve_applied_type(pool, concrete_idx, struct_type_params);
+            resolve_applied_type(pool, concrete_idx, generic_type_params);
         }
     }
 }
 
-/// Resolve a single concrete Applied type to a concrete Struct in the pool.
-///
-/// Recursively resolves any Applied types that appear as field types after
-/// substitution (e.g., `Wrapper<Pair<int, bool>>` -> field `inner: Pair<int, bool>`
-/// -> also needs `Pair<int, bool>` registered).
+/// Resolve a single concrete Applied type to its concrete composite body in the
+/// pool, covering BOTH `Tag::Struct` and `Tag::Enum`. Delegates to
+/// the SSOT `materialize_applied_body` helper in `pool::substitute` (which
+/// substitutes the generic field/payload types via the canonical name-keyed
+/// walker `substitute_named_in_pool`, interns the concrete `Struct`/`Enum`,
+/// records `set_resolution`, and recurses into nested generic fields under an
+/// `in_progress` guard). Threads the registry's `name → param names` map and
+/// pre-resolves the field/param list at the call site rather than plumbing a
+/// `&TypeRegistry` through the generic substitution path.
 fn resolve_applied_type(
     pool: &mut Pool,
     applied_idx: Idx,
-    struct_type_params: &FxHashMap<Name, Vec<Name>>,
+    generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) {
-    use crate::TypeFlags;
-
-    // Skip non-Applied, already-resolved, or types with unresolved vars.
-    if pool.tag(applied_idx) != Tag::Applied {
-        return;
-    }
-    if pool.resolve(applied_idx).is_some() {
-        return;
-    }
-    if pool.flags(applied_idx).contains(TypeFlags::HAS_VAR) {
-        return;
-    }
-
-    // Use resolve_fully's Applied->Named fallback to find the generic struct.
-    let resolved = pool.resolve_fully(applied_idx);
-    if resolved == applied_idx || pool.tag(resolved) != Tag::Struct {
-        return;
-    }
-
-    // Build Named->Idx substitution from Applied args and struct type params.
-    // The struct fields use Named("A"), Named("B") etc. -- not Var tags --
-    // so substitute_named_types is required instead of substitute_in_pool.
-    let name = pool.applied_name(applied_idx);
-    let args = pool.applied_args(applied_idx);
-    let Some(type_params) = struct_type_params.get(&name) else {
-        return;
-    };
-    if type_params.len() != args.len() {
-        return;
-    }
-
-    let named_subst: FxHashMap<Name, Idx> = type_params
-        .iter()
-        .zip(args.iter())
-        .map(|(&param_name, &arg)| (param_name, arg))
-        .collect();
-
-    let fields = pool.struct_fields(resolved);
-    let concrete_fields: Vec<(Name, Idx)> = fields
-        .iter()
-        .map(|&(field_name, field_ty)| {
-            let concrete_field = substitute_named_types(pool, field_ty, &named_subst);
-            (field_name, concrete_field)
-        })
-        .collect();
-
-    let concrete_struct = pool.struct_type(name, &concrete_fields);
-    pool.set_resolution(applied_idx, concrete_struct);
-
-    tracing::debug!(
-        ?name,
-        ?applied_idx,
-        ?concrete_struct,
-        "registered Applied -> Struct resolution for monomorphized type"
+    let mut in_progress = rustc_hash::FxHashSet::default();
+    crate::pool::substitute::materialize_applied_body(
+        pool,
+        applied_idx,
+        generic_type_params,
+        &mut in_progress,
     );
-
-    // Recursively resolve Applied types in field types (handles nested generics
-    // like Wrapper<Pair<int, bool>> where field inner: Pair<int, bool> also
-    // needs registration).
-    for &(_, field_ty) in &concrete_fields {
-        if pool.tag(field_ty) == Tag::Applied {
-            resolve_applied_type(pool, field_ty, struct_type_params);
-        }
-    }
 }

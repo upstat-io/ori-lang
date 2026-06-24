@@ -61,6 +61,14 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // Iterator next_back — extern "C" (DoubleEndedIterator backward protocol)
+    RtFn {
+        name: "ori_iter_next_back",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
+        ret: Some(Ty::I8),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Iterator adapters — extern "C" (store callback, don't call it)
     RtFn {
         name: "ori_iter_map",

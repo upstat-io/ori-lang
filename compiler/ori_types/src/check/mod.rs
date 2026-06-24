@@ -486,10 +486,10 @@ impl<'a> ModuleChecker<'a> {
         // side-table for Phase 5 burden emission (Spec: Annex E §AIMS).
         let collection_burdens = self.types.drain_collection_burdens();
 
-        // Struct type-param map (`Name → [param names]`) for refreshing method
+        // Generic-composite type-param map (`Name → [param names]`) for refreshing method
         // mono `body_type_map`s below — built BEFORE `into_entries` consumes the
-        // registry. SSOT mirror of `monomorphization::collect_struct_type_params`.
-        let struct_type_params: rustc_hash::FxHashMap<Name, Vec<Name>> = self
+        // registry. SSOT mirror of `monomorphization::collect_generic_type_params`.
+        let generic_type_params: rustc_hash::FxHashMap<Name, Vec<Name>> = self
             .types
             .iter()
             .filter(|entry| !entry.type_params.is_empty())
@@ -535,7 +535,7 @@ impl<'a> ModuleChecker<'a> {
         exports::refresh_method_mono_body_type_maps(
             &mut pool,
             &mut mono_instances,
-            &struct_type_params,
+            &generic_type_params,
         );
 
         // Dedup mono instances by the full identity tuple, then sort by

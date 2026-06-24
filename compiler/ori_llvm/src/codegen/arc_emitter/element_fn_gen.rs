@@ -45,6 +45,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         method_name: ori_ir::Name,
     ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        // A multi-instantiation generic-composite map/set key
+        // dispatches the per-instantiation derived `hash`/`eq` keyed on the
+        // materialized concrete Idx before the last-instantiation-wins type-name
+        // map. A user `@drop` (the other consumer) is not a derived method, so it
+        // never hits `mono_derive_functions` and falls through unchanged.
+        let resolved = self.pool.resolve_fully(ty);
+        if let Some((func_id, abi)) = self.ctx.mono_derive_functions.get(&(resolved, method_name)) {
+            return Some((*func_id, abi.clone()));
+        }
         let type_name = self.drop_type_name(ty)?;
         let (func_id, abi) = self.ctx.method_functions.get(&(type_name, method_name))?;
         Some((*func_id, abi.clone()))

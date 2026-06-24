@@ -109,6 +109,19 @@ impl TypeFlags {
         )
     }
 
+    /// Check if the type contains any unresolved or generic type variable: an
+    /// unbound `Var`, an AST `Infer` placeholder, a scheme `BoundVar`, or a
+    /// `RigidVar`. False means a fully-concrete monomorphic type.
+    #[inline]
+    pub const fn has_any_var_or_infer(self) -> bool {
+        self.intersects(
+            Self::HAS_VAR
+                .union(Self::HAS_INFER)
+                .union(Self::HAS_BOUND_VAR)
+                .union(Self::HAS_RIGID_VAR),
+        )
+    }
+
     /// Check if the type contains unbound variables.
     #[inline]
     pub const fn has_vars(self) -> bool {

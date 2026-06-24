@@ -158,9 +158,16 @@ pub(crate) enum IterState {
     /// hold their own ref), and `Drop` decs every stored master via
     /// `elem_dec_fn`. Null for scalar elements. The inc happens once at collect
     /// (single-pass), so no stored `elem_inc_fn` is needed on this variant.
+    ///
+    /// Double-ended: the un-yielded window is `[front, pos)`. `next` pops the
+    /// high end (`pos -= 1`, yielding `elements` in reverse), `next_back` pops
+    /// the low end (`front += 1`, yielding in source order). Drop decs every
+    /// stored master regardless of the window (copies were handed out, masters
+    /// stay until teardown).
     Reversed {
         elements: Vec<u8>,
         pos: i64,
+        front: i64,
         elem_size: i64,
         elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },

@@ -143,6 +143,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_from_duration" => runtime::ori_str_from_duration as *const () as usize,
         "ori_str_from_size" => runtime::ori_str_from_size as *const () as usize,
         "ori_str_from_bool" => runtime::ori_str_from_bool as *const () as usize,
+        "ori_str_from_ordering" => runtime::ori_str_from_ordering as *const () as usize,
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
         "ori_str_from_char" => runtime::ori_str_from_char as *const () as usize,
         // String debug formatting
@@ -206,6 +207,7 @@ fn lookup_jit_address(name: &str) -> usize {
             runtime::map::cow_updated::ori_map_updated_cow as *const () as usize
         }
         "ori_map_remove_cow" => runtime::map::cow::ori_map_remove_cow as *const () as usize,
+        "ori_map_merge_cow" => runtime::map::cow::ori_map_merge_cow as *const () as usize,
         "ori_map_buffer_rc_dec" => runtime::ori_map_buffer_rc_dec as *const () as usize,
         "ori_map_buffer_drop_unique" => runtime::ori_map_buffer_drop_unique as *const () as usize,
         "ori_map_keys_offset" => runtime::ori_map_keys_offset as *const () as usize,
@@ -234,6 +236,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_from_option" => runtime::iterator::ori_iter_from_option as *const () as usize,
         // Iterator core
         "ori_iter_next" => runtime::iterator::ori_iter_next as *const () as usize,
+        "ori_iter_next_back" => runtime::iterator::ori_iter_next_back as *const () as usize,
         "ori_iter_drop" => runtime::iterator::ori_iter_drop as *const () as usize,
         // Iterator adapters
         "ori_iter_map" => runtime::iterator::ori_iter_map as *const () as usize,

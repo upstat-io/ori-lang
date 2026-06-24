@@ -93,6 +93,8 @@ impl UnifyEngine<'_> {
             Tag::Function => self.substitute_function(ty, subst),
             Tag::Tuple => self.substitute_tuple(ty, subst),
             Tag::Applied => self.substitute_applied(ty, subst),
+            Tag::Struct => self.substitute_struct(ty, subst),
+            Tag::Enum => self.substitute_enum(ty, subst),
 
             // Schemes have their own bound variables, other types don't contain variables
             _ => ty,
@@ -235,6 +237,71 @@ impl UnifyEngine<'_> {
 
         if changed {
             self.pool.tuple(&new_elems)
+        } else {
+            ty
+        }
+    }
+
+    /// Struct: recurse through field types; preserve field names. A scheme-body
+    /// composite whose field type is a `Tag::BoundVar`/`Tag::Var` needs its
+    /// fields rewritten at instantiation (the pool Struct stores inline field
+    /// `Idx`s per `types.md TL-2`). Substitutes through `var_subst` ONLY — NO
+    /// materialization, NO `&TypeRegistry`: at instantiation the args are fresh
+    /// type VARIABLES, so concrete-body materialization is premature (it is the
+    /// pool mono-recording path's job where the `Applied` args are concrete).
+    fn substitute_struct(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let name = self.pool.struct_name(ty);
+        let fields = self.pool.struct_fields(ty);
+
+        let mut changed = false;
+        let new_fields: Vec<(ori_ir::Name, Idx)> = fields
+            .iter()
+            .map(|&(field_name, field_ty)| {
+                let new_ty = self.substitute(field_ty, subst);
+                if new_ty != field_ty {
+                    changed = true;
+                }
+                (field_name, new_ty)
+            })
+            .collect();
+
+        if changed {
+            self.pool.struct_type(name, &new_fields)
+        } else {
+            ty
+        }
+    }
+
+    /// Enum: recurse through variant payload types; preserve variant names. The
+    /// `Tag::Enum` twin of [`Self::substitute_struct`]; substitutes through
+    /// `var_subst` ONLY (no materialization, no `&TypeRegistry`).
+    fn substitute_enum(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
+        let name = self.pool.enum_name(ty);
+        let variants = self.pool.enum_variants(ty);
+
+        let mut changed = false;
+        let new_variants: Vec<crate::pool::EnumVariant> = variants
+            .iter()
+            .map(|(variant_name, payloads)| {
+                let new_payloads: Vec<Idx> = payloads
+                    .iter()
+                    .map(|&payload_ty| {
+                        let new_ty = self.substitute(payload_ty, subst);
+                        if new_ty != payload_ty {
+                            changed = true;
+                        }
+                        new_ty
+                    })
+                    .collect();
+                crate::pool::EnumVariant {
+                    name: *variant_name,
+                    field_types: new_payloads,
+                }
+            })
+            .collect();
+
+        if changed {
+            self.pool.enum_type(name, &new_variants)
         } else {
             ty
         }

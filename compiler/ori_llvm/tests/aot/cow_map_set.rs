@@ -206,6 +206,22 @@ fn test_cow_map_iter_after_insert() {
     );
 }
 
+// Map spread merge
+// `{...a, ...b}` desugars to `a.merge(b)` (COW merge consuming both operands).
+// Drives the REAL AOT entry point (`ori build` → native binary) on the merge
+// path — the spec-corpus pin (`tests/spec/collections/map/map_spread_merge.ori`)
+// runs only interp + LLVM-JIT, so this is the L8-aot + L10-leak coverage.
+// Regression: BUG-04-189 (missing merge mono instance + premature-free of the
+// merged operands at the LLVM/AOT backend).
+
+#[test]
+fn test_aot_map_spread_merge_basic_override_struct_empty() {
+    assert_aot_success(
+        include_str!("fixtures/cow_map_set/map_spread_merge.ori"),
+        "map_spread_merge",
+    );
+}
+
 // ─── Set COW ───
 // Set construction via `[...].iter().collect()` → `__collect_set` is now
 // wired in the LLVM backend. These tests verify COW semantics for sets.

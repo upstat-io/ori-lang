@@ -144,6 +144,31 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_map_merge_cow",
+        // (a_data, a_len, a_cap, b_data, b_len, b_cap, key_size, val_size, key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I32,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::NoaliasLastParam],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_map_remove_cow",
         // (data, len, cap, key, key_size, val_size, key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)
         params: &[

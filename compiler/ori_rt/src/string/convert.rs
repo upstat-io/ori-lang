@@ -113,6 +113,19 @@ pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
     }
 }
 
+/// Convert an `Ordering` tag to its variant name.
+///
+/// Tag convention (Spec: Clause 8.4.1): `Less=0`, `Equal=1`, `Greater=2`.
+/// All three names fit in SSO -- no heap allocation.
+#[no_mangle]
+pub extern "C" fn ori_str_from_ordering(tag: i64) -> OriStr {
+    match tag {
+        0 => OriStr::from_sso(b"Less"),
+        1 => OriStr::from_sso(b"Equal"),
+        _ => OriStr::from_sso(b"Greater"),
+    }
+}
+
 /// Convert a float to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {

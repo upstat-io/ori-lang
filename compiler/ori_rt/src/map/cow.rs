@@ -308,6 +308,100 @@ fn cow_insert_new(
     write_map_struct(out_ptr, new_len as i64, new_cap as i64, new_data);
 }
 
+/// COW-aware map merge (`{...a, ...b}` desugar `a.merge(b)`).
+///
+/// Consuming semantics on BOTH maps (matching list `concat`): the receiver `a`
+/// becomes the accumulator; each occupied entry of `b` is inserted via
+/// `ori_map_insert_cow` (which increments the borrowed key/value into the
+/// result buffer), then `b`'s buffer is released via `ori_map_buffer_rc_dec`.
+/// On key collision `b` wins ("later wins"), matching the interpreter's
+/// `dispatch_map_method_str`.
+///
+/// `key_inc`/`val_inc`/`key_dec`/`val_dec` are null for scalar element types.
+#[no_mangle]
+pub extern "C" fn ori_map_merge_cow(
+    a_data: *mut u8,
+    a_len: i64,
+    a_cap: i64,
+    b_data: *mut u8,
+    b_len: i64,
+    b_cap: i64,
+    key_size: i64,
+    val_size: i64,
+    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
+    key_hash: extern "C" fn(*const u8) -> i64,
+    key_inc: Option<extern "C" fn(*mut u8)>,
+    val_inc: Option<extern "C" fn(*mut u8)>,
+    key_dec: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let bc = b_cap.max(0) as usize;
+
+    // Accumulator starts as the consumed receiver `a`.
+    let mut acc = OriMap {
+        len: a_len,
+        cap: a_cap,
+        data: a_data,
+    };
+
+    if !b_data.is_null() && bc > 0 {
+        let layout = HashTableLayout::for_map(bc, ks, vs);
+        let mut first = true;
+        for bucket in 0..bc {
+            // SAFETY: bucket < bc and b_data was returned by ori_rc_alloc.
+            if unsafe { get_meta(b_data, bucket) } != META_OCCUPIED {
+                continue;
+            }
+            // SAFETY: keys_offset/vals_offset + bucket * stride are within the
+            // key/value regions of b's hash buffer.
+            let key_ptr = unsafe { b_data.add(layout.keys_offset + bucket * ks) };
+            let val_ptr = unsafe { b_data.add(layout.vals_offset + bucket * vs) };
+
+            // The first insert consumes `a` under its analyzed cow_mode; every
+            // later insert operates on the uniquely-owned accumulator (mode 1).
+            let mode = if first { cow_mode } else { 1 };
+            let mut tmp = OriMap {
+                len: 0,
+                cap: 0,
+                data: std::ptr::null_mut(),
+            };
+            ori_map_insert_cow(
+                acc.data,
+                acc.len,
+                acc.cap,
+                key_ptr.cast_const(),
+                val_ptr.cast_const(),
+                key_size,
+                val_size,
+                key_eq,
+                key_hash,
+                key_inc,
+                val_inc,
+                val_dec,
+                mode,
+                std::ptr::from_mut(&mut tmp).cast(),
+            );
+            acc = tmp;
+            first = false;
+        }
+    }
+
+    // Release `b` (consumed argument). The per-entry inserts already gave the
+    // accumulator its own references to b's keys/values, so this dec balances
+    // b's original references.
+    crate::rc::ori_map_buffer_rc_dec(b_data, b_cap, b_len, key_size, val_size, key_dec, val_dec);
+
+    write_map_struct(out_ptr, acc.len, acc.cap, acc.data);
+}
+
 /// COW-aware map remove with consuming semantics.
 ///
 /// Removes the entry with the given key using hash-based lookup.

@@ -285,12 +285,12 @@ fn registry_op_strategies_cover_all_operators() {
     }
 }
 
-/// All registry iterator methods (except protocol methods `next` and
-/// `next_back`) must have entries in the `BuiltinTable`.
-///
-/// Protocol methods are intercepted by `try_emit_protocol` before reaching
-/// builtin method dispatch — they are NOT in the registry and do not need
-/// `BuiltinTable` entries.
+/// Every registry iterator method must have a `BuiltinTable` entry, including
+/// the raw protocol methods `next` (forward) and `next_back`
+/// (`DoubleEndedIterator` backward) — both emit the user-facing `(Option<T>,
+/// Self)` tuple via `emit_iter_next_protocol` / `emit_iter_next_back_protocol`.
+/// The for-loop iteration protocol (`__iter_next`) is a separate
+/// `try_emit_protocol` interception and is not a registry method.
 ///
 /// This is stricter than `backend_required_methods_in_llvm` — it verifies
 /// ALL iterator methods are registered, regardless of `backend_required`.
@@ -301,11 +301,6 @@ fn iterator_emit_covers_all_registry_methods() {
     let mut missing = Vec::new();
 
     for method in ori_registry::methods_for(ori_registry::TypeTag::Iterator) {
-        // Protocol methods are handled by try_emit_protocol, not BuiltinTable
-        if method.name == "next" || method.name == "next_back" {
-            continue;
-        }
-
         let type_name = if method.dei_only {
             "DoubleEndedIterator"
         } else {

@@ -83,9 +83,10 @@ impl IterState {
             Self::Reversed {
                 elements,
                 pos,
+                front,
                 elem_size: es,
                 ..
-            } => Self::next_reversed(elements, pos, *es, out_ptr),
+            } => Self::next_reversed(elements, pos, *front, *es, out_ptr),
             Self::Str {
                 data,
                 len,
@@ -390,14 +391,18 @@ impl IterState {
         true
     }
 
-    /// Reversed: iterate backward through pre-collected elements.
+    /// Reversed: pop the high end of the `[front, pos)` window, yielding the
+    /// pre-collected elements in reverse source order. `front` is the back
+    /// boundary `next_back` advances; forward iteration stops when the window
+    /// is empty (`pos <= front`), not at a fixed `0`.
     unsafe fn next_reversed(
         elements: &[u8],
         pos: &mut i64,
+        front: i64,
         elem_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
-        if *pos <= 0 {
+        if *pos <= front {
             return false;
         }
         *pos -= 1;

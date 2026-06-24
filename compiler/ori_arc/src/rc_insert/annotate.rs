@@ -325,10 +325,10 @@ fn resolve_indirect_arg_ownership(
 ///
 /// Applies three overrides for collection-typed receivers:
 /// 1. **Receiver** (arg[0]): When `callee` is in `consuming_receiver_builtins`
-///    and the receiver is `List`, marks arg[0] as `Owned`.
+///    and the receiver is `List`/`Map`/`Set`, marks arg[0] as `Owned`.
 /// 2. **Second arg** (arg[1]): When `callee` is *also* in
-///    `consuming_second_arg_builtins` and the receiver is `List`, marks
-///    arg[1] as `Owned` too — the runtime consumes list2's buffer.
+///    `consuming_second_arg_builtins` and the receiver is `List`/`Map`/`Set`,
+///    marks arg[1] as `Owned` too — the runtime consumes the second operand's buffer.
 /// 3. **Third arg** (arg[2]): When `callee` is *also* in
 ///    `consuming_third_arg_builtins` (`updated`), marks arg[2] as `Owned` —
 ///    the runtime moves the inserted value into the collection.

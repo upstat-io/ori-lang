@@ -389,7 +389,18 @@ fn re_intern_applied(
         .into_iter()
         .map(|a| re_intern_type_with_var_remap(source, a, target, cache, var_remap))
         .collect();
-    target.applied(name, &args)
+    let target_applied = target.applied(name, &args);
+    // A materialized generic-composite `Applied` carries its concrete
+    // `Struct`/`Enum` body in the source pool's `resolutions` map. Re-interning the
+    // `Applied` alone drops that resolution, so the AOT codegen pool (which migrates
+    // into a fresh pool, unlike the JIT path) loses the concrete layout and emits a
+    // generic-placeholder struct + malformed `ori_rc_dec`. Carry the resolution.
+    if let Some(concrete) = source.resolve(idx) {
+        let target_concrete =
+            re_intern_type_with_var_remap(source, concrete, target, cache, var_remap);
+        target.set_resolution(target_applied, target_concrete);
+    }
+    target_applied
 }
 
 /// Re-intern a struct type (name + typed fields).

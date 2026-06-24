@@ -56,6 +56,7 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Ordering", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Ordering", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Ordering", "to_str") => emitter.emit_element_to_str(ctx.arg_vals[0], ctx.receiver_ty),
 }
 
 use crate::codegen::type_info::TypeInfo;

@@ -102,6 +102,20 @@ impl CheckResult {
     fn mono_instances_all(&self) -> &[crate::MonoInstance] {
         &self.result.typed.mono_instances
     }
+
+    /// Find the first `Tag::Applied` pool entry whose name and resolved args
+    /// match `name` + `args`. Used by the generic-composite-monomorphization
+    /// pins to locate the `Applied(Generic, [concrete])` handle and inspect its
+    /// `Pool.resolutions` materialization.
+    fn find_applied(&self, name: &str, args: &[Idx]) -> Option<Idx> {
+        let name_id = self.interner.intern(name);
+        let len = u32::try_from(self.pool.len()).unwrap_or(u32::MAX);
+        (Idx::FIRST_DYNAMIC..len).map(Idx::from_raw).find(|&idx| {
+            self.pool.tag(idx) == Tag::Applied
+                && self.pool.applied_name(idx) == name_id
+                && self.pool.applied_args(idx).as_slice() == args
+        })
+    }
 }
 
 /// Parse and type-check an Ori source string.
@@ -2634,8 +2648,8 @@ type P2Pair<A, B> = { first: A, second: B };
 // type-checks and resolves to `bool`. The AOT runtime gap (the derived `equals`
 // for the `P3Pair<int, str>` instantiation is unresolved at LLVM, and an
 // un-annotated generic composite with a heap field emits invalid IR) is the
-// generic-composite-type monomorphization gap tracked by BUG-02-066; its fix
-// lands the real AOT compile+run pin.
+// generic-composite-type monomorphization gap; its fix lands the real AOT
+// compile+run pin.
 #[test]
 fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
     let source = r"
@@ -2754,6 +2768,113 @@ fn s09_2_deferred_route_records_no_var_typed_instance() {
             "deferred route leaked a Var-typed concrete return into instance {inst:?}"
         );
     }
+}
+
+// Generic STRUCT body materialization. `Applied(P3Pair,[int,str])` must resolve
+// through `Pool.resolutions` to a concrete `Tag::Struct` whose field types are the
+// concrete args (`int`/`str`), NOT the generic param refs. Without materialization
+// the `Applied` carries no resolution (codegen reads the generic field).
+#[test]
+fn generic_struct_applied_resolves_to_concrete_body() {
+    let source = r"
+#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
+@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
+@test_p3 tests @p3_cmp () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "generic-struct program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let applied = result
+        .find_applied("P3Pair", &[Idx::INT, Idx::STR])
+        .expect("Applied(P3Pair, [int, str]) must exist in the pool");
+    let concrete = result
+        .pool
+        .resolve(applied)
+        .expect("Applied(P3Pair, [int, str]) must resolve to a concrete body");
+    assert_eq!(
+        result.tag(concrete),
+        Tag::Struct,
+        "the materialized resolution must be a concrete Struct; got {concrete:?}"
+    );
+    let fields = result.pool.struct_fields(concrete);
+    let field_tys: Vec<Idx> = fields.iter().map(|&(_, ty)| ty).collect();
+    assert_eq!(
+        field_tys,
+        vec![Idx::INT, Idx::STR],
+        "materialized struct fields must be concrete int/str, not the generic params; got {field_tys:?}"
+    );
+}
+
+// Struct-field NEGATIVE behavioral pin. The materialized struct field type must
+// NOT be a `Tag::Named` generic-param ref — without materialization the field
+// stays the declared `Tag::Named(A)`/`Named(B)`; materialized it is concrete.
+#[test]
+fn materialized_struct_field_is_not_generic_param() {
+    let source = r"
+#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
+@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
+@test_p3 tests @p3_cmp () -> void = ();
+";
+    let result = check_source(source);
+    let applied = result
+        .find_applied("P3Pair", &[Idx::INT, Idx::STR])
+        .expect("Applied(P3Pair, [int, str]) must exist");
+    let concrete = result
+        .pool
+        .resolve(applied)
+        .expect("Applied must resolve to a concrete body post-fix");
+    for (fname, fty) in result.pool.struct_fields(concrete) {
+        assert_ne!(
+            result.tag(fty),
+            Tag::Named,
+            "field {fname:?} kept a generic-param Named ref after materialization: {fty:?}"
+        );
+    }
+}
+
+// Enum variant-payload NEGATIVE behavioral pin. `Either<int,str>` `R`-variant
+// payload Idx must be the concrete `str`, NOT the declared generic param
+// `Tag::Named(B)`. Pins behavior (the payload Idx value), not symbol existence.
+#[test]
+fn generic_enum_r_payload_resolves_to_concrete() {
+    let source = r"
+#derive(Eq) type Either<A, B> = L(value: A) | R(value: B);
+@either_cmp (x: Either<int, str>, y: Either<int, str>) -> bool = x == y;
+@test_either tests @either_cmp () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "generic-enum program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+    let applied = result
+        .find_applied("Either", &[Idx::INT, Idx::STR])
+        .expect("Applied(Either, [int, str]) must exist in the pool");
+    let concrete = result
+        .pool
+        .resolve(applied)
+        .expect("Applied(Either, [int, str]) must resolve to a concrete enum body");
+    assert_eq!(
+        result.tag(concrete),
+        Tag::Enum,
+        "the materialized resolution must be a concrete Enum; got {concrete:?}"
+    );
+    let variants = result.pool.enum_variants(concrete);
+    // R is the second variant; its single payload must be concrete `str`.
+    let r_payload = variants
+        .iter()
+        .find(|(vname, _)| *vname == result.interner.intern("R"))
+        .map(|(_, payloads)| payloads.clone())
+        .expect("the R variant must be present");
+    assert_eq!(
+        r_payload,
+        vec![Idx::STR],
+        "R payload must materialize to concrete str, not the generic param; got {r_payload:?}"
+    );
 }
 
 // Pin 7 — deferred-resolve POSITIVE. When the outer generic `p7_wrap` is

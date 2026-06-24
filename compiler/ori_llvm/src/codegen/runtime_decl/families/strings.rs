@@ -176,6 +176,13 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_str_from_ordering",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_str_from_float",
         params: &[Ty::F64],
         ret: Some(Ty::Str),

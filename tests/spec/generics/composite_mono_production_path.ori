@@ -1,0 +1,17 @@
+// Regression: production-path (L12) end-to-end. Real `ori test`
+// drives construction, field access, AND a derived method on a generic-composite
+// instantiation. NOT a seam-injected substitute_in_pool call. Dual-backend.
+use std.testing { assert, assert_eq }
+
+#derive(Eq) type Pair<A, B> = { first: A, second: B }
+
+@first_of (p: Pair<int, str>) -> int = p.first;
+
+@cmp (p: Pair<int, str>, q: Pair<int, str>) -> bool = p == q;
+
+@test_production_field_and_derived tests _ () -> void = {
+    let $p = Pair { first: 9, second: "ok" };
+    let $q = Pair { first: 9, second: "ok" };
+    assert_eq(actual: first_of(p: p), expected: 9);
+    assert(cond: cmp(p: p, q: q))
+}

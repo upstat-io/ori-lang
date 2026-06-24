@@ -239,6 +239,7 @@ pub extern "C" fn ori_iter_rev(
     let rev_state = IterState::Reversed {
         elements,
         pos: count,
+        front: 0,
         elem_size,
         elem_dec_fn,
     };

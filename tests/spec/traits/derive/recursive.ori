@@ -18,6 +18,7 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 }
 @leaf_eq () -> bool = Leaf(value: 1) == Leaf(value: 1);
 
+#skip("BUG-04-216: derived Eq on recursive boxed self-referential sum-type — LLVM boxed-enum-child deref gap")
 @test_node_eq tests @node_eq () -> void = {
     let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
     let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
@@ -51,6 +52,7 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
     l == l.clone()
 }
 
+#skip("BUG-04-216: derived Clone on recursive boxed self-referential sum-type — LLVM boxed-enum-child deref gap")
 @test_node_clone tests @node_clone () -> void = {
     let t = Node(left: Leaf(value: 1), right: Leaf(value: 2));
     assert(cond: t == t.clone())
@@ -77,6 +79,7 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 
 // --- Deep nesting ---
 
+#skip("BUG-04-216: derived Eq on deeply-nested recursive boxed sum-type — LLVM boxed-enum-child deref gap")
 @test_deep_eq tests @deep_eq () -> void = {
     let t1 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));
     let t2 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));

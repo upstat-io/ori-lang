@@ -53,6 +53,17 @@ pub(crate) fn compare_values(
         (Value::Tuple(a_elems), Value::Tuple(b_elems)) => compare_lists(a_elems, b_elems, interner),
         // Ordering comparison
         (Value::Ordering(a), Value::Ordering(b)) => Ok(a.to_tag().cmp(&b.to_tag())),
+        // Struct: derived Comparable is lexicographic over fields in layout
+        // (= declaration) order; both operands share the type (Self), so fields
+        // align by index. Same structural-recursion seam this comparator already
+        // uses for List/Tuple/Option/Result — not a dispatch to a derived method.
+        (Value::Struct(a_s), Value::Struct(b_s)) => {
+            compare_lists(&a_s.fields[..], &b_s.fields[..], interner)
+        }
+        // Newtype: compare the wrapped inner value.
+        (Value::Newtype { inner: a_in, .. }, Value::Newtype { inner: b_in, .. }) => {
+            compare_values(a_in, b_in, interner)
+        }
         _ => Err(EvalError::new(format!(
             "cannot compare {} with {}",
             a.type_name(),

@@ -166,7 +166,11 @@ declare_builtins! { emitter, ctx;
     },
 }
 
+use ori_ir::Name;
 use ori_types::Idx;
+
+use crate::codegen::abi::{FunctionAbi, ParamAbi};
+use crate::codegen::value_id::FunctionId;
 
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
@@ -227,17 +231,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Call a compiled derived `eq` method for a user-defined type.
-    ///
-    /// Looks up the type name and compiled `eq` function, applies ABI
-    /// parameter passing (Indirect for large structs), and returns the bool.
-    fn emit_derived_eq_call(&mut self, lhs: ValueId, rhs: ValueId, ty: Idx) -> Option<ValueId> {
+    /// Resolve a derived method for a (possibly generic-composite) operand type,
+    /// returning the full ABI. Prefers the per-instantiation map keyed by the
+    /// materialized concrete Idx (`pool.resolve_fully`); falls back to the
+    /// type-name-keyed map. Shared mono-first resolver for the eq/hash/compare
+    /// element paths and the `debug`/`to_str` format paths (which need the return
+    /// ABI for the sret decision).
+    pub(super) fn derived_method_full(
+        &self,
+        ty: Idx,
+        method: Name,
+    ) -> Option<(FunctionId, FunctionAbi)> {
+        let resolved = self.pool.resolve_fully(ty);
+        if let Some((fid, abi)) = self.ctx.mono_derive_functions.get(&(resolved, method)) {
+            return Some((*fid, abi.clone()));
+        }
         let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let (fid, abi) = self.ctx.method_functions.get(&(type_name, method))?;
+        Some((*fid, abi.clone()))
+    }
+
+    /// Params-only projection of [`Self::derived_method_full`] for the element
+    /// eq/hash/compare paths that only need `apply_param_passing`.
+    fn derived_method_for(&self, ty: Idx, method: Name) -> Option<(FunctionId, Vec<ParamAbi>)> {
+        self.derived_method_full(ty, method)
+            .map(|(fid, abi)| (fid, abi.params))
+    }
+
+    /// Call a compiled derived `eq` method for a user-defined type.
+    fn emit_derived_eq_call(&mut self, lhs: ValueId, rhs: ValueId, ty: Idx) -> Option<ValueId> {
         let interned_eq = self.interner.intern("eq");
-        let (func_id, params) = {
-            let (fid, abi) = self.ctx.method_functions.get(&(type_name, interned_eq))?;
-            (*fid, abi.params.clone())
-        };
+        let (func_id, params) = self.derived_method_for(ty, interned_eq)?;
         let raw_args = [lhs, rhs];
         let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_eq")
@@ -405,21 +429,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Call a compiled derived `compare` method for a user-defined type.
+    ///
+    /// Mono-first (per-instantiation concrete Idx) so a multi-instantiation
+    /// generic composite dispatches the layout-correct `compare` instead of the
+    /// last-bound type-name layout.
     fn emit_derived_compare_call(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
         ty: Idx,
     ) -> Option<ValueId> {
-        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
         let interned_compare = self.interner.intern("compare");
-        let (func_id, params) = {
-            let (fid, abi) = self
-                .ctx
-                .method_functions
-                .get(&(type_name, interned_compare))?;
-            (*fid, abi.params.clone())
-        };
+        let (func_id, params) = self.derived_method_for(ty, interned_compare)?;
         let raw_args = [lhs, rhs];
         let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_cmp")
@@ -463,12 +484,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Call a compiled derived `hash` method for a user-defined type.
     fn emit_derived_hash_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
-        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
         let interned_hash = self.interner.intern("hash");
-        let (func_id, params) = {
-            let (fid, abi) = self.ctx.method_functions.get(&(type_name, interned_hash))?;
-            (*fid, abi.params.clone())
-        };
+        let (func_id, params) = self.derived_method_for(ty, interned_hash)?;
         let raw_args = [val];
         let passed_args = self.apply_param_passing(&raw_args, None, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_hash")
