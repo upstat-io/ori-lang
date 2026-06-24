@@ -1,0 +1,14 @@
+// Diagonal 4: DoubleEndedIterator (rev / rfind / last) x complex-generic
+// element (str — a 24-byte heap fat pointer). `rev().collect()` reverses the
+// heap-element buffer (elem inc/dec fns on the reversed buffer = leak gate);
+// `rfind` walks from the back via `next_back`; `last` returns the final
+// element. The `rfind` predicate is a fully-typed lambda (the closure param
+// type is not inferable from the back-walk context). Semantic pin: reversed
+// order + last-match + final element.
+
+@main () -> void = {
+    let $r = ["a", "b", "c", "d"].iter().rev().collect();
+    let $f = ["ax", "by", "cz"].iter().rfind((s: str) -> s.starts_with(prefix: "b"));
+    let $l = ["p", "q", "r"].iter().last();
+    print(msg: `{r[0]}{r[1]}{r[2]}{r[3]} {f.unwrap()} {l.unwrap()}`);
+}

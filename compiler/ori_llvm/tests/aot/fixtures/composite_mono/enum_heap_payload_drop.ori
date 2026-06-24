@@ -1,0 +1,14 @@
+// Regression: generic enum heap-payload `Either<[int], int>`. The
+// `L([int])` heap payload must materialize concretely so scope-exit drop frees
+// the list buffer (no malformed ori_rc_dec keyed on the generic payload param).
+// AOT runs, zero leaks on the enum heap payload.
+type Either<A, B> = L(value: A) | R(value: B);
+
+@main () -> int = {
+    let e = L(value: [10, 20, 30]);
+    let len = match e {
+        L(xs) -> len(collection: xs),
+        R(_) -> 0
+    };
+    if len == 3 then 0 else 1
+}
