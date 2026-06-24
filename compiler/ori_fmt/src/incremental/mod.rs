@@ -384,8 +384,8 @@ pub fn apply_regions(source: &str, mut regions: Vec<FormattedRegion>) -> String 
         return source.to_string();
     }
 
-    // Sort by start position (descending) to apply from end to start
-    // This preserves earlier byte offsets as we replace
+    // Sort by start position (descending) to apply from end to start.
+    // Why: applying from the end preserves earlier byte offsets across replacements.
     regions.sort_by(|a, b| b.original_start.cmp(&a.original_start));
 
     let mut result = source.to_string();

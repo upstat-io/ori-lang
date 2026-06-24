@@ -92,10 +92,19 @@ fn all_receivers_documented() {
                     type_def.name,
                     method.name,
                 );
+            } else {
+                // Arc/Structural types: receivers may Borrow (read-only) or
+                // Owned (consuming, e.g. `into`) — but never Copy, which is
+                // reserved for value types (MemoryStrategy::Copy).
+                assert_ne!(
+                    method.receiver,
+                    Ownership::Copy,
+                    "Method `{}.{}` on a non-Copy type uses Ownership::Copy; \
+                     Copy ownership is reserved for value types",
+                    type_def.name,
+                    method.name,
+                );
             }
-            // Arc types: most methods borrow, but consuming methods (into)
-            // may use Owned. The field access below proves the field exists.
-            let _ = method.receiver;
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Tests for the format specification parser.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     reason = "test code uses unwrap for concise assertions"
 )]
@@ -302,4 +302,69 @@ fn float_only_types() {
     assert!(FormatType::Percent.is_float_only());
     assert!(!FormatType::Binary.is_float_only());
     assert!(!FormatType::Hex.is_float_only());
+}
+
+// Align::from_char SSOT helper — the canonical char->align mapping the
+// lookahead and the parse site both derive from (format_spec.rs SSOT comment).
+
+#[test]
+fn align_from_char_maps_every_variant() {
+    assert_eq!(Align::from_char('<'), Some(Align::Left));
+    assert_eq!(Align::from_char('^'), Some(Align::Center));
+    assert_eq!(Align::from_char('>'), Some(Align::Right));
+}
+
+#[test]
+fn align_from_char_rejects_non_align() {
+    // Sign chars, alternate, zero-pad, digits, and arbitrary text are not
+    // alignment chars — the lookahead in parse_format_spec relies on this None.
+    for c in ['+', '-', ' ', '#', '0', '1', 'x', 'f', '*', '.', 'a', 'Z'] {
+        assert_eq!(Align::from_char(c), None, "from_char({c:?}) should be None");
+    }
+}
+
+// FormatType::from_char SSOT helper — the canonical char->type mapping the
+// parse site and the is_format_type lookahead both derive from.
+
+#[test]
+fn format_type_from_char_maps_every_variant() {
+    assert_eq!(FormatType::from_char('b'), Some(FormatType::Binary));
+    assert_eq!(FormatType::from_char('o'), Some(FormatType::Octal));
+    assert_eq!(FormatType::from_char('x'), Some(FormatType::Hex));
+    assert_eq!(FormatType::from_char('X'), Some(FormatType::HexUpper));
+    assert_eq!(FormatType::from_char('e'), Some(FormatType::Exp));
+    assert_eq!(FormatType::from_char('E'), Some(FormatType::ExpUpper));
+    assert_eq!(FormatType::from_char('f'), Some(FormatType::Fixed));
+    assert_eq!(FormatType::from_char('%'), Some(FormatType::Percent));
+}
+
+#[test]
+fn format_type_from_char_rejects_unknown() {
+    // Alignment/sign/structural chars and unrelated letters are not format
+    // types — these MUST return None so parse_format_spec emits UnknownType.
+    for c in [
+        'z', 'd', 's', 'g', '<', '>', '^', '+', '-', '#', '0', '.', ' ',
+    ] {
+        assert_eq!(
+            FormatType::from_char(c),
+            None,
+            "from_char({c:?}) should be None"
+        );
+    }
+}
+
+#[test]
+fn is_format_type_derives_from_from_char() {
+    // The is_format_type lookahead predicate is the SSOT-derived companion of
+    // FormatType::from_char — they must agree on every char they are asked.
+    for c in [
+        'b', 'o', 'x', 'X', 'e', 'E', 'f', '%', 'z', '<', '>', '+', '0', '.', ' ',
+    ] {
+        // is_format_type is private to the module; re-derive its contract here.
+        assert_eq!(
+            FormatType::from_char(c).is_some(),
+            super::is_format_type(c),
+            "is_format_type disagrees with from_char for {c:?}"
+        );
+    }
 }

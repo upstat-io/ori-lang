@@ -13,9 +13,7 @@
 //!
 //! Future work: Track user parentheses in `ori_ir::Expr` to preserve user intent.
 //!
-//! # Spec Reference
-//!
-//! Lines 974-1023
+//! Spec: Annex D §Method-Style Match, §Method Chains.
 
 use ori_ir::{ExprArena, ExprId, ExprKind};
 
@@ -37,35 +35,13 @@ use ori_ir::{ExprArena, ExprId, ExprKind};
 pub struct ParenthesesRule;
 
 impl ParenthesesRule {
-    /// Check if user added parens around this expression.
+    /// Whether the user wrote explicit parentheses around this expression.
     ///
-    /// # Current Implementation
-    ///
-    /// **Always returns `false`.** The AST does not currently track whether
-    /// parentheses were explicitly written by the user. This is a known limitation
-    /// that results in user-added parentheses being removed if not semantically required.
-    ///
-    /// # Future Work
-    ///
-    /// To preserve user parentheses, `ori_ir::Expr` would need a field like
-    /// `has_explicit_parens: bool` set during parsing. The formatter would then
-    /// preserve parentheses when this returns `true`.
-    ///
-    /// # Example of Lost User Intent
-    ///
-    /// ```text
-    /// // User writes (for clarity):
-    /// let x = (a + b) * c
-    ///
-    /// // Formatter may output (if precedence allows):
-    /// let x = a + b * c  // WRONG - changes semantics!
-    /// ```
-    ///
-    /// Note: The above example is prevented by precedence rules. The issue arises
-    /// only when parentheses are semantically optional but aid readability.
+    /// Always returns `false`: `ori_ir::Expr` does not track explicit
+    /// parentheses, so user parens that are not semantically required are
+    /// dropped. Preserving them requires a `has_explicit_parens` field set
+    /// during parsing.
     pub fn has_user_parens(_arena: &ExprArena, _expr_id: ExprId) -> bool {
-        // LIMITATION: Cannot detect user parentheses without AST support.
-        // See module-level docs for details.
         false
     }
 }
@@ -104,7 +80,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
     let expr = arena.get_expr(expr_id);
 
     match position {
-        // Spec lines 978-992: Method receiver needs parens for complex exprs
+        // Spec: Annex D §Method Chains — method receiver needs parens for complex exprs
         ParenPosition::Receiver => matches!(
             &expr.kind,
             ExprKind::Binary { .. }
@@ -120,7 +96,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
                 | ExprKind::FunctionExp(_)
         ),
 
-        // Spec lines 994-1001: Call target needs parens for complex exprs
+        // Spec: Annex D §Method Chains — call target needs parens for complex exprs
         ParenPosition::CallTarget => matches!(
             &expr.kind,
             ExprKind::Binary { .. }
@@ -134,7 +110,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
                 | ExprKind::While { .. }
         ),
 
-        // Spec lines 1003-1010: Iterator source needs parens for for/if/lambda/let
+        // Spec: Annex D §Width-Based Breaking — iterator source needs parens for for/if/lambda/let
         ParenPosition::IteratorSource => matches!(
             &expr.kind,
             ExprKind::For { .. }

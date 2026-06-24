@@ -35,7 +35,7 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Comparable.method_name(), "compare");
 }
 
-// --- New tests for macro-generated metadata ---
+// Macro-generated metadata tests
 
 #[test]
 fn all_contains_every_variant() {
@@ -129,7 +129,7 @@ fn supports_sum_types_correctness() {
     assert!(DerivedTrait::Comparable.supports_sum_types());
 }
 
-// --- Cross-crate sync enforcement ---
+// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_round_trip() {
@@ -159,7 +159,7 @@ fn all_derived_traits_round_trip() {
     }
 }
 
-// --- DerivedMethodShape tests ---
+// DerivedMethodShape tests
 
 #[test]
 fn shape_has_self() {

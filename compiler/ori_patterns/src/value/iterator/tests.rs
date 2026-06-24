@@ -181,7 +181,7 @@ fn iterator_equality() {
     assert_ne!(a2, b);
 }
 
-// ── Adapter variant tests ───────────────────────────────────────────
+// Adapter variant tests
 
 fn make_list_iter(vals: &[i64]) -> IteratorValue {
     let items = Heap::new(vals.iter().map(|&v| Value::int(v)).collect());
@@ -439,7 +439,7 @@ fn size_hint_skip_exceeds_source() {
     assert_eq!(skip.size_hint(), (0, Some(0)));
 }
 
-// ── New adapter variant tests (Phase 2C/2D) ─────────────────────────
+// New adapter variant tests
 
 // Debug format tests
 
@@ -776,7 +776,7 @@ fn from_value_non_iterable() {
     assert!(IteratorValue::from_value(&Value::Void).is_none());
 }
 
-// ── DoubleEndedIterator (next_back) tests ────────────────────────────
+// DoubleEndedIterator (next_back) tests
 
 #[test]
 fn list_next_back_basic() {
@@ -1170,7 +1170,7 @@ fn size_hint_range_after_next_back() {
     assert_eq!(iter.size_hint(), (3, Some(3)));
 }
 
-// ── Reversed variant ─────────────────────────────────────────────────
+// Reversed variant
 
 #[test]
 fn reversed_is_double_ended() {
@@ -1256,7 +1256,7 @@ fn reversed_hash_consistency() {
     assert_eq!(hash_a, hash_b);
 }
 
-// ── Repeat variant tests ─────────────────────────────────────────────
+// Repeat variant tests
 
 #[test]
 fn repeat_basic() {
@@ -1334,7 +1334,7 @@ fn repeat_not_equal_to_other_variant() {
     assert_ne!(repeat, list);
 }
 
-// ── Unbounded range iterator tests ──────────────────────────────────
+// Unbounded range iterator tests
 
 #[test]
 fn unbounded_range_next_always_yields() {
@@ -1472,7 +1472,7 @@ fn from_value_unbounded_range() {
     assert_eq!(item, Some(Value::int(0)));
 }
 
-// === Copy elision tests ===
+// Copy elision tests
 // These verify that freshly-created tuples (like those from iter.next())
 // have Arc refcount 1, enabling move-based destructuring without cloning.
 

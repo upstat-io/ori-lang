@@ -255,6 +255,63 @@ pub(crate) fn builtin_table() -> &'static BuiltinTable {
 // Dispatch entry point
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Emit parity-correct traceless defaults for the Traceable read accessors
+    /// (`trace` / `has_trace` / `trace_entries`) on an `Error` struct or a
+    /// Result/Option delegation receiver, plus `with_trace` identity on an
+    /// `Error` struct. Returns `None` for any other method/receiver.
+    ///
+    /// AOT emits no `?`-hop trace injection, so a runtime `Error` carries no
+    /// trace storage; these are the eval-traceless-parity answers. Invoked as an
+    /// early intercept in `emit_apply` / `emit_invoke` ahead of `resolve_callee`
+    /// — a `backend_required: false` Traceable method otherwise resolves to an
+    /// unbacked `_ori_trace` mono decl with a mismatched ABI.
+    pub(super) fn try_emit_traceless_traceable(
+        &mut self,
+        callee: Name,
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
+        dst_ty: Idx,
+    ) -> Option<ValueId> {
+        if args.is_empty() {
+            return None;
+        }
+        let method_name = self.interner.lookup(callee);
+        if !matches!(
+            method_name,
+            "trace_entries" | "trace" | "has_trace" | "with_trace"
+        ) {
+            return None;
+        }
+        // The user-facing `Error` struct (`{ message: str }`, distinct from the
+        // `Idx::ERROR` poison sentinel) has no `builtin_type_name`; key it on the
+        // pool's SSOT Idx. Result/Option delegate has_trace/trace_entries/trace to
+        // the inner Error (eval `dispatch_result_method`).
+        let receiver_ty = arc_func.var_type(args[0]);
+        let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
+            receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
+        });
+        let is_traceless = is_error_struct
+            || (matches!(method_name, "trace_entries" | "trace" | "has_trace")
+                && self
+                    .type_info
+                    .get(receiver_ty)
+                    .builtin_type_name()
+                    .is_some_and(|n| n == "Option" || n == "Result"));
+        if !is_traceless {
+            return None;
+        }
+        match method_name {
+            "trace_entries" => {
+                let llvm = self.resolve_type(dst_ty);
+                Some(self.builder.const_zero_ty(llvm))
+            }
+            "trace" => self.emit_literal_ori_str(""),
+            "has_trace" => Some(self.builder.const_bool(false)),
+            "with_trace" if is_error_struct => Some(self.var(args[0])),
+            _ => None,
+        }
+    }
+
     /// Try to emit inline IR for a builtin method call.
     ///
     /// Returns `Some(result_value)` if the method was handled, `None` if
@@ -281,38 +338,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let type_info = self.type_info.get(receiver_ty);
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        // Traceable accessors on the user-facing `Error` struct.
-        // The struct (`{ message: str }`, distinct from the `Idx::ERROR` poison
-        // sentinel) has no `builtin_type_name`, so its Traceable methods would
-        // fall through to an unresolved call. A fresh struct-`Error` carries no
-        // trace storage, so the read accessors return empty defaults (matching a
-        // traceless eval `Value::Error`); `.message` + clone/debug/to_str fall
-        // through to the normal struct path. Keyed on the pool's SSOT Idx.
-        let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
-            receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
-        });
-        // Traceable read accessors on a struct-`Error` AND on the Result/Option
-        // Traceable-delegation path (eval `dispatch_result_method` forwards
-        // has_trace/trace_entries/trace to the inner Error). A fresh AOT Error
-        // carries no trace storage, so both return the same traceless defaults —
-        // parity-correct on the traceless surface. The trace-DATA surface is
-        // AOT-N/A (Decision 02: no AOT trace-injection machinery).
-        let is_traceless_traceable_receiver = is_error_struct
-            || (matches!(method_name, "trace_entries" | "trace" | "has_trace")
-                && type_info
-                    .builtin_type_name()
-                    .is_some_and(|n| n == "Option" || n == "Result"));
-        if is_traceless_traceable_receiver {
-            match method_name {
-                "trace_entries" => {
-                    let llvm = self.resolve_type(dst_ty);
-                    return Some(self.builder.const_zero_ty(llvm));
-                }
-                "trace" => return self.emit_literal_ori_str(""),
-                "has_trace" => return Some(self.builder.const_bool(false)),
-                "with_trace" if is_error_struct => return Some(arg_vals[0]),
-                _ => {}
-            }
+        // Traceless Traceable accessors (Error-struct + Result/Option delegation).
+        // SSOT helper, also invoked as an early intercept in `emit_apply` /
+        // `emit_invoke` before callee resolution.
+        if let Some(val) = self.try_emit_traceless_traceable(callee, args, arc_func, dst_ty) {
+            return Some(val);
         }
 
         // Types with builtin names dispatch through the declarative submodule chain

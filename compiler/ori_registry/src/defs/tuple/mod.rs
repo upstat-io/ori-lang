@@ -24,7 +24,7 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 
-// All 6 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static TUPLE_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "clone",

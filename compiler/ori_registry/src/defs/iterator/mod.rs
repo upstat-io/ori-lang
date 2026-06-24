@@ -7,8 +7,8 @@
 //! the receiver is a plain Iterator.
 //!
 //! Iterator has NO trait methods — iterators are opaque lazy sequences that cannot
-//! be printed, cloned, compared, hashed, or formatted. All 24 methods are either
-//! protocol methods (`next`, `next_back`), adapters, or consumers.
+//! be printed, cloned, compared, hashed, or formatted. Every method is either
+//! a protocol method (`next`, `next_back`), an adapter, or a consumer.
 
 use crate::{
     DeiPropagation, MemoryStrategy, MethodDef, MethodKind, OpDefs, Ownership, ParamDef, ReturnTag,

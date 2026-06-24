@@ -1,6 +1,6 @@
 //! Container Packing (Layer 2)
 //!
-//! Gleam-style container packing decisions for how to format lists, args,
+//! Container packing decisions for how to format lists, args,
 //! fields, and other containers.
 //!
 //! # Architecture
@@ -11,10 +11,7 @@
 //! 2. **`ConstructKind`**: What type of container we're formatting
 //! 3. **`determine_packing()`**: Decision function mapping construct → packing strategy
 //!
-//! # Spec Reference
-//!
-//! - Lines 58-92: Width-based and always-stacked rules
-//! - Lines 225-242: Simple vs complex items
+//! Spec: Annex D §Width-Based Breaking, §Always-Stacked Constructs (simple vs complex items).
 
 mod construct;
 mod separator;

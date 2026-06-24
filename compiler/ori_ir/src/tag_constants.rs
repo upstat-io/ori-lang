@@ -1,7 +1,6 @@
 //! Named constants for enum tag discriminants and struct field indices.
 //!
-//! Canonical definitions consumed by all compiler crates. Replaces bare `0`/`1`
-//! magic numbers that previously appeared as inline literals with comments.
+//! Canonical definitions consumed by all compiler crates.
 //!
 //! # Option Tag Convention
 //!

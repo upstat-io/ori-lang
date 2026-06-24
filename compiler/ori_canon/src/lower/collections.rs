@@ -29,9 +29,9 @@ impl Lowerer<'_> {
         // Positional / zero-arg calls carry no argument names — route them through
         // the SAME reorder+default-fill primitive the named-call path uses so an
         // omitted trailing default is FILLED before ARC/LLVM lowering. Without this
-        // the AOT/LLVM call is emitted under-arity (BUG-04-190). Over-arity args
-        // are preserved verbatim (E2004 already fired in typeck); variadic extras
-        // pass through unchanged.
+        // the AOT/LLVM call is emitted under-arity. Over-arity args are preserved
+        // verbatim (E2004 already fired in typeck); variadic extras pass through
+        // unchanged.
         let src_ids: Vec<ExprId> = self.src.get_expr_list(args).to_vec();
         let src_args: Vec<(Option<Name>, ExprId)> =
             src_ids.into_iter().map(|id| (None, id)).collect();
@@ -63,10 +63,10 @@ impl Lowerer<'_> {
     ) -> CanId {
         // Capture the SOURCE receiver's resolved type before `receiver` is shadowed
         // by its lowered CanId — used to disambiguate same-named methods across impls
-        // (BUG-04-190 R3-F4) so each receiver fills its own defaults.
+        // so each receiver fills its own defaults.
         let receiver_ty = self.typed.expr_type(receiver.index());
         let receiver = self.lower_expr(receiver);
-        // Same positional/zero-arg default-fill as lower_call (BUG-04-190): a method
+        // Same positional/zero-arg default-fill as lower_call: a method
         // called with a defaulted parameter omitted positionally must fill the
         // default so the AOT/LLVM call arity matches the method signature.
         let src_ids: Vec<ExprId> = self.src.get_expr_list(args).to_vec();

@@ -13,11 +13,11 @@
 //!
 //! # Grammar Reference
 //!
-//! - String escapes (line 102): `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Char escapes (line 127): `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Template escapes (line 107): `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Template braces (line 108): `{{` → `{`, `}}` → `}`
-//! - Unicode escapes (line 111): `\u{` `hex_digit` { `hex_digit` } `}`
+//! - String escapes (`escape_seq` production): `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Char escapes (`char_escape` production): `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Template escapes (`template_escape` production): `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Template braces (`template_brace` production): `{{` → `{`, `}}` → `}`
+//! - Unicode escapes (`unicode_escape` production): `\u{` `hex_digit` { `hex_digit` } `}`
 
 use crate::lex_error::{LexError, LexErrorContext, UnicodeEscapeDetail};
 use ori_ir::Span;
@@ -290,8 +290,8 @@ fn unescape_with_context(
                         i += 1 + bytes_consumed;
                     }
                     // TODO(lexer): \xHH hex byte escapes — spec-required
-                    // (Spec: Clause 7 line 292, grammar.ebnf lines 116-118).
-                    // Not yet implemented; tracked in roadmap section 15C.13.
+                    // (Spec: Clause 7; grammar.ebnf `hex_escape` production).
+                    // Not yet implemented.
 
                     // Common escapes (\\ \n \t \r \0) + invalid escape fallback
                     _ => {
@@ -317,7 +317,7 @@ fn unescape_with_context(
             && i + 1 < bytes.len()
             && ((b == b'{' && bytes[i + 1] == b'{') || (b == b'}' && bytes[i + 1] == b'}'))
         {
-            // Template brace-pair collapsing: {{ → {, }} → } (spec line 108)
+            // Template brace-pair collapsing: {{ → {, }} → } (`template_brace` production)
             result.push(b as char);
             i += 2;
         } else {
@@ -338,7 +338,7 @@ fn unescape_with_context(
 
 /// Unescape a string literal's content (between the `"`s).
 ///
-/// Valid escapes per grammar line 102: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Valid escapes per grammar `escape_seq` production: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\'` is **not** valid in strings — a `SingleQuoteEscapeInString` error is pushed,
 /// but the `'` character is still added to the output (error recovery).
 ///
@@ -354,7 +354,7 @@ pub(crate) fn unescape_string_v2(
 
 /// Unescape a char literal's content (between the `'`s).
 ///
-/// Valid escapes per grammar line 127: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Valid escapes per grammar `char_escape` production: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\"` is **not** valid in char literals.
 #[expect(
     clippy::cast_possible_truncation,
@@ -370,7 +370,7 @@ pub(crate) fn unescape_char_v2(
         Some((_, '\\')) => match chars.next() {
             Some((_, '\'')) => '\'',
             Some((_, '"')) => {
-                // \" is NOT valid in char literals per grammar line 127
+                // \" is NOT valid in char literals per grammar `char_escape` production
                 errors.push(LexError::double_quote_escape_in_char(Span::new(
                     base_offset,
                     base_offset + 2,
@@ -412,8 +412,8 @@ pub(crate) fn unescape_char_v2(
 
 /// Unescape a template literal's content (between delimiters).
 ///
-/// Valid escapes per grammar line 107: `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
-/// Brace escapes per grammar line 108: `{{` → `{`, `}}` → `}`.
+/// Valid escapes per grammar `template_escape` production: `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Brace escapes per grammar `template_brace` production: `{{` → `{`, `}}` → `}`.
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.

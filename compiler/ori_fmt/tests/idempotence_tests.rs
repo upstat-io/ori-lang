@@ -23,6 +23,67 @@ use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 
+/// Repo-relative paths whose formatted output currently fails to re-parse —
+/// a `format -> parse` round-trip defect (Spec: Annex D — formatting must
+/// preserve observable semantics, so the output must re-parse). Tracked under
+/// BUG-07-314 (multi-line params / sum-variants / lambda bodies emitted in a
+/// shape grammar.ebnf rejects). The harness counts these as KNOWN-tracked
+/// breaks, FAILS on any NEW re-parse break, and FAILS when a listed file
+/// re-parses clean again (stale-entry guard, mirroring
+/// DISPOSITION_DRIFT:stale-tracking) so the list shrinks as BUG-07-314 is fixed.
+const KNOWN_REPARSE_BREAKS: &[&str] = &[
+    "tests/fmt/declarations/functions/multiline_params.ori",
+    "tests/fmt/declarations/types/sum_multiline.ori",
+    "tests/fmt/edge-cases/boundary/101_chars.ori",
+    "tests/spec/declarations/sum_types.ori",
+    "tests/spec/declarations/test_variant_match.ori",
+    "tests/spec/expressions/lambda_mono.ori",
+    "tests/spec/expressions/lambdas.ori",
+    "tests/spec/expressions/list_destructure.ori",
+    "tests/spec/patterns/exhaustiveness_fail.ori",
+    "tests/spec/patterns/match.ori",
+    "tests/spec/traits/derive/eq_sum.ori",
+    "tests/spec/traits/iterator/map_narrowed_list.ori",
+    "tests/spec/types/collections/empty_list/empty_list_closure_capture_interaction.ori",
+    "tests/spec/types/enum/niche/niche_cross_feature.ori",
+    "tests/spec/types/integer_safety.ori",
+    "tests/spec/types/method_generics/method_generics_multi_type.ori",
+    "tests/spec/types/method_generics/shadow_positive_cross_binder.ori",
+    "tests/spec/types/sum/test_discriminant_narrowing.ori",
+    "tests/spec/types/sum_types.ori",
+    "tests/spec/types/tuple_types.ori",
+];
+
+/// Classification of a single file's idempotence + round-trip check.
+enum IdemOutcome {
+    /// `format(format(x)) == format(x)` AND output re-parsed.
+    Pass,
+    /// Source itself does not parse — a legitimate skip (the input never parsed).
+    SourceParseSkip,
+    /// Formatter output failed to re-parse AND the file is in
+    /// `KNOWN_REPARSE_BREAKS` — a BUG-07-314-tracked round-trip break.
+    KnownReparseBreak,
+    /// Formatter output failed to re-parse and the file is NOT tracked — a NEW
+    /// round-trip defect. Hard failure.
+    NewReparseBreak(String),
+    /// `format(format(x)) != format(x)` — a non-idempotent format. Hard failure.
+    IdempotenceFailure(String),
+}
+
+/// Whether `repo_rel` is a tracked BUG-07-314 re-parse break.
+fn is_known_reparse_break(repo_rel: &str) -> bool {
+    KNOWN_REPARSE_BREAKS.contains(&repo_rel)
+}
+
+/// Repo-relative path string for a file under the repo root, for allowlist matching.
+fn repo_relative(path: &Path) -> String {
+    let root = repo_root();
+    path.strip_prefix(&root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// Find all .ori files in a directory recursively, excluding certain patterns.
 fn find_all_ori_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -133,33 +194,44 @@ fn normalize_whitespace(source: &str) -> String {
     output
 }
 
-/// Test idempotence: format(format(x)) == format(x)
-fn test_idempotence_for_file(path: &Path) -> Result<(), String> {
-    let source = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-    // Try formatting with comments first
-    let first = match parse_and_format_with_comments(&source) {
+/// Classify a single file: idempotence AND format->parse round-trip.
+///
+/// A source that does not parse is a legitimate skip. A formatter output that
+/// does not re-parse is a round-trip defect — tracked when listed in
+/// `KNOWN_REPARSE_BREAKS` (BUG-07-314), a hard failure when not.
+fn test_idempotence_for_file(path: &Path) -> IdemOutcome {
+    let source = match fs::read_to_string(path) {
         Ok(s) => s,
-        Err(_) => {
-            // Fall back to no-comment formatting
-            match parse_and_format(&source) {
-                Ok(s) => s,
-                Err(e) => {
-                    // File doesn't parse - skip
-                    return Err(format!("Parse error (skip): {}", e));
-                }
-            }
+        Err(e) => {
+            return IdemOutcome::NewReparseBreak(format!(
+                "Failed to read {}: {}",
+                path.display(),
+                e
+            ))
         }
     };
 
-    // Parse and format the result
+    // Try formatting with comments first; fall back to no-comment formatting.
+    let first = match parse_and_format_with_comments(&source) {
+        Ok(s) => s,
+        Err(_) => match parse_and_format(&source) {
+            Ok(s) => s,
+            // Source itself does not parse — legitimate skip.
+            Err(_) => return IdemOutcome::SourceParseSkip,
+        },
+    };
+
+    // The formatted output MUST re-parse (format->parse round-trip).
     let second = match parse_and_format_with_comments(&first) {
         Ok(s) => s,
         Err(e) => {
-            // Formatter output doesn't re-parse - this is a known limitation
-            // for some constructs (e.g., multi-line parameters)
-            return Err(format!("Re-parse error (skip): {}", e));
+            let repo_rel = repo_relative(path);
+            let detail = format!("Re-parse error: {}", e);
+            return if is_known_reparse_break(&repo_rel) {
+                IdemOutcome::KnownReparseBreak
+            } else {
+                IdemOutcome::NewReparseBreak(detail)
+            };
         }
     };
 
@@ -167,117 +239,142 @@ fn test_idempotence_for_file(path: &Path) -> Result<(), String> {
     let second_normalized = normalize_whitespace(&second);
 
     if first_normalized != second_normalized {
-        return Err(format!(
+        return IdemOutcome::IdempotenceFailure(format!(
             "Idempotence failure:\n\n--- First format ---\n{}\n--- Second format ---\n{}\n",
             first_normalized, second_normalized
         ));
     }
 
-    Ok(())
+    IdemOutcome::Pass
 }
 
-/// Run idempotence tests on all files in a directory.
-fn run_idempotence_tests_for_dir(dir: &Path) -> (usize, usize, Vec<String>) {
+/// Aggregate of one directory's idempotence + round-trip run.
+#[derive(Default)]
+struct DirIdemResult {
+    passed: usize,
+    /// Source did not parse (legitimate skip).
+    skipped: usize,
+    /// Re-parse breaks listed in `KNOWN_REPARSE_BREAKS` (BUG-07-314), observed
+    /// to still break in this run.
+    known_breaks_hit: Vec<String>,
+    /// New round-trip breaks + idempotence mismatches — hard failures.
+    failures: Vec<String>,
+}
+
+/// Run idempotence + round-trip checks on all files in a directory.
+fn run_idempotence_tests_for_dir(dir: &Path) -> DirIdemResult {
     let files = find_all_ori_files(dir);
-    let mut passed = 0;
-    let mut skipped = 0;
-    let mut failures = Vec::new();
+    let mut result = DirIdemResult::default();
 
     for file in &files {
         match test_idempotence_for_file(file) {
-            Ok(()) => passed += 1,
-            Err(e) if e.starts_with("Parse error") || e.starts_with("Re-parse error") => {
-                skipped += 1;
+            IdemOutcome::Pass => result.passed += 1,
+            IdemOutcome::SourceParseSkip => result.skipped += 1,
+            IdemOutcome::KnownReparseBreak => {
+                result.known_breaks_hit.push(repo_relative(file));
             }
-            Err(e) => failures.push(format!("{}: {}", file.display(), e)),
+            IdemOutcome::NewReparseBreak(detail) => {
+                result.failures.push(format!(
+                    "{}: NEW re-parse break (not in BUG-07-314 allowlist): {}",
+                    file.display(),
+                    detail
+                ));
+            }
+            IdemOutcome::IdempotenceFailure(detail) => {
+                result
+                    .failures
+                    .push(format!("{}: {}", file.display(), detail));
+            }
         }
     }
 
-    (passed, skipped, failures)
+    result
+}
+
+/// Fail if any `KNOWN_REPARSE_BREAKS` entry was NOT observed to break across the
+/// union of files this run scanned — a stale tracked entry (the round-trip
+/// defect is fixed; the allowlist must shrink), mirroring
+/// DISPOSITION_DRIFT:stale-tracking.
+fn assert_no_stale_known_breaks(hit_repo_rels: &[String], scanned_repo_rels: &[String]) {
+    let mut stale = Vec::new();
+    for known in KNOWN_REPARSE_BREAKS {
+        let known = *known;
+        // Only adjudicate entries whose dir was actually scanned this run.
+        if !scanned_repo_rels.iter().any(|p| p == known) {
+            continue;
+        }
+        if !hit_repo_rels.iter().any(|p| p == known) {
+            stale.push(known);
+        }
+    }
+    if !stale.is_empty() {
+        panic!(
+            "{} stale KNOWN_REPARSE_BREAKS entries now re-parse clean — remove them from the allowlist (BUG-07-314 progress):\n{}",
+            stale.len(),
+            stale.join("\n")
+        );
+    }
+}
+
+/// Repo-relative paths of every `.ori` file under `dir`.
+fn scanned_repo_relatives(dir: &Path) -> Vec<String> {
+    find_all_ori_files(dir)
+        .iter()
+        .map(|p| repo_relative(p))
+        .collect()
+}
+
+/// Assert a single directory's run carries no NEW round-trip break / idempotence
+/// failure, and no stale tracked break. Known BUG-07-314 breaks are reported but
+/// do not fail the run.
+fn assert_dir_idem_clean(label: &str, dir: &Path, result: &DirIdemResult) {
+    println!(
+        "{}: {} passed, {} skipped, {} known-reparse-break (BUG-07-314), {} failed",
+        label,
+        result.passed,
+        result.skipped,
+        result.known_breaks_hit.len(),
+        result.failures.len()
+    );
+
+    assert_no_stale_known_breaks(&result.known_breaks_hit, &scanned_repo_relatives(dir));
+
+    if !result.failures.is_empty() {
+        panic!(
+            "{} idempotence / round-trip failures in {}:\n\n{}",
+            result.failures.len(),
+            label,
+            result.failures.join("\n---\n")
+        );
+    }
 }
 
 #[test]
 fn idempotence_tests_spec() {
     let dir = repo_root().join("tests").join("spec");
-    let (passed, skipped, failures) = run_idempotence_tests_for_dir(&dir);
-
-    println!(
-        "tests/spec: {} passed, {} skipped, {} failed",
-        passed,
-        skipped,
-        failures.len()
-    );
-
-    if !failures.is_empty() {
-        panic!(
-            "{} idempotence failures in tests/spec:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
+    let result = run_idempotence_tests_for_dir(&dir);
+    assert_dir_idem_clean("tests/spec", &dir, &result);
 }
 
 #[test]
 fn idempotence_tests_run_pass() {
     let dir = repo_root().join("tests").join("run-pass");
-    let (passed, skipped, failures) = run_idempotence_tests_for_dir(&dir);
-
-    println!(
-        "tests/run-pass: {} passed, {} skipped, {} failed",
-        passed,
-        skipped,
-        failures.len()
-    );
-
-    if !failures.is_empty() {
-        panic!(
-            "{} idempotence failures in tests/run-pass:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
+    let result = run_idempotence_tests_for_dir(&dir);
+    assert_dir_idem_clean("tests/run-pass", &dir, &result);
 }
 
 #[test]
 fn idempotence_tests_fmt() {
     let dir = repo_root().join("tests").join("fmt");
-    let (passed, skipped, failures) = run_idempotence_tests_for_dir(&dir);
-
-    println!(
-        "tests/fmt: {} passed, {} skipped, {} failed",
-        passed,
-        skipped,
-        failures.len()
-    );
-
-    if !failures.is_empty() {
-        panic!(
-            "{} idempotence failures in tests/fmt:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
+    let result = run_idempotence_tests_for_dir(&dir);
+    assert_dir_idem_clean("tests/fmt", &dir, &result);
 }
 
 #[test]
 fn idempotence_tests_library() {
     let dir = repo_root().join("library");
-    let (passed, skipped, failures) = run_idempotence_tests_for_dir(&dir);
-
-    println!(
-        "library/: {} passed, {} skipped, {} failed",
-        passed,
-        skipped,
-        failures.len()
-    );
-
-    if !failures.is_empty() {
-        panic!(
-            "{} idempotence failures in library/:\n\n{}",
-            failures.len(),
-            failures.join("\n---\n")
-        );
-    }
+    let result = run_idempotence_tests_for_dir(&dir);
+    assert_dir_idem_clean("library/", &dir, &result);
 }
 
 /// Comprehensive test: run idempotence on all .ori files in the repository.
@@ -293,25 +390,31 @@ fn idempotence_comprehensive() {
 
     let mut total_passed = 0;
     let mut total_skipped = 0;
+    let mut total_known_breaks = 0;
     let mut all_failures = Vec::new();
+    let mut all_hit = Vec::new();
+    let mut all_scanned = Vec::new();
 
     for dir in &dirs {
-        let (passed, skipped, failures) = run_idempotence_tests_for_dir(dir);
-        total_passed += passed;
-        total_skipped += skipped;
-        all_failures.extend(failures);
+        let result = run_idempotence_tests_for_dir(dir);
+        total_passed += result.passed;
+        total_skipped += result.skipped;
+        total_known_breaks += result.known_breaks_hit.len();
+        all_failures.extend(result.failures);
+        all_hit.extend(result.known_breaks_hit);
+        all_scanned.extend(scanned_repo_relatives(dir));
     }
 
     println!(
-        "\nComprehensive idempotence: {} passed, {} skipped, {} failed",
-        total_passed,
-        total_skipped,
-        all_failures.len()
+        "\nComprehensive idempotence: {} passed, {} skipped, {} known-reparse-break (BUG-07-314), {} failed",
+        total_passed, total_skipped, total_known_breaks, all_failures.len()
     );
+
+    assert_no_stale_known_breaks(&all_hit, &all_scanned);
 
     if !all_failures.is_empty() {
         panic!(
-            "{} idempotence failures:\n\n{}",
+            "{} idempotence / round-trip failures:\n\n{}",
             all_failures.len(),
             all_failures.join("\n---\n")
         );

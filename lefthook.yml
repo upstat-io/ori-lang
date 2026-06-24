@@ -49,6 +49,17 @@ pre-commit:
       # once dogfood shows true-positive rate is reliable.
       glob: "**/*.{rs,ori}"
       run: python3 scripts/test-weakening-lint.py --warn-only
+    version-naming-lint:
+      # Version/revision-marker naming detector (NAME-33 / NAMING:version-suffix)
+      # — see impl-hygiene.md NAME-33 + `python3 scripts/version-naming-lint.py
+      # --help`. Mechanically gates ONLY the near-zero-false-positive V/v+digit
+      # subset (LexerV2, parse_v2); revision words (Legacy/Deprecated/Old/New)
+      # and bare ordinals are NAME-33 reviewer-time only.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/version-naming-lint.py --warn-only
     prose-lint:
       # Source-side internal-vocabulary leak detector — see
       # `../scripts/prose-lint.py --help` for the full pattern reference.

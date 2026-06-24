@@ -4,7 +4,7 @@ use crate::Name;
 
 use super::*;
 
-// ── PathInstruction ─────────────────────────────────────────
+// PathInstruction
 
 #[test]
 fn path_instruction_size() {
@@ -28,7 +28,7 @@ fn path_instruction_equality() {
     );
 }
 
-// ── ScrutineePath ───────────────────────────────────────────
+// ScrutineePath
 
 #[test]
 fn scrutinee_path_empty() {
@@ -56,7 +56,7 @@ fn scrutinee_path_clone_independence() {
     assert_eq!(cloned.len(), 2);
 }
 
-// ── TestKind ────────────────────────────────────────────────
+// TestKind
 
 #[test]
 fn test_kind_equality() {
@@ -64,7 +64,7 @@ fn test_kind_equality() {
     assert_ne!(TestKind::EnumTag, TestKind::IntEq);
 }
 
-// ── TestValue ───────────────────────────────────────────────
+// TestValue
 
 #[test]
 fn test_value_tag() {
@@ -137,7 +137,7 @@ fn test_value_int_range() {
     );
 }
 
-// ── DecisionTree ────────────────────────────────────────────
+// DecisionTree
 
 #[test]
 fn decision_tree_leaf() {
@@ -302,7 +302,7 @@ fn decision_tree_nested_switch() {
     }
 }
 
-// ── FlatPattern ─────────────────────────────────────────────
+// FlatPattern
 
 #[test]
 fn flat_pattern_wildcard_like() {
@@ -501,7 +501,7 @@ fn extract_bindings_list_with_rest() {
     assert_eq!(bindings[1].1.as_slice(), &[PathInstruction::ListRest(1)]);
 }
 
-// ── PatternRow ──────────────────────────────────────────────
+// PatternRow
 
 #[test]
 fn pattern_row_construction() {

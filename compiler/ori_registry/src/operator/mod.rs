@@ -1,7 +1,7 @@
 //! Operator strategy definitions for the Ori type registry.
 //!
 //! [`OpDefs`] holds the [`OpStrategy`] for every operator applicable to a
-//! type. It is a fixed-field struct so that Rust's exhaustiveness checking
+//! type. It is a fixed-field struct so that exhaustive field construction
 //! catches missing operator entries when a new operator is added.
 
 use crate::tags::OpStrategy;
@@ -31,8 +31,7 @@ use crate::tags::OpStrategy;
 /// with the required struct fields ensures compile-time coverage.
 ///
 /// Adding a new field here is a compile error in every `TypeDef` definition
-/// (Sections 03-07) and every backend match arm that reads `OpDefs`,
-/// enforcing full coverage.
+/// and every backend match arm that reads `OpDefs`, enforcing full coverage.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OpDefs {
     // Arithmetic operators

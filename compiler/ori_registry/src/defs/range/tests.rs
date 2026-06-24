@@ -34,6 +34,20 @@ fn range_no_operators() {
     assert_eq!(RANGE.operators, OpDefs::UNSUPPORTED);
 }
 
+// Negative pin guarding the `no_unsupported_eq` Range exemption: Range carries
+// neither an eq operator (above) nor an `equals` method, so equality is
+// dispatched through the type checker against the element type. If a future
+// edit adds `equals` to Range, this fails — forcing the exemption to be
+// re-justified rather than silently passing the skip.
+#[test]
+fn range_has_no_equals_method() {
+    assert!(
+        !RANGE.methods.iter().any(|m| m.name == "equals"),
+        "Range declares an `equals` method; the no_unsupported_eq Range \
+         exemption is now stale and must be removed"
+    );
+}
+
 #[test]
 fn range_iter_returns_dei() {
     let m = RANGE

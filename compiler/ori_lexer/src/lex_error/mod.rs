@@ -65,9 +65,9 @@ pub enum LexErrorKind {
     InvalidTemplateEscape { escape_char: char },
     /// Invalid Unicode escape sequence `\u{...}` in any literal context.
     InvalidUnicodeEscape { detail: UnicodeEscapeDetail },
-    /// `\'` used in a string literal — not valid per grammar line 102.
+    /// `\'` used in a string literal — not valid per grammar `escape_seq` production.
     SingleQuoteEscapeInString,
-    /// `\"` used in a char literal — not valid per grammar line 127.
+    /// `\"` used in a char literal — not valid per grammar `char_escape` production.
     DoubleQuoteEscapeInChar,
 
     // Numeric errors

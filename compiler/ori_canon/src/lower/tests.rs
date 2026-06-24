@@ -226,6 +226,83 @@ fn lower_template_full() {
 }
 
 #[test]
+fn lower_while_desugars_to_loop_with_break_guard() {
+    // `while c do body` -> `loop { if !c then break; body }`.
+    // Positive pin: the canonical shape is a CanExpr::Loop whose body Block has
+    // a single `if (!c) then break` guard statement and the body as its result;
+    // no ExprKind::While reaches the backends (canonicalization.md while->loop
+    // control-flow lowering).
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let cond_name = interner.intern("c");
+
+    let cond = arena.alloc_expr(Expr::new(ExprKind::Ident(cond_name), Span::new(6, 7)));
+    let body = arena.alloc_expr(Expr::new(ExprKind::Unit, Span::new(11, 13)));
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::While {
+            label: Name::EMPTY,
+            cond,
+            body,
+        },
+        Span::new(0, 13),
+    ));
+
+    // expr_types: [0]=Ident(c):bool, [1]=Unit body, [2]=While:void.
+    let type_result = test_type_result(vec![Idx::BOOL, Idx::UNIT, Idx::UNIT]);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+    assert!(result.root.is_valid());
+
+    // Root is a Loop whose body is the guard-block.
+    let loop_body = match result.arena.kind(result.root) {
+        CanExpr::Loop { body, label } => {
+            assert_eq!(*label, Name::EMPTY);
+            *body
+        }
+        other => panic!("expected Loop, got {other:?}"),
+    };
+    assert_eq!(result.arena.ty(result.root), TypeId::UNIT);
+
+    // Loop body is a Block { stmts: [if !c then break], result: body }.
+    let (stmts, block_result) = match result.arena.kind(loop_body) {
+        CanExpr::Block { stmts, result } => (*stmts, *result),
+        other => panic!("expected Block loop body, got {other:?}"),
+    };
+    let stmt_list = result.arena.get_expr_list(stmts);
+    assert_eq!(stmt_list.len(), 1, "single break-guard statement");
+
+    // The guard is `if (!c) then break`.
+    let guard = stmt_list[0];
+    match result.arena.kind(guard) {
+        CanExpr::If {
+            cond: g_cond,
+            then_branch,
+            else_branch,
+        } => {
+            // Condition is `!c` (Unary Not over the lowered cond).
+            match result.arena.kind(*g_cond) {
+                CanExpr::Unary {
+                    op: ori_ir::UnaryOp::Not,
+                    ..
+                } => {}
+                other => panic!("expected Unary(Not) guard condition, got {other:?}"),
+            }
+            // Then-branch is a bare break (no value, no else).
+            assert!(
+                matches!(result.arena.kind(*then_branch), CanExpr::Break { value, .. } if !value.is_valid()),
+                "guard then-branch is a valueless break"
+            );
+            assert!(!else_branch.is_valid(), "while-guard has no else branch");
+        }
+        other => panic!("expected If guard, got {other:?}"),
+    }
+
+    // Block result is the lowered loop body (Unit here).
+    assert_eq!(*result.arena.kind(block_result), CanExpr::Unit);
+}
+
+#[test]
 fn lower_invalid_root_returns_empty() {
     let arena = ExprArena::new();
     let type_result = test_type_result(vec![]);

@@ -48,7 +48,7 @@ impl ArcLowerer<'_> {
     /// Returns `Some(id)` when the canon-side `mono_dispatch_map_can` carries
     /// an entry for `call_expr_id` (populated during canon lowering by
     /// `Lowerer::record_mono_dispatch_if_present`); `None` otherwise.
-    /// The map is sorted by `CanId.raw` per `lower/mod.rs:367`, enabling
+    /// The map is sorted by `CanId.raw` in `Lowerer::finish`, enabling
     /// O(log n) binary search lookup.
     fn lookup_mono_dispatch(&self, call_expr_id: CanId) -> Option<MonoInstanceId> {
         let key = call_expr_id.raw();
@@ -144,7 +144,7 @@ impl ArcLowerer<'_> {
     /// so the IR emits `Let { Var(arg) }` with no additional storage or
     /// allocation. This dispatch fires before the indirect-call wildcard so
     /// newtype constructor names never reach `lower_ident`'s `Tag::Function`
-    /// arm, which would emit unresolvable `PartialApply` (plan).
+    /// arm, which would emit an unresolvable `PartialApply`.
     fn try_emit_newtype_ctor(
         &mut self,
         name: Name,
@@ -175,6 +175,45 @@ impl ArcLowerer<'_> {
         Some(
             self.builder
                 .emit_let(ty, ArcValue::Var(arg_vars[0]), Some(span)),
+        )
+    }
+
+    /// Try to emit the builtin `Error` struct constructor as a direct
+    /// `Construct`. Returns `None` unless the callee is `Error` AND the
+    /// `Error` struct is registered. Fires before the indirect-call wildcard
+    /// so `Error(msg)` never reaches the `Tag::Function` arm, which would emit
+    /// an unresolvable `PartialApply @Error` that AOT calls through a null fn
+    /// ptr (SIGSEGV). Spec: Annex E §Built-in Type Representations.
+    fn try_emit_struct_ctor(
+        &mut self,
+        name: Name,
+        ty: Idx,
+        arg_vars: Vec<ArcVarId>,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        // Gate on the callee being the reserved builtin `Error` name (a user
+        // cannot shadow it) AND the `Error` struct being registered. The call
+        // result is a fresh `Error`-struct `Idx` distinct from the registered
+        // `error_struct_idx`, so an Idx-equality `is_error_struct` check fails;
+        // the callee name uniquely identifies the constructor in call position.
+        let error_name = self.interner.intern("Error");
+        if name != error_name || self.pool.error_struct_idx().is_none() {
+            return None;
+        }
+        if arg_vars.len() != 1 {
+            // The `Error` constructor takes exactly one `str`; fall through so
+            // the typechecker's existing arity diagnostic is the user-visible
+            // error rather than a downstream codegen confusion (mirrors
+            // `try_emit_newtype_ctor`).
+            return None;
+        }
+        tracing::trace!(
+            ctor = self.name_str(name),
+            "call: Error builtin struct constructor"
+        );
+        Some(
+            self.builder
+                .emit_construct(ty, CtorKind::Struct(name), arg_vars, Some(span)),
         )
     }
 
@@ -209,6 +248,9 @@ impl ArcLowerer<'_> {
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 tracing::trace!(
                     func = self.name_str(name),
                     args = arg_vars.len(),
@@ -241,6 +283,9 @@ impl ArcLowerer<'_> {
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 let resolved = self.resolve_ident_callee(name);
                 tracing::trace!(
                     func = self.name_str(resolved),
@@ -264,6 +309,9 @@ impl ArcLowerer<'_> {
                 // arm and emits unresolvable `PartialApply` (plan root
                 // cause).
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
+                    return var;
+                }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
                     return var;
                 }
                 let closure_var = self.lower_expr(func);
@@ -324,7 +372,7 @@ impl ArcLowerer<'_> {
             // identity wrap. Without this, `id.unwrap` lowers as `Apply`
             // with method name `unwrap`, which the codegen treats as a
             // monomorphization lookup miss (`unresolved function 'unwrap' in
-            // apply — missing mono instance?` per plan). Newtype
+            // apply — missing mono instance?`). Newtype
             // accessors have no compiled function — they are pure type-level
             // erasure of the newtype tag.
             if let Some(var) = self.try_lower_newtype_unwrap(receiver, method, ty, span) {

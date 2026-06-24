@@ -49,7 +49,7 @@ const fn chan(
     }
 }
 
-// All 9 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static CHANNEL_METHODS: &[MethodDef] = &[
     chan("close", &[], ReturnTag::Unit, Ownership::Borrow, None),
     chan("is_closed", &[], BOOL, Ownership::Borrow, None),

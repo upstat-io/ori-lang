@@ -21,7 +21,7 @@ use crate::tags::{MemoryStrategy, TypeParamArity, TypeTag};
 /// # Extensibility
 ///
 /// New required fields produce compile errors in every `TypeDef`
-/// definition (Sections 03-07), enforcing immediate full coverage.
+/// definition, enforcing immediate full coverage.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeDef {
     /// The type's identity tag.

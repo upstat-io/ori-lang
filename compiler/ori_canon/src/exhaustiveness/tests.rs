@@ -37,7 +37,7 @@ fn check(tree: &DecisionTree, arm_count: usize) -> CheckResult {
     )
 }
 
-// ── Exhaustive cases — should produce NO problems ─────────────
+// Exhaustive cases — should produce NO problems
 
 #[test]
 fn bool_exhaustive_both() {
@@ -130,7 +130,7 @@ fn int_with_default() {
     assert!(result.problems.is_empty());
 }
 
-// ── Non-exhaustive cases ──────────────────────────────────────
+// Non-exhaustive cases
 
 #[test]
 fn bool_missing_false() {
@@ -250,7 +250,7 @@ fn guard_fallthrough_fail() {
     }
 }
 
-// ── Redundancy cases ──────────────────────────────────────────
+// Redundancy cases
 
 #[test]
 fn redundant_arm() {
@@ -500,7 +500,7 @@ fn multiple_missing_bool_and_redundant() {
     }
 }
 
-// ── Phase 2: Enum exhaustiveness ──────────────────────────────
+// Enum exhaustiveness
 
 #[test]
 fn option_exhaustive_both_variants() {
@@ -1046,7 +1046,7 @@ fn nested_non_enum_type_skipped() {
     );
 }
 
-// ── Phase 3: Nested enum exhaustiveness ─────────────────────
+// Nested enum exhaustiveness
 
 #[test]
 fn nested_option_exhaustive() {
@@ -1507,7 +1507,7 @@ fn deeply_nested_option_missing_innermost() {
     }
 }
 
-// ── Never variant exhaustiveness ─────────────────────────────
+// Never variant exhaustiveness
 
 #[test]
 fn user_enum_never_variant_omittable() {
@@ -1663,7 +1663,7 @@ fn user_enum_all_never_variants_exhaustive() {
     );
 }
 
-// ── Phase 3: List pattern exhaustiveness ─────────────────────
+// List pattern exhaustiveness
 
 #[test]
 fn list_rest_zero_covers_all() {

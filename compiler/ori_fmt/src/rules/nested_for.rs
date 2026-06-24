@@ -1,12 +1,8 @@
-//! `NestedForRule`: Rust-style indentation for nested for loops.
-//!
-//! # Decision
-//!
-//! Rust-style: each nested for increases indentation.
+//! `NestedForRule`: each nested for loop increases indentation.
 //!
 //! # Spec Reference
 //!
-//! Lines 818-830
+//! 16-formatting.md (nested loop formatting)
 
 use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind};
 
@@ -146,7 +142,7 @@ pub fn collect_for_chain(arena: &ExprArena, expr_id: ExprId) -> Option<ForChain>
     if levels.is_empty() {
         None
     } else {
-        // Should not reach here if we started with a for
+        // Why: caller only invokes this on a `for` expression.
         unreachable!("collect_for_chain called on non-for expression")
     }
 }

@@ -1,6 +1,6 @@
 //! FFI exclusion contract — empty vs annotated `BurdenSpec` for opaque types.
 //!
-//! Spec: Annex E §FFI (proposal:643-645, Q12). The contract is bidirectional:
+//! Spec: Annex E §FFI Q12. The contract is bidirectional:
 //!
 //! - Unannotated FFI / opaque types (`CPtr`, `JsValue`, `JsPromise<T>`, and
 //!   `extern "c" from "lib" { ... }` types WITHOUT `#free` annotation) get
@@ -26,7 +26,7 @@ use super::BuiltinBurdenSpec;
 
 /// Static all-empty `BuiltinBurdenSpec` for unannotated opaque FFI types.
 ///
-/// Spec: Annex E §FFI (proposal:643-645). Returned by `lookup_burden` when
+/// Spec: Annex E §FFI. Returned by `lookup_burden` when
 /// an extern type was registered WITHOUT a `#free(fn)` annotation — the
 /// type's lifetime is caller-managed; Ori emits no drops; passing such a
 /// value to an Owned-expecting position is rejected with E2042.

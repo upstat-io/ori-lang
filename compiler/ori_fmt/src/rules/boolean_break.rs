@@ -5,9 +5,7 @@
 //! 3+ `||` clauses OR exceeds width triggers breaking.
 //! When broken, each clause gets its own line with `||` at the start.
 //!
-//! # Spec Reference
-//!
-//! Lines 473-483
+//! Spec: Annex D §Binary Expressions (`||` chains).
 
 use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind};
 

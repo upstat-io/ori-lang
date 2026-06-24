@@ -162,7 +162,7 @@ fn test_line_offset_table_line_start_offset_zero() {
     assert_eq!(table.line_start_offset(0), None); // Line 0 doesn't exist
 }
 
-// --- line_end_offset / line_text tests ---
+// line_end_offset / line_text tests
 
 #[test]
 fn test_line_end_offset_single_line() {

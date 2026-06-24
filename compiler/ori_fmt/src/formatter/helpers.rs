@@ -249,7 +249,6 @@ impl<I: StringLookup> Formatter<'_, I> {
         for (i, item) in items.iter().enumerate() {
             let item_width = self.width_calc.width(*item);
 
-            // Check if we need to wrap to a new line
             if item_width != ALWAYS_STACKED
                 && self.ctx.column() > line_start
                 && self.ctx.column() + item_width + 2 > max_width

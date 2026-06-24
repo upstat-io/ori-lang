@@ -37,7 +37,7 @@ const SELF: ReturnTag = ReturnTag::SelfType;
 const B: bool = true;
 const NB: bool = false;
 
-// All 41 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static DURATION_METHODS: &[MethodDef] = &[
     MethodDef::compound("abs", &[], SELF, None, Ownership::Borrow, NB),
     MethodDef::compound(

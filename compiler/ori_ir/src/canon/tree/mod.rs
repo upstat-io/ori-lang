@@ -7,15 +7,12 @@
 //! # Architecture
 //!
 //! The TYPE DEFINITIONS live here in `ori_ir` (shared crate). The compilation
-//! ALGORITHM lives in `ori_arc::decision_tree::compile` (and will move to
-//! `ori_canon::patterns` in `eval_v2` Section 03). The ARC IR emission logic
-//! stays in `ori_arc::decision_tree::emit`.
+//! ALGORITHM lives in `ori_arc::decision_tree::compile`. The ARC IR emission
+//! logic stays in `ori_arc::decision_tree::emit`.
 //!
 //! # References
 //!
 //! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
-//! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
-//! - Elm `compiler/src/Nitpick/PatternMatches.hs`
 
 use super::CanId;
 use crate::Name;
@@ -290,7 +287,7 @@ impl FlatPattern {
     /// Collect variable bindings from this pattern at a given path, appending
     /// to an existing Vec. Useful for accumulating bindings across multiple
     /// patterns in a row (avoiding per-pattern allocation).
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Field indices are always < u32::MAX"
     )]

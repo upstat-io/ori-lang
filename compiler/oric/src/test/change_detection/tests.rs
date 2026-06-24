@@ -48,6 +48,7 @@ fn make_module(tests: &[(u32, &[u32])]) -> Module {
             body: ExprId::new(0),
             span: Span::DUMMY,
             skip_reason: None,
+            skip_backends: vec![],
             fail_expected: None,
             expected_errors: vec![],
         });

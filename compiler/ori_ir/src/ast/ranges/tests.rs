@@ -85,7 +85,7 @@ fn test_range_eq() {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::clone_on_copy,
     reason = "Intentionally testing Clone trait impl"
 )]

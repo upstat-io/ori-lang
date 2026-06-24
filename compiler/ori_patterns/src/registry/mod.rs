@@ -243,25 +243,11 @@ impl PatternRegistry {
     }
 
     /// Get all registered pattern kinds.
+    ///
+    /// Derives from `FunctionExpKind::ALL` (the canonical inventory) so a new
+    /// variant is registered here automatically rather than via a parallel list.
     pub fn kinds(&self) -> impl Iterator<Item = FunctionExpKind> {
-        [
-            FunctionExpKind::Recurse,
-            FunctionExpKind::Parallel,
-            FunctionExpKind::Spawn,
-            FunctionExpKind::Timeout,
-            FunctionExpKind::Cache,
-            FunctionExpKind::With,
-            FunctionExpKind::Print,
-            FunctionExpKind::Panic,
-            FunctionExpKind::Catch,
-            FunctionExpKind::Todo,
-            FunctionExpKind::Unreachable,
-            FunctionExpKind::Channel,
-            FunctionExpKind::ChannelIn,
-            FunctionExpKind::ChannelOut,
-            FunctionExpKind::ChannelAll,
-        ]
-        .into_iter()
+        FunctionExpKind::ALL.into_iter()
     }
 
     /// Get the number of registered patterns.

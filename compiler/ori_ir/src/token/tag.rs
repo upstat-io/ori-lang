@@ -31,7 +31,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TokenTag {
-    // === Literals (0-10) ===
+    // Literals (0-10)
     Ident = 0,
     Int = 1,
     Float = 2,
@@ -44,7 +44,7 @@ pub enum TokenTag {
     TemplateTail = 9,
     TemplateComplete = 10,
 
-    // === Keywords — reserved (12-39) ===
+    // Keywords — reserved (12-39)
     // 11: removed (was KwAsync)
     KwBreak = 12,
     KwContinue = 13,
@@ -75,7 +75,7 @@ pub enum TokenTag {
     KwVoid = 38,
     KwWhere = 39,
 
-    // === Keywords — additional (40-49) ===
+    // Keywords — additional (40-49)
     KwWith = 40,
     KwYield = 41,
     KwTests = 42,
@@ -87,7 +87,7 @@ pub enum TokenTag {
     KwExtern = 48,
     // 49: reserved for future keyword
 
-    // === Type keywords (50-56) ===
+    // Type keywords (50-56)
     KwIntType = 50,
     KwFloatType = 51,
     KwBoolType = 52,
@@ -96,13 +96,13 @@ pub enum TokenTag {
     KwByteType = 55,
     KwNeverType = 56,
 
-    // === Constructors (57-60) ===
+    // Constructors (57-60)
     KwOk = 57,
     KwErr = 58,
     KwSome = 59,
     KwNone = 60,
 
-    // === Pattern keywords (61-73) ===
+    // Pattern keywords (61-73)
     KwCache = 61,
     KwCatch = 62,
     KwParallel = 63,
@@ -121,7 +121,7 @@ pub enum TokenTag {
     FormatSpec = 74,
     HashBang = 75, // #!
 
-    // === Punctuation (76-99) ===
+    // Punctuation (76-99)
     HashBracket = 76,    // #[
     At = 77,             // @
     Dollar = 78,         // $
@@ -147,7 +147,7 @@ pub enum TokenTag {
     Underscore = 98,     // _
     Semicolon = 99,      // ;
 
-    // === Operators (100-120) ===
+    // Operators (100-120)
     Eq = 100,       // =
     EqEq = 101,     // ==
     NotEq = 102,    // !=
@@ -170,13 +170,13 @@ pub enum TokenTag {
     Caret = 119,    // ^
     Div = 120,      // div
 
-    // === Special (121-127) ===
+    // Special (121-127)
     Newline = 121,
     Error = 122,
     Eof = 127,
     // 123-126: reserved for future special tokens
 
-    // === Compound Assignment (128-139) ===
+    // Compound Assignment (128-139)
     PlusEq = 128,     // +=
     MinusEq = 129,    // -=
     StarEq = 130,     // *=
@@ -191,11 +191,9 @@ pub enum TokenTag {
     PipePipeEq = 139, // ||=
 }
 
-// TokenTag is repr(u8), so all discriminants fit in 0..255 by construction.
-// TokenSet uses [u128; 2] (256 bits) to cover the full range.
-// OPER_TABLE[128] and POSTFIX_BITSET only cover 0-127 with early-return
-// guards for higher values — compound assignment tokens (128+) are handled
-// outside those tables via compound_assign_op().
+// INVARIANT: TokenTag is repr(u8) (discriminants 0..255); TokenSet's [u128; 2]
+// covers the full range. OPER_TABLE[128] and POSTFIX_BITSET cover only 0-127;
+// compound-assignment tokens (128+) route through compound_assign_op() instead.
 
 impl TokenTag {
     /// Maximum discriminant value across all variants.

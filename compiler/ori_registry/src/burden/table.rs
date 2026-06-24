@@ -258,11 +258,9 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
     // resulting `UserBurdenSpec` shares the LIST/MAP/SET shape (heap handle
     // + parameterized element type), differing only at the registry layer.
     //
-    // Channel-runtime gap: `compiler_repo/compiler/ori_patterns/src/channel.rs`
-    // is a stub today; emission of `BurdenInc(arg)` at `channel.send(arg)`
-    // is forward-referenced to §03 trivial-emission rules. This template
-    // produces the BurdenSpec data §03 will consume; no Phase 5 emission
-    // is wired in §02.
+    // This template produces the BurdenSpec data; Phase 5 emission of
+    // `BurdenInc(arg)` at `channel.send(arg)` is not wired here (the channel
+    // runtime in `ori_patterns` is a stub) and is the consuming layer's job.
     (
         TYPE_ID_CHANNEL,
         BuiltinBurdenSpec {

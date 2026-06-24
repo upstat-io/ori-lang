@@ -12,8 +12,6 @@
 //! | `ListWithSpread` | `List` + `.concat()` chains |
 //! | `MapWithSpread` | `Map` + `.merge()` chains |
 //! | `StructWithSpread` | `Struct` with all fields resolved via `Field` access |
-//!
-//! See `eval_v2` Section 02.3 for the full desugaring specification.
 
 mod assign_target;
 mod calls;

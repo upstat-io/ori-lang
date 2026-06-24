@@ -51,6 +51,50 @@ fn string_invalid_escape() {
     ));
 }
 
+// Negative pin: `\xHH` hex byte escapes are NOT yet implemented (Spec: Clause 7,
+// grammar.ebnf `hex_escape`; tracked by the cook_escape::mod TODO(lexer)). Until
+// implemented, `\x` is rejected as an ordinary invalid escape. These pins clamp the
+// current "not implemented" boundary so the future implementer's accept tests flip
+// these from rejection — stale-test detection per tests.md §Test Hygiene.
+
+#[test]
+fn string_hex_byte_escape_not_yet_implemented_is_invalid() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\x41", 0, &mut errors);
+    // `\x` rejected as invalid escape; the `41` after it passes through literally.
+    assert_eq!(result.as_deref(), Some("\u{FFFD}41"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidStringEscape { escape_char: 'x' }
+    ));
+}
+
+#[test]
+fn char_hex_byte_escape_not_yet_implemented_is_invalid() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\x41", 0, &mut errors);
+    // `\x` rejected as invalid char escape; replacement char returned.
+    assert_eq!(result, '\u{FFFD}');
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidCharEscape { escape_char: 'x' }
+    ));
+}
+
+#[test]
+fn template_hex_byte_escape_not_yet_implemented_is_invalid() {
+    let mut errors = Vec::new();
+    let result = unescape_template_v2(r"\x41", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}41"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidTemplateEscape { escape_char: 'x' }
+    ));
+}
+
 #[test]
 fn string_trailing_backslash() {
     let mut errors = Vec::new();

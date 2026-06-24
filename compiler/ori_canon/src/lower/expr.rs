@@ -400,9 +400,7 @@ impl Lowerer<'_> {
 
         let body_can = self.lower_expr(body);
 
-        let start = self.arena.start_expr_list();
-        self.arena.push_expr_list_item(guard);
-        let stmts = self.arena.finish_expr_list(start);
+        let stmts = self.arena.push_expr_list(&[guard]);
         let loop_body = self.push(
             CanExpr::Block {
                 stmts,
@@ -482,10 +480,6 @@ impl Lowerer<'_> {
             })
             .collect();
 
-        let start = self.arena.start_expr_list();
-        for can_id in lowered {
-            self.arena.push_expr_list_item(can_id);
-        }
-        self.arena.finish_expr_list(start)
+        self.arena.push_expr_list(&lowered)
     }
 }

@@ -148,7 +148,7 @@ impl Shape {
 
     // Nested construct handling
 
-    /// Create shape for nested construct (Spec lines 93-95).
+    /// Create shape for nested construct (Spec: Annex D §Independent Breaking).
     ///
     /// "Nested constructs break independently based on their own width"
     ///

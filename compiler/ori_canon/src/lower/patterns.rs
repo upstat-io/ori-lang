@@ -75,11 +75,7 @@ impl Lowerer<'_> {
         // recursively lower nested match expressions, which would push their
         // own arm bodies into the flat expr_lists array, corrupting our range.
         let lowered_bodies: Vec<CanId> = bodies.iter().map(|body| self.lower_expr(*body)).collect();
-        let start = self.arena.start_expr_list();
-        for can_body in lowered_bodies {
-            self.arena.push_expr_list_item(can_body);
-        }
-        let arms_range = self.arena.finish_expr_list(start);
+        let arms_range = self.arena.push_expr_list(&lowered_bodies);
 
         self.push(
             CanExpr::Match {
@@ -205,18 +201,13 @@ impl Lowerer<'_> {
 
         let dt_id = self.decision_trees.push(tree);
 
-        // Lower each clause body.
+        // Lower each clause body BEFORE building the expr list (nested lowering
+        // would otherwise corrupt the in-flight range).
         let lowered_bodies: Vec<CanId> = clauses
             .iter()
             .map(|clause| self.lower_expr(clause.body))
             .collect();
-
-        // Build the arms CanRange.
-        let start = self.arena.start_expr_list();
-        for can_body in lowered_bodies {
-            self.arena.push_expr_list_item(can_body);
-        }
-        let arms_range = self.arena.finish_expr_list(start);
+        let arms_range = self.arena.push_expr_list(&lowered_bodies);
 
         self.push(
             CanExpr::Match {

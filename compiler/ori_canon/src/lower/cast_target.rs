@@ -1,4 +1,4 @@
-//! Miscellaneous lowering helpers — cast target extraction, type name mapping.
+//! Cast-target type-name extraction for `Cast` expression lowering.
 
 use ori_ir::{Name, StringInterner, TypeId};
 

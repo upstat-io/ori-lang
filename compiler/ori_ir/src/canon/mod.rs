@@ -12,13 +12,6 @@
 //!                                       (ori_canon)   └─→ ori_arc   (lowers CanExpr → ARC IR)
 //! ```
 //!
-//! # Prior Art
-//!
-//! - **Roc**: `ast::Expr` → `can::Expr` → `mono::Expr` — both dev and LLVM backends
-//!   consume the same mono IR. Zero parse-AST dispatch in codegen.
-//! - **Elm**: `Source` → `Canonical` → `Optimized` → JS — decision trees baked into
-//!   the `Optimized` form, backends never see raw patterns.
-//!
 //! # What's Different from `ExprKind`
 //!
 //! - No `CallNamed` / `MethodCallNamed` — desugared to positional `Call` / `MethodCall`
@@ -34,6 +27,7 @@ pub mod hash;
 mod ids;
 mod patterns;
 mod pools;
+mod result;
 pub mod tree;
 
 pub use arena::*;
@@ -41,6 +35,7 @@ pub use expr::*;
 pub use ids::*;
 pub use patterns::*;
 pub use pools::*;
+pub use result::*;
 pub use tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
     TestValue,

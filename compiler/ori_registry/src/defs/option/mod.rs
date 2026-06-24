@@ -46,7 +46,7 @@ const ELEM: ReturnTag = ReturnTag::ElementType;
 const SELF: ReturnTag = ReturnTag::SelfType;
 const FRESH: ReturnTag = ReturnTag::Fresh;
 
-// All 18 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static OPTION_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "and_then",

@@ -37,7 +37,7 @@ const SELF: ReturnTag = ReturnTag::SelfType;
 const B: bool = true;
 const NB: bool = false;
 
-// All 34 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static SIZE_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "add",

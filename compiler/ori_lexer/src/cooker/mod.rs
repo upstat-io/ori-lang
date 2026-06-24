@@ -162,11 +162,9 @@ impl<'src> TokenCooker<'src> {
     /// `Semicolon` is the exception — always reaches here.
     #[inline]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
-        // NOTE: In the driver loop, trivial tokens (operators, delimiters) are
-        // intercepted by try_trivial() before reaching cook(). Semicolon is the
-        // exception — it always reaches here. Unit tests may call cook() directly
-        // with any tag; the match arms below handle all variants correctly.
-
+        // Why: unit tests call cook() directly with any tag, so the match below
+        // handles every RawTag variant — not only the non-trivial ones the
+        // driver routes here.
         match tag {
             // Semicolon: not in try_trivial() but still a direct mapping
             RawTag::Semicolon => CookResult::new(TokenKind::Semicolon),

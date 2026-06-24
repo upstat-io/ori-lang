@@ -291,6 +291,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // Traceless Traceable accessors (Error-struct + Result/Option delegation)
+        // must precede `resolve_callee`: a `backend_required: false` Traceable
+        // method otherwise resolves to an unbacked `_ori_trace` mono decl.
+        if let Some(val) = self.try_emit_traceless_traceable(callee, args, func, func.var_type(dst))
+        {
+            self.def_var_repr(dst, val, func);
+            return;
+        }
+
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
         let resolved = self.resolve_callee(callee, args, dst, func, mono_instance_id);

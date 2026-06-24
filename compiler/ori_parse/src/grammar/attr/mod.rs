@@ -35,6 +35,7 @@ mod compile_fail;
 mod conditional;
 mod repr;
 mod simple;
+mod skip_backend;
 
 use crate::{ParseError, Parser};
 use ori_diagnostic::ErrorCode;
@@ -48,6 +49,8 @@ use ori_ir::{FileAttr, Name, TokenCapture, TokenKind};
 pub struct ParsedAttrs {
     /// Skip reason for `#skip("reason")`.
     pub skip_reason: Option<Name>,
+    /// Per-backend skips for `#skip(backend: "<name>", reason: "<why>")`.
+    pub skip_backends: Vec<ori_ir::BackendSkip>,
     /// Expected compilation errors (multiple allowed).
     pub expected_errors: Vec<ori_ir::ExpectedError>,
     /// Expected error for `#fail("error")`.
@@ -234,6 +237,15 @@ impl Parser<'_> {
                     if uses_brackets {
                         self.finish_attr_bracket(uses_brackets, errors);
                     }
+                }
+                AttrKind::Skip
+                    if self.cursor.check(&TokenKind::LParen)
+                        && matches!(self.cursor.peek_next_kind(), TokenKind::Ident(_)) =>
+                {
+                    // `#skip(backend: "...", reason: "...")` — keyed form.
+                    // `#skip("reason")` (string after `(`) falls to the unkeyed
+                    // `parse_string_attr` path below.
+                    self.parse_skip_backend_attr(&mut attrs, errors, uses_brackets);
                 }
                 _ => {
                     self.parse_string_attr(attr_kind, &mut attrs, errors, uses_brackets);

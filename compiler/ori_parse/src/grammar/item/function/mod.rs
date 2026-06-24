@@ -205,6 +205,7 @@ impl Parser<'_> {
             body,
             span,
             skip_reason: attrs.skip_reason,
+            skip_backends: attrs.skip_backends,
             expected_errors: attrs.expected_errors,
             fail_expected: attrs.fail_expected,
         }))

@@ -237,6 +237,216 @@ fn desugar_explicit_formattable_format_with_emits_format_call() {
 }
 
 #[test]
+fn desugar_map_with_spread_chains_via_merge() {
+    // {k1: v1, ...base} -> {k1: v1}.merge(base)
+    // Positive pin: the canonical shape after MapWithSpread desugaring is a
+    // MethodCall(merge) chain, never a residual MapWithSpread sugar variant.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let base_name = interner.intern("base");
+    let key = interner.intern("k1");
+
+    let key_expr = arena.alloc_expr(Expr::new(ExprKind::String(key), Span::new(1, 5)));
+    let val_expr = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(7, 8)));
+    let base = arena.alloc_expr(Expr::new(ExprKind::Ident(base_name), Span::new(13, 17)));
+
+    let elements = arena.alloc_map_elements([
+        ori_ir::MapElement::Entry(ori_ir::MapEntry {
+            key: key_expr,
+            value: val_expr,
+            span: Span::new(1, 8),
+        }),
+        ori_ir::MapElement::Spread {
+            expr: base,
+            span: Span::new(10, 17),
+        },
+    ]);
+
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MapWithSpread(elements),
+        Span::new(0, 18),
+    ));
+
+    let type_result = test_type_result(vec![Idx::STR, Idx::INT, Idx::INT, Idx::INT]);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+    assert!(result.root.is_valid());
+
+    // Root is a MethodCall(merge); no MapWithSpread sugar survives (PHASE-34 Canon->All).
+    match result.arena.kind(result.root) {
+        CanExpr::MethodCall {
+            method, receiver, ..
+        } => {
+            assert_eq!(
+                *method,
+                interner.intern("merge"),
+                "spread desugars via merge"
+            );
+            // The receiver of the merge is the {k1: v1} literal Map segment.
+            assert!(
+                matches!(result.arena.kind(*receiver), CanExpr::Map(_)),
+                "merge receiver is the leading Map literal segment"
+            );
+        }
+        other => panic!("expected MethodCall(merge), got {other:?}"),
+    }
+}
+
+#[test]
+fn desugar_struct_with_spread_flattens_to_struct() {
+    // Point { ...base, x: 10 } -> Struct { x: base.x (overridden by 10), y: base.y }
+    // Positive pin: the canonical shape is a flat CanExpr::Struct with every
+    // declared field resolved; "later wins" — the explicit `x: 10` overrides
+    // the spread's `base.x`. No StructWithSpread sugar survives.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let point = interner.intern("Point");
+    let base_name = interner.intern("base");
+    let fx = interner.intern("x");
+    let fy = interner.intern("y");
+
+    let base = arena.alloc_expr(Expr::new(ExprKind::Ident(base_name), Span::new(11, 15)));
+    let ten = arena.alloc_expr(Expr::new(ExprKind::Int(10), Span::new(20, 22)));
+
+    let fields = arena.alloc_struct_lit_fields([
+        ori_ir::StructLitField::Spread {
+            expr: base,
+            span: Span::new(8, 15),
+        },
+        ori_ir::StructLitField::Field(ori_ir::FieldInit {
+            name: fx,
+            value: Some(ten),
+            span: Span::new(17, 22),
+        }),
+    ]);
+
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::StructWithSpread {
+            name: point,
+            fields,
+        },
+        Span::new(0, 24),
+    ));
+
+    // Register the Point struct so resolve_struct_fields returns [x, y].
+    let mut typed = TypedModule::new();
+    typed.expr_types.push(Idx::INT); // [0] base -> int placeholder
+    typed.expr_types.push(Idx::INT); // [1] ten
+    typed.expr_types.push(Idx::INT); // [2] StructWithSpread root
+    let point_idx = Idx::from_raw(64);
+    typed.types.push(ori_types::TypeEntry {
+        name: point,
+        idx: point_idx,
+        kind: ori_types::TypeKind::Struct(ori_types::StructDef {
+            fields: vec![
+                ori_types::FieldDef {
+                    name: fx,
+                    ty: Idx::INT,
+                    span: Span::DUMMY,
+                    visibility: ori_types::Visibility::Public,
+                },
+                ori_types::FieldDef {
+                    name: fy,
+                    ty: Idx::INT,
+                    span: Span::DUMMY,
+                    visibility: ori_types::Visibility::Public,
+                },
+            ],
+            category: ori_types::ValueCategory::default(),
+        }),
+        span: Span::DUMMY,
+        type_params: Vec::new(),
+        visibility: ori_types::Visibility::Public,
+        merkle_hash: 0,
+        repr: None,
+        burden: None,
+    });
+    let type_result = TypeCheckResult::ok(typed);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+    assert!(result.root.is_valid());
+
+    match result.arena.kind(result.root) {
+        CanExpr::Struct { name, fields } => {
+            assert_eq!(*name, point);
+            let field_list = result.arena.get_fields(*fields);
+            assert_eq!(field_list.len(), 2, "every declared field resolved");
+            // Field x: "later wins" — the explicit Int(10), not base.x.
+            assert_eq!(field_list[0].name, fx);
+            assert_eq!(
+                *result.arena.kind(field_list[0].value),
+                CanExpr::Int(10),
+                "explicit field overrides the spread (later wins)"
+            );
+            // Field y: from the spread -> base.y Field access.
+            assert_eq!(field_list[1].name, fy);
+            match result.arena.kind(field_list[1].value) {
+                CanExpr::Field { field, .. } => assert_eq!(*field, fy),
+                other => panic!("expected Field(base.y), got {other:?}"),
+            }
+        }
+        other => panic!("expected flat Struct, got {other:?}"),
+    }
+}
+
+#[test]
+fn desugar_method_call_named_drops_to_positional() {
+    // No method signature available -> args stay in source order, and the sugar
+    // variant lowers to a positional CanExpr::MethodCall. Positive pin: no
+    // MethodCallNamed survives canonicalization.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let recv_name = interner.intern("x");
+    let method = interner.intern("scale");
+    let arg_factor = interner.intern("factor");
+
+    let receiver = arena.alloc_expr(Expr::new(ExprKind::Ident(recv_name), Span::new(0, 1)));
+    let arg_val = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::new(15, 16)));
+
+    let args = arena.alloc_call_args([CallArg {
+        name: Some(arg_factor),
+        value: arg_val,
+        is_spread: false,
+        span: Span::new(8, 16),
+    }]);
+
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MethodCallNamed {
+            receiver,
+            method,
+            args,
+        },
+        Span::new(0, 17),
+    ));
+
+    let type_result = test_type_result(vec![Idx::INT, Idx::INT, Idx::INT]);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+    assert!(result.root.is_valid());
+
+    match result.arena.kind(result.root) {
+        CanExpr::MethodCall {
+            method: m,
+            receiver: r,
+            args,
+        } => {
+            assert_eq!(*m, method);
+            assert_eq!(*result.arena.kind(*r), CanExpr::Ident(recv_name));
+            let arg_list = result.arena.get_expr_list(*args);
+            assert_eq!(arg_list.len(), 1);
+            assert_eq!(*result.arena.kind(arg_list[0]), CanExpr::Int(3));
+        }
+        other => panic!("expected positional MethodCall, got {other:?}"),
+    }
+}
+
+#[test]
 fn desugar_list_with_spread_simple() {
     // [1, ...xs, 2] → [1].concat(xs).concat([2])
     let mut arena = ExprArena::new();

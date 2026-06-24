@@ -25,11 +25,6 @@
 //!    pre-evaluated and stored in `ConstantPool`
 //!
 //! 4. **Type Attachment**: Every `CanNode` carries its resolved type
-//!
-//! # Prior Art
-//!
-//! - **Roc**: `canonicalize_expr()` in `crates/compiler/can/src/expr.rs`
-//! - **Elm**: `canonicalize` in `compiler/src/Canonicalize/Expression.hs`
 
 mod const_fold;
 mod desugar;

@@ -58,6 +58,20 @@ pub enum Align {
     Right,
 }
 
+impl Align {
+    /// Map a spec align-char to its `Align`, or `None` when the char is not an
+    /// alignment char. Canonical char->align mapping; both the lookahead and the
+    /// parse site derive from it (SSOT).
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            '<' => Some(Self::Left),
+            '^' => Some(Self::Center),
+            '>' => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// Sign display mode for numeric values.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Sign {
@@ -91,6 +105,23 @@ pub enum FormatType {
 }
 
 impl FormatType {
+    /// Map a spec type-char to its `FormatType`, or `None` when the char is not
+    /// a valid format type. Canonical char->type mapping; the parse site and the
+    /// `is_format_type` lookahead predicate both derive from it (SSOT).
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'b' => Some(Self::Binary),
+            'o' => Some(Self::Octal),
+            'x' => Some(Self::Hex),
+            'X' => Some(Self::HexUpper),
+            'e' => Some(Self::Exp),
+            'E' => Some(Self::ExpUpper),
+            'f' => Some(Self::Fixed),
+            '%' => Some(Self::Percent),
+            _ => None,
+        }
+    }
+
     /// Returns `true` if this format type is only valid for integer values.
     pub fn is_integer_only(&self) -> bool {
         matches!(
@@ -168,12 +199,12 @@ pub fn parse_format_spec(spec: &str) -> Result<ParsedFormatSpec, FormatSpecError
     // Parse [[fill]align]
     // Look ahead: if chars[1] is an alignment char, then chars[0] is fill.
     // Otherwise, if chars[0] is an alignment char, it's align with no fill.
-    if chars.len() >= 2 && is_align_char(chars[1]) {
+    if let Some(align) = chars.get(1).and_then(|&c| Align::from_char(c)) {
         result.fill = Some(chars[0]);
-        result.align = Some(parse_align(chars[1]));
+        result.align = Some(align);
         pos = 2;
-    } else if !chars.is_empty() && is_align_char(chars[0]) {
-        result.align = Some(parse_align(chars[0]));
+    } else if let Some(align) = chars.first().and_then(|&c| Align::from_char(c)) {
+        result.align = Some(align);
         pos = 1;
     }
 
@@ -255,17 +286,8 @@ pub fn parse_format_spec(spec: &str) -> Result<ParsedFormatSpec, FormatSpecError
     // Parse [type]
     if pos < chars.len() {
         let type_char = chars[pos];
-        result.format_type = Some(match type_char {
-            'b' => FormatType::Binary,
-            'o' => FormatType::Octal,
-            'x' => FormatType::Hex,
-            'X' => FormatType::HexUpper,
-            'e' => FormatType::Exp,
-            'E' => FormatType::ExpUpper,
-            'f' => FormatType::Fixed,
-            '%' => FormatType::Percent,
-            c => return Err(FormatSpecError::UnknownType(c)),
-        });
+        result.format_type =
+            Some(FormatType::from_char(type_char).ok_or(FormatSpecError::UnknownType(type_char))?);
         pos += 1;
     }
 
@@ -278,21 +300,8 @@ pub fn parse_format_spec(spec: &str) -> Result<ParsedFormatSpec, FormatSpecError
     Ok(result)
 }
 
-fn is_align_char(c: char) -> bool {
-    matches!(c, '<' | '>' | '^')
-}
-
-fn parse_align(c: char) -> Align {
-    match c {
-        '<' => Align::Left,
-        '^' => Align::Center,
-        '>' => Align::Right,
-        _ => unreachable!("is_align_char check failed"),
-    }
-}
-
 fn is_format_type(c: char) -> bool {
-    matches!(c, 'b' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | '%')
+    FormatType::from_char(c).is_some()
 }
 
 #[cfg(test)]

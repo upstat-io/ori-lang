@@ -316,7 +316,7 @@ pub enum Ownership {
     ///
     /// Used for non-receiver parameters of value types (e.g., `int`
     /// params in factory functions). Receiver ownership for primitives
-    /// uses `Ownership::Borrow` (frozen decision 18).
+    /// uses `Ownership::Borrow`.
     Copy,
 }
 
@@ -343,8 +343,6 @@ pub enum OpStrategy {
     /// Equality: `icmp eq`, `icmp ne`.
     /// Negation: `sub 0, x`.
     /// Bitwise: `and`, `or`, `xor`, `shl`, `ashr`.
-    ///
-    /// Used by: `int`, `Duration`, `Size`.
     IntInstr,
 
     /// Floating-point instructions.
@@ -353,8 +351,6 @@ pub enum OpStrategy {
     /// Comparison: `fcmp olt`, `fcmp ogt`, `fcmp ole`, `fcmp oge`.
     /// Equality: `fcmp oeq`, `fcmp one`.
     /// Negation: `fneg`.
-    ///
-    /// Used by: `float`.
     FloatInstr,
 
     /// Unsigned integer comparison.
@@ -363,8 +359,7 @@ pub enum OpStrategy {
     /// Equality: `icmp eq`, `icmp ne` (same as signed for equality).
     /// No arithmetic operators — `byte` and `char` don't support `+`, `-`, etc.
     ///
-    /// Used by: `byte`, `char`, `bool` (for ordering — `false < true`
-    /// uses unsigned comparison since `false=0, true=1`).
+    /// Why: `bool` ordering uses unsigned comparison since `false=0, true=1`.
     UnsignedCmp,
 
     /// Boolean logic instructions.
@@ -372,8 +367,7 @@ pub enum OpStrategy {
     /// And: `and`. Or: `or`. Xor: `xor`.
     /// Equality: `icmp eq`, `icmp ne`.
     /// No arithmetic, no ordering (ordering uses `UnsignedCmp`).
-    ///
-    /// Used by: `bool` (for logical operators `&&`, `||`).
+    /// Backs the logical operators `&&`, `||`.
     BoolLogic,
 
     /// Delegate to an `ori_rt` runtime function.
@@ -387,7 +381,7 @@ pub enum OpStrategy {
     /// vs the type's own representation (for operations like
     /// `ori_str_concat` which returns a new `str`).
     ///
-    /// Used by: `str` (all operators delegate to runtime).
+    /// Strategy for operators that delegate entirely to a runtime function.
     RuntimeCall {
         /// The runtime function symbol name (e.g., `"ori_str_concat"`).
         fn_name: &'static str,

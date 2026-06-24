@@ -1,11 +1,11 @@
-//! Tests for the Channel `TypeDef` AND the §02.4.B `Channel<T>` burden
-//! template registered in `BURDEN_TABLE`.
+//! Tests for the Channel `TypeDef` AND the `Channel<T>` burden template
+//! registered in `BURDEN_TABLE`.
 //!
 //! The burden-template tests verify the registry-layer template only —
 //! composition (substituting `TYPE_PARAM_T` with concrete `Idx` values) and
 //! signature-dedup live in `ori_types::registry::burden_compose` /
 //! `ori_types::registry::burden_dedup`, outside this crate's zero-deps
-//! purity boundary (`registry.md §Invariants`).
+//! purity boundary.
 
 use super::*;
 
@@ -117,23 +117,21 @@ fn channel_methods_alphabetically_sorted() {
     );
 }
 
-// ─── §02.4.B Channel<T> burden template (registry-layer surface) ────────
+// Channel<T> burden template (registry-layer surface)
 
 fn channel_template() -> &'static BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
         Some(spec) => spec,
         None => {
-            panic!("Channel template missing from BURDEN_TABLE — §02.4.B registration regression")
+            panic!("Channel template missing from BURDEN_TABLE — registration regression")
         }
     }
 }
 
 #[test]
 fn channel_template_present_in_burden_table() {
-    // Positive: BURDEN_TABLE registers a Channel<T> template (§02.4.B core
-    // deliverable). Regression catcher for the prior "DeferredToComposition"
-    // classification — Channel now ships an in-table template like LIST /
-    // MAP / SET / OPTION / RESULT.
+    // Positive: BURDEN_TABLE registers a Channel<T> in-table template like
+    // LIST / MAP / SET / OPTION / RESULT (not DeferredToComposition).
     let _ = channel_template();
 }
 

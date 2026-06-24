@@ -28,6 +28,33 @@ use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 
+/// Repo-relative paths whose formatted output fails to re-parse on the golden
+/// idempotency path — a `format -> parse` round-trip defect tracked under
+/// BUG-07-314. A re-parse failure on a file NOT listed here is a hard failure
+/// (never a silent skip); a listed file that re-parses clean again is a stale
+/// entry to remove. Empty today (the golden corpus exercises no tracked break);
+/// the guard pins the invariant so a regression cannot slip in silently.
+const GOLDEN_KNOWN_REPARSE_BREAKS: &[&str] = &[];
+
+/// Whether `repo_rel` is a tracked BUG-07-314 golden re-parse break.
+fn is_golden_known_reparse_break(repo_rel: &str) -> bool {
+    GOLDEN_KNOWN_REPARSE_BREAKS.contains(&repo_rel)
+}
+
+/// Repo-relative, forward-slash path string for allowlist matching.
+fn repo_relative(path: &Path) -> String {
+    // `tests/fmt/...` lives two levels under the crate manifest dir.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    path.strip_prefix(&root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// Strip comments from source code for comparison.
 /// Comments are not preserved in Phase 2 (that's Phase 6 work).
 fn strip_comments(source: &str) -> String {
@@ -197,18 +224,25 @@ fn test_idempotency(path: &Path) -> Result<(), String> {
 
     let first = parse_and_format(&source_no_comments)?;
 
-    // Try to parse the formatted output
+    // The formatted output MUST re-parse (format->parse round-trip; Spec: Annex D).
     let second = match parse_and_format(&first) {
         Ok(s) => s,
         Err(e) => {
-            // Parser doesn't support the formatted output (e.g., multi-line params)
-            // This is a known limitation - skip idempotency for this file
-            eprintln!(
-                "Note: Skipping idempotency for {} (formatter output can't be re-parsed: {})",
+            let repo_rel = repo_relative(path);
+            if is_golden_known_reparse_break(&repo_rel) {
+                // Tracked BUG-07-314 round-trip break — counted, not failed.
+                eprintln!(
+                    "Note: known BUG-07-314 re-parse break for {} (tracked): {}",
+                    path.display(),
+                    e
+                );
+                return Ok(());
+            }
+            return Err(format!(
+                "Re-parse break for {} (formatter output rejected by parser; NOT in BUG-07-314 allowlist): {}",
                 path.display(),
                 e
-            );
-            return Ok(());
+            ));
         }
     };
 

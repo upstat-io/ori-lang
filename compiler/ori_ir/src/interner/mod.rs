@@ -144,7 +144,7 @@ impl StringInterner {
         guard.strings.push(leaked);
         guard.map.insert(leaked, local);
 
-        // Increment total count (Relaxed is fine - we don't need ordering guarantees)
+        // Why: Relaxed suffices — the count is a statistic, not a synchronization point.
         self.total_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(Name::new(shard_idx_u32, local))

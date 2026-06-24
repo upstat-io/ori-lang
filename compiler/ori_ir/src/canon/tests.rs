@@ -4,7 +4,7 @@ use crate::{Name, Span, TypeId};
 
 use super::*;
 
-// ── Size Assertions ─────────────────────────────────────────
+// Size Assertions
 
 #[test]
 fn can_expr_size() {
@@ -41,7 +41,7 @@ fn decision_tree_id_size() {
     assert_eq!(mem::size_of::<DecisionTreeId>(), 4);
 }
 
-// ── CanId ───────────────────────────────────────────────────
+// CanId
 
 #[test]
 fn can_id_invalid() {
@@ -62,7 +62,7 @@ fn can_id_debug() {
     assert_eq!(format!("{:?}", CanId::new(5)), "CanId(5)");
 }
 
-// ── CanRange ────────────────────────────────────────────────
+// CanRange
 
 #[test]
 fn can_range_empty() {
@@ -84,7 +84,7 @@ fn can_range_debug() {
     assert_eq!(format!("{r:?}"), "CanRange(5..8)");
 }
 
-// ── CanArena ────────────────────────────────────────────────
+// CanArena
 
 #[test]
 fn arena_push_and_get() {
@@ -186,7 +186,7 @@ fn arena_fields() {
     assert_eq!(fields[0].value, v);
 }
 
-// ── ConstantPool ────────────────────────────────────────────
+// ConstantPool
 
 #[test]
 fn constant_pool_sentinels() {
@@ -226,7 +226,7 @@ fn constant_pool_sentinel_dedup() {
     assert_eq!(id, ConstantPool::TRUE);
 }
 
-// ── DecisionTreePool ────────────────────────────────────────
+// DecisionTreePool
 
 #[test]
 fn decision_tree_pool_push_and_get() {
@@ -240,7 +240,7 @@ fn decision_tree_pool_push_and_get() {
     assert_eq!(pool.len(), 1);
 }
 
-// ── CanonResult ─────────────────────────────────────────────
+// CanonResult
 
 #[test]
 fn canon_result_empty() {
@@ -249,7 +249,7 @@ fn canon_result_empty() {
     assert!(result.arena.is_empty());
 }
 
-// ── CanExpr equality / hashing ──────────────────────────────
+// CanExpr equality / hashing
 
 #[test]
 fn can_expr_eq() {
@@ -268,7 +268,7 @@ fn can_expr_hash_consistency() {
     assert_eq!(set.len(), 2);
 }
 
-// ── remap_types ─────────────────────────────────────────────
+// remap_types
 
 #[test]
 fn remap_types_updates_all_entries() {

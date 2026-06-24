@@ -55,7 +55,7 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 19 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static MAP_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
     MethodDef::compound(

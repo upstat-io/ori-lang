@@ -25,7 +25,7 @@ const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 8 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static ERROR_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),

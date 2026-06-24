@@ -34,7 +34,7 @@ const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 const SELF: ReturnTag = ReturnTag::SelfType;
 const FRESH: ReturnTag = ReturnTag::Fresh;
 
-// All 21 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static RESULT_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "and_then",

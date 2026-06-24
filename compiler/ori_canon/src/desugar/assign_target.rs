@@ -139,11 +139,7 @@ impl Lowerer<'_> {
 
         // Wrap the temp bindings + reassignment in a block so the temps scope
         // to this assignment only.
-        let start = self.arena.start_expr_list();
-        for let_node in temp_lets {
-            self.arena.push_expr_list_item(let_node);
-        }
-        let stmts = self.arena.finish_expr_list(start);
+        let stmts = self.arena.push_expr_list(&temp_lets);
         self.push(
             CanExpr::Block {
                 stmts,

@@ -14,15 +14,12 @@
 //! - `flatten::flatten_pattern()` — arena `MatchPattern` → self-contained `FlatPattern`
 //! - `compile::compile()` — `PatternMatrix` → `DecisionTree`
 //!
-//! No algorithm duplication. Section 07 may move the algorithm here if needed.
+//! No algorithm duplication; the core primitives are housed in
+//! `ori_arc::decision_tree`.
 //!
 //! # Prior Art
 //!
 //! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
-//! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
-//! - Elm `compiler/src/Optimize/DecisionTree.hs`
-//!
-//! See `eval_v2` Section 03 for the full pattern compilation specification.
 
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow, ScrutineePath};

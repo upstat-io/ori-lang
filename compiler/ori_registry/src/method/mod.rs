@@ -89,9 +89,6 @@ impl MethodDef {
     /// Fills in the 5 fields that are constant for all primitive methods:
     /// `pure: true`, `backend_required: true`, `kind: Instance`,
     /// `dei_only: false`, `dei_propagation: NotApplicable`.
-    ///
-    /// Without this helper, each method literal requires ~12 lines, and
-    /// `float.rs` (43 methods) would exceed the 500-line file size limit.
     #[must_use]
     pub const fn primitive(
         name: &'static str,
@@ -198,7 +195,6 @@ impl ParamDef {
     /// Common parameter for binary operations on primitive value types.
     ///
     /// Name `"other"`, type `ReturnTag::SelfType`, ownership `Copy`.
-    /// Used by `equals`, `compare`, `add`, `sub`, etc.
     pub const SELF_TYPE: Self = Self {
         name: "other",
         ty: ReturnTag::SelfType,
@@ -208,7 +204,6 @@ impl ParamDef {
     /// Common parameter for binary operations on reference types.
     ///
     /// Name `"other"`, type `ReturnTag::SelfType`, ownership `Borrow`.
-    /// Used by `equals`, `compare` on str, list, map, set.
     pub const SELF_BORROW: Self = Self {
         name: "other",
         ty: ReturnTag::SelfType,
@@ -218,7 +213,6 @@ impl ParamDef {
     /// Common parameter for binary operations on structural types.
     ///
     /// Name `"other"`, type `ReturnTag::SelfType`, ownership `Owned`.
-    /// Used by `equals`, `compare` on option, result, tuple.
     pub const SELF_OWNED: Self = Self {
         name: "other",
         ty: ReturnTag::SelfType,

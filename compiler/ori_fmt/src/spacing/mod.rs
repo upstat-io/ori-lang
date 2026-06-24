@@ -24,8 +24,7 @@
 //!
 //! # Spec Reference
 //!
-//! - Lines 25-47: Spacing table
-//! - Lines 902-936: Comment normalization
+//! Spacing table and comment normalization. Spec: Annex D (formatting).
 
 mod action;
 mod category;
@@ -37,7 +36,9 @@ pub use action::SpaceAction;
 pub use category::TokenCategory;
 pub use lookup::{global_rules_map, lookup_spacing, RulesMap};
 pub use matcher::TokenMatcher;
-pub use rules::{find_rule, rule_count, spacing_between, SpaceRule, SPACE_RULES};
+#[cfg(test)]
+pub use rules::{find_rule, rule_count, spacing_between};
+pub use rules::{SpaceRule, SPACE_RULES};
 
 #[cfg(test)]
 mod tests;

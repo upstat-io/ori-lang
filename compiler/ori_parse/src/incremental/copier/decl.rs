@@ -100,6 +100,7 @@ impl AstCopier<'_> {
             body: self.copy_expr(test.body, new_arena),
             span: self.adjust_span(test.span),
             skip_reason: test.skip_reason,
+            skip_backends: test.skip_backends.clone(),
             expected_errors: test.expected_errors.clone(),
             fail_expected: test.fail_expected,
         }

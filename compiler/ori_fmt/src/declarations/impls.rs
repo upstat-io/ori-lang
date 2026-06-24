@@ -26,7 +26,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     }
 
     /// Emit the impl header: item attributes, `impl`, generics, and the
-    /// subject-first colon form `impl Type: Trait[<args>]` (grammar.ebnf:312)
+    /// subject-first colon form `impl Type: Trait[<args>]` (grammar.ebnf `trait_impl`)
     /// followed by any where-clauses. Shared by both formatting paths.
     fn format_impl_header(&mut self, impl_def: &ImplDef) {
         // Item-level conditional attributes (Spec §25.4)

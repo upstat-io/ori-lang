@@ -71,7 +71,7 @@ impl Lowerer<'_> {
 
         // Try to resolve the method signature for reordering and default filling.
         // Pass the source receiver's type so same-named methods on different impls
-        // resolve to their own signature (BUG-04-190 R3-F4).
+        // resolve to their own signature.
         let params = self.resolve_method_params(method, self.typed.expr_type(receiver.index()));
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
@@ -185,10 +185,10 @@ impl Lowerer<'_> {
     ///
     /// `receiver_ty` disambiguates same-named methods across impls: among the impls
     /// defining `method`, the one whose `self` (param 0) type equals the receiver is
-    /// preferred, so each receiver fills its OWN defaults (BUG-04-190 R3-F4). Falls
-    /// back to the first name-match when the receiver type is unknown or no `self`
-    /// type matches (generic impls, where `self` is a type variable not equal to the
-    /// concrete receiver type — the generic-method default-omit follow-up).
+    /// preferred, so each receiver fills its OWN defaults. Falls back to the first
+    /// name-match when the receiver type is unknown or no `self` type matches
+    /// (generic impls, where `self` is a type variable not equal to the concrete
+    /// receiver type).
     pub(crate) fn resolve_method_params(
         &self,
         method: Name,
@@ -215,7 +215,7 @@ impl Lowerer<'_> {
                 // Drop the leading `self` so positional alignment + omitted-default
                 // fill in reorder_and_lower_args match the non-self params only —
                 // else a provided positional arg lands in `self`'s slot and the
-                // first real param is wrongly default-filled (BUG-04-190 over-fill).
+                // first real param is wrongly default-filled.
                 let skip = usize::from(sig.param_names.first().copied() == Some(self_name));
                 sig.param_names
                     .iter()

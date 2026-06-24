@@ -8,7 +8,10 @@
 mod factories;
 mod suggestion;
 
-pub use factories::*;
+pub use factories::{
+    expected_expression, missing_pattern_arg, type_mismatch, unclosed_delimiter, unexpected_token,
+    unknown_identifier, unknown_pattern_arg,
+};
 pub use suggestion::Suggestion;
 
 use ori_ir::Span;

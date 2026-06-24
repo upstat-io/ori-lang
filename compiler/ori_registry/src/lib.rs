@@ -55,7 +55,6 @@
 //! 2. Compilation fails in every `defs/*.rs` file — fill in each one
 //! 3. Update consuming phases (`ori_types`, `ori_eval`, `ori_arc`, `ori_llvm`)
 //! 4. Add tests verifying the new field's behavior
-//! 5. Update the plan section that documents the struct
 
 pub mod burden;
 pub mod defs;

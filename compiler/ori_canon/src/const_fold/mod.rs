@@ -16,8 +16,6 @@
 //! - CTFE (compile-time function evaluation)
 //! - Algebraic simplification
 //! - Function call memoization
-//!
-//! See `eval_v2` Section 04 for the full constant folding specification.
 
 mod arithmetic;
 

@@ -16,8 +16,8 @@
 //! 1. **`MethodChainRule`**: All chain elements break together
 //! 2. **`ShortBodyRule`**: ~20 char threshold for yield/do bodies
 //! 3. **`BooleanBreakRule`**: 3+ `||` clauses break with leading `||`
-//! 4. **`ChainedElseIfRule`**: Kotlin style (first `if` with assignment)
-//! 5. **`NestedForRule`**: Rust-style indentation for nested `for`
+//! 4. **`ChainedElseIfRule`**: first `if` carries the assignment
+//! 5. **`NestedForRule`**: each nested `for` increases indentation
 //! 6. **`ParenthesesRule`**: Preserve user parens, add when needed
 //! 7. **`FunctionSeq helpers`**: Query functions for try, match, generic `FunctionSeq`
 //!

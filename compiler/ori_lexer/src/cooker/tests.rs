@@ -169,7 +169,7 @@ fn integer_overflow() {
     assert_eq!(cooker.errors().len(), 1);
 }
 
-// Float overflow (Finding 2)
+// Float overflow
 
 #[test]
 fn float_overflow_is_error() {
@@ -193,7 +193,7 @@ fn float_max_finite_is_valid() {
     assert!(!result.had_error);
 }
 
-// Malformed numeric literals (Finding 1)
+// Malformed numeric literals
 
 #[test]
 fn hex_int_no_digits_is_error() {
@@ -518,7 +518,7 @@ fn hashbang_mapping() {
     assert!(cooker.errors().is_empty());
 }
 
-// Duration/Size overflow (Finding 3)
+// Duration/Size overflow
 
 #[test]
 fn duration_integer_overflow_is_error() {

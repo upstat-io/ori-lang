@@ -33,7 +33,7 @@ static STEP_PARAM: [ParamDef; 1] = [ParamDef {
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 
-// All 8 methods alphabetically sorted.
+// All methods alphabetically sorted.
 // backend_required: false for all — Range methods are typeck+eval only.
 static RANGE_METHODS: &[MethodDef] = &[
     MethodDef::compound(

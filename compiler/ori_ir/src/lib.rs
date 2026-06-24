@@ -86,6 +86,7 @@ pub use ast::{
     AccessStep,
     AccessStepRange,
     ArmRange,
+    BackendSkip,
     BinaryOp,
     BindingPattern,
     // CallNamed types
@@ -159,6 +160,7 @@ pub use ast::{
     TargetAttr,
     TemplatePart,
     TemplatePartRange,
+    TestBackend,
     TestDef,
     TraitAssocType,
     TraitBound,

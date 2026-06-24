@@ -5,10 +5,8 @@
 //!
 //! # Spec Reference
 //!
-//! - Lines 25-30: Binary operators
-//! - Lines 31-35: Delimiters
-//! - Lines 36-41: Keywords and punctuation
-//! - Lines 42-47: Context-dependent
+//! Spacing rules cover binary operators, delimiters, keywords and punctuation,
+//! and context-dependent pairs. Spec: Annex D (formatting).
 
 use super::{SpaceAction, TokenCategory, TokenMatcher};
 
@@ -369,6 +367,8 @@ pub static SPACE_RULES: &[SpaceRule] = &[
 ];
 
 /// Get the number of spacing rules.
+// test-only: the production lookup path is `RulesMap::lookup` / `lookup_spacing`.
+#[cfg(test)]
 pub fn rule_count() -> usize {
     SPACE_RULES.len()
 }
@@ -376,6 +376,8 @@ pub fn rule_count() -> usize {
 /// Find the first matching rule for a token pair.
 ///
 /// Rules are checked in priority order, then definition order.
+// test-only: linear-scan oracle cross-checked against the production `RulesMap::lookup`.
+#[cfg(test)]
 pub fn find_rule(left: TokenCategory, right: TokenCategory) -> &'static SpaceRule {
     // Rules are already sorted by priority in the static definition
     for rule in SPACE_RULES {
@@ -389,7 +391,8 @@ pub fn find_rule(left: TokenCategory, right: TokenCategory) -> &'static SpaceRul
 }
 
 /// Get the spacing action for a token pair.
-#[inline]
+// test-only: linear-scan oracle cross-checked against the production `RulesMap::lookup`.
+#[cfg(test)]
 pub fn spacing_between(left: TokenCategory, right: TokenCategory) -> SpaceAction {
     find_rule(left, right).action
 }

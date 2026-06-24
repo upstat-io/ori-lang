@@ -345,9 +345,9 @@ pub struct ImplMethod {
 
 impl From<&TraitDefaultMethod> for ImplMethod {
     fn from(default: &TraitDefaultMethod) -> Self {
-        // Phase 2.5 Round 0 directive: COPY generics + where_clauses (load-bearing
-        // for default-method body type-checking — the inherited body references
-        // method-level binders that must remain in scope on the impl side).
+        // INVARIANT: copy generics + where_clauses — the inherited default body
+        // references method-level binders that must remain in scope on the impl
+        // side for body type-checking.
         // Capabilities are not part of TraitDefaultMethod (trait method_sig +
         // default_method productions in grammar.ebnf carry no `[ uses_clause ]`),
         // so impl-side capabilities default to empty when inheriting a default.

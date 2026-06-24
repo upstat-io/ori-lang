@@ -64,7 +64,8 @@ pub use self::iterator::ITERATOR;
 ///
 /// Order matches `TypeTag` declaration order for predictable iteration.
 ///
-// TODO: Enforce completeness at compile time via exhaustive match in a const fn.
+/// Completeness — every non-excluded `TypeTag` has an entry here — is
+/// enforced at test time by `all_type_tags_present` (iterates `TypeTag::all()`).
 pub static BUILTIN_TYPES: &[&crate::TypeDef] = &[
     // Sorted by TypeTag discriminant value (repr(u8))
     &INT,   // 0

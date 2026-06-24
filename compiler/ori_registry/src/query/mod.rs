@@ -215,8 +215,9 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
 ///     .collect();
 /// ```
 pub fn borrowing_method_names() -> &'static [&'static str] {
-    // Buffer holds pre-dedup entries (~412 as of 2026-03). Deduped result
-    // is ~232 unique names. 480 provides ~16% headroom for new methods.
+    // Buffer holds pre-dedup borrowing-method names across all BUILTIN_TYPES;
+    // capacity 480 provides headroom over the current method set. The overflow
+    // assert below fires if a future method set exceeds it.
     static NAMES: LazyLock<([&'static str; 480], usize)> = LazyLock::new(|| {
         let mut buf = [""; 480];
         let mut len = 0;
@@ -273,7 +274,7 @@ pub fn find_type_by_name(name: &str) -> Option<&'static TypeDef> {
 
 /// Returns the names of methods only available on `DoubleEndedIterator`.
 ///
-/// These are the 5 methods with `dei_only: true`: `last`, `next_back`,
+/// These are the methods with `dei_only: true`: `last`, `next_back`,
 /// `rev`, `rfind`, `rfold`.
 pub fn dei_only_methods() -> impl Iterator<Item = &'static str> {
     methods_for(TypeTag::Iterator)
