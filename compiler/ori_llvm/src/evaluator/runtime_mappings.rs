@@ -22,10 +22,6 @@ use crate::runtime;
 /// Uses `LLVMAddSymbol` to make runtime functions discoverable by MCJIT's
 /// `RuntimeDyld` during relocation resolution. Called once per process via
 /// `Once` guard — symbols persist for the process lifetime.
-///
-/// This replaces the previous `addGlobalMapping` approach, which populated
-/// `ExecutionEngine::GlobalAddressMap` — a map that MCJIT's `RuntimeDyld`
-/// does NOT check during symbol resolution (it uses `DynamicLibrary` instead).
 pub(super) fn ensure_runtime_symbols_registered() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
@@ -146,6 +142,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_from_ordering" => runtime::ori_str_from_ordering as *const () as usize,
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
         "ori_str_from_char" => runtime::ori_str_from_char as *const () as usize,
+        "ori_char_is_alpha" => runtime::ori_char_is_alpha as *const () as usize,
         // String debug formatting
         "ori_str_debug_format" => runtime::ori_str_debug_format as *const () as usize,
         "ori_str_escape_control" => runtime::ori_str_escape_control as *const () as usize,

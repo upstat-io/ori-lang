@@ -258,3 +258,13 @@ use std.testing { assert, assert_eq }
 }
 
 @then_chained () -> Ordering = Equal.then(other: Less);
+
+// Regression: Ordering.then under LLVM/AOT (emit_ordering_then). Clamps both
+// arms of the `select(self == Equal, other, self)` — the Equal arm is pinned by
+// test_then_chained; this pins the non-Equal short-circuit (returns self).
+@test_then_non_equal_returns_self tests @then_self () -> void = {
+    assert(cond: Less.then(other: Greater).is_less());
+    assert(cond: Greater.then(other: Less).is_greater())
+}
+
+@then_self () -> Ordering = Less.then(other: Greater);

@@ -88,7 +88,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
         ORD,
         None,
         Ownership::Borrow,
-        false,
+        true,
     ),
     MethodDef::compound(
         "to_str",

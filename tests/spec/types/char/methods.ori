@@ -1,0 +1,22 @@
+// Spec: 06-types.md § Char Type
+// Tests for char predicate methods under both backends (LLVM/AOT emitter parity)
+
+use std.testing { assert }
+
+// is_alpha: alphabetic Unicode scalars (matches char::is_alphabetic)
+
+@test_is_alpha_on_letters tests @alpha_letters () -> void = {
+    assert(cond: 'a'.is_alpha());
+    assert(cond: 'Z'.is_alpha())
+}
+
+@alpha_letters () -> bool = 'a'.is_alpha();
+
+// Negative pin: digits and whitespace are not alphabetic.
+
+@test_is_alpha_on_non_letters tests @alpha_non_letters () -> void = {
+    assert(cond: !'7'.is_alpha());
+    assert(cond: !' '.is_alpha())
+}
+
+@alpha_non_letters () -> bool = '7'.is_alpha();

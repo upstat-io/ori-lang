@@ -2,10 +2,10 @@
 //!
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
 //!
-//! This file is exempt from the 500-line limit (currently ~528 lines): it is a
-//! pure `declare_builtins!` macro invocation generating a single `match`
-//! dispatch — splitting would fragment the lookup surface. The macro cannot be
-//! split across files. Method implementations live in sub-modules.
+//! This file is exempt from the 500-line limit: it is a pure `declare_builtins!`
+//! macro invocation generating a single `match` dispatch — splitting would
+//! fragment the lookup surface. The macro cannot be split across files. Method
+//! implementations live in sub-modules.
 
 mod hash_thunks;
 mod list_builtins;
@@ -69,6 +69,7 @@ declare_builtins! { emitter, ctx;
     },
     ("str", "to_uppercase") => emitter.emit_str_unary_call("ori_str_to_uppercase", ctx.arg_vals[0]),
     ("str", "to_lowercase") => emitter.emit_str_unary_call("ori_str_to_lowercase", ctx.arg_vals[0]),
+    ("str", "escape") => emitter.emit_str_unary_call("ori_str_escape_control", ctx.arg_vals[0]),
     ("str", "replace") => {
         if ctx.arg_vals.len() >= 3 {
             emitter.emit_str_replace(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
@@ -156,9 +157,9 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "pop") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            // pop() returns Option<T> in the type checker — COW list mutation
-            // for pop requires ARC pipeline cooperation (dual return: element + modified list).
-            // For now, return the last element as Option<T>.
+            // Why: pop() is typed Option<T> but the removing dual-return (element +
+            // modified list) needs ARC-pipeline cooperation that is not wired, so the
+            // emitted form is the non-mutating last-element read.
             emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
         } else {
             None

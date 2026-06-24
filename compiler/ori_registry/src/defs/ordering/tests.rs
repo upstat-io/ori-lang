@@ -89,13 +89,16 @@ fn ordering_variant_tags() {
 }
 
 #[test]
-fn ordering_then_with_not_backend_required() {
+fn ordering_then_with_backend_required() {
     let m = ORDERING
         .methods
         .iter()
         .find(|m| m.name == "then_with")
         .unwrap_or_else(|| panic!("then_with method should exist"));
-    assert!(!m.backend_required, "then_with is typeck-only");
+    assert!(
+        m.backend_required,
+        "then_with has eval + LLVM emitter coverage"
+    );
 }
 
 #[test]

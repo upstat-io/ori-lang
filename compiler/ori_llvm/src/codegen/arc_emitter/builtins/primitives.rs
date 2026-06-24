@@ -29,6 +29,7 @@ declare_builtins! { emitter, ctx;
     ("char", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
+    ("char", "is_alpha") => emitter.emit_char_is_alpha(ctx.arg_vals),
     // byte
     ("byte", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("byte", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
@@ -57,6 +58,8 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Ordering", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     ("Ordering", "to_str") => emitter.emit_element_to_str(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Ordering", "then") => emitter.emit_ordering_then(ctx.arg_vals),
+    ("Ordering", "then_with") => emitter.emit_ordering_then_with(ctx.arg_vals, ctx.receiver_ty),
 }
 
 use crate::codegen::type_info::TypeInfo;
@@ -65,6 +68,66 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Emit `Ordering.then(self, other)`: `self` when `self != Equal`, else `other`.
+    ///
+    /// Spec: Clause 8.4 Ordering. `Ordering` is an `i8` scalar (`Less=0`, `Equal=1`,
+    /// `Greater=2`), so this is a pure `select` with no RC operations (RE-2 scalar exemption).
+    pub(crate) fn emit_ordering_then(&mut self, arg_vals: &[ValueId]) -> Option<ValueId> {
+        let self_v = arg_vals[0];
+        let other_v = arg_vals[1];
+        let equal = self.builder.const_i8(1);
+        let is_equal = self.builder.icmp_eq(self_v, equal, "ord.then.is_eq");
+        Some(self.builder.select(is_equal, other_v, self_v, "ord.then"))
+    }
+
+    /// Emit `char.is_alpha(self)` via the runtime `ori_char_is_alpha`.
+    ///
+    /// Spec: Clause 8.1. `char` is an `i32` scalar; the runtime returns Ori `bool`
+    /// (`i1`), matching the evaluator's `char::is_alphabetic`. No RC.
+    pub(crate) fn emit_char_is_alpha(&mut self, arg_vals: &[ValueId]) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_char_is_alpha");
+        self.builder.call(func_id, &[arg_vals[0]], "char.is_alpha")
+    }
+
+    /// Emit `Ordering.then_with(self, f)`: `self` when `self != Equal`, else `f()`.
+    ///
+    /// Spec: Clause 8.4 Ordering. The lazy variant of `then` — the closure is
+    /// invoked only on the `Equal` path. `receiver_ty` is the `Ordering` (`i8`)
+    /// return type of the closure. No RC on the Ordering scalars.
+    pub(crate) fn emit_ordering_then_with(
+        &mut self,
+        arg_vals: &[ValueId],
+        receiver_ty: ori_types::Idx,
+    ) -> Option<ValueId> {
+        let self_v = arg_vals[0];
+        let closure_v = arg_vals[1];
+        let equal = self.builder.const_i8(1);
+        let is_equal = self.builder.icmp_eq(self_v, equal, "tw.is_eq");
+
+        let call_bb = self.builder.append_block(self.current_function, "tw.call");
+        let else_bb = self.builder.append_block(self.current_function, "tw.else");
+        let merge_bb = self.builder.append_block(self.current_function, "tw.merge");
+        self.builder.cond_br(is_equal, call_bb, else_bb);
+
+        self.builder.position_at_end(call_bb);
+        let call_result = self.call_closure_no_args(closure_v, receiver_ty)?;
+        let call_bb_final = self.builder.current_block()?;
+        self.builder.br(merge_bb);
+
+        self.builder.position_at_end(else_bb);
+        let else_bb_final = self.builder.current_block()?;
+        self.builder.br(merge_bb);
+
+        self.builder.position_at_end(merge_bb);
+        let ord_ty = self.resolve_type(receiver_ty);
+        let phi = self.builder.phi(ord_ty, "tw.result");
+        self.builder.add_phi_incoming(
+            phi,
+            &[(call_result, call_bb_final), (self_v, else_bb_final)],
+        );
+        Some(phi)
+    }
+
     /// Emit a primitive method (`clone`, `to_int`, `byte`, `f`).
     ///
     /// Scalar types are trivially copyable — `clone` is identity.

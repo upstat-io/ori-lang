@@ -180,7 +180,7 @@ pub extern "C" fn ori_str_escape_control(s: *const OriStr) -> OriStr {
     // Fast path: if no control chars, return as-is
     if !src
         .chars()
-        .any(|c| matches!(c, '\n' | '\r' | '\t' | '\\' | '\0'))
+        .any(|c| matches!(c, '\n' | '\r' | '\t' | '\\' | '"' | '\0'))
     {
         return OriStr::from_owned(src);
     }
@@ -191,6 +191,7 @@ pub extern "C" fn ori_str_escape_control(s: *const OriStr) -> OriStr {
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
             '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
             '\0' => result.push_str("\\0"),
             c => result.push(c),
         }
@@ -207,6 +208,14 @@ pub extern "C" fn ori_str_from_char(ch: u32) -> OriStr {
     let mut buf = [0u8; 4];
     let s = c.encode_utf8(&mut buf);
     OriStr::from_owned(s)
+}
+
+/// Return whether `ch` is an alphabetic Unicode scalar.
+///
+/// Matches the evaluator's `char.is_alpha` (`char::is_alphabetic`).
+#[no_mangle]
+pub extern "C" fn ori_char_is_alpha(ch: u32) -> bool {
+    char::from_u32(ch).is_some_and(char::is_alphabetic)
 }
 
 /// Format a char with Debug semantics: wraps in single quotes and escapes special chars.

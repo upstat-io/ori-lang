@@ -212,6 +212,13 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_char_is_alpha",
+        params: &[Ty::I32],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_char_debug_format",
         params: &[Ty::I32],
         ret: Some(Ty::Str),
