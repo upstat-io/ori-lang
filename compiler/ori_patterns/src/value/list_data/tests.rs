@@ -1,6 +1,6 @@
 //! Unit tests for `ListData` zero-copy slicing.
 
-// Arc is the intentional test subject — we verify Arc::ptr_eq for sharing.
+// Arc is the intentional test subject — Arc::ptr_eq asserts sharing.
 #![expect(clippy::disallowed_types, reason = "testing Arc sharing behavior")]
 
 use std::sync::Arc;

@@ -133,9 +133,8 @@ impl ScalarInt {
         if shift >= 64 {
             return None;
         }
-        // Perform the shift
         let result = self.0.wrapping_shl(shift);
-        // Check for overflow by shifting back - if we don't get the original, we overflowed
+        // Why: shifting back must recover the original; divergence means bits were lost.
         if result.wrapping_shr(shift) != self.0 {
             return None;
         }

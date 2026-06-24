@@ -6,8 +6,8 @@
 //! # Structured Error Categories
 //!
 //! `EvalErrorKind` provides typed error categories for diagnostic conversion.
-//! Factory functions (e.g., `division_by_zero()`) remain the public API —
-//! they populate both `kind` and `message` for backward compatibility.
+//! Factory functions (e.g., `division_by_zero()`) are the public API —
+//! they populate both `kind` and `message`.
 //!
 //! # Diagnostic Conversion
 //!
@@ -208,9 +208,8 @@ pub struct EvalError {
     pub kind: EvalErrorKind,
     /// Human-readable error message.
     ///
-    /// For factory-created errors, this equals `kind.to_string()`.
-    /// Kept as a field for backward compatibility with code that
-    /// accesses `error.message` directly.
+    /// For factory-created errors, this equals `kind.to_string()`; consumers
+    /// read it directly via `error.message`.
     pub message: String,
     /// Source location where the error occurred.
     pub span: Option<Span>,

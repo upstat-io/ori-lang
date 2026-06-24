@@ -322,63 +322,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// 1. Build [`BuiltinCtx`] (type name, method, resolved arg values)
     /// 2. Try submodule dispatch chain (declarative via `declare_builtins!`)
     /// 3. Fall through to generic clone for types without builtin names
-    /// Emit parity-correct traceless defaults for the Traceable read accessors
-    /// (`trace` / `has_trace` / `trace_entries`) on an `Error` struct or a
-    /// Result/Option delegation receiver, plus `with_trace` identity on an
-    /// `Error` struct. Returns `None` for any other method/receiver.
-    ///
-    /// AOT emits no `?`-hop trace injection, so a runtime `Error` carries no
-    /// trace storage; these are the eval-traceless-parity answers. Invoked as an
-    /// early intercept in `emit_apply` / `emit_invoke` ahead of `resolve_callee`
-    /// — a `backend_required: false` Traceable method otherwise resolves to an
-    /// unbacked `_ori_trace` mono decl with a mismatched ABI.
-    pub(super) fn try_emit_traceless_traceable(
-        &mut self,
-        callee: Name,
-        args: &[ArcVarId],
-        arc_func: &ArcFunction,
-        dst_ty: Idx,
-    ) -> Option<ValueId> {
-        if args.is_empty() {
-            return None;
-        }
-        let method_name = self.interner.lookup(callee);
-        if !matches!(
-            method_name,
-            "trace_entries" | "trace" | "has_trace" | "with_trace"
-        ) {
-            return None;
-        }
-        // The user-facing `Error` struct (`{ message: str }`, distinct from the
-        // `Idx::ERROR` poison sentinel) has no `builtin_type_name`; key it on the
-        // pool's SSOT Idx. Result/Option delegate has_trace/trace_entries/trace to
-        // the inner Error (eval `dispatch_result_method`).
-        let receiver_ty = arc_func.var_type(args[0]);
-        let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
-            receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
-        });
-        let is_traceless = is_error_struct
-            || (matches!(method_name, "trace_entries" | "trace" | "has_trace")
-                && self
-                    .type_info
-                    .get(receiver_ty)
-                    .builtin_type_name()
-                    .is_some_and(|n| n == "Option" || n == "Result"));
-        if !is_traceless {
-            return None;
-        }
-        match method_name {
-            "trace_entries" => {
-                let llvm = self.resolve_type(dst_ty);
-                Some(self.builder.const_zero_ty(llvm))
-            }
-            "trace" => self.emit_literal_ori_str(""),
-            "has_trace" => Some(self.builder.const_bool(false)),
-            "with_trace" if is_error_struct => Some(self.var(args[0])),
-            _ => None,
-        }
-    }
-
     pub(super) fn try_emit_builtin_method(
         &mut self,
         callee: Name,

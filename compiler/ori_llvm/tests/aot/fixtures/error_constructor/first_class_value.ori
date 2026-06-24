@@ -1,0 +1,4 @@
+@main () -> void = {
+    let f = Error;
+    print(msg: f("first-class").message)
+}

@@ -11,11 +11,7 @@ use std::fmt;
 /// - Machine-readable diagnostic output
 ///
 /// Factory functions populate both `kind` and `message`. The `Display` impl
-/// produces the same message strings as the legacy factory functions, ensuring
-/// backward compatibility.
-///
-/// Prior art: Rust `InterpError` (categorized into UB, Unsupported, `InvalidProgram`,
-/// `ResourceExhaustion`), Elm contextual errors.
+/// produces the message string for each variant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvalErrorKind {
     // Arithmetic

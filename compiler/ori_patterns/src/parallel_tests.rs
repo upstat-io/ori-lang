@@ -1,4 +1,4 @@
-//! Comprehensive tests for the parallel pattern.
+//! Tests for the parallel pattern.
 //!
 //! # Module Structure
 //!
@@ -505,7 +505,7 @@ mod concurrency_verification {
         // With barrier, all 8 threads should be active simultaneously
         assert_eq!(max, 8, "barrier should ensure all 8 threads overlap");
 
-        // Verify we actually used multiple OS threads
+        // Verify multiple OS threads were actually used.
         let unique_ids: HashSet<_> = ids.iter().collect();
         assert!(
             unique_ids.len() > 1,

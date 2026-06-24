@@ -52,7 +52,7 @@ pub trait PatternVariadic: PatternCore {
     }
 }
 
-// Main PatternDefinition Trait (Backward Compatible)
+// PatternDefinition Trait (umbrella API)
 
 /// Describes a binding that should be in scope when type-checking certain properties.
 ///

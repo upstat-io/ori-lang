@@ -90,7 +90,7 @@ fn absent_param() -> ParamContract {
     }
 }
 
-// ── run_verify: blocking under verify=true ──
+// run_verify: blocking under verify=true
 
 #[test]
 fn verify_returns_err_when_verify_true_and_errors_found() {
@@ -136,7 +136,7 @@ fn verify_detects_rc_on_scalar() {
     );
 }
 
-// ── run_aims_verify: absent-param-has-uses (live vs dead path) ──
+// run_aims_verify: absent-param-has-uses (live vs dead path)
 
 #[test]
 fn aims_verify_blocks_absent_param_used_on_live_path() {
@@ -357,7 +357,7 @@ fn aims_verify_returns_ok_when_verify_false() {
     );
 }
 
-// ── Checkpoint observer tests ──
+// Checkpoint observer tests
 
 #[test]
 fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order() {
@@ -552,7 +552,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     // bonus verification that the function state is accessible.
 }
 
-// ── FIP structural verification tests ──
+// FIP structural verification tests
 
 /// Verify that `FipStructural` errors are included in `VerifyError` and
 /// format correctly.
@@ -668,7 +668,7 @@ fn fip_second_pass_blocks_all_errors() {
     }
 }
 
-// ── IC-1 enforcement semantic pins ──
+// IC-1 enforcement semantic pins
 
 /// INV1 (positive pin): the batch pipeline computes a contract for every
 /// analyzed function. After `run_arc_pipeline_all` over a single function,

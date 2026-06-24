@@ -11144,8 +11144,8 @@ fn lower_burden_ops_to_rc(
             // emits whole-var burden ops on scalars (the type-level
             // burden_carries_rc filter + the per-var repr-aware admission gate
             // consulting this SAME var_reprs source), so a Scalar/absent repr
-            // here is a contract violation — leave the burden op in place
-            // (codegen no-ops it) rather than emit unsound RC.
+            // at this point is a contract violation — leave the burden op in
+            // place (codegen no-ops it) rather than emit unsound RC.
             let Some(repr) = func.var_repr(var) else {
                 continue;
             };

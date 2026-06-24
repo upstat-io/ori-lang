@@ -222,7 +222,7 @@ fn unannotated_ffi_empty_burden_yields_zero_owned_fields_and_no_user_drop() {
     );
 }
 
-// ───.B Channel<T> drop-glue reachability via wrapper ────────
+// Part B: Channel<T> drop-glue reachability via wrapper
 //
 // These tests exercise the END-TO-END drop-glue pathway for `Channel<T>`:
 // the BURDEN_TABLE template is composed via `compose_user_burden` at

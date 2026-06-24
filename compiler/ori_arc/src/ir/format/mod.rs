@@ -101,7 +101,7 @@ pub fn format_function(func: &ArcFunction, pool: &Pool, interner: &StringInterne
     out
 }
 
-// ── Formatting helpers ──
+// Formatting helpers
 
 /// Format a type index as a human-readable string.
 ///

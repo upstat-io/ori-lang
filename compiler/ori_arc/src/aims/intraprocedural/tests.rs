@@ -5135,7 +5135,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     );
 }
 
-/// TPR (critical INVERTED-TDD): the existing
+/// Negative pin (guards against INVERTED-TDD): the existing
 /// `populate_sparse_events_sees_function_local_contract_locality` test passes
 /// regardless of pipeline ordering because BOTH `BlockLocal` (lattice BOTTOM
 /// fallback) and `FunctionLocal` (contract-narrowed) emit `LocalAllocCandidate`.
@@ -5174,7 +5174,7 @@ fn populate_sparse_events_no_event_for_no_contract_apply_pins_ordering() {
     );
 }
 
-/// TPR + (AGREEMENT, GAP): `InvokeIndirect` terminator
+/// `InvokeIndirect` terminator
 /// CONSERVATIVE branch — symmetric to `ApplyIndirect` (F2) but tests the
 /// terminator-walking arm of `populate_call_result_states`.
 #[test]
@@ -5456,7 +5456,7 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
     );
 }
 
-// ───.A ContextHole shape inheritance ──────────────────────────────
+// Part A: ContextHole shape inheritance
 //
 // ContextHole-shaped variables (per `aims/lattice/dimensions.rs:213` +
 // `aims/intraprocedural/post_convergence.rs:445`) inherit their BurdenSpec
