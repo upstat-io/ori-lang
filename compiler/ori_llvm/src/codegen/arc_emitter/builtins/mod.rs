@@ -291,7 +291,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
             receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
         });
-        if is_error_struct {
+        // Traceable read accessors on a struct-`Error` AND on the Result/Option
+        // Traceable-delegation path (eval `dispatch_result_method` forwards
+        // has_trace/trace_entries/trace to the inner Error). A fresh AOT Error
+        // carries no trace storage, so both return the same traceless defaults —
+        // parity-correct on the traceless surface. The trace-DATA surface is
+        // AOT-N/A (Decision 02: no AOT trace-injection machinery).
+        let is_traceless_traceable_receiver = is_error_struct
+            || (matches!(method_name, "trace_entries" | "trace" | "has_trace")
+                && type_info
+                    .builtin_type_name()
+                    .is_some_and(|n| n == "Option" || n == "Result"));
+        if is_traceless_traceable_receiver {
             match method_name {
                 "trace_entries" => {
                     let llvm = self.resolve_type(dst_ty);
@@ -299,7 +310,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
                 "trace" => return self.emit_literal_ori_str(""),
                 "has_trace" => return Some(self.builder.const_bool(false)),
-                "with_trace" => return Some(arg_vals[0]),
+                "with_trace" if is_error_struct => return Some(arg_vals[0]),
                 _ => {}
             }
         }
