@@ -56,9 +56,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
-use ori_ir::Name;
 
 use super::apply_aliases::build_let_alias_map;
 use super::state_map::ApplyAliasSource;
@@ -72,24 +70,18 @@ pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
     pub class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
     pub class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-    /// PIN-6 inter-class payload-of : class A id → set of
-    /// class B ids whose drop transitively covers class A's RC slot.
-    pub class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 }
 
 /// Compute SSA-alias equivalence classes via union-find over Let-Var aliases,
 /// Jump-arg → block-param pairs, and apply-result aliases of `Direct` and
-/// `Conditional` shape, AND the PIN-6 inter-class payload-of relation
-/// .
+/// `Conditional` shape.
 ///
-/// Returns the four-field `SsaAliasClassesOutput` consumed by
+/// Returns the three-field `SsaAliasClassesOutput` consumed by
 /// `walk_dec.rs::emit_last_use_decs` (class-liveness check + same-instruction
-/// batching), `should_suppress_apply_aliased_dec` (directional metadata),
-/// and the PIN-6 ancestor-chain BFS in `walk_dec.rs` /
-/// `edge_cleanup.rs` / `dead_cleanup`.
+/// batching) and `should_suppress_apply_aliased_dec` (directional metadata).
 ///
 /// Complexity: O(N · α(N) + I) where N = total SSA vars and I = total
-/// instructions+terminators (PIN-6 population pass walks each once).
+/// instructions+terminators.
 #[expect(
     clippy::match_same_arms,
     reason = "pre-existing; explicit arms document the intent"
@@ -97,7 +89,6 @@ pub(crate) struct SsaAliasClassesOutput {
 pub(crate) fn compute_ssa_alias_classes(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
-    sigs: &FxHashMap<Name, MemoryContract>,
 ) -> SsaAliasClassesOutput {
     let Ok(var_count) = u32::try_from(func.var_types.len()) else {
         unreachable!("ArcFunction var count exceeds u32::MAX");
@@ -191,20 +182,10 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // `class_payload_of` is populated post-convergence
-    // by `populate_class_payload_of_with_liveness` using path-sensitive
-    // liveness from the converged AimsStateMap. The initial empty map here
-    // is overwritten via `set_class_payload_of` at step 4.5 in
-    // `analyze_function`. Singleton class materialization is ALSO moved
-    // there (via `AimsStateMap::ensure_singleton_class`).
-    let class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
-    let _ = sigs;
-
     SsaAliasClassesOutput {
         class_table,
         class_members,
         class_apply_alias_source_candidates,
-        class_payload_of,
     }
 }
 

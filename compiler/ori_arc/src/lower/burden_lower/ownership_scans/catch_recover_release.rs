@@ -41,8 +41,8 @@ struct Candidate {
 /// `e.chars()` / `e.contains(..)` borrow-reads).
 ///
 /// A `catch(panic(...))` lowers to `ori_catch_recover()` — a FRESH `str` copy of
-/// the panic message (a self-allocating builtin with NO seeded contract, by the
-/// deliberate no-contract decision per `arc.md §Protocol Builtins`). The walk
+/// the panic message (a self-allocating protocol builtin with NO seeded
+/// contract, by deliberate design). The walk
 /// wraps it in `Construct Variant(Result.1)(msg)` (the `Err(msg)` Result), then
 /// the `match`-extract `Project`s the `str` payload back out LIVE and the body
 /// borrow-reads it (`@chars` / `@contains`). The recovered copy names ONE

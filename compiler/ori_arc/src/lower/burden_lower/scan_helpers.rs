@@ -316,7 +316,8 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // `ori_catch_recover` builtin result with NO seeded contract (the deliberate
     // no-contract decision per `arc.md §Protocol Builtins`), so the fresh-sum
     // live-extract scan FORECLOSES it (`collect_fresh_sum_roots` requires a callee
-    // contract). This scan roots on the `ori_catch_recover` callee IDENTITY,
+    // contract; `ori_catch_recover` is a protocol builtin with no seeded contract
+    // by deliberate design). This scan roots on the `ori_catch_recover` callee IDENTITY,
     // builds the borrow-only same-alloc closure (recover result + `Construct
     // Variant` Result wrap + niche-payload `Project` + Let-Var aliases +
     // Jump-threaded loop block-params), confirms every existing dec is unwind-only

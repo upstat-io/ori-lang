@@ -1540,12 +1540,101 @@ fn callee_contract_locality_widens_arg() {
             )
         })
         .collect();
-    // LocalAllocCandidate checks exit state locality. For a single-block
-    // function with Return (no successors), exit state is empty → BOTTOM
-    // which has BlockLocal. So the event fires based on exit state, not
-    // the backward demand within the block. The contract effect is visible
-    // in contract extraction for function parameters.
+    // `local_alloc_v0` rides on EXIT-state locality, which is BOTTOM
+    // (BlockLocal) for a single-block Return function, so it cannot observe the
+    // contract-driven widening (the event still fires off the exit state). The
+    // widening is recorded as backward demand at v0's DEFINITION (the same
+    // `var_state_at_definition` surface the Phase-6 burden eliminator consumes)
+    // — per TF-11 Apply, an Owned arg to a callee whose
+    // `ParamContract.locality_bound = HeapEscaping` widens
+    // `arg.locality := max(arg.locality, HeapEscaping)`.
     let _ = local_alloc_v0;
+    let def_v0 = state_map.var_state_at_definition(block_id(0), var(0));
+    assert_eq!(
+        def_v0.locality,
+        Locality::HeapEscaping,
+        "callee HeapEscaping contract must widen v0's definition-site locality"
+    );
+}
+
+/// Negative clamp for `callee_contract_locality_widens_arg`: a callee whose
+/// `ParamContract.locality_bound = FunctionLocal` does NOT widen the Owned
+/// arg's locality to `HeapEscaping` — the arg stays a local-allocation
+/// candidate. Pairs with the positive test to pin that the widening is driven
+/// by the contract's locality value, not unconditional on every Owned call arg.
+#[test]
+fn callee_contract_local_locality_does_not_escape_arg() {
+    use super::super::contract::{ContextBehavior, EffectSummary, ParamContract, ReturnContract};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+
+    let callee_name = Name::from_raw(100);
+
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // Callee contract: param 0 stays FunctionLocal (does not escape).
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        MemoryContract {
+            params: vec![ParamContract {
+                access: AccessClass::Owned,
+                consumption: Consumption::Linear,
+                cardinality: Cardinality::Once,
+                may_escape: false,
+                may_share: false,
+                locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
+                transfers_through_return: false,
+                return_alias: None,
+                return_payload_contains_param: false,
+                return_payload_contains_param_all_paths: false,
+                iter_consumes: false,
+                borrowed_read_only: false,
+                borrowed_cow_consumed: false,
+                capture_variant_return_project: None,
+                iter_consumes_projected_field: None,
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary::default(),
+            context_behavior: ContextBehavior::default(),
+            fip: super::super::contract::FipContract::Never,
+            is_fbip: false,
+        },
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let def_v0 = state_map.var_state_at_definition(block_id(0), var(0));
+    assert_ne!(
+        def_v0.locality,
+        Locality::HeapEscaping,
+        "FunctionLocal callee contract must NOT widen v0 to HeapEscaping"
+    );
 }
 
 /// Contrast: callee with `FunctionLocal` locality preserves arg locality.

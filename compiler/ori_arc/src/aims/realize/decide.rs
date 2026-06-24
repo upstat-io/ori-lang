@@ -62,19 +62,6 @@ pub struct DecisionContext {
     pub site: DecisionSite,
     /// Whether the variable is RC-managed (owned, non-scalar, non-excluded).
     pub is_rc_managed: bool,
-    /// Coexistence-handshake flag. `true` when the target var's SSA-alias
-    /// class is fully burden-covered per
-    /// `AimsStateMap::is_class_covered(class_id_of(var))`. When `true`, forces
-    /// [`RcDecision::None`] so the burden walk owns this var's inc/dec.
-    ///
-    /// Callers compute via
-    /// `state_map.is_class_covered(state_map.class_id_of(var))`. During
-    /// coexistence this always reads `false`: `class_covered` is populated
-    /// inside `analyze_function` (Step 4) before `emit_burden_ops` (Step 4b)
-    /// fills `burden_emitted`, so the `class_covered` set is empty and the
-    /// predicate stack owns all RC. The flag becomes live only when the
-    /// predicate stack retires and burden ops are the sole RC emitter.
-    pub class_covered: bool,
 }
 
 /// Classification of the instruction site for RC decisions.
@@ -126,10 +113,10 @@ pub enum DecisionSite {
 /// Let aliases are handled on the Dec side by `is_ownership_transfer`,
 /// which suppresses the source's last-use `RcDec` at the alias instruction.
 ///
-/// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — `proj i x` borrows `x`;
-/// if the result is an object, Inc it. For closure receivers, see Lean 4
-/// `pap.app x`, Koka `CheckFBIP`, and Swift SIL `apply` thick function
-/// semantics — the closure handle is borrowed by the call site.
+/// Ref: standard RC-insertion borrow semantics — `proj i x` borrows `x`;
+/// if the result is an object, Inc it. For closure receivers, the partial-
+/// application receiver and the thick-function apply both borrow the closure
+/// handle at the call site.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UseSemantics {
     /// Normal use — emit `RcInc` if `has_future_use`.
@@ -142,8 +129,8 @@ pub enum UseSemantics {
     /// projected value takes ownership of the RC reference.
     TransferProject,
     /// `ApplyIndirect` / `InvokeIndirect` closure receiver position. The
-    /// closure handle is borrowed by the call site (Lean 4 `pap.app x`,
-    /// Koka `CheckFBIP`, Swift SIL `apply` thick function). The lattice
+    /// closure handle is borrowed by the call site (the thick-function apply
+    /// borrows its closure receiver). The lattice
     /// still demands `(closure, Cardinality::Once)` per TF-11 — that
     /// demand drives TF-13 capture-state-update so multi-call closures
     /// correctly promote captures to `Many`. At the realization layer
@@ -191,17 +178,6 @@ pub struct ReuseContext {
 /// is a reuse candidate.
 pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
     if !ctx.is_rc_managed {
-        return InstructionDecisions {
-            rc: RcDecision::None,
-            reuse: ReuseDecision::None,
-        };
-    }
-
-    // Coexistence handshake: when the target var's class is fully
-    // burden-covered, the burden walk owns the inc/dec and the predicate
-    // stack defers. Inert during coexistence (`class_covered` is empty until
-    // the predicate stack retires — see [`DecisionContext::class_covered`]).
-    if ctx.class_covered {
         return InstructionDecisions {
             rc: RcDecision::None,
             reuse: ReuseDecision::None,

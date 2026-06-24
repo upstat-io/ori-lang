@@ -17,8 +17,7 @@
 //!
 //! # Reference
 //!
-//! - solutions.md Decision 4 (cross-block reuse)
-//! - Lean 4 `ExpandResetReuse.lean` (dominator-guided reuse)
+//! - Dominator-guided reset/reuse expansion (counting-immutable-beans technique)
 //! - FP2 reuse credits (Lorenzen et al., ICFP 2023)
 
 use rustc_hash::FxHashSet;

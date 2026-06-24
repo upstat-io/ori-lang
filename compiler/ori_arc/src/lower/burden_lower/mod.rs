@@ -103,7 +103,7 @@ static FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new(|
 /// path. Roots on the `ori_catch_recover` callee IDENTITY — the
 /// `compute_fresh_sum_live_extract_lineage` sibling is foreclosed because
 /// `collect_fresh_sum_roots` requires a callee contract and `ori_catch_recover`
-/// has none by the deliberate no-contract decision (`arc.md §Protocol Builtins`).
+/// is a protocol builtin carrying no seeded contract by deliberate design.
 /// With the toggle set, the base walk's unwind-only release returns (the
 /// recovered message buffer leaks on the normal path). Bisection surface:
 /// isolates a catch-recover message leak to this treatment vs the rest of the

@@ -64,8 +64,8 @@ use super::state_map::ApplyAliasSource;
 /// tracing — see [`is_let_var_alias`].
 ///
 /// Crate-visible: shared with `realize::emit_unified::build_return_project_inc_targets`
-/// (BUG-04-090 F-prj fix) per `LEAK:algorithmic-duplication` — both consumers
-/// answer the same "let-alias chain root" question.
+/// (BUG-04-090 F-prj fix) — both consumers answer the same "let-alias chain
+/// root" question, so the resolution has one canonical home here.
 pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut result = FxHashMap::default();
     for block in &func.blocks {

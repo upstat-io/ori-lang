@@ -37,9 +37,10 @@ pub(crate) fn rc_remarks_enabled() -> bool {
 
 /// Whether compilation is on the burden-sole RC path
 /// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) — the ONLY surface where a burden
-/// remark is a valid RC verdict (per `arc.md §STOP`: a default-path run is
-/// false-green). The envelope's `burden_path` is derived from this so
-/// `burden_path: true` is truthful and a default-path stream is honestly `false`.
+/// remark is a valid RC verdict; a default-path run still co-emits the legacy
+/// predicate-stack RC and is false-green on floor cells. The envelope's
+/// `burden_path` is derived from this so `burden_path: true` is truthful and a
+/// default-path stream is honestly `false`.
 #[allow(
     dead_code,
     reason = "schema contract: consumed by the cli-producer sibling section + RcRemarkStreamEnvelope::new"
@@ -59,7 +60,7 @@ pub(crate) const RC_SCHEMA_VERSION: u32 = 1;
 /// The once-per-stream header for a JSONL remark stream: schema version,
 /// producing compiler SHA, source file, and the `burden_path` assertion (true
 /// only when produced on the burden-sole path, the sole valid RC verdict
-/// surface per `arc.md §STOP`). Emitted as the first JSONL line; the remark
+/// surface). Emitted as the first JSONL line; the remark
 /// objects follow, one per line. Constructed by the cli-producer stream driver
 /// (`write_rc_remarks_header`).
 #[derive(Clone, Debug)]

@@ -29,77 +29,6 @@ use super::super::lattice::{
 use super::super::transfer::transfer_def;
 use super::state_map::{AimsEvent, AimsStateMap};
 
-/// Populate `AimsStateMap::class_covered` for the coexistence handshake.
-///
-/// `class_covered[C] = true` iff:
-/// 1. Every var `v ∈ class_members[C]` has `func.burden_emitted[v.index()] = true`.
-/// 2. Every payload class `P` transitively reachable from `C` via
-///    `class_payload_of` is also in `class_covered`.
-///
-/// Fixed-point iteration over the finite class set — terminates per L-5
-/// (`class_members` is finite; `class_covered` only grows; iteration halts
-/// when one full pass adds zero classes).
-///
-/// AIMS Invariant #5(c) — derives purely from existing `class_members` +
-/// `class_payload_of` + `func.burden_emitted` side tables; no parallel
-/// uniqueness tracker.
-pub(crate) fn populate_class_covered(state_map: &mut AimsStateMap, func: &ArcFunction) {
-    // Empty burden_emitted means the burden walker never ran or emitted
-    // nothing — no class can be covered (DP-2/DP-3 elimination would still
-    // see zero burden ops). Short-circuit.
-    if func.burden_emitted.is_empty() || !func.burden_emitted.iter().any(|b| *b) {
-        return;
-    }
-
-    // Step 1: candidate set — classes whose every member has burden_emitted=true.
-    // Computed once; subsequent fixed-point passes only check transitive
-    // payload coverage, never re-check membership.
-    let candidate_classes: Vec<(u32, Vec<u32>)> = state_map
-        .class_members_iter()
-        .filter_map(|(class_id, members)| {
-            let all_emitted = members
-                .iter()
-                .all(|v| func.burden_emitted.get(v.index()).copied().unwrap_or(false));
-            if !all_emitted {
-                return None;
-            }
-            // Pre-collect transitive payload class ids per `class_payload_of`.
-            let payloads: Vec<u32> = state_map
-                .class_payload_of(class_id)
-                .map(|s| s.iter().copied().collect())
-                .unwrap_or_default();
-            Some((class_id, payloads))
-        })
-        .collect();
-
-    if candidate_classes.is_empty() {
-        return;
-    }
-
-    // Step 2: fixed-point iteration. A class is covered iff it is a candidate
-    // AND every payload class is covered. Terminates because `covered` only
-    // grows; bounded by `candidate_classes.len()`.
-    let mut covered: FxHashSet<u32> = FxHashSet::default();
-    loop {
-        let mut grew = false;
-        for (class_id, payloads) in &candidate_classes {
-            if covered.contains(class_id) {
-                continue;
-            }
-            let payloads_covered = payloads.iter().all(|p| covered.contains(p));
-            if payloads_covered {
-                covered.insert(*class_id);
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-
-    state_map.set_class_covered(covered);
-}
-
 /// Populate the borrow source side table after analysis converges.
 ///
 /// Each variable defined by a `Project` instruction gets
@@ -809,26 +738,28 @@ pub(crate) fn populate_context_events(
     }
 }
 
-// Post-convergence class_payload_of population.
+// Post-convergence transitive-drop singleton-class materialization.
 //
-// INVARIANT: payload edges are populated from path-sensitive liveness in
-// the converged AimsStateMap — syntactic ordering proxies cannot model
-// path-sensitive lifetimes (AIMS Invariant #5, unified model).
+// INVARIANT: every transitive-drop payload edge (Construct/PartialApply/
+// Apply/Set/Invoke arg → dst) materializes a singleton `class_members` entry
+// for both endpoints so the `class_members(class_id)` lookups in
+// `realize/cleanup_redundant.rs` + `emit_rc/edge_cleanup/{branch,invoke}.rs`
+// succeed for singleton classes (AIMS Invariant #5, unified model).
 
-/// Centralized `class_payload_of` edge recording.
-fn record_payload_edge_lifetime(
+/// Materialize a singleton `class_members` entry for both endpoints of a
+/// transitive-drop payload edge.
+fn materialize_payload_edge_classes(
     arg: ArcVarId,
     dst: ArcVarId,
     func: &ArcFunction,
     state_map: &mut AimsStateMap,
-    class_payload_of: &mut FxHashMap<u32, FxHashSet<u32>>,
 ) {
     if matches!(func.var_reprs.get(arg.index()), Some(&ValueRepr::Scalar)) {
         tracing::trace!(
             func = ?func.name,
             arg_var = arg.raw(),
             dst_var = dst.raw(),
-            "record_payload_edge: skip — arg is scalar"
+            "materialize_payload_edge: skip — arg is scalar"
         );
         return;
     }
@@ -840,20 +771,12 @@ fn record_payload_edge_lifetime(
             arg_var = arg.raw(),
             dst_var = dst.raw(),
             class = arg_class,
-            "record_payload_edge: skip — self-loop"
+            "materialize_payload_edge: skip — self-loop"
         );
         return;
     }
     state_map.ensure_singleton_class(arg_class);
     state_map.ensure_singleton_class(dst_class);
-    // Path-sensitive predicate-stack-soundness patches (container-destructure
-    // skip + class-lifetime "outlives" skip) retired: the burden path is the
-    // sole RC emitter and the predicate-stack consumers of this edge map (PIN-6)
-    // are retired, so the plain payload-of edge is recorded unconditionally.
-    class_payload_of
-        .entry(arg_class)
-        .or_default()
-        .insert(dst_class);
 }
 
 /// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar.
@@ -861,26 +784,25 @@ fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
     *func.var_rc_strategies.get(dst.index())?
 }
 
-/// Post-convergence `class_payload_of` population.
+/// Materialize singleton `class_members` entries for transitive-drop edges.
 ///
 /// Walks the 5 edge-recording sites (Construct/PartialApply/Apply/Set/Invoke)
-/// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`.
-/// For each candidate edge, applies the path-sensitive lifetime check from
-/// `class_lifetime_extends_past_path_sensitive`; edges where A outlives B are
-/// skipped. After collecting edges, materializes singleton class entries
-/// so PIN-6's `class_members(parent)` lookup succeeds for
-/// singleton parents/children, then installs via `set_class_payload_of`.
+/// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`,
+/// using the same Path-c edge-eligibility as the union-find pass. For each
+/// eligible edge, materializes a singleton `class_members` entry for both the
+/// arg and dst classes so the `class_members(class_id)` consumers in the
+/// realize walks (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for
+/// singleton parents/children. Records no inter-class relation (the retired
+/// `class_payload_of` predicate-stack edge map is gone).
 #[expect(
     clippy::too_many_lines,
     reason = "five edge-recording sites with structurally similar logic must be enumerated explicitly to preserve preconditions"
 )]
-pub(crate) fn populate_class_payload_of_with_liveness(
+pub(crate) fn materialize_transitive_drop_singleton_classes(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     state_map: &mut AimsStateMap,
 ) {
-    let mut class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
-
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
@@ -893,13 +815,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         continue;
                     }
                     for arg in args {
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
                 ArcInstr::Apply {
@@ -940,13 +856,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         if !edge_eligible {
                             continue;
                         }
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
                 ArcInstr::Set { base, value, .. } => {
@@ -956,13 +866,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                     if !is_transitive_drop_strategy(strat) {
                         continue;
                     }
-                    record_payload_edge_lifetime(
-                        *value,
-                        *base,
-                        func,
-                        state_map,
-                        &mut class_payload_of,
-                    );
+                    materialize_payload_edge_classes(*value, *base, func, state_map);
                 }
                 _ => {}
             }
@@ -998,28 +902,15 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         if !edge_eligible {
                             continue;
                         }
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
             }
         }
     }
 
-    // Singleton class_members entries are materialized per-edge inside
-    // `record_payload_edge_lifetime` (ensure_singleton_class on arg_class +
-    // dst_class). A trailing re-materialization over class_payload_of would
-    // cover exactly that same set, so it is omitted.
     tracing::debug!(
         func = ?func.name,
-        edges = class_payload_of.len(),
-        "populate_class_payload_of_with_liveness installed path-sensitive edge map"
+        "materialize_transitive_drop_singleton_classes materialized singleton classes"
     );
-
-    state_map.set_class_payload_of(class_payload_of);
 }

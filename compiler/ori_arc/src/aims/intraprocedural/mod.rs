@@ -193,18 +193,13 @@ pub fn analyze_function(
     // pre-walk SSA-alias equivalence-class table. Ordering
     // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
     // unions the apply-alias edges into the classes) and BEFORE the worklist
-    // (read-only thereafter). The same pre-walk also populates the
-    // `class_payload_of` inter-class payload-of relation.
-    // RcStrategy queries during the `class_payload_of` population pass consult
-    // the `func.var_rc_strategies` cache populated at Step 3 alongside
-    // `func.var_reprs` (no pool dep at analyze-time).
+    // (read-only thereafter).
     let ssa_alias_output =
-        ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases(), sigs);
+        ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
     state_map.set_ssa_alias_output(
         ssa_alias_output.class_table,
         ssa_alias_output.class_members,
         ssa_alias_output.class_apply_alias_source_candidates,
-        ssa_alias_output.class_payload_of,
     );
 
     // Precompute the unified same-allocation alias table: Project destination +
@@ -219,8 +214,8 @@ pub fn analyze_function(
     let select_alias_dsts = project_alias_table.select_alias_dsts;
 
     // Persist the UNIFIED alias closure (R1 + R2-gen + R3 + R4 + R5 + R6) on
-    // AimsStateMap for the post-convergence consumers (PIN-6 project-alias
-    // seeds in dead_cleanup / walk_dec, cleanup_redundant). The backward-demand
+    // AimsStateMap for the post-convergence consumer (the project-alias chain
+    // walk in `realize/cleanup_redundant.rs`). The backward-demand
     // worklist consumes `demand_sources` (the ORIGINAL §1.9 closure — no R2-gen,
     // no R5) instead; widening DEMAND with whole-var identity would over-extend
     // lifetimes (the merge-edge scoped-cleanup leak). The local maps remain for
@@ -375,27 +370,11 @@ pub fn analyze_function(
     // when sparse_events queries `effective_locality_at_block_exit` for
     // `LocalAllocCandidate` emission.
     //
-    // `populate_class_payload_of_with_liveness` runs FIRST so subsequent
-    // post-convergence passes see the path-sensitive edge map (none read it
-    // today, but ordering is defensive).
-    post_convergence::populate_class_payload_of_with_liveness(func, sigs, &mut state_map);
-    // Coexistence-handshake `class_covered` computation. Runs AFTER
-    // `populate_class_payload_of_with_liveness` so the path-sensitive payload
-    // map is in place.
-    //
-    // INVARIANT: `func.burden_emitted` is empty at THIS call site. This pass
-    // runs inside `analyze_function` (Step 4); `emit_burden_ops` populates
-    // `burden_emitted` at Step 4b, strictly AFTER. So `class_covered` is always
-    // empty (the function short-circuits on empty `burden_emitted`) and the
-    // predicate stack owns ALL RC during coexistence — burden ops are codegen
-    // no-ops, so the inert handshake is not a double-free risk. The handshake
-    // becomes load-bearing only when the predicate stack retires and burden ops
-    // become the sole RC emitter; populating `class_covered` BEFORE that point
-    // would suppress predicate-stack RC and leak (see `lower::burden_lower::emit`
-    // transfer-suppression comments). Retirement relocates this pass behind the
-    // burden ops; until then the call is cheap (early return) and kept wired so
-    // the consumption path stays compiled.
-    post_convergence::populate_class_covered(&mut state_map, func);
+    // Materialize singleton `class_members` entries for transitive-drop
+    // payload edges so the `class_members(class_id)` consumers in the realize
+    // walks (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for
+    // singleton parents/children.
+    post_convergence::materialize_transitive_drop_singleton_classes(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);

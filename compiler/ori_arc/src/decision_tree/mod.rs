@@ -24,9 +24,8 @@
 //! # References
 //!
 //! - Maranget (2008): foundational algorithm
-//! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
-//! - Elm `compiler/src/Nitpick/PatternMatches.hs`
-//! - Swift: pattern compilation to SIL `switch_enum`
+//! - Decision-tree pattern compilation lowering each constructor test to a
+//!   tag/discriminant switch
 
 pub mod compile;
 pub(crate) mod emit;

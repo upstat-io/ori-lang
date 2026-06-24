@@ -2563,17 +2563,7 @@ fn rep_has_post_drop_collection_borrow_read(
     drop_block: usize,
     drop_at: usize,
 ) -> bool {
-    let succ_starts: Vec<usize> = func
-        .blocks
-        .get(drop_block)
-        .map(|blk| {
-            crate::graph::successor_block_ids(&blk.terminator)
-                .into_iter()
-                .map(crate::ir::ArcBlockId::index)
-                .collect()
-        })
-        .unwrap_or_default();
-    let reachable = forward_reachable_from(func, &succ_starts);
+    let reachable = compute_successor_reachable(func, drop_block);
     for (b, block) in func.blocks.iter().enumerate() {
         let after_drop = b == drop_block;
         if !after_drop && !reachable.contains(&b) {

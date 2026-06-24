@@ -225,14 +225,14 @@ pub struct AimsStateMap {
     /// instructions.
     ///
     /// Populated PRE-WALK by [`compute_project_alias_sources`](super::project_aliases::compute_project_alias_sources)
-    /// — a clone of the local worklist input is also installed here so the
-    /// post-convergence pass `populate_class_payload_of_with_liveness` can
-    /// query it after the lattice converges. Read-only thereafter (PL-5
-    /// no-stale-summary invariant).
+    /// — a clone of the local worklist input is also installed here so
+    /// post-convergence consumers can query it after the lattice converges.
+    /// Read-only thereafter (PL-5 no-stale-summary invariant).
     ///
-    /// Consumed by `class_lifetime_extends_past_path_sensitive` to widen the
-    /// A-live witness set with Project-derived aliases of B-members. Project
-    /// apply-aliases live in a DIFFERENT class than their source (PIN-2 in
+    /// Consumed by the realize-walk redundant-dec cleanup
+    /// (`realize/cleanup_redundant.rs`) to widen the chain-class set with
+    /// Project-derived aliases of class members. Project apply-aliases live
+    /// in a DIFFERENT class than their source (PIN-2 in
     /// `ssa_alias_classes.rs`), so `class_members(class_a)` cannot see
     /// them; this side-table bridges the gap WITHOUT unifying classes
     /// (preserves "different RC slot" architectural rule).
@@ -270,34 +270,6 @@ pub struct AimsStateMap {
     /// `should_suppress_apply_aliased_dec` helper can find the apply
     /// source for a Project return.
     class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-
-    /// PIN-6 inter-class payload-of relation (): class A id →
-    /// set of class B ids whose drop transitively covers class A's RC slot
-    /// via a transitive-drop `RcStrategy` (`Closure`, `AggregateFields`,
-    /// `InlineEnum`, `HeapPointer`).
-    ///
-    /// Populated PRE-WALK by [`ssa_alias_classes::compute_ssa_alias_classes`]
-    /// during the same union-find pass that builds `class_table` /
-    /// `class_members` / `class_apply_alias_source_candidates`. An entry
-    /// `(A → {B})` means: at some `Construct`/`Apply`/`Invoke`/`PartialApply`/
-    /// `Set` instruction, a class-A member was `[own]`-consumed to construct
-    /// or fill class B's payload, and class B's `RcStrategy` is in the
-    /// transitive-drop set per [`is_transitive_drop_strategy`].
-    ///
-    /// Consumed by `populate_class_covered` (`post_convergence`) to derive the
-    /// `class_covered` coexistence-handshake side table. The predicate-stack
-    /// dec-suppression consumers (the retired realization walk) are removed.
-    /// Self-loop entries (A → A from Direct apply-aliases that union into one
-    /// class) are excluded at population time.
-    ///
-    /// Singleton-class invariant: every class id appearing as a parent (set
-    /// value) MUST have a matching entry in `class_members` —
-    /// the population pass eagerly inserts singleton members so the BFS
-    /// predicate's `class_members(parent_class)` lookup succeeds.
-    ///
-    /// [`ssa_alias_classes::compute_ssa_alias_classes`]: super::ssa_alias_classes::compute_ssa_alias_classes
-    /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
-    class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 
     /// Sparse event table: special-interest program points, indexed by block.
     events: FxHashMap<ArcBlockId, Vec<AimsEvent>>,
@@ -443,30 +415,6 @@ pub struct AimsStateMap {
     ///
     /// Convergence Feedback.
     cross_dimension_detected: bool,
-
-    /// Set of SSA-alias class ids fully covered by the burden walk
-    /// (`emit_burden_ops`).
-    ///
-    /// `class_covered[C] = true` iff:
-    /// 1. EVERY var `v` in `class_members(C)` satisfies
-    ///    `func.burden_emitted[v.index()] = true`, AND
-    /// 2. EVERY payload class `P` transitively reachable from `C` via
-    ///    `class_payload_of` is also in `class_covered`.
-    ///
-    /// Populated POST-CONVERGENCE by
-    /// [`populate_class_covered`](super::post_convergence::populate_class_covered)
-    /// via fixed-point iteration on the finite class set (terminates per AIMS
-    /// L-5). Sparse — only ids of covered classes are stored; absence ⇒ not
-    /// covered.
-    ///
-    /// Consumed by `decide()` (`aims/realize/decide.rs`) — when a target var's
-    /// class is in this set, `RcDecision` is forced to `None` (the burden walk
-    /// owns the inc/dec; the predicate stack defers) per the coexistence
-    /// handshake.
-    ///
-    /// AIMS Invariant #5(c) — typed pre-pass input on `AimsStateMap`, derived
-    /// from `class_members` + `class_payload_of` + `func.burden_emitted`.
-    class_covered: FxHashSet<u32>,
 }
 
 impl AimsStateMap {
@@ -487,7 +435,6 @@ impl AimsStateMap {
             ssa_alias_classes: FxHashMap::default(),
             class_members: FxHashMap::default(),
             class_apply_alias_source_candidates: FxHashMap::default(),
-            class_payload_of: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
@@ -501,7 +448,6 @@ impl AimsStateMap {
             def_demand: FxHashMap::default(),
             changed: false,
             cross_dimension_detected: false,
-            class_covered: FxHashSet::default(),
         }
     }
 
@@ -953,29 +899,6 @@ impl AimsStateMap {
         self.class_apply_alias_source_candidates.get(&class_id)
     }
 
-    /// Iterate every `(class_id, members)` entry. `populate_class_covered`
-    /// walks every class to compute coverage.
-    pub(crate) fn class_members_iter(&self) -> impl Iterator<Item = (u32, &FxHashSet<ArcVarId>)> {
-        self.class_members.iter().map(|(k, v)| (*k, v))
-    }
-
-    /// Return the set of parent class ids whose drop transitively covers
-    /// `class_id`'s RC slot via a transitive-drop `RcStrategy`.
-    ///
-    /// PIN-6 inter-class payload-of relation per entry
-    /// `class_id → {parent_id, ...}` means: at some `Construct` /
-    /// `Apply` / `Invoke` / `PartialApply` / `Set` instruction, a
-    /// `class_id` member was `[own]`-consumed to construct or fill a
-    /// payload of a class-`parent_id` aggregate, and `parent_id`'s
-    /// `RcStrategy` is in the transitive-drop set per
-    /// [`is_transitive_drop_strategy`].
-    ///
-    /// [`is_transitive_drop_strategy`]: crate::ir::is_transitive_drop_strategy
-    #[must_use]
-    pub fn class_payload_of(&self, class_id: u32) -> Option<&FxHashSet<u32>> {
-        self.class_payload_of.get(&class_id)
-    }
-
     /// Bulk-install the pre-computed SSA-alias-class output. Read-only after
     /// this point per PL-5 (no-stale-summary invariant).
     pub fn set_ssa_alias_output(
@@ -983,53 +906,10 @@ impl AimsStateMap {
         class_table: FxHashMap<ArcVarId, u32>,
         class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
         class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-        class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
     ) {
         self.ssa_alias_classes = class_table;
         self.class_members = class_members;
         self.class_apply_alias_source_candidates = class_apply_alias_source_candidates;
-        self.class_payload_of = class_payload_of;
-    }
-
-    // class_covered accessors
-
-    /// Whether the SSA-alias class `class_id` is fully burden-covered (every
-    /// member's burden walk owns its RC traffic AND every transitive payload
-    /// class is also covered).
-    ///
-    /// Returns `false` for unknown class ids (sparse — absence means not
-    /// covered). Consumed by `decide()` at realization to force `RcDecision::None`
-    /// when the burden walk owns the var's RC ops.
-    ///
-    /// See [`class_covered`](Self::class_covered) field doc.
-    #[must_use]
-    pub fn is_class_covered(&self, class_id: u32) -> bool {
-        self.class_covered.contains(&class_id)
-    }
-
-    /// Number of classes currently marked covered. Test/diagnostic accessor.
-    #[must_use]
-    pub fn class_covered_count(&self) -> usize {
-        self.class_covered.len()
-    }
-
-    /// Install the post-convergence `class_covered` set.
-    ///
-    /// Called by [`populate_class_covered`](super::post_convergence::populate_class_covered)
-    /// after the fixed-point computation completes. Read-only thereafter per
-    /// PL-5 (no-stale-summary invariant).
-    pub(crate) fn set_class_covered(&mut self, covered: FxHashSet<u32>) {
-        self.class_covered = covered;
-    }
-
-    /// Install the post-convergence `class_payload_of` edge map.
-    ///
-    /// Bypasses the bulk `set_ssa_alias_output` which runs at step 4
-    /// pre-worklist. The post-convergence pass computes a path-sensitive
-    /// edge set using converged `AimsStateMap` liveness, then installs it
-    /// here.
-    pub(crate) fn set_class_payload_of(&mut self, payload_map: FxHashMap<u32, FxHashSet<u32>>) {
-        self.class_payload_of = payload_map;
     }
 
     /// Materialize a singleton `class_members` entry for `class_id` if absent.
@@ -1037,8 +917,9 @@ impl AimsStateMap {
     /// Singleton id == `ArcVarId::raw()` per the existing scheme; recovers
     /// the var via `ArcVarId::new(class_id)` and inserts both the
     /// class-members and ssa-alias-classes entries idempotently.
-    /// Required by the post-convergence pass after recording new edges so
-    /// PIN-6's `class_members(parent)` lookup succeeds for singleton
+    /// Required by `materialize_transitive_drop_singleton_classes` so the
+    /// `class_members(class_id)` lookups in the realize walks
+    /// (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for singleton
     /// parents/children.
     pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
         if self.class_members.contains_key(&class_id) {

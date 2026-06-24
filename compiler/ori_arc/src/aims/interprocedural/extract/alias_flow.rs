@@ -646,8 +646,8 @@ fn join_shape_into(
 ///
 /// Public to the crate so the realization phase can reuse the same alias
 /// resolution that interprocedural extraction relies on. Both phases need
-/// to ask "which parameter indices does this variable alias?" — having two
-/// alias-tracing implementations would be `LEAK:algorithmic-duplication`.
+/// to ask "which parameter indices does this variable alias?" — two
+/// independent alias-tracing implementations would duplicate the algorithm.
 ///
 /// `sigs` enables BUG-04-090 transitive `transfers_through_return`
 /// propagation: when callee `g(x)` has `g.x.transfers_through_return = true`,
@@ -857,7 +857,7 @@ fn absorb_owned_callee_args(
 
 /// Identify parameters that flow to a Return terminator (directly or
 /// through Let / Jump-arg / Select alias chains). These params must be
-/// Owned (Lean 4 `Borrow.lean` `ownParamsUsingArgs`) AND get
+/// Owned (the own-params-using-args borrow-inference rule) AND get
 /// `transfers_through_return = true` for the BUG-04-090 fix — the gate
 /// reads this STRUCTURAL fact (Return-trace only), kept distinct from
 /// the Apply/Invoke consumption set.

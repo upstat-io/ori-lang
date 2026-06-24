@@ -19,7 +19,8 @@
 //! # References
 //!
 //! - Perceus (Reinking et al., PLDI 2021): dup/drop = contraction/weakening
-//! - Lean 4 `RC.lean`: backward liveness-driven insertion with last-use opt
+//! - Backward liveness-driven RC insertion with last-use optimization
+//!   (counting-immutable-beans technique)
 
 pub mod arg_ownership;
 pub(crate) mod borrowed_defs;

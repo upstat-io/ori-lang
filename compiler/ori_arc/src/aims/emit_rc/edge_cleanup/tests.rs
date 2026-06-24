@@ -80,12 +80,7 @@ fn state_map_with_member_live(func: &ArcFunction, arg: ArcVarId, member: ArcVarI
     members.insert(member);
     let mut class_members: FxHashMap<u32, FxHashSet<ArcVarId>> = FxHashMap::default();
     class_members.insert(class_id, members);
-    state_map.set_ssa_alias_output(
-        class_table,
-        class_members,
-        FxHashMap::default(),
-        FxHashMap::default(),
-    );
+    state_map.set_ssa_alias_output(class_table, class_members, FxHashMap::default());
 
     state_map
 }

@@ -25,8 +25,9 @@
 //!
 //! # References
 //!
-//! - Lean 4 `src/Lean/Compiler/IR/Borrow.lean`: `collect_O` + SCC loop
-//! - `ori_arc` `borrow/per_scc.rs`: existing SCC borrow inference
+//! - Owned-set collection + SCC fixpoint borrow inference
+//!   (counting-immutable-beans technique); see also the crate's
+//!   `borrow/per_scc.rs` SCC borrow inference
 //! - FP² (Lorenzen et al., ICFP 2023): FIP certification
 
 mod demand_propagation;

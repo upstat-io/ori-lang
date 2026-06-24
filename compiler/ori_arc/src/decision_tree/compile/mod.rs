@@ -15,7 +15,6 @@
 //! # References
 //!
 //! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
-//! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
 
 mod single_ctor;
 mod specialize;
