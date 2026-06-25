@@ -733,7 +733,14 @@ fn build_mono_var_subst(
             continue;
         };
 
-        if engine.pool().tag(concrete) == Tag::Var {
+        // A resolved type that still carries an unbound inference var — a bare
+        // `Tag::Var` OR a composite (`[Var]`, `Option<Var>`) with the `HAS_VAR`
+        // flag propagated up — is TRANSIENT, not poison (`HAS_ERROR` is the
+        // poison signal, gated separately below). It resolves to its concrete
+        // root later in the same body pass, so route it to the deferred path
+        // rather than dropping it at the poison gate (AOT missing-mono).
+        let flags = engine.pool().flags(concrete);
+        if flags.has_vars() && !flags.has_errors() {
             has_unresolved_vars = true;
         }
 
@@ -839,31 +846,40 @@ fn record_deferred_mono_call(
         })
         .collect();
 
-    // Map each callee var to a caller scheme var position or concrete type.
+    // Map each callee var to a caller scheme var position, a concrete type, or
+    // a deferred transient type.
     let mut semantic_subst: Vec<(u32, crate::DeferredVarBinding)> = Vec::new();
-    let mut all_mapped = true;
     for (&callee_var_id, &concrete_idx) in var_subst {
-        if engine.pool().tag(concrete_idx) != Tag::Var {
+        // A type carrying `HAS_VAR` (but not `HAS_ERROR` — poison is gated
+        // upstream) is transient: a bare `Tag::Var` OR a composite (`[Var]`,
+        // `Option<Var>`) whose interior var resolves later in the same body
+        // pass. A fully-concrete type has neither flag.
+        let transient = engine.pool().flags(concrete_idx).has_vars();
+        if !transient {
             semantic_subst.push((
                 callee_var_id,
                 crate::DeferredVarBinding::Concrete(concrete_idx),
             ));
         } else if let Some(pos) = caller_roots.iter().position(|&r| r == concrete_idx) {
+            // Generic caller: a bare transient var matching a caller scheme-var
+            // root binds positionally (resolved when the caller instantiates).
             semantic_subst.push((
                 callee_var_id,
                 crate::DeferredVarBinding::CallerSchemeVar(pos),
             ));
         } else {
-            tracing::warn!(
+            // Non-generic caller (no scheme vars to map to) OR a composite
+            // transient type (`[Var]`): bind the type idx and re-resolve it at
+            // the deferred phase against the fully-linked pool, rather than
+            // dropping the instance (AOT missing-mono).
+            semantic_subst.push((
                 callee_var_id,
-                ?concrete_idx,
-                "could not map callee var to caller scheme var"
-            );
-            all_mapped = false;
+                crate::DeferredVarBinding::DeferredType { idx: concrete_idx },
+            ));
         }
     }
 
-    if all_mapped && semantic_subst.len() == callee_scheme_var_ids.len() {
+    if semantic_subst.len() == callee_scheme_var_ids.len() {
         let deferred = crate::DeferredMonoCall {
             caller,
             callee,

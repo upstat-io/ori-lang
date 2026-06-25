@@ -359,6 +359,13 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let mut engine = checker.create_engine_with_env(param_env);
     engine.set_self_type(fn_type);
 
+    // A test body is a (non-generic) caller for monomorphization: its generic
+    // calls (`assert_eq`, etc.) on polymorphic-lambda results record deferred
+    // mono calls, which require a caller context. Without this, the deferred
+    // recorder drops every such instance (AOT missing-mono), parity-breaking
+    // the test under LLVM while the interpreter resolves at run time.
+    engine.set_current_function(Some(test.name));
+
     // Push test context
     engine.push_context(ContextKind::TestBody);
 

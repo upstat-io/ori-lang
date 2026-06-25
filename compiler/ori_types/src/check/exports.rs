@@ -161,6 +161,30 @@ pub(super) fn resolve_deferred_mono_calls(
         "resolve_deferred_mono_calls: starting"
     );
 
+    // Seed pass: a deferred call whose bindings are all caller-independent
+    // (`Concrete` / `PoolVar`, no `CallerSchemeVar`) was recorded from a
+    // NON-generic caller, which carries no `MonoInstance` for the
+    // instance-driven worklist below to key on. Resolve it directly against
+    // the fully-linked pool — `PoolVar` follows the transient var's union-find
+    // link to its concrete root. The caller's `generic_args` are irrelevant
+    // here (no `CallerSchemeVar` binding reads them), so an empty slice is the
+    // correct caller context.
+    for deferred in deferred_calls.iter().filter(|d| {
+        d.var_subst
+            .iter()
+            .all(|(_, b)| !matches!(b, crate::DeferredVarBinding::CallerSchemeVar(_)))
+    }) {
+        try_resolve_deferred_call(
+            pool,
+            mono_instances,
+            mono_dispatch_pre_dedup,
+            &mut seen,
+            deferred.caller,
+            &[],
+            deferred,
+        );
+    }
+
     // Fixed-point worklist: process all instances including newly discovered ones.
     let mut i = 0;
     while i < mono_instances.len() {
@@ -354,12 +378,13 @@ fn try_resolve_deferred_call(
 /// the caller retries on the next worklist iteration once more
 /// instances land.
 fn resolve_deferred_var_subst(
-    pool: &Pool,
+    pool: &mut Pool,
     caller_generic_args: &[crate::GenericArg],
     deferred: &crate::DeferredMonoCall,
 ) -> Option<rustc_hash::FxHashMap<u32, crate::Idx>> {
     use rustc_hash::FxHashMap;
 
+    let empty: FxHashMap<u32, crate::Idx> = FxHashMap::default();
     let mut resolved: FxHashMap<u32, crate::Idx> =
         FxHashMap::with_capacity_and_hasher(deferred.var_subst.len(), rustc_hash::FxBuildHasher);
 
@@ -372,6 +397,15 @@ fn resolve_deferred_var_subst(
                 *idx
             }
             crate::DeferredVarBinding::Concrete(idx) => *idx,
+            crate::DeferredVarBinding::DeferredType { idx } => {
+                // Re-resolve the transient type against the now-fully-linked
+                // pool. `substitute_in_pool` with an empty map follows every
+                // interior `Tag::Var` link to its concrete leaf and re-interns
+                // the composite (`[Var]` → `[str]`). The `is_recordable` gate
+                // below rejects the publish (retry) if any interior var is
+                // still unbound.
+                crate::pool::substitute::substitute_in_pool(pool, *idx, &empty)
+            }
         };
 
         tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");

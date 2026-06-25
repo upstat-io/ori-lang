@@ -212,6 +212,14 @@ pub enum DeferredVarBinding {
     /// Already resolved to a concrete type. E.g., `make_pair`'s `B` → `int` when
     /// called as `make_pair(a: x, b: 99)` inside a generic function.
     Concrete(Idx),
+    /// A transient inference type recorded from a non-generic caller: the bound
+    /// type carries an unbound inference var (a bare `Tag::Var` OR a composite
+    /// such as `[Var]`/`Option<Var>`) at eager-record time but resolves to its
+    /// concrete root by the deferred phase. `resolve_deferred_var_subst`
+    /// re-resolves `idx` against the now-fully-linked pool
+    /// (`substitute_in_pool` follows every interior var link to its concrete
+    /// leaf); if any interior var is still unbound, the publish aborts (retry).
+    DeferredType { idx: Idx },
 }
 
 /// A deferred monomorphization call: generic function calling another generic.

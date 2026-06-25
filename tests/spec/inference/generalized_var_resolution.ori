@@ -104,6 +104,7 @@ use std.testing { assert_eq, assert }
 // Multi-param: const function with collection arguments
 // =============================================================================
 
+#skip("BUG-04-225: AOT ARC leak in monomorphized const-lambda returning a borrowed collection — aims-burden RC-emission domain (arc.md STOP), not the var-mapping recorder")
 @test_poly_const_collections tests @poly_const_collections () -> void = {
     let first = (a, b) -> a;
     let result1 = first(a: [1, 2], b: "ignored");
@@ -115,4 +116,28 @@ use std.testing { assert_eq, assert }
 @poly_const_collections () -> [int] = {
     let first = (a, b) -> a;
     first(a: [1, 2], b: "ignored")
+}
+
+// =============================================================================
+// Semantic pin: composite-var generic callee. A polymorphic lambda wrapping
+// its arg in a collection (`x -> [x]`) is instantiated at two element types,
+// then each result feeds a generic callee (`assert_eq<[T]>`). The callee's
+// type arg is a transient `[Var]` at the eager mono-record moment — NOT a bare
+// `Tag::Var` and NOT poison. Pre-fix the recorder dropped the `assert_eq<[str]>`
+// instance at the poison gate (HAS_VAR), so LLVM codegen reported a missing mono
+// instance and the whole module failed to compile while the interpreter passed
+// (dual-exec parity break). Post-fix the transient composite routes to the
+// deferred path and resolves to `[str]` against the fully-linked pool. This pin
+// fails to LLVM-compile if the deferred-composite recording is reverted.
+@test_composite_var_generic_callee tests @composite_var_generic_callee () -> void = {
+    let wrap = x -> [x];
+    let int_wrapped = wrap(x: 7);
+    let str_wrapped = wrap(x: "z");
+    assert_eq(actual: int_wrapped, expected: [7]);
+    assert_eq(actual: str_wrapped, expected: ["z"])
+}
+
+@composite_var_generic_callee () -> [int] = {
+    let wrap = x -> [x];
+    wrap(x: 7)
 }
