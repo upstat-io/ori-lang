@@ -37,6 +37,12 @@
 #                      ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1;
 #                      a plain `cargo test`/`ori build` runs the DEFAULT path
 #                      (predicate stack emits RC) where floor cells PASS (false-green).
+#   --emit-json FILE   Write the gated-floor reading {head_sha, failing_ids,
+#                      baseline_ids} to FILE — the artifact the disposition gate
+#                      (scripts/plan_orchestrator/rc_floor_verdict.py) consumes as
+#                      the aims-burden RC/AOT verdict. --floor defaults FILE to
+#                      build/aot-floor-gated.json. Written on both the clean and
+#                      the regression path.
 #   --classify         Per-cell burden-only|independent tag over the baseline
 #                      cells (default the corpus floor). Runs the AOT suite twice
 #                      — once under ORI_DISABLE_BURDEN_OPS=1 (predicate-stack
@@ -82,6 +88,7 @@ DO_BUILD=1
 RUN_LOG=""
 FLOOR=0
 CLASSIFY=0
+EMIT_JSON=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -89,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --out) OUT="${2:-}"; shift 2 ;;
         --env) EXTRA_ENV="${2:-}"; shift 2 ;;
         --floor) FLOOR=1; shift ;;
+        --emit-json) EMIT_JSON="${2:-}"; shift 2 ;;
         --classify) CLASSIFY=1; shift ;;
         --threads) THREADS="${2:-}"; shift 2 ;;
         --no-build) DO_BUILD=0; shift ;;
@@ -106,6 +114,10 @@ FLOOR_BASELINE="compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/base
 if [[ "$FLOOR" == "1" ]]; then
     EXTRA_ENV="ORI_DISABLE_PREDICATE_STACK_RC=1 ${EXTRA_ENV}"
     [[ -z "$BASELINE" ]] && BASELINE="$FLOOR_BASELINE"
+    # Default the recorded gated-floor reading the disposition gate
+    # (scripts/plan_orchestrator/rc_floor_verdict.py) consumes, so a plain
+    # `aot-guardrail.sh --floor` records it.
+    [[ -z "$EMIT_JSON" ]] && EMIT_JSON="build/aot-floor-gated.json"
 fi
 
 cd "$REPO_ROOT" || exit 2
@@ -210,6 +222,33 @@ fi
 if [[ "$ABORTS" -gt 0 || "$LINK_ABORTS" -gt 0 ]]; then
     echo "STATICLIB-ABORT FALSE-RED (E5005: $ABORTS, linker: $LINK_ABORTS) — result UNTRUSTABLE; rebuild + re-run." >&2
     exit 3
+fi
+
+# Record the gated-floor reading the disposition gate consumes
+# (compiler_repo/build/aot-floor-gated.json): {head_sha, failing_ids, baseline_ids}.
+# Written on BOTH the clean and the regression path (before any exit 1).
+if [[ -n "$EMIT_JSON" ]]; then
+    mkdir -p "$(dirname "$EMIT_JSON")"
+    EMIT_HEAD="$(git rev-parse HEAD 2>/dev/null || echo "")"
+    EMIT_BASELINE_ARG=""
+    [[ -n "$BASELINE" && -f "$BASELINE" ]] && EMIT_BASELINE_ARG="$BASELINE"
+    python3 - "$EMIT_JSON" "$EMIT_HEAD" "$OUT" "$EMIT_BASELINE_ARG" <<'PYEOF'
+import json, sys
+emit_path, head, out_path, baseline_path = sys.argv[1:5]
+def read_ids(p):
+    out = []
+    with open(p, encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if s and not s.startswith("#"):
+                out.append(s)
+    return sorted(set(out))
+failing = read_ids(out_path)
+baseline = read_ids(baseline_path) if baseline_path else None
+with open(emit_path, "w", encoding="utf-8") as f:
+    json.dump({"head_sha": head, "failing_ids": failing, "baseline_ids": baseline}, f, indent=2)
+PYEOF
+    echo "=== emitted gated-floor JSON ($(wc -l < "$OUT" | tr -d ' ') failing): $EMIT_JSON ==="
 fi
 
 if [[ -n "$BASELINE" ]]; then
