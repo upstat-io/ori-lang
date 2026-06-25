@@ -7,9 +7,6 @@
 
 use std::path::{Component, Path, PathBuf};
 
-#[cfg(test)]
-mod tests;
-
 /// Resolved paths for expected and actual artifact files.
 #[derive(Debug, Clone)]
 pub struct ArtifactPaths {
@@ -65,3 +62,6 @@ pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) ->
         .join(relative_parent)
         .join(filename)
 }
+
+#[cfg(test)]
+mod tests;
