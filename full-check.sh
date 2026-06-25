@@ -134,6 +134,24 @@ echo ""
 echo -e "${GREEN}${BOLD}--- Phase 1 (Clippy) PASSED in $(($(date +%s) - PHASE1_START))s ---${NC}"
 echo ""
 
+# Phase 1.5: UB coverage-matrix regression gate (ub-safety-threat-model).
+# Fast + deterministic: --strict asserts every canonical miri UB class is
+# dispositioned + pinned (39/39); --self-test asserts the checker's own
+# fail-closed invariants. Blocking — a foreclosure losing its pin, an
+# unresolvable pin, or a new undispositioned UB class fails the commit.
+echo -e "${BOLD}--- Phase 1.5: UB coverage gate ($(date '+%H:%M:%S')) ---${NC}"
+echo ""
+if ! python3 "$SCRIPT_DIR/scripts/ub-coverage-check.py" --strict --self-test; then
+    echo "" >&2
+    echo -e "${RED}${BOLD}=== UB coverage gate FAILED — the safety frontier regressed ===${NC}" >&2
+    echo "  A UB class lost its disposition/pin, a pin no longer resolves, or a" >&2
+    echo "  new class is undispositioned. See scripts/ub-safety/README.md." >&2
+    exit 1
+fi
+echo ""
+echo -e "${GREEN}${BOLD}--- Phase 1.5 (UB coverage gate) PASSED ---${NC}"
+echo ""
+
 # Phase 2: Tests (forward all flags)
 PHASE2_START=$(date +%s)
 # NON-BLOCKING during the active compiler rewrite — test-all.sh still runs

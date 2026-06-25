@@ -305,8 +305,8 @@ def _self_test():
     # End-to-end over the bundled seed matrix.
     record("bundled seed matrix is green (--seed)",
            run_check(DEFAULT_MATRIX, DEFAULT_SCHEMA)["green"] is True)
-    record("bundled seed matrix is incomplete (--strict)",
-           run_check(DEFAULT_MATRIX, DEFAULT_SCHEMA, strict=True)["green"] is False)
+    record("bundled matrix is complete (--strict)",
+           run_check(DEFAULT_MATRIX, DEFAULT_SCHEMA, strict=True)["green"] is True)
 
     failed = [n for n, ok in results if not ok]
     for name, ok in results:
