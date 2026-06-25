@@ -1,6 +1,6 @@
-//! Lexer error types for the V2 cooking layer.
+//! Lexer error types for the cooking layer.
 //!
-//! Errors follow the WHERE+WHAT+WHY+HOW shape (v2-conventions §5):
+//! Errors follow the WHERE+WHAT+WHY+HOW shape:
 //! - WHERE: `span` locating the error in source
 //! - WHAT: `kind` describing what went wrong
 //! - WHY: `context` explaining what the lexer was doing
@@ -33,7 +33,7 @@ pub enum UnicodeEscapeDetail {
 
 /// A lexer error with full context for diagnostic rendering.
 ///
-/// Follows the cross-system error shape from `v2-conventions.md` §5.
+/// Follows the cross-system WHERE+WHAT+WHY+HOW error shape.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[must_use]
 pub struct LexError {
@@ -146,7 +146,7 @@ impl LexErrorKind {
 /// Lexing context at the point of error — the WHY.
 ///
 /// Describes what the lexer was doing when the error occurred,
-/// matching the `ErrorContext` pattern from types V2's `TypeCheckError`.
+/// matching the `ErrorContext` pattern from the type checker's `TypeCheckError`.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum LexErrorContext {
     /// Top-level scanning (not inside any literal).

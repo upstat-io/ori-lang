@@ -1,0 +1,69 @@
+// Regression: §05 ROOT-B transitive-mono-worklist. `assert_eq<T: Eq + Debug>`
+// (library/std/testing.ori:10) whose body calls `equals(T)` (via `!=`) and
+// `debug(T)` (on the panic branch) on its OWN rigid type param `T`. When the
+// concrete `T` arrives through an INDIRECTION that the recorder types against
+// rigid/error `T` instead of the concrete instantiation — an associated-type
+// resolution (`Self.Item`), a trait-method return, or a generic-function
+// result — the `assert_eq<T>` mono instance is recorded with `Idx::ERROR` for
+// `T` (not the concrete `int`/`str`). At LLVM/AOT codegen the dispatch path
+// (`apply.rs:resolve_callee` -> `lookup_mono_dispatch`) supplies
+// `mono_instance_id = None` (the unwired fallback gap), the arg-type fallback
+// structural-matches the recorded `Idx::ERROR` param against the concrete-`int`
+// arg, the match fails, and emission aborts with
+// `unresolved function 'assert_eq' in apply -- missing mono instance?` (which
+// cascades to `unresolved function 'debug' in invoke`).
+//
+// Pre-fix: interp PASS (dynamic dispatch resolves nested calls at runtime);
+// LLVM/AOT compile FAIL (missing mono instance). The dual-exec divergence IS
+// the reverted-fix guard. The fix (w-0371395b) resolves nested generic/trait
+// calls per concrete instantiation from `Pool.resolutions` at the dispatch
+// site, matching the §09-proven `derive_codegen` per-instantiation approach.
+// NOT the recorder-var-mapping (`resolve_scheme_var`) path — that was
+// FALSIFIED/SUPERSEDED in §09 for the dominant families.
+//
+// Dual-backend (interpreter + LLVM). L11 spec corpus; L12 production path
+// drives `ori test` end-to-end with construction + trait dispatch + assert_eq.
+
+use std.testing { assert_eq }
+
+// --- Cell 1: associated-type-resolved T (the cleanest field-function-free,
+// module-alias-free trigger). `b.first()` returns `Option<Self.Item>` with
+// `Self.Item = int`; `.unwrap()` yields concrete int; `assert_eq<int>` must
+// collect its own + nested `equals`/`debug` instances. ---
+trait Container {
+    type Item
+    @first (self) -> Option<Self.Item>
+}
+
+type IntBox = { value: int }
+
+impl IntBox: Container {
+    type Item = int;
+    @first (self) -> Option<Self.Item> = Some(self.value);
+}
+
+type StrBox = { text: str }
+
+impl StrBox: Container {
+    type Item = str;
+    @first (self) -> Option<Self.Item> = Some(self.text);
+}
+
+@test_assert_eq_assoc_type_int tests @first () -> void = {
+    let $b = IntBox { value: 42 };
+    let $result = b.first();
+    assert_eq(actual: result.unwrap(), expected: 42)
+}
+
+@test_assert_eq_assoc_type_str tests @first () -> void = {
+    let $b = StrBox { text: "hello" };
+    let $result = b.first();
+    assert_eq(actual: result.unwrap(), expected: "hello")
+}
+
+// --- Cell 2: trait-method-returned T fed straight into assert_eq (no
+// intermediate let — exercises the call-as-argument dispatch shape). ---
+@test_assert_eq_trait_return_direct tests @first () -> void = {
+    let $b = IntBox { value: 7 };
+    assert_eq(actual: b.first().unwrap(), expected: 7)
+}

@@ -1,4 +1,4 @@
-//! Spec-strict escape processing for the V2 cooking layer.
+//! Spec-strict escape processing for the cooking layer.
 //!
 //! Each literal context (string, char, template) has its own valid escape set
 //! per the grammar specification. Invalid escapes push errors into the
@@ -6,9 +6,9 @@
 //!
 //! # Architecture
 //!
-//! `unescape_string_v2` and `unescape_template_v2` are thin wrappers around
+//! `unescape_string` and `unescape_template` are thin wrappers around
 //! `unescape_with_context`, which implements the shared scanning loop
-//! parameterized by [`EscapeContext`]. `unescape_char_v2` is structurally
+//! parameterized by [`EscapeContext`]. `unescape_char` is structurally
 //! different (single-char, returns `char`) and remains standalone.
 //!
 //! # Grammar Reference
@@ -19,8 +19,9 @@
 //! - Template braces (`template_brace` production): `{{` → `{`, `}}` → `}`
 //! - Unicode escapes (`unicode_escape` production): `\u{` `hex_digit` { `hex_digit` } `}`
 
-use crate::lex_error::{LexError, LexErrorContext, UnicodeEscapeDetail};
 use ori_ir::Span;
+
+use crate::lex_error::{LexError, LexErrorContext, UnicodeEscapeDetail};
 
 /// Escape processing context, parameterizing the shared unescape loop.
 ///
@@ -199,7 +200,7 @@ fn parse_unicode_escape(
     let consumed = i + 1;
     let hex_str = &content[digit_start..i];
 
-    // Parse hex value — safe because we validated all digits are hex
+    // Why: all digits validated as hex above, so radix-16 parse is infallible
     let codepoint = u32::from_str_radix(hex_str, 16).unwrap_or(u32::MAX);
 
     // Check for surrogate codepoints (U+D800–U+DFFF)
@@ -344,7 +345,7 @@ fn unescape_with_context(
 ///
 /// Fast path: if no backslashes, returns `None` to signal the caller can
 /// intern the source slice directly.
-pub(crate) fn unescape_string_v2(
+pub(crate) fn unescape_string(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,
@@ -360,11 +361,7 @@ pub(crate) fn unescape_string_v2(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
-pub(crate) fn unescape_char_v2(
-    content: &str,
-    base_offset: u32,
-    errors: &mut Vec<LexError>,
-) -> char {
+pub(crate) fn unescape_char(content: &str, base_offset: u32, errors: &mut Vec<LexError>) -> char {
     let mut chars = content.char_indices();
     match chars.next() {
         Some((_, '\\')) => match chars.next() {
@@ -417,7 +414,7 @@ pub(crate) fn unescape_char_v2(
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-pub(crate) fn unescape_template_v2(
+pub(crate) fn unescape_template(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,

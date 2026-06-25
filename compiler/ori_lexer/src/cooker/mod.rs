@@ -1,4 +1,4 @@
-//! Token cooking layer for the V2 lexer.
+//! Token cooking layer for the lexer.
 //!
 //! Transforms `(RawTag, len)` pairs from the raw scanner into the parser's
 //! `TokenKind` values with string interning, keyword resolution, escape
@@ -216,9 +216,9 @@ impl<'src> TokenCooker<'src> {
                 CookResult::with_error(TokenKind::Error)
             }
             // Defensive: the raw scanner does not currently emit InvalidEscape
-            // (escape validation is deferred to the cooking layer's unescape_*_v2
-            // functions), but this arm handles the reserved variant for forward
-            // compatibility.
+            // (escape validation is deferred to the cooking layer's
+            // unescape_string/unescape_template functions), but this arm handles
+            // the reserved variant for forward compatibility.
             RawTag::InvalidEscape => {
                 let text = slice_source(self.source, offset, len);
                 let esc_char = text.chars().nth(1).unwrap_or('?');
@@ -265,9 +265,8 @@ impl<'src> TokenCooker<'src> {
 
     // Error cooking helpers
 
-    /// Cook an invalid byte, detecting Unicode confusables and cross-language
-    /// patterns. This replaces the simple `InvalidByte` handling with
-    /// context-aware diagnostics.
+    /// Cook an invalid byte into a context-aware diagnostic, detecting Unicode
+    /// confusables and cross-language patterns.
     #[cold]
     fn cook_invalid_byte(&mut self, offset: u32, len: u32) -> CookResult {
         let byte = self.source[offset as usize];

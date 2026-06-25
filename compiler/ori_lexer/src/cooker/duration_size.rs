@@ -2,9 +2,10 @@
 
 use ori_ir::{DurationUnit, SizeUnit, TokenKind};
 
-use super::{slice_source, span, CookResult, TokenCooker};
 use crate::lex_error::LexError;
 use crate::parse_helpers::parse_int_skip_underscores;
+
+use super::{slice_source, span, CookResult, TokenCooker};
 
 /// Trait abstracting over duration/size unit cooking behavior.
 ///

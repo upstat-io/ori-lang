@@ -1,4 +1,4 @@
-//! Keyword resolution for the V2 cooking layer.
+//! Keyword resolution for the cooking layer.
 //!
 //! Two-table keyword system:
 //! 1. **Reserved keywords** — length-bucketed lookup, always resolved
