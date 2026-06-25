@@ -91,7 +91,7 @@ impl<'src, W: Write> SarifEmitter<'src, W> {
     /// Without source text, returns (1, 1) as a placeholder.
     fn offset_to_line_col(&self, offset: u32) -> (usize, usize) {
         let (Some(table), Some(source)) = (&self.line_table, self.source) else {
-            // Without source/table, we cannot compute accurate positions.
+            // Without source/table, accurate positions are not computable; use a placeholder.
             return (1, 1);
         };
 

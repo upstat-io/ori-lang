@@ -1,4 +1,4 @@
-// Spec: 06-types.md § Derive — Hashable on a distinct-outer-generic receiver (ROOT A)
+// Spec: 06-types.md § Derive — Hashable on a distinct-outer-generic receiver
 // Formal semantics: a derived `hash` must be emitted for every concrete instantiation
 // a call site can demand, including an inner instantiation reachable ONLY through a
 // distinct outer generic's field (`Outer<Inner<int>>` -> inner `Inner<int>`). The

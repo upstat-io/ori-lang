@@ -7,7 +7,6 @@
 
 use ori_ir::Name;
 use ori_types::{FieldDef, Idx, Tag, VariantDef, VariantFields};
-
 use rustc_hash::FxHashSet;
 
 use super::super::function_compiler::FunctionCompiler;

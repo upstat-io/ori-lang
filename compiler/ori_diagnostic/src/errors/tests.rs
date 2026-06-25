@@ -112,7 +112,7 @@ fn test_undocumented_count_does_not_grow() {
 /// The test body computes the live undocumented set and panics with the exact
 /// list — there is no hand-maintained inventory to drift out of sync.
 #[test]
-#[ignore = "BUG-07-038: on-demand manual inventory — run with --ignored to see all undocumented codes"]
+#[ignore = "BUG-08-028: on-demand manual inventory — run with --ignored to see all undocumented codes"]
 fn test_undocumented_codes_inventory() {
     let undocumented: Vec<_> = ErrorCode::ALL
         .iter()

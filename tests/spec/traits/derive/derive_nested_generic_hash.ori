@@ -1,4 +1,4 @@
-// Spec: 06-types.md § Derive — Hashable on a nested-generic-instantiation receiver (ROOT A)
+// Spec: 06-types.md § Derive — Hashable on a nested-generic-instantiation receiver
 // Formal semantics: a derived `hash` must be emitted for EVERY concrete instantiation
 // of a generic composite a call site can demand, including an inner instantiation
 // reachable ONLY by nesting (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The

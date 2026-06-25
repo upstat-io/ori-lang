@@ -10,9 +10,6 @@ use super::Diagnostic;
 use crate::ErrorCode;
 
 /// Configuration for a type mismatch diagnostic.
-///
-/// Used by `type_mismatch` to create a diagnostic with all relevant context.
-/// This config struct pattern improves API clarity for functions with 4+ parameters.
 #[derive(Clone, Debug)]
 pub struct TypeMismatchConfig<'a> {
     /// The source location of the mismatch.
@@ -102,9 +99,6 @@ pub fn missing_pattern_arg(span: Span, pattern: &str, arg: &str) -> Diagnostic {
 }
 
 /// Configuration for an unknown pattern argument diagnostic.
-///
-/// Used by `unknown_pattern_arg` to create a diagnostic with all relevant context.
-/// This config struct pattern improves API clarity for functions with 4+ parameters.
 #[derive(Clone, Debug)]
 pub struct UnknownPatternArgConfig<'a> {
     /// The source location of the unknown argument.

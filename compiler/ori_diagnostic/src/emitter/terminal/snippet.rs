@@ -114,7 +114,6 @@ impl<W: Write> TerminalEmitter<'_, W> {
         // Sort by line number
         lines_to_render.sort_by_key(|(line, _)| *line);
 
-        // Track whether we need a leading empty gutter line
         let mut prev_line: Option<u32> = None;
 
         for (line_num, label_indices) in &lines_to_render {
@@ -316,8 +315,7 @@ impl<W: Write> TerminalEmitter<'_, W> {
             return;
         };
 
-        // Build a temporary line table for the cross-file source.
-        // Cross-file sources are owned by SourceInfo, so we borrow from there.
+        // Cross-file source content is owned by SourceInfo; borrow it to build a temporary line table.
         let cross_table = LineOffsetTable::build(&src_info.content);
         let (start_line, start_col) =
             cross_table.offset_to_line_col(&src_info.content, label.span.start);

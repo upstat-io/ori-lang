@@ -1,4 +1,4 @@
-// Spec: 06-types.md § Derive — Debug on a nested-generic-instantiation receiver (ROOT A)
+// Spec: 06-types.md § Derive — Debug on a nested-generic-instantiation receiver
 // Formal semantics: a derived `debug` must be emitted for every concrete instantiation
 // a call site can demand, including an inner instantiation reachable ONLY by nesting
 // (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The mono-aware derive path emits
@@ -13,8 +13,8 @@
 // a.debug(), expected: "...")` exact-string cell would route through the outer-debug
 // emission path that materializes the inner instance and MASK the starve, so this file
 // uses ONLY the non-emptiness gate. The exact-string parity pin (`Wrap { inner: Wrap {
-// inner: 7 } }`) is the implementation work_item's post-fix verification, where it
-// passes and pins the exact value end-to-end on both backends.
+// inner: 7 } }`) is the post-fix verification, where it passes and pins the exact value
+// end-to-end on both backends.
 
 use std.testing { assert }
 

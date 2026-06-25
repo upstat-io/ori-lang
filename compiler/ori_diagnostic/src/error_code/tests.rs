@@ -56,8 +56,7 @@ fn test_eval_error_codes() {
 
 /// Every variant in `ErrorCode::ALL` must be classified by exactly one `is_*` predicate.
 ///
-/// This is the exhaustive version of the old test which only checked one representative
-/// per phase. Catches drift when a new variant is added to the enum and `as_str()` but
+/// Catches drift when a new variant is added to the enum and `as_str()` but
 /// omitted from its `is_*` predicate.
 #[test]
 fn test_all_variants_classified() {

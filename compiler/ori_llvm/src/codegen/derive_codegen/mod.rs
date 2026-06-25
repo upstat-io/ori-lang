@@ -1,18 +1,15 @@
 //! LLVM IR generation for derived trait methods.
 //!
-//! Generates synthetic LLVM functions for `#[derive(...)]` attributes on structs
-//! and enums. Each derived method becomes a real LLVM function registered in
-//! `method_functions`, so the existing `lower_method_call` dispatch finds them
-//! with no special path.
+//! # Registration
 //!
-//! Dispatch is strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`
-//! describing the composition logic (field iteration, result combination), and this
-//! module interprets the strategy in LLVM IR terms. Adding a new trait only requires
-//! adding a strategy entry in `ori_ir` — no per-trait function needed here.
+//! Each `#[derive(...)]` method becomes a real LLVM function in `method_functions`,
+//! so `lower_method_call` dispatch finds it with no special path.
 //!
-//! **Struct derives** use `StructBody` (field iteration, formatting, cloning, default).
-//! **Enum derives** use `SumBody::MatchVariants` (tag comparison for unit variants,
-//! with payload comparison for payload variants planned).
+//! # Dispatch
+//!
+//! Strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`; a new trait
+//! needs only a strategy entry in `ori_ir`. `StructBody` drives struct derives; enum
+//! derives use `SumBody::MatchVariants`.
 
 mod bodies;
 mod clone_rc;
@@ -23,11 +20,6 @@ mod scaffolding;
 mod string_helpers;
 #[cfg(test)]
 mod tests;
-
-use instantiation::{
-    concrete_instantiations, nested_derive_instantiations, substitute_enum_variants,
-    substitute_struct_fields,
-};
 
 use ori_ir::{DerivedTrait, Module, Name, StructBody, SumBody, TypeDecl, TypeDeclKind};
 use ori_types::{FieldDef, Idx, Tag, TypeEntry, TypeKind, VariantDef};
@@ -40,6 +32,10 @@ use bodies::{
     compile_clone_fields, compile_default_construct, compile_for_each_field, compile_format_fields,
 };
 use enum_bodies::compile_enum_match_variants;
+use instantiation::{
+    concrete_instantiations, nested_derive_instantiations, substitute_enum_variants,
+    substitute_struct_fields,
+};
 pub(in crate::codegen::derive_codegen) use scaffolding::{
     emit_boxed_self_method_call, emit_derive_return, emit_method_call_for_derive,
     setup_derive_function, verify_derive_function, DeriveSetup,
@@ -94,12 +90,9 @@ pub fn compile_derives<'a>(
         let type_idx = type_entry.idx;
         let type_name_str = fc.lookup_name(type_name).to_owned();
 
-        // A generic composite has one concrete instantiation per
-        // distinct arg set (`P3Pair<int,str>`, `Box<int>`, `Box<Box<int>>`).
-        // Each instantiation's materialized body lives in `Pool.resolutions`;
-        // emit a layout-correct derived method PER instantiation using its
-        // concrete field/payload types. A non-generic type has no `Applied`
-        // instantiation — fall through to the single declared-body path.
+        // Why: a generic composite needs a layout-correct method per concrete
+        // instantiation (each materialized body in `Pool.resolutions`); a
+        // non-generic type has no `Applied` and falls through to the declared body.
         let instantiations = concrete_instantiations(fc, type_name);
 
         if instantiations.is_empty() {
@@ -136,10 +129,9 @@ pub fn compile_derives<'a>(
             continue;
         }
 
-        // Generic type: seed the work-list with the top-level instantiations,
-        // then transitively close over inner derive-bearing instantiations
-        // reachable through field/payload types (`Wrap<int>` reached only by
-        // nesting inside `Wrap<Wrap<int>>`, which top-level enumeration misses).
+        // Why: top-level enumeration misses inner-only instantiations
+        // (`Wrap<int>` reached only by nesting in `Wrap<Wrap<int>>`); the closure
+        // transitively closes over field/payload-reachable derive-bearing bodies.
         for (applied_idx, concrete_idx) in instantiations {
             compile_instantiation_closure(
                 fc,
@@ -259,12 +251,9 @@ fn compile_struct_derives<'a>(
         "compiling struct derived methods"
     );
 
-    // PC-2 guard: derive_codegen synthesizes LLVM IR without going through
-    // the ArcFunction pipeline, so the primary seam does not cover
-    // `type_idx`. Always-on plus debug-assert for double-belt. The
-    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
-    // (broader than the always-on guard, which targets the production
-    // PC-2 surface via `assert_no_unresolved_idx`).
+    // INVARIANT: PC-2 — `type_idx` is resolved here (the ArcFunction seam that
+    // normally enforces it does not cover derive_codegen). The debug_assert adds
+    // `Tag::Infer` over the always-on `assert_no_unresolved_idx` production guard.
     debug_assert!(
         !matches!(
             fc.pool().tag(fc.pool().resolve_fully(type_idx)),
@@ -368,9 +357,7 @@ fn compile_enum_derives<'a>(
         "compiling enum derived methods"
     );
 
-    // PC-2 guard: see compile_struct_derives above for rationale. The
-    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
-    // (broader than the always-on guard).
+    // INVARIANT: PC-2 — `type_idx` is resolved here (see compile_struct_derives).
     debug_assert!(
         !matches!(
             fc.pool().tag(fc.pool().resolve_fully(type_idx)),
