@@ -213,8 +213,8 @@ fn run_forward_iteration(
             if let Some(var) = instr.defined_var() {
                 // Apply callee return-range narrowing to call-result
                 // variables. The transfer function for Apply/Invoke returns Top
-                // (unknown function), but we have the callee's return range from
-                // interprocedural analysis. Applying `meet` here lets the narrowed
+                // (unknown function), but the callee's return range is available
+                // from interprocedural analysis. Applying `meet` here lets the narrowed
                 // value propagate to derived locals through subsequent iterations.
                 if let Some(&narrowing) = call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);

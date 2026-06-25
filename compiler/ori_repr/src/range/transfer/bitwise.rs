@@ -57,7 +57,7 @@ pub fn range_shr(a: ValueRange, b: ValueRange) -> ValueRange {
             return Top;
         }
         // Arithmetic right shift never overflows for valid shift amounts,
-        // so we use an infallible `Some(a >> shift)` wrapper.
+        // so an infallible `Some(a >> shift)` wrapper suffices.
         four_corner_fold(al, ah, bl, bh, |a, b| Some(a >> shift_amount(b)))
     })
 }

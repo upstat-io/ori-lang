@@ -1286,7 +1286,7 @@ fn strategy_widen_to_i64_for_large_multiplication() {
 fn strategy_canonical_for_i64_target() {
     // I64 has no next-wider type → UseCanonical when overflow detected
     // But Top + Top at I64 doesn't overflow I64 since fits_in(I64) returns true for Top
-    // So let's use a case where the transfer function returns Top
+    // So use a case where the transfer function returns Top
     let lhs = ValueRange::Top;
     let rhs = ValueRange::Top;
     // For Add with Top inputs, range_add returns Top, and Top.fits_in(I64) = true
@@ -1422,7 +1422,7 @@ fn collection_element_width(plan: &ReprPlan, idx: Idx) -> Option<IntWidth> {
 }
 
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn list_bounded_elements_narrow_to_i8() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1443,7 +1443,7 @@ fn list_bounded_elements_narrow_to_i8() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn list_bounded_elements_narrow_to_i16() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1540,7 +1540,7 @@ fn repr_c_collection_not_narrowed() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn elem_semantic_pin_only_passes_with_narrowing() {
     // Semantic pin: this test ONLY passes if collection element narrowing is
     // active. Without it, the element width would remain I64.
@@ -1596,7 +1596,7 @@ fn elem_negative_pin_wide_range_stays_canonical() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn multiple_construction_sites_join_ranges() {
     // Two construction sites with different ranges → joined range.
     let mut pool = Pool::default();
@@ -1641,7 +1641,7 @@ fn multiple_sites_one_wide_prevents_narrowing() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn elem_i32_boundary_values_narrow_to_i32() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1695,7 +1695,7 @@ fn set_int_not_narrowed() {
 /// When both `[int]` and `Set<int>` have element ranges, only the list
 /// is narrowed. The set stays canonical.
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn list_narrowed_but_set_stays_canonical() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);
@@ -1727,7 +1727,7 @@ fn list_narrowed_but_set_stays_canonical() {
 /// proves the element width actually changes to i8 (not just `!is_public_type()`).
 /// Regression:
 #[test]
-#[ignore = "BUG-07-038: collection element narrowing disabled"]
+#[ignore = "BUG-04-140: collection element narrowing (Phase C narrow_collection_elements) disabled until per-collection/provenance-aware narrowing lands"]
 fn imported_surface_allows_elem_narrowing() {
     let mut pool = Pool::default();
     let list_int = pool.list(Idx::INT);

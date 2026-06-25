@@ -39,7 +39,7 @@ pub(crate) fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
     let mut narrowed_count: u32 = 0;
 
     // Collect type indices that have Struct or Tuple reprs.
-    // We must collect first because we need mutable access to the plan.
+    // Collect first because mutable access to the plan is needed below.
     let candidates: Vec<(Idx, CandidateKind)> = plan
         .decision_indices()
         .filter_map(|idx| {

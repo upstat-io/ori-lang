@@ -239,7 +239,7 @@ fn reprocess_changed_functions(
     let mut any_changed = false;
 
     // Reverse iteration: callers first → callees last, so re-computed caller
-    // results are available when we collect callee parameter ranges.
+    // results are available when callee parameter ranges are collected.
     for scc in sccs.iter().rev() {
         for name in &scc.members {
             let Some(func) = func_map.get(name) else {

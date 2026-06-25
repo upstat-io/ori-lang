@@ -127,9 +127,9 @@ pub fn propagate_ranges(
 
     // Phase 3: Process SCCs in reverse topological order (callers first).
     // Parameter ranges flow top-down (caller → callee), so callers must be
-    // processed first: when we seed callee C's fixpoint, all callers of C
+    // processed first: when callee C's fixpoint is seeded, all callers of C
     // must already have their final ranges so C's param seed is accurate.
-    // `compute_sccs()` returns forward order (leaves first); we reverse it.
+    // `compute_sccs()` returns forward order (leaves first); reverse it here.
     let mut func_infos: FxHashMap<Name, FunctionRangeInfo> = FxHashMap::default();
     let mut total_scc_iters: usize = 0;
 

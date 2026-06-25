@@ -123,7 +123,7 @@ fn test_not_f32_exact_deep_subnormal() {
     // The f64→f32→f64 roundtrip loses precision for this value.
     let val = 1e-45_f64;
     // is_f32_exact already handles this case correctly via roundtrip check.
-    // Just verify our function agrees with the manual roundtrip.
+    // Verify `is_f32_exact` agrees with the manual roundtrip.
     assert!(!is_f32_exact(val));
 }
 
