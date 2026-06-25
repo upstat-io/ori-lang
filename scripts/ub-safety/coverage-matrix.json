@@ -110,8 +110,36 @@
       "class_id": "DataRace",
       "miri_source": "miri: src/concurrency/data_race.rs (miri data-race detector; tests/fail/data_race)",
       "disposition": "data-race-foreclosed",
-      "ori_mechanism": "Channel types require T: Sendable and values use value semantics with no shared mutable state, so two threads cannot alias the same mutable location. Sendable is a compiler-derived marker. Spec Clause 4.5; 07-properties-of-types.md (Sendable).",
+      "ori_mechanism": "Values use value semantics with no shared mutable state and closure captures are frozen at creation, so two tasks cannot alias the same mutable location; the Sendable marker bounds what crosses a channel. Foreclosure holds at value semantics and runtime-immutable captures; the compile-time capture-Sendable gate is a tracked gap (see SendableCaptureGate). Spec Clause 4.5; Clause 22 (concurrency model).",
       "pin_ref": "tests/spec/types/duration_size_sendable.ori"
+    },
+    {
+      "class_id": "WeakMemoryOrdering",
+      "miri_source": "miri: src/concurrency/weak_memory (miri weak-memory detector; tests/fail/weak_memory)",
+      "disposition": "gap",
+      "ori_mechanism": "Ori exposes no user-facing atomics or memory-ordering primitives, so there is no user-observable weak-memory surface; the sole atomic surface is the runtime reference-count realization, whose ordering correctness is a runtime obligation tracked in the memory model. Spec Clause 21 (memory model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/21-memory-model.md"
+    },
+    {
+      "class_id": "SendableCaptureGate",
+      "miri_source": "Ori-specific: the spec-mandated compile-time Sendable capture gate for parallel/spawn/nursery (spec Clause 22.6.1).",
+      "disposition": "gap",
+      "ori_mechanism": "The spec mandates that closures passed to parallel/spawn/nursery capture only Sendable values, moved into the task; the compile-time gate enforcing this is not yet implemented (no capture-time Sendable check). Foreclosure holds at runtime (captures are frozen) but is not compile-time-enforced. The hardening anchor is the disabled non-Sendable capture test, re-enabled when the gate lands. Spec Clause 22.6.1.",
+      "pin_ref": "tests/spec/patterns/channels.ori"
+    },
+    {
+      "class_id": "Deadlock",
+      "miri_source": "miri: tests/fail/concurrency (deadlock / blocked-forever detection).",
+      "disposition": "gap",
+      "ori_mechanism": "Structured concurrency (nursery) scopes task lifetimes but does not foreclose deadlock (two tasks each awaiting the other); deadlock is a liveness gap, not memory undefined behavior, tracked against the concurrency model. Spec Clause 22 (concurrency model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/22-concurrency-model.md"
+    },
+    {
+      "class_id": "IntentionalLeak",
+      "miri_source": "miri: tests/fail/memleak (leak detection; intentional / reference-cycle leak).",
+      "disposition": "gap",
+      "ori_mechanism": "ARC reclaims acyclic memory deterministically but does not collect reference cycles, so a cycle is leaked rather than freed; a leak is a resource gap, not memory undefined behavior, tracked against the memory model. Spec Clause 21 (memory model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/21-memory-model.md"
     }
   ]
 }

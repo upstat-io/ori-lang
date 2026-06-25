@@ -65,16 +65,18 @@ pub(crate) fn build_imported_mono_functions(
         let instance_id = ori_ir::canon::MonoInstanceId::new(idx as u32);
 
         // Defense-in-depth: a poison MonoInstance (a generic/impl/method arg
-        // resolved to Idx::ERROR) that slipped the ori_types record gates must
+        // carrying a type-error) that slipped the ori_types record gates must
         // never materialize — its body codegens method invokes on the poison
-        // receiver (AOT missing-mono). is_recordable in ori_types is the primary
-        // cure; Idx::ERROR is pre-interned identically across pools.
+        // receiver (AOT missing-mono). Read the canonical TypeFlags::is_recordable
+        // predicate, not a bare Idx::ERROR slot compare — is_recordable also
+        // refuses compound poison (List<Idx::ERROR> via HAS_ERROR on PROPAGATE_MASK)
+        // and residual var/infer args. is_recordable in ori_types is the primary cure.
         if instance
             .generic_args
             .iter()
             .chain(instance.impl_args.iter())
             .chain(instance.method_args.iter())
-            .any(|a| matches!(a, GenericArg::Type(t) if *t == Idx::ERROR))
+            .any(|a| matches!(a, GenericArg::Type(t) if !merged_pool.flags(*t).is_recordable()))
         {
             continue;
         }
