@@ -1,7 +1,4 @@
 //! Single CLI argument parsing for build options.
-//!
-//! Extracted from `build_options/mod.rs` to keep the parent module
-//! under the 500-line production file limit.
 
 use std::path::PathBuf;
 

@@ -12,8 +12,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 ///
 /// `call_expr_id` is the AST `ExprId` of the call expression itself (the
 /// parent of `func`); used by `maybe_record_mono_instance` to publish a
-/// dispatch entry into `TypedModule.mono_dispatch_map` per
-/// §C.2.
+/// dispatch entry into `TypedModule.mono_dispatch_map`.
 pub(crate) fn infer_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -90,8 +89,7 @@ pub(crate) fn infer_call(
 ///
 /// `call_expr_id` is the AST `ExprId` of the call expression itself (the
 /// parent of `func`); used by `maybe_record_mono_instance` to publish a
-/// dispatch entry into `TypedModule.mono_dispatch_map` per
-/// §C.2.
+/// dispatch entry into `TypedModule.mono_dispatch_map`.
 pub(crate) fn infer_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -194,7 +192,13 @@ pub(crate) fn infer_call_named(
 /// `type <assoc_name> = …` binding. Falls back to `ret` (poison) for a symbolic
 /// receiver or a missing binding — the symbolic-poison guard for a generic
 /// receiver that cannot resolve (BUG-02-067).
-fn resolve_return_projection(
+///
+/// Shared SSOT for return-projection resolution: the call-site inference path
+/// uses it to type the call expression, and the monomorphization-recording path
+/// (`monomorphization::maybe_record_mono_instance`) uses it to hoist the
+/// concrete return type BEFORE recording the `MonoInstance`, so the recorded
+/// mono return is the projected concrete type, not the poison `Idx::ERROR`.
+pub(super) fn resolve_return_projection(
     engine: &mut InferEngine<'_>,
     func_name_id: Option<ori_ir::Name>,
     instantiated_params: &[Idx],
@@ -203,14 +207,22 @@ fn resolve_return_projection(
     let Some(name) = func_name_id else {
         return ret;
     };
-    // Snapshot the projection + base-param index from the signature (immutable
-    // borrow) before resolving against the pool / registry (mutable borrow).
-    let Some((base_param, assoc_name, base_param_index)) =
+    // Snapshot the projection + base-param index + the base-param's first trait
+    // bound from the signature (immutable borrow) before resolving against the
+    // pool / registry (mutable borrow). The bound trait (`C: Container`)
+    // disambiguates the projection by `(trait_idx, base_ty, assoc_name)` when
+    // the concrete receiver implements two traits with a same-named associated
+    // type (BUG-02-067).
+    let Some((base_param, assoc_name, base_param_index, bound_trait)) =
         engine.get_signature(name).and_then(|sig| {
             let (base_param, assoc_name) = sig.return_projection?;
             let tp_index = sig.type_params.iter().position(|&n| n == base_param)?;
             let param_index = (*sig.generic_param_mapping.get(tp_index)?)?;
-            Some((base_param, assoc_name, param_index))
+            let bound_trait = sig
+                .type_param_bounds
+                .get(tp_index)
+                .and_then(|bounds| bounds.first().copied());
+            Some((base_param, assoc_name, param_index, bound_trait))
         })
     else {
         return ret;
@@ -226,8 +238,12 @@ fn resolve_return_projection(
         return ret;
     }
 
-    let projected = engine
-        .trait_registry()
-        .and_then(|reg| reg.find_impl_assoc_binding(base_ty, assoc_name));
+    let projected = engine.trait_registry().and_then(|reg| {
+        // Resolve the bound trait Name to its pool Idx (when present) so the
+        // lookup keys on `(trait_idx, base_ty, assoc_name)`; an absent or
+        // unknown bound keeps the trait-blind first-match fallback.
+        let trait_idx = bound_trait.and_then(|t| reg.get_trait_by_name(t).map(|e| e.idx));
+        reg.find_impl_assoc_binding(trait_idx, base_ty, assoc_name)
+    });
     projected.unwrap_or(ret)
 }

@@ -6,7 +6,7 @@
 // diagnostic — guards against the fix over-eagerly diagnosing the no-concrete-
 // receiver case. The eager-resolve arm fires ONLY when the receiver self_type
 // is concrete; for a type variable it must fall through to clean poison.
-// See: bug-tracker/plans/BUG-02-067/
+// Regression: BUG-02-067
 
 use std.testing { assert, assert_eq }
 

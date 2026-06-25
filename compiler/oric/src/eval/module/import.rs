@@ -162,7 +162,7 @@ pub(crate) fn register_imports(
 
     // Build FxHashMap for O(1) function lookup instead of O(n) linear scan.
     // Keyed by Name (u32) rather than &str — avoids interner lookups on both
-    // the build side and the lookup side (line 189). String lookup is only
+    // the build side and the per-item lookup loop below. String lookup is only
     // needed on the cold error path for diagnostic messages.
     let func_by_name: FxHashMap<Name, &crate::ir::Function> = imported
         .result
@@ -172,9 +172,8 @@ pub(crate) fn register_imports(
         .map(|f| (f.name, f))
         .collect();
 
-    // Build enriched captures once: current environment + all module functions.
-    // Previously this was done per-item inside the loop, cloning the entire
-    // environment N times for N imports. Now we build it once and share via Arc.
+    // Build enriched captures once (current environment + all module functions)
+    // and share via Arc, rather than cloning the environment per imported item.
     let shared_captures: Arc<FxHashMap<Name, Value>> = {
         let mut captures = env.capture();
         for (name, value) in &imported.functions {

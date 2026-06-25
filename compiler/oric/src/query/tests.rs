@@ -724,7 +724,7 @@ fn test_evaluated_block_expression() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: recurse pattern self() not yet supported (needs roadmap §07)"]
+#[ignore = "BUG-07-038: recurse pattern self() not yet supported"]
 fn test_evaluated_recurse_pattern() {
     use crate::eval::EvalOutput;
 
@@ -1161,7 +1161,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     );
 }
 
-// --- Section 12.4: Salsa early cutoff verification tests ---
+// Salsa early cutoff verification tests
 
 #[test]
 fn test_comment_only_change_triggers_early_cutoff_for_parsed() {

@@ -1,4 +1,4 @@
-//! Comprehensive tests for type conversion functions (`function_val`).
+//! Tests for type conversion functions (`function_val`).
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 

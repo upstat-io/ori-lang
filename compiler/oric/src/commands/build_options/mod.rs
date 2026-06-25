@@ -383,7 +383,6 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 /// This is the canonical build-option accumulation path used by `ori build`.
 /// It handles: (1) per-arg parsing via [`parse_build_options`], (2) `-o` lookahead,
 /// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge.
-/// Extracted from `main.rs` to enable direct testing of the zero-option build path.
 ///
 /// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
 /// Build options start at index 3 (after `ori build <file>`).

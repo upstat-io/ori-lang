@@ -529,6 +529,10 @@ fn resolve_associated_projection(
     // 1. Current impl's in-scope bindings (registration-ordering cure): the impl
     //    being resolved has its `assoc_types` map installed on the checker before
     //    its `ImplEntry` is registered. Project `Self.Item` from it directly.
+    //    Snapshot the impl's `trait_idx` so the cross-impl path below can
+    //    disambiguate by `(trait_idx, self_type, assoc_name)` when the concrete
+    //    base implements two traits each declaring a same-named associated type.
+    let ctx_trait_idx = checker.current_impl_assoc().and_then(|(_, t)| *t);
     if base_ty == self_type {
         if let Some((bindings, _trait_idx)) = checker.current_impl_assoc() {
             if let Some(&projected) = bindings.get(&assoc_name) {
@@ -538,10 +542,13 @@ fn resolve_associated_projection(
     }
 
     // 2. Cross-impl projection: find a registered impl whose self type matches the
-    //    concrete base and carries this associated-type binding.
-    if let Some(projected) = checker
-        .trait_registry()
-        .find_impl_assoc_binding(base_ty, assoc_name)
+    //    concrete base and carries this associated-type binding. Pass the current
+    //    impl's `trait_idx` so a type implementing two traits with a same-named
+    //    associated type resolves the trait-matched binding (BUG-02-067).
+    if let Some(projected) =
+        checker
+            .trait_registry()
+            .find_impl_assoc_binding(ctx_trait_idx, base_ty, assoc_name)
     {
         return projected;
     }

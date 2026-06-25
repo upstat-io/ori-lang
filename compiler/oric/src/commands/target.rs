@@ -428,10 +428,8 @@ fn check_wasi_sdk(sysroot: &std::path::Path) {
 
 /// Predicate: is the given target spelling a WASI target?
 ///
-/// Recognizes the modern Rust 1.78+ canonical spelling
-/// (`wasm32-unknown-wasip1`). The historical 2-component `wasm32-wasi`
-/// alias is no longer accepted — see for
-/// the deprecation rationale and Rust upstream's May 2024 rename.
+/// Recognizes only the canonical spelling `wasm32-unknown-wasip1`;
+/// the 2-component `wasm32-wasi` alias is rejected.
 #[cfg(feature = "llvm")]
 fn is_wasi_target(target: &str) -> bool {
     target == "wasm32-unknown-wasip1"

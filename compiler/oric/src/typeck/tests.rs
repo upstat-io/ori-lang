@@ -13,7 +13,7 @@ fn result_with_surfaces(surfaces: Vec<u64>) -> TypeCheckResult {
     }
 }
 
-// --- collect_surfaces_from_results tests ---
+// collect_surfaces_from_results tests
 
 /// Regression: exercises the exact collection path from
 /// `register_resolved_imports()` that gathers collection surface hashes
@@ -87,7 +87,7 @@ fn collect_surfaces_transitive_a_b_c() {
     );
 }
 
-// --- collect_metadata_from_results tests ---
+// collect_metadata_from_results tests
 
 #[test]
 fn collect_metadata_from_single_module() {

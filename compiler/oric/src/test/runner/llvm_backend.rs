@@ -152,7 +152,7 @@ impl TestRunner {
             imported_pools.push(imp_pool);
         }
 
-        // === Merkle Pool Identity: Single-Pool Re-interning ===
+        // Merkle Pool Identity: Single-Pool Re-interning
         //
         // Clone the main pool and re-intern all imported types into it. This
         // eliminates cross-pool Idx misuse: every Idx value in every sig and

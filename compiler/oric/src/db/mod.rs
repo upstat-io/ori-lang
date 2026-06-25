@@ -33,103 +33,111 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Session-scoped cache for type checking Pools.
+/// Session-scoped path-keyed side-cache holding values Salsa cannot track.
 ///
-/// The `Pool` cannot be a Salsa query result because it doesn't satisfy
-/// `Clone + Eq + Hash`. This cache stores Pools as a side-channel: the
-/// `typed()` Salsa query caches the Pool after type checking, and callers
-/// that need both the `TypeCheckResult` and Pool retrieve it via `typed_pool()`.
+/// The cached values (`Pool`, `SharedCanonResult`, `ResolvedImports`) cannot be
+/// Salsa query results because they don't satisfy `Clone + Eq + Hash`. This
+/// cache stores them as a side-channel keyed by file path, since each
+/// `SourceFile` has a unique canonical path. Invalidation is explicit:
+/// `invalidate_file_caches()` clears the entry before the producing query
+/// re-runs, then `store()` writes the new value.
 ///
-/// Keyed by file path, since each `SourceFile` has a unique canonical path.
-/// Invalidation is explicit: `invalidate_file_caches()` clears the entry
-/// before `typed()` re-type-checks, then `store()` writes the new Pool.
-#[derive(Clone, Default)]
-pub struct PoolCache(Arc<RwLock<HashMap<PathBuf, Arc<ori_types::Pool>>>>);
+/// `V` is the already-wrapped stored value (e.g. `Arc<Pool>`); callers wrap
+/// before calling `store()`. `V: Clone` keeps `get()` cheap (the stored values
+/// are all `Arc`-backed handles).
+#[derive(Clone)]
+pub struct SessionCache<V>(Arc<RwLock<HashMap<PathBuf, V>>>);
 
-/// Session-scoped cache for canonicalized module results.
-///
-/// `SharedCanonResult` doesn't satisfy Salsa's `Eq + Hash` requirements.
-/// This cache avoids re-type-checking and re-canonicalizing the same module
-/// across Evaluator instances (e.g., the prelude is canonicalized once per
-/// session, not once per file in the test runner).
-///
-/// Keyed by `PathBuf` (same as `PoolCache`) for consistent key types across
-/// all three side-caches.
-#[derive(Clone, Default)]
-pub struct CanonCache(Arc<RwLock<HashMap<PathBuf, ori_ir::canon::SharedCanonResult>>>);
+impl<V> Default for SessionCache<V> {
+    fn default() -> Self {
+        Self(Arc::default())
+    }
+}
 
-/// Session-scoped cache for resolved imports.
+impl<V: Clone> SessionCache<V> {
+    /// Store a value for the given file path.
+    pub fn store(&self, path: &Path, value: V) {
+        self.0.write().insert(path.to_path_buf(), value);
+    }
+
+    /// Retrieve the cached value for the given file path.
+    pub fn get(&self, path: &Path) -> Option<V> {
+        self.0.read().get(path).cloned()
+    }
+
+    /// Remove the cached value for the given file path.
+    ///
+    /// Called when the producing query re-executes for a file, indicating
+    /// that the source has changed and the cached value is stale.
+    pub fn invalidate(&self, path: &Path) {
+        self.0.write().remove(path);
+    }
+}
+
+/// Session-scoped cache for type checking Pools (keyed by file path).
+///
+/// The `typed()` Salsa query caches the Pool after type checking; callers that
+/// need both the `TypeCheckResult` and Pool retrieve it via `typed_pool()`.
+/// A newtype wrapper (not a transparent alias) over [`SessionCache`] whose
+/// `store` takes an unwrapped `Pool` and performs the `Arc` wrapping here, so
+/// the allocation (a `disallowed_types`-suppressed `Arc`) stays centralized in
+/// this module and call sites never name `std::sync::Arc`. The cache algorithm
+/// still lives once in [`SessionCache`].
+#[derive(Clone, Default)]
+pub struct PoolCache(SessionCache<Arc<ori_types::Pool>>);
+
+impl PoolCache {
+    /// Store a type-checked pool for the given module path.
+    pub fn store(&self, path: &Path, pool: ori_types::Pool) {
+        self.0.store(path, Arc::new(pool));
+    }
+
+    /// Retrieve the cached pool for the given module path.
+    pub fn get(&self, path: &Path) -> Option<Arc<ori_types::Pool>> {
+        self.0.get(path)
+    }
+
+    /// Remove the cached pool for the given module path.
+    pub fn invalidate(&self, path: &Path) {
+        self.0.invalidate(path);
+    }
+}
+
+/// Session-scoped cache for canonicalized module results (keyed by module path).
+///
+/// Avoids re-type-checking and re-canonicalizing the same module across
+/// Evaluator instances (e.g., the prelude is canonicalized once per session,
+/// not once per file in the test runner).
+pub type CanonCache = SessionCache<ori_ir::canon::SharedCanonResult>;
+
+/// Session-scoped cache for resolved imports (keyed by file path).
 ///
 /// `ResolvedImports` is assembled by walking prelude candidates, resolving
 /// `use` statements, and building `ImportedFunctionRef` lists. This cache
 /// avoids repeating that work when multiple consumers (type checker, evaluator,
 /// LLVM backend) need imports for the same file within a single session.
 ///
-/// Keyed by `PathBuf` (same as `PoolCache` and `CanonCache`) for consistent
-/// key types across all three side-caches. Invalidation is implicit: each CLI
-/// invocation creates a fresh `CompilerDb` with an empty cache. For future
-/// watch-mode scenarios, the cache should be cleared when `parsed()` is
-/// invalidated.
+/// A newtype wrapper (not a transparent alias) over [`SessionCache`] so the
+/// crate-private `ResolvedImports` value type stays hidden behind a private
+/// field, keeping the `pub Db::imports_cache()` accessor's signature clean.
+/// The cache algorithm still lives once in [`SessionCache`].
 #[derive(Clone, Default)]
-pub struct ImportsCache(Arc<RwLock<HashMap<PathBuf, Arc<crate::imports::ResolvedImports>>>>);
-
-impl PoolCache {
-    /// Store a Pool for the given file path.
-    pub fn store(&self, path: &Path, pool: ori_types::Pool) {
-        self.0.write().insert(path.to_path_buf(), Arc::new(pool));
-    }
-
-    /// Retrieve the cached Pool for the given file path.
-    pub fn get(&self, path: &Path) -> Option<Arc<ori_types::Pool>> {
-        self.0.read().get(path).cloned()
-    }
-
-    /// Remove the cached Pool for the given file path.
-    ///
-    /// Called when Salsa re-executes `typed()` for a file, indicating
-    /// that the source has changed and the cached Pool is stale.
-    pub fn invalidate(&self, path: &Path) {
-        self.0.write().remove(path);
-    }
-}
-
-impl CanonCache {
-    /// Store a canonicalized module result for the given module path.
-    pub fn store(&self, module_path: &Path, canon: ori_ir::canon::SharedCanonResult) {
-        self.0.write().insert(module_path.to_path_buf(), canon);
-    }
-
-    /// Retrieve the cached canon result for the given module path.
-    pub fn get(&self, module_path: &Path) -> Option<ori_ir::canon::SharedCanonResult> {
-        self.0.read().get(module_path).cloned()
-    }
-
-    /// Remove the cached canon result for the given module path.
-    ///
-    /// Called when Salsa re-executes `typed()` for a file, indicating
-    /// that the source has changed and the cached result is stale.
-    pub fn invalidate(&self, module_path: &Path) {
-        self.0.write().remove(module_path);
-    }
-}
+pub struct ImportsCache(SessionCache<Arc<crate::imports::ResolvedImports>>);
 
 impl ImportsCache {
     /// Store resolved imports for the given file path.
     pub(crate) fn store(&self, file_path: &Path, imports: Arc<crate::imports::ResolvedImports>) {
-        self.0.write().insert(file_path.to_path_buf(), imports);
+        self.0.store(file_path, imports);
     }
 
     /// Retrieve cached resolved imports for the given file path.
     pub(crate) fn get(&self, file_path: &Path) -> Option<Arc<crate::imports::ResolvedImports>> {
-        self.0.read().get(file_path).cloned()
+        self.0.get(file_path)
     }
 
     /// Remove the cached imports for the given file path.
-    ///
-    /// Called when Salsa re-executes `typed()` for a file, indicating
-    /// that the source has changed and the cached result is stale.
     pub(crate) fn invalidate(&self, file_path: &Path) {
-        self.0.write().remove(file_path);
+        self.0.invalidate(file_path);
     }
 }
 
@@ -192,8 +200,8 @@ pub struct CompilerDb {
     /// and are properly tracked. The cache prevents creating duplicate inputs
     /// for the same file path.
     ///
-    /// Note: `parking_lot` types don't have poison errors, making error handling
-    /// simpler and more robust than `std::sync` equivalents.
+    /// `parking_lot` locks carry no poison state, so lock acquisition is
+    /// infallible (no `PoisonError` to handle).
     file_cache: Arc<RwLock<HashMap<PathBuf, SourceFile>>>,
 
     /// Event logs for testing/debugging (optional).

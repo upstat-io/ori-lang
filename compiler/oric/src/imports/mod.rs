@@ -152,6 +152,14 @@ struct ResolvedImport {
 }
 
 /// Build a module path from base directory and components, adding .ori extension.
+/// Standard system install roots searched for the Ori stdlib (FHS locations).
+///
+/// Canonical home for the system install-root list; both module resolution
+/// ([`generate_module_candidates`]) and prelude resolution
+/// ([`crate::typeck::prelude_candidates`]) query this, never their own copies.
+pub(crate) const SYSTEM_STDLIB_ROOTS: [&str; 2] =
+    ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"];
+
 fn build_module_path(base: PathBuf, components: &[&str]) -> PathBuf {
     let mut path = base;
     for component in components {
@@ -490,7 +498,7 @@ fn generate_module_candidates(
     }
 
     // 4. Standard system locations
-    for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
+    for base in SYSTEM_STDLIB_ROOTS {
         candidates.push(build_module_path(PathBuf::from(base), components));
     }
 

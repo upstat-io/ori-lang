@@ -38,7 +38,7 @@ pub(super) fn maybe_record_mono_instance(
     };
 
     // Extract sig data in an immutable borrow scope.
-    let (scheme_var_ids, generic_param_mapping, param_types, return_type) = {
+    let (scheme_var_ids, generic_param_mapping, param_types, sig_return_type) = {
         let Some(sig) = engine.get_signature(fn_name) else {
             return;
         };
@@ -52,6 +52,19 @@ pub(super) fn maybe_record_mono_instance(
             sig.return_type,
         )
     };
+
+    // Hoist the return-projection BEFORE recording: a generic free function
+    // returning a bound type-param projection (`-> C.Item`) carries
+    // `return_type == Idx::ERROR` (symbolic poison) in its signature. Resolving
+    // the projection to the concrete impl binding here — via the same call-site
+    // logic `infer_call` uses — keeps the recorded `MonoInstance` return type
+    // concrete instead of the poison `Idx::ERROR` (BUG-02-067).
+    let return_type = super::call_inference::resolve_return_projection(
+        engine,
+        Some(fn_name),
+        params,
+        sig_return_type,
+    );
 
     // Build the var_id -> resolved_type substitution map.
     let (mut var_subst, generic_args, has_unresolved_vars) = build_mono_var_subst(
@@ -142,9 +155,9 @@ pub(super) fn maybe_record_mono_instance(
 
     // Eager path publishes a dispatch entry keyed on the call expression's
     // ExprId so canon → ARC → ori_llvm/ori_eval can resolve the abstract
-    // `MonoInstanceId` without re-derivation. Deferred path keeps using
-    // `record_mono_instance` until §C.2 sub-step 1b-deferred extends
-    // `DeferredMonoCall` to carry `call_expr_id`.
+    // `MonoInstanceId` without re-derivation. The deferred path carries the
+    // same `call_expr_id` on `DeferredMonoCall` and publishes its entry once
+    // the deferred call resolves to a concrete `MonoInstance`.
     engine.record_mono_with_dispatch(call_expr_id, instance);
 
     // Burden composition for generic-builtin instances runs once per body at

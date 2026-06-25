@@ -253,19 +253,44 @@ impl TraitRegistry {
         })
     }
 
-    /// Project an associated-type binding for a concrete `self_type`: the first
-    /// registered impl of `self_type` carrying a `type <assoc_name> = …`
-    /// binding. Used to resolve a cross-impl associated-type projection
-    /// (`T.Assoc`) once the receiver type is concretely known.
+    /// Project an associated-type binding for a concrete `self_type` carrying a
+    /// `type <assoc_name> = …` binding. Used to resolve a cross-impl
+    /// associated-type projection (`T.Assoc`) once the receiver type is
+    /// concretely known.
+    ///
+    /// `trait_idx` disambiguates by `(trait_idx, self_type, assoc_name)` when a
+    /// type implements two traits each declaring a same-named associated type:
+    /// `Some(t)` prefers the impl whose `trait_idx == Some(t)`, falling back to
+    /// the first binding only when no trait-matched impl carries it; `None`
+    /// keeps the trait-blind first-match behavior (caller has no trait in scope).
     ///
     /// Returns `None` when no registered impl of `self_type` defines the
     /// associated type — the caller treats that as clean poison (`Idx::ERROR`).
-    pub fn find_impl_assoc_binding(&self, self_type: Idx, assoc_name: Name) -> Option<Idx> {
-        self.impls_by_type.get(&self_type).and_then(|indices| {
-            indices
-                .iter()
-                .find_map(|&i| self.impls[i].assoc_types.get(&assoc_name).copied())
-        })
+    pub fn find_impl_assoc_binding(
+        &self,
+        trait_idx: Option<Idx>,
+        self_type: Idx,
+        assoc_name: Name,
+    ) -> Option<Idx> {
+        let indices = self.impls_by_type.get(&self_type)?;
+        // Prefer the binding from the impl of the requested trait when known.
+        if let Some(want) = trait_idx {
+            if let Some(binding) = indices.iter().find_map(|&i| {
+                let entry = &self.impls[i];
+                if entry.trait_idx == Some(want) {
+                    entry.assoc_types.get(&assoc_name).copied()
+                } else {
+                    None
+                }
+            }) {
+                return Some(binding);
+            }
+        }
+        // No trait given, or no trait-matched impl carried the binding: keep the
+        // first-match fallback so existing single-trait cases are unaffected.
+        indices
+            .iter()
+            .find_map(|&i| self.impls[i].assoc_types.get(&assoc_name).copied())
     }
 
     /// Find the inherent impl for a type (impl without a trait).

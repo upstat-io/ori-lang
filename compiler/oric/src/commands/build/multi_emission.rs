@@ -1,7 +1,6 @@
 //! LLVM module emission helpers for multi-file builds.
 //!
-//! Extracted from `multi.rs` to keep the main pipeline under the
-//! 500-line limit. Contains LTO merge and per-module artifact emission.
+//! Contains LTO merge and per-module artifact emission.
 
 use std::path::{Path, PathBuf};
 

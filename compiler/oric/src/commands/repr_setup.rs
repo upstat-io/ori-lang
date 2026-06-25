@@ -1,6 +1,5 @@
 //! Representation plan setup helpers for the codegen pipeline.
 //!
-//! Extracted from `codegen_pipeline.rs` to keep both files under 500 lines.
 //! Contains:
 //! - `collect_all_arc_functions`: flatten the (parent, lambdas) cache
 //! - `lower_impl_methods_for_analysis`: ARC-lower impl methods for interprocedural repr analysis

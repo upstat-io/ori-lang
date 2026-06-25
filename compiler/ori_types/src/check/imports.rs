@@ -56,8 +56,8 @@ impl ModuleChecker<'_> {
     /// `self.mono_instances` by offsetting each [`MonoInstanceId`] by the
     /// pre-extend length of `self.mono_instances`. The combined entry
     /// point makes it impossible to extend instances without re-anchoring
-    /// the dispatch entries — the SSOT for this offset arithmetic per
-    ///.
+    /// the dispatch entries — this method is the SSOT for that offset
+    /// arithmetic.
     ///
     /// Both vectors are still pre-dedup at this point;
     /// [`crate::check::ModuleChecker::finish_with_pool`] applies a second

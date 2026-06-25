@@ -80,7 +80,7 @@ macro_rules! flags {
 }
 
 flags! {
-    // === Phase Dumps ===
+    // Phase Dumps
 
     /// Dump the parsed AST to stderr after parsing.
     ///
@@ -113,7 +113,7 @@ flags! {
     /// Usage: `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot`
     ORI_EMIT_ARC_DOT
 
-    // === Repr-Opt Configuration ===
+    // Repr-Opt Configuration
     // Note: Consumed directly in `ori_repr` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
 
@@ -1089,7 +1089,7 @@ flags! {
     /// Usage: `ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS
 
-    // === Alive2 IR Capture ===
+    // Alive2 IR Capture
 
     /// Dump raw LLVM IR to a `.preopt.ll` file after verification, before optimization.
     ///
@@ -1112,7 +1112,7 @@ flags! {
     /// Usage: `ORI_ALIVE2_CAPTURE=1 ori build file.ori`
     ORI_ALIVE2_CAPTURE
 
-    // === Verification ===
+    // Verification
 
     /// Enable ARC IR verification after the AIMS pipeline.
     ///
@@ -1153,7 +1153,7 @@ flags! {
     /// Usage: `ORI_LLVM_LINT=1 ori build file.ori`
     ORI_LLVM_LINT
 
-    // === Test Harness Flags ===
+    // Test Harness Flags
     // Note: Consumed directly in `ori_test_harness` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
 
@@ -1196,7 +1196,7 @@ flags! {
     /// code runs, so JIT'd code (and anything it spawns) never sees it.
     ORI_TEST_PROTOCOL_TOKEN
 
-    // === Existing Flags (migrated) ===
+    // Migrated Flags
 
     /// Print LLVM IR to stderr before JIT compilation.
     ///
@@ -1204,7 +1204,7 @@ flags! {
     /// Usage: `ORI_DEBUG_LLVM=1 ori check file.ori`
     ORI_DEBUG_LLVM
 
-    // === Sanitizer Flags ===
+    // Sanitizer Flags
 
     /// Enable sanitizer instrumentation on generated AOT binaries.
     ///
@@ -1294,7 +1294,7 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE
 
-    // === Runtime Trace Flags ===
+    // Runtime Trace Flags
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
 

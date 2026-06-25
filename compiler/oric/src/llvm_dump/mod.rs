@@ -63,7 +63,7 @@ pub fn llvm_dump_requested() -> bool {
         || crate::dbg_set!(crate::debug_flags::ORI_DEBUG_LLVM)
 }
 
-// --- Annotation helpers ---
+// Annotation helpers
 
 /// Extract and demangle the function name from a `define` line.
 ///

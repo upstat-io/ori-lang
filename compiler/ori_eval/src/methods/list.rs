@@ -139,6 +139,17 @@ fn dispatch_list_method_str(
             sort_list(list, ctx)
         }
         "unique" => list_unique(&list, &args),
+        // Fixed-capacity conversions are value-identity at runtime: `[T]` and
+        // `[T, max N]` share the same `Value::List` representation; the capacity
+        // constraint is enforced at the type level. Spec: Clause 8.2.2.
+        "to_dynamic" => {
+            require_args("to_dynamic", 0, args.len())?;
+            Ok(Value::List(list))
+        }
+        "to_fixed" => {
+            require_args("to_fixed", 0, args.len())?;
+            Ok(Value::List(list))
+        }
         "count" => {
             require_args("count", 0, args.len())?;
             len_to_value(list.len(), "list")

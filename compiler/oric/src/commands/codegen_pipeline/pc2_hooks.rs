@@ -1,9 +1,5 @@
 //! AOT PC-2 hook helper.
 //!
-//! Extracted from `run_borrow_inference` so the inline PC-2 invariant-check
-//! loops do not push the host function past the 100-line and the host file
-//! past the 500-line structural limits.
-//!
 //! The hook walks a pre-mono or mono `arc_fn` plus every lambda extracted with
 //! it, invoking `ori_arc::assert_no_unresolved_type_vars` at each. Violations
 //! are logged via `tracing::error!` tagged with a site discriminator

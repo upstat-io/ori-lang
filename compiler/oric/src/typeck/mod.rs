@@ -63,7 +63,7 @@ pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     }
 
     // 4. System locations
-    for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
+    for base in crate::imports::SYSTEM_STDLIB_ROOTS {
         candidates.push(PathBuf::from(base).join("std").join("prelude.ori"));
     }
 

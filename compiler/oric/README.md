@@ -68,7 +68,7 @@ cargo run -- build path/to/file.ori
 
 ## Key env vars
 
-See `CLAUDE.md §Tracing` for the full set. Commonly used:
+Commonly used:
 
 - `ORI_LOG=debug` — tracing filter (like `RUST_LOG`)
 - `ORI_LOG_TREE=1` — hierarchical tree output
@@ -77,4 +77,5 @@ See `CLAUDE.md §Tracing` for the full set. Commonly used:
 
 ## References
 
-- `CLAUDE.md §Commands` — primary harnesses
+- `./test-all.sh` — full test suite
+- `./llvm-test.sh` — LLVM backend tests

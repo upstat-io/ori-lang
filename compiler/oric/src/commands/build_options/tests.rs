@@ -485,14 +485,14 @@ fn explicit_disabled_survives_trailing_release() {
 
 /// semantic pin: `parse_build_options` does NOT inject env-var
 /// policy. This test verifies that parsing an unrelated flag does NOT
-/// produce a Disabled policy — the env var check was removed from
-/// `parse_build_options()` and moved to the caller.
+/// produce a Disabled policy — the `ORI_NO_REPR_OPT` env var check
+/// lives in the caller, not in `parse_build_options()`.
 #[test]
 fn parse_build_options_does_not_inject_env_policy() {
     // Parsing --release should yield default policy (Aggressive),
     // NOT Disabled (even if ORI_NO_REPR_OPT=1 is set in the environment).
-    // We can't set env vars in unit tests safely (race conditions), but
-    // we CAN verify the output has the correct default and explicit flag.
+    // Setting env vars in unit tests is racy; this verifies only that the
+    // parsed output carries the correct default and explicit flag.
     let parsed = parse_build_options(&["--release".to_string()]);
     assert_eq!(
         parsed.narrowing_policy,
