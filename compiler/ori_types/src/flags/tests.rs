@@ -113,9 +113,13 @@ fn is_recordable_concrete_true_poison_and_var_false() {
     assert!(!TypeFlags::HAS_ERROR.is_recordable());
 
     // Var / infer holes -> NOT recordable (the existing var/infer half preserved).
+    // Every flavor `has_any_var_or_infer` unions is clamped: HAS_VAR, HAS_INFER,
+    // HAS_BOUND_VAR, and HAS_RIGID_VAR (a generic body's surviving rigid leaf is the
+    // exact `Tag::rigid_var` shape the receiver/binder gates exclude).
     assert!(!TypeFlags::HAS_VAR.is_recordable());
     assert!(!TypeFlags::HAS_INFER.is_recordable());
     assert!(!TypeFlags::HAS_BOUND_VAR.is_recordable());
+    assert!(!TypeFlags::HAS_RIGID_VAR.is_recordable());
 
     // Compound poison: HAS_ERROR rides PROPAGATE_MASK, so a container carrying a
     // poison child (e.g. List<Idx::ERROR>) is also refused.
