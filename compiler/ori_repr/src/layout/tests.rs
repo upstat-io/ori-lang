@@ -1302,11 +1302,11 @@ fn can_use_tagged_pointer_all_unit_negative() {
 fn is_taggable_pointer_recursive_cycle_marker_negative() {
     // Recursive enum cycle marker is rejected from tagged-pointer
     // eligibility. The marker is `RcPointer { inner: OpaquePtr }` produced by
-    // `canonical_inner` when it detects a self-referential type. Recursive
-    // tagged pointers require box-and-load codegen for Construct/Project
-    // (the heap value is itself an encoded i64), which is intentionally not
-    // yet implemented. Without this rejection, AOT codegen for
-    // `type IntCell = Empty | Holds(child: IntCell)` hangs (BUG-04-043).
+    // `canonical_inner` when it detects a self-referential type. The
+    // tagged-pointer ENCODING for the recursive case (heap value is itself an
+    // encoded i64, not a value of the pointer's inner type) has no
+    // Construct/Project codegen, so the analysis layer excludes it and the
+    // recursive enum falls back to the explicit-tag layout.
     let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
         rc_width: IntWidth::I64,
         atomic: true,
@@ -1333,8 +1333,8 @@ fn can_use_tagged_pointer_recursive_enum_negative() {
     let int_cell = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, cycle_marker)]);
     assert!(
         !can_use_tagged_pointer(&int_cell),
-        "recursive enum (IntCell-style) must NOT be taggable until \
-         box-and-load codegen for the recursive case is implemented"
+        "recursive enum (IntCell-style) must NOT be taggable: the \
+         tagged-pointer encoding has no recursive Construct/Project codegen"
     );
 }
 

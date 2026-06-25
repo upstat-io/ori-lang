@@ -1,6 +1,4 @@
 //! Recursive SCC processing for interprocedural range propagation.
-//!
-//! Extracted from `mod.rs` to keep file sizes under the 500-line limit.
 
 use ori_arc::ir::ArcFunction;
 use ori_ir::Name;

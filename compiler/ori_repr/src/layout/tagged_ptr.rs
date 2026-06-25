@@ -56,10 +56,9 @@ const TAGGED_PTR_ALIGN: u32 = 8;
 /// cycle marker as `RcPointer { inner: OpaquePtr }`, which has different
 /// boxing/load semantics from a regular heap pointer (the value at the heap
 /// address is itself an encoded tagged-pointer i64, not a value of the
-/// pointer's `inner` type). Supporting recursive tagged pointers requires
-/// box-and-load codegen for Construct/Project — not yet supported.
-/// Tracked as a future extension; the analysis layer rejects them so the
-/// codegen path never sees a recursive tagged-pointer enum.
+/// pointer's `inner` type). The tagged-pointer encoding has no
+/// Construct/Project codegen for this recursive shape, so the analysis layer
+/// rejects it and the enum keeps its explicit-tag layout.
 ///
 /// [`canonical_inner`]: crate::canonical
 #[must_use]

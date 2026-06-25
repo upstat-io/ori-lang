@@ -2411,7 +2411,7 @@ fn canonical_returns_none_for_module_ns() {
     );
 }
 
-/// Storage type equivalence — comprehensive 29-type matrix.
+/// Storage type equivalence — 29-type matrix.
 ///
 /// Verifies that `canonical()` produces the correct `MachineRepr` for every
 /// type kind in the matrix. Each assertion documents the expected
@@ -3794,7 +3794,6 @@ fn imported_collection_surfaces_multiple_hashes_no_panic() {
         false,
     );
 
-    // After imported surfaces no longer mark types as public.
     assert!(
         !plan.is_public_type(list_int),
         "Imported surface should NOT mark List<int> as public"
@@ -3805,13 +3804,10 @@ fn imported_collection_surfaces_multiple_hashes_no_panic() {
     );
 }
 
-/// Verifies the fix: imported collection surfaces do NOT suppress
-/// element narrowing for the importing module's private `[int]` usage.
-///
-/// The per-Idx limitation is RESOLVED: imported surfaces are no longer added
-/// to `pub_type_indices`. Only same-module public functions suppress narrowing.
-///
-/// Regression:
+/// Imported collection surfaces do NOT suppress element narrowing for the
+/// importing module's private `[int]` usage: imported surfaces are not added
+/// to `pub_type_indices`, so only same-module public functions suppress
+/// narrowing.
 #[test]
 fn imported_collection_surface_allows_private_narrowing() {
     let mut pool = Pool::new();

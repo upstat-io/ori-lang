@@ -1,9 +1,7 @@
 //! Type-specific canonical representation helpers.
 //!
-//! Extracted from `canonical/mod.rs` to keep the main module under
-//! the 500-line limit. Each function maps a specific compound type
-//! (collection, map, function, tuple, struct, enum, option, result)
-//! to its canonical `MachineRepr`.
+//! Each function maps a specific compound type (collection, map, function,
+//! tuple, struct, enum, option, result) to its canonical `MachineRepr`.
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
