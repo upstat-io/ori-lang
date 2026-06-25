@@ -77,7 +77,7 @@ pub use operator::OpDefs;
 pub use prelude::{find_prelude_function, PreludeFunctionDef, PRELUDE_FUNCTIONS};
 pub use query::{
     borrowing_method_names, borrowing_methods, dei_only_methods, find_method, find_type,
-    find_type_by_name, has_method, is_dei_only, iterator_method_names, legacy_type_name,
+    find_type_by_name, has_method, is_dei_only, iterator_method_names, lowercase_type_name,
     method_names_for, methods_for,
 };
 pub use tags::{

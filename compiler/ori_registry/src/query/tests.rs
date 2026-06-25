@@ -181,13 +181,13 @@ fn method_names_for_returns_expected_names() {
 #[test]
 fn method_names_for_dei_filters_dei_only() {
     let iter_names: Vec<&str> = method_names_for(TypeTag::Iterator).collect();
-    // Plain Iterator: 19 non-DEI methods
+    // Plain Iterator excludes DEI-only methods (next_back, rev, last, rfind, rfold).
     assert_eq!(iter_names.len(), 19);
     assert!(!iter_names.contains(&"next_back"));
     assert!(!iter_names.contains(&"rev"));
 
     let dei_names: Vec<&str> = method_names_for(TypeTag::DoubleEndedIterator).collect();
-    // DEI: all 24 methods
+    // DoubleEndedIterator includes the DEI-only methods plain Iterator hides.
     assert_eq!(dei_names.len(), 24);
     assert!(dei_names.contains(&"next_back"));
     assert!(dei_names.contains(&"rev"));
@@ -361,19 +361,19 @@ fn borrowing_methods_subset_of_all_methods() {
     }
 }
 
-// legacy_type_name tests
+// lowercase_type_name tests
 
 #[test]
-fn legacy_type_name_maps_pascal_to_lowercase() {
-    use super::legacy_type_name;
+fn lowercase_type_name_maps_pascal_to_lowercase() {
+    use super::lowercase_type_name;
 
-    assert_eq!(legacy_type_name("Error"), "error");
-    assert_eq!(legacy_type_name("List"), "list");
-    assert_eq!(legacy_type_name("Map"), "map");
-    assert_eq!(legacy_type_name("Range"), "range");
-    assert_eq!(legacy_type_name("Tuple"), "tuple");
-    assert_eq!(legacy_type_name("int"), "int");
-    assert_eq!(legacy_type_name("str"), "str");
+    assert_eq!(lowercase_type_name("Error"), "error");
+    assert_eq!(lowercase_type_name("List"), "list");
+    assert_eq!(lowercase_type_name("Map"), "map");
+    assert_eq!(lowercase_type_name("Range"), "range");
+    assert_eq!(lowercase_type_name("Tuple"), "tuple");
+    assert_eq!(lowercase_type_name("int"), "int");
+    assert_eq!(lowercase_type_name("str"), "str");
 }
 
 // const fn find_type test

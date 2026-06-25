@@ -663,11 +663,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
-/// Whether the registry defines `method` on the builtin type whose legacy
+/// Whether the registry defines `method` on the builtin type whose lowercase
 /// dispatch name is `type_name` (any method kind).
 fn registry_defines_method(type_name: &str, method: &str) -> bool {
     ori_registry::BUILTIN_TYPES.iter().any(|td| {
-        ori_registry::legacy_type_name(td.name) == type_name
+        ori_registry::lowercase_type_name(td.name) == type_name
             && td.methods.iter().any(|m| m.name == method)
     })
 }

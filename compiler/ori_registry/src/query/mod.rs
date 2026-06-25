@@ -305,7 +305,7 @@ pub fn is_dei_only(method: &str) -> bool {
 ///
 /// Only types with case differences are mapped; others pass through unchanged.
 #[must_use]
-pub fn legacy_type_name(registry_name: &str) -> &str {
+pub fn lowercase_type_name(registry_name: &str) -> &str {
     match registry_name {
         "Error" => "error",
         "List" => "list",

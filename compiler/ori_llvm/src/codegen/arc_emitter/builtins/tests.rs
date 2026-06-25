@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 
-use ori_registry::legacy_type_name;
+use ori_registry::lowercase_type_name;
 
 use super::builtin_table;
 
@@ -20,11 +20,11 @@ use super::builtin_table;
 ///
 /// DEI-only methods are listed under `"DoubleEndedIterator"` to match
 /// the naming convention used by the codegen table. Type names are normalized
-/// to the legacy lowercase convention via [`legacy_type_name()`].
+/// to the lowercase convention via [`lowercase_type_name()`].
 fn registry_method_set() -> HashSet<(&'static str, &'static str)> {
     let mut set = HashSet::new();
     for td in ori_registry::BUILTIN_TYPES {
-        let type_name = legacy_type_name(td.name);
+        let type_name = lowercase_type_name(td.name);
         for m in td.methods {
             if m.dei_only {
                 set.insert(("DoubleEndedIterator", m.name));
@@ -205,7 +205,7 @@ fn backend_required_methods_in_llvm() {
     let mut missing = Vec::new();
 
     for type_def in ori_registry::BUILTIN_TYPES {
-        let type_name = legacy_type_name(type_def.name);
+        let type_name = lowercase_type_name(type_def.name);
         for method in type_def.methods {
             if !method.backend_required {
                 continue;

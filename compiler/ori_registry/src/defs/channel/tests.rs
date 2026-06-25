@@ -190,7 +190,7 @@ fn channel_template_has_no_inline_owned_or_variant_fields() {
 #[test]
 fn channel_template_has_no_user_or_compiled_drop() {
     // The Channel<T> template ships no `user_drop` (no `#free` annotation)
-    // and no `compiled_drop` — drop is emitted via the §03 Phase 5 trivial
+    // and no `compiled_drop` — drop is emitted via the Phase 5 trivial
     // emission walk from the composed `UserBurdenSpec`.
     let template = channel_template();
     assert!(
@@ -205,15 +205,12 @@ fn channel_template_has_no_user_or_compiled_drop() {
 
 #[test]
 fn channel_template_shape_matches_list_set_pattern() {
-    // Semantic pin: Channel<T> MUST follow the LIST/SET shape (heap-alloc +
-    // single element placeholder, no variants, no inline fields). Differing
-    // from this shape would force composition to produce structurally
-    // distinct UserBurdenSpec instances that no longer share the registry
-    // dedup path with other heap-buffered collections. Regression catcher
-    // for accidental drift toward sum-template or struct-template shape.
+    // INVARIANT: Channel<T> follows the LIST/SET shape (heap-alloc + single
+    // element placeholder, no variants, no inline fields) so composition
+    // shares the registry dedup path with other heap-buffered collections.
     let channel = channel_template();
     let Some(list) = BurdenRegistry::lookup_builtin(crate::burden::table::TYPE_ID_LIST) else {
-        panic!("LIST template missing — §01 regression");
+        panic!("LIST template missing from BurdenRegistry");
     };
     assert_eq!(
         channel.self_heap_alloc, list.self_heap_alloc,
