@@ -51,9 +51,8 @@ impl fmt::Display for TraceEntryData {
 
 /// An error value with optional trace storage.
 ///
-/// Replaces the previous `Value::Error(String)` representation. When an error
-/// is first created, the trace is empty. Each `?` operator that propagates the
-/// error appends a `TraceEntryData` entry.
+/// When an error is first created, the trace is empty. Each `?` operator that
+/// propagates the error appends a `TraceEntryData` entry.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ErrorValue {
     /// The error message.

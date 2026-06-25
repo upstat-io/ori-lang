@@ -38,7 +38,6 @@ pub type EvalResult = Result<Value, ControlAction>;
 
 /// Non-value outcomes from expression evaluation.
 ///
-/// Replaces the old pattern of stuffing control flow signals into `EvalError` fields.
 /// The `Err` variant of `EvalResult`. Exhaustive matching at call sites enforces
 /// correct handling of each signal kind.
 ///

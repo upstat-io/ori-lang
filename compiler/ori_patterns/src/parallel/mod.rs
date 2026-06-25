@@ -214,6 +214,11 @@ fn execute_parallel(
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     guard[i] = Some(result);
                     drop(guard);
+                    // Why: the result is already stored in the shared `results`
+                    // vector above; this send only notifies the collector. A
+                    // send error means the receiver hung up (the overall timeout
+                    // already fired) — the stored result is collected regardless,
+                    // so discarding the error is correct, not a swallow.
                     let _ = tx.send(i);
                 });
             }
