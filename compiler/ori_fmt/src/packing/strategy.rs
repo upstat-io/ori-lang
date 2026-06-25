@@ -124,7 +124,7 @@ pub fn determine_packing(
     // Determine the base strategy from the construct kind (exhaustive match
     // ensures new variants must make an explicit packing decision)
     let base = match construct {
-        // Always stacked (spec lines 78-90)
+        // Spec: Annex D, Always-Stacked Constructs
         ConstructKind::RunTopLevel
         | ConstructKind::Try
         | ConstructKind::Match

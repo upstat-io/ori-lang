@@ -40,7 +40,7 @@ pub(super) fn float_width(f: f64) -> usize {
     let mut buf = [0u8; 32];
     let mut cursor = std::io::Cursor::new(&mut buf[..]);
 
-    // Write will not fail for a buffer this size
+    // Infallible: a 32-byte buffer holds any f64 default format.
     let _ = write!(cursor, "{f}");
 
     // Safe: cursor position is at most 32, which fits in usize on all platforms

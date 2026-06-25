@@ -115,10 +115,8 @@ impl TestRunner {
             interner,
         );
 
-        // Effect-driven prioritization: effectful tests first, pure tests last.
-        // Effectful tests are more likely to detect real regressions because they
-        // exercise I/O paths and external interactions. Pure tests are deterministic
-        // and cacheable, so running them last allows early failure detection.
+        // Why: effectful tests run first (more likely to surface real
+        // regressions); pure tests are cacheable and run last.
         if config.incremental {
             Self::prioritize_tests(&mut regular_tests, &type_result.typed, interner);
         }

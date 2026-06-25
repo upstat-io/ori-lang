@@ -127,47 +127,7 @@ impl CommentIndex {
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
-        let mut result = Vec::new();
-
-        // Only take comments associated with this exact position
-        if let Some(refs) = self.comments_by_position.remove(&pos) {
-            // Sort doc comments by kind
-            let sorted = sort_comments_by_kind(refs);
-
-            // Separate param comments from others for reordering
-            let mut param_indices = Vec::new();
-            let mut other_indices = Vec::new();
-
-            for comment_ref in sorted {
-                if self.consumed[comment_ref.index] {
-                    continue;
-                }
-                self.consumed[comment_ref.index] = true;
-
-                if comment_ref.kind == CommentKind::DocMember {
-                    param_indices.push(comment_ref.index);
-                } else {
-                    other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
-                }
-            }
-
-            // Reorder member comments by function signature order
-            let reordered_params =
-                reorder_param_comments(&param_indices, comments, param_names, interner);
-
-            // Merge: collect by sort order, insert members at their position (sort_order=1)
-            let mut all_by_order: Vec<(u8, usize)> = other_indices;
-            for idx in reordered_params {
-                all_by_order.push((1, idx)); // DocMember has sort_order 1
-            }
-            all_by_order.sort_by_key(|(order, _)| *order);
-
-            for (_, idx) in all_by_order {
-                result.push(idx);
-            }
-        }
-
-        result
+        self.take_comments_before_with_members(pos, param_names, comments, interner)
     }
 
     /// Get comments that should appear before a type, with @field reordering.
@@ -183,6 +143,21 @@ impl CommentIndex {
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
+        self.take_comments_before_with_members(pos, field_names, comments, interner)
+    }
+
+    /// Take comments before `pos`, reordering `DocMember` comments to match `member_names`.
+    ///
+    /// Shared skeleton for [`Self::take_comments_before_function`] (params) and
+    /// [`Self::take_comments_before_type`] (fields): the two differ only in which
+    /// member-name list drives the reorder.
+    fn take_comments_before_with_members<I: StringLookup>(
+        &mut self,
+        pos: u32,
+        member_names: &[&str],
+        comments: &CommentList,
+        interner: &I,
+    ) -> Vec<usize> {
         let mut result = Vec::new();
 
         // Only take comments associated with this exact position
@@ -190,8 +165,8 @@ impl CommentIndex {
             // Sort doc comments by kind
             let sorted = sort_comments_by_kind(refs);
 
-            // Separate field comments from others for reordering
-            let mut field_indices = Vec::new();
+            // Separate member comments from others for reordering
+            let mut member_indices = Vec::new();
             let mut other_indices = Vec::new();
 
             for comment_ref in sorted {
@@ -201,19 +176,19 @@ impl CommentIndex {
                 self.consumed[comment_ref.index] = true;
 
                 if comment_ref.kind == CommentKind::DocMember {
-                    field_indices.push(comment_ref.index);
+                    member_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
             }
 
-            // Reorder member comments by struct field order
-            let reordered_fields =
-                reorder_field_comments(&field_indices, comments, field_names, interner);
+            // Reorder member comments by declaration order
+            let reordered_members =
+                reorder_member_comments(&member_indices, comments, member_names, interner);
 
             // Merge: collect by sort order, insert members at their position (sort_order=1)
             let mut all_by_order: Vec<(u8, usize)> = other_indices;
-            for idx in reordered_fields {
+            for idx in reordered_members {
                 all_by_order.push((1, idx)); // DocMember has sort_order 1
             }
             all_by_order.sort_by_key(|(order, _)| *order);

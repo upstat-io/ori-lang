@@ -17,11 +17,10 @@ use std.testing { assert_eq, assert }
 }
 
 // Result.has_trace() delegates. The post-`?` trace-DATA (has_trace() == true)
-// is interpreter-only: AOT has no `?`-hop trace-injection machinery (Decision 02
-// of plans/aot-mono-stdlib-completeness — building it is a separate subsystem in
-// arc.md §STOP territory). The traceless delegation dispatch IS covered in AOT
-// (the Ok-path + fresh-Err tests below stay dual-exec).
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection (Decision 02)")
+// is interpreter-only: the AOT backend has no `?`-hop trace-injection machinery
+// yet. The traceless delegation dispatch IS covered in AOT (the Ok-path +
+// fresh-Err tests below stay dual-exec).
+#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_has tests @has () -> void = {
     let r = traced();
     assert(cond: r.has_trace())
@@ -32,8 +31,8 @@ use std.testing { assert_eq, assert }
     r.has_trace()
 }
 
-// Result.trace() delegates — post-`?` trace-DATA, interpreter-only (Decision 02).
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection (Decision 02)")
+// Result.trace() delegates — post-`?` trace-DATA, interpreter-only.
+#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_trace tests @trace () -> void = {
     let r = traced();
     assert(cond: r.trace() != "")
@@ -44,8 +43,8 @@ use std.testing { assert_eq, assert }
     r.trace() != ""
 }
 
-// Result.trace_entries() delegates — post-`?` trace-DATA, interpreter-only (Decision 02).
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection (Decision 02)")
+// Result.trace_entries() delegates — post-`?` trace-DATA, interpreter-only.
+#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_entries tests @entries () -> void = {
     let r = traced();
     assert_eq(
