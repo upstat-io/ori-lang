@@ -132,7 +132,10 @@ fn channel_template() -> &'static BuiltinBurdenSpec {
 fn channel_template_present_in_burden_table() {
     // Positive: BURDEN_TABLE registers a Channel<T> in-table template like
     // LIST / MAP / SET / OPTION / RESULT (not DeferredToComposition).
-    let _ = channel_template();
+    assert!(
+        BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL).is_some(),
+        "Channel<T> must be registered in BURDEN_TABLE (in-table, not DeferredToComposition)"
+    );
 }
 
 #[test]

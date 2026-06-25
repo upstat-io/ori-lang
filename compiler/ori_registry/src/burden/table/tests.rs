@@ -9,9 +9,8 @@ use core::num::NonZeroU32;
 use super::*;
 use crate::TypeTag;
 
-// Helper: looks up a TypeId we know is in the table, with a useful panic
-// message when missing. Used in place of `.expect()` (clippy::expect_used
-// is workspace-denied).
+// Why: stands in for `.expect()` (clippy::expect_used is workspace-denied);
+// panics naming the missing TypeId when a required table entry is absent.
 fn lookup_required(id: TypeId) -> &'static BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(id) {
         Some(spec) => spec,

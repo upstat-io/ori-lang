@@ -423,6 +423,23 @@ impl TestRunner {
             .is_none_or(|f| interner.lookup(test.name).contains(f.as_str()))
     }
 
+    /// The `#skip(backend: "<name>", reason: ...)` reason when `test` names the
+    /// CURRENTLY-executing backend, else `None`.
+    ///
+    /// `BackendSkip` carries the `ori_ir::TestBackend` open-set enum so the
+    /// runner's own `Backend` type stays decoupled; this is the single mapping
+    /// arm between the two. A test naming the OTHER backend still runs here.
+    pub(super) fn backend_skip_reason(test: &TestDef, backend: Backend) -> Option<crate::ir::Name> {
+        let current = match backend {
+            Backend::Interpreter => ori_ir::TestBackend::Interpreter,
+            Backend::LLVM => ori_ir::TestBackend::Llvm,
+        };
+        test.skip_backends
+            .iter()
+            .find(|s| s.backend == current)
+            .map(|s| s.reason)
+    }
+
     /// The protocol-emission token: present only in worker mode with the
     /// parent-provided non-empty per-spawn nonce.
     fn emit_token(config: &TestRunnerConfig) -> Option<&str> {

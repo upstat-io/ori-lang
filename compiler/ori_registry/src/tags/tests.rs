@@ -43,8 +43,11 @@ fn type_tag_name_returns_correct_ori_names() {
         assert_eq!(tag.name(), name, "TypeTag::{tag:?}.name() mismatch");
     }
 
-    // Verify we tested every variant
-    assert_eq!(expected.len(), TypeTag::all().len());
+    assert_eq!(
+        expected.len(),
+        TypeTag::all().len(),
+        "expected table must cover every TypeTag variant"
+    );
 }
 
 #[test]
@@ -176,9 +179,6 @@ fn each_registered_type_has_exactly_one_memory_strategy() {
     use crate::defs::BUILTIN_TYPES;
 
     for type_def in BUILTIN_TYPES {
-        // Each TypeDef has exactly one MemoryStrategy — this is enforced
-        // by the struct field being a single enum value. Verify it's a
-        // known variant (not some future variant we haven't handled).
         let strategy = type_def.memory;
         assert!(
             strategy == MemoryStrategy::Copy

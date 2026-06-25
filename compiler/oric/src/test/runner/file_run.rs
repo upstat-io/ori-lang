@@ -204,6 +204,31 @@ impl TestRunner {
             return summary;
         }
 
+        // Honor `#skip(backend: "<name>", reason: ...)` for the current backend:
+        // emit a Skipped result for each test naming this backend (keeping the
+        // plan/result accounting consistent for worker mode) and run only the
+        // remainder. A test naming the OTHER backend still runs here.
+        let backend_run_tests: Vec<&TestDef> = regular_tests
+            .iter()
+            .copied()
+            .filter(|test| {
+                if !Self::test_passes_filter(test, config, interner) {
+                    return true;
+                }
+                match Self::backend_skip_reason(test, config.backend) {
+                    Some(reason) => {
+                        let reason_str = interner.lookup(reason).to_string();
+                        let result =
+                            TestResult::skipped(test.name, test.targets.clone(), reason_str);
+                        Self::protocol_result(&result, config, interner);
+                        summary.add_result(result);
+                        false
+                    }
+                    None => true,
+                }
+            })
+            .collect();
+
         // Run regular tests based on backend
         match config.backend {
             Backend::Interpreter => {
@@ -212,7 +237,7 @@ impl TestRunner {
                     &db,
                     path,
                     &parse_result,
-                    &regular_tests,
+                    &backend_run_tests,
                     &shared_canon,
                     &skippable,
                     config,
@@ -228,7 +253,7 @@ impl TestRunner {
                     &db,
                     path,
                     &parse_result,
-                    &regular_tests,
+                    &backend_run_tests,
                     &type_result,
                     &pool,
                     &shared_canon,

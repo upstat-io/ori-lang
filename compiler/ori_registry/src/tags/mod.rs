@@ -25,7 +25,8 @@ use core::mem::size_of;
 ///
 /// # Variant count
 ///
-/// Currently 23 variants. The `all()` method and tests enforce this count.
+/// The `all()` method and the `type_tag_all_returns_correct_count` test
+/// are the single source of truth for the variant count.
 /// `#[repr(u8)]` guarantees a single-byte discriminant, enabling use as
 /// an array index for O(1) lookup tables.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

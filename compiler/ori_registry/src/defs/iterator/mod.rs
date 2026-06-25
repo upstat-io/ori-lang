@@ -1,7 +1,7 @@
 //! `Iterator` and `DoubleEndedIterator` type definition.
 //!
 //! Uses the "single `TypeDef` with `dei_only` flag" design:
-//! all 24 user-callable methods live on one `TypeDef` keyed by `TypeTag::Iterator`.
+//! every user-callable method lives on one `TypeDef` keyed by `TypeTag::Iterator`.
 //! `TypeTag::DoubleEndedIterator` aliases to `Iterator` via `TypeTag::base_type()`,
 //! and the query API filters by `dei_only` to exclude DEI-specific methods when
 //! the receiver is a plain Iterator.
@@ -86,7 +86,7 @@ static FOLD_PARAMS: [ParamDef; 2] = [
 // `Box::from_raw(iter.cast::<IterState>())` on the source iterator to
 // wrap it into an adapter variant; every consumer (`count`, `collect`,
 // `fold`, ...) drains the iterator and then drops the `Box<IterState>`
-// explicitly. The registry now reports `Ownership::Owned` so ARC
+// explicitly. The registry reports `Ownership::Owned` so ARC
 // treats the call as a consumption event — but because ARC's borrow
 // inference matches method names without type qualification, the
 // borrow layer ALSO needs to check the receiver's type tag to avoid
@@ -120,7 +120,7 @@ const P: DeiPropagation = DeiPropagation::Propagate;
 const D: DeiPropagation = DeiPropagation::Downgrade;
 const NA: DeiPropagation = DeiPropagation::NotApplicable;
 
-/// All 24 user-callable Iterator/DoubleEndedIterator methods.
+/// The user-callable Iterator/DoubleEndedIterator methods.
 ///
 /// Sorted alphabetically by name for deterministic iteration and binary search.
 /// DEI-only methods are interleaved at their alphabetical position (not grouped

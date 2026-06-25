@@ -278,6 +278,7 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
 /// All state lives in `BURDEN_TABLE`; this type names the lookup entry
 /// point and gives consumers (`ori_arc::lower::burden_lookup`) a single
 /// import surface (`use ori_registry::burden::table::BurdenRegistry`).
+#[derive(Debug)]
 pub struct BurdenRegistry;
 
 impl BurdenRegistry {

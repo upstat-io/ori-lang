@@ -146,12 +146,7 @@ pub fn methods_for(tag: TypeTag) -> &'static [MethodDef] {
 /// assert!(names.contains(&"to_str"));
 /// ```
 pub fn method_names_for(tag: TypeTag) -> impl Iterator<Item = &'static str> {
-    let base = tag.base_type();
-    let methods = match find_type(base) {
-        Some(td) => td.methods,
-        None => &[],
-    };
-    methods
+    methods_for(tag)
         .iter()
         .filter(move |m| tag != TypeTag::Iterator || !m.dei_only)
         .map(|m| m.name)
@@ -175,12 +170,7 @@ pub fn method_names_for(tag: TypeTag) -> impl Iterator<Item = &'static str> {
 /// }
 /// ```
 pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDef> {
-    let base = tag.base_type();
-    let methods = match find_type(base) {
-        Some(td) => td.methods,
-        None => &[],
-    };
-    methods.iter().filter(move |m| {
+    methods_for(tag).iter().filter(move |m| {
         m.receiver == crate::Ownership::Borrow && (tag != TypeTag::Iterator || !m.dei_only)
     })
 }
@@ -286,7 +276,7 @@ pub fn dei_only_methods() -> impl Iterator<Item = &'static str> {
 /// Returns all iterator method names (both Iterator and DEI methods).
 ///
 /// Unlike `method_names_for(TypeTag::Iterator)` which excludes DEI-only
-/// methods, this returns all 24 method names.
+/// methods, this returns every method name including the DEI-only ones.
 pub fn iterator_method_names() -> impl Iterator<Item = &'static str> {
     methods_for(TypeTag::Iterator).iter().map(|m| m.name)
 }
