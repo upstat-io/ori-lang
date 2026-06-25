@@ -94,6 +94,17 @@ pub(super) fn maybe_record_mono_instance(
         return;
     }
 
+    // Poison gate: a scheme var resolved to Idx::ERROR (type-error poison) clears
+    // the var/infer gate above (has_any_var_or_infer excludes HAS_ERROR) yet must
+    // never be monomorphized — minting it produces a phantom instance whose body
+    // codegens method invokes on the poison receiver (AOT missing-mono).
+    if !var_subst
+        .values()
+        .all(|&idx| engine.pool().flags(idx).is_recordable())
+    {
+        return;
+    }
+
     // Extend var_subst with root var_ids of equivalence classes so
     // substitute_in_pool can handle root vars from inner instantiations.
     // Threads the declared scheme_var_ids (the cloned Vec from the
@@ -203,7 +214,7 @@ fn resolve_method_binder_args(
             continue;
         };
         let resolved = engine.pool().resolve_fully(fresh);
-        if !is_fully_concrete(engine, resolved) {
+        if !is_recordable(engine, resolved) {
             return None;
         }
         var_subst.insert(sv_id, resolved);
@@ -275,7 +286,7 @@ pub(super) fn maybe_record_method_mono_instance(
         ret_concrete = is_fully_concrete(engine, ret_resolved),
         "maybe_record_method entry gate"
     );
-    if !is_fully_concrete(engine, receiver) {
+    if !is_recordable(engine, receiver) {
         return;
     }
 
@@ -289,7 +300,7 @@ pub(super) fn maybe_record_method_mono_instance(
     if let Some(mono) = mono {
         for &(_, concrete) in &mono.impl_type_args {
             let resolved = engine.pool().resolve_fully(concrete);
-            if !is_fully_concrete(engine, resolved) {
+            if !is_recordable(engine, resolved) {
                 return;
             }
             impl_args.push(GenericArg::Type(resolved));
@@ -319,8 +330,8 @@ pub(super) fn maybe_record_method_mono_instance(
     let concrete_return_type = substitute_in_pool(engine.pool_mut(), sig.ret, &empty);
     if concrete_param_types
         .iter()
-        .any(|&p| !is_fully_concrete(engine, p))
-        || !is_fully_concrete(engine, concrete_return_type)
+        .any(|&p| !is_recordable(engine, p))
+        || !is_recordable(engine, concrete_return_type)
     {
         return;
     }
@@ -416,6 +427,13 @@ fn build_method_body_type_map(
 /// `MonoInstance`.
 fn is_fully_concrete(engine: &InferEngine<'_>, ty: Idx) -> bool {
     !engine.pool().flags(ty).has_any_var_or_infer()
+}
+
+/// True when `ty` is recordable as a `MonoInstance`: fully concrete AND not
+/// poison. The poison half (`!has_errors`) is what `is_fully_concrete` omits —
+/// a type-error `Idx::ERROR` substitution must never be monomorphized.
+fn is_recordable(engine: &InferEngine<'_>, ty: Idx) -> bool {
+    engine.pool().flags(ty).is_recordable()
 }
 
 /// Collect every user-defined generic type's `name → type_params` so

@@ -376,7 +376,11 @@ fn resolve_deferred_var_subst(
 
         tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
 
-        if pool.tag(concrete) == crate::Tag::Var {
+        // A still-unresolved Var, or a type-error poison (Idx::ERROR) reached via
+        // the record_deferred_mono_call `var_idx.map_or(Idx::ERROR, ...)` fallback,
+        // must abort the publish — minting a poison MonoInstance produces a phantom
+        // whose body codegens method invokes on the poison receiver (AOT missing-mono).
+        if pool.tag(concrete) == crate::Tag::Var || pool.flags(concrete).has_errors() {
             return None;
         }
         resolved.insert(*callee_var_id, concrete);

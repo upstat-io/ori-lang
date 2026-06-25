@@ -63,6 +63,22 @@ pub(crate) fn build_imported_mono_functions(
     )]
     for (idx, instance) in type_result.typed.mono_instances.iter().enumerate() {
         let instance_id = ori_ir::canon::MonoInstanceId::new(idx as u32);
+
+        // Defense-in-depth: a poison MonoInstance (a generic/impl/method arg
+        // resolved to Idx::ERROR) that slipped the ori_types record gates must
+        // never materialize — its body codegens method invokes on the poison
+        // receiver (AOT missing-mono). is_recordable in ori_types is the primary
+        // cure; Idx::ERROR is pre-interned identically across pools (TY-5).
+        if instance
+            .generic_args
+            .iter()
+            .chain(instance.impl_args.iter())
+            .chain(instance.method_args.iter())
+            .any(|a| matches!(a, GenericArg::Type(t) if *t == Idx::ERROR))
+        {
+            continue;
+        }
+
         let Some((generic_sig, module_idx, source_original_name)) =
             imported_generic_sigs.get(&instance.fn_name)
         else {

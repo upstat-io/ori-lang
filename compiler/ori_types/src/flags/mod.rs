@@ -134,6 +134,16 @@ impl TypeFlags {
         self.contains(Self::HAS_ERROR)
     }
 
+    /// Recordable as a monomorphization instance: fully concrete AND not poison.
+    // INVARIANT: a substitution carrying HAS_ERROR is a type-error poison artifact
+    // (Spec: types poison, TY-5 Idx::ERROR) and must never be monomorphized — the
+    // var/infer half alone (has_any_var_or_infer) excludes HAS_ERROR, so the poison
+    // half is required. HAS_ERROR rides PROPAGATE_MASK, so compound poison is caught.
+    #[inline]
+    pub const fn is_recordable(self) -> bool {
+        !self.has_any_var_or_infer() && !self.has_errors()
+    }
+
     /// Check if the type needs substitution work.
     #[inline]
     pub const fn needs_work(self) -> bool {

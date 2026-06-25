@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "class_id": "UninhabitedEnumVariantWritten",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::UninhabitedEnumVariantWritten",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Never is uninhabited and cannot be a struct field or be constructed; the type checker rejects it, so no value of an uninhabited type ever exists at runtime. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/check/integration_tests.rs::never_struct_field_rejected"
+    },
+    {
+      "class_id": "AlignmentCheckFailed",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AlignmentCheckFailed",
+      "disposition": "aims-obligation",
+      "ori_mechanism": "Field and type alignment is computed once by ori_repr (ReprPlan) and emitted by ori_llvm; foreclosed at the type level (no raw pointers, no transmute), with the obligation to honor alignment discharged at codegen and exercised by the AOT binary tests. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/codegen.rs"
+    },
+    {
+      "class_id": "DataRace",
+      "miri_source": "miri: src/concurrency/data_race.rs (miri data-race detector; tests/fail/data_race)",
+      "disposition": "data-race-foreclosed",
+      "ori_mechanism": "Channel types require T: Sendable and values use value semantics with no shared mutable state, so two threads cannot alias the same mutable location. Sendable is a compiler-derived marker. Spec Clause 4.5; 07-properties-of-types.md (Sendable).",
+      "pin_ref": "tests/spec/types/duration_size_sendable.ori"
+    }
+  ]
+}

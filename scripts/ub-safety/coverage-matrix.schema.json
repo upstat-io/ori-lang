@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ori-lang.org/schemas/ub-coverage-matrix.schema.json",
+  "title": "UB Coverage Matrix",
+  "description": "Disposition coverage of every miri-enumerated undefined-behavior class. One row per UB class records where the proof that the class cannot occur stops, and the pin that proves the foreclosure or anchors the obligation/gap. Spec Clause 4.5 (no silent undefined behavior).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rows"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Matrix schema version."
+    },
+    "rows": {
+      "type": "array",
+      "description": "One row per UB class. Cardinality grows toward the full rustc UndefinedBehaviorInfo (37) + ValidationErrorKind (26) + miri detector set; this seed holds one row per disposition bucket.",
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "$defs": {
+    "disposition": {
+      "description": "Where the proof that this UB class cannot occur stops.",
+      "enum": [
+        "foreclosed-typesystem",
+        "aims-obligation",
+        "data-race-foreclosed",
+        "ffi-unsafe-boundary",
+        "gap"
+      ]
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class_id", "miri_source", "disposition", "ori_mechanism", "pin_ref"],
+      "properties": {
+        "class_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "rustc UndefinedBehaviorInfo / ValidationErrorKind variant name, or a miri runtime-detector class (e.g. DataRace)."
+        },
+        "miri_source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Upstream enumeration source, repo-relative (e.g. rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AlignmentCheckFailed)."
+        },
+        "disposition": { "$ref": "#/$defs/disposition" },
+        "ori_mechanism": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Ori invariant/mechanism and spec clause that dispositions this class."
+        },
+        "pin_ref": {
+          "type": "string",
+          "description": "Ori-side pin: a compiler_repo-relative file or file::symbol that proves the foreclosure, anchors the obligation, or (for a gap) cites the hardening anchor. The checker fails closed when this is empty."
+        }
+      }
+    }
+  }
+}
