@@ -628,7 +628,6 @@ fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
 /// once LHS-driven instantiation finds no matching impl. The gate must
 /// NOT silently produce `int` and mask the missing-impl error.
 #[test]
-#[ignore = "BUG-02-028: lookup_impl_method accepts generic Into<T> blanket affirmatively without verifying concrete T binding has matching impl on receiver; emit_into_not_implemented at method_call.rs:85 only fires when lookup returns None. Orthogonal to BD-2 propagation."]
 fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
     let (result, _interner) =
         parse_and_check("@f () -> void = { let msg: str = \"x\"; let _n: int = msg.into(); () }");
@@ -706,8 +705,8 @@ fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     );
 }
 
-// Unknown-method diagnostic — silent-poison class closure (BUG-02-044 +
-// rigid-receiver negative). A genuine NotFound method lookup on a
+// Unknown-method diagnostic — silent-poison class closure (concrete-receiver
+// case + rigid-receiver negative). A genuine NotFound method lookup on a
 // diagnosable receiver must emit a diagnostic, NOT silently poison via
 // Idx::ERROR.
 
@@ -722,8 +721,8 @@ fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
     // is the canonical case: it has no typeck-registry entry yet, so
     // `lookup_impl_method` returns NotFound, but it is a valid call (Default is
     // implemented for every primitive) — the emit must stay silent here. The
-    // genuine concrete-unknown case (BUG-02-044, `{str:int}.map(...)`) reverts to
-    // silent too; its cure is blocked on completing concrete-receiver dispatch so
+    // genuine concrete-unknown case (`{str:int}.map(...)`) reverts to
+    // silent too; its cure depends on completing concrete-receiver dispatch so
     // a miss reliably implies genuine absence. This pin fails if the emit is
     // ever re-broadened to concrete receivers.
     let (result, _interner) = parse_and_check("@f () -> int = int.default();");

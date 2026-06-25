@@ -220,7 +220,7 @@ fn named_type_accessor() {
     assert_eq!(pool.named_name(named), name);
 }
 
-// === Struct construction tests ===
+// Struct construction tests
 
 #[test]
 fn struct_construction() {
@@ -292,7 +292,7 @@ fn struct_nominal_typing() {
     assert_ne!(s_a, s_b);
 }
 
-// === Enum construction tests ===
+// Enum construction tests
 
 #[test]
 fn enum_construction() {
@@ -416,7 +416,7 @@ fn enum_nominal_typing() {
     assert_ne!(e_a, e_b);
 }
 
-// === Resolution tests ===
+// Resolution tests
 
 #[test]
 fn resolution_basic() {
@@ -462,7 +462,7 @@ fn resolution_none() {
     assert_eq!(pool.resolve(named_idx), None);
 }
 
-// === Flags propagation tests ===
+// Flags propagation tests
 
 #[test]
 fn struct_flags_propagate() {
@@ -510,7 +510,7 @@ fn enum_flags_propagate() {
     assert!(!flags.has_errors());
 }
 
-// === generic_shell ===
+// generic_shell
 
 #[test]
 fn generic_shell_same_for_two_instantiations() {

@@ -43,7 +43,7 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
 
     // Check for specific patterns
     match (exp_tag, found_tag) {
-        // === Numeric Problems ===
+        // Numeric Problems
 
         // Int vs Float
         (Tag::Int, Tag::Float) | (Tag::Float, Tag::Int) => {
@@ -69,7 +69,7 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             });
         }
 
-        // === Collection Problems ===
+        // Collection Problems
 
         // Expected List, got something else
         (Tag::List, other) if other != Tag::List => {
@@ -149,7 +149,7 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             });
         }
 
-        // === Function Problems ===
+        // Function Problems
         (Tag::Function, Tag::Function) => {
             diff_function_types(pool, expected, found, problems);
         }
@@ -160,12 +160,12 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             let _ = other;
         }
 
-        // === Tuple Problems ===
+        // Tuple Problems
         (Tag::Tuple, Tag::Tuple) => {
             diff_tuple_types(pool, expected, found, problems);
         }
 
-        // === Named Type Problems ===
+        // Named Type Problems
         (Tag::Named, Tag::Named) => {
             let exp_name = pool.named_name(expected);
             let found_name = pool.named_name(found);
@@ -177,12 +177,12 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             }
         }
 
-        // === Applied Type Problems ===
+        // Applied Type Problems
         (Tag::Applied, Tag::Applied) => {
             diff_applied_types(pool, expected, found, problems);
         }
 
-        // === Generic Fallback ===
+        // Generic Fallback
         _ => {
             problems.push(TypeProblem::TypeMismatch {
                 expected_category: tag_name(exp_tag),

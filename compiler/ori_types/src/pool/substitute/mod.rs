@@ -790,7 +790,7 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
 ///
 /// Rank-weighted union-find can make a fresh instantiation
 /// var the root of a scheme var's equivalence class. In that case,
-/// `substitute_var` (see lines 90-105) finds the scheme var's `var_id` via
+/// `substitute_var` finds the scheme var's `var_id` via
 /// direct map lookup, but walking a body type that carries the ROOT's
 /// `Tag::Var(root_var_id)` leaf falls through to `VarState::Unbound` (the
 /// root has no `Link` to follow) and returns unchanged. Adding the root's
@@ -798,7 +798,7 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
 /// entry find the concrete type through a direct hit.
 ///
 /// **Semantics: preserve-existing** — mirrors the idempotent-set pattern of
-/// `build_exempt_var_ids` at `check/validators/mod.rs:161-173`. Caller-supplied
+/// `build_exempt_var_ids` in `check/validators/mod.rs`. Caller-supplied
 /// map entries (declared scheme-var → concrete) are authoritative and MUST
 /// NOT be overwritten; the helper only ADDS root-var entries that were not
 /// already keys.

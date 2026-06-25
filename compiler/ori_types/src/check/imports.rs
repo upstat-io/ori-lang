@@ -69,7 +69,7 @@ impl ModuleChecker<'_> {
         dispatch_entries: Vec<(ExprId, MonoInstanceId)>,
     ) {
         // Saturating `Vec::len() → u32` matches the workspace pattern
-        // at `pool/substitute/mod.rs:541` (`unwrap_or(u32::MAX)`); strict
+        // at `pool/substitute/mod.rs` (`unwrap_or(u32::MAX)`); strict
         // workspace clippy denies bare `as u32` casts (`cast_possible_truncation`)
         // and `expect`/`unwrap`. A 4-billion-instance overflow is structurally
         // unreachable for one module's mono table; if it ever did occur,

@@ -171,9 +171,9 @@ impl MonoInstance {
     /// Enforce the top-level / method invariant.
     ///
     /// `assert!` (not `debug_assert!`): a release-build mangling collision
-    /// from a violated invariant is silent miscompilation per CLAUDE.md
-    /// §Debug/Release Parity. The check is O(1) (Vec emptiness + Option tag),
-    /// so the runtime cost is negligible relative to the soundness guarantee.
+    /// from a violated invariant is silent miscompilation, so the soundness
+    /// invariant must hold in release builds too. The check is O(1) (Vec
+    /// emptiness + Option tag), negligible relative to the soundness guarantee.
     fn check_invariants(&self) {
         if self.receiver_type.is_some() {
             assert!(

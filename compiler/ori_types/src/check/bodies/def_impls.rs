@@ -61,7 +61,7 @@ fn check_def_impl_method(
     // Allocate the def-impl's `Self` `RigidVar` BEFORE resolving
     // params/return so `(self)` param annotations and `Self` return
     // annotations resolve to this RigidVar instead of the
-    // `engine.fresh_var()` fallback at `infer/expr/type_resolution.rs:184`
+    // `engine.fresh_var()` fallback at `infer/expr/type_resolution.rs`
     // (which fires when no `impl_self_type` is set). Without this early
     // allocation, the `Tag::Var` for the elided self type leaks into
     // `param_types[0]` and surfaces as `E2005` at PC-2 validation.
@@ -114,7 +114,7 @@ fn check_def_impl_method(
 
     // Phase B-Residual-2 (a): bind method-level const generics as their
     // declared type for body identifier resolution. Mirrors the
-    // `check_impl_method` and `functions.rs:54-58` patterns.
+    // `check_impl_method` and `functions.rs` patterns.
     for cp in &method_const_params {
         param_env.bind(cp.name, cp.const_type);
     }

@@ -138,7 +138,7 @@ pub fn needs_compiled_drop(scc_size: usize, has_self_loop: bool, spec: &UserBurd
 /// Mint a deterministic `FnSym` for a type's compiled drop function.
 ///
 /// Mangling at codegen-time keys on the type Idx (`_ori_drop$<idx_raw>`
-/// per `drop_gen.rs:45`), so the `FnSym` carries the type's Idx raw value
+/// per `drop_gen.rs`), so the `FnSym` carries the type's Idx raw value
 /// — two distinct types yield two distinct `FnSym`s even when they share
 /// an SCC. `Idx::ERROR` (raw == 8) is a valid non-zero source, but
 /// `Idx::INT` (raw == 0) would collapse to `MIN`; we shift up by one to

@@ -20,7 +20,7 @@ pub struct EnumVariant {
 pub const DEFAULT_RANK: Rank = Rank::FIRST;
 
 impl Pool {
-    // === Simple Container Constructors ===
+    // Simple Container Constructors
 
     /// Create a list type `[elem]`.
     pub fn list(&mut self, elem: Idx) -> Idx {
@@ -60,7 +60,7 @@ impl Pool {
         self.intern(Tag::DoubleEndedIterator, elem.raw())
     }
 
-    // === Two-Child Container Constructors ===
+    // Two-Child Container Constructors
 
     /// Create a map type `{key: value}`.
     pub fn map(&mut self, key: Idx, value: Idx) -> Idx {
@@ -72,7 +72,7 @@ impl Pool {
         self.intern_complex(Tag::Result, &[ok.raw(), err.raw()])
     }
 
-    // === Borrowed Reference Constructor ===
+    // Borrowed Reference Constructor
 
     /// Create a borrowed reference type `&T` with a lifetime.
     ///
@@ -81,7 +81,7 @@ impl Pool {
         self.intern_complex(Tag::Borrowed, &[inner.raw(), lifetime.raw()])
     }
 
-    // === Function Constructor ===
+    // Function Constructor
 
     /// Create a function type `(params...) -> ret`.
     #[allow(
@@ -115,7 +115,7 @@ impl Pool {
         self.function(&[], ret)
     }
 
-    // === Tuple Constructor ===
+    // Tuple Constructor
 
     /// Create a tuple type `(elems...)`.
     ///
@@ -149,7 +149,7 @@ impl Pool {
         self.tuple(&[a, b, c])
     }
 
-    // === Scheme Constructor ===
+    // Scheme Constructor
 
     /// Create a type scheme (quantified type).
     ///
@@ -174,7 +174,7 @@ impl Pool {
         self.intern_complex(Tag::Scheme, &extra)
     }
 
-    // === Type Variable Constructors ===
+    // Type Variable Constructors
 
     /// Create a fresh unbound type variable.
     pub fn fresh_var(&mut self) -> Idx {
@@ -298,7 +298,7 @@ impl Pool {
         self.intern(Tag::BoundVar, var_id)
     }
 
-    // === Applied Type Constructor ===
+    // Applied Type Constructor
 
     /// Create an applied generic type `T<args...>`.
     #[allow(
@@ -375,7 +375,7 @@ impl Pool {
         )
     }
 
-    // === Struct Constructor ===
+    // Struct Constructor
 
     /// Create a struct type with named fields.
     ///
@@ -402,7 +402,7 @@ impl Pool {
         self.intern_complex(Tag::Struct, &extra)
     }
 
-    // === Enum Constructor ===
+    // Enum Constructor
 
     /// Create an enum type with variants.
     ///
@@ -436,7 +436,7 @@ impl Pool {
         self.intern_complex(Tag::Enum, &extra)
     }
 
-    // === Common Patterns ===
+    // Common Patterns
 
     /// Create `[str]` (list of strings).
     pub fn list_str(&mut self) -> Idx {

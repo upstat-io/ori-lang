@@ -40,8 +40,9 @@ pub(crate) fn infer_block(
                 let binding_name = pattern_first_name(pat);
                 let errors_before = engine.error_count();
 
-                // Enter a rank-only scope for let-polymorphism. The surrounding block already pushed its env scope
-                // at line 38 and the let binding MUST stay visible to
+                // Enter a rank-only scope for let-polymorphism. The surrounding
+                // block already pushed its env scope on `infer_block` entry and
+                // the let binding MUST stay visible to
                 // subsequent statements — pushing another env.child() here
                 // would hide later bindings from earlier `let`s. Rank-only is
                 // the right knob. All three let-generalization sites

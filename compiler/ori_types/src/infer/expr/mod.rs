@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! Expression inference follows Hindley-Milner with bidirectional enhancements:
+//! Expression inference follows Hindley-Milner with bidirectional checking:
 //!
 //! - **Synthesis (infer)**: Bottom-up type derivation from expression structure
 //! - **Checking (check)**: Top-down verification against expected type

@@ -24,7 +24,7 @@ use crate::registry::burden::{UserBurdenSpec, UserTransferRule, UserVariantBurde
 use crate::registry::{TypeRegistry, Visibility};
 use crate::Idx;
 
-// === Helpers (no .expect()/.unwrap() in compiler-crate tests) ===
+// Helpers (no .expect()/.unwrap() in compiler-crate tests)
 
 fn test_span() -> Span {
     Span::DUMMY
@@ -116,7 +116,7 @@ fn option_spec(t: Idx) -> UserBurdenSpec {
     }
 }
 
-// === Positive: equal specs share a slot ===
+// Positive: equal specs share a slot
 
 #[test]
 fn register_same_spec_twice_returns_first_idx_and_increments_signature_count_by_one() {
@@ -143,7 +143,7 @@ fn register_same_spec_twice_returns_first_idx_and_increments_signature_count_by_
     );
 }
 
-// === Positive: distinct specs claim distinct signatures ===
+// Positive: distinct specs claim distinct signatures
 
 #[test]
 fn register_distinct_specs_yields_two_signatures() {
@@ -162,7 +162,7 @@ fn register_distinct_specs_yields_two_signatures() {
     assert_eq!(registry.burden_signature_count(), 2);
 }
 
-// === Positive: stdlib stress (6 Option + 6×6 Result = 42 instantiations) ===
+// Positive: stdlib stress (6 Option + 6×6 Result = 42 instantiations)
 
 #[test]
 fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
@@ -217,7 +217,7 @@ fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
     );
 }
 
-// === Semantic pin: sub-linear collapse must fire ===
+// Semantic pin: sub-linear collapse must fire
 
 #[test]
 fn semantic_pin_stdlib_stress_count_strictly_below_upper_bound() {
@@ -304,7 +304,7 @@ fn semantic_pin_stdlib_stress_count_strictly_below_upper_bound() {
     );
 }
 
-// === Positive: recursion-safety on Tree<T>-shaped specs ===
+// Positive: recursion-safety on Tree<T>-shaped specs
 
 #[test]
 fn recursive_signature_terminates_on_tree_shaped_spec() {
@@ -379,7 +379,7 @@ fn recursive_signature_terminates_on_tree_shaped_spec() {
     );
 }
 
-// === Negative pin: engineered signature collision yields distinct slots ===
+// Negative pin: engineered signature collision yields distinct slots
 
 #[test]
 fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
@@ -420,7 +420,7 @@ fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
     // Construct two specs whose hash inputs accidentally match: the
     // simplest way is to swap two fields whose bytes commute through
     // the FNV-1a accumulator. Empirically, no commuting permutation
-    // exists in the present input set, so we leverage a different
+    // exists in the present input set, so the test uses a different
     // engineered fixture: two specs differing ONLY in compiled_drop's
     // FnSym ID where the FnSym values happen to share their LSB hash
     // contribution. To keep the test deterministic we instead exercise
@@ -445,7 +445,7 @@ fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
     );
 }
 
-// === Positive: empty spec is its own canonical entry ===
+// Positive: empty spec is its own canonical entry
 
 #[test]
 fn empty_default_spec_dedup_collapses() {
@@ -463,7 +463,7 @@ fn empty_default_spec_dedup_collapses() {
     assert_eq!(registry.burden_signature_count(), 1);
 }
 
-// === Channel<T> signature dedup ===
+// Channel<T> signature dedup
 
 /// Build a `Channel<T>`-shaped `UserBurdenSpec` matching the
 /// `compose_user_burden(channel_template, [t])` output:
@@ -596,7 +596,7 @@ fn negative_pin_channel_empty_element_burden_collides_with_default_spec() {
     assert_eq!(registry.burden_signature_count(), 1);
 }
 
-// === Positive: single-level signature discriminates nested-depth structure ===
+// Positive: single-level signature discriminates nested-depth structure
 
 #[test]
 fn nested_depth_specs_with_distinct_inner_idxs_register_at_distinct_signatures() {
@@ -650,7 +650,7 @@ fn nested_depth_specs_with_distinct_inner_idxs_register_at_distinct_signatures()
     );
 }
 
-// === Positive: structural-equality-on-collision is the correctness floor ===
+// Positive: structural-equality-on-collision is the correctness floor
 
 #[test]
 fn structural_equality_check_rejects_signature_collision_with_distinct_spec() {

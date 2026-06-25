@@ -50,7 +50,7 @@ impl TypeProblem {
     )]
     fn generate_suggestions(&self) -> Vec<Suggestion> {
         match self {
-            // === Numeric Problems ===
+            // Numeric Problems
             Self::IntFloat { expected, .. }
             | Self::NumericTypeMismatch { expected, .. } => vec![Suggestion::text(
                 format!("use `{expected}(x)` to convert"),
@@ -67,7 +67,7 @@ impl TypeProblem {
                 Suggestion::text("use `float(x)` to convert string to float", 2),
             ],
 
-            // === Collection Problems ===
+            // Collection Problems
             Self::ExpectedList { found } => vec![
                 Suggestion::text("wrap the value in a list: `[x]`", 1),
                 Suggestion::text(
@@ -118,7 +118,7 @@ impl TypeProblem {
                 1,
             )],
 
-            // === Function Problems ===
+            // Function Problems
             Self::WrongArity { expected, found } => {
                 if *found > *expected {
                     let diff = found - expected;
@@ -184,7 +184,7 @@ impl TypeProblem {
                 )]
             }
 
-            // === Record/Struct Problems ===
+            // Record/Struct Problems
             Self::MissingField {
                 field_name,
                 available,
@@ -231,7 +231,7 @@ impl TypeProblem {
                 1,
             )],
 
-            // === Type Variable Problems ===
+            // Type Variable Problems
             Self::RigidMismatch { rigid_name, .. } => vec![
                 Suggestion::text_with_names(
                     "type parameter `{0}` cannot be unified with a concrete type",
@@ -269,7 +269,7 @@ impl TypeProblem {
                 vec![Suggestion::text_with_names(msg, names, 1)]
             }
 
-            // === Capability Problems ===
+            // Capability Problems
             Self::MissingCapability { required } => vec![Suggestion::text_with_names(
                 "add `uses {0}` to the function signature",
                 vec![*required],
@@ -282,7 +282,7 @@ impl TypeProblem {
                 1,
             )],
 
-            // === Pattern Problems ===
+            // Pattern Problems
             Self::PatternMismatch { .. } => vec![Suggestion::text(
                 "the pattern doesn't match the type being matched against",
                 1,
@@ -302,7 +302,7 @@ impl TypeProblem {
                 ]
             }
 
-            // === Operator Problems ===
+            // Operator Problems
             Self::BadOperandType {
                 op,
                 op_category,
@@ -327,7 +327,7 @@ impl TypeProblem {
                 0,
             )],
 
-            // === Generic Fallback ===
+            // Generic Fallback
             Self::TypeMismatch {
                 expected_category,
                 found_category,

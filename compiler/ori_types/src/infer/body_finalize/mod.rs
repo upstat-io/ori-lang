@@ -62,7 +62,7 @@ impl InferEngine<'_> {
         );
         if changed {
             // Refresh Merkle hashes so cross-module identity
-            // (`output/mod.rs:442-457`) reflects the defaulted types.
+            // (`output/mod.rs`) reflects the defaulted types.
             let pool = self.pool();
             sig.param_hashes = sig.param_types.iter().map(|&idx| pool.hash(idx)).collect();
             sig.return_hash = pool.hash(sig.return_type);
@@ -140,7 +140,7 @@ impl InferEngine<'_> {
         //    consumer that slipped past `substitute_in_pool` resolves to
         //    `Idx::NEVER` via `resolve_fully`. No `Pool::link_var` helper on
         //    HEAD — use the canonical direct-assignment pattern from
-        //    `unify/mod.rs:289`.
+        //    `unify/mod.rs`.
         for (&var_id, &target) in &var_subst {
             *pool.var_state_mut(var_id) = VarState::Link { target };
         }
@@ -167,7 +167,7 @@ impl InferEngine<'_> {
             &sig.scheme_var_ids,
         );
         // If anything changed, refresh the Merkle hashes so cross-module
-        // identity (`output/mod.rs:442-457`) reflects the normalized shape.
+        // identity (`output/mod.rs`) reflects the normalized shape.
         let changed = sig.param_types != before_params || sig.return_type != before_return;
         if changed {
             let pool = self.unify.pool();

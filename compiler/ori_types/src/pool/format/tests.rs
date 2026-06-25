@@ -118,7 +118,7 @@ fn format_named_without_interner_shows_raw() {
     assert!(pool.format_type(named).starts_with("Named#"));
 }
 
-// === Merkle Hash Debug Tooling Tests ===
+// Merkle Hash Debug Tooling Tests
 
 #[test]
 fn format_hash_primitive() {

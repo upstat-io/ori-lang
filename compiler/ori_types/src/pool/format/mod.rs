@@ -418,7 +418,7 @@ impl Pool {
         }
     }
 
-    // === Merkle Hash Debug Tooling ===
+    // Merkle Hash Debug Tooling
 
     /// Format a type's Merkle hash with tag and child hash breakdown.
     ///

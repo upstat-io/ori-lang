@@ -80,7 +80,7 @@ impl InferEngine<'_> {
         instance: crate::MonoInstance,
     ) {
         // Saturating `Vec::len() → u32` matches the workspace pattern at
-        // `pool/substitute/mod.rs:541` and `ModuleChecker::accumulate_mono_session`;
+        // `pool/substitute/mod.rs` and `ModuleChecker::accumulate_mono_session`;
         // strict workspace clippy denies `cast_possible_truncation` and
         // `expect`/`unwrap`. Per-body mono counts cannot reach `u32::MAX`
         // in practice — 4 billion mono instances inside a single body is

@@ -2015,7 +2015,7 @@ fn deferred_mono_resolution_multi_param_forwarding() {
     assert_eq!(g_str_int[0].concrete_return_type, Idx::INT);
 }
 
-// === Hash-First Import Resolution ===
+// Hash-First Import Resolution
 
 /// Verify that hash-first import resolution produces identical results
 /// to AST fallback, and measure the hit rate.

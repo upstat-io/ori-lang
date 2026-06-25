@@ -74,8 +74,8 @@ pub(super) fn emit_into_not_implemented(
 /// `list.updated(...)`), and the evaluator resolves these via its own dispatch
 /// (`ori_eval` `methods/units.rs` / `numeric.rs`). Emitting on a concrete miss
 /// would false-positive on every such legitimate call. The concrete-receiver
-/// silent-poison (BUG-02-044, e.g. `{str:int}.map(...)`) stays open: its correct
-/// cure is blocked on completing concrete-receiver typeck dispatch so a miss
+/// silent-poison case (e.g. `{str:int}.map(...)`) is therefore not diagnosed:
+/// its cure depends on completing concrete-receiver typeck dispatch so a miss
 /// reliably implies genuine absence. A RIGID miss is unambiguous — an unbounded
 /// generic `T` has no methods anywhere (the evaluator cannot resolve them
 /// either), so there is no false-positive surface.

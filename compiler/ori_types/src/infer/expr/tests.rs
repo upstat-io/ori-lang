@@ -3092,7 +3092,7 @@ fn test_has_comparable_returns_false_without_registry() {
     );
 }
 
-// === Value Restriction Tests ===
+// Value Restriction Tests
 
 #[test]
 fn test_should_generalize_non_capturing_lambda_returns_true() {

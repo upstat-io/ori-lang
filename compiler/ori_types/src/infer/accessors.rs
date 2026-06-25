@@ -1,6 +1,5 @@
 //! `InferEngine` state accessors — registry/context setters, getters, and
-//! method-level rigid-bound + const helpers. Split from `infer/mod.rs` to keep
-//! the core engine file under the 500-line limit (per compiler-ops.md File size).
+//! method-level rigid-bound + const helpers.
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -179,7 +178,7 @@ impl<'pool> InferEngine<'pool> {
     /// Accepts both `Tag::RigidVar` (impl/def-impl method-level binders
     /// created via `pool.rigid_var`) and `Tag::Var` (top-level function
     /// type-param binders created via `pool.fresh_named_var` per
-    /// `check/signatures/mod.rs:159`). Returns `None` for non-variable
+    /// `check/signatures/mod.rs`). Returns `None` for non-variable
     /// types or for variables with no registered bounds. Consumed by
     /// bound-chain method dispatch.
     pub fn rigid_var_bounds(&self, ty: Idx) -> Option<&[Name]> {

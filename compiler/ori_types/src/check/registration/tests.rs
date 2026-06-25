@@ -441,7 +441,7 @@ fn self_in_receiver_position_is_allowed() {
     );
 }
 
-// === Super-trait inheritance (Phase B.1 — register_object_safety_violations) ===
+// Super-trait inheritance (Phase B.1 — register_object_safety_violations)
 
 /// Helper: build a `TraitDef` with one generic method `@<method_name><T> (self) -> T`.
 /// The trait's direct items therefore violate object-safety Rule 3 (`GenericMethod`).
@@ -705,7 +705,7 @@ fn no_super_trait_means_no_inheritance() {
     );
 }
 
-// === E2029: Derive Hashable without Eq ===
+// E2029: Derive Hashable without Eq
 
 #[test]
 fn derive_hashable_without_eq_emits_error() {
@@ -974,7 +974,7 @@ fn resolve_type_with_params_nested_self_in_list_of_tuples() {
     assert_eq!(checker.pool().tag(first), crate::Tag::Named);
 }
 
-// --- Cross-crate sync enforcement ---
+// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_have_type_signatures() {
@@ -1171,7 +1171,7 @@ fn repr_c_plus_aligned_still_valid() {
     );
 }
 
-// === E2049: Value + Drop mutual exclusion ===
+// E2049: Value + Drop mutual exclusion
 
 /// Helper: build a minimal `impl Point: Drop { @drop (self) -> void = ... }`
 /// `ImplDef` over a struct named `Point`. The body `ExprId` is `INVALID`

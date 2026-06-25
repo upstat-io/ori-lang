@@ -6,7 +6,7 @@
 //! - [`ContextKind`]: Classifies WHERE in code a type is expected (30+ contexts)
 //! - [`TypeProblem`]: Identifies WHAT went wrong specifically (not just "mismatch")
 //! - [`Suggestion`]: Provides actionable fixes
-//! - [`TypeCheckError`]: The comprehensive error type with full context
+//! - [`TypeCheckError`]: The error type with full context
 //!
 //! # Example Error Flow
 //!

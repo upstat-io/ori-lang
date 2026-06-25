@@ -75,8 +75,8 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
     // MUST precede step 7: the user-facing `Error` is now a registered builtin
     // struct (`{ message: str }`), so step 7's `resolve_type_constructor_info`
     // would catch it as a bare `UnitVariant` type (not callable → "expected a
-    // function, found Error"). The `Error(str) -> Error` constructor (formerly
-    // step 8) builds `(str) -> named("Error")`, which resolves to the struct Idx.
+    // function, found Error"). The `Error(str) -> Error` constructor
+    // builds `(str) -> named("Error")`, which resolves to the struct Idx.
     if name_str == Some("Error") {
         let error_type = engine.pool_mut().named(name);
         return engine.pool_mut().function(&[Idx::STR], error_type);

@@ -22,7 +22,7 @@ use std::fmt;
 pub struct Idx(u32);
 
 impl Idx {
-    // === Primitive Types (indices 0-11) ===
+    // Primitive Types (indices 0-11)
     // These are pre-interned at pool creation for O(1) access.
 
     /// The `int` type (64-bit signed integer).
@@ -50,7 +50,7 @@ impl Idx {
     /// The `ordering` type (comparison result: Less, Equal, Greater).
     pub const ORDERING: Self = Self(11);
 
-    // === Reserved Range (12-63) ===
+    // Reserved Range (12-63)
     // Reserved for future primitive types.
 
     /// First index for dynamically allocated types.

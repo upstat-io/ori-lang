@@ -1,4 +1,4 @@
-//! Comprehensive type checking error structure.
+//! Type checking error structure.
 //!
 //! This module defines `TypeCheckError`, the rich error type used throughout
 //! type checking. It combines:
@@ -42,7 +42,7 @@ use crate::Idx;
 
 /// A type checking error with full context.
 ///
-/// This is the comprehensive error type used throughout type checking.
+/// This is the error type used throughout type checking.
 /// It contains all information needed to render a helpful error message.
 ///
 /// # Salsa Compatibility

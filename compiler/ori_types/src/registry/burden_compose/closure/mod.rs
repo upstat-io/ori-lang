@@ -15,11 +15,11 @@
 //! - `variant_burdens: []` — closures are not sums.
 //! - `compiled_drop: Some(env_drop_fn_sym)` — minted at registration, body
 //!   materialized later via existing `DropKind::ClosureEnv` arm at
-//!   `compiler_repo/compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs:91`.
+//!   `compiler_repo/compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`.
 //! - `user_drop: None` — closures cannot have user `@drop` (only types do per
 //!   `drop-trait-proposal.md §Auto-derive`).
 //!
-//! Env-header layout (NO new ABI — already shipped at `rc_ops.rs:256-287`):
+//! Env-header layout (NO new ABI — already shipped in `rc_ops.rs`):
 //!
 //! ```text
 //! [env_ptr - 8] : refcount (i64, RT-2 header convention)
@@ -33,7 +33,7 @@
 //! (logical capture position). The +8-byte physical offset from the env-header
 //! `drop_fn` slot is handled by codegen at `gep env_ptr, 8 + accumulated_offsets`,
 //! NOT by the burden spec (which carries logical capture indices for the
-//! `DropKind::ClosureEnv(fields)` arm — see `drop_gen.rs:91`).
+//! `DropKind::ClosureEnv(fields)` arm — see `drop_gen.rs`).
 
 use ori_registry::burden::FnSym;
 
@@ -75,7 +75,7 @@ pub struct ClosureCapture {
 /// The composed spec is then registered via
 /// `TypeRegistry::register_user_burden(closure_idx, spec)` at the lambda's
 /// type-check site (`ori_types::infer::expr::infer_lambda` per
-/// `compiler_repo/compiler/ori_types/src/infer/expr/blocks.rs:223`).
+/// `compiler_repo/compiler/ori_types/src/infer/expr/blocks.rs`).
 #[must_use]
 pub fn compose_closure_burden_spec(
     closure_idx: Idx,
@@ -109,7 +109,7 @@ pub fn compose_closure_burden_spec(
 ///
 /// Reuses `scc::mint_compiled_drop_fn_sym` so closure drop functions share the
 /// `_ori_drop$<idx_raw>` mangling key with recursive-type drop functions per
-/// `drop_gen.rs:45`. The per-`Idx` distinctness contract (`raw + 1`, saturating)
+/// `drop_gen.rs`. The per-`Idx` distinctness contract (`raw + 1`, saturating)
 /// holds identically — two closures with distinct pool `Idx` values get distinct
 /// `FnSym` values even when their capture shapes are structurally identical.
 #[must_use]

@@ -316,8 +316,7 @@ fn collect_child_ids(arena: &ExprArena, expr_id: ExprId) -> Vec<ExprId> {
 
 /// Push every relevant child expression for `kind` into `out`.
 ///
-/// Extracted from [`collect_child_ids`] to keep cognitive complexity in
-/// each arm bounded; per-variant arms below dispatch into small per-shape
+/// Per-variant arms below dispatch into small per-shape
 /// helpers ([`push_call_children`], [`push_call_named_children`],
 /// [`push_expr_list_children`], [`push_list_element_children`],
 /// [`push_map_entry_children`], [`push_map_element_children`],

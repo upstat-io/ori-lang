@@ -70,7 +70,7 @@ pub type ExprIndex = usize;
 /// - `Pool` for type storage and interning
 /// - `UnifyEngine` for unification with path compression
 /// - `TypeEnv` for name bindings
-/// - Error accumulation for comprehensive diagnostics
+/// - Error accumulation for full diagnostics
 ///
 /// # Component Structure
 ///

@@ -403,7 +403,7 @@ impl TypeRegistry {
         self.types_by_idx.insert(idx, entry);
     }
 
-    // === Lookup Methods ===
+    // Lookup Methods
 
     /// Look up a type by name.
     #[inline]
@@ -677,7 +677,7 @@ impl TypeRegistry {
         self.enum_variants(idx)?.get(variant_idx)
     }
 
-    // === Iteration ===
+    // Iteration
 
     /// Iterate over all registered types in name order.
     pub fn iter(&self) -> impl Iterator<Item = &TypeEntry> {

@@ -201,7 +201,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         };
         let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
 
-        // BUG-04-190: type-check each parameter's default expression against the
+        // Type-check each parameter's default expression against the
         // param's declared type so the default carries resolved type info. Canon
         // fills the default at omitting (positional / zero-arg) call sites; without
         // a recorded type a composite default (e.g. `[9, 9]`) lowers with Tag::Error

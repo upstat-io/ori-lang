@@ -395,7 +395,7 @@ fn inherit_default_methods(
     // Step 1: Direct defaults from the AST trait definition.
     //
     // Inherited default-method binder remapping: `From<&TraitDefaultMethod>
-    // for ImplMethod` at `compiler/ori_ir/src/ast/items/traits.rs:335` shares
+    // for ImplMethod` at `compiler/ori_ir/src/ast/items/traits.rs` shares
     // the parsed param/return types verbatim, so the trait's view of
     // `(T, F) -> T` survives unchanged into the impl-side `ImplMethodDef`.
     // Without a trait→impl substitution, resolving `F` finds neither a
@@ -747,7 +747,7 @@ fn build_impl_method(
         checker.pool_mut().scheme(&scheme_var_ids, fn_type)
     };
 
-    // BUG-04-190: non-`self` params WITH a default value. The relaxed call-site
+    // Count of non-`self` params WITH a default value. The relaxed call-site
     // arity check (resolve_impl_signature) permits omitting that many trailing
     // params; canon fills them.
     let optional_param_count = params

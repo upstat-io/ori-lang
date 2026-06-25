@@ -10,7 +10,7 @@ fn subst(pairs: &[(u32, Idx)]) -> FxHashMap<u32, Idx> {
     pairs.iter().copied().collect()
 }
 
-// === Primitives (fast path) ===
+// Primitives (fast path)
 
 #[test]
 fn primitive_unchanged() {
@@ -23,7 +23,7 @@ fn primitive_unchanged() {
     assert_eq!(substitute_in_pool(&mut pool, Idx::UNIT, &map), Idx::UNIT);
 }
 
-// === Single variable ===
+// Single variable
 
 #[test]
 fn var_substituted() {
@@ -45,7 +45,7 @@ fn var_not_in_map_unchanged() {
     assert_eq!(substitute_in_pool(&mut pool, var, &map), var);
 }
 
-// === Single-child containers ===
+// Single-child containers
 
 #[test]
 fn list_of_var_substituted() {
@@ -87,7 +87,7 @@ fn list_of_primitive_unchanged() {
     assert_eq!(substitute_in_pool(&mut pool, list_int, &map), list_int);
 }
 
-// === Two-child containers ===
+// Two-child containers
 
 #[test]
 fn map_both_vars_substituted() {
@@ -121,7 +121,7 @@ fn result_ok_only_substituted() {
     assert_eq!(pool.result_err(result), Idx::STR);
 }
 
-// === Function type ===
+// Function type
 
 #[test]
 fn function_params_and_return_substituted() {
@@ -141,7 +141,7 @@ fn function_params_and_return_substituted() {
     assert_eq!(pool.function_return(result), Idx::BOOL);
 }
 
-// === Tuple ===
+// Tuple
 
 #[test]
 fn tuple_elements_substituted() {
@@ -158,7 +158,7 @@ fn tuple_elements_substituted() {
     assert_eq!(elems, &[Idx::FLOAT, Idx::BOOL, Idx::FLOAT]);
 }
 
-// === Applied ===
+// Applied
 
 #[test]
 fn applied_args_substituted() {
@@ -179,7 +179,7 @@ fn applied_args_substituted() {
     assert_eq!(args, &[Idx::CHAR, Idx::INT]);
 }
 
-// === Nested types ===
+// Nested types
 
 #[test]
 fn nested_list_of_option_of_var() {
@@ -200,7 +200,7 @@ fn nested_list_of_option_of_var() {
     assert_eq!(innermost, Idx::INT);
 }
 
-// === Interning deduplication ===
+// Interning deduplication
 
 #[test]
 fn substitution_reuses_interned_types() {
@@ -219,7 +219,7 @@ fn substitution_reuses_interned_types() {
     assert_eq!(result, list_int);
 }
 
-// === No-op when no vars ===
+// No-op when no vars
 
 #[test]
 fn compound_type_without_vars_unchanged() {
@@ -235,7 +235,7 @@ fn compound_type_without_vars_unchanged() {
     assert_eq!(substitute_in_pool(&mut pool, map_type, &map), map_type);
 }
 
-// === Linked variable ===
+// Linked variable
 
 #[test]
 fn linked_var_followed() {
@@ -254,7 +254,7 @@ fn linked_var_followed() {
     assert_eq!(result, Idx::BOOL);
 }
 
-// === Generalized variable ===
+// Generalized variable
 
 #[test]
 fn generalized_var_substituted() {
@@ -273,7 +273,7 @@ fn generalized_var_substituted() {
     assert_eq!(result, Idx::STR);
 }
 
-// === Struct type ===
+// Struct type
 
 #[test]
 fn struct_field_types_substituted() {
@@ -311,7 +311,7 @@ fn struct_no_vars_unchanged() {
     assert_eq!(substitute_in_pool(&mut pool, struct_ty, &map), struct_ty);
 }
 
-// === extract_var_from_types ===
+// extract_var_from_types
 
 use super::extract_var_from_types;
 
@@ -453,7 +453,7 @@ fn extract_var_direct_match() {
     );
 }
 
-// === extend_var_subst_with_roots ===
+// extend_var_subst_with_roots
 //
 // Regression pins for the rank-weighted union-find fix:
 //  can make a fresh instantiation var the root of a

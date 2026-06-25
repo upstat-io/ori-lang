@@ -26,7 +26,7 @@ fn closure_idx(raw: u32) -> Idx {
     Idx::from_raw(Idx::FIRST_DYNAMIC + raw)
 }
 
-// === (1) Capture-by-value — single Owned binding ===
+// (1) Capture-by-value — single Owned binding
 
 #[test]
 fn closure_with_single_owned_str_capture_populates_one_owned_field() {
@@ -88,7 +88,7 @@ fn closure_with_multiple_owned_captures_preserves_capture_order() {
     assert_eq!(paths, vec![&vec![0u32], &vec![1u32], &vec![2u32]]);
 }
 
-// === (2) Capture-by-reference — single Borrowed binding ===
+// (2) Capture-by-reference — single Borrowed binding
 
 #[test]
 fn closure_with_single_borrowed_capture_populates_borrowed_fields_not_owned() {
@@ -115,7 +115,7 @@ fn closure_with_single_borrowed_capture_populates_borrowed_fields_not_owned() {
     assert_eq!(spec.borrowed_fields[0].field_path, vec![0u32]);
 }
 
-// === (3) Mixed — owned + borrowed captures in the same closure ===
+// (3) Mixed — owned + borrowed captures in the same closure
 
 #[test]
 fn closure_with_mixed_owned_and_borrowed_captures_populates_both_field_sets() {
@@ -138,7 +138,7 @@ fn closure_with_mixed_owned_and_borrowed_captures_populates_both_field_sets() {
     assert_eq!(spec.borrowed_fields[0].field_type, Idx::INT);
 }
 
-// === (4) Captures-of-captures — nested closure as a captured field ===
+// (4) Captures-of-captures — nested closure as a captured field
 
 #[test]
 fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
@@ -175,7 +175,7 @@ fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
     );
 }
 
-// === (5) Capture-of-projection — borrowed_field with parent lifetime ===
+// (5) Capture-of-projection — borrowed_field with parent lifetime
 
 #[test]
 fn closure_capturing_projection_uses_borrowed_field_with_parent_idx() {
@@ -201,7 +201,7 @@ fn closure_capturing_projection_uses_borrowed_field_with_parent_idx() {
     );
 }
 
-// === compiled_drop FnSym key invariant ===
+// compiled_drop FnSym key invariant
 
 #[test]
 fn closure_compiled_drop_fn_sym_matches_per_idx_mangling_key() {
@@ -248,7 +248,7 @@ fn closure_drop_fn_syms_for_distinct_closures_are_distinct() {
     );
 }
 
-// === Non-capturing closure — empty owned_fields + empty borrowed_fields ===
+// Non-capturing closure — empty owned_fields + empty borrowed_fields
 
 #[test]
 fn closure_with_zero_captures_yields_empty_field_sets_but_still_heap_alloc() {
@@ -272,7 +272,7 @@ fn closure_with_zero_captures_yields_empty_field_sets_but_still_heap_alloc() {
     assert!(spec.user_drop.is_none());
 }
 
-// === Default-shape invariants ===
+// Default-shape invariants
 
 #[test]
 fn closure_burden_default_invariants_no_variants_no_element() {
@@ -292,7 +292,7 @@ fn closure_burden_default_invariants_no_variants_no_element() {
     );
 }
 
-// === Borrow-check-refinement sync — partition tracks classification ===
+// Borrow-check-refinement sync — partition tracks classification
 
 #[test]
 fn closure_owned_borrowed_partition_is_a_pure_function_of_classification_input() {

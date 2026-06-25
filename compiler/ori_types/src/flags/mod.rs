@@ -20,7 +20,7 @@ bitflags! {
     /// Used to gate expensive operations (substitution, occurs check, etc.).
     #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
     pub struct TypeFlags: u32 {
-        // === Presence Flags (bits 0-7) ===
+        // Presence Flags (bits 0-7)
         // Track what elements a type contains.
 
         /// Contains unbound type variables (unification targets).
@@ -38,7 +38,7 @@ bitflags! {
         /// Contains type projections (associated types).
         const HAS_PROJECTION = 1 << 6;
 
-        // === Category Flags (bits 8-15) ===
+        // Category Flags (bits 8-15)
         // Classify types for fast dispatch.
 
         /// Built-in primitive type (int, bool, etc.).
@@ -54,7 +54,7 @@ bitflags! {
         /// Type scheme (quantified).
         const IS_SCHEME = 1 << 13;
 
-        // === Optimization Flags (bits 16-23) ===
+        // Optimization Flags (bits 16-23)
         // Enable optimization shortcuts.
 
         /// Has variables needing substitution.
@@ -66,7 +66,7 @@ bitflags! {
         /// Known to be a Copy type.
         const IS_COPYABLE = 1 << 19;
 
-        // === Capability Flags (bits 24-31) ===
+        // Capability Flags (bits 24-31)
         // Track Ori's capability/effect information.
 
         /// Uses capabilities.

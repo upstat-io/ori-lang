@@ -206,7 +206,7 @@ fn test_pattern_is_irrefutable_struct_all_simple() {
 
 // Note: there is deliberately no `test_pattern_is_irrefutable_struct_with_refutable_inner`
 // (concrete `Idx::INT` outer with refutable inner). Per the no-double-diagnostic
-// contract (BUG-02-022), the predicate returns `Ok(())` for concrete-non-struct
+// contract, the predicate returns `Ok(())` for concrete-non-struct
 // outer types so bind_pattern's E2001 type-mismatch fires alone (no doubling).
 // The recursion behavior for refutable inner sub-patterns is pinned by
 // `test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison`

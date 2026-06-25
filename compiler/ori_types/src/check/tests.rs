@@ -408,7 +408,7 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
     );
 }
 
-// --- Transitive metadata forwarding tests ---
+// Transitive metadata forwarding tests
 
 #[test]
 fn exported_metadata_includes_imported_entries() {
@@ -530,7 +530,7 @@ fn exported_metadata_multiple_imported_modules() {
     assert!(hashes.contains(&0xD001));
 }
 
-// --- Transitive collection-surface forwarding tests ---
+// Transitive collection-surface forwarding tests
 
 /// Regression: the A→B→C collection-surface forwarding path must
 /// be pinned end-to-end. Module C exports a public `[int]` function. Module B

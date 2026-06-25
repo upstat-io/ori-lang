@@ -807,8 +807,7 @@ fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
     let mut source = Pool::new();
     // Source has a list<int> reachable ONLY via VarState::Link (not traversed
     // by any other branch of the type being re-interned), exercising the
-    // "cache is not yet populated with source.target" case from the Round 2
-    // F1 fix.
+    // "cache is not yet populated with source.target" case.
     let source_list = source.list(Idx::INT);
     source.ensure_var_capacity(1);
     *source.var_state_mut(0) = VarState::Link {

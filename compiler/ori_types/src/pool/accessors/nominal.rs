@@ -9,7 +9,7 @@ use crate::{Idx, Tag};
 use super::super::Pool;
 
 impl Pool {
-    // === Struct Accessors ===
+    // Struct Accessors
 
     /// Get the name of a struct type.
     ///
@@ -69,7 +69,7 @@ impl Pool {
             .collect()
     }
 
-    // === Enum Accessors ===
+    // Enum Accessors
 
     /// Get the name of an enum type.
     ///

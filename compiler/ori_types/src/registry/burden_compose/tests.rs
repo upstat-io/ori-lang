@@ -50,7 +50,7 @@ fn find_variant(
     }
 }
 
-// === Positive: Result<int, str> ===
+// Positive: Result<int, str>
 
 #[test]
 fn compose_result_int_str_yields_two_variant_burdens() {
@@ -100,7 +100,7 @@ fn compose_result_int_str_err_arm_field_type_is_str() {
     );
 }
 
-// === Positive: Result<{str: int}, str> — recursive composition via type graph ===
+// Positive: Result<{str: int}, str> — recursive composition via type graph
 
 #[test]
 fn compose_result_with_map_payload_substitutes_map_idx() {
@@ -121,7 +121,7 @@ fn compose_result_with_map_payload_substitutes_map_idx() {
     assert_eq!(err.transfers_on_match[0].field_type, Idx::STR);
 }
 
-// === Positive: Option<Result<int, str>> — nested generic ===
+// Positive: Option<Result<int, str>> — nested generic
 
 #[test]
 fn compose_option_with_result_payload_carries_inner_result_idx() {
@@ -168,7 +168,7 @@ fn compose_option_with_result_payload_carries_inner_result_idx() {
     );
 }
 
-// === Positive: mixed Value/HeapType ===
+// Positive: mixed Value/HeapType
 
 #[test]
 fn compose_result_with_value_and_heap_args_carries_both() {
@@ -202,7 +202,7 @@ fn compose_result_with_value_and_heap_args_carries_both() {
     // codegen happens downstream via per-Idx burden lookup.
 }
 
-// === Negative pin: instantiation-time wiring is load-bearing ===
+// Negative pin: instantiation-time wiring is load-bearing
 
 #[test]
 fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
@@ -233,7 +233,7 @@ fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
     // yields None.
 }
 
-// === Semantic pin: regression-pin counts ===
+// Semantic pin: regression-pin counts
 
 #[test]
 fn semantic_pin_result_composition_counts() {
@@ -272,7 +272,7 @@ fn semantic_pin_result_composition_counts() {
     assert_eq!(composed.user_drop, None);
 }
 
-// === Channel<T> composition (registry-layer surface) ===
+// Channel<T> composition (registry-layer surface)
 
 fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
@@ -438,7 +438,7 @@ fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
     );
 }
 
-// === Value Trait Composition ===
+// Value Trait Composition
 
 /// Mixed Value/Heap composition — `Result<ValueType, HeapType>` (e.g.,
 /// `Result<int, str>`) produces `variant_burdens` with asymmetric arms: Ok

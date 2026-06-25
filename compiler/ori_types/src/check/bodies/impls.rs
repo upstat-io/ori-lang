@@ -201,7 +201,7 @@ fn check_impl_method(
         param_types.push(ty);
     }
 
-    // BUG-04-190: collect (default expr, param name, declared type) for every
+    // Collect (default expr, param name, declared type) for every
     // method param carrying a default, so the body-check closure can type-check
     // each default against its declared type (mirrors functions.rs). Captured
     // here before `param_types` is borrowed mutably below.
@@ -325,7 +325,7 @@ fn check_impl_method(
 
             engine.pop_context();
 
-            // BUG-04-190: type-check each method parameter's default expression
+            // Type-check each method parameter's default expression
             // against its declared type, mirroring the free-function path in
             // functions.rs. Canon fills omitted method defaults at the call site;
             // without resolved type info a composite default (e.g. `[9, 9]`)

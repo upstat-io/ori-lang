@@ -55,7 +55,7 @@ pub(super) enum LookupOutcome {
         /// monomorphization recording (it pins both "inherent" and the order
         /// for `impl_args`).
         impl_type_params: Vec<Name>,
-        /// Count of non-`self` params WITH a default value (BUG-04-190).
+        /// Count of non-`self` params WITH a default value.
         /// Drives the relaxed call-site arity check; `0` = strict equality.
         optional_param_count: usize,
     },
@@ -366,10 +366,10 @@ pub(super) fn lookup_impl_method(
                 scheme_var_ids,
                 impl_subst,
                 impl_type_params,
-                // Generic-impl base-name-match path: strict arity for now.
-                // Threading the matched def's optional_param_count through
-                // FallbackResult is a bounded follow-up (BUG-04-190); the
-                // inherent (primary-lookup) path is fully covered.
+                // Generic-impl base-name-match path: strict arity. The matched
+                // def's optional_param_count is not threaded through
+                // FallbackResult here; the inherent (primary-lookup) path
+                // carries the relaxed arity.
                 optional_param_count: 0,
             };
         }
@@ -390,7 +390,7 @@ pub(super) fn lookup_impl_method(
     //
     // The trait method's signature carries `Tag::SelfType` references that
     // remain in place — `Self` resolves to the receiver's RigidVar at
-    // call-site type resolution per `infer/expr/type_resolution.rs:184`,
+    // call-site type resolution per `infer/expr/type_resolution.rs`,
     // which sees the impl-self type bound by `with_impl_scope`.
     let receiver_tag = engine.pool().tag(receiver_ty);
     if matches!(receiver_tag, Tag::RigidVar | Tag::Var) {
@@ -421,7 +421,7 @@ pub(super) fn lookup_impl_method(
                 let generic_param_metadata = tm.generic_param_metadata.clone();
                 let scheme_var_ids = tm.scheme_var_ids.clone();
                 // Trait method sigs are registered with `Self` resolved to
-                // `Tag::Named("Self")` per `check/registration/type_resolution.rs:191`,
+                // `Tag::Named("Self")` per `check/registration/type_resolution.rs`,
                 // so `substitute_named_in_pool` with a `{Self -> receiver_ty}`
                 // mapping pins the method's `Self` references to the actual
                 // receiver. The companion `substitute_self_in_pool` walks
@@ -451,8 +451,8 @@ pub(super) fn lookup_impl_method(
                     // RigidVar / Var receiver — not a concrete instantiation;
                     // no receiver-side binders to record.
                     impl_type_params: Vec::new(),
-                    // Bound-chain dispatch: strict arity (trait-method default
-                    // carry-through is a bounded follow-up per BUG-04-190).
+                    // Bound-chain dispatch: strict arity. Trait-method default
+                    // carry-through is not threaded on this path.
                     optional_param_count: 0,
                 }
             }

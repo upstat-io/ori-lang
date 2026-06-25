@@ -6,10 +6,6 @@
 //! (`unify_closure_param_with_iterator_elem`, `unify_flat_map_constraints`)
 //! handle the structural unification of the closure's params/return
 //! against the iterator's element / result types.
-//!
-//! Extracted from `method_call.rs` to keep modules under the 500-line cap so
-//! lambda-param propagation extensions to `unify_closure_param_with_iterator_elem`
-//! can land without growing `method_call.rs` past the limit.
 
 use ori_ir::{Name, Span};
 

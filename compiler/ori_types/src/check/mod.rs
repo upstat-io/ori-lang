@@ -133,21 +133,21 @@ mod test_utils;
 ///   - errors: Vec<TypeCheckError>
 /// ```
 pub struct ModuleChecker<'a> {
-    // === Immutable Context ===
+    // Immutable Context
     /// Expression arena for looking up expressions.
     arena: &'a ExprArena,
     /// String interner for name resolution.
     interner: &'a StringInterner,
 
-    // === Type Storage ===
+    // Type Storage
     /// Unified type pool (becomes part of output).
     pool: Pool,
 
-    // === Name Cache ===
+    // Name Cache
     /// Pre-interned primitive and well-known type names for O(1) resolution.
     well_known: WellKnownNames,
 
-    // === Registries ===
+    // Registries
     /// Registry for user-defined types (structs, enums).
     types: TypeRegistry,
     /// Registry for traits and implementations.
@@ -155,7 +155,7 @@ pub struct ModuleChecker<'a> {
     /// Registry for method resolution (built-ins + user).
     methods: MethodRegistry,
 
-    // === Import State ===
+    // Import State
     /// Environment with imported function bindings.
     ///
     /// Populated by `register_imported_function()` before signature collection.
@@ -168,17 +168,17 @@ pub struct ModuleChecker<'a> {
     /// Full qualified-access resolution is deferred to inference engine changes.
     module_aliases: FxHashMap<Name, Vec<FunctionSig>>,
 
-    // === Function Signatures ===
+    // Function Signatures
     /// Collected function signatures for call resolution.
     signatures: FxHashMap<Name, FunctionSig>,
     /// Frozen base environment (after signature collection).
     base_env: Option<TypeEnv>,
 
-    // === Expression Types ===
+    // Expression Types
     /// Inferred type for each expression (expr index → type).
     expr_types: Vec<Idx>,
 
-    // === Scope Context ===
+    // Scope Context
     /// Current function's type (for `recurse` pattern).
     current_function: Option<Idx>,
     /// Current impl's self type (for `self` resolution).
@@ -221,24 +221,24 @@ pub struct ModuleChecker<'a> {
     /// generic facet). Mirror of `impl_rigid_var_maps` for method binders.
     method_rigid_var_maps: FxHashMap<ExprId, FxHashMap<Name, Idx>>,
 
-    // === Diagnostics ===
+    // Diagnostics
     /// Accumulated type check errors.
     errors: Vec<crate::TypeCheckError>,
     /// Accumulated type check warnings.
     warnings: Vec<TypeCheckWarning>,
 
-    // === Pattern Resolutions ===
+    // Pattern Resolutions
     /// Accumulated pattern resolutions from all checked bodies.
     pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 
-    // === Assignment-Target Desugar Plans ===
+    // Assignment-Target Desugar Plans
     /// Accumulated type-directed desugar plans for `ExprKind::AssignTarget`
     /// chains from all checked bodies. Keys are module-wide AST `ExprId`s;
     /// sorted by `ExprId` in `finish_with_pool` for binary-search lookup, then
     /// stored in [`crate::TypedModule::assign_desugar_map`].
     assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
 
-    // === Impl Method Signatures ===
+    // Impl Method Signatures
     /// Accumulated impl method signatures for codegen.
     ///
     /// Built during `check_impl_bodies` — each `(Idx, Name, FunctionSig)` triple
@@ -250,7 +250,7 @@ pub struct ModuleChecker<'a> {
     /// Each entry is `(self_type_idx, method_name)` for disambiguation.
     trait_impl_fn_names: Vec<(Idx, Name)>,
 
-    // === Monomorphization ===
+    // Monomorphization
     /// Concrete generic function instantiations discovered during type checking.
     ///
     /// Accumulated from `InferEngine` after each function body is checked.
@@ -658,7 +658,7 @@ fn dedup_and_remap_mono_instances(
         if let Some(&existing) = seen.get(&key) {
             old_to_dedup.push(existing);
         } else {
-            // Saturating `Vec::len() → u32` matches `pool/substitute/mod.rs:541`
+            // Saturating `Vec::len() → u32` matches `pool/substitute/mod.rs`
             // — strict workspace clippy denies bare `as` truncation casts and
             // `expect`/`unwrap`. 4-billion-instance overflow is structurally
             // unreachable for any single module.
@@ -675,7 +675,7 @@ fn dedup_and_remap_mono_instances(
     // sorting the pair vector avoids the placeholder-`Option` dance
     // that an in-place permutation would require.
     let n_dedup = deduped.len();
-    // Saturating `usize → u32` casts match `pool/substitute/mod.rs:541`'s
+    // Saturating `usize → u32` casts match `pool/substitute/mod.rs`'s
     // `unwrap_or(u32::MAX)` pattern (strict workspace clippy denies
     // `cast_possible_truncation`). Per the dedup-loop comment above,
     // `deduped.len()` is structurally bounded well below `u32::MAX`.

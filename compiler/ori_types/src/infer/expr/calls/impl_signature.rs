@@ -101,7 +101,7 @@ pub(super) fn resolve_impl_signature(
     // instantiate it now so each call site gets fresh unification vars in
     // place of the scheme's bound vars. This is the `GN-2` instantiation
     // pattern, mirrored from the top-level identifier path at
-    // `infer/expr/identifiers.rs:16-17`. Method-level binders that would
+    // `infer/expr/identifiers.rs`. Method-level binders that would
     // otherwise fail to unify against function-type arguments (`UN-6` rigid
     // mismatch) unify cleanly because they have been replaced by fresh,
     // narrowable `Tag::Var`s.
@@ -127,7 +127,7 @@ pub(super) fn resolve_impl_signature(
     let skip = usize::from(has_self);
     let method_params = params[skip..].to_vec();
 
-    // BUG-04-190: a call may omit up to `optional_param_count` trailing
+    // A call may omit up to `optional_param_count` trailing
     // defaulted params; canon fills them. Valid arity is the inclusive range
     // [method_params.len() - optional_param_count, method_params.len()].
     // `optional_param_count == 0` reduces to strict equality (unchanged
