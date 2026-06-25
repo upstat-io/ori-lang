@@ -1,8 +1,8 @@
 //! String and Map trait helper codegen.
 //!
 //! String helpers are exposed for use by compound trait dispatch.
-//! Map equals delegates to the `ori_map_eq` runtime function with
-//! thunk callbacks for key/value comparison.
+//! Map equals/hash delegate to the `ori_map_eq`/`ori_map_hash` runtime
+//! functions with thunk callbacks for key/value comparison and hashing.
 
 use ori_types::Idx;
 
