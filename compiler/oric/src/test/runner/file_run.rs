@@ -132,8 +132,7 @@ impl TestRunner {
             // parity with the regular-test partition below: a compile_fail test
             // naming the current backend emits a Skipped result instead of running.
             if let Some(reason) = Self::backend_skip_reason(test, config.backend) {
-                let reason_str = interner.lookup(reason).to_string();
-                let result = TestResult::skipped(test.name, test.targets.clone(), reason_str);
+                let result = TestResult::skipped_for(test, reason, interner);
                 Self::protocol_result(&result, config, interner);
                 summary.add_result(result);
                 continue;
@@ -227,9 +226,7 @@ impl TestRunner {
                 }
                 match Self::backend_skip_reason(test, config.backend) {
                     Some(reason) => {
-                        let reason_str = interner.lookup(reason).to_string();
-                        let result =
-                            TestResult::skipped(test.name, test.targets.clone(), reason_str);
+                        let result = TestResult::skipped_for(test, reason, interner);
                         Self::protocol_result(&result, config, interner);
                         summary.add_result(result);
                         false

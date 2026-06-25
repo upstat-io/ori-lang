@@ -2,7 +2,7 @@
 
 use serde::{Serialize, Serializer};
 
-use crate::ir::{Name, StringInterner};
+use crate::ir::{Name, StringInterner, TestDef};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -94,6 +94,20 @@ impl TestResult {
             outcome: TestOutcome::Skipped(reason),
             duration: Duration::ZERO,
         }
+    }
+
+    /// Create a skipped result for `test` from its interned `reason` Name.
+    ///
+    /// Canonical home for the skip-result construction shared by the generic
+    /// `#skip` paths (`run_compile_fail_test`, `run_single_test`, the compiled
+    /// LLVM path) and the per-backend `#skip(backend:)` paths in `file_run`.
+    #[cold]
+    pub fn skipped_for(test: &TestDef, reason: Name, interner: &StringInterner) -> Self {
+        TestResult::skipped(
+            test.name,
+            test.targets.clone(),
+            interner.lookup(reason).to_string(),
+        )
     }
 
     /// Get the test name as a string.

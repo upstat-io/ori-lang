@@ -1,7 +1,4 @@
 //! Human-readable display and fixed lexeme dispatch tables for `RawTag`.
-//!
-//! Extracted from `tag/mod.rs` to keep the parent module under the 500-line limit.
-//! These are pure lookup functions with no state — just large match dispatch tables.
 
 use super::RawTag;
 

@@ -468,7 +468,7 @@ fn duration_integer() {
 
 #[test]
 fn duration_decimal() {
-    // Decimal durations are valid per grammar.ebnf lines 136-137
+    // Decimal durations are valid per grammar.ebnf `duration_literal` production
     assert_eq!(scan_tags("0.5s"), vec![RawTag::Duration]);
     assert_eq!(scan("0.5s")[0].len, 4);
     assert_eq!(scan_tags("1.5ms"), vec![RawTag::Duration]);

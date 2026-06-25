@@ -513,8 +513,7 @@ impl TestRunner {
     ) -> TestResult {
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
-            let reason_str = interner.lookup(reason).to_string();
-            return TestResult::skipped(test.name, test.targets.clone(), reason_str);
+            return TestResult::skipped_for(test, reason, interner);
         }
 
         // Time the test execution
