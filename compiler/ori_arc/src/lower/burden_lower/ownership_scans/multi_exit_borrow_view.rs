@@ -70,7 +70,7 @@ struct Candidate {
 ///  (a) FRESH closure root: an `Apply` body dst OR `Invoke` terminator dst whose
 ///      callee contract has `return_info.uniqueness == Unique ∧
 ///      preserves_freshness == true` AND NO param `transfers_through_return` (a
-///      forwarder/aliasing return is NOT fresh — `dead-end #150` proven-structural
+///      forwarder/aliasing return is NOT fresh — proven-structural
 ///      same-alloc identity, not a use-count/type proxy).
 ///  (b) root in `owned_vars_needing_rc` (heap-carrying, RC-tracked) AND
 ///      `FatValue` repr (closure two-word value).

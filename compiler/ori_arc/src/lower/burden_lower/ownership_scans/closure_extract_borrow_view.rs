@@ -59,7 +59,7 @@ struct Web {
 /// double-free is the migration floor, never a regression introduced here):
 ///  (a) PROVEN same-allocation identity: the `ApplyIndirect`'s resolved lambda
 ///      contract has a capture param with `return_alias = Project { field }` (a
-///      contract edge, NOT a use-count / type-membership proxy — dead-end #150).
+///      contract edge, NOT a use-count / type-membership proxy).
 ///  (b) the closure ENV (the `PartialApply` root capturing the payload) is in
 ///      `owned_vars_needing_rc` — it gets its standard scope-exit dec whose drop
 ///      cascade frees the captured payload. An env that is NOT released (escaped

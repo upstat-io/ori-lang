@@ -335,7 +335,7 @@ pub struct AimsStateMap {
     /// load-bearing: BOTTOM ≠ CONSERVATIVE for uniqueness. Without storing
     /// `MaybeShared` the call-result side table would silently drop
     /// `ori_list_slice_drop`'s contract, leaving `drop_hints` to read lattice
-    /// BOTTOM=Unique → `ori_buffer_drop_unique` → BUG-04-086 panic.
+    /// BOTTOM=Unique → `ori_buffer_drop_unique` → a slice-rest double-free panic.
     ///
     /// Side-table extension feeds the lattice via JOIN, never overrides it.
     var_uniqueness: FxHashMap<ArcVarId, Uniqueness>,
@@ -1000,7 +1000,7 @@ impl AimsStateMap {
     /// filter SHALL skip `Unique` (NOT `MaybeShared`); skipping `MaybeShared`
     /// would erase the load-bearing `ori_list_slice_drop` case where
     /// `return_info.uniqueness = MaybeShared` overrides the optimistic
-    /// lattice default — that override is what fixes BUG-04-086.
+    /// lattice default — that override is what prevents the slice-rest double-free.
     pub fn set_var_uniqueness(&mut self, var: ArcVarId, uniq: Uniqueness) {
         if !matches!(uniq, Uniqueness::Unique) {
             self.var_uniqueness.insert(var, uniq);

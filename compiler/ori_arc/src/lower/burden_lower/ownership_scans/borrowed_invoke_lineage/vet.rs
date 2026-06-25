@@ -1,6 +1,5 @@
 //! Gate (d) closure-vetting for the borrowed-`Invoke` lineage scan: grow the
 //! same-alloc closure from a root + vet every member use as a pure borrow-read.
-//! Split from `borrowed_invoke_lineage.rs` for the 500-line cap.
 
 use rustc_hash::FxHashSet;
 

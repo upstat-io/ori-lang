@@ -1,6 +1,6 @@
 //! RL-1 + RL-2 orphaned-inc elision for a fresh collection iter-consumed by an
 //! inline `for`-loop whose loop-carried thread is dead post-loop (annex-e §AIMS
-//! RL-1 + RL-2; BUG-04-155 back-edge-aware net).
+//! RL-1 + RL-2; back-edge-aware net).
 //!
 //! Shape: `let xs = [..]; let ys = for x in xs.iter() yield ...` — a fresh
 //! `Construct` collection `xs` (rc=1) whose SOLE genuine consume is the inline

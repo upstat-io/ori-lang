@@ -111,13 +111,28 @@ pub fn write_rc_remarks_header(source_file: &str, compiler_sha: &str) {
         return;
     };
     let envelope = RcRemarkStreamEnvelope::new(compiler_sha.to_string(), source_file.to_string());
-    if let Ok(mut file) = OpenOptions::new()
+    match OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(path)
     {
-        let _ = writeln!(file, "{}", envelope.to_jsonl());
+        Ok(mut file) => {
+            if let Err(error) = writeln!(file, "{}", envelope.to_jsonl()) {
+                tracing::warn!(
+                    target: "ori_arc::aims::realize",
+                    %error,
+                    "rc-remark header write failed"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                target: "ori_arc::aims::realize",
+                %error,
+                "rc-remark header file open failed"
+            );
+        }
     }
 }
 

@@ -71,9 +71,8 @@ struct Candidate {
 ///      a `Jump`-arg threading edge — any owned-consume position, `Set`/`SetTag`,
 ///      `Construct`/`Reuse`/`PartialApply` capture, `Project`, `Return`, or
 ///      `Branch`/`Switch`/`Resume`/`Unreachable` operand declines (the
-///      escaped/stored/captured closure is a DIFFERENT shape — `dead-end #154`
-///      lazy-iterator capture is an owned `PartialApply`/`Construct` arg and
-///      declines here).
+///      escaped/stored/captured closure is a DIFFERENT shape — a lazy-iterator
+///      capture is an owned `PartialApply`/`Construct` arg and declines here).
 ///  (d) loop-carried: at least one member is a block-param fed by a BACK-edge
 ///      (the loop carry — excludes the non-loop single-call shape, which the
 ///      base walk already balances).

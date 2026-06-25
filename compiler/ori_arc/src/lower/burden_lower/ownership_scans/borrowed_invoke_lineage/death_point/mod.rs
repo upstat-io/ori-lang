@@ -1,7 +1,6 @@
 //! Gate (e) death-point selection for the borrowed-`Invoke` lineage scan: the
 //! DEAD-PARAM mode (a dead merge block-param sink) and the NO-SINK edge-death
-//! mode (the borrowed-`Invoke` carrier's successor edges). Split
-//! from `borrowed_invoke_lineage.rs` for the 500-line cap. Spec: Annex E §AIMS
+//! mode (the borrowed-`Invoke` carrier's successor edges). Spec: Annex E §AIMS
 //! RL-2 + RL-4 + RL-5.
 
 use rustc_hash::FxHashSet;

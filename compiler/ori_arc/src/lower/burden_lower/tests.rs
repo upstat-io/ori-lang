@@ -500,8 +500,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
 
 #[test]
 fn set_emits_burden_dec_field_for_owned_field_before_burden_inc_value() {
-    // positive pin per plan body line 1943 + navigator-verdict
-    // (proceed verdict,): Set with heap-burden base MUST emit
+    // positive pin: Set with heap-burden base MUST emit
     // BurdenDecField(base, field) BEFORE BurdenInc(value) BEFORE the Set
     // instruction. BurdenDecField releases the prior field value's burden;
     // symmetric with BurdenInc(value) which transfers ownership of the new
@@ -8584,7 +8583,7 @@ fn funded_store_dup_admits_set_value_endpoint() {
 #[test]
 fn funded_store_dup_declines_branch_exclusive_aliases() {
     // Each branch store-aliases the source then returns — per-path terminal
-    // moves, no duplication (the BUG-04-176 boundary: NO kept inc by design).
+    // moves, no duplication (the branch-exclusive store boundary: NO kept inc by design).
     let func = ArcFunction {
         var_types: (0..6).map(|i| Idx::from_raw(i + 1)).collect(),
         blocks: vec![

@@ -1,7 +1,6 @@
 //! LOOP-EXIT death-point mode for the borrowed-`Invoke` lineage scan: a
 //! loop-INVARIANT root borrow-read only inside one CFG cycle dies once, at the
-//! cycle's unique non-unwind exit block. Split from `death_point/mod.rs` for
-//! the 500-line cap. Spec: Annex E §AIMS RL-2 + RL-4.
+//! cycle's unique non-unwind exit block. Spec: Annex E §AIMS RL-2 + RL-4.
 
 use rustc_hash::FxHashSet;
 

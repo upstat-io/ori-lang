@@ -1,7 +1,6 @@
 //! Root collection + gate-(c)/(c2) helpers for the borrowed-`Invoke` lineage
 //! scan: the FRESH collection-`Construct` + borrowed-call-RESULT root families
-//! and the borrowed-arg / iter-consume member probes. Split from
-//! `borrowed_invoke_lineage.rs` for the 500-line cap. Spec: Annex E §AIMS RL-2.
+//! and the borrowed-arg / iter-consume member probes. Spec: Annex E §AIMS RL-2.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

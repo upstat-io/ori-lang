@@ -388,9 +388,9 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // a dead normal-successor entry). Runs AFTER the multi-exit scan (disjoint
     // family — interprocedural closure-extract RESULT roots vs the intraprocedural
     // FRESH-closure RECEIVER roots). The PROVEN same-allocation identity is the
-    // lambda contract's `Project` edge (NOT a use-count / type-membership proxy —
-    // dead-end #150); the borrow-only vetting declines any owned-position escape
-    // (the fresh-sum live-extract over-fire boundary — dead-ends #174/#175).
+    // lambda contract's `Project` edge (NOT a use-count / type-membership proxy);
+    // the borrow-only vetting declines any owned-position escape
+    // (the fresh-sum live-extract over-fire boundary).
     // SSOT: `compute_closure_extract_borrow_view_lineage`. Spec: Annex E §AIMS
     // RL-2 + TF-4.
     apply_closure_extract_borrow_view(func, contracts, &mut owned_vars_needing_rc);
@@ -413,7 +413,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // RL-2 lazy-iterator closure-borrow treatment: a FRESH `PartialApply` closure
     // borrowed into a lazy-iterator builtin (`@map`/`@filter`) whose result
     // iterator retains the closure env as a borrowed raw pointer (the runtime
-    // adapter never incs/drops the env — dead-end #154) across the chain's
+    // adapter never incs/drops the env) across the chain's
     // terminal consumer (`@collect`/…). The base walk places the closure's
     // `BurdenDec` at its last var-use (the `@map`/`@filter` borrowed arg), BEFORE
     // the lazy iterator runs the closure at `@collect` time — freeing the env (and

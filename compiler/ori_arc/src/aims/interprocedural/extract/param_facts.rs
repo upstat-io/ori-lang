@@ -20,7 +20,7 @@ use super::super::super::lattice::AccessClass;
 /// produces exactly this shape: `%a = Let Var(param); %it = Apply @iter(%a
 /// [own]); ...; Apply @ori_iter_drop(%it [own])`.
 ///
-/// PRECISION (the over-fire guard, per the §B.2 attempt-9/12 traps): the gate
+/// PRECISION (the over-fire guard): the gate
 /// requires BOTH the `@iter` source AND a matching `ori_iter_drop` of that
 /// handle, matching the explicit `@iter`→`ori_iter_drop` handle pair (not merely
 /// "flows to any iterator") so the fire is scoped to the genuine free. A

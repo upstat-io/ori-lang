@@ -569,7 +569,7 @@ fn set_var_uniqueness_maybe_shared_inserts() {
     // table must store — without this insert, `ori_list_slice_drop`'s
     // contract is silently dropped, effective falls through to lattice
     // BOTTOM=Unique, drop_hints classify as Unique, codegen routes to
-    // ori_buffer_drop_unique → BUG-04-086 slice-rest panic UNFIXED.
+    // ori_buffer_drop_unique → a slice-rest double-free panic.
     use super::super::super::lattice::Uniqueness;
 
     let mut map = make_state_map(2, 3);
@@ -733,7 +733,7 @@ fn effective_uniqueness_join_contract_unique_lattice_maybe_shared() {
 #[test]
 fn effective_uniqueness_join_contract_maybe_shared_lattice_unique() {
     // Contract MaybeShared × lattice Unique → MaybeShared.
-    // BUG-04-086 ORI_LIST_SLICE_DROP CASE: contract narrows the call-result
+    // ORI_LIST_SLICE_DROP CASE: contract narrows the call-result
     // dst from optimistic lattice BOTTOM=Unique to MaybeShared, ensuring
     // drop_hints route through ori_buffer_rc_dec (slice-aware path).
     use super::super::super::lattice::Uniqueness;

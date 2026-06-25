@@ -1064,9 +1064,9 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
 // Drop type is not reached through the structure walk. The top-level local
 // check still catches an all-scalar Drop type directly. Realistic Drop types
 // own heap/str fields (RC'd) and are fully covered. The nested-all-scalar gap
-// is a facet of the burden-registry-not-threaded condition owned by the
-// aims-burden-tracking plan; Step-0 `@drop` emission shares the same
-// RC-filtered structure, so the predicate matches emission reality.
+// is a facet of the burden-registry-not-threaded condition; Step-0 `@drop`
+// emission shares the same RC-filtered structure, so the predicate matches
+// emission reality.
 
 fn may_unwind(ty: Idx, pool: &Pool, drop_types: &[Idx]) -> bool {
     let c = cls(pool);

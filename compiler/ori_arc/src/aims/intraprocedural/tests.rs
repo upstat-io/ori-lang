@@ -4282,13 +4282,13 @@ fn func_with_apply_call(callee_name: Name) -> ArcFunction {
     }
 }
 
-/// PRIMARY BUG-04-086 LOAD-BEARING TEST.
+/// PRIMARY slice-rest uniqueness side-table LOAD-BEARING TEST.
 ///
 /// Apply call with contract `return_info.uniqueness = MaybeShared` populates
 /// the side table at `dst`. Without this, `effective_uniqueness_at_block_*`
 /// would fall through to lattice BOTTOM=Unique, `drop_hints` would classify the
 /// slice-rest as Unique, and codegen would route through
-/// `ori_buffer_drop_unique` → BUG-04-086 panic UNFIXED.
+/// `ori_buffer_drop_unique` → a slice-rest double-free panic.
 #[test]
 fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
     let callee_name = Name::from_raw(100);
@@ -4313,7 +4313,7 @@ fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
         state_map.contract_uniqueness(var(1)),
         Some(Uniqueness::MaybeShared),
         "Apply with MaybeShared contract must populate side table — \
-         BUG-04-086 closure depends on this exact override of optimistic lattice BOTTOM=Unique"
+         the slice-rest drop_hints closure depends on this exact override of optimistic lattice BOTTOM=Unique"
     );
 }
 
@@ -4411,7 +4411,7 @@ fn func_with_apply_then_let_alias(callee_name: Name) -> ArcFunction {
     }
 }
 
-/// BUG-04-202 LOAD-BEARING TEST (TF-2 alias carrier).
+/// TF-2 alias-carrier slice-rest uniqueness LOAD-BEARING TEST.
 ///
 /// A `Let { Var(src) }` alias of an `Apply` result whose contract is
 /// `MaybeShared` (the seamless-slice `..tail` pattern binding aliasing the

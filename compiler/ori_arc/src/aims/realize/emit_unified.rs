@@ -898,9 +898,8 @@ fn emit_burden_path_probe_tail(
 
 /// Probe-tail Phase 7: mechanically lower the surviving burden ops to real RC
 /// (`BurdenInc → RcInc` / `BurdenDec → RcDec`, eliding the M1 fresh-surplus incs)
-/// then emit the per-same-alloc-rep alias-lineage RC-net diagnostic. Split from
-/// the [`emit_burden_path_probe_tail`] orchestrator as the "lower then verify"
-/// concept seam following the burden-emit/relocate phases. Spec: Annex E §AIMS
+/// then emit the per-same-alloc-rep alias-lineage RC-net diagnostic — the
+/// "lower then verify" stage of [`emit_burden_path_probe_tail`]. Spec: Annex E §AIMS
 /// RL-comp (lowered net-balance), RL-2 (per-lineage release-once diagnostic).
 fn lower_and_diagnose_burden_path(
     func: &mut ArcFunction,
