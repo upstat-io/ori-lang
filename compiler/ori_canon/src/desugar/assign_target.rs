@@ -343,6 +343,30 @@ impl Lowerer<'_> {
         span: Span,
         outer_ty: TypeId,
     ) -> CanId {
+        let node = self.lower_raw_access_chain(root, steps, span, outer_ty);
+        let value = self.lower_expr(value);
+        self.push(
+            CanExpr::Assign {
+                target: node,
+                value,
+            },
+            span,
+            outer_ty,
+        )
+    }
+
+    /// Lower `root` plus a raw `AccessStepRange` into a left-associated
+    /// `Index`/`Field` read chain, re-lowering each index directly and tagging
+    /// every node with `ty`. The single canonical builder for an un-desugared
+    /// access chain — consumed by both the `lower_assign_chain_fallback`
+    /// write-target path and the bare `ExprKind::AssignTarget` lowering arm.
+    pub(crate) fn lower_raw_access_chain(
+        &mut self,
+        root: ExprId,
+        steps: AccessStepRange,
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
         let mut node = self.lower_expr(root);
         let step_list = self.src.get_access_steps(steps).to_vec();
         for step in step_list {
@@ -353,7 +377,7 @@ impl Lowerer<'_> {
                         field,
                     },
                     span,
-                    outer_ty,
+                    ty,
                 ),
                 AccessStep::Index(index) => {
                     let index = self.lower_expr(index);
@@ -363,19 +387,11 @@ impl Lowerer<'_> {
                             index,
                         },
                         span,
-                        outer_ty,
+                        ty,
                     )
                 }
             };
         }
-        let value = self.lower_expr(value);
-        self.push(
-            CanExpr::Assign {
-                target: node,
-                value,
-            },
-            span,
-            outer_ty,
-        )
+        node
     }
 }

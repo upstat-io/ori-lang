@@ -221,27 +221,14 @@ impl Lowerer<'_> {
         for (name, value, field_span) in src_fields {
             let value = match value {
                 Some(expr_id) => self.lower_expr(expr_id),
-                // Shorthand: `Point { x }` → synthesize `Ident(x)`.
-                None => self.push(
-                    CanExpr::Ident(name),
-                    field_span,
-                    Self::resolve_field_type(name),
-                ),
+                // Shorthand: `Point { x }` → synthesize `Ident(x)`. The
+                // synthesized Ident's type is refined when the evaluator/codegen
+                // looks up the variable binding, so it carries ERROR here.
+                None => self.push(CanExpr::Ident(name), field_span, TypeId::ERROR),
             };
             can_fields.push(CanField { name, value });
         }
 
         self.arena.push_fields(&can_fields)
-    }
-
-    /// Resolve the type for a field shorthand reference.
-    ///
-    /// For `Point { x }`, we need the type of the variable `x`.
-    /// This is best-effort — falls back to ERROR if we can't determine it.
-    fn resolve_field_type(_name: Name) -> TypeId {
-        // The synthesized Ident will get its type from context.
-        // For now, use ERROR as the type — it will be refined once
-        // the evaluator/codegen looks up the variable binding.
-        TypeId::ERROR
     }
 }

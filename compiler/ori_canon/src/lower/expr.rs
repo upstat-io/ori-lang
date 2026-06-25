@@ -178,32 +178,7 @@ impl Lowerer<'_> {
             // chain so it mirrors the index/field-assignment path exactly — the
             // evaluator raises the same clean "not yet supported" diagnostic.
             ExprKind::AssignTarget { root, steps } => {
-                let mut node = self.lower_expr(root);
-                let step_list = self.src.get_access_steps(steps).to_vec();
-                for step in step_list {
-                    node = match step {
-                        ori_ir::AccessStep::Field(field) => self.push(
-                            CanExpr::Field {
-                                receiver: node,
-                                field,
-                            },
-                            span,
-                            ty,
-                        ),
-                        ori_ir::AccessStep::Index(index) => {
-                            let index = self.lower_expr(index);
-                            self.push(
-                                CanExpr::Index {
-                                    receiver: node,
-                                    index,
-                                },
-                                span,
-                                ty,
-                            )
-                        }
-                    };
-                }
-                node
+                self.lower_raw_access_chain(root, steps, span, ty)
             }
 
             // Control flow

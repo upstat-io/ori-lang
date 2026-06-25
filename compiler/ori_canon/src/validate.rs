@@ -285,3 +285,6 @@ fn validate_can_range(
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
