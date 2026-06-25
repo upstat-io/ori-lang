@@ -1,4 +1,4 @@
-//! Spec: grammar.ebnf:312 `trait_impl` — subject-first colon form `impl Type: Trait`
+//! Spec: grammar.ebnf `trait_impl` — subject-first colon form `impl Type: Trait`
 //! (approved `docs/ori_lang/proposals/approved/impl-colon-syntax-proposal.md`).
 //! Covers colon-form parsing + E1019 rejection of the removed `impl Trait for Type` form.
 
@@ -13,7 +13,7 @@ fn parse_source(source: &str) -> ParseOutput {
 }
 
 #[test]
-fn test_parse_def_impl_basic() {
+fn test_parse_def_impl_with_method_parses_clean() {
     let source = r#"
 def impl Http {
 @get (url: str) -> str = "response";
@@ -105,7 +105,7 @@ def impl FileSystem {
     assert_eq!(output.module.def_impls.len(), 2);
 }
 
-// Colon trait_impl (`impl Type: Trait`) — the sole trait-impl form per grammar.ebnf:312;
+// Colon trait_impl (`impl Type: Trait`) — the sole trait-impl form per grammar.ebnf `trait_impl`;
 // the `impl Trait for Type` form is rejected (E1019). List/tuple impl subjects are out of
 // scope (parse_impl_type is path-only).
 
@@ -289,7 +289,7 @@ impl Line: Eq {
 #[test]
 fn test_parse_for_form_trait_impl_rejected_with_migration_error() {
     // Negative pin: the removed `impl Trait for Type` form is rejected with the
-    // E1019 migration diagnostic (grammar.ebnf:312 has no `for`-form production).
+    // E1019 migration diagnostic (the grammar `trait_impl` production has no `for`-form).
     let source = r"
 impl Eq for Point {
 @equals (self, other: Self) -> bool = true;
@@ -349,7 +349,7 @@ impl Point: {
 }
 
 // Primitive type-name subjects in impl blocks (`impl str: Trait` / `impl str { }`).
-// grammar.ebnf:312 makes a primitive a valid `trait_impl` subject; acceptance is scoped to
+// The grammar `trait_impl` production makes a primitive a valid subject; acceptance is scoped to
 // the 6-primitive helper (trait-path stays Ident-only; Never/void reject).
 use ori_ir::{ParsedType, TypeId};
 

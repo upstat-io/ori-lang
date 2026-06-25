@@ -58,6 +58,7 @@ fn function_sig_generic() {
         param_defaults: vec![],
         param_hashes: vec![0; 1],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert!(sig.is_generic());
@@ -135,6 +136,7 @@ fn effect_class_reads_only() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::ReadsOnly);
@@ -166,6 +168,7 @@ fn effect_class_has_effects() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
@@ -199,6 +202,7 @@ fn effect_class_mixed_caps_is_has_effects() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);

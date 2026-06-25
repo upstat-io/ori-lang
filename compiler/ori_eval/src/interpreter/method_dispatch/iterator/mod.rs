@@ -142,11 +142,36 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("rfold", 2, args)?;
                 self.eval_iter_rfold(iter_val, args[0].clone(), &args[1])
             }
-            _ => unreachable!("non-iterator CollectionMethod in eval_iterator_method"),
+            // Non-iterator variants are routed to their own handlers by
+            // `dispatch_collection_method` and never reach here. Listing them
+            // explicitly (vs `_ =>`) makes this match exhaustive, so adding a
+            // new `Iter*` variant fails to compile until it gets an arm above.
+            CollectionMethod::Map
+            | CollectionMethod::Filter
+            | CollectionMethod::Fold
+            | CollectionMethod::Find
+            | CollectionMethod::Collect
+            | CollectionMethod::MapEntries
+            | CollectionMethod::FilterEntries
+            | CollectionMethod::Any
+            | CollectionMethod::All
+            | CollectionMethod::Join
+            | CollectionMethod::OrderingThenWith
+            | CollectionMethod::OptionMap
+            | CollectionMethod::OptionAndThen
+            | CollectionMethod::OptionFlatMap
+            | CollectionMethod::OptionFilter
+            | CollectionMethod::OptionOrElse
+            | CollectionMethod::ResultMap
+            | CollectionMethod::ResultMapErr
+            | CollectionMethod::ResultAndThen
+            | CollectionMethod::ResultOrElse => {
+                unreachable!("non-iterator CollectionMethod in eval_iterator_method")
+            }
         }
     }
 
-    // ── Adapter constructors ────────────────────────────────────────────
+    // Adapter constructors
 
     /// Create a `Mapped` adapter iterator.
     fn make_mapped(iter_val: IteratorValue, transform: Value) -> Value {

@@ -238,14 +238,3 @@ pub(crate) fn closing_delimiter(open: &TokenKind) -> TokenKind {
         _ => TokenKind::Eof, // fallback
     }
 }
-
-/// Get a human-readable name for a delimiter type.
-pub(crate) fn delimiter_name(open: &TokenKind) -> &'static str {
-    match open {
-        TokenKind::LParen => "parenthesis",
-        TokenKind::LBracket => "bracket",
-        TokenKind::LBrace => "brace",
-        TokenKind::Lt => "angle bracket",
-        _ => "delimiter",
-    }
-}

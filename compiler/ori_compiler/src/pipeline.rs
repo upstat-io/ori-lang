@@ -95,7 +95,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
         return CompileOutput {
             success: false,
             output: String::new(),
-            printed: interpreter.get_print_output(),
+            printed: interpreter.print_output(),
             diagnostics: vec![no_main_diagnostic(&config.file_path)],
             error_phase: Some(ErrorPhase::Runtime),
         };
@@ -105,7 +105,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
     match interpreter.eval_can(can_id) {
         Ok(value) => {
             let output = format_value(&value);
-            let printed = interpreter.get_print_output();
+            let printed = interpreter.print_output();
             CompileOutput {
                 success: true,
                 output,
@@ -115,7 +115,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
             }
         }
         Err(e) => {
-            let printed = interpreter.get_print_output();
+            let printed = interpreter.print_output();
             let eval_error = e.into_eval_error();
             let diag = eval_error.to_diagnostic();
             CompileOutput {

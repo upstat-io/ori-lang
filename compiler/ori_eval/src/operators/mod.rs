@@ -309,8 +309,8 @@ fn eval_bool_binary(a: bool, b: bool, op: BinaryOp) -> EvalResult {
         BinaryOp::LtEq => Ok(Value::Bool(!a || b)),
         BinaryOp::Gt => Ok(Value::Bool(a && !b)),
         BinaryOp::GtEq => Ok(Value::Bool(a || !b)),
-        // Logical operators (short-circuit semantics handled by caller;
-        // we only reach here for the already-evaluated case).
+        // Logical operators (short-circuit handled by caller; this branch is
+        // reached only for the already-evaluated case).
         BinaryOp::And => Ok(Value::Bool(a && b)),
         BinaryOp::Or => Ok(Value::Bool(a || b)),
         _ => Err(invalid_binary_op_for("booleans", op).into()),

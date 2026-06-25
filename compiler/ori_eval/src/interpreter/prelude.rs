@@ -1,7 +1,4 @@
 //! Prelude registration — built-in functions, type constructors, and enum variants.
-//!
-//! Extracted from `interpreter/mod.rs` to keep the main module focused on
-//! interpreter structure and core dispatch.
 
 use crate::Value;
 

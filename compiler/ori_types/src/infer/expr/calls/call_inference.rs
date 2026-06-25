@@ -83,7 +83,7 @@ pub(crate) fn infer_call(
     // At this point type variables have been unified with concrete types.
     maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params);
 
-    ret
+    resolve_return_projection(engine, func_name_id, &params, ret)
 }
 
 /// Infer the type of a named-argument function call.
@@ -180,5 +180,54 @@ pub(crate) fn infer_call_named(
         check_where_clauses(engine, func_name, &params, span);
     }
 
-    ret
+    resolve_return_projection(engine, func_name_id, &params, ret)
+}
+
+/// Project a generic function's associated-type return (`-> C.Item`) to the
+/// concrete result type once the call's arguments have bound the base
+/// type-param to a concrete receiver.
+///
+/// When the function's signature carries a `return_projection: (base_param,
+/// assoc_name)` and the declared `ret` is `Idx::ERROR` (symbolic poison at
+/// signature time), resolve the concrete type the base type-param is bound to
+/// at this call site (via the param it directly types) and project the impl's
+/// `type <assoc_name> = …` binding. Falls back to `ret` (poison) for a symbolic
+/// receiver or a missing binding — the symbolic-poison guard for a generic
+/// receiver that cannot resolve (BUG-02-067).
+fn resolve_return_projection(
+    engine: &mut InferEngine<'_>,
+    func_name_id: Option<ori_ir::Name>,
+    instantiated_params: &[Idx],
+    ret: Idx,
+) -> Idx {
+    let Some(name) = func_name_id else {
+        return ret;
+    };
+    // Snapshot the projection + base-param index from the signature (immutable
+    // borrow) before resolving against the pool / registry (mutable borrow).
+    let Some((base_param, assoc_name, base_param_index)) =
+        engine.get_signature(name).and_then(|sig| {
+            let (base_param, assoc_name) = sig.return_projection?;
+            let tp_index = sig.type_params.iter().position(|&n| n == base_param)?;
+            let param_index = (*sig.generic_param_mapping.get(tp_index)?)?;
+            Some((base_param, assoc_name, param_index))
+        })
+    else {
+        return ret;
+    };
+    let _ = base_param;
+
+    // Resolve the concrete type the base type-param is bound to at this call.
+    let Some(&param_ty) = instantiated_params.get(base_param_index) else {
+        return ret;
+    };
+    let base_ty = engine.resolve(param_ty);
+    if base_ty == Idx::ERROR || engine.pool().tag(base_ty).is_type_variable() {
+        return ret;
+    }
+
+    let projected = engine
+        .trait_registry()
+        .and_then(|reg| reg.find_impl_assoc_binding(base_ty, assoc_name));
+    projected.unwrap_or(ret)
 }

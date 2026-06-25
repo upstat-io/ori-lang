@@ -81,7 +81,6 @@ pub(crate) use interned_names::{OpNames, PrintNames, PropNames, TypeNames};
 
 /// Whether this interpreter owns a scoped environment that should be popped on drop.
 ///
-/// Replaces a bare `bool` flag for self-documenting intent at construction sites.
 /// - `Borrowed`: No scope cleanup on drop (default for top-level interpreters).
 /// - `Owned`: Pop the environment scope on drop (for function/method call interpreters).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,7 +136,6 @@ pub struct Interpreter<'a> {
     pub(crate) mode_state: ModeState,
     /// Live call stack for recursion tracking and backtrace capture.
     ///
-    /// Replaces the old `call_depth: usize` with proper frame tracking.
     /// Depth is checked on `push()` against `mode.max_recursion_depth()`.
     /// On error, `capture()` produces an `EvalBacktrace` for diagnostics.
     pub(crate) call_stack: crate::diagnostics::CallStack,
@@ -205,30 +203,15 @@ impl Drop for Interpreter<'_> {
     }
 }
 
-/// Implement `PatternExecutor` for Interpreter.
+/// `PatternExecutor` impl: lets patterns request function calls and variable
+/// operations without direct access to the interpreter's internals.
 ///
-/// This allows patterns to request function calls and variable operations
-/// without needing direct access to the interpreter's internals.
-///
-/// Note: `eval(ExprId)` is no longer supported — all evaluation goes through
-/// `eval_can(CanId)`. The trait method returns an error if called. All
-/// `FunctionExpKind` variants (Print, Panic, Catch, Recurse, Cache, Parallel,
-/// Spawn, Timeout, With) are now dispatched inline in `can_eval.rs`, so the
-/// `ori_patterns` execute functions (`fusion.rs`, `parallel.rs`, `spawn.rs`,
-/// `with_pattern.rs`, `recurse.rs`) are never reached through this Interpreter.
-///
-/// The trait now uses `Name` directly, so the impl is a zero-cost pass-through
-/// with no redundant interning.
+/// Evaluation goes through `eval_can(CanId)`; `eval(ExprId)` is unsupported and
+/// returns an error. `FunctionExpKind` variants dispatch inline in `can_eval`,
+/// so the `ori_patterns` execute functions are never reached through this impl.
 impl PatternExecutor for Interpreter<'_> {
-    /// Dead code path — returns an error unconditionally.
-    ///
-    /// This method is required by the `PatternExecutor` trait but is never called
-    /// in practice. The `ori_eval` Interpreter evaluates all expressions through
-    /// `eval_can(CanId)` (canonical IR), not `eval(ExprId)` (raw AST). All
-    /// `FunctionExpKind` patterns are dispatched inline in `can_eval.rs`.
-    ///
-    /// **Removal:** Once `ori_patterns` consumers migrate to canonical IR,
-    /// `PatternExecutor::eval(ExprId)` can be removed from the trait (cross-crate).
+    /// Required by the trait but never called — evaluation routes through
+    /// `eval_can(CanId)` (canonical IR), not `eval(ExprId)` (raw AST).
     fn eval(&mut self, _expr_id: ExprId) -> EvalResult {
         Err(EvalError::new(
             "legacy PatternExecutor::eval(ExprId) is not supported — use eval_can(CanId)"
@@ -459,8 +442,8 @@ impl<'a> Interpreter<'a> {
     /// Returns all output written via print/println since the last clear.
     /// For stdout handler, this returns an empty string (stdout doesn't capture).
     /// For buffer handler, this returns the accumulated output.
-    pub fn get_print_output(&self) -> String {
-        self.print_handler.get_output()
+    pub fn print_output(&self) -> String {
+        self.print_handler.output()
     }
 
     /// Clear captured print output.

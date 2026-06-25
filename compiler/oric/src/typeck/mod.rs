@@ -391,6 +391,7 @@ fn dummy_sig(name: Name) -> FunctionSig {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     }
 }
 

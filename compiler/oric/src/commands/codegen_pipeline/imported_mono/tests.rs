@@ -37,6 +37,7 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
         param_defaults: vec![],
         param_hashes: vec![0],
         return_hash: 0,
+        return_projection: None,
     }
 }
 

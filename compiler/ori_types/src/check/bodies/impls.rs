@@ -62,47 +62,71 @@ fn check_impl_block(
 
     let is_trait_impl = impl_def.trait_path.is_some();
 
-    // Check explicitly defined methods
-    for method in &impl_def.methods {
-        check_impl_method(
+    // Build this impl's associated-type bindings (`assoc_name → Idx`) so a
+    // method whose declared param/return carries `Self.Item` resolves the
+    // projection at body-check time too (the registration arm resolves the
+    // registered signature; body-check re-resolves the declared type). Mirrors
+    // the registration scope in `register_impl` (BUG-02-067).
+    let trait_idx = impl_def
+        .trait_path
+        .as_ref()
+        .and_then(|path| path.last().copied())
+        .map(|trait_name| checker.pool_mut().named(trait_name));
+    let mut assoc_bindings: FxHashMap<Name, Idx> = FxHashMap::default();
+    for impl_assoc in &impl_def.assoc_types {
+        let ty = resolve_type_with_method_generics(
             checker,
-            method,
-            self_type,
-            &impl_generic_params,
+            &impl_assoc.ty,
             &impl_substitutions,
-            &impl_inline_bounds,
+            &impl_generic_params,
+            self_type,
         );
-        if is_trait_impl {
-            checker.register_trait_impl_fn_name(self_type, method.name);
-        }
+        assoc_bindings.insert(impl_assoc.name, ty);
     }
 
-    // For trait impls, also check unoverridden default methods.
-    // This registers their signatures so LLVM codegen can compile them.
-    if let Some(trait_path) = &impl_def.trait_path {
-        if let Some(&trait_name) = trait_path.last() {
-            let overridden: FxHashSet<Name> = impl_def.methods.iter().map(|m| m.name).collect();
+    checker.with_impl_assoc_scope(assoc_bindings, trait_idx, |checker| {
+        // Check explicitly defined methods
+        for method in &impl_def.methods {
+            check_impl_method(
+                checker,
+                method,
+                self_type,
+                &impl_generic_params,
+                &impl_substitutions,
+                &impl_inline_bounds,
+            );
+            if is_trait_impl {
+                checker.register_trait_impl_fn_name(self_type, method.name);
+            }
+        }
 
-            if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
-                for item in &trait_def.items {
-                    if let TraitItem::DefaultMethod(default) = item {
-                        if !overridden.contains(&default.name) {
-                            let as_impl = ImplMethod::from(default);
-                            check_impl_method(
-                                checker,
-                                &as_impl,
-                                self_type,
-                                &impl_generic_params,
-                                &impl_substitutions,
-                                &impl_inline_bounds,
-                            );
-                            checker.register_trait_impl_fn_name(self_type, default.name);
+        // For trait impls, also check unoverridden default methods.
+        // This registers their signatures so LLVM codegen can compile them.
+        if let Some(trait_path) = &impl_def.trait_path {
+            if let Some(&trait_name) = trait_path.last() {
+                let overridden: FxHashSet<Name> = impl_def.methods.iter().map(|m| m.name).collect();
+
+                if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
+                    for item in &trait_def.items {
+                        if let TraitItem::DefaultMethod(default) = item {
+                            if !overridden.contains(&default.name) {
+                                let as_impl = ImplMethod::from(default);
+                                check_impl_method(
+                                    checker,
+                                    &as_impl,
+                                    self_type,
+                                    &impl_generic_params,
+                                    &impl_substitutions,
+                                    &impl_inline_bounds,
+                                );
+                                checker.register_trait_impl_fn_name(self_type, default.name);
+                            }
                         }
                     }
                 }
             }
         }
-    }
+    });
 }
 
 /// Type check a single impl method body.

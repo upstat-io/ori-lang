@@ -1,6 +1,4 @@
 //! Tests for binary operator implementations.
-//!
-//! Relocated from `operators.rs` per coding guidelines (>200 lines).
 
 use crate::operators::evaluate_binary;
 use ori_ir::BinaryOp;

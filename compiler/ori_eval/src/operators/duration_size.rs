@@ -1,7 +1,4 @@
 //! Binary operator implementations for Duration and Size types.
-//!
-//! Extracted from the main operators module to keep file sizes
-//! within the 500-line limit.
 
 use ori_ir::BinaryOp;
 use ori_patterns::{

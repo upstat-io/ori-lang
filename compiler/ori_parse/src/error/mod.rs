@@ -9,15 +9,13 @@
 //! # Error Construction Paths
 //!
 //! Two construction paths coexist:
-//! - **`ParseError::new()`** — 87 call sites; simple (code, message, span) errors.
-//! - **`ParseError::from_kind()`** — 8 call sites; rich structured errors via
-//!   `ParseErrorKind` with title, empathetic message, hint, and educational note.
+//! - **`ParseError::new()`** — simple (code, message, span) errors.
+//! - **`ParseError::from_kind()`** — rich structured errors via `ParseErrorKind`,
+//!   carrying message, hint, and educational note.
 //!
-//! New error sites should prefer `from_kind()`. Migration of existing `new()` sites
-//! to `from_kind()` is a future feature task, not a hygiene issue.
+//! New error sites should prefer `from_kind()`.
 
 mod context;
-pub(crate) mod details;
 mod kind;
 pub(crate) mod mistakes;
 mod parse_error;

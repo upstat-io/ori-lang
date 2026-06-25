@@ -119,6 +119,18 @@ pub struct FunctionSig {
     ///
     /// Zero when constructed without pool access.
     pub return_hash: u64,
+
+    /// Associated-type projection in the return position over a generic
+    /// type-param: `(base_param, assoc_name)` for `-> C.Item` where `C` is a
+    /// bound type-param (e.g. `@get_via_generic<C: Container> -> C.Item`).
+    ///
+    /// The resolved `return_type` is `Idx::ERROR` (symbolic poison) at
+    /// signature time because the projection cannot resolve until `C` is bound
+    /// to a concrete receiver at a call site. The call-site inference path reads
+    /// this to project the concrete result type once `base_param` is unified
+    /// with a concrete type that has a `type <assoc_name> = …` impl binding
+    /// (BUG-02-067). `None` when the return is not such a projection.
+    pub return_projection: Option<(Name, Name)>,
 }
 
 /// A where-clause constraint on a function.
@@ -164,6 +176,7 @@ impl FunctionSig {
             param_defaults: Vec::new(),
             param_hashes,
             return_hash: 0,
+            return_projection: None,
         }
     }
 
@@ -203,6 +216,7 @@ impl FunctionSig {
             param_defaults: Vec::new(),
             param_hashes,
             return_hash: 0,
+            return_projection: None,
         }
     }
 

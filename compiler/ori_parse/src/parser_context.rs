@@ -9,7 +9,7 @@ use crate::outcome::ParseOutcome;
 use crate::Parser;
 
 impl Parser<'_> {
-    // --- Context Management ---
+    // Context Management
     //
     // These methods support context-sensitive parsing. Some are not yet used
     // internally but are part of the public API for parser extensions and testing.
@@ -79,7 +79,7 @@ impl Parser<'_> {
         self.context.allows_struct_lit()
     }
 
-    // --- Error Context ---
+    // Error Context
     //
     // These methods support Elm-style error context for better error messages.
     // `ErrorContext` describes what was being parsed when an error occurred,

@@ -279,6 +279,7 @@ pub fn concrete_sig_for_instance(
         param_defaults: generic_sig.param_defaults.clone(),
         param_hashes,
         return_hash,
+        return_projection: None,
     }
 }
 

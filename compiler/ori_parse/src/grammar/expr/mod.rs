@@ -222,10 +222,8 @@ impl Parser<'_> {
 
     /// Parse binary expressions using a Pratt parser.
     ///
-    /// Replaces the recursive descent precedence chain (12 levels of function
-    /// calls per primary expression) with a single loop that uses a binding
-    /// power table. This reduces function call overhead from ~30 calls per
-    /// simple expression to ~4.
+    /// A single loop driven by the binding-power table (`OPER_TABLE`) handles
+    /// all precedence levels.
     ///
     /// `min_bp` controls which operators are parsed at this level:
     /// - `0`: all binary operators (entry point for full expressions)

@@ -11,7 +11,7 @@ use crate::{ParseError, Parser};
 use ori_ir::TokenKind;
 
 impl Parser<'_> {
-    // --- Token Capture ---
+    // Token Capture
     //
     // These methods support lazy token capture for formatters and future macros.
     // Instead of storing tokens directly, we capture index ranges into the
@@ -114,7 +114,7 @@ impl Parser<'_> {
         }
     }
 
-    // --- Speculative Parsing (Snapshots) ---
+    // Speculative Parsing (Snapshots)
     //
     // These methods enable speculative parsing for disambiguation.
     // Use when you need to try a parse, examine the result, and decide

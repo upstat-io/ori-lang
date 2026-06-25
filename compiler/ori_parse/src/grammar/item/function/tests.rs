@@ -85,7 +85,7 @@ fn test_regular_function_not_test() {
     assert_eq!(output.module.tests.len(), 0);
 }
 
-// --- Semicolon enforcement tests ---
+// Semicolon enforcement tests
 
 #[test]
 fn test_expression_body_requires_semicolon() {
@@ -138,10 +138,10 @@ fn test_block_body_with_optional_semicolon() {
     assert_eq!(output.module.functions.len(), 1);
 }
 
-// --- Contract parsing tests ---
+// Contract parsing tests
 
 #[test]
-fn test_pre_contract_basic() {
+fn test_pre_contract_parses_clean() {
     let output = parse_module("@f (x: int) -> int pre(x > 0) = x;");
     assert!(
         output.errors.is_empty(),
@@ -169,7 +169,7 @@ fn test_pre_contract_with_message() {
 }
 
 #[test]
-fn test_post_contract_basic() {
+fn test_post_contract_parses_clean() {
     let output = parse_module("@f (x: int) -> int post(r -> r >= 0) = x;");
     assert!(
         output.errors.is_empty(),
@@ -272,7 +272,7 @@ fn test_contracts_with_guard_and_where() {
 }
 
 #[test]
-fn test_no_contracts_still_works() {
+fn test_function_without_contracts_parses_clean() {
     // Regression: functions without contracts should still parse cleanly
     let output = parse_module("@f (x: int) -> int = x;");
     assert!(

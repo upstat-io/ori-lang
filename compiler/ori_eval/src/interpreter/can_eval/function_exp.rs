@@ -243,6 +243,10 @@ impl Interpreter<'_> {
                     return Err(EvalError::new("spawn: tasks must be a list".to_string()).into());
                 };
                 for task in task_list.iter() {
+                    // Why: spawn is fire-and-forget and returns void (Spec: 10-patterns.md
+                    // spawn). A task result/error is intentionally not propagated to the
+                    // spawner; propagating would break the fire-and-forget contract and
+                    // diverge from the LLVM backend.
                     let _ = self.eval_call(task, &[]);
                 }
                 Ok(Value::Void)
@@ -259,8 +263,12 @@ impl Interpreter<'_> {
                 let resource = super::find_prop_value(&values, pn.acquire, self.interner)?;
                 let action_fn = super::find_prop_value(&values, pn.action, self.interner)?;
                 let result = self.eval_call(&action_fn, std::slice::from_ref(&resource));
-                // Always call release if provided (RAII guarantee)
+                // Always call release if provided (RAII guarantee).
                 if let Ok(release_fn) = super::find_prop_value(&values, pn.release, self.interner) {
+                    // Why: best-effort cleanup in this stub — the release result is
+                    // intentionally discarded so the action's outcome is what `with`
+                    // yields, matching the LLVM backend. Surfacing a release error here
+                    // is a behavior change deferred until `with` leaves stub status.
                     let _ = self.eval_call(&release_fn, std::slice::from_ref(&resource));
                 }
                 result

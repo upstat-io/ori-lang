@@ -202,6 +202,16 @@ fn infer_function_signature_with_arena(
         None => checker.pool_mut().fresh_var(),
     };
 
+    // Detect an associated-type projection return over a generic type-param
+    // (`-> C.Item` where `C` is a bound type-param). `return_type` is
+    // `Idx::ERROR` poison (the projection cannot resolve until `C` is bound to a
+    // concrete receiver at a call site); record `(base_param, assoc_name)` so
+    // the call-site inference path can project the concrete result (BUG-02-067).
+    let return_projection = func
+        .return_ty
+        .as_ref()
+        .and_then(|rt| detect_type_param_projection(rt, &type_params, arena));
+
     // Extract capabilities
     let capabilities: Vec<Name> = func.capabilities.iter().map(|c| c.name).collect();
 
@@ -273,9 +283,32 @@ fn infer_function_signature_with_arena(
         param_defaults,
         param_hashes,
         return_hash,
+        return_projection,
     };
 
     (sig, var_ids)
+}
+
+/// Detect a return-position associated-type projection over a generic
+/// type-param: `C.Item` where `base` is a `Named(C)` and `C` is in
+/// `type_params`. Returns `(base_param, assoc_name)`. `None` for any other
+/// shape (a `Self.Item` projection, a non-type-param base, a non-projection).
+fn detect_type_param_projection(
+    parsed: &ParsedType,
+    type_params: &[Name],
+    arena: &ExprArena,
+) -> Option<(Name, Name)> {
+    let ParsedType::AssociatedType { base, assoc_name } = parsed else {
+        return None;
+    };
+    let ParsedType::Named { name, .. } = arena.get_parsed_type(*base) else {
+        return None;
+    };
+    if type_params.contains(name) {
+        Some((*name, *assoc_name))
+    } else {
+        None
+    }
 }
 
 /// Infer the signature of a test function.
@@ -343,6 +376,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         param_defaults,
         param_hashes,
         return_hash,
+        return_projection: None,
     }
 }
 

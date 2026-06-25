@@ -64,55 +64,70 @@ fn register_impl(
     // 3. Resolve trait reference (if trait impl): trait name + type arguments.
     let (trait_idx, trait_type_args) = resolve_impl_trait_ref(checker, impl_def);
 
-    // 4. Process explicitly defined methods.
+    // 4. Process associated type definitions FIRST.
     //
-    // Explicit user-written impl methods reference impl-level binders directly
-    // (e.g. `op: (T, X) -> T` where `X` is the impl's own type-param) — no
-    // trait→impl substitution is needed. Pass an empty `trait_substitutions`
-    // overlay. The substitution path matters only for inherited defaults at
-    // step 4b below (see `inherit_default_methods`).
-    let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
-    let mut methods = FxHashMap::default();
-    for impl_method in &impl_def.methods {
-        let method_def = build_impl_method(
-            checker,
-            impl_method,
-            &type_params,
-            self_type,
-            &empty_trait_subst,
-        );
-        methods.insert(impl_method.name, method_def);
-    }
-
-    // 4b. Inherit unoverridden default methods (direct + transitive from super-traits).
-    //
-    // `ImplBuildContext` bundles the three co-varying impl-instance fields
-    // (`type_params`, `self_type`, `trait_type_args`) into one parameter object.
-    // `trait_type_args` is required so
-    // direct-default inheritance can build the trait→impl binder substitution
-    // map (e.g. `F → X` for `impl<X> Reducer<X>` over `trait Reducer<F>`) —
-    // without it, the inherited default's `op: (T, F) -> T` body would carry
-    // a dangling `Tag::Named("F")` that fails to unify at call sites.
-    let impl_ctx = ImplBuildContext {
-        type_params: &type_params,
-        self_type,
-        trait_type_args: &trait_type_args,
-    };
-    let explicit_methods = inherit_default_methods(
-        checker,
-        impl_def,
-        traits,
-        trait_idx,
-        &impl_ctx,
-        &mut methods,
-    );
-
-    // 5. Process associated type definitions
+    // Registration-ordering: a method whose declared param/return type carries
+    // `Self.Item` must resolve that projection against this impl's own
+    // `type Item = …` bindings — but the `ImplEntry` (and so the trait
+    // registry) is not registered until step 9 below. Build the bindings here,
+    // before the method loop, and install them on the checker as the
+    // `current_impl_assoc` scope so `resolve_type_with_overlay_inner`'s
+    // `ParsedType::AssociatedType` arm projects `Self.Item` from the in-scope
+    // map (BUG-02-067). The binding RHS (`type Item = int`) is concrete, so its
+    // own resolution never recurses into an unresolvable projection.
     let mut assoc_types = FxHashMap::default();
     for impl_assoc in &impl_def.assoc_types {
         let ty = resolve_type_with_self(checker, &impl_assoc.ty, &type_params, self_type);
         assoc_types.insert(impl_assoc.name, ty);
     }
+
+    // 5. Process explicitly defined methods + inherited defaults, under the
+    //    associated-type projection scope so `Self.Item` resolves.
+    //
+    // Explicit user-written impl methods reference impl-level binders directly
+    // (e.g. `op: (T, X) -> T` where `X` is the impl's own type-param) — no
+    // trait→impl substitution is needed. Pass an empty `trait_substitutions`
+    // overlay. The substitution path matters only for inherited defaults at
+    // step 5b below (see `inherit_default_methods`).
+    let (methods, explicit_methods) =
+        checker.with_impl_assoc_scope(assoc_types.clone(), trait_idx, |checker| {
+            let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
+            let mut methods = FxHashMap::default();
+            for impl_method in &impl_def.methods {
+                let method_def = build_impl_method(
+                    checker,
+                    impl_method,
+                    &type_params,
+                    self_type,
+                    &empty_trait_subst,
+                );
+                methods.insert(impl_method.name, method_def);
+            }
+
+            // 5b. Inherit unoverridden default methods (direct + transitive).
+            //
+            // `ImplBuildContext` bundles the three co-varying impl-instance
+            // fields (`type_params`, `self_type`, `trait_type_args`).
+            // `trait_type_args` is required so direct-default inheritance can
+            // build the trait→impl binder substitution map (e.g. `F → X` for
+            // `impl<X> Reducer<X>` over `trait Reducer<F>`) — without it, the
+            // inherited default's `op: (T, F) -> T` body would carry a dangling
+            // `Tag::Named("F")` that fails to unify at call sites.
+            let impl_ctx = ImplBuildContext {
+                type_params: &type_params,
+                self_type,
+                trait_type_args: &trait_type_args,
+            };
+            let explicit_methods = inherit_default_methods(
+                checker,
+                impl_def,
+                traits,
+                trait_idx,
+                &impl_ctx,
+                &mut methods,
+            );
+            (methods, explicit_methods)
+        });
 
     // 6. Process where clauses (const bounds filtered out — not yet evaluated)
     // Empty scheme_overlay: impl-level where-clauses don't reference method-level

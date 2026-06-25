@@ -269,6 +269,7 @@ impl ModuleChecker<'_> {
             param_defaults: ext_sig.param_defaults.clone(),
             param_hashes: ext_sig.param_hashes.clone(),
             return_hash: ext_sig.return_hash,
+            return_projection: ext_sig.return_projection,
         })
     }
 

@@ -38,7 +38,7 @@ impl Parser<'_> {
             "parse_primary"
         );
 
-        // === Context-sensitive keywords requiring multi-token lookahead ===
+        // Context-sensitive keywords requiring multi-token lookahead
         //
         // These stay as an if-chain because they need `next_is_lparen()`,
         // `is_with_capability_syntax()`, or `match_function_exp_kind()` before
@@ -98,7 +98,7 @@ impl Parser<'_> {
             return self.parse_function_exp(kind);
         }
 
-        // === Fast path: tag-based direct dispatch ===
+        // Fast path: tag-based direct dispatch
         //
         // For the most common primary tokens, dispatch directly to the correct
         // sub-parser without going through one_of!'s snapshot/restore/TokenSet
@@ -162,7 +162,7 @@ impl Parser<'_> {
             }
         }
 
-        // === Fallback: full one_of! dispatch ===
+        // Fallback: full one_of! dispatch
         //
         // Handles soft keywords and other rare cases not covered by the fast
         // path (e.g., `print`/`panic` as identifiers, `for` as loop).

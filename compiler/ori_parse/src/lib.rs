@@ -154,7 +154,7 @@ impl ParseOutput {
         !self.warnings.is_empty()
     }
 
-    // --- Post-parse analysis ---
+    // Post-parse analysis
 
     /// Generate warnings for detached doc comments.
     ///

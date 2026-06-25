@@ -183,6 +183,15 @@ pub struct ModuleChecker<'a> {
     current_function: Option<Idx>,
     /// Current impl's self type (for `self` resolution).
     current_impl_self: Option<Idx>,
+    /// Current impl's associated-type projection context, set transiently while
+    /// resolving an impl block's method signatures (registration Pass 0c +
+    /// body-check Pass 4). The map is the impl's in-scope `type Item = …`
+    /// bindings (`assoc_name → resolved Idx`), available BEFORE the `ImplEntry`
+    /// is registered; the `Option<Idx>` is the impl's `trait_idx` for cross-impl
+    /// projection lookups. Read by `resolve_type_with_overlay_inner`'s
+    /// `ParsedType::AssociatedType` arm to resolve `Self.Item` in a method's
+    /// declared param/return type.
+    current_impl_assoc: Option<(FxHashMap<Name, Idx>, Option<Idx>)>,
     /// Capabilities declared by current function (`uses` clause).
     current_capabilities: FxHashSet<Name>,
     /// Capabilities provided in scope (`with...in`).
@@ -322,6 +331,7 @@ impl<'a> ModuleChecker<'a> {
             expr_types: Vec::new(),
             current_function: None,
             current_impl_self: None,
+            current_impl_assoc: None,
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),

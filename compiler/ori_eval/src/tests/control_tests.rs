@@ -1,6 +1,4 @@
 //! Tests for control flow implementations.
-//!
-//! Relocated from `exec/control.rs` per coding guidelines (>200 lines).
 
 use crate::exec::control::{to_loop_action, LoopAction};
 use ori_patterns::{ControlAction, Value};

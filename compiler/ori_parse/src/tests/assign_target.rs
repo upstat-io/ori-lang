@@ -42,7 +42,7 @@ fn expect_assign_target(result: &ParseOutput) -> (ExprId, Vec<AccessStep>) {
     (root, result.arena.get_access_steps(steps).to_vec())
 }
 
-// --- Positive shapes: 14 shipped operators over single-step LHS ---
+// Positive shapes: 14 shipped operators over single-step LHS
 
 /// All 14 shipped assignment operators (`=` plus the 13 shipped compound ops;
 /// `**=` is excluded — the `**` power operator is spec-defined but unshipped). Each is exercised on an `x[i]` LHS.
@@ -92,7 +92,7 @@ fn assign_target_field_lhs_all_shipped_ops_builds_assign_target() {
     assert_eq!(count, SHIPPED_ASSIGN_OPS.len());
 }
 
-// --- Positive multi-step shapes (root-to-leaf step ordering) ---
+// Positive multi-step shapes (root-to-leaf step ordering)
 
 #[test]
 fn assign_target_field_then_index_orders_steps_root_to_leaf() {
@@ -141,7 +141,7 @@ fn assign_target_deep_chain_orders_all_steps_root_to_leaf() {
     assert!(matches!(steps[3], AccessStep::Field(_)), "step 3 = `.h`");
 }
 
-// --- Zero-step guard: bare identifier stays Assign { target: Ident } ---
+// Zero-step guard: bare identifier stays Assign { target: Ident }
 
 #[test]
 fn assign_bare_ident_keeps_plain_ident_target() {
@@ -178,7 +178,7 @@ fn compound_assign_bare_ident_keeps_plain_ident_target() {
     ));
 }
 
-// --- Compound assignment shape: value is Binary over the read-copy chain ---
+// Compound assignment shape: value is Binary over the read-copy chain
 
 #[test]
 fn compound_assign_index_lhs_value_is_binary_over_chain() {
@@ -207,7 +207,7 @@ fn compound_assign_index_lhs_value_is_binary_over_chain() {
     ));
 }
 
-// --- Shared-identity: write-target step ExprId == read-copy step ExprId ---
+// Shared-identity: write-target step ExprId == read-copy step ExprId
 
 #[test]
 fn compound_assign_shares_chain_step_expr_ids_between_read_and_write() {
@@ -246,7 +246,7 @@ fn compound_assign_shares_chain_step_expr_ids_between_read_and_write() {
     );
 }
 
-// --- Negatives: invalid assignment targets rejected with E1020 ---
+// Negatives: invalid assignment targets rejected with E1020
 
 /// Assert the source fails to parse with an `E1020` invalid-assignment-target error.
 fn expect_e1020(src: &str) {

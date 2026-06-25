@@ -32,6 +32,7 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
         param_defaults: vec![],
         param_hashes: vec![0],
         return_hash: 0,
+        return_projection: None,
     }
 }
 
@@ -460,6 +461,7 @@ fn make_method_sig(interner: &StringInterner, method_name: Name, self_ty: Idx) -
         param_defaults: vec![],
         param_hashes: vec![0],
         return_hash: 0,
+        return_projection: None,
     }
 }
 
@@ -574,6 +576,7 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
         param_defaults: vec![],
         param_hashes: vec![0],
         return_hash: 0,
+        return_projection: None,
     };
     let impl_sigs = vec![(box_generic, new_name, assoc_sig)];
 

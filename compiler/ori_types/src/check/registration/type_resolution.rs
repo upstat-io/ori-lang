@@ -462,8 +462,92 @@ fn resolve_type_with_overlay_inner(
                 Idx::ERROR
             }
         }
+        // Fixed-capacity list `[T, max N]`: resolve the element through the
+        // overlay so a projection inside it (`[Self.Item, max N]`) resolves;
+        // capacity is erased to a plain list per `TYPES:PT-2`.
+        ParsedType::FixedList { elem, capacity: _ } => {
+            let elem_parsed = arena.get_parsed_type(*elem);
+            let elem_ty = resolve_type_with_overlay_inner(
+                checker,
+                elem_parsed,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
+            checker.pool_mut().list(elem_ty)
+        }
+        // Associated-type projection `Self.Item` / `T.Assoc`. Resolve the base
+        // first (base-first recursion — base may be `Self` already substituted
+        // to a concrete `self_type`, or a nested projection), then project the
+        // assoc binding. Symbolic/generic base → clean `Idx::ERROR` poison (the
+        // projection legitimately cannot resolve until an impl is selected).
+        ParsedType::AssociatedType { base, assoc_name } => {
+            let base_parsed = arena.get_parsed_type(*base);
+            let base_ty = resolve_type_with_overlay_inner(
+                checker,
+                base_parsed,
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            );
+            resolve_associated_projection(checker, base_ty, *assoc_name, self_type)
+        }
         _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
+}
+
+/// Project an associated-type binding for `base.assoc_name` once the base type
+/// is concretely known.
+///
+/// Resolution order:
+/// 1. CURRENT impl, in-scope bindings: when `base_ty` is the impl's own
+///    `self_type` and the checker carries a `current_impl_assoc` context (set
+///    by registration / body-check while resolving this impl's method
+///    signatures), read `assoc_name` from the in-scope `type Item = …`
+///    bindings — the `ImplEntry` is not yet registered at Pass 0c.
+/// 2. CROSS-impl, registered registry: a `find_impl`-shaped lookup over already-
+///    registered impls whose `self_type` matches the concrete `base_ty`.
+///
+/// A non-concrete `base_ty` (type variable / poison) or a concrete miss returns
+/// `Idx::ERROR` — clean poison, no spurious diagnostic (`PC-3` / `UN-4`). The
+/// concrete-miss case is the genuinely-unresolvable shape; a successful
+/// resolution lets a downstream mismatch surface its own `E2001`.
+fn resolve_associated_projection(
+    checker: &mut ModuleChecker<'_>,
+    base_ty: Idx,
+    assoc_name: Name,
+    self_type: Idx,
+) -> Idx {
+    // A non-concrete base (unbound/rigid/bound Var, or poison) cannot project to
+    // a concrete binding yet — keep the symbolic projection as poison.
+    if base_ty == Idx::ERROR || checker.pool().tag(base_ty).is_type_variable() {
+        return Idx::ERROR;
+    }
+
+    // 1. Current impl's in-scope bindings (registration-ordering cure): the impl
+    //    being resolved has its `assoc_types` map installed on the checker before
+    //    its `ImplEntry` is registered. Project `Self.Item` from it directly.
+    if base_ty == self_type {
+        if let Some((bindings, _trait_idx)) = checker.current_impl_assoc() {
+            if let Some(&projected) = bindings.get(&assoc_name) {
+                return projected;
+            }
+        }
+    }
+
+    // 2. Cross-impl projection: find a registered impl whose self type matches the
+    //    concrete base and carries this associated-type binding.
+    if let Some(projected) = checker
+        .trait_registry()
+        .find_impl_assoc_binding(base_ty, assoc_name)
+    {
+        return projected;
+    }
+
+    // Concrete receiver, no matching binding: clean poison.
+    Idx::ERROR
 }
 
 /// Check if a `ParsedType` tree contains `SelfType` anywhere.

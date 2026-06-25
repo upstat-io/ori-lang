@@ -46,6 +46,7 @@ fn make_sig(
         param_defaults: vec![],
         param_hashes,
         return_hash: 0,
+        return_projection: None,
     }
 }
 
@@ -259,6 +260,7 @@ fn generic_functions_are_skipped() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     let func = Function {

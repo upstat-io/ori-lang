@@ -69,6 +69,7 @@ pub(super) fn build_method_sig(
         param_defaults,
         param_hashes,
         return_hash,
+        return_projection: None,
     }
 }
 

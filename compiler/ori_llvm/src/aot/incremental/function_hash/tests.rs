@@ -22,6 +22,7 @@ fn make_sig(name: u32, param_types: Vec<Idx>, return_type: Idx) -> FunctionSig {
         param_defaults: vec![],
         param_hashes: vec![0; param_count],
         return_hash: 0,
+        return_projection: None,
     }
 }
 
@@ -87,6 +88,7 @@ fn extract_skips_generics() {
             param_defaults: vec![],
             param_hashes: vec![],
             return_hash: 0,
+            return_projection: None,
         },
     ];
 

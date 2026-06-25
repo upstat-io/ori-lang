@@ -229,7 +229,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── Backward consumers (require double-ended iterators) ──────────
+    // Backward consumers (require double-ended iterators)
 
     /// `last()` — efficiently retrieve the last item via `next_back()`.
     pub(in crate::interpreter) fn eval_iter_last(&mut self, iter_val: IteratorValue) -> EvalResult {

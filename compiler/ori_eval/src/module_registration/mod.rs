@@ -201,10 +201,10 @@ fn collect_impl_methods(
         trait_map.insert(trait_def.name, trait_def);
     }
 
-    // Track how many times each (type_name, method_name) pair has been seen,
-    // so we can pick the correct canonical body when multiple impls define the
-    // same method (e.g., two `impl T: Index<K,V>` blocks both defining `index`).
-    // The canonicalization pass pushes method_roots in the same iteration order,
+    // Why: counts each (type_name, method_name) pair to pick the correct
+    // canonical body when multiple impls define the same method (e.g. two
+    // `impl T: Index<K,V>` blocks both defining `index`).
+    // INVARIANT: canonicalization pushes method_roots in this iteration order,
     // so the Nth occurrence here matches the Nth entry in `method_roots`.
     let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 

@@ -97,12 +97,12 @@ fn eval_byte_handles_all_registry_supported_ops() {
     check_type_ops(TypeTag::Byte, &Value::Byte(10), &Value::Byte(3));
 }
 
-// NOTE: Duration and Size same-type op tests are omitted because the
-// evaluator doesn't implement all registry-declared ops for these types
-// (e.g., FloorDiv, Mod). Tracked for fix in roadmap.
-// When fixed, uncomment:
-// #[test] fn eval_duration_handles_all_registry_supported_ops() { ... }
-// #[test] fn eval_size_handles_all_registry_supported_ops() { ... }
+// Why: Duration and Size are excluded from the same-type op sync check because
+// the registry declares `mul`/`div` supported (OpStrategy::IntInstr) but the
+// evaluator routes those only through the cross-type Duration-by-int / Size-by-int
+// path (eval_duration_int_binary / eval_size_int_binary); same-type
+// Duration-by-Duration multiply/divide is dimensionally ill-defined and its
+// supported-vs-rejected status is a spec question, not an evaluator gap.
 
 /// `value_to_type_tag()` covers all primitive types with operator support.
 #[test]

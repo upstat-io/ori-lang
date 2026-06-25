@@ -1,6 +1,4 @@
 //! Tests for function value (type conversion) implementations.
-//!
-//! Relocated from `function_val.rs` per coding guidelines (>200 lines).
 
 use crate::function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,

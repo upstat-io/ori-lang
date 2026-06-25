@@ -233,7 +233,7 @@ fn test_no_line_start_mid_line() {
 }
 
 #[test]
-fn test_current_flags_returns_correct_value() {
+fn test_current_flags_space_before_set_after_spaces() {
     // "let   x" -> tokens: [let, x, EOF]
     let ctx = TestCtx::new("let   x");
     let mut cursor = ctx.cursor();

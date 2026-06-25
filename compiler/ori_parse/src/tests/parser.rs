@@ -674,7 +674,7 @@ fn test_nested_generic_and_shift() {
     );
 }
 
-// --- Context Management Tests ---
+// Context Management Tests
 
 #[test]
 fn test_struct_literal_in_expression() {
@@ -765,7 +765,7 @@ fn test_context_methods() {
     assert!(parser.has_context(ParseContext::IN_LOOP)); // restored
 }
 
-// === Metadata Tests ===
+// Metadata Tests
 
 mod metadata_tests {
     use crate::parse_with_metadata;
@@ -974,7 +974,7 @@ mod metadata_tests {
         assert_eq!(output.metadata.newlines.len(), expected_newline_count);
     }
 
-    // === Warning Tests ===
+    // Warning Tests
 
     #[test]
     fn test_no_warnings_when_doc_comments_attached() {
@@ -1930,7 +1930,7 @@ fn test_typed_lambda_bare_return_type_parses_as_inferred_body() {
 fn test_typed_lambda_juxtaposed_tokens_after_return_type_rejected() {
     // (x: int) -> int x : `int` parses as the inferred-return body, then the
     // trailing `x` is unexpected — rejected as a statement-boundary error
-    // (E1002 "expected `;` or `}` after let binding"), no longer E1017.
+    // (E1002 "expected `;` or `}` after let binding").
     let result = parse_source("let $f = (x: int) -> int x;");
     assert!(
         result.has_errors(),

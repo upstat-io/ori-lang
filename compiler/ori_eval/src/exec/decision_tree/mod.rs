@@ -263,7 +263,7 @@ fn test_matches(
     test_value: &TestValue,
     interner: &StringInterner,
 ) -> bool {
-    // TODO(section-07): test_kind is currently unused; the decision tree builder
+    // TODO(canon): test_kind is currently unused; the decision tree builder
     // sometimes emits IntEq for IntRange values. Once test_kind is used for
     // dispatch, fix the builder to emit the correct kind.
     let _ = test_kind;
@@ -273,7 +273,7 @@ fn test_matches(
             variant_name,
         } => match value {
             // User-defined enums: compare by interned variant name.
-            // TODO(section-07): Use numeric discriminants when evaluator
+            // TODO(canon): Use numeric discriminants when evaluator
             // migrates to canonical IR.
             Value::Variant {
                 variant_name: vn, ..

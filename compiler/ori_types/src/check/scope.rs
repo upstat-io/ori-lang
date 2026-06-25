@@ -26,6 +26,36 @@ impl ModuleChecker<'_> {
         self.current_impl_self
     }
 
+    /// The current impl's associated-type projection context: the in-scope
+    /// `assoc_name -> Idx` bindings plus the impl `trait_idx`. `None` outside an
+    /// impl method-signature resolution. Read by the `ParsedType::AssociatedType`
+    /// resolver arm to project `Self.Item` for the impl currently being resolved.
+    #[inline]
+    pub(crate) fn current_impl_assoc(
+        &self,
+    ) -> Option<&(rustc_hash::FxHashMap<Name, Idx>, Option<Idx>)> {
+        self.current_impl_assoc.as_ref()
+    }
+
+    /// Run `f` with the impl's associated-type projection context installed,
+    /// restoring the prior context on return. Mirrors `with_impl_self_scope`:
+    /// not panic-safe (an unwinding panic inside `f` does not restore), matching
+    /// the closure-based save/restore discipline (typeck.md §SG).
+    pub(crate) fn with_impl_assoc_scope<T, F>(
+        &mut self,
+        bindings: rustc_hash::FxHashMap<Name, Idx>,
+        trait_idx: Option<Idx>,
+        f: F,
+    ) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let saved = self.current_impl_assoc.replace((bindings, trait_idx));
+        let result = f(self);
+        self.current_impl_assoc = saved;
+        result
+    }
+
     /// Check if a capability is available (declared or provided).
     pub fn has_capability(&self, cap: Name) -> bool {
         self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)

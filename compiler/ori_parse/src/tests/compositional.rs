@@ -1206,7 +1206,7 @@ mod mixed_expressions {
 
     #[test]
     fn test_unsafe_requires_block() {
-        // Parenthesized form is no longer valid
+        // Parenthesized form is rejected; `unsafe` requires a block body.
         let result = parse_source("@test () -> int = unsafe(42);");
         assert!(
             result.has_errors(),

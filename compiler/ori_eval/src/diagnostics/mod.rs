@@ -1,7 +1,7 @@
 //! Diagnostic infrastructure for the evaluator.
 //!
 //! This module provides:
-//! - `CallStack` — proper call frame tracking (replaces `call_depth: usize`)
+//! - `CallStack` — call frame tracking with depth checking
 //! - `CallFrame` — per-call metadata (name, span)
 //! - `EvalCounters` — optional performance counters for `--profile`
 //!
@@ -26,7 +26,6 @@ pub struct CallFrame {
 
 /// Live call stack for the interpreter.
 ///
-/// Replaces the old `call_depth: usize` with proper frame tracking.
 /// Each function/method call pushes a frame; return pops it. The depth
 /// check is integrated into `push()` for ergonomic use.
 ///

@@ -1,8 +1,7 @@
 use ori_diagnostic::queue::DiagnosticSeverity;
-use ori_diagnostic::{Applicability, ErrorCode};
+use ori_diagnostic::ErrorCode;
 use ori_ir::{Span, TokenKind};
 
-use super::details::{CodeSuggestion, ExtraLabel, ParseErrorDetails};
 use super::*;
 
 #[test]
@@ -115,85 +114,7 @@ fn test_title() {
     );
 }
 
-#[test]
-fn test_empathetic_unexpected_token() {
-    let kind = ParseErrorKind::UnexpectedToken {
-        found: TokenKind::Semicolon,
-        expected: "an expression",
-        context: Some("function body"),
-    };
-    let msg = kind.empathetic_message();
-
-    // Check for empathetic phrasing
-    assert!(msg.contains("I ran into"));
-    assert!(msg.contains("while parsing function body"));
-    assert!(msg.contains("I was expecting"));
-    assert!(msg.contains("`;\u{60}")); // backtick-semicolon-backtick
-}
-
-#[test]
-fn test_empathetic_expected_expression() {
-    let kind = ParseErrorKind::ExpectedExpression {
-        found: TokenKind::Plus,
-        position: ExprPosition::Operand,
-    };
-    let msg = kind.empathetic_message();
-
-    assert!(msg.contains("I was expecting an expression"));
-    assert!(msg.contains("after this operator"));
-    assert!(msg.contains("Expressions include"));
-}
-
-#[test]
-fn test_empathetic_trailing_operator() {
-    let kind = ParseErrorKind::TrailingOperator {
-        operator: TokenKind::Plus,
-    };
-    let msg = kind.empathetic_message();
-
-    assert!(msg.contains("without a right-hand side"));
-    assert!(msg.contains("a + b"));
-}
-
-#[test]
-fn test_empathetic_unclosed_delimiter() {
-    let kind = ParseErrorKind::UnclosedDelimiter {
-        open: TokenKind::LParen,
-        open_span: Span::new(10, 11),
-        expected_close: TokenKind::RParen,
-    };
-    let msg = kind.empathetic_message();
-
-    assert!(msg.contains("unclosed `(`"));
-    assert!(msg.contains("matching `)`"));
-}
-
-#[test]
-fn test_empathetic_expected_declaration() {
-    let kind = ParseErrorKind::ExpectedDeclaration {
-        found: TokenKind::Plus,
-    };
-    let msg = kind.empathetic_message();
-
-    assert!(msg.contains("I was expecting a declaration"));
-    assert!(msg.contains("Functions:"));
-    assert!(msg.contains("Types:"));
-    assert!(msg.contains("Imports:"));
-}
-
-#[test]
-fn test_empathetic_unsupported_keyword() {
-    let kind = ParseErrorKind::UnsupportedKeyword {
-        keyword: TokenKind::Return,
-        reason: "Ori is expression-based",
-    };
-    let msg = kind.empathetic_message();
-
-    assert!(msg.contains("`return` isn't supported"));
-    assert!(msg.contains("Ori is expression-based"));
-}
-
-// === Common Mistake Detection Tests ===
+// Common Mistake Detection Tests
 
 #[test]
 fn test_detect_triple_equals() {
@@ -289,7 +210,7 @@ fn test_valid_tokens_not_detected() {
     assert!(check_common_keyword_mistake("str").is_none());
 }
 
-// === Educational Note Tests ===
+// Educational Note Tests
 
 #[test]
 fn test_educational_note_conditional() {
@@ -349,7 +270,7 @@ fn test_educational_note_unclosed_bracket() {
     assert!(note.unwrap().contains("list"));
 }
 
-// === From Error Token Tests ===
+// From Error Token Tests
 
 #[test]
 fn test_from_error_token_with_known_mistake() {
@@ -366,7 +287,7 @@ fn test_from_error_token_with_unknown() {
     assert!(error.help.is_empty());
 }
 
-// === Enhanced Hint Tests ===
+// Enhanced Hint Tests
 
 #[test]
 fn test_enhanced_hint_semicolon() {
@@ -400,7 +321,7 @@ fn test_enhanced_hint_empty_block() {
     assert!(hint.contains("void"));
 }
 
-// === Integration: from_kind with educational notes ===
+// Integration: from_kind with educational notes
 
 #[test]
 fn test_from_kind_includes_educational_note() {
@@ -435,7 +356,7 @@ fn test_from_kind_includes_hint_and_educational() {
     assert!(!error.help.is_empty(), "Should have help messages");
 }
 
-// === ErrorContext Tests ===
+// ErrorContext Tests
 
 #[test]
 fn test_error_context_description() {
@@ -518,342 +439,7 @@ fn test_error_context_all_variants_have_description() {
     }
 }
 
-// === ParseErrorDetails Tests ===
-
-#[test]
-fn test_details_unexpected_token() {
-    let kind = ParseErrorKind::UnexpectedToken {
-        found: TokenKind::Semicolon,
-        expected: "an expression",
-        context: Some("function body"),
-    };
-    let details = kind.details(Span::new(10, 1));
-
-    assert_eq!(details.title, "UNEXPECTED TOKEN");
-    assert!(details.text.contains("I ran into"));
-    assert!(details.text.contains("function body"));
-    assert!(details.label_text.contains("expected"));
-    assert!(details.hint.is_some()); // Has semicolon hint
-    assert_eq!(details.error_code, ErrorCode::E1001);
-}
-
-#[test]
-fn test_details_unclosed_delimiter() {
-    let kind = ParseErrorKind::UnclosedDelimiter {
-        open: TokenKind::LParen,
-        open_span: Span::new(5, 1),
-        expected_close: TokenKind::RParen,
-    };
-    let details = kind.details(Span::new(20, 0));
-
-    assert_eq!(details.title, "UNCLOSED DELIMITER");
-    assert!(details.text.contains("unclosed"));
-    assert!(!details.extra_labels.is_empty());
-    assert!(details.extra_labels[0].text.contains("opened here"));
-    assert!(details.suggestion.is_some());
-    assert_eq!(
-        details.suggestion.as_ref().unwrap().applicability,
-        Applicability::MachineApplicable
-    );
-}
-
-#[test]
-fn test_details_expected_expression() {
-    let kind = ParseErrorKind::ExpectedExpression {
-        found: TokenKind::RBrace,
-        position: ExprPosition::Conditional,
-    };
-    let details = kind.details(Span::new(15, 1));
-
-    assert_eq!(details.title, "EXPECTED EXPRESSION");
-    assert!(details.text.contains("condition"));
-    assert!(details.hint.is_some()); // Has educational note or hint
-}
-
-#[test]
-fn test_details_trailing_operator() {
-    let kind = ParseErrorKind::TrailingOperator {
-        operator: TokenKind::Plus,
-    };
-    let details = kind.details(Span::new(8, 1));
-
-    assert_eq!(details.title, "INCOMPLETE EXPRESSION");
-    assert!(details.text.contains("right-hand side"));
-    assert!(details.label_text.contains("needs a right operand"));
-}
-
-#[test]
-fn test_details_pattern_error_missing() {
-    let kind = ParseErrorKind::PatternArgumentError {
-        pattern_name: "cache",
-        reason: PatternArgError::Missing { name: "key" },
-    };
-    let details = kind.details(Span::new(0, 5));
-
-    assert_eq!(details.title, "PATTERN ERROR");
-    assert!(details.text.contains("cache"));
-    assert!(details.text.contains("key"));
-    assert!(details.label_text.contains("missing"));
-}
-
-#[test]
-fn test_details_unexpected_eof_with_unclosed() {
-    let kind = ParseErrorKind::UnexpectedEof {
-        expected: "expression",
-        unclosed: Some((TokenKind::LBrace, Span::new(2, 1))),
-    };
-    let details = kind.details(Span::new(50, 0));
-
-    assert_eq!(details.title, "UNEXPECTED END OF FILE");
-    assert!(details.text.contains("closing"));
-    assert!(!details.extra_labels.is_empty());
-    assert!(details.extra_labels[0].text.contains("opened"));
-}
-
-// === CodeSuggestion Tests ===
-
-#[test]
-fn test_code_suggestion_machine_applicable() {
-    let suggestion =
-        CodeSuggestion::machine_applicable(Span::new(10, 3), "==", "Replace `===` with `==`");
-    assert_eq!(suggestion.replacement, "==");
-    assert_eq!(suggestion.applicability, Applicability::MachineApplicable);
-}
-
-#[test]
-fn test_code_suggestion_with_placeholders() {
-    let suggestion =
-        CodeSuggestion::with_placeholders(Span::new(10, 0), ": ???", "Add type annotation");
-    assert_eq!(suggestion.applicability, Applicability::HasPlaceholders);
-}
-
-// === ExtraLabel Tests ===
-
-#[test]
-fn test_extra_label_same_file() {
-    let label = ExtraLabel::same_file(Span::new(5, 1), "opened here");
-    assert!(label.src_info.is_none());
-    assert_eq!(label.text, "opened here");
-}
-
-#[test]
-fn test_extra_label_cross_file() {
-    let label = ExtraLabel::cross_file(
-        Span::new(10, 5),
-        "src/lib.ori",
-        "fn foo() { }",
-        "defined here",
-    );
-    assert!(label.src_info.is_some());
-    let info = label.src_info.unwrap();
-    assert_eq!(info.path, "src/lib.ori");
-    assert!(info.content.contains("foo"));
-}
-
-// === ParseErrorDetails Builder Tests ===
-
-#[test]
-fn test_parse_error_details_builder() {
-    let details = ParseErrorDetails::new(
-        "TEST ERROR",
-        "Test explanation",
-        "test label",
-        ErrorCode::E1001,
-    )
-    .with_hint("Try this fix")
-    .with_extra_label(ExtraLabel::same_file(Span::new(0, 1), "related"))
-    .with_suggestion(CodeSuggestion::machine_applicable(
-        Span::new(5, 2),
-        "fix",
-        "Apply fix",
-    ));
-
-    assert_eq!(details.title, "TEST ERROR");
-    assert!(details.has_extra_context());
-    assert!(details.hint.is_some());
-    assert!(!details.extra_labels.is_empty());
-    assert!(details.suggestion.is_some());
-}
-
-#[test]
-fn test_parse_error_details_has_extra_context() {
-    let basic = ParseErrorDetails::new("TEST", "text", "label", ErrorCode::E1001);
-    assert!(!basic.has_extra_context());
-
-    let with_hint = basic.clone().with_hint("hint");
-    assert!(with_hint.has_extra_context());
-}
-
-// === Integration: details() generates complete information ===
-
-#[test]
-fn test_details_all_variants_produce_output() {
-    // Ensure all error variants produce valid details
-    let variants: Vec<ParseErrorKind> = vec![
-        ParseErrorKind::UnexpectedToken {
-            found: TokenKind::Plus,
-            expected: "identifier",
-            context: None,
-        },
-        ParseErrorKind::UnexpectedEof {
-            expected: "expression",
-            unclosed: None,
-        },
-        ParseErrorKind::ExpectedExpression {
-            found: TokenKind::Plus,
-            position: ExprPosition::Primary,
-        },
-        ParseErrorKind::TrailingOperator {
-            operator: TokenKind::Star,
-        },
-        ParseErrorKind::ExpectedDeclaration {
-            found: TokenKind::Plus,
-        },
-        ParseErrorKind::ExpectedIdentifier {
-            found: TokenKind::Plus,
-            context: IdentContext::FunctionName,
-        },
-        ParseErrorKind::InvalidFunctionClause {
-            reason: "test reason",
-        },
-        ParseErrorKind::InvalidPattern {
-            found: TokenKind::Plus,
-            context: PatternContext::Match,
-        },
-        ParseErrorKind::PatternArgumentError {
-            pattern_name: "test",
-            reason: PatternArgError::Missing { name: "arg" },
-        },
-        ParseErrorKind::ExpectedType {
-            found: TokenKind::Plus,
-        },
-        ParseErrorKind::UnclosedDelimiter {
-            open: TokenKind::LBrace,
-            open_span: Span::new(0, 1),
-            expected_close: TokenKind::RBrace,
-        },
-        ParseErrorKind::InvalidAttribute {
-            reason: "test reason",
-        },
-        ParseErrorKind::UnsupportedKeyword {
-            keyword: TokenKind::Return,
-            reason: "test reason",
-        },
-    ];
-
-    for kind in &variants {
-        let details = kind.details(Span::new(0, 1));
-        assert!(
-            !details.title.is_empty(),
-            "Title should not be empty for {kind:?}"
-        );
-        assert!(
-            !details.text.is_empty(),
-            "Text should not be empty for {kind:?}"
-        );
-        assert!(
-            !details.label_text.is_empty(),
-            "Label text should not be empty for {kind:?}"
-        );
-    }
-}
-
-// === Diagnostic Conversion Tests ===
-
-#[test]
-fn test_parse_error_details_to_diagnostic() {
-    let details = ParseErrorDetails::new(
-        "UNEXPECTED TOKEN",
-        "I ran into something unexpected",
-        "expected expression",
-        ErrorCode::E1001,
-    )
-    .with_hint("Try removing this");
-
-    let diag = details.to_diagnostic(Span::new(10, 20));
-
-    assert_eq!(diag.code, ErrorCode::E1001);
-    assert!(diag.message.contains("I ran into"));
-    assert_eq!(diag.labels.len(), 1);
-    assert!(diag.labels[0].is_primary);
-    assert_eq!(diag.labels[0].span, Span::new(10, 20));
-    assert!(diag.labels[0].message.contains("expected expression"));
-    assert!(!diag.suggestions.is_empty());
-}
-
-#[test]
-fn test_parse_error_details_to_diagnostic_with_extra_labels() {
-    let details = ParseErrorDetails::new(
-        "UNCLOSED DELIMITER",
-        "I found an unclosed `{`",
-        "expected `}` here",
-        ErrorCode::E1003,
-    )
-    .with_extra_label(ExtraLabel::same_file(
-        Span::new(0, 1),
-        "the `{` was opened here",
-    ));
-
-    let diag = details.to_diagnostic(Span::new(50, 50));
-
-    assert_eq!(diag.labels.len(), 2);
-    assert!(diag.labels[0].is_primary);
-    assert!(!diag.labels[1].is_primary);
-    assert_eq!(diag.labels[1].span, Span::new(0, 1));
-    assert!(diag.labels[1].message.contains("opened here"));
-}
-
-#[test]
-fn test_parse_error_details_to_diagnostic_cross_file() {
-    let details = ParseErrorDetails::new(
-        "TYPE MISMATCH",
-        "Expected `int`, found `str`",
-        "this expression is `str`",
-        ErrorCode::E2001,
-    )
-    .with_extra_label(ExtraLabel::cross_file(
-        Span::new(0, 19),
-        "src/lib.ori",
-        "@get_name () -> str",
-        "return type defined here",
-    ));
-
-    let diag = details.to_diagnostic(Span::new(100, 110));
-
-    assert_eq!(diag.labels.len(), 2);
-    // Primary label should not be cross-file
-    assert!(!diag.labels[0].is_cross_file());
-    // Secondary label should be cross-file
-    assert!(diag.labels[1].is_cross_file());
-    assert_eq!(
-        diag.labels[1].source_info.as_ref().unwrap().path,
-        "src/lib.ori"
-    );
-}
-
-#[test]
-fn test_parse_error_details_to_diagnostic_with_suggestion() {
-    let details = ParseErrorDetails::new(
-        "SYNTAX ERROR",
-        "Use `==` for equality",
-        "found `===`",
-        ErrorCode::E1001,
-    )
-    .with_suggestion(CodeSuggestion::machine_applicable(
-        Span::new(5, 8),
-        "==",
-        "Replace `===` with `==`",
-    ));
-
-    let diag = details.to_diagnostic(Span::new(5, 8));
-
-    assert!(!diag.structured_suggestions.is_empty());
-    let suggestion = &diag.structured_suggestions[0];
-    assert_eq!(suggestion.substitutions[0].snippet, "==");
-    assert!(suggestion.applicability.is_machine_applicable());
-}
-
-// === Severity Tests ===
+// Severity Tests
 
 #[test]
 fn test_new_produces_hard_severity() {

@@ -28,7 +28,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    // --- Accessors ---
+    // Accessors
 
     /// Error code for searchability.
     pub fn code(&self) -> ErrorCode {
@@ -60,7 +60,7 @@ impl ParseError {
         self.severity
     }
 
-    // --- Constructors ---
+    // Constructors
 
     /// Create a new parse error.
     ///
@@ -77,7 +77,7 @@ impl ParseError {
         }
     }
 
-    // --- Series Combinator Helpers ---
+    // Series Combinator Helpers
 
     /// Error when expecting an item in a series but none was found.
     #[cold]

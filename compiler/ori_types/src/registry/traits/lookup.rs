@@ -253,6 +253,21 @@ impl TraitRegistry {
         })
     }
 
+    /// Project an associated-type binding for a concrete `self_type`: the first
+    /// registered impl of `self_type` carrying a `type <assoc_name> = …`
+    /// binding. Used to resolve a cross-impl associated-type projection
+    /// (`T.Assoc`) once the receiver type is concretely known.
+    ///
+    /// Returns `None` when no registered impl of `self_type` defines the
+    /// associated type — the caller treats that as clean poison (`Idx::ERROR`).
+    pub fn find_impl_assoc_binding(&self, self_type: Idx, assoc_name: Name) -> Option<Idx> {
+        self.impls_by_type.get(&self_type).and_then(|indices| {
+            indices
+                .iter()
+                .find_map(|&i| self.impls[i].assoc_types.get(&assoc_name).copied())
+        })
+    }
+
     /// Find the inherent impl for a type (impl without a trait).
     pub fn inherent_impl(&self, self_type: Idx) -> Option<(usize, &ImplEntry)> {
         self.impls_by_type.get(&self_type).and_then(|indices| {

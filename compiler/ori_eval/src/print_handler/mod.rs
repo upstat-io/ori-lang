@@ -29,7 +29,7 @@ impl StdoutPrintHandler {
     /// Get all captured output (for testing/WASM).
     ///
     /// Returns empty string since stdout doesn't capture.
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         String::new()
     }
 
@@ -70,7 +70,7 @@ impl BufferPrintHandler {
     }
 
     /// Get all captured output.
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         self.buffer.lock().clone()
     }
 
@@ -121,10 +121,10 @@ impl PrintHandlerImpl {
     /// Get all captured output (for testing/WASM).
     ///
     /// Returns empty string for handlers that don't capture (stdout, silent).
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         match self {
-            Self::Stdout(h) => h.get_output(),
-            Self::Buffer(h) => h.get_output(),
+            Self::Stdout(h) => h.output(),
+            Self::Buffer(h) => h.output(),
             Self::Silent => String::new(),
         }
     }

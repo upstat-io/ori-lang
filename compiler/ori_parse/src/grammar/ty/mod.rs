@@ -206,6 +206,11 @@ impl Parser<'_> {
         // Type arg lists use a Vec because nested generic args share the
         // same `parsed_type_lists` buffer (e.g., `Map<str, List<int>>`).
         let mut type_args: Vec<ParsedTypeId> = Vec::new();
+        // The series error is intentionally discarded: this helper is invoked
+        // speculatively to disambiguate generic args (`Foo<T>`) from a comparison
+        // (`a < b`). A soft failure here is the disambiguation signal; the caller
+        // recovers via the `Gt` fallthrough below. Surfacing it would leak a
+        // speculative-path error into the real diagnostic list (per §SN-1).
         let _ = self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
             if p.cursor.check(&TokenKind::Gt) {
                 return Ok(false);
