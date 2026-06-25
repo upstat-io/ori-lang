@@ -2,8 +2,8 @@
 //!
 //! Extracts the common boilerplate for registering module functions, variant
 //! constructors, newtype constructors, `impl`/`extend`/`def_impl` methods, and
-//! derived traits into a single function. Used by both the playground WASM
-//! and (optionally) the `oric` CLI.
+//! derived traits into a single function. Intended for WASM and embedder hosts
+//! that drive the portable pipeline.
 
 use ori_eval::{
     collect_def_impl_methods_with_config, collect_extend_methods_with_config,

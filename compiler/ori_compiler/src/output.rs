@@ -1,8 +1,8 @@
 //! Result types for the portable compiler pipeline.
 //!
 //! These types are the public interface between the compiler driver and its
-//! consumers (playground WASM, CLI, tests). They carry all information needed
-//! to present results without exposing internal compiler types.
+//! consumers. They carry all information needed to present results without
+//! exposing internal compiler types.
 
 use ori_diagnostic::Diagnostic;
 
