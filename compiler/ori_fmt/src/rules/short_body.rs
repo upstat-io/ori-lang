@@ -78,8 +78,7 @@ pub fn is_short_body(arena: &ExprArena, expr_id: ExprId) -> bool {
             true
         }
 
-        // For other expressions, we'd need width calculation
-        // which is done at the orchestration layer
+        // Why: other expressions need width calculation, done at the orchestration layer
         _ => false,
     }
 }

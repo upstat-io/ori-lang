@@ -217,7 +217,7 @@ fn find_overlapping_declarations(
 /// * `IncrementalResult::Regions` - Formatted regions to replace
 /// * `IncrementalResult::FullFormatNeeded` - Full format required
 /// * `IncrementalResult::NoChangeNeeded` - No formatting changes needed
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "Source file offsets fit in u32"
 )]

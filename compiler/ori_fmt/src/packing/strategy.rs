@@ -109,7 +109,6 @@ impl Packing {
 /// * `has_trailing_comma` - Whether source had a trailing comma (user intent)
 /// * `has_comments` - Whether there are comments inside the container
 /// * `has_empty_lines` - Whether there are blank lines between items
-/// * `item_count` - Number of items in the container
 ///
 /// # Returns
 ///
@@ -119,7 +118,6 @@ pub fn determine_packing(
     has_trailing_comma: bool,
     has_comments: bool,
     has_empty_lines: bool,
-    _item_count: usize,
 ) -> Packing {
     // Determine the base strategy from the construct kind (exhaustive match
     // ensures new variants must make an explicit packing decision)

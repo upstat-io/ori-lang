@@ -139,12 +139,9 @@ pub fn collect_for_chain(arena: &ExprArena, expr_id: ExprId) -> Option<ForChain>
         }
     }
 
-    if levels.is_empty() {
-        None
-    } else {
-        // Why: caller only invokes this on a `for` expression.
-        unreachable!("collect_for_chain called on non-for expression")
-    }
+    // Why: a populated chain always returns Some inside the loop; the break path leaves levels empty.
+    debug_assert!(levels.is_empty());
+    None
 }
 
 /// Check if an expression is a for loop.

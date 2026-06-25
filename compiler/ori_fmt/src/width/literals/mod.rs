@@ -44,7 +44,7 @@ pub(super) fn float_width(f: f64) -> usize {
     let _ = write!(cursor, "{f}");
 
     // Safe: cursor position is at most 32, which fits in usize on all platforms
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Buffer is 32 bytes; position cannot exceed usize::MAX"
     )]

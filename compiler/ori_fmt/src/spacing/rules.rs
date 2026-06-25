@@ -68,7 +68,7 @@ impl SpaceRule {
 
 #[allow(
     clippy::enum_glob_use,
-    reason = "70+ spacing rules are much more readable with short names"
+    reason = "70+ spacing rules are much more readable with short names; pedantic lint fires only under the full pedantic config, so #[allow] (not #[expect]) is correct here"
 )]
 use TokenCategory::*;
 use TokenMatcher::{Any, Category, Exact};

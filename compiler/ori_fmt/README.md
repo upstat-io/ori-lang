@@ -33,11 +33,11 @@ Container formatting decisions: when to inline vs break.
 use ori_fmt::packing::{Packing, ConstructKind, determine_packing};
 
 // Simple list can pack multiple items per line
-let packing = determine_packing(ConstructKind::ListSimple, false, false, false, 10);
+let packing = determine_packing(ConstructKind::ListSimple, false, false, false);
 assert_eq!(packing, Packing::FitOrPackMultiple);
 
 // run() at top level always stacks
-let packing = determine_packing(ConstructKind::RunTopLevel, false, false, false, 3);
+let packing = determine_packing(ConstructKind::RunTopLevel, false, false, false);
 assert_eq!(packing, Packing::AlwaysStacked);
 ```
 
