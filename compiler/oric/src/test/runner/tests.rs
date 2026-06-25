@@ -344,6 +344,68 @@ fn test_backend_skip_llvm_skips_named_backend_only() {
     assert_eq!(outcome("always_runs"), Some(&TestOutcome::Passed));
 }
 
+/// A `#compile_fail` test carrying `#skip(backend: "llvm")` is skipped on LLVM
+/// in parity with the regular-test partition: the `compile_fail` loop honors
+/// `backend_skip_reason`, not just the generic `skip_reason`. Pins the cure for
+/// the partition-covers-regular-tests-only gap.
+const BACKEND_SKIP_COMPILE_FAIL_FIXTURE: &str = r#"
+#skip(backend: "llvm", reason: "AOT N/A")
+#compile_fail("E2009")
+@cf_llvm_skip tests _ () -> void = {
+    let _ = undefined_name_xyz;
+    ()
+}
+"#;
+
+/// LLVM: the `#compile_fail` test naming `backend: "llvm"` is SKIPPED, not run.
+#[cfg(feature = "llvm")]
+#[test]
+fn test_backend_skip_compile_fail_skips_named_backend_on_llvm() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("backend_skip_cf_llvm.ori");
+    std::fs::write(&path, BACKEND_SKIP_COMPILE_FAIL_FIXTURE).unwrap();
+
+    let config = TestRunnerConfig {
+        backend: Backend::LLVM,
+        worker_protocol: true,
+        parallel: false,
+        ..TestRunnerConfig::default()
+    };
+    let runner = TestRunner::with_config(config);
+    let summary = runner.run(&path);
+
+    assert_eq!(
+        summary.skipped, 1,
+        "the compile_fail backend:llvm test is skipped on LLVM"
+    );
+    assert_eq!(
+        summary.failed, 0,
+        "no failure — the compile_fail test did not run on LLVM"
+    );
+}
+
+/// Interpreter: the same `#compile_fail` test is NOT skipped (the skip names
+/// only llvm) — it runs and its asserted compile error holds.
+#[test]
+fn test_backend_skip_compile_fail_runs_on_interpreter() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("backend_skip_cf_interp.ori");
+    std::fs::write(&path, BACKEND_SKIP_COMPILE_FAIL_FIXTURE).unwrap();
+
+    let config = TestRunnerConfig {
+        backend: Backend::Interpreter,
+        parallel: false,
+        ..TestRunnerConfig::default()
+    };
+    let runner = TestRunner::with_config(config);
+    let summary = runner.run(&path);
+
+    assert_eq!(
+        summary.skipped, 0,
+        "the llvm-only skip does NOT fire on the interpreter"
+    );
+}
+
 /// Pure-function pin on the mapping arm: `backend_skip_reason` returns the reason
 /// only for the named backend, `None` for the other.
 #[test]

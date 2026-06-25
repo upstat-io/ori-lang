@@ -128,6 +128,16 @@ impl TestRunner {
             if !Self::test_passes_filter(test, config, interner) {
                 continue;
             }
+            // Honor `#skip(backend: "<name>")` for compile_fail tests too, in
+            // parity with the regular-test partition below: a compile_fail test
+            // naming the current backend emits a Skipped result instead of running.
+            if let Some(reason) = Self::backend_skip_reason(test, config.backend) {
+                let reason_str = interner.lookup(reason).to_string();
+                let result = TestResult::skipped(test.name, test.targets.clone(), reason_str);
+                Self::protocol_result(&result, config, interner);
+                summary.add_result(result);
+                continue;
+            }
             Self::protocol_start(test.name, config, interner);
 
             let inner_result = Self::run_compile_fail_test(
