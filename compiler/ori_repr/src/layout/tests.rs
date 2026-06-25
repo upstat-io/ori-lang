@@ -71,7 +71,7 @@ fn make_tuple(elements: Vec<FieldRepr>) -> TupleRepr {
     }
 }
 
-// ─── StructRepr helper method tests ───────────────────────────
+// StructRepr helper method tests
 
 #[test]
 fn test_field_by_original_found() {
@@ -138,7 +138,7 @@ fn test_is_reordered_swapped() {
     assert!(s.is_reordered());
 }
 
-// ─── TupleRepr helper method tests ────────────────────────────
+// TupleRepr helper method tests
 
 #[test]
 fn test_tuple_memory_index_identity() {
@@ -153,7 +153,7 @@ fn test_tuple_is_reordered_identity() {
     assert!(!t.is_reordered());
 }
 
-// ─── Struct reordering tests ──────────────────────────────────
+// Struct reordering tests
 
 #[test]
 fn test_reorder_bool_int_bool() {
@@ -315,7 +315,7 @@ fn test_memory_index_after_reorder() {
     assert_eq!(result.memory_index(0), Some(1)); // bool → pos 1
 }
 
-// ─── ABI-stable layout tests ─────────────────────────────────
+// ABI-stable layout tests
 
 #[test]
 fn test_c_layout_preserves_order() {
@@ -412,7 +412,7 @@ fn test_default_reorders() {
     assert_eq!(result.size, 16);
 }
 
-// ─── Negative pin tests ──────────────────────────────────────
+// Negative pin tests
 
 #[test]
 fn test_negative_pin_reordered_not_24() {
@@ -438,7 +438,7 @@ fn test_negative_pin_c_layout_not_16() {
     assert_ne!(result.size, 16);
 }
 
-// ─── Tuple reordering tests ──────────────────────────────────
+// Tuple reordering tests
 
 #[test]
 fn test_tuple_reorder_bool_int_bool() {
@@ -496,7 +496,7 @@ fn test_tuple_all_same_type() {
     assert_eq!(result.elements[2].original_index, 2);
 }
 
-// ─── Mixed-field (non-scalar) struct reordering ─────────────
+// Mixed-field (non-scalar) struct reordering
 
 fn fat_ptr_str_repr() -> MachineRepr {
     MachineRepr::FatPointer(crate::struct_repr::FatRepr::Str)
@@ -641,7 +641,7 @@ fn test_reorder_mixed_tuple() {
     assert_eq!(result.elements[2].original_index, 0, "bool last");
 }
 
-// ─── Semantic pin: canonical layout proof ────────────────────
+// Semantic pin: canonical layout proof
 
 #[test]
 fn test_semantic_pin_struct_reorder() {
@@ -673,7 +673,7 @@ fn test_semantic_pin_struct_reorder() {
     );
 }
 
-// ─── Tuple pipeline activation tests ──────────────────────────
+// Tuple pipeline activation tests
 
 #[test]
 fn test_two_element_tuple_size_invariant() {
@@ -756,7 +756,7 @@ fn test_three_element_tuple_memory_index_remapping() {
     assert_eq!(result.memory_index(2), Some(2));
 }
 
-// -- min_tag_width tests (§07.1) --
+// -- min_tag_width tests --
 
 use crate::enum_repr::min_tag_width;
 
@@ -798,7 +798,7 @@ fn min_tag_width_65537_variants_needs_i32() {
     assert_eq!(min_tag_width(65537), IntWidth::I32);
 }
 
-// ─── Niche analysis tests (§07.2) ──────────────────────────────
+// Niche analysis tests
 
 use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
 use crate::layout::niche::{
@@ -1124,7 +1124,7 @@ fn result_int_int_explicit_tag() {
     }
 }
 
-// ─── Tagged pointer analysis tests (§07.3) ────────────────────────
+// Tagged pointer analysis tests
 
 use crate::layout::tagged_ptr::{can_use_tagged_pointer, is_taggable_pointer};
 
@@ -1166,7 +1166,7 @@ fn ptr_variant(idx: u32, payload: MachineRepr) -> VariantRepr {
     }
 }
 
-// === is_taggable_pointer: positive cases ===
+// is_taggable_pointer: positive cases
 
 #[test]
 fn is_taggable_pointer_rc() {
@@ -1183,7 +1183,7 @@ fn is_taggable_pointer_unmanaged() {
     assert!(is_taggable_pointer(&unmanaged_ptr_repr()));
 }
 
-// === is_taggable_pointer: negative pins (multi-word and scalar) ===
+// is_taggable_pointer: negative pins (multi-word and scalar)
 
 #[test]
 fn is_taggable_pointer_str_negative() {
@@ -1218,7 +1218,7 @@ fn is_taggable_pointer_byte_negative() {
     assert!(!is_taggable_pointer(&byte_repr()));
 }
 
-// === can_use_tagged_pointer: positive cases ===
+// can_use_tagged_pointer: positive cases
 
 #[test]
 fn can_use_tagged_pointer_unit_plus_rc() {
@@ -1252,7 +1252,7 @@ fn can_use_tagged_pointer_8_variants_max() {
     );
 }
 
-// === can_use_tagged_pointer: negative pins ===
+// can_use_tagged_pointer: negative pins
 
 #[test]
 fn can_use_tagged_pointer_9_variants_too_many() {
@@ -1300,12 +1300,12 @@ fn can_use_tagged_pointer_all_unit_negative() {
 
 #[test]
 fn is_taggable_pointer_recursive_cycle_marker_negative() {
-    // §07.3.A — recursive enum cycle marker is rejected from tagged-pointer
+    // Recursive enum cycle marker is rejected from tagged-pointer
     // eligibility. The marker is `RcPointer { inner: OpaquePtr }` produced by
     // `canonical_inner` when it detects a self-referential type. Recursive
     // tagged pointers require box-and-load codegen for Construct/Project
-    // (the heap value is itself an encoded i64), which is intentionally out
-    // of scope for §07.3.A. Without this rejection, AOT codegen for
+    // (the heap value is itself an encoded i64), which is intentionally not
+    // yet implemented. Without this rejection, AOT codegen for
     // `type IntCell = Empty | Holds(child: IntCell)` hangs (BUG-04-043).
     let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
         rc_width: IntWidth::I64,
@@ -1334,7 +1334,7 @@ fn can_use_tagged_pointer_recursive_enum_negative() {
     assert!(
         !can_use_tagged_pointer(&int_cell),
         "recursive enum (IntCell-style) must NOT be taggable until \
-         §07.3.A.future implements box-and-load codegen for the recursive case"
+         box-and-load codegen for the recursive case is implemented"
     );
 }
 
@@ -1354,7 +1354,7 @@ fn can_use_tagged_pointer_multi_field_variant_negative() {
     );
 }
 
-// === optimize_tagged_ptr_repr: end-to-end transformation ===
+// optimize_tagged_ptr_repr: end-to-end transformation
 
 use crate::layout::tagged_ptr::optimize_tagged_ptr_repr;
 
@@ -1454,11 +1454,11 @@ fn optimize_tagged_ptr_repr_preserves_variant_order() {
     assert_eq!(optimized.variants[3], v3);
 }
 
-// ─── §07.4 Payload compression tests ──────────────────────────────
+// Payload compression tests
 
 use crate::layout::compute_enum_payload_layout;
 
-// === All-unit variants (item 1: verification) ===
+// All-unit variants (item 1: verification)
 
 #[test]
 fn payload_layout_empty_fields_zero_size() {
@@ -1468,7 +1468,7 @@ fn payload_layout_empty_fields_zero_size() {
     assert_eq!(align, 1, "zero payload has alignment 1");
 }
 
-// === Current i64-slot packing baseline ===
+// Current i64-slot packing baseline
 
 #[test]
 fn payload_layout_single_int_field() {
@@ -1500,8 +1500,8 @@ fn payload_layout_byte_field_padded_to_slot() {
 #[test]
 fn payload_layout_three_byte_fields_padded_to_slots() {
     // Three bytes → 3 × 8 = 24 bytes (each in its own slot, NOT 3 packed bytes)
-    // Documents the current i64-slot rule that §07.4 will optimize.
-    // Once §07.4 lands and applies tighter packing, this test should fail —
+    // Documents the current i64-slot rule that will optimize.
+    // Once lands and applies tighter packing, this test should fail —
     // a developer must update it to reflect the new packed layout (e.g.,
     // 3 bytes packed into a single slot).
     let (size, align) = compute_enum_payload_layout(&[byte_repr(), byte_repr(), byte_repr()]);
@@ -1528,12 +1528,12 @@ fn payload_layout_never_field_no_size() {
     assert_eq!(align, 1);
 }
 
-// === Mixed-size variants (the §07.4 optimization target) ===
+// Mixed-size variants (the optimization target)
 
 #[test]
 fn payload_layout_int_plus_byte_uses_two_slots() {
     // i64 + byte → 16 bytes (8 + 8 padded slots)
-    // §07.4 optimization could pack to 9 bytes natural alignment, but the
+    // optimization could pack to 9 bytes natural alignment, but the
     // current rule produces 16 to match drop_enum.rs and ori_arc.
     let (size, align) = compute_enum_payload_layout(&[int_repr(), byte_repr()]);
     assert_eq!(
@@ -1543,16 +1543,16 @@ fn payload_layout_int_plus_byte_uses_two_slots() {
     assert_eq!(align, 8);
 }
 
-// === All-unit enum end-to-end via compute_explicit_tag_layout ===
+// All-unit enum end-to-end via compute_explicit_tag_layout
 //
-// Verifies §07.4 item 1: "All-unit variant detection — already implemented
+// Verifies item 1: "All-unit variant detection — already implemented
 // in resolve_enum". Pinned via the layout helper that canonical_enum() calls.
 
 use crate::layout::compute_explicit_tag_layout;
 
 #[test]
 fn explicit_tag_layout_all_unit_i8_one_byte() {
-    // §07.1 narrowed all-unit enums to i8 tag. Verify total size is 1 byte.
+    // narrowed all-unit enums to i8 tag. Verify total size is 1 byte.
     // Inputs: i8 tag, no payload, alignment 1 (computed from empty variants).
     let (size, align) = compute_explicit_tag_layout(IntWidth::I8, 0, 1);
     assert_eq!(size, 1, "all-unit enum with i8 tag must be 1 byte");

@@ -46,7 +46,7 @@ impl FieldSummaryTable {
     }
 
     /// Clear all accumulated field ranges. Used to recompute field summaries
-    /// from final (post-narrowing) variable ranges — see
+    /// from final (post-narrowing) variable ranges.
     pub fn clear(&mut self) {
         self.field_ranges.clear();
     }

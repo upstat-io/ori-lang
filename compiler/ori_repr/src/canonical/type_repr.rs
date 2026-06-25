@@ -195,7 +195,7 @@ pub(super) fn canonical_enum(
         align,
     };
 
-    // §07.3.A — apply tagged-pointer optimization when the codegen consumers
+    // Apply tagged-pointer optimization when the codegen consumers
     // are wired. `optimize_tagged_ptr_repr` is a no-op (returns input
     // unchanged) when the enum is not eligible per `can_use_tagged_pointer`,
     // so the gate only needs to guard against half-wired codegen consumers,
@@ -222,7 +222,7 @@ pub(super) fn canonical_enum(
 /// - `operators/strategy.rs` (`emit_coalesce`)
 /// - `instr_dispatch.rs` (`try_emit_project_enum_payload`)
 ///
-/// ABI layer is now niche-aware (§07.2). Remaining consumers that need
+/// ABI layer is now niche-aware. Remaining consumers that need
 /// niche updates before enabling: `result_monadic.rs` (`construct_result_value`,
 /// `resolve_type_for_result`), and other builtin helpers that construct
 /// explicit `{ i64, payload }` structs. Additionally, the niche layout
@@ -237,7 +237,7 @@ const NICHE_CODEGEN_READY: bool = false;
 /// (≤8 variants). The encoding stores the discriminant in the low 3 bits of
 /// the pointer, eliminating the explicit tag field.
 ///
-/// §07.3.A landed all codegen consumers — the gate is now enabled:
+/// All codegen consumers are wired — the gate is now enabled:
 /// - `EnumTag::TaggedPtr` variant in `enum_repr.rs`
 /// - `optimize_tagged_ptr_repr()` constructor in `layout/tagged_ptr.rs`
 /// - LLVM mask-based encode/decode helpers in `arc_emitter/mod.rs`

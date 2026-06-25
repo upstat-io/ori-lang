@@ -1,8 +1,8 @@
-//! Tests for integer narrowing (§04.1–§04.2, §04.4 Phase C).
+//! Tests for integer narrowing (–, Phase C).
 //!
-//! - Phase A tests (§04.1): struct/tuple field narrowing
-//! - ABI boundary tests (§04.2): boundary classification, widening policy
-//! - Phase C tests (§04.4): collection element narrowing
+//! - Phase A tests: struct/tuple field narrowing
+//! - ABI boundary tests: boundary classification, widening policy
+//! - Phase C tests: collection element narrowing
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -131,7 +131,7 @@ fn semantic_pin_pixel_struct_narrows_to_i8() {
         vec![int_field(0), int_field(1), int_field(2), int_field(3)],
     );
 
-    // Simulate §03 field-range results: all fields are [0, 255].
+    // Simulate field-range results: all fields are [0, 255].
     for field in 0u32..4 {
         plan.join_field_range(idx, field, ValueRange::Bounded { lo: 0, hi: 255 });
     }
@@ -693,7 +693,7 @@ fn constant_value_narrows_to_i8() {
     );
 }
 
-// FieldRepr.offset stays zero (§04/§06 interface contract)
+// FieldRepr.offset stays zero (/interface contract)
 
 #[test]
 fn field_offset_stays_zero_after_narrowing() {
@@ -712,7 +712,7 @@ fn field_offset_stays_zero_after_narrowing() {
             for field in &s.fields {
                 assert_eq!(
                     field.offset, 0,
-                    "§04 must not set offsets — §06 is the authority"
+                    "narrowing must not set offsets — layout is the authority"
                 );
             }
         }
@@ -720,7 +720,7 @@ fn field_offset_stays_zero_after_narrowing() {
     }
 }
 
-// §04.2 — ABI Boundary Classification Tests
+// — ABI Boundary Classification Tests
 
 // Boundary classification priority
 
@@ -1077,7 +1077,7 @@ fn semantic_pin_width_preservation_internal_agreed() {
     );
 }
 
-// §04.3 — Overflow Guard Insertion Tests
+// — Overflow Guard Insertion Tests
 
 // can_overflow: addition
 

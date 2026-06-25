@@ -12,7 +12,7 @@ use crate::ReprPlan;
 use ori_ir::Name;
 use ori_types::ExportedTypeMetadata;
 
-// ── IntWidth / FloatWidth ───────────────────────────────────────────
+// IntWidth / FloatWidth
 
 #[test]
 fn int_width_sizes() {
@@ -42,7 +42,7 @@ fn float_width_alignment_matches_size() {
     }
 }
 
-// ── MachineRepr ─────────────────────────────────────────────────────
+// MachineRepr
 
 #[test]
 fn machine_repr_int_canonical() {
@@ -86,7 +86,7 @@ fn machine_repr_stack_promoted() {
     }
 }
 
-// ── FatRepr ─────────────────────────────────────────────────────────
+// FatRepr
 
 #[test]
 fn fat_repr_str_vs_collection() {
@@ -100,7 +100,7 @@ fn fat_repr_str_vs_collection() {
     assert_ne!(str_repr, col_repr);
 }
 
-// ── ClosureRepr ─────────────────────────────────────────────────────
+// ClosureRepr
 
 #[test]
 fn closure_repr_basic() {
@@ -115,7 +115,7 @@ fn closure_repr_basic() {
     assert_eq!(*closure.ret, MachineRepr::Bool);
 }
 
-// ── StructRepr / FieldRepr ──────────────────────────────────────────
+// StructRepr / FieldRepr
 
 #[test]
 fn struct_repr_empty() {
@@ -141,7 +141,7 @@ fn field_repr_preserves_original_index() {
     assert_eq!(field.offset, 16);
 }
 
-// ── TupleRepr ───────────────────────────────────────────────────────
+// TupleRepr
 
 #[test]
 fn tuple_repr_two_elements() {
@@ -171,7 +171,7 @@ fn tuple_repr_two_elements() {
     assert!(t.trivial);
 }
 
-// ── RcRepr ──────────────────────────────────────────────────────────
+// RcRepr
 
 #[test]
 fn rc_repr_default_canonical() {
@@ -191,7 +191,7 @@ fn rc_repr_default_canonical() {
     assert_eq!(rc.rc_width, IntWidth::I64);
 }
 
-// ── EnumRepr / EnumTag / VariantRepr ────────────────────────────────
+// EnumRepr / EnumTag / VariantRepr
 
 #[test]
 fn enum_tag_explicit() {
@@ -285,7 +285,7 @@ fn variant_repr_two_fields_not_pointer() {
     assert!(!v.is_pointer());
 }
 
-// ── Placeholder types ───────────────────────────────────────────────
+// Placeholder types
 
 #[test]
 fn value_range_is_interval_lattice() {
@@ -308,7 +308,7 @@ fn escape_info_placeholder_exists() {
     assert_eq!(std::mem::size_of::<EscapeInfo>(), 0);
 }
 
-// ── Semantic Pin Tests ──────────────────────────────────────────────
+// Semantic Pin Tests
 
 /// Semantic pin: canonical int MUST be I64 signed.
 /// This test fails if the default is changed.
@@ -343,7 +343,7 @@ fn semantic_pin_canonical_float_is_f64() {
     );
 }
 
-// ── Canonical Mapping Tests ─────────────────────────────────────────
+// Canonical Mapping Tests
 
 use crate::canonical::{canonical, canonical_cached};
 use ori_types::{Idx, Pool};
@@ -639,7 +639,7 @@ fn canonical_enum() {
     let repr = canonical(&pool, enum_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(e.variants.len(), 2);
-        // §07.1: 2 variants → I8 tag
+        // 2 variants → I8 tag
         assert_eq!(
             e.tag,
             EnumTag::Explicit {
@@ -780,7 +780,7 @@ fn canonical_alias_chain_resolves() {
     );
 }
 
-// ── ABI Layout Tests ──────────────────────────────────────────────
+// ABI Layout Tests
 
 /// Semantic pin: (int, bool) must be 16 bytes with ABI padding, not 9.
 /// int (8 bytes) at offset 0, bool (1 byte) at offset 8, 7 bytes trailing
@@ -889,7 +889,7 @@ fn canonical_map_retains_value_repr() {
     }
 }
 
-// ── Cycle Detection for Recursive Types ─────────────
+// Cycle Detection for Recursive Types
 
 /// Recursive enum `type Tree = Leaf(int) | Node(Tree, Tree)` must not
 /// stack overflow. Recursive positions yield `RcPointer`.
@@ -1165,7 +1165,7 @@ fn canonical_non_recursive_repeated_type() {
     }
 }
 
-// ── Unit/Never Zero-Size in Aggregates ──────────────
+// Unit/Never Zero-Size in Aggregates
 
 /// Semantic pin: ((), bool) size = 1 — Unit contributes 0 bytes in aggregates.
 #[test]
@@ -1252,7 +1252,7 @@ fn canonical_tuple_never_zero_sized() {
     }
 }
 
-// ── Recursive Triviality for Compound Types ─────────
+// Recursive Triviality for Compound Types
 
 /// Struct containing a trivial tuple `(int, bool)` must itself be trivial.
 #[test]
@@ -1366,7 +1366,7 @@ fn trivial_scalar_payload_enum() {
     }
 }
 
-// ── ReprDecision Tracking ────────────────────────────────────────
+// ReprDecision Tracking
 
 #[test]
 fn repr_plan_set_get_round_trip() {
@@ -1542,7 +1542,7 @@ fn repr_plan_dump_audit_contains_tag_and_source() {
     );
 }
 
-// ── Query Interface Default Values ────────────────────────────────────
+// Query Interface Default Values
 
 #[test]
 fn int_width_default_returns_i64() {
@@ -1580,7 +1580,7 @@ fn escapes_default_returns_true() {
     );
 }
 
-// ── RC strategy ──────────────────────────────
+// RC strategy
 
 use crate::plan::RcStrategy;
 
@@ -1617,7 +1617,7 @@ fn rc_strategy_default_for_canonical_opaque_ptr() {
             reason: DecisionReason::Canonical,
         },
     );
-    // Must still report Atomic { I64 } — no §09/§10 decision has been made.
+    // Must still report Atomic { I64 } — no /decision has been made.
     assert_eq!(
         plan.rc_strategy(iter_idx),
         RcStrategy::Atomic {
@@ -1703,7 +1703,7 @@ fn set_rc_strategy_records_audit_entry() {
     );
 }
 
-// ── Pipeline Integration Tests ───────────────────────────────────────
+// Pipeline Integration Tests
 
 #[test]
 fn compute_repr_plan_populates_primitives() {
@@ -1804,7 +1804,7 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     }
 }
 
-// ── ORI_NO_REPR_OPT env var value parsing ─────────
+// ORI_NO_REPR_OPT env var value parsing
 
 #[test]
 fn is_env_truthy_accepts_1() {
@@ -1893,7 +1893,7 @@ fn env_disabled_rejects_falsey_values() {
     );
 }
 
-// ── #repr Attribute Integration tests ─────────────────────────────
+// #repr Attribute Integration tests
 
 #[test]
 fn repr_c_stored_and_retrieved() {
@@ -1996,7 +1996,7 @@ fn repr_convert_c_aligned_roundtrip() {
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
-// ── Named-type Idx storage contract ────────────────────
+// Named-type Idx storage contract
 
 #[test]
 fn repr_attr_stored_via_named_idx() {
@@ -2056,7 +2056,7 @@ fn repr_attr_named_vs_struct_idx_independent() {
     );
 }
 
-// ── Canonical Representation Tests ──────────────────────────────────
+// Canonical Representation Tests
 
 /// Named→Struct resolution. Previous tests only covered
 /// Named→Int; this verifies Named types pointing to structs resolve
@@ -2435,7 +2435,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
 
     let mut pool = Pool::new();
 
-    // ── Primitives (12) ──
+    // Primitives (12)
     // TypeInfo::Int → i64 | canonical: Int { I64, signed: true }
     assert_eq!(
         canonical(&pool, Idx::INT),
@@ -2514,7 +2514,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "[12/29] Ordering → i8"
     );
 
-    // ── Simple containers (7) ──
+    // Simple containers (7)
     // TypeInfo::List → {i64, i64, ptr}
     let list_idx = pool.list(Idx::INT);
     assert!(
@@ -2568,7 +2568,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "[19/29] DoubleEndedIterator → unmanaged ptr"
     );
 
-    // ── Two-child types (3) ──
+    // Two-child types (3)
     // TypeInfo::Map → {i64, i64, ptr}
     let map_idx = pool.map(Idx::STR, Idx::INT);
     assert!(
@@ -2592,7 +2592,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "[22/29] Borrowed → None"
     );
 
-    // ── Complex types (4) ──
+    // Complex types (4)
     // TypeInfo::Function → {ptr, ptr}
     let fn_idx = pool.function1(Idx::INT, Idx::BOOL);
     assert!(
@@ -2631,7 +2631,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "[26/29] Enum → {{i64 tag, payload}}"
     );
 
-    // ── Named/resolved types (3) ──
+    // Named/resolved types (3)
     // Named → resolves through to underlying type
     let named_idx = pool.named(Name::new(0, 700));
     pool.set_resolution(named_idx, struct_idx);
@@ -2661,7 +2661,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "[29/29] Alias → Float (resolved)"
     );
 
-    // ── Non-codegen types (all return None) ──
+    // Non-codegen types (all return None)
     // Variables (3): Var, BoundVar, RigidVar
     cache.clear();
     let var_idx = pool.fresh_var();
@@ -2827,7 +2827,7 @@ fn repr_plan_error_triviality_matches_classify_triviality() {
     );
 }
 
-// ── Named→resolved idx metadata propagation ─────────────
+// Named->resolved idx metadata propagation
 //
 // When a Named type has a resolution chain to a concrete struct/tuple,
 // repr_attrs and pub_type_indices must propagate to the resolved idx.
@@ -3896,7 +3896,7 @@ fn local_public_function_still_suppresses_narrowing() {
     );
 }
 
-// ── §07.2: Single-variant enum (tagless) ──────────────────────────
+// Single-variant enum (tagless)
 
 /// Test that canonical mapping for a single-variant enum produces `EnumTag::None`.
 #[test]
@@ -3955,7 +3955,7 @@ fn canonical_single_variant_unit_enum_is_tagless() {
     }
 }
 
-// ── ReprPlan::enum_repr_with_fallback (SSOT ladder) ─────────────
+// ReprPlan::enum_repr_with_fallback (SSOT ladder)
 
 /// A plan-miss on an enum-shaped type recomputes the canonical repr
 /// instead of answering `None` — pins the single ladder every emission

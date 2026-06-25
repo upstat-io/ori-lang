@@ -2,13 +2,13 @@
 // Formal semantics: a derived `hash` must be emitted for every concrete instantiation
 // a call site can demand, including an inner instantiation reachable ONLY through a
 // distinct outer generic's field (`Outer<Inner<int>>` -> inner `Inner<int>`). The
-// BUG-02-066 mono-aware derive path emits a per-instantiation method only for
+// mono-aware derive path emits a per-instantiation method only for
 // instantiations `compile_derives` reaches via its `module.types` iteration; the
 // inner-only `Inner<int>` instantiation STARVES on the AOT (LLVM) backend with
 // "unresolved function `hash` in apply — missing mono instance?", while the
 // interpreter (the parity oracle) computes the value correctly.
 //
-// TDD-first (w-449ffcaa): these cells FAIL pre-fix on the LLVM backend (missing mono
+// TDD-first: these cells FAIL pre-fix on the LLVM backend (missing mono
 // instance) and PASS on the interpreter. ISOLATION: `hash` only, no `.debug()` cell
 // on the same instantiation (debug emission would materialize the inner instance and
 // MASK the hash starve). Golden hash from the interpreter (the parity oracle);

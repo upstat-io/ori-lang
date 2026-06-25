@@ -57,7 +57,7 @@ const TAGGED_PTR_ALIGN: u32 = 8;
 /// boxing/load semantics from a regular heap pointer (the value at the heap
 /// address is itself an encoded tagged-pointer i64, not a value of the
 /// pointer's `inner` type). Supporting recursive tagged pointers requires
-/// box-and-load codegen for Construct/Project — out of scope for §07.3.A.
+/// box-and-load codegen for Construct/Project — not yet supported.
 /// Tracked as a future extension; the analysis layer rejects them so the
 /// codegen path never sees a recursive tagged-pointer enum.
 ///
@@ -92,9 +92,9 @@ pub(crate) fn is_taggable_pointer(repr: &MachineRepr) -> bool {
 /// tag in the low bits of the *single* payload word, so a variant with two or
 /// more fields cannot be encoded.
 ///
-/// # Spec
+/// # Encoding
 ///
-/// This is the §07.3 eligibility check. The tagged pointer encoding is:
+/// This is the tagged-pointer eligibility check. The tagged pointer encoding is:
 /// ```text
 /// [63:3] pointer value  [2:0] tag
 /// ```
@@ -142,9 +142,7 @@ pub(crate) fn can_use_tagged_pointer(enum_repr: &EnumRepr) -> bool {
 /// `optimize_option_repr`/`optimize_result_repr` are the canonical
 /// constructors of `EnumTag::Niche`.
 ///
-/// # Spec
-///
-/// §07.3 — tagged pointer encoding for enums where every variant is
+/// Tagged-pointer encoding for enums where every variant is
 /// either unit or carries a single single-word pointer payload.
 #[must_use]
 pub(crate) fn optimize_tagged_ptr_repr(candidate: EnumRepr) -> EnumRepr {

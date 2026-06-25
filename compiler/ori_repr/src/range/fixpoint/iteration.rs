@@ -1,4 +1,5 @@
-//! Helper functions for fixpoint iteration infrastructure.
+//! Per-block fixpoint iteration mechanics: comparison-threshold collection,
+//! block-parameter merging, and refinement propagation through jump chains.
 
 use ori_arc::ir::{ArcFunction, ArcTerminator};
 use ori_arc::{ArcBlockId, ArcVarId};

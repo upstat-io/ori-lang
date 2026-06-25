@@ -1,13 +1,13 @@
 // Spec: 06-types.md § Derive — Debug on a nested-generic-instantiation receiver (ROOT A)
 // Formal semantics: a derived `debug` must be emitted for every concrete instantiation
 // a call site can demand, including an inner instantiation reachable ONLY by nesting
-// (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The BUG-02-066 mono-aware derive path emits
+// (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The mono-aware derive path emits
 // a per-instantiation method only for instantiations `compile_derives` reaches via its
 // `module.types` iteration; the inner-only `Wrap<int>` instantiation STARVES on the AOT
 // (LLVM) backend with "unresolved function `debug` in apply — missing mono instance?",
 // while the interpreter (the parity oracle) produces the structural string correctly.
 //
-// TDD-first (w-449ffcaa): this cell FAILS pre-fix on the LLVM backend (missing mono
+// TDD-first: this cell FAILS pre-fix on the LLVM backend (missing mono
 // instance) and PASSES on the interpreter. ISOLATION + SHAPE: the non-emptiness gate
 // `a.debug() != ""` is the shape that HARD-FAILS pre-fix; an `assert_eq(actual:
 // a.debug(), expected: "...")` exact-string cell would route through the outer-debug

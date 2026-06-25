@@ -1,7 +1,7 @@
 // Spec: 06-types.md § Derive — Hashable on a nested-generic-instantiation receiver (ROOT A)
 // Formal semantics: a derived `hash` must be emitted for EVERY concrete instantiation
 // of a generic composite a call site can demand, including an inner instantiation
-// reachable ONLY by nesting (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The BUG-02-066
+// reachable ONLY by nesting (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The
 // mono-aware derive path (`concrete_instantiations` -> `register_mono_derive_function`
 // -> `derived_method_full`) emits a per-instantiation method only for instantiations
 // `compile_derives` reaches via its `module.types` iteration; the inner-only `Wrap<int>`
@@ -9,7 +9,7 @@
 // apply — missing mono instance?", while the interpreter (the parity oracle) computes
 // the value correctly.
 //
-// TDD-first (w-449ffcaa): these cells FAIL pre-fix on the LLVM backend (missing mono
+// TDD-first: these cells FAIL pre-fix on the LLVM backend (missing mono
 // instance) and PASS on the interpreter. ISOLATION: this file derives `hash` only and
 // MUST NOT add a `.debug()` cell on the same instantiation — emitting `debug` for the
 // nested receiver materializes the inner `Wrap<int>` instance and would MASK the hash

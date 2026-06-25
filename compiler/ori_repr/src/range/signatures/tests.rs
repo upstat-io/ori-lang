@@ -1,4 +1,4 @@
-//! Tests for interprocedural range propagation (§03.5).
+//! Tests for interprocedural range propagation.
 
 use super::*;
 use ori_arc::ir::{
@@ -275,7 +275,7 @@ fn build_branching_caller(
     }
 }
 
-// ─── Non-recursive: constant argument narrows parameter ──────
+// Non-recursive: constant argument narrows parameter
 
 /// Semantic pin: private function called only as `helper(42)` should have
 /// parameter range [42, 42]. This ONLY passes with interprocedural propagation;
@@ -333,7 +333,7 @@ fn single_call_site_constant_arg() {
     );
 }
 
-// ─── Non-recursive: two call sites join parameter ranges ──────
+// Non-recursive: two call sites join parameter ranges
 
 /// Two call sites with different constant args → parameter range is their join.
 #[test]
@@ -404,7 +404,7 @@ fn two_call_sites_join_param_ranges() {
     );
 }
 
-// ─── Return range propagation ──────
+// Return range propagation
 
 /// Return range from a function with a constant return value.
 #[test]
@@ -439,7 +439,7 @@ fn return_range_constant() {
     );
 }
 
-// ─── Budget exceeded ──────
+// Budget exceeded
 
 /// Budget exceeded: >N SCC iterations → remaining SCCs get Top.
 #[test]
@@ -474,7 +474,7 @@ fn budget_exceeded_gives_top() {
     );
 }
 
-// ─── Self-recursive function ──────
+// Self-recursive function
 
 /// Self-recursive function: should converge or widen to Top within budget.
 #[test]
@@ -591,7 +591,7 @@ fn self_recursive_converges_or_widens() {
     );
 }
 
-// ─── Empty function list ──────
+// Empty function list
 
 /// Empty function list: should not panic.
 #[test]
@@ -604,7 +604,7 @@ fn empty_functions_no_panic() {
     // No assertions needed — just verifying it doesn't panic.
 }
 
-// ─── Transitive A→B→C propagation ──────
+// Transitive A->B->C propagation
 
 /// Semantic pin: A calls B(42), B calls C(x). C's parameter should narrow to
 /// [42, 42] even though C is only called by B. This ONLY passes with parameter
@@ -693,7 +693,7 @@ fn transitive_propagation_a_b_c() {
     );
 }
 
-// ─── Caller/callee return-range narrowing ──────
+// Caller/callee return-range narrowing
 
 /// Semantic pin: callee returns constant 99, caller's Apply dst should narrow
 /// to [99, 99] from the callee's return range. This ONLY passes with Phase 6
@@ -749,7 +749,7 @@ fn caller_dst_narrows_from_callee_return_range() {
     );
 }
 
-// ─── Mutually recursive SCC tightening ──────
+// Mutually recursive SCC tightening
 
 /// Two mutually recursive functions with an external seed. When seeded with
 /// a constant call, parameter ranges should converge tighter than Top.
@@ -999,7 +999,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
     );
 }
 
-// ─── SCC budget exhaustion clears stale results ──────
+// SCC budget exhaustion clears stale results
 
 /// Semantic pin: when a recursive SCC hits the iteration budget, ALL exported
 /// ranges (`var_ranges`, `return_range`, `field_summaries`) must be conservative
@@ -1150,7 +1150,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
     );
 }
 
-// ─── Return-range feedback into downstream propagation ──────
+// Return-range feedback into downstream propagation
 
 /// Semantic pin: A calls `helper()` which returns bounded [99, 99], then passes
 /// that result to C. C's parameter should narrow to [99, 99] because the
@@ -1235,7 +1235,7 @@ fn return_range_feeds_downstream_parameter_collection() {
     );
 }
 
-// ─── Multi-hop return-range chain ──────
+// Multi-hop return-range chain
 
 /// Build a passthrough function: `f(x) = callee(x)`.
 /// Takes one int param, calls `callee_id` with it, returns the result.
@@ -1346,7 +1346,7 @@ fn multi_hop_return_range_chain() {
     }
 }
 
-// ─── Derived locals from call-result narrowing ──────
+// Derived locals from call-result narrowing
 
 /// Semantic pin: `helper()` returns 99. Caller does:
 ///   `let x = helper()`   — dst var, narrowed by return-range feedback
@@ -1537,7 +1537,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
     );
 }
 
-// ─── refresh_return_ranges must skip unreachable blocks ──────
+// refresh_return_ranges must skip unreachable blocks
 
 /// Build a function that calls `callee_id`, has an unreachable Return block,
 /// and returns the call result. CFG: B0 → Apply → Jump B2, B1 (unreachable
@@ -1686,7 +1686,7 @@ fn feedback_refresh_skips_unreachable_return_blocks() {
     );
 }
 
-// ─── Total SCC budget must limit recursive SCC iterations ──────
+// Total SCC budget must limit recursive SCC iterations
 
 /// Build a self-recursive `rec(x: int)`: if x > 0 then `rec(x - 1)` else 0.
 fn build_self_recursive_func(name: u32) -> ArcFunction {
@@ -1836,7 +1836,7 @@ fn total_scc_budget_caps_recursive_scc() {
     );
 }
 
-// ─── Invoke dst must receive call_result_narrowings ──────
+// Invoke dst must receive call_result_narrowings
 
 /// Build a caller that uses `ArcTerminator::Invoke` to call `callee_id`,
 /// then performs `let y = x + 1` and returns y. Three blocks:
@@ -2109,7 +2109,7 @@ fn invoke_dst_forwards_to_callee_param() {
     );
 }
 
-// ─── Call-site-specific range propagation ──────
+// Call-site-specific range propagation
 
 /// Semantic pin: helper(x) called in true branch of `x < 5`.
 /// With call-site-specific propagation: helper.param = [0, 4].
@@ -2146,7 +2146,7 @@ fn call_site_without_branch_uses_global_range() {
     );
 }
 
-// Unconstrained function tests (§03.5 — pub/trait/closure params → Top)
+// Unconstrained function tests (— pub/trait/closure params → Top)
 
 /// `pub` function → parameter range remains Top regardless of call-site args.
 ///
