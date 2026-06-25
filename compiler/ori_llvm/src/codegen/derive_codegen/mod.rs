@@ -60,10 +60,9 @@ pub fn compile_derives<'a>(
 ) {
     let type_map: FxHashMap<Name, &TypeEntry> = user_types.iter().map(|te| (te.name, te)).collect();
 
-    // Every type carrying a derive: the set of inner-type names a nested
-    // `Applied` may name (`Wrap` in `Wrap<Wrap<int>>`) and the decl to compile
-    // it against. The transitive-closure walk below registers a method for the
-    // INNER instantiation only when its head names a derive-bearing type here.
+    // Why: the closure walk below registers a method for an INNER instantiation
+    // (`Wrap` in `Wrap<Wrap<int>>`) only when its `Applied` head names a
+    // derive-bearing type, gated by this set.
     let derive_bearing: FxHashSet<Name> = module
         .types
         .iter()
@@ -140,8 +139,7 @@ pub fn compile_derives<'a>(
         // Generic type: seed the work-list with the top-level instantiations,
         // then transitively close over inner derive-bearing instantiations
         // reachable through field/payload types (`Wrap<int>` reached only by
-        // nesting inside `Wrap<Wrap<int>>` — the starve BUG-02-066's top-level
-        // enumeration misses).
+        // nesting inside `Wrap<Wrap<int>>`, which top-level enumeration misses).
         for (applied_idx, concrete_idx) in instantiations {
             compile_instantiation_closure(
                 fc,

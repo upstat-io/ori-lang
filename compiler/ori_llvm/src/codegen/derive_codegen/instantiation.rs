@@ -31,13 +31,9 @@ pub(super) fn concrete_instantiations<'a>(
         let Some(concrete) = pool.resolve(idx) else {
             continue;
         };
-        // Gate on the MATERIALIZED BODY's concreteness, NOT the `Applied`
-        // node's flag. An `Applied(Wrap, [Applied(Wrap, [int])])` carries
-        // `HAS_VAR` on its type-argument list (the args were not flag-cleared
-        // after registration) while its resolved struct/enum body is fully
-        // concrete — that body is the layout-correct instantiation a derived
-        // method must be emitted for. The `Applied`-flag gate that preceded
-        // this rejected every nested instantiation (the starve).
+        // Why: gate on the MATERIALIZED body's concreteness, not the `Applied`
+        // node's flag — a nested `Applied` carries stale `HAS_VAR` on its arg
+        // list while its resolved body is fully concrete (the emit target).
         let body = pool.resolve_fully(concrete);
         if pool.flags(body).has_any_var_or_infer() {
             continue;
@@ -125,18 +121,19 @@ pub(super) fn substitute_enum_variants<'a>(
 }
 
 /// Enumerate the nested derive-bearing `Applied` instantiations directly
-/// reachable through the field/payload types of a concrete instantiation body
-/// `concrete_idx`. For each field/variant-payload type that (fully resolved to
-/// its `Applied` head) names a type in `derive_bearing`, returns
-/// `(applied_idx, concrete_body_idx, inner_name)` — the same `(Idx, Idx)` shape
-/// [`concrete_instantiations`] produces for a top-level instantiation, plus the
-/// inner type `Name` so the caller can recurse.
+/// reachable through the field/payload types of a concrete body `concrete_idx`.
 ///
-/// One hop only: the transitive closure is driven by the caller's work-list,
-/// which re-invokes this on each emitted inner body. Fully-resolved-Applied head
+/// # Returns
+///
+/// For each field/payload whose fully-resolved `Applied` head names a
+/// `derive_bearing` type, `(applied_idx, concrete_body_idx, inner_name)` — the
+/// [`concrete_instantiations`] shape plus the inner `Name` for the caller to recurse.
+///
+/// # Scope
+///
+/// One hop only; the caller's work-list drives the transitive closure. Head
 /// detection covers nesting wrapped in `Option`/`Result`/`Tuple`/`List`/`Set`
-/// (e.g. `Wrap<Option<Wrap<int>>>`) — those tags carry their child `Applied`,
-/// surfaced by walking the aggregate children below.
+/// (`Wrap<Option<Wrap<int>>>`) via the aggregate-children walk below.
 pub(super) fn nested_derive_instantiations<'a>(
     fc: &FunctionCompiler<'_, 'a, 'a, '_>,
     concrete_idx: Idx,
