@@ -36,7 +36,7 @@ fn scan_with_eof(source: &str) -> Vec<RawToken> {
     tokens
 }
 
-// ─── Property Tests ────────────────────────────────────────────
+// Property Tests
 
 #[test]
 fn total_len_equals_source_len() {
@@ -125,7 +125,7 @@ fn template_depth_empty_after_complete_scan() {
     }
 }
 
-// ─── Byte Coverage ─────────────────────────────────────────────
+// Byte Coverage
 
 #[test]
 fn all_256_bytes_produce_valid_token() {
@@ -161,7 +161,7 @@ fn all_printable_ascii_produce_valid_tokens() {
     }
 }
 
-// ─── Whitespace & Newlines ─────────────────────────────────────
+// Whitespace & Newlines
 
 #[test]
 fn whitespace_spaces_and_tabs() {
@@ -213,7 +213,7 @@ fn empty_source() {
     assert_eq!(tokens[0].tag, RawTag::Eof);
 }
 
-// ─── Comments ──────────────────────────────────────────────────
+// Comments
 
 #[test]
 fn line_comment() {
@@ -239,7 +239,7 @@ fn slash_followed_by_non_slash() {
     assert_eq!(tags, vec![RawTag::Slash, RawTag::Ident]);
 }
 
-// ─── Identifiers ───────────────────────────────────────────────
+// Identifiers
 
 #[test]
 fn simple_identifiers() {
@@ -287,7 +287,7 @@ fn keywords_are_ident() {
     assert_eq!(scan_tags("false"), vec![RawTag::Ident]);
 }
 
-// ─── Operators (single-char) ───────────────────────────────────
+// Operators (single-char)
 
 #[test]
 fn single_char_operators() {
@@ -308,7 +308,7 @@ fn single_char_operators() {
     assert_eq!(scan_tags("?"), vec![RawTag::Question]);
 }
 
-// ─── Operators (compound) ──────────────────────────────────────
+// Operators (compound)
 
 #[test]
 fn compound_operators() {
@@ -356,7 +356,7 @@ fn compound_assignment_tokens() {
     );
 }
 
-// ─── Delimiters ────────────────────────────────────────────────
+// Delimiters
 
 #[test]
 fn delimiters() {
@@ -386,7 +386,7 @@ fn backslash_is_error_detection() {
     assert_eq!(scan_tags("\\"), vec![RawTag::Backslash]);
 }
 
-// ─── Numeric Literals ──────────────────────────────────────────
+// Numeric Literals
 
 #[test]
 fn integer_literals() {
@@ -453,7 +453,7 @@ fn exponent_without_dot() {
     assert_eq!(scan_tags("1e-5"), vec![RawTag::Float]);
 }
 
-// ─── Duration Literals ─────────────────────────────────────────
+// Duration Literals
 
 #[test]
 fn duration_integer() {
@@ -490,7 +490,7 @@ fn duration_suffix_not_consumed_if_followed_by_ident() {
     assert_eq!(tags, vec![RawTag::Int, RawTag::Ident]);
 }
 
-// ─── Size Literals ─────────────────────────────────────────────
+// Size Literals
 
 #[test]
 fn size_integer() {
@@ -519,7 +519,7 @@ fn size_suffix_not_consumed_if_followed_by_ident() {
     assert_eq!(tags, vec![RawTag::Int, RawTag::Ident]);
 }
 
-// ─── String Literals ───────────────────────────────────────────
+// String Literals
 
 #[test]
 fn simple_string() {
@@ -560,7 +560,7 @@ fn adjacent_strings() {
     );
 }
 
-// ─── Character Literals ────────────────────────────────────────
+// Character Literals
 
 #[test]
 fn simple_char() {
@@ -671,7 +671,7 @@ fn char_unicode_4byte() {
     assert_eq!(scan("'😀'")[0].len, 6); // ' + 4-byte char + '
 }
 
-// ─── Template Literals ─────────────────────────────────────────
+// Template Literals
 
 #[test]
 fn template_complete() {
@@ -844,7 +844,7 @@ fn template_unterminated_interpolation_only_expr() {
     );
 }
 
-// ─── Format Spec in Template Interpolation ─────────────────────
+// Format Spec in Template Interpolation
 
 #[test]
 fn template_format_spec_simple() {
@@ -985,7 +985,7 @@ fn template_format_spec_length_correct() {
     assert_eq!(format_spec.len, 7); // ":>10.2f" = 7 bytes
 }
 
-// ─── Invalid Bytes ─────────────────────────────────────────────
+// Invalid Bytes
 
 #[test]
 fn non_ascii_byte_is_invalid() {
@@ -1004,7 +1004,7 @@ fn control_chars_are_invalid() {
     assert_eq!(tags, vec![RawTag::InvalidByte]);
 }
 
-// ─── Adjacent Tokens ───────────────────────────────────────────
+// Adjacent Tokens
 
 #[test]
 fn adjacent_no_whitespace() {
@@ -1043,7 +1043,7 @@ fn complex_expression() {
     );
 }
 
-// ─── Iterator impl ────────────────────────────────────────────
+// Iterator impl
 
 #[test]
 fn iterator_yields_tokens_then_none() {
@@ -1056,7 +1056,7 @@ fn iterator_yields_tokens_then_none() {
     assert_eq!(tokens[2].tag, RawTag::Ident);
 }
 
-// ─── Tokenize convenience function ─────────────────────────────
+// Tokenize convenience function
 
 #[test]
 fn tokenize_convenience() {
@@ -1067,7 +1067,7 @@ fn tokenize_convenience() {
     assert_eq!(tokens[4].tag, RawTag::Int);
 }
 
-// ─── Realistic Ori Code ────────────────────────────────────────
+// Realistic Ori Code
 
 #[test]
 fn realistic_let_binding() {
@@ -1142,7 +1142,7 @@ fn realistic_attribute_and_test() {
     );
 }
 
-// ─── Unicode Escape in Character Literals ───────────────────────
+// Unicode Escape in Character Literals
 
 #[test]
 fn char_unicode_escape_emoji() {

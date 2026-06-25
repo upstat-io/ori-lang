@@ -217,7 +217,7 @@ pub enum RawTag {
     /// Invalid escape sequence.
     ///
     /// Currently unused by the raw scanner — escape validation is fully deferred
-    /// to the cooking layer's `unescape_*_v2()` functions. Reserved for potential
+    /// to the cooking layer's `unescape_*` functions. Reserved for potential
     /// future scanner-level escape validation. The cooker has a defensive match
     /// arm for this variant.
     InvalidEscape = 243,
