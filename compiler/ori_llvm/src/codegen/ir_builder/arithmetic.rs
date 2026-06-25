@@ -7,7 +7,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::ValueId;
 
 impl IrBuilder<'_, '_> {
-    // -- Signed arithmetic --
+    // Signed arithmetic
 
     /// Build integer addition.
     pub fn add(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
@@ -106,7 +106,7 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(result.into())
     }
 
-    // -- Unsigned arithmetic --
+    // Unsigned arithmetic
 
     /// Build unsigned integer division.
     pub fn udiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
@@ -156,7 +156,7 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(v.into())
     }
 
-    // -- Float arithmetic --
+    // Float arithmetic
 
     /// Build floating-point addition.
     pub fn fadd(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
@@ -253,7 +253,7 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(result.into())
     }
 
-    // -- Bitwise operations --
+    // Bitwise operations
 
     /// Build bitwise AND.
     pub fn and(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {

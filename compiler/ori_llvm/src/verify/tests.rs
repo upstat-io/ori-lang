@@ -958,7 +958,7 @@ fn function_filter_skips_non_matching() {
     assert_eq!(filtered_leaks[0].function_name, "target_fn");
 }
 
-// --- RC stats integration tests ---
+// RC stats integration tests
 
 #[test]
 fn test_audit_module_populates_rc_stats_with_counts() {

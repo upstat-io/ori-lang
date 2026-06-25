@@ -9,7 +9,7 @@ fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
     (pool, store)
 }
 
-// -- abi_size tests --
+// abi_size tests
 
 #[test]
 fn primitive_abi_sizes() {
@@ -94,7 +94,7 @@ fn mixed_alignment_tuple_includes_padding() {
 
     // 24 > 16 — classified Indirect, matching the LLVM layout the
     // callee actually sees. A padding-unaware Direct here misaligns
-    // registers (the BUG-04-071 misclassification class).
+    // registers (the size-misclassification class).
     assert_eq!(
         compute_param_passing(tup, &store, None),
         ParamPassing::Indirect { alignment: 8 },
@@ -131,7 +131,7 @@ fn uniform_small_alignment_tuple_stays_compact() {
     );
 }
 
-// -- Enum abi_size tests --
+// Enum abi_size tests
 
 #[test]
 fn all_unit_enum_abi_size_is_tag_size() {
@@ -217,7 +217,7 @@ fn enum_with_mixed_payload_abi_size() {
     );
 }
 
-// -- Param passing tests --
+// Param passing tests
 
 #[test]
 fn param_passing_direct_for_small_types() {
@@ -260,7 +260,7 @@ fn param_passing_indirect_for_large_types() {
     );
 }
 
-// -- Return passing tests --
+// Return passing tests
 
 #[test]
 fn return_passing_direct_for_small_types() {
@@ -311,7 +311,7 @@ fn return_passing_sret_for_map() {
     );
 }
 
-// -- Calling convention tests --
+// Calling convention tests
 
 #[test]
 fn call_conv_fast_for_ordinary_functions() {
@@ -336,7 +336,7 @@ fn call_conv_c_for_test_wrapper() {
     assert_eq!(select_call_conv(CallConvSite::TestWrapper), CallConv::C);
 }
 
-// -- compute_function_abi e2e --
+// compute_function_abi e2e
 
 #[test]
 fn compute_abi_simple_function() {
@@ -441,7 +441,7 @@ fn compute_abi_main_uses_c_convention() {
     assert_eq!(abi.call_conv, CallConv::C);
 }
 
-// -- Borrow-aware param passing tests --
+// Borrow-aware param passing tests
 
 #[test]
 fn borrowed_definiteref_becomes_reference() {
@@ -583,7 +583,7 @@ fn borrowed_large_type_becomes_reference() {
     );
 }
 
-// -- compute_function_abi_with_ownership e2e --
+// compute_function_abi_with_ownership e2e
 
 #[test]
 fn abi_with_ownership_uses_reference_for_borrowed_params() {
@@ -678,7 +678,7 @@ fn abi_with_ownership_none_falls_through() {
     );
 }
 
-// -- abi_size / abi_alignment ↔ LLVM layout sync tests --
+// abi_size / abi_alignment ↔ LLVM layout sync tests
 //
 // The abi walkers in `size.rs` mirror `TypeLayoutResolver`'s lowered LLVM
 // layouts. These tests enforce the mirror mechanically: for a representative

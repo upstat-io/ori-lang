@@ -148,7 +148,7 @@ impl<'ctx> DebugContext<'ctx> {
         self.builder.level()
     }
 
-    // -- Variable Debug Info Convenience --
+    // Variable Debug Info Convenience
 
     /// Emit `llvm.dbg.declare` for a mutable binding (alloca).
     ///

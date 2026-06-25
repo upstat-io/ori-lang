@@ -292,10 +292,6 @@ fn populate_drop_burden_if_applicable(
     // proceed with whichever burden spec was already populated for T
     // (the codegen gate at the driver level — `PC-4` — suppresses
     // emission when any typeck error remains).
-    //
-    // Find the @drop method on the impl_def. Per `drop-trait-proposal.md
-    // §Definition`, the method name is `drop`. Resolve via the AST
-    // impl-def's methods list to obtain its compiled FnSym shape.
     if checker.type_registry().carries_value_marker(self_type) {
         // Resolve the type's name from the registry for the diagnostic.
         // Fall back to the placeholder `<unknown>` when the type is not
@@ -318,17 +314,7 @@ fn populate_drop_burden_if_applicable(
         // conflict by removing one of the two markers.
     }
 
-    let drop_method_name = checker.interner().intern("drop");
     let user_drop_fn_sym = mint_compiled_drop_fn_sym(self_type);
-
-    // Validate the impl actually carries a @drop method body; without
-    // one, we cannot meaningfully wire `user_drop` (the impl would
-    // inherit a default body — Drop has no default per
-    // `drop-trait-proposal.md`). If the parser produced an
-    // empty-method impl block (a user authoring bug), we still
-    // populate so the codegen-side body materialization site reports
-    // a clearer downstream error.
-    let _ = impl_def.methods.iter().any(|m| m.name == drop_method_name);
 
     // Look up existing burden + merge: preserve any spec already
     // computed by `burden_compute` at type-registration time;

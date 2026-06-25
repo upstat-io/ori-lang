@@ -650,10 +650,10 @@ impl EventLog: Drop {
 /// cannot exercise them. The F2 cure (SSOT routing) is verified at the IR level
 /// (per-field `invoke @drop → fld.cont/fld.cleanup` + `landingpad` + `resume`,
 /// confirmed with the gate temporarily flipped). This cell activates when niche
-/// codegen ships under BUG-04-122 (the `emit_drop_enum_niche` niche-path bug),
-/// at which point it must pass without modification.
+/// codegen ships under BUG-04-222 (niche/tagless `TagEncoding` codegen-consumer
+/// migration), at which point it must pass without modification.
 #[test]
-#[ignore = "BUG-04-122: niche-encoded codegen gated off (NICHE_CODEGEN_READY=false); F2 niche dec SSOT routing verified at IR level, this behavioral cell activates when niche codegen ships"]
+#[ignore = "BUG-04-222: niche-encoded codegen gated off (NICHE_CODEGEN_READY=false); F2 niche dec SSOT routing verified at IR level, this behavioral cell activates when niche codegen ships"]
 fn drop_niche_enum_payload_panic_cleans_remaining_sibling() {
     let source = r#"
 type Loud = { tag: str }

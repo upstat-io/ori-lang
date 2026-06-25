@@ -169,7 +169,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
         use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
 
-        // BUG-04-159: a same-frame catch of an inline checked-op makes the
+        // A same-frame catch of an inline checked-op makes the
         // function may-unwind — the checked-op panic is emitted as `invoke` to
         // a catch landing pad, so marking the function `nounwind` would strip
         // the landing pad. The `invoke` itself already makes the function

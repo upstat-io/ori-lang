@@ -73,10 +73,6 @@ pub(super) fn emit_enum_lexicographic<'a>(
 }
 
 /// Emit per-variant lexicographic comparison via switch on tag.
-#[expect(
-    clippy::too_many_lines,
-    reason = "enum payload comparison emits per-variant switch + field ops"
-)]
 fn emit_enum_payload_cmp<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,
@@ -137,31 +133,22 @@ fn emit_enum_payload_cmp<'a>(
 
         let mut i64_offset: u64 = 0;
         for (fi, &field_type) in field_types.iter().enumerate() {
-            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
-            let self_slot = fc.builder_mut().gep(
+            let (self_field, field_llvm_ty) = super::load_payload_slot_field(
+                fc,
                 i64_ty,
                 self_payload,
-                &[slot_idx],
+                i64_offset,
+                field_type,
                 &format!("cmp.v{tag_idx}.self.f{fi}"),
-            );
-            let other_slot = fc.builder_mut().gep(
-                i64_ty,
-                other_payload,
-                &[slot_idx],
-                &format!("cmp.v{tag_idx}.other.f{fi}"),
-            );
-
-            let field_llvm_ty = fc.resolve_type(field_type);
-            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
-
-            let self_field = fc.builder_mut().load(
-                field_ty_id,
-                self_slot,
                 &format!("cmp.v{tag_idx}.self.f{fi}.val"),
             );
-            let other_field = fc.builder_mut().load(
-                field_ty_id,
-                other_slot,
+            let (other_field, _) = super::load_payload_slot_field(
+                fc,
+                i64_ty,
+                other_payload,
+                i64_offset,
+                field_type,
+                &format!("cmp.v{tag_idx}.other.f{fi}"),
                 &format!("cmp.v{tag_idx}.other.f{fi}.val"),
             );
 

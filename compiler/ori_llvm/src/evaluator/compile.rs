@@ -80,7 +80,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
         imported_mono_functions: Vec<crate::monomorphize::MonoFunction>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
-        // --- V2 pipeline ---
+        // V2 pipeline
 
         // 1. Create LLVM module context.
         //

@@ -50,26 +50,26 @@
 //! ARC classification is NOT in this module — it lives in `ori_arc::ArcClassification`
 //! (no LLVM dependency). This module is purely about LLVM code generation.
 
-// -- Core infrastructure --
+// Core infrastructure
 pub mod eh_model;
 pub mod ir_builder;
 pub mod type_info;
 pub mod value_id;
 
-// -- Function compilation --
+// Function compilation
 pub mod abi;
 pub mod derive_codegen;
 pub mod function_compiler;
 pub mod runtime_decl;
 pub mod type_registration;
 
-// -- ARC IR emission --
+// ARC IR emission
 pub mod arc_emitter;
 
-// -- Shared mono-dispatch discriminators (consumed by prepare + apply) --
+// Shared mono-dispatch discriminators (consumed by prepare + apply)
 pub(crate) mod mono_dispatch;
 
-// -- Public re-exports --
+// Public re-exports
 pub use ir_builder::IrBuilder;
 pub use type_info::{EnumVariantInfo, TypeInfo, TypeInfoStore, TypeLayoutResolver};
 pub use value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};

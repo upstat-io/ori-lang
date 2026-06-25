@@ -206,7 +206,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
         // 6. Panic block: route through the single emit_panic_block carrier so
         //    add/sub/mul/neg overflow panics flow through the same invoke-when-
-        //    caught path as div/mod/shift (BUG-04-159 — one carrier, no inline
+        //    caught path as div/mod/shift (one carrier, no inline
         //    ori_panic_cstr duplication).
         self.emit_panic_block(panic_bb, panic_msg, "ovf.msg");
 
@@ -242,9 +242,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     /// Emit a panic block: panic via `ori_panic_cstr(msg)`, then terminate.
     ///
-    /// THE single `ori_panic_cstr` carrier for every checked-op panic site
-    /// (BUG-04-159 collapsed the prior inline `emit_checked_binop` site into
-    /// this one). Positions the builder at `block`, emits the panic, and adds a
+    /// THE single `ori_panic_cstr` carrier for every checked-op panic site.
+    /// Positions the builder at `block`, emits the panic, and adds a
     /// terminator. Does NOT reposition the builder after — caller positions at
     /// the next block.
     ///

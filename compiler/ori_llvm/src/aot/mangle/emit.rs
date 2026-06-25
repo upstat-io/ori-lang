@@ -203,7 +203,7 @@ impl Mangler {
         result
     }
 
-    // -- Internal encoding helpers --
+    // Internal encoding helpers
     //
     // These helpers share a common pattern:
     // 1. Alphanumeric and '_' pass through unchanged

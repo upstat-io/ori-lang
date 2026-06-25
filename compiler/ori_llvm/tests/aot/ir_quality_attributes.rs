@@ -158,7 +158,7 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
 
-/// Regression: BUG-04-159 — a same-frame `catch(expr: 1 / 0)` makes the
+/// Regression: a same-frame `catch(expr: 1 / 0)` makes the
 /// enclosing function may-unwind. The checked div-by-zero panic is emitted as
 /// `invoke @ori_panic_cstr` to a catch landing pad, so `_ori_main` MUST NOT be
 /// marked `nounwind` and MUST carry a `landingpad` + the panic `invoke`. The

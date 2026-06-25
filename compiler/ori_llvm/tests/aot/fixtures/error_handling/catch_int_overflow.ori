@@ -1,4 +1,4 @@
-// Regression: BUG-04-159 — same-frame catch of integer-overflow implicit panic
+// Regression: same-frame catch of integer-overflow implicit panic
 // (spec 17-errors-and-panics §17.2.1). Same emit_panic_block carrier via
 // emit_checked_binop overflow path.
 @main () -> int = {

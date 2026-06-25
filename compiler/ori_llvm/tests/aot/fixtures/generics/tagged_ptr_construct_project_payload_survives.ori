@@ -1,4 +1,4 @@
-// BUG-04-196 regression pin (tagged-pointer payload survival).
+// Regression pin (tagged-pointer payload survival).
 //
 // `MaybeIter` is eligible for `EnumTag::TaggedPtr`: <=8 variants and the
 // `Holds` variant carries a single single-word pointer (`Iterator<int>` lowers

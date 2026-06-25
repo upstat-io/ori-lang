@@ -128,20 +128,13 @@ fn emit_enum_payload_hash<'a>(
         let mut i64_offset: u64 = 0;
 
         for (fi, &field_type) in field_types.iter().enumerate() {
-            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
-            let self_slot = fc.builder_mut().gep(
+            let (field_val, field_llvm_ty) = super::load_payload_slot_field(
+                fc,
                 i64_ty,
                 self_payload,
-                &[slot_idx],
+                i64_offset,
+                field_type,
                 &format!("hash.v{tag_idx}.f{fi}"),
-            );
-
-            let field_llvm_ty = fc.resolve_type(field_type);
-            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
-
-            let field_val = fc.builder_mut().load(
-                field_ty_id,
-                self_slot,
                 &format!("hash.v{tag_idx}.f{fi}.val"),
             );
 

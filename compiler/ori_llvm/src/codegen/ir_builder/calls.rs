@@ -13,7 +13,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'ctx> IrBuilder<'_, 'ctx> {
-    // -- Direct calls --
+    // Direct calls
 
     /// Build a direct function call.
     ///
@@ -180,7 +180,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), noalias_attr);
     }
 
-    // -- sret call helper --
+    // sret call helper
 
     /// Build a call to an sret function, hiding the ABI complexity.
     ///
@@ -218,7 +218,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         Some(result)
     }
 
-    // -- Function declaration --
+    // Function declaration
 
     /// Declare a function in the LLVM module.
     pub fn declare_function(
@@ -337,7 +337,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         func_val.count_basic_blocks() > 0
     }
 
-    // -- Calling conventions --
+    // Calling conventions
 
     /// Set the calling convention on a function.
     ///

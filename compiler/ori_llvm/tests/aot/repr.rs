@@ -14,7 +14,7 @@ use crate::util::compile_and_run_capture;
 /// `drop_enum`) still hardcode tag access via GEP index 0. Once
 /// `TagEncoding` is wired in (niche/tagless codegen consumers), remove `#[ignore]`.
 #[test]
-#[ignore = "BUG-07-038: blocked by codegen consumer migration to niche/tagless TagEncoding"]
+#[ignore = "BUG-04-222: blocked by codegen consumer migration to niche/tagless TagEncoding"]
 fn test_tagless_single_variant_enum_aot() {
     let (exit_code, stdout, stderr) =
         compile_and_run_capture(include_str!("fixtures/repr/tagless_single_variant.ori"));

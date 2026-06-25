@@ -92,7 +92,6 @@ fn test_aot_set_iter_count() {
 // Semantic pins for emit_auto_iter must route Set through emit_set_iter
 
 #[test]
-#[ignore = "BUG-07-038: codegen gap — set fold hits unresolved type variable"]
 fn test_aot_set_auto_fold() {
     assert_aot_success(
         include_str!("fixtures/sets/aot_set_auto_fold.ori"),

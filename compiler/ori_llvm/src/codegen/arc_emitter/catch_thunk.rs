@@ -258,7 +258,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
     }
 
-    // -- Shared helpers --
+    // Shared helpers
 
     /// Store ABI-passed args into context struct fields.
     fn store_args_to_context(

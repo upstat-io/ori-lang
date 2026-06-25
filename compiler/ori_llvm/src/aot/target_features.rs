@@ -456,7 +456,7 @@ impl fmt::Display for TargetTripleComponents {
     }
 }
 
-// -- LLVM Target Initialization --
+// LLVM Target Initialization
 
 static NATIVE_TARGET_INIT: Once = Once::new();
 static X86_TARGET_INIT: Once = Once::new();

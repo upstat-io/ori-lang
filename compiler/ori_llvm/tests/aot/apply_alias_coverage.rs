@@ -43,8 +43,7 @@ fn assert_burden_ops_disabled_byte_identical(source: &str, test_name: &str) {
 /// The byte-identical "burden inert" premise does NOT hold for such a cell —
 /// burden emission is the difference, which is exactly the migration's goal.
 /// Asserting the baseline still leaks proves the burden cure is what frees the
-/// allocation (per `plans/aims-burden-tracking`; the predicate stack is being
-/// retired at section-09, never repaired).
+/// allocation (the predicate stack is being retired, never repaired).
 fn assert_burden_ops_disabled_baseline_leaks(source: &str, test_name: &str) {
     let (exit_code, _stdout, _stderr) =
         compile_and_run_with_build_env(source, &[("ORI_DISABLE_BURDEN_OPS", "1")]);

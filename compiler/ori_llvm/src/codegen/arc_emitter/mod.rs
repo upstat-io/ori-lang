@@ -255,7 +255,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `BlockId` materialized for its catch handler. Populated in
     /// `emit_function` after the handler blocks are created; consulted in
     /// `emit_instr` to thread `IrBuilder::catch_unwind_target` PER-DISPATCH
-    /// around each catch-scoped checked op (BUG-04-159). Empty when the function
+    /// around each catch-scoped checked op. Empty when the function
     /// has no same-frame checked-op catch.
     pub(super) same_frame_catch_landing_pads:
         FxHashMap<ArcVarId, crate::codegen::value_id::BlockId>,

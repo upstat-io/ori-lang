@@ -1,5 +1,5 @@
 //! RL-5 dead-merge-param release matrix for Switch/loop-lowered `match`
-//! (the BUG-04-179 dual-cure matrix). Pre-cure, `lower_match` threaded
+//! (the dual-cure matrix). Pre-cure, `lower_match` threaded
 //! EVERY in-scope mutable binding into the merge block-params, so an
 //! unchanged fresh local rode every arm's `Jump` into a DEAD merge
 //! block-param with no RL-5 release. Each missing release surfaces as

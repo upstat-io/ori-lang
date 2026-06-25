@@ -16,7 +16,7 @@ fn setup_builder(irb: &mut IrBuilder<'_, '_>) {
     irb.position_at_end(entry);
 }
 
-// -- Constant creation --
+// Constant creation
 
 #[test]
 fn const_i64_roundtrip() {
@@ -66,7 +66,7 @@ fn const_bool_roundtrip() {
     drop(irb);
 }
 
-// -- Arithmetic --
+// Arithmetic
 
 #[test]
 fn integer_arithmetic() {
@@ -119,7 +119,7 @@ fn float_arithmetic() {
     drop(irb);
 }
 
-// -- Memory --
+// Memory
 
 #[test]
 fn alloca_load_store_roundtrip() {
@@ -163,7 +163,7 @@ fn create_entry_alloca_inserts_at_entry() {
     drop(irb);
 }
 
-// -- Block management --
+// Block management
 
 #[test]
 fn block_creation_and_positioning() {
@@ -202,7 +202,7 @@ fn current_block_terminated() {
     drop(irb);
 }
 
-// -- Phi nodes --
+// Phi nodes
 
 #[test]
 fn phi_from_incoming_zero() {
@@ -263,7 +263,7 @@ fn phi_from_incoming_multiple() {
     drop(irb);
 }
 
-// -- Position save/restore --
+// Position save/restore
 
 #[test]
 fn position_save_restore() {
@@ -288,7 +288,7 @@ fn position_save_restore() {
     drop(irb);
 }
 
-// -- Type registration --
+// Type registration
 
 #[test]
 fn type_registration() {
@@ -317,7 +317,7 @@ fn type_registration() {
     drop(irb);
 }
 
-// -- Select instruction --
+// Select instruction
 
 #[test]
 fn select_instruction() {
@@ -335,7 +335,7 @@ fn select_instruction() {
     drop(irb);
 }
 
-// -- Function management --
+// Function management
 
 #[test]
 fn declare_and_get_function() {
@@ -366,7 +366,7 @@ fn get_or_declare_function_idempotent() {
     drop(irb);
 }
 
-// -- Comparisons --
+// Comparisons
 
 #[test]
 fn integer_comparisons() {
@@ -410,7 +410,7 @@ fn float_comparisons() {
     drop(irb);
 }
 
-// -- Conversions --
+// Conversions
 
 #[test]
 fn integer_conversions() {
@@ -435,7 +435,7 @@ fn integer_conversions() {
     drop(irb);
 }
 
-// -- Intern helpers --
+// Intern helpers
 
 #[test]
 fn intern_raw_values() {
@@ -449,7 +449,7 @@ fn intern_raw_values() {
     drop(irb);
 }
 
-// -- Void function declaration --
+// Void function declaration
 
 #[test]
 fn declare_void_function() {
@@ -468,7 +468,7 @@ fn declare_void_function() {
     drop(irb);
 }
 
-// -- Calling conventions --
+// Calling conventions
 
 #[test]
 fn set_fastcc_and_ccc() {
@@ -489,7 +489,7 @@ fn set_fastcc_and_ccc() {
     drop(irb);
 }
 
-// -- sret attribute --
+// sret attribute
 
 #[test]
 fn sret_attribute_applied() {
@@ -523,7 +523,7 @@ fn sret_attribute_applied() {
     drop(irb);
 }
 
-// -- declare_extern_function --
+// declare_extern_function
 
 #[test]
 fn declare_extern_function_basic() {
@@ -571,7 +571,7 @@ fn declare_extern_function_idempotent() {
     drop(irb);
 }
 
-// -- Tail calls --
+// Tail calls
 
 #[test]
 fn call_without_tail_has_no_tail_attribute() {
@@ -601,7 +601,7 @@ fn call_without_tail_has_no_tail_attribute() {
     drop(irb);
 }
 
-// -- call_with_sret --
+// call_with_sret
 
 #[test]
 fn call_with_sret_creates_alloca_and_load() {
@@ -640,7 +640,7 @@ fn call_with_sret_creates_alloca_and_load() {
     drop(irb);
 }
 
-// -- Exception handling --
+// Exception handling
 
 /// Helper: set up a function with entry, then, and catch blocks for invoke tests.
 fn setup_invoke_blocks(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId, BlockId, BlockId) {
@@ -861,7 +861,7 @@ fn invoke_indirect_produces_invoke() {
     drop(irb);
 }
 
-// -- SEH (Structured Exception Handling) tests --
+// SEH (Structured Exception Handling) tests
 
 /// Helper: set up a function with MSVC triple and SEH personality for SEH tests.
 ///
@@ -1145,7 +1145,7 @@ fn seh_indirect_call_with_sret_and_funclet() {
     drop(irb);
 }
 
-// -- Alignment --
+// Alignment
 
 /// Helper: set up a builder with a specific target DataLayout.
 fn setup_with_data_layout(irb: &mut IrBuilder<'_, '_>, data_layout: &str) -> FunctionId {
@@ -1253,7 +1253,7 @@ fn struct_load_field_alignment_x86_64() {
     );
 }
 
-// -- String constant deduplication --
+// String constant deduplication
 
 #[test]
 fn global_string_ptr_dedup_same_content() {
@@ -1309,13 +1309,13 @@ fn global_string_ptr_unnamed_addr() {
     );
 }
 
-/// Drift guard: BUG-04-159 — `emit_panic_block` is the SINGLE `ori_panic_cstr`
+/// Drift guard: `emit_panic_block` is the SINGLE `ori_panic_cstr`
 /// carrier for every checked-op panic site. Its invoke-when-caught path is what
 /// routes a same-frame checked-op panic to the catch landing pad. A future edit
-/// that reintroduces an inline `ori_panic_cstr` call (as `emit_checked_binop`
-/// once had) would bypass that threading and silently un-catchable that op's
-/// panic again. Assert exactly one `ori_panic_cstr` reference in the source —
-/// the one inside `emit_panic_block`.
+/// that reintroduces an inline `ori_panic_cstr` call would bypass that
+/// threading and silently make that op's panic un-catchable again. Assert
+/// exactly one `ori_panic_cstr` reference in the source — the one inside
+/// `emit_panic_block`.
 #[test]
 fn checked_ops_has_single_ori_panic_cstr_carrier() {
     let src = include_str!("checked_ops.rs");
@@ -1324,6 +1324,6 @@ fn checked_ops_has_single_ori_panic_cstr_carrier() {
         count, 1,
         "checked_ops.rs must reference \"ori_panic_cstr\" exactly once (inside \
          emit_panic_block, the single carrier). Found {count} — a reintroduced \
-         inline panic site bypasses the invoke-when-caught threading (BUG-04-159)."
+         inline panic site bypasses the invoke-when-caught threading."
     );
 }

@@ -109,7 +109,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let test_name_str = self.interner.lookup(test.name);
         let body_name = format!("{wrapper_name}_body");
 
-        // --- Inner body function (the actual test code) ---
+        // Inner body function (the actual test code)
         let body_func_id = self.builder.declare_void_function(&body_name, &[]);
         self.builder.set_ccc(body_func_id);
         self.builder.set_current_function(body_func_id);
@@ -146,7 +146,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             return false;
         }
 
-        // --- Outer wrapper with catch-all exception handling ---
+        // Outer wrapper with catch-all exception handling
         let outer_func_id = self.builder.declare_void_function(wrapper_name, &[]);
         self.builder.set_ccc(outer_func_id);
         self.builder.set_current_function(outer_func_id);

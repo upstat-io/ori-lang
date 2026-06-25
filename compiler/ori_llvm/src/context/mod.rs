@@ -54,7 +54,7 @@ impl<'ll> SimpleCx<'ll> {
         self.llmod
     }
 
-    // -- Type constructors --
+    // Type constructors
 
     /// Get the i1 (boolean) type.
     #[inline]

@@ -7,7 +7,7 @@ use super::*;
 use crate::aot::target_features::TargetTripleComponents;
 use crate::aot::TargetConfig;
 
-// === Cross-compiler name resolution ===
+// Cross-compiler name resolution
 
 #[test]
 fn test_gcc_cross_compiler_name_windows_gnu() {
@@ -54,7 +54,7 @@ fn test_gcc_cross_compiler_name_wasm_is_none() {
     assert_eq!(LinkerDetection::gcc_cross_compiler_name(&target), None);
 }
 
-// === Cross-compilation detection ===
+// Cross-compilation detection
 
 #[test]
 fn test_native_target_is_not_cross_compiling() {
@@ -107,7 +107,7 @@ fn test_linux_x86_to_linux_x86_is_not_cross_compiling() {
     );
 }
 
-// === Linker flavor selection ===
+// Linker flavor selection
 
 #[test]
 fn test_linker_flavor_for_windows_msvc() {
@@ -133,7 +133,7 @@ fn test_linker_flavor_for_wasm() {
     assert_eq!(LinkerFlavor::for_target(&target), LinkerFlavor::WasmLd);
 }
 
-// === Cross-compilation-aware detection (semantic pin) ===
+// Cross-compilation-aware detection (semantic pin)
 
 /// Semantic pin: host `cc` must NOT be returned as available for a cross-arch
 /// Linux target. Regression guard for
@@ -170,7 +170,7 @@ fn test_msvc_not_available_on_linux() {
     );
 }
 
-// === Cross-compilation error message (negative pin) ===
+// Cross-compilation error message (negative pin)
 
 /// Negative pin: error message must contain the target triple and actionable
 /// suggestions when no cross-linker is found.
@@ -234,7 +234,7 @@ fn test_cross_compilation_error_darwin_suggests_osxcross() {
 // unit test); the cross-compilation guard is pinned by the semantic tests
 // above and native linking is exercised end-to-end by every AOT test run.
 
-// === Link output extensions ===
+// Link output extensions
 
 #[test]
 fn test_link_output_extension_windows() {

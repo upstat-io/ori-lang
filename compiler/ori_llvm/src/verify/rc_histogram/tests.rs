@@ -1,6 +1,6 @@
 use super::*;
 
-// --- RcOpKind index mapping ---
+// RcOpKind index mapping
 
 #[test]
 fn test_rc_op_kind_index_matches_array_position() {
@@ -11,7 +11,7 @@ fn test_rc_op_kind_index_matches_array_position() {
     assert_eq!(RcOpKind::Cow.index(), 4);
 }
 
-// --- Core RC operation classification ---
+// Core RC operation classification
 
 #[test]
 fn test_classify_rc_call_alloc_returns_alloc() {
@@ -43,7 +43,7 @@ fn test_classify_rc_call_unrelated_returns_none() {
     assert_eq!(classify_rc_call("puts"), None);
 }
 
-// --- Typed RC operation classification (expanded coverage) ---
+// Typed RC operation classification (expanded coverage)
 
 #[test]
 fn test_classify_typed_alloc_wrappers_return_alloc() {
@@ -102,7 +102,7 @@ fn test_classify_free_wrappers_return_free() {
     assert_eq!(classify_rc_call("ori_list_free_data"), Some(RcOpKind::Free));
 }
 
-// --- COW variant coverage ---
+// COW variant coverage
 
 #[test]
 fn test_classify_various_cow_functions_return_cow() {
@@ -114,7 +114,7 @@ fn test_classify_various_cow_functions_return_cow() {
     assert_eq!(classify_rc_call("ori_set_union_cow"), Some(RcOpKind::Cow));
 }
 
-// --- Non-counting helpers (must return None) ---
+// Non-counting helpers (must return None)
 
 #[test]
 fn test_classify_non_counting_helpers_return_none() {
@@ -126,7 +126,7 @@ fn test_classify_non_counting_helpers_return_none() {
     assert_eq!(classify_rc_call("ori_list_reset_buffer"), None);
 }
 
-// --- Unrelated function names ---
+// Unrelated function names
 
 #[test]
 fn test_classify_unrelated_names_return_none() {
@@ -136,7 +136,7 @@ fn test_classify_unrelated_names_return_none() {
     assert_eq!(classify_rc_call("ori_str_len"), None);
 }
 
-// --- Module-level histogram tests with synthetic inkwell modules ---
+// Module-level histogram tests with synthetic inkwell modules
 
 #[test]
 fn test_empty_module_produces_empty_histogram() {

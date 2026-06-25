@@ -468,7 +468,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let llvm_size = self.element_store_size(elem_ty);
                     self.builder.const_i64(llvm_size as i64)
                 } else {
-                    // BUG-04-159: scope the catch-unwind target PER-DISPATCH.
+                    // Scope the catch-unwind target PER-DISPATCH.
                     // A checked-op inside a same-frame catch routes its panic to
                     // the catch landing pad; a checked-op outside (or any other
                     // value) keeps the plain abort path. Set before / clear

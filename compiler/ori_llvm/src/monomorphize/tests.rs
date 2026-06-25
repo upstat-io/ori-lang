@@ -542,7 +542,7 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
     // keyed by its OWNING receiver shell (`Box<_>`), NOT by `param_types.first()`
     // (the value param `v: T`, whose shell differs). Pre-fix the registration
     // keyed on the value param, so the receiver-shell lookup missed and the
-    // specialization was dropped (BUG-05-016: LLVM panicked `no method new on
+    // specialization was dropped (LLVM panicked `no method new on
     // type int`). Reverting the receiver-keyed registration drops this to 0.
     let interner = make_interner();
     let mut pool = Pool::new();

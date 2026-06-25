@@ -18,7 +18,40 @@ use ori_ir::{CombineOp, DerivedTrait, Name, StructBody};
 use ori_types::{Idx, Pool, Tag, VariantDef, VariantFields};
 
 use super::super::function_compiler::FunctionCompiler;
+use super::super::value_id::{LLVMTypeId, ValueId};
 use super::{emit_derive_return, setup_derive_function, verify_derive_function};
+
+/// Load one payload field of a variant from a payload POINTER at `i64_offset`
+/// slots, returning the loaded value and its LLVM type.
+///
+/// Shared by the Eq slow path (`enum_eq`), Comparable (`enum_comparable`), and
+/// Hashable (`enum_hashable`) per-variant loops — each loads payload fields
+/// through the same gep+resolve+register+load sequence and differs only in the
+/// combine tail applied afterward. The caller advances its own `i64_offset`
+/// from the returned LLVM type via
+/// `TypeLayoutResolver::type_store_size(ty).div_ceil(8).max(1)`.
+pub(in crate::codegen::derive_codegen) fn load_payload_slot_field<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    i64_ty: LLVMTypeId,
+    payload: ValueId,
+    i64_offset: u64,
+    field_type: Idx,
+    slot_name: &str,
+    val_name: &str,
+) -> (ValueId, inkwell::types::BasicTypeEnum<'a>) {
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "payload slot offset bounded by variant layout"
+    )]
+    let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
+    let slot = fc
+        .builder_mut()
+        .gep(i64_ty, payload, &[slot_idx], slot_name);
+    let field_llvm_ty = fc.resolve_type(field_type);
+    let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
+    let val = fc.builder_mut().load(field_ty_id, slot, val_name);
+    (val, field_llvm_ty)
+}
 
 /// Generate derived methods for enum types using `SumBody::MatchVariants`.
 ///

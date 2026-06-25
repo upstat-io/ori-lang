@@ -1,7 +1,7 @@
 use super::*;
 use ori_repr::{EnumTag, IntWidth};
 
-// -- TagEncoding from Explicit { I64 } (backward compat baseline) --
+// TagEncoding from Explicit { I64 } (backward compat baseline)
 
 #[test]
 fn explicit_i64_tag_width() {
@@ -62,7 +62,7 @@ fn explicit_i64_needs_tag_store() {
     assert!(enc.needs_tag_store(2));
 }
 
-// -- TagEncoding from Explicit { I8 } (discriminant narrowing) --
+// TagEncoding from Explicit { I8 } (discriminant narrowing)
 
 #[test]
 fn explicit_i8_tag_width() {
@@ -87,7 +87,7 @@ fn explicit_i8_payload_gep_index() {
     assert_eq!(enc.payload_gep_index(), 1);
 }
 
-// -- TagEncoding from Explicit { I16 } --
+// TagEncoding from Explicit { I16 }
 
 #[test]
 fn explicit_i16_tag_width() {
@@ -100,7 +100,7 @@ fn explicit_i16_tag_width() {
     assert_eq!(enc.tag_width(), Some(IntWidth::I16));
 }
 
-// -- TagEncoding from Niche --
+// TagEncoding from Niche
 
 #[test]
 fn niche_tag_width_is_none() {
@@ -203,7 +203,7 @@ fn niche_field_and_value() {
     assert_eq!(enc.niche_value(), Some(0));
 }
 
-// -- Niche at index 0 (Option<bool> with type-checker ordering: None=0, Some=1) --
+// Niche at index 0 (Option<bool> with type-checker ordering: None=0, Some=1)
 
 #[test]
 fn niche_at_index_zero_variant_to_tag_value() {
@@ -248,7 +248,7 @@ fn niche_at_index_zero_accessors() {
     assert_eq!(enc.niche_value(), Some(2));
 }
 
-// -- TagEncoding from None (single-variant / newtype erasure) --
+// TagEncoding from None (single-variant / newtype erasure)
 
 #[test]
 fn none_tag_width_is_none() {
@@ -287,7 +287,7 @@ fn none_variant_to_tag_value() {
     assert_eq!(enc.variant_to_tag_value(0), 0);
 }
 
-// -- from_enum_repr integration --
+// from_enum_repr integration
 
 #[test]
 fn from_enum_repr_explicit() {

@@ -699,11 +699,11 @@ fn test_catch_two_index_oob_shared_merge() {
     );
 }
 
-// BUG-04-159: same-frame catch of checked-op implicit panics (AOT).
+// Same-frame catch of checked-op implicit panics (AOT).
 // Regression family: emit_panic_block emitted a plain call + unreachable (no
 // invoke), so the unwind from ori_panic_cstr escaped the in-frame catch
 // landing pad. catch(...) must catch div-zero / mod-zero / overflow / shift /
-// neg. (Also closes BUG-04-087 — a duplicate of the same defect.)
+// neg.
 
 #[test]
 fn test_catch_div_by_zero_inline_returns_err() {
@@ -787,7 +787,7 @@ fn test_uncaught_neg_overflow_still_aborts() {
 }
 
 // Over-fire guard: a value live AFTER a caught checked-op panic must not be
-// released on the unwind edge (mirrors BUG-04-153 receiver-live guard).
+// released on the unwind edge (receiver-live guard).
 #[test]
 fn test_catch_div_by_zero_receiver_live_after_no_leak() {
     assert_aot_success(

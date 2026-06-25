@@ -60,7 +60,7 @@ fn rpo_dfs(
 ///
 /// `extra_roots` seeds the DFS from additional entry points beyond
 /// `func.entry`. Same-frame catch handlers for inline checked-ops
-/// (BUG-04-159) have no CFG predecessor — an inline checked-op references its
+/// have no CFG predecessor — an inline checked-op references its
 /// handler via no terminator — so without seeding them here their landing-pad
 /// prelude (emitted in the RPO loop) would never run. Each extra root is
 /// appended to the post-order AFTER the entry-reachable blocks, so a handler's

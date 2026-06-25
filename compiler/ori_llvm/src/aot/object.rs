@@ -389,7 +389,7 @@ impl ObjectEmitter {
         self.emit_to_memory(module, FileType::Assembly)
     }
 
-    // -- Internal helpers --
+    // Internal helpers
 
     /// Emit to a file using LLVM's target machine.
     fn emit_to_file(

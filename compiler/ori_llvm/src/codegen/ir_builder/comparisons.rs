@@ -6,7 +6,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::ValueId;
 
 impl IrBuilder<'_, '_> {
-    // -- Integer comparisons --
+    // Integer comparisons
 
     /// Generic integer comparison.
     ///
@@ -82,7 +82,7 @@ impl IrBuilder<'_, '_> {
         self.icmp_impl(IntPredicate::UGE, lhs, rhs, name)
     }
 
-    // -- Pointer comparisons --
+    // Pointer comparisons
 
     /// Check at compile time whether a value is a constant null pointer.
     ///
@@ -104,7 +104,7 @@ impl IrBuilder<'_, '_> {
         self.icmp_eq(as_int, zero, name)
     }
 
-    // -- Float comparisons --
+    // Float comparisons
 
     /// Generic float comparison.
     ///
@@ -181,7 +181,7 @@ impl IrBuilder<'_, '_> {
         self.fcmp_impl(FloatPredicate::UNO, lhs, rhs, name)
     }
 
-    // -- Ordering emission helpers --
+    // Ordering emission helpers
 
     /// Emit `icmp lt/gt → select` chain returning Ori `Ordering` (i8).
     ///

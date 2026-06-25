@@ -49,32 +49,32 @@
 #![allow(clippy::module_name_repetitions, reason = "workspace equivalent")]
 #![allow(clippy::must_use_candidate, reason = "workspace equivalent")]
 
-// -- V2 codegen pipeline --
+// V2 codegen pipeline
 pub mod codegen;
 pub mod context;
 
-// -- Monomorphization --
+// Monomorphization
 pub mod monomorphize;
 
-// -- Evaluator (JIT) --
+// Evaluator (JIT)
 pub mod evaluator;
 
-// -- Runtime bindings --
+// Runtime bindings
 pub mod runtime;
 
-// -- AOT compilation --
+// AOT compilation
 pub mod aot;
 
-// -- Verification --
+// Verification
 pub mod verify;
 
-// -- Range-analysis inputs --
+// Range-analysis inputs
 mod unconstrained_fns;
 
-// -- Initialization --
+// Initialization
 mod init;
 
-// -- Re-exports --
+// Re-exports
 pub use context::SimpleCx;
 pub use init::install_fatal_error_handler;
 pub use inkwell;

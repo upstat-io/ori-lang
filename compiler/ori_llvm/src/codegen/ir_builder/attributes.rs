@@ -11,7 +11,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId};
 
 impl IrBuilder<'_, '_> {
-    // -- Function attributes --
+    // Function attributes
 
     /// Add the `uwtable` attribute to a function.
     ///
@@ -160,7 +160,7 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
-    // -- Parameter attributes --
+    // Parameter attributes
 
     /// Add the `sret(T)` attribute to a function parameter.
     ///
@@ -279,7 +279,7 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Param(param_index), attr);
     }
 
-    // -- Per-call-site attributes --
+    // Per-call-site attributes
 
     /// Add `noalias` to a parameter of the most recently emitted call.
     ///

@@ -252,7 +252,7 @@ impl TargetConfig {
         self
     }
 
-    // -- Accessors --
+    // Accessors
 
     /// Get the target triple string.
     #[must_use]

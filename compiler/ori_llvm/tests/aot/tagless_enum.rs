@@ -6,7 +6,6 @@
 //! `niche_field_index().unwrap()` because a tagless enum has no niche field.
 //! Fix routes `EnumTag::None` struct-like (direct field GEP + recursive-field
 //! boxing) via `tagless_enum.rs` + `is_tagless_enum`.
-//! See: BUG-04-122.
 
 use crate::util::assert_aot_success;
 

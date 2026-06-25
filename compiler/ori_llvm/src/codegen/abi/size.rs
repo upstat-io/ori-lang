@@ -158,26 +158,18 @@ fn abi_size_inner(
                 return size;
             }
             // Enum layout: {tag, [M x i64] payload} — tag width varies
-            // per enum via min_tag_width.
-            // Each non-void variant field occupies at least one full i64 slot
-            // (8 bytes), matching resolve_enum_explicit in enum_layout.rs
-            // (which skips void fields so they don't inflate the payload).
+            // per enum via min_tag_width. The non-void-field slot sum is shared
+            // with resolve_enum_explicit in enum_layout.rs via
+            // max_variant_payload_bytes (codegen::type_info::type_size) so the
+            // slot/round-up rule cannot diverge; the per-field sizer here is the
+            // ABI size (no boxing oracle — this walker treats recursive fields
+            // via the visiting set, not the box).
             let tag_size = u64::from(ori_repr::min_tag_width(variants.len()).size_bytes());
-            let max_payload: u64 = variants
-                .iter()
-                .map(|v| {
-                    v.fields
-                        .iter()
-                        .filter(|&&f| field_is_non_void(store.pool(), f))
-                        .map(|&f| {
-                            let size = abi_size_inner(f, store, repr_plan, visiting);
-                            // Round up to 8-byte i64 slot boundary
-                            size.div_ceil(8) * 8
-                        })
-                        .sum::<u64>()
-                })
-                .max()
-                .unwrap_or(0);
+            let max_payload = crate::codegen::type_info::type_size::max_variant_payload_bytes(
+                variants,
+                store.pool(),
+                |f| abi_size_inner(f, store, repr_plan, visiting),
+            );
             if max_payload == 0 {
                 tag_size // All-unit enum: { tag } = tag_size bytes
             } else {

@@ -29,7 +29,7 @@ pub struct ConstParamInfo {
 /// Generics are represented as type variables in the `type_params` field.
 /// When calling a generic function, fresh variables are instantiated for
 /// each type parameter.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "flags represent independent orthogonal properties"
 )]

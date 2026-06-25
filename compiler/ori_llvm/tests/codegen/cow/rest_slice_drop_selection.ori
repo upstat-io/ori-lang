@@ -1,4 +1,4 @@
-// FileCheck pin: list-pattern drop-path SELECTION (BUG-04-202).
+// FileCheck pin: list-pattern drop-path SELECTION.
 //
 // A `match` arm binding a list rest pattern `[head, ..tail]` lowers `..tail` to a
 // seamless slice (negative cap, interior data pointer) that SHARES the

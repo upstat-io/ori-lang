@@ -1,5 +1,5 @@
-// Over-fire guard: BUG-04-159 — a value live AFTER a caught checked-op panic
-// must not be released on the unwind edge (mirrors BUG-04-153 receiver-live
+// Over-fire guard: a value live AFTER a caught checked-op panic
+// must not be released on the unwind edge (receiver-live
 // guard). xs is read after the catch succeeds.
 @main () -> int = {
     let xs = [10, 20, 30];

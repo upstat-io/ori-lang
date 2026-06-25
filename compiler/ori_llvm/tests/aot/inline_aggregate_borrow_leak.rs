@@ -270,7 +270,7 @@ fn inline_nested_option_list_eq_no_leak() {
 /// burden disabled the pre-burden path emits no balancing dec. Owned by the
 /// predicate-stack retirement, which makes `ORI_DISABLE_BURDEN_OPS` moot.
 #[test]
-#[ignore = "BUG-04-148: predicate-stack baseline (ORI_DISABLE_BURDEN_OPS=1) compare-operand dec is burden-emitted by design; predicate-stack retirement (aims-burden-tracking section-09) makes ORI_DISABLE_BURDEN_OPS moot"]
+#[ignore = "BUG-04-148: predicate-stack baseline (ORI_DISABLE_BURDEN_OPS=1) compare-operand dec is burden-emitted by design; predicate-stack retirement makes ORI_DISABLE_BURDEN_OPS moot"]
 fn inline_option_list_eq_predicate_stack_baseline_no_leak() {
     assert_leak_free_under(
         r#"

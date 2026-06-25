@@ -7,7 +7,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
 impl<'ctx> IrBuilder<'_, 'ctx> {
-    // -- Phi nodes --
+    // Phi nodes
 
     /// Build an empty phi node.
     ///
@@ -78,7 +78,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         }
     }
 
-    // -- Type registration --
+    // Type registration
 
     /// Register an LLVM type in the arena.
     pub fn register_type(&mut self, ty: BasicTypeEnum<'ctx>) -> LLVMTypeId {
@@ -146,7 +146,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_type(struct_ty.into())
     }
 
-    // -- Block management --
+    // Block management
 
     /// Append a new basic block to a function.
     pub fn append_block(&mut self, function: FunctionId, name: &str) -> BlockId {
@@ -174,7 +174,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .is_some_and(|id| self.arena.get_block(id).get_terminator().is_some())
     }
 
-    // -- Position management --
+    // Position management
 
     /// Save the current builder position, returning the block ID.
     ///
@@ -195,7 +195,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         }
     }
 
-    // -- Function management --
+    // Function management
 
     /// Set the currently-active function.
     pub fn set_current_function(&mut self, func: FunctionId) {

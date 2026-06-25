@@ -6,7 +6,6 @@
 // self_type was known. `b.get()` typed to `<error>` (PC-3/UN-4 poison
 // suppresses the frontend diagnostic); the interpreter passed via dynamic
 // dispatch while the AOT/LLVM backend failed with `missing mono instance`.
-// Regression: 
 
 use std.testing { assert, assert_eq }
 
@@ -171,6 +170,23 @@ impl Dual: Labeler {
 @test_two_trait_disambig_str tests _ () -> void = {
     let d = Dual { n: 5, tag: "hi" };
     assert_eq(actual: d.label(), expected: "hi")
+}
+
+// Negative clamp distinguishing the trait-keyed fix from a first-match
+// alternative AT THE TYPE LEVEL. `Labeler.Item = str`; `Producer.Item = int`,
+// and Producer registers first. The two positive `assert_eq` cells above pass
+// at RUNTIME even under a first-match resolver — so they do not, on their own,
+// pin trait-keyed resolution. This cell does: `label()` MUST type as `str`, so
+// annotating its result `int` is E2001 ONLY when `(trait_idx, self_type,
+// assoc_name)` keying selected Labeler's `str` binding. A revert to trait-blind
+// first-match makes `label()` type as `int`, the mismatch disappears, and this
+// compile-fail stops firing — the permanent guard against the first-match
+// alternative.
+#[compile_fail(code: "E2001", message: "type mismatch")]
+@test_two_trait_disambig_label_typed_int_rejected tests _ () -> void = {
+    let d = Dual { n: 5, tag: "hi" };
+    let bad: int = d.label();
+    let _ = bad;
 }
 
 // Negative pin (Q4 diagnostic — poison-suppressed false-green):

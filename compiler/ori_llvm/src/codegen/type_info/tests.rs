@@ -16,7 +16,7 @@ fn test_pool() -> Pool {
     Pool::new()
 }
 
-// -- TypeInfo classification tests --
+// TypeInfo classification tests
 
 #[test]
 fn primitive_triviality() {
@@ -78,7 +78,7 @@ fn tagged_unions_not_trivial() {
     .is_trivial());
 }
 
-// -- Size tests --
+// Size tests
 
 #[test]
 fn primitive_sizes() {
@@ -140,7 +140,7 @@ fn dynamic_sizes_are_none() {
     assert_eq!(TypeInfo::Enum { variants: vec![] }.size(), None);
 }
 
-// -- Alignment tests --
+// Alignment tests
 
 #[test]
 fn alignment_values() {
@@ -153,7 +153,7 @@ fn alignment_values() {
     assert_eq!(TypeInfo::Str.alignment(), 8);
 }
 
-// -- Loadability tests --
+// Loadability tests
 
 #[test]
 fn loadable_types() {
@@ -171,7 +171,7 @@ fn non_loadable_types() {
     .is_loadable()); // 24 bytes
 }
 
-// -- Storage type tests --
+// Storage type tests
 
 #[test]
 fn primitive_storage_types() {
@@ -233,7 +233,7 @@ fn function_type_is_fat_pointer() {
     }
 }
 
-// -- TypeInfoStore tests --
+// TypeInfoStore tests
 
 #[test]
 fn store_primitive_lookup() {
@@ -507,7 +507,7 @@ fn store_named_unresolved_is_error() {
     assert!(matches!(info, TypeInfo::Error));
 }
 
-// -- Transitive triviality tests --
+// Transitive triviality tests
 
 #[test]
 fn trivial_primitives() {
@@ -731,7 +731,7 @@ fn triviality_caching() {
     assert!(store.is_trivial(opt_int));
 }
 
-// -- TypeLayoutResolver tests --
+// TypeLayoutResolver tests
 
 #[test]
 fn resolver_primitive_types() {
@@ -949,7 +949,7 @@ fn resolver_caches_results() {
     assert_eq!(ty1, ty2);
 }
 
-// -- Benchmark: TypeInfoStore lookup performance --
+// Benchmark: TypeInfoStore lookup performance
 
 /// Benchmark TypeInfoStore lookup on a representative type workload.
 ///
@@ -1135,7 +1135,7 @@ fn benchmark_type_info_store_lookup() {
     );
 }
 
-// -- Integration test: compile through new type system --
+// Integration test: compile through new type system
 
 /// End-to-end integration test: constructs a Pool with a variety of
 /// types (primitives, collections, structs, enums, recursive types),
@@ -1391,7 +1391,7 @@ fn integration_compile_through_type_system() {
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
 }
 
-// -- Phase A: ReprPlan integration tests --
+// Phase A: ReprPlan integration tests
 
 /// Phase A fallback for 12 primitives: empty ReprPlan produces the same
 /// LLVM types as TypeInfoStore alone.
@@ -1841,7 +1841,7 @@ fn repr_plan_canonical_parity_full_matrix() {
     );
 }
 
-// -- Iterator triviality convergence tests --
+// Iterator triviality convergence tests
 
 /// classify_trivial fallback (via TypeInfoStore::new)
 /// must classify Iterator/DoubleEndedIterator as NON-trivial — matching
@@ -1924,7 +1924,7 @@ fn iterator_triviality_paths_agree() {
     );
 }
 
-// -- pool_type_store_size <-> type_store_size cross-crate sync pin --
+// pool_type_store_size <-> type_store_size cross-crate sync pin
 
 /// Tag-matrix cross-check: `ori_arc::lower::pool_type_store_size` (Pool
 /// level) and `type_size::type_store_size` (LLVM level) compute the same

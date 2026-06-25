@@ -99,14 +99,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 vec![Ownership::Owned; num_captures]
             });
 
-        // == Allocate and pack the environment ==
+        // Allocate and pack the environment
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
             self.build_closure_env(args, &capture_types)
         };
 
-        // == Generate wrapper function ==
+        // Generate wrapper function
         let target_is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         let wrapper_fn_ptr = self.generate_closure_wrapper(
             callee_func_id,
@@ -117,7 +117,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             target_is_nounwind,
         );
 
-        // == Build fat-pointer closure { wrapper_fn_ptr, env_ptr } ==
+        // Build fat-pointer closure { wrapper_fn_ptr, env_ptr }
         let closure_ty = self.builder.closure_type();
         let closure =
             self.builder

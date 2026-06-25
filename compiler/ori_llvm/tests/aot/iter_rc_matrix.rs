@@ -65,7 +65,7 @@ fn test_iter_rc_for_do_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_str_unwind.ori"),
@@ -124,7 +124,7 @@ fn test_iter_rc_for_do_nested_list_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_nested_list_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_nested_list_unwind.ori"),
@@ -183,7 +183,7 @@ fn test_iter_rc_for_do_option_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_option_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_option_str_unwind.ori"),
@@ -242,7 +242,7 @@ fn test_iter_rc_for_do_closure_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_closure_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_closure_unwind.ori"),
@@ -301,7 +301,7 @@ fn test_iter_rc_for_do_struct_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_struct_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_struct_str_unwind.ori"),
@@ -352,7 +352,7 @@ fn test_iter_rc_for_do_map_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_map_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_map_unwind.ori"),
@@ -438,7 +438,7 @@ fn test_iter_rc_for_yield_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_str_unwind.ori"),
@@ -497,7 +497,7 @@ fn test_iter_rc_for_yield_nested_list_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_nested_list_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_nested_list_unwind.ori"),
@@ -564,7 +564,7 @@ fn test_iter_rc_for_yield_option_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_option_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_option_str_unwind.ori"),
@@ -631,7 +631,7 @@ fn test_iter_rc_for_yield_closure_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_closure_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_closure_unwind.ori"),
@@ -698,7 +698,7 @@ fn test_iter_rc_for_yield_struct_str_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_struct_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_struct_str_unwind.ori"),
@@ -757,7 +757,7 @@ fn test_iter_rc_for_yield_map_guard() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: catch() type inference bug — returns Result<() -> T, str> instead of Result<T, str>"]
+#[ignore = "BUG-02-068: catch() type inference returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_map_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_map_unwind.ori"),

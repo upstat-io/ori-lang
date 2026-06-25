@@ -1,4 +1,4 @@
-// Negative pin for BUG-04-196: the scalar-integer-LLVM-type guard added to the
+// Negative pin: the scalar-integer-LLVM-type guard added to the
 // `CtorKind::EnumVariant` emitter must fire ONLY on scalar-int dst (Ordering
 // today). Aggregate sum dst — a user-defined sum, Option, and Result — must
 // keep their existing tagged-struct construction path and stay green.

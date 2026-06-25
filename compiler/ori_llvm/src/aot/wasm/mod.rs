@@ -391,9 +391,7 @@ export function init(
         if export.return_type == WasmType::Void {
             // No return value needed.
         } else if export.return_type == WasmType::String {
-            code.push_str(
-                "    // TODO(roadmap/section-24): Decode string result from WASM memory\n",
-            );
+            code.push_str("    // TODO: Decode string result from WASM memory\n");
             code.push_str("    return _result;\n");
         } else {
             code.push_str("    return _result;\n");

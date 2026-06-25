@@ -12,7 +12,7 @@ use super::builder::{DebugInfoBuilder, FieldInfo};
 use super::config::DebugInfoError;
 
 impl<'ctx> DebugInfoBuilder<'ctx> {
-    // -- Function Debug Info --
+    // Function Debug Info
 
     /// Create debug info for a function.
     ///
@@ -75,7 +75,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         func.set_subprogram(subprogram);
     }
 
-    // -- Scope Management --
+    // Scope Management
 
     /// Create a lexical block (scope) within a function or other scope.
     pub fn create_lexical_block(
@@ -107,7 +107,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             .unwrap_or_else(|| self.compile_unit.as_debug_info_scope())
     }
 
-    // -- Location Setting --
+    // Location Setting
 
     /// Set the current debug location for subsequent instructions.
     ///
@@ -144,7 +144,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         builder.unset_current_debug_location();
     }
 
-    // -- Variable Debug Info --
+    // Variable Debug Info
 
     /// Create a debug info entry for a local (auto) variable.
     ///
@@ -300,7 +300,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         }
     }
 
-    // -- Composite Type Cache --
+    // Composite Type Cache
 
     /// Cache a composite debug type by its type pool index.
     pub fn cache_composite_type(&self, idx: u32, ty: DIType<'ctx>) {
@@ -312,7 +312,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         self.type_cache.borrow().composites.get(&idx).copied()
     }
 
-    // -- ARC-specific Types --
+    // ARC-specific Types
 
     /// Create debug info for an ARC heap allocation:
     /// `RC<T> = { data_size: i64, elem_dec_fn: ptr, elem_count: i64,
@@ -380,7 +380,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         Ok(self.create_struct_type(&type_name, 0, total_size, 64, &fields))
     }
 
-    // -- Finalization --
+    // Finalization
 
     /// Finalize the debug info.
     ///

@@ -1,4 +1,4 @@
-// Scoping pin: BUG-04-159 — a same-frame `catch(expr: 1 / 0)` (Err arm
+// Scoping pin: a same-frame `catch(expr: 1 / 0)` (Err arm
 // reached) followed by a SUBSEQUENT uncaught `5 / 0` in the same @main. The
 // caught div routes its panic to the catch landing pad; the uncaught div MUST
 // keep the plain abort path (its result var is NOT in catch_scoped_checked_ops),

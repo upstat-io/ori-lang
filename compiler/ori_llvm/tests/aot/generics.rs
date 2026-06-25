@@ -901,7 +901,7 @@ fn test_iter_then_return_str_elements_survive_iter_consume() {
 /// Capability handlers lower to standard Return terminators; the
 /// param-return-alias rule applies uniformly.
 #[test]
-#[ignore = "BUG-02-026: typeck E2014 capability-propagation rejects main calling uses-Suspend callee; can't reach BUG-04-090's AIMS RC surface until BUG-02-026 lands"]
+#[ignore = "BUG-04-208: cross-function capability provision unimplemented; typeck E2014 rejects main calling uses-Suspend callee; can't reach BUG-04-090's AIMS RC surface until BUG-04-208 lands"]
 fn test_edge_capability_handler_returns_param_uniformly() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_capability_handler_returns_param.ori"),
@@ -1457,7 +1457,7 @@ fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     );
 }
 
-// BUG-04-196: a generic body monomorphized over the builtin niche-scalar
+// A generic body monomorphized over the builtin niche-scalar
 // `Ordering` sum constructs and projects/matches an `Ordering` variant.
 // `Ordering` lowers to a scalar `i8` but `Tag::Ordering` is a primitive sum
 // with no tagged-ptr/tagless/niche-encoded branch, so the
@@ -1483,7 +1483,7 @@ fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_orderin
     );
 }
 
-/// Guard-ordering pin for BUG-04-196: a tagged-pointer enum lowers to a bare
+/// Guard-ordering pin: a tagged-pointer enum lowers to a bare
 /// LLVM `i64`, so `is_scalar_int_type` is TRUE for it. The scalar-int guard in
 /// `emit_construct` (and the symmetric one in `emit_project`) MUST fire AFTER
 /// the tagged-ptr check, never before — otherwise the constructor emits a bare
@@ -1500,7 +1500,7 @@ fn test_tagged_ptr_construct_project_payload_survives() {
     );
 }
 
-/// Negative pin for BUG-04-196: the scalar-int guard must fire ONLY on
+/// Negative pin: the scalar-int guard must fire ONLY on
 /// scalar-int dst (Ordering). Generic bodies constructing aggregate sum
 /// variants — a user-defined `Triple`, `Option`, and `Result` — must keep the
 /// tagged-struct construction path and stay green (the guard must NOT fire on

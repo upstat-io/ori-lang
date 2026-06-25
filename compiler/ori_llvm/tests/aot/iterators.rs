@@ -329,7 +329,7 @@ fn test_iter_join_unsupported_type_rejected() {
 // zip adapter
 
 #[test]
-#[ignore = "BUG-07-038: codegen gap — zip + count hits unresolved type variable"]
+#[ignore = "BUG-02-065: zip + count result-binding misclassified ReturnTag::Fresh -> E2005 unresolved type variable"]
 fn test_iter_zip_count() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_zip_count.ori"),
@@ -338,7 +338,7 @@ fn test_iter_zip_count() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: codegen gap — zip with unequal lengths hits unresolved type variable"]
+#[ignore = "BUG-02-065: zip unequal-length result-binding misclassified ReturnTag::Fresh -> E2005 unresolved type variable"]
 fn test_iter_zip_unequal() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_zip_unequal.ori"),

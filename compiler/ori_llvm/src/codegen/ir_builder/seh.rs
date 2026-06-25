@@ -22,7 +22,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};
 
 impl<'ctx> IrBuilder<'_, 'ctx> {
-    // -- SEH pad instructions --
+    // SEH pad instructions
 
     /// Build a `catchswitch` instruction.
     ///
@@ -133,7 +133,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_token(inst)
     }
 
-    // -- SEH terminator instructions --
+    // SEH terminator instructions
 
     /// Build a `catchret` instruction.
     ///
@@ -166,7 +166,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         }
     }
 
-    // -- Funclet-aware call/invoke --
+    // Funclet-aware call/invoke
 
     /// Build a function call with a `"funclet"` operand bundle.
     ///

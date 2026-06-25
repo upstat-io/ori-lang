@@ -64,7 +64,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut dead_unwind = unwind_result.dead;
         let mut unwind_blocks = unwind_result.live;
 
-        // Same-frame catch handlers for inline checked-ops (BUG-04-159) are NOT
+        // Same-frame catch handlers for inline checked-ops are NOT
         // found by `detect_dead_unwind_blocks` — it only walks Invoke/
         // InvokeIndirect terminators, and an inline checked-op references its
         // handler via no terminator. Force each distinct handler block into the
@@ -115,8 +115,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Map each catch-scoped checked-op result var → the LLVM block of its
         // catch handler (now guaranteed live above). `emit_instr` reads this to
         // thread `IrBuilder::catch_unwind_target` per-dispatch around the
-        // checked op so its panic invokes to the handler's landing pad
-        // (BUG-04-159). The catch-all landing-pad prelude is emitted for the
+        // checked op so its panic invokes to the handler's landing pad.
+        // The catch-all landing-pad prelude is emitted for the
         // handler block in the RPO loop below (it is in `unwind_blocks` with a
         // non-Resume terminator → the existing `is_catch` path).
         self.same_frame_catch_landing_pads.clear();
