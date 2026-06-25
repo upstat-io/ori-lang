@@ -422,9 +422,10 @@ fn build_method_body_type_map(
     (body_type_map, extra_named)
 }
 
-/// True when `ty` carries no remaining type variables / inference holes —
-/// i.e. it is a fully concrete monomorphic type safe to record in a
-/// `MonoInstance`.
+/// True when `ty` carries no remaining type variables / inference holes.
+/// The var/infer half of `MonoInstance` recordability — `is_recordable` adds
+/// the poison exclusion; the record gates use `is_recordable`, this remains a
+/// debug-trace signal for the var/infer dimension alone.
 fn is_fully_concrete(engine: &InferEngine<'_>, ty: Idx) -> bool {
     !engine.pool().flags(ty).has_any_var_or_infer()
 }

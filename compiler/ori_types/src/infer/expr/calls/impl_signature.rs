@@ -164,7 +164,7 @@ pub(super) fn resolve_impl_signature(
 /// are `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
 /// -> T` return needs the second pass to resolve `T` to the concrete receiver
 /// type — without it the `RigidVar(T)` survives to mono recording and fails
-/// its `is_fully_concrete` gate. SSOT scan: `build_impl_rigid_var_subst`.
+/// its `is_recordable` gate. SSOT scan: `build_impl_rigid_var_subst`.
 fn apply_impl_binder_substitution(
     engine: &mut InferEngine<'_>,
     sig_ty: Idx,

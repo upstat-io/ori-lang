@@ -68,7 +68,7 @@ pub(crate) fn build_imported_mono_functions(
         // resolved to Idx::ERROR) that slipped the ori_types record gates must
         // never materialize — its body codegens method invokes on the poison
         // receiver (AOT missing-mono). is_recordable in ori_types is the primary
-        // cure; Idx::ERROR is pre-interned identically across pools (TY-5).
+        // cure; Idx::ERROR is pre-interned identically across pools.
         if instance
             .generic_args
             .iter()
