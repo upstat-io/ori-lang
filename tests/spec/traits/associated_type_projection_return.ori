@@ -1,4 +1,4 @@
-// Spec: 08-declarations.md § Associated Types
+// Spec: 10-declarations.md §10.3.2 Default Associated Types, §10.6.6 Associated Type Disambiguation
 // Regression: associated-type projection `Self.Item` in a method-return
 // position was not resolved to the impl's concrete `type Item =` binding —
 // `resolve_type_with_overlay_inner` lacked a `ParsedType::AssociatedType`
@@ -6,7 +6,7 @@
 // self_type was known. `b.get()` typed to `<error>` (PC-3/UN-4 poison
 // suppresses the frontend diagnostic); the interpreter passed via dynamic
 // dispatch while the AOT/LLVM backend failed with `missing mono instance`.
-// Regression: BUG-02-067
+// Regression: 
 
 use std.testing { assert, assert_eq }
 

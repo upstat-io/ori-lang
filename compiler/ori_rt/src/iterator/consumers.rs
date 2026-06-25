@@ -507,7 +507,7 @@ pub extern "C" fn ori_iter_join(
             ptr::copy_nonoverlapping(
                 std::ptr::from_ref::<OriStr>(&empty).cast::<u8>(),
                 out_ptr,
-                24,
+                std::mem::size_of::<OriStr>(),
             );
         }
         let _ = empty;
@@ -551,7 +551,7 @@ pub extern "C" fn ori_iter_join(
         // Use read_unaligned because elem_buf/str_buf are [u8] (align 1)
         // but OriStr requires align 8 (contains i64 fields).
         if let Some(to_str) = to_str_fn {
-            let mut str_buf = [0u8; 24]; // OriStr is 24 bytes
+            let mut str_buf = [0u8; std::mem::size_of::<OriStr>()];
             (to_str)(to_str_env, elem_buf.as_ptr(), str_buf.as_mut_ptr());
             let s = unsafe { ptr::read_unaligned(str_buf.as_ptr().cast::<OriStr>()) };
             result.push_str(unsafe { s.as_str() });
@@ -581,7 +581,7 @@ pub extern "C" fn ori_iter_join(
         ptr::copy_nonoverlapping(
             std::ptr::from_ref::<OriStr>(&ori_str).cast::<u8>(),
             out_ptr,
-            24,
+            std::mem::size_of::<OriStr>(),
         );
     }
     let _ = ori_str;

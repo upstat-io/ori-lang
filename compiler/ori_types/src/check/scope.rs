@@ -2,8 +2,8 @@
 //!
 //! Handles scope context (current function, impl self type, capabilities),
 //! environment management (freezing/child envs), error accumulation,
-//! expression type storage, inference engine creation, and RAII-style
-//! context scoping.
+//! expression type storage, inference engine creation, and closure-based
+//! save/restore context scoping (NOT RAII — no `Drop`, not panic-safe).
 
 use ori_ir::{Name, Span};
 use rustc_hash::FxHashSet;
@@ -38,9 +38,9 @@ impl ModuleChecker<'_> {
     }
 
     /// Run `f` with the impl's associated-type projection context installed,
-    /// restoring the prior context on return. Mirrors `with_impl_self_scope`:
+    /// restoring the prior context on return. Mirrors `with_impl_scope`:
     /// not panic-safe (an unwinding panic inside `f` does not restore), matching
-    /// the closure-based save/restore discipline (typeck.md §SG).
+    /// the closure-based save/restore discipline.
     pub(crate) fn with_impl_assoc_scope<T, F>(
         &mut self,
         bindings: rustc_hash::FxHashMap<Name, Idx>,
@@ -221,7 +221,7 @@ impl ModuleChecker<'_> {
         engine
     }
 
-    // Context Management (RAII-style)
+    // Context Management (closure-based save/restore; not RAII)
 
     /// Execute a closure with a function scope.
     ///

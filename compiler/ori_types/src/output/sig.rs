@@ -129,7 +129,7 @@ pub struct FunctionSig {
     /// to a concrete receiver at a call site. The call-site inference path reads
     /// this to project the concrete result type once `base_param` is unified
     /// with a concrete type that has a `type <assoc_name> = …` impl binding
-    /// (BUG-02-067). `None` when the return is not such a projection.
+    /// `None` when the return is not such a projection.
     pub return_projection: Option<(Name, Name)>,
 }
 

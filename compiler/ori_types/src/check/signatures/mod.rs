@@ -206,7 +206,7 @@ fn infer_function_signature_with_arena(
     // (`-> C.Item` where `C` is a bound type-param). `return_type` is
     // `Idx::ERROR` poison (the projection cannot resolve until `C` is bound to a
     // concrete receiver at a call site); record `(base_param, assoc_name)` so
-    // the call-site inference path can project the concrete result (BUG-02-067).
+    // the call-site inference path can project the concrete result.
     let return_projection = func
         .return_ty
         .as_ref()

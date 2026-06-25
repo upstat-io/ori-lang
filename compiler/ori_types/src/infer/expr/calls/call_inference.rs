@@ -191,7 +191,7 @@ pub(crate) fn infer_call_named(
 /// at this call site (via the param it directly types) and project the impl's
 /// `type <assoc_name> = …` binding. Falls back to `ret` (poison) for a symbolic
 /// receiver or a missing binding — the symbolic-poison guard for a generic
-/// receiver that cannot resolve (BUG-02-067).
+/// receiver that cannot resolve.
 ///
 /// Shared SSOT for return-projection resolution: the call-site inference path
 /// uses it to type the call expression, and the monomorphization-recording path
@@ -212,8 +212,8 @@ pub(super) fn resolve_return_projection(
     // pool / registry (mutable borrow). The bound trait (`C: Container`)
     // disambiguates the projection by `(trait_idx, base_ty, assoc_name)` when
     // the concrete receiver implements two traits with a same-named associated
-    // type (BUG-02-067).
-    let Some((base_param, assoc_name, base_param_index, bound_trait)) =
+    // type.
+    let Some((assoc_name, base_param_index, bound_trait)) =
         engine.get_signature(name).and_then(|sig| {
             let (base_param, assoc_name) = sig.return_projection?;
             let tp_index = sig.type_params.iter().position(|&n| n == base_param)?;
@@ -222,12 +222,11 @@ pub(super) fn resolve_return_projection(
                 .type_param_bounds
                 .get(tp_index)
                 .and_then(|bounds| bounds.first().copied());
-            Some((base_param, assoc_name, param_index, bound_trait))
+            Some((assoc_name, param_index, bound_trait))
         })
     else {
         return ret;
     };
-    let _ = base_param;
 
     // Resolve the concrete type the base type-param is bound to at this call.
     let Some(&param_ty) = instantiated_params.get(base_param_index) else {

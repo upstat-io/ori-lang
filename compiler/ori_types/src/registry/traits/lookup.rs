@@ -15,7 +15,7 @@ use super::{
 };
 
 impl TraitRegistry {
-    // === Trait Lookup ===
+    // Trait Lookup
 
     /// Look up a trait by name.
     #[inline]
@@ -50,10 +50,9 @@ impl TraitRegistry {
     /// Used by the base-name dispatch fallback in `infer/expr/calls/impl_lookup.rs`
     /// when exact-`Idx` `lookup_method_checked` misses on a generic impl whose
     /// `entry.self_type = Applied(Name, [Named(U)])` no longer matches a
-    /// concrete receiver `Applied(Name, [int])` per. The
-    /// engine iterates, filters by base name + method name, then unifies the
-    /// receiver against `entry.self_type` to produce the impl-level
-    /// substitution map.
+    /// concrete receiver `Applied(Name, [int])`. The engine iterates, filters
+    /// by base name + method name, then unifies the receiver against
+    /// `entry.self_type` to produce the impl-level substitution map.
     #[inline]
     pub fn impls_iter(&self) -> impl Iterator<Item = (usize, &ImplEntry)> {
         self.impls.iter().enumerate()
@@ -65,7 +64,7 @@ impl TraitRegistry {
             .and_then(|t| t.assoc_types.get(&assoc_name))
     }
 
-    // === Super-trait Queries ===
+    // Super-trait Queries
 
     /// Collect all super-traits transitively (DAG walk with cycle protection).
     ///
@@ -188,7 +187,7 @@ impl TraitRegistry {
             .collect()
     }
 
-    // === Impl Lookup ===
+    // Impl Lookup
 
     /// Get all implementations for a given self type.
     pub fn impls_for_type(&self, self_type: Idx) -> impl Iterator<Item = &ImplEntry> {
@@ -445,7 +444,7 @@ impl TraitRegistry {
         }
     }
 
-    // === Bound-Chain Dispatch ===
+    // Bound-Chain Dispatch
 
     /// Find a trait method via the bound chain of a generic type parameter.
     ///
@@ -511,7 +510,7 @@ impl TraitRegistry {
         }
     }
 
-    // === Coherence ===
+    // Coherence
 
     /// Check if implementing a trait for a type would be a duplicate.
     ///
@@ -525,7 +524,7 @@ impl TraitRegistry {
         self.inherent_impl(self_type).is_some()
     }
 
-    // === Iteration ===
+    // Iteration
 
     /// Iterate over all registered traits in name order.
     pub fn iter_traits(&self) -> impl Iterator<Item = &TraitEntry> {

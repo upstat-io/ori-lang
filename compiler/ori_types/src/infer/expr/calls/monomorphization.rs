@@ -58,7 +58,7 @@ pub(super) fn maybe_record_mono_instance(
     // `return_type == Idx::ERROR` (symbolic poison) in its signature. Resolving
     // the projection to the concrete impl binding here — via the same call-site
     // logic `infer_call` uses — keeps the recorded `MonoInstance` return type
-    // concrete instead of the poison `Idx::ERROR` (BUG-02-067).
+    // concrete instead of the poison `Idx::ERROR`.
     let return_type = super::call_inference::resolve_return_projection(
         engine,
         Some(fn_name),

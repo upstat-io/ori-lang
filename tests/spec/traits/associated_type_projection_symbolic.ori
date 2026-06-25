@@ -1,4 +1,4 @@
-// Spec: 08-declarations.md § Associated Types
+// Spec: 10-declarations.md §10.3.2 Default Associated Types, §10.6.6 Associated Type Disambiguation
 // Regression (negative pin — symbolic poison preserved): a SYMBOLIC /
 // generic-receiver projection (`C.Item` where `C` is a bound type variable)
 // legitimately cannot resolve to a concrete `type Item =` at registration
@@ -6,7 +6,7 @@
 // diagnostic — guards against the fix over-eagerly diagnosing the no-concrete-
 // receiver case. The eager-resolve arm fires ONLY when the receiver self_type
 // is concrete; for a type variable it must fall through to clean poison.
-// Regression: BUG-02-067
+// Regression: 
 
 use std.testing { assert, assert_eq }
 

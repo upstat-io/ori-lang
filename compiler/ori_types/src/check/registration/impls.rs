@@ -73,7 +73,7 @@ fn register_impl(
     // before the method loop, and install them on the checker as the
     // `current_impl_assoc` scope so `resolve_type_with_overlay_inner`'s
     // `ParsedType::AssociatedType` arm projects `Self.Item` from the in-scope
-    // map (BUG-02-067). The binding RHS (`type Item = int`) is concrete, so its
+    // map The binding RHS (`type Item = int`) is concrete, so its
     // own resolution never recurses into an unresolvable projection.
     let mut assoc_types = FxHashMap::default();
     for impl_assoc in &impl_def.assoc_types {

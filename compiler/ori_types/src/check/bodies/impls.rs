@@ -66,7 +66,7 @@ fn check_impl_block(
     // method whose declared param/return carries `Self.Item` resolves the
     // projection at body-check time too (the registration arm resolves the
     // registered signature; body-check re-resolves the declared type). Mirrors
-    // the registration scope in `register_impl` (BUG-02-067).
+    // the registration scope in `register_impl`.
     let trait_idx = impl_def
         .trait_path
         .as_ref()

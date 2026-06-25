@@ -280,15 +280,15 @@ pub(crate) fn resolve_type_with_self(
 ///
 /// When a `Named { name }` matches a key in `method_substitutions`, return
 /// the substituted `Idx` (a fresh `RigidVar` allocated by the caller via
-/// `pool.rigid_var(name)`). Binder-identity wiring per §B.2 line 139 —
-/// method-level `T` and impl-level `T` resolve to distinct pool entries
-/// even when names collide, because `pool.rigid_var(name)` allocates a
-/// fresh `var_id` per call and interning keys on `(Tag::RigidVar, var_id)`.
+/// `pool.rigid_var(name)`). Binder identity holds: method-level `T` and
+/// impl-level `T` resolve to distinct pool entries even when names collide,
+/// because `pool.rigid_var(name)` allocates a fresh `var_id` per call and
+/// interning keys on `(Tag::RigidVar, var_id)`.
 ///
 /// `type_params` carries the COMBINED outer scope (impl-level + method-level
 /// names) so that names not in the substitution map still resolve to the
 /// existing `pool.named(name)` interning shape (impl-level T continues to
-/// behave as `Tag::Named` per the pre-Phase-B-Step-5 contract).
+/// behave as `Tag::Named`).
 pub(crate) fn resolve_type_with_method_generics(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
@@ -324,10 +324,9 @@ fn resolve_type_with_overlay_inner(
     match parsed {
         ParsedType::SelfType => self_type,
         ParsedType::Named { name, type_args } => {
-            // Method-level overlay first (Phase B Step 5: binder-identity
-            // per §B.2 line 139). The caller pre-allocated fresh RigidVars
-            // for method-level type generics; honor those overrides before
-            // falling through to the impl-level Named-interning path.
+            // Method-level overlay first: the caller pre-allocated fresh
+            // RigidVars for method-level type generics; honor those overrides
+            // before falling through to the impl-level Named-interning path.
             if let Some(&idx) = method_substitutions.get(name) {
                 return idx;
             }
@@ -544,7 +543,7 @@ fn resolve_associated_projection(
     // 2. Cross-impl projection: find a registered impl whose self type matches the
     //    concrete base and carries this associated-type binding. Pass the current
     //    impl's `trait_idx` so a type implementing two traits with a same-named
-    //    associated type resolves the trait-matched binding (BUG-02-067).
+    //    associated type resolves the trait-matched binding.
     if let Some(projected) =
         checker
             .trait_registry()
