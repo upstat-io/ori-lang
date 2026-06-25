@@ -140,6 +140,10 @@ pub(crate) fn repr_align(repr: &MachineRepr) -> u32 {
 }
 
 /// Round `size` up to the next multiple of `align`.
+///
+/// Saturates at `u32::MAX` (FLOW-30): a degenerate aggregate whose padded
+/// size exceeds `u32` clamps rather than silently wrapping to a corrupt
+/// (small) size that would mis-lay-out every downstream field.
 pub(crate) fn round_up(size: u32, align: u32) -> u32 {
     if align == 0 {
         return size;
@@ -148,7 +152,8 @@ pub(crate) fn round_up(size: u32, align: u32) -> u32 {
     if remainder == 0 {
         size
     } else {
-        size + align - remainder
+        // size + (align - remainder); both terms bounded by saturating ops.
+        size.saturating_add(align.saturating_sub(remainder))
     }
 }
 
@@ -166,7 +171,8 @@ pub(crate) fn compute_field_layout(fields: &[FieldRepr]) -> (u32, u32) {
     for f in fields {
         let fa = field_align(&f.repr);
         offset = round_up(offset, fa);
-        offset += field_size(&f.repr);
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(field_size(&f.repr));
     }
     (round_up(offset, align), align)
 }
@@ -190,14 +196,15 @@ pub(crate) fn compute_tagless_enum_layout(variant: &VariantRepr) -> (u32, u32) {
 /// natural alignment. This matches `resolve_enum()` in `ori_llvm` and
 /// `enum_payload_size()` / `pool_type_store_size()` in `ori_arc`.
 pub(crate) fn compute_enum_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
+    // FLOW-30: saturate per-slot rounding and the running sum rather than wrap.
     let payload: u32 = fields
         .iter()
         .map(|f| {
             let size = field_size(f);
-            // Round up to 8-byte i64 slot boundary
-            size.div_ceil(8) * 8
+            // Round up to 8-byte i64 slot boundary.
+            size.div_ceil(8).saturating_mul(8)
         })
-        .sum();
+        .fold(0u32, u32::saturating_add);
     let align = if payload > 0 { 8 } else { 1 };
     (payload, align)
 }
@@ -240,7 +247,8 @@ pub(crate) fn reorder_fields(fields: &[FieldRepr]) -> (Vec<FieldRepr>, u32, u32)
         let mut field = fields[src_idx].clone();
         field.offset = offset;
         result.push(field);
-        offset += size;
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(size);
         max_align = max_align.max(align);
     }
 
@@ -267,7 +275,9 @@ pub(crate) fn compute_explicit_tag_layout(
         (tag_size, tag_size)
     } else {
         let payload_align = max_variant_align.max(8);
-        (8 + round_up(max_payload, payload_align), payload_align)
+        // FLOW-30: saturate the tag-slot + padded-payload sum rather than wrap.
+        let total = round_up(max_payload, payload_align).saturating_add(8);
+        (total, payload_align)
     }
 }
 

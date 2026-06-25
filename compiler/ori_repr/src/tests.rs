@@ -3600,7 +3600,15 @@ fn no_imported_metadata_allows_narrowing() {
 fn imported_metadata_hash_not_in_pool_ignored() {
     // Edge case: Imported metadata with a hash that doesn't
     // exist in the local pool is silently ignored (no panic, no effect).
-    let pool = ori_types::Pool::new();
+    let mut pool = ori_types::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // A real local struct so the plan has a queryable decision.
+    let type_name = interner.intern("Local");
+    let field_r = interner.intern("r");
+    let named_idx = pool.named(type_name);
+    let struct_idx = pool.struct_type(type_name, &[(field_r, Idx::INT)]);
+    pool.set_resolution(named_idx, struct_idx);
 
     let imported_meta = vec![ExportedTypeMetadata {
         merkle_hash: 0xDEAD_BEEF_CAFE_1234,
@@ -3608,18 +3616,37 @@ fn imported_metadata_hash_not_in_pool_ignored() {
         is_public: true,
     }];
 
-    // This must not panic.
-    let _plan = crate::compute_repr_plan_with_interner(
+    let plan_with_bogus_meta = crate::compute_repr_plan_with_interner(
         &pool,
         &[],
         NarrowingPolicy::Aggressive,
         &[],
         None,
-        &[],
+        &[named_idx],
         &imported_meta,
         &[],
         &[],
         false,
+    );
+    let plan_without_meta = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+        &[],
+        &[],
+        &[],
+        false,
+    );
+
+    // The unknown imported hash has NO effect: the local struct's
+    // representation decision is identical with and without it.
+    assert_eq!(
+        plan_with_bogus_meta.get_repr(struct_idx),
+        plan_without_meta.get_repr(struct_idx),
+        "Imported metadata with a hash absent from the local pool must not change layout"
     );
 }
 
@@ -3669,10 +3696,13 @@ fn imported_collection_surface_does_not_suppress_narrowing() {
 /// is safely ignored (no panic).
 #[test]
 fn imported_collection_surface_unknown_hash_no_panic() {
-    let pool = Pool::new();
+    let mut pool = Pool::new();
     let bogus_hash = 0xDEAD_BEEF_CAFE_BABE;
 
-    let _plan = crate::compute_repr_plan_with_interner(
+    // A real collection type so the plan has a queryable decision.
+    let list_int = pool.list(Idx::INT);
+
+    let plan = crate::compute_repr_plan_with_interner(
         &pool,
         &[],
         NarrowingPolicy::Aggressive,
@@ -3684,7 +3714,13 @@ fn imported_collection_surface_unknown_hash_no_panic() {
         &[],
         false,
     );
-    // No panic — unknown hash is silently skipped.
+
+    // The unknown collection-surface hash is silently skipped — it marks
+    // no local type public (an unmatched hash has no resolution target).
+    assert!(
+        !plan.is_public_type(list_int),
+        "Unknown collection-surface hash must not mark any local type public"
+    );
 }
 
 /// Empty imported collection surfaces behave identically to no surfaces.

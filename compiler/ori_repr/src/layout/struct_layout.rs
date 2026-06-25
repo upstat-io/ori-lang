@@ -74,7 +74,8 @@ fn compute_c_layout(struct_repr: &StructRepr, repr_attr: Option<&ReprAttribute>)
         let mut field = f.clone();
         field.offset = offset;
         fields.push(field);
-        offset += size;
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(size);
         max_align = max_align.max(align);
     }
 
@@ -103,7 +104,8 @@ fn compute_packed_layout(struct_repr: &StructRepr) -> StructRepr {
         let mut field = f.clone();
         field.offset = offset;
         fields.push(field);
-        offset += size;
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(size);
     }
 
     StructRepr {

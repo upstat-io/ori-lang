@@ -24,11 +24,14 @@ mod string_helpers;
 #[cfg(test)]
 mod tests;
 
-use instantiation::{concrete_instantiations, substitute_enum_variants, substitute_struct_fields};
+use instantiation::{
+    concrete_instantiations, nested_derive_instantiations, substitute_enum_variants,
+    substitute_struct_fields,
+};
 
-use ori_ir::{DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
+use ori_ir::{DerivedTrait, Module, Name, StructBody, SumBody, TypeDecl, TypeDeclKind};
 use ori_types::{FieldDef, Idx, Tag, TypeEntry, TypeKind, VariantDef};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace, warn};
 
 use super::function_compiler::FunctionCompiler;
@@ -57,6 +60,24 @@ pub fn compile_derives<'a>(
 ) {
     let type_map: FxHashMap<Name, &TypeEntry> = user_types.iter().map(|te| (te.name, te)).collect();
 
+    // Every type carrying a derive: the set of inner-type names a nested
+    // `Applied` may name (`Wrap` in `Wrap<Wrap<int>>`) and the decl to compile
+    // it against. The transitive-closure walk below registers a method for the
+    // INNER instantiation only when its head names a derive-bearing type here.
+    let derive_bearing: FxHashSet<Name> = module
+        .types
+        .iter()
+        .filter(|td| !td.derives.is_empty())
+        .map(|td| td.name)
+        .collect();
+    let decl_by_name: FxHashMap<Name, &TypeDecl> =
+        module.types.iter().map(|td| (td.name, td)).collect();
+
+    // Visited set keyed by the materialized concrete body `Idx` terminates the
+    // closure on recursive / cyclic types AND dedups an instantiation reachable
+    // through multiple nesting paths.
+    let mut visited: FxHashSet<Idx> = FxHashSet::default();
+
     for type_decl in &module.types {
         if type_decl.derives.is_empty() {
             continue;
@@ -82,71 +103,142 @@ pub fn compile_derives<'a>(
         // instantiation — fall through to the single declared-body path.
         let instantiations = concrete_instantiations(fc, type_name);
 
-        match (&type_decl.kind, &type_entry.kind) {
-            (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
-                if instantiations.is_empty() {
+        if instantiations.is_empty() {
+            // Non-generic type: single declared-body path, no closure.
+            match (&type_decl.kind, &type_entry.kind) {
+                (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
+                    let fields = struct_def.fields.clone();
                     compile_struct_derives(
                         fc,
                         &type_decl.derives,
                         type_name,
                         type_idx,
                         &type_name_str,
-                        &struct_def.fields,
+                        &fields,
                         false,
                     );
-                } else {
-                    for (applied_idx, concrete_idx) in instantiations {
-                        let concrete_fields =
-                            substitute_struct_fields(fc, &struct_def.fields, concrete_idx);
-                        compile_struct_derives(
-                            fc,
-                            &type_decl.derives,
-                            type_name,
-                            concrete_idx,
-                            &type_name_str,
-                            &concrete_fields,
-                            true,
-                        );
-                        // Every call site whose receiver is this `Applied` Idx
-                        // (or its resolved body) must reach the instantiation's
-                        // method via receiver-type dispatch.
-                        fc.map_type_idx_to_name(applied_idx, type_name);
-                    }
                 }
-            }
-            (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
-                if instantiations.is_empty() {
+                (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
+                    let variants = variants.clone();
                     compile_enum_derives(
                         fc,
                         &type_decl.derives,
                         type_name,
                         type_idx,
                         &type_name_str,
-                        variants,
+                        &variants,
                         false,
                     );
-                } else {
-                    for (applied_idx, concrete_idx) in instantiations {
-                        let concrete_variants =
-                            substitute_enum_variants(fc, variants, concrete_idx);
-                        compile_enum_derives(
-                            fc,
-                            &type_decl.derives,
-                            type_name,
-                            concrete_idx,
-                            &type_name_str,
-                            &concrete_variants,
-                            true,
-                        );
-                        fc.map_type_idx_to_name(applied_idx, type_name);
-                    }
+                }
+                _ => {
+                    trace!(name = %type_name_str, "skipping derives for unsupported type kind");
                 }
             }
-            _ => {
-                trace!(
-                    name = %type_name_str,
-                    "skipping derives for unsupported type kind"
+            continue;
+        }
+
+        // Generic type: seed the work-list with the top-level instantiations,
+        // then transitively close over inner derive-bearing instantiations
+        // reachable through field/payload types (`Wrap<int>` reached only by
+        // nesting inside `Wrap<Wrap<int>>` — the starve BUG-02-066's top-level
+        // enumeration misses).
+        for (applied_idx, concrete_idx) in instantiations {
+            compile_instantiation_closure(
+                fc,
+                concrete_idx,
+                applied_idx,
+                type_name,
+                &decl_by_name,
+                &type_map,
+                &derive_bearing,
+                &mut visited,
+            );
+        }
+    }
+}
+
+/// Compile a generic-composite instantiation's derived methods and transitively
+/// close over every nested derive-bearing `Applied` instantiation reachable
+/// through its field/payload types. Iterative work-list (no recursion holding a
+/// `&mut fc` borrow) with a body-`Idx` visited set that terminates on recursive
+/// / cyclic types and dedups a shared inner instantiation.
+fn compile_instantiation_closure<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    seed_concrete_idx: Idx,
+    seed_applied_idx: Idx,
+    seed_type_name: Name,
+    decl_by_name: &FxHashMap<Name, &TypeDecl>,
+    type_map: &FxHashMap<Name, &TypeEntry>,
+    derive_bearing: &FxHashSet<Name>,
+    visited: &mut FxHashSet<Idx>,
+) {
+    let mut worklist: Vec<(Idx, Idx, Name)> =
+        vec![(seed_concrete_idx, seed_applied_idx, seed_type_name)];
+
+    while let Some((concrete_idx, applied_idx, type_name)) = worklist.pop() {
+        if !visited.insert(concrete_idx) {
+            continue;
+        }
+
+        let Some(type_decl) = decl_by_name.get(&type_name).copied() else {
+            continue;
+        };
+        if type_decl.derives.is_empty() {
+            continue;
+        }
+        let Some(type_entry) = type_map.get(&type_name).copied() else {
+            warn!(name = %fc.lookup_name(type_name), "no TypeEntry for nested instantiation — skipping");
+            continue;
+        };
+        let type_name_str = fc.lookup_name(type_name).to_owned();
+
+        // The declared `FieldDef`/`VariantDef` shape (names/spans/visibility)
+        // comes from the registered `TypeEntry`; `substitute_*` projects the
+        // concrete instantiation's field/payload types onto it.
+        match (&type_decl.kind, &type_entry.kind) {
+            (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
+                let fields = struct_def.fields.clone();
+                let concrete_fields = substitute_struct_fields(fc, &fields, concrete_idx);
+                compile_struct_derives(
+                    fc,
+                    &type_decl.derives,
+                    type_name,
+                    concrete_idx,
+                    &type_name_str,
+                    &concrete_fields,
+                    true,
                 );
+            }
+            (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
+                let variants = variants.clone();
+                let concrete_variants = substitute_enum_variants(fc, &variants, concrete_idx);
+                compile_enum_derives(
+                    fc,
+                    &type_decl.derives,
+                    type_name,
+                    concrete_idx,
+                    &type_name_str,
+                    &concrete_variants,
+                    true,
+                );
+            }
+            _ => {
+                trace!(name = %type_name_str, "skipping derives for unsupported type kind");
+                continue;
+            }
+        }
+
+        // Every call site whose receiver is this `Applied` Idx (or its resolved
+        // body) must reach the instantiation's method via receiver-type dispatch.
+        fc.map_type_idx_to_name(applied_idx, type_name);
+
+        // Enqueue the inner derive-bearing instantiations this body recurses
+        // into through its concrete field/payload types.
+        for (inner_applied, inner_concrete, inner_name) in
+            nested_derive_instantiations(fc, concrete_idx, derive_bearing)
+        {
+            if !visited.contains(&inner_concrete) {
+                worklist.push((inner_concrete, inner_applied, inner_name));
             }
         }
     }
