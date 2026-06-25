@@ -376,11 +376,13 @@ fn resolve_deferred_var_subst(
 
         tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
 
-        // A still-unresolved Var, or a type-error poison (Idx::ERROR) reached via
-        // the record_deferred_mono_call `var_idx.map_or(Idx::ERROR, ...)` fallback,
-        // must abort the publish — minting a poison MonoInstance produces a phantom
-        // whose body codegens method invokes on the poison receiver (AOT missing-mono).
-        if pool.tag(concrete) == crate::Tag::Var || pool.flags(concrete).has_errors() {
+        // A non-recordable resolution — any unresolved var/infer form (Var, Infer,
+        // BoundVar, RigidVar, or a propagated child flag) OR a type-error poison
+        // (Idx::ERROR, reached via the record_deferred_mono_call `map_or(Idx::ERROR, ...)`
+        // fallback) — must abort the publish: minting it produces a phantom whose body
+        // codegens method invokes on a poison/var receiver (AOT missing-mono). Use the
+        // canonical TypeFlags::is_recordable predicate, not a hand-rolled narrower gate.
+        if !pool.flags(concrete).is_recordable() {
             return None;
         }
         resolved.insert(*callee_var_id, concrete);

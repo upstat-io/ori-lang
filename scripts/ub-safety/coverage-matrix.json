@@ -9,6 +9,83 @@
       "pin_ref": "compiler/ori_types/src/check/integration_tests.rs::never_struct_field_rejected"
     },
     {
+      "class_id": "UninhabitedEnumVariantRead",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::UninhabitedEnumVariantRead",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Never unifies with any type but has no values; an uninhabited variant cannot be projected or read because it cannot be constructed. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/unify/tests.rs::never_unifies_with_anything"
+    },
+    {
+      "class_id": "PointerOutOfBounds",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::PointerOutOfBounds",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Indexing is bounds-checked; an out-of-bounds index panics (defined behavior) rather than reading past the allocation. Spec Clause 17.2 (panics).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/collections_ext.rs::test_coll_list_index_oob_panics"
+    },
+    {
+      "class_id": "DanglingIntPointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DanglingIntPointer",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The grammar has no raw-pointer type and no integer-to-pointer cast in safe code, so a dangling integer pointer is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "WriteToReadOnly",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::WriteToReadOnly",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Value semantics: reassignment replaces a binding rather than mutating shared memory in place, and there is no raw-pointer write form, so a write to read-only memory is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "DivisionByZero",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DivisionByZero",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Integer division and remainder by zero panic (defined behavior) rather than producing undefined behavior. Spec Clause 17.2 (panics).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_div_by_zero_still_aborts"
+    },
+    {
+      "class_id": "ArithOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ArithOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Integer arithmetic is checked; overflow panics (defined behavior) rather than wrapping silently. Spec Clause 17.3 (integer overflow).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_int_overflow_still_aborts"
+    },
+    {
+      "class_id": "ShiftOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ShiftOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "A shift whose count is negative or at least the bit width panics (defined behavior). Spec Clause 14.5.1 (arithmetic operators).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_shift_overflow_still_aborts"
+    },
+    {
+      "class_id": "InvalidUninitBytes",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidUninitBytes",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The grammar has no uninitialized-binding form; a let requires an initializer, so every binding is definitely assigned at declaration and an uninitialized read is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidBool",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidBool",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "bool has no invalid bit pattern: there is no transmute, and casts are checked (as is infallible, as? yields Option), so a bool can only hold true or false. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/infer/expr/operators/conversion.rs::infer_cast"
+    },
+    {
+      "class_id": "InvalidChar",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidChar",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "char literals are validated at lex time and there is no way to construct a char from an invalid scalar value, so an out-of-range char is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "compiler/oric/tests/phases/parse/lexer.rs::test_lex_char_literals"
+    },
+    {
+      "class_id": "InvalidStr",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidStr",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "str is always valid UTF-8: it is constructed from validated bytes, so an invalid-UTF-8 str is unrepresentable in safe code. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/infer/expr/tests.rs::str_from_utf8_resolves"
+    },
+    {
       "class_id": "AlignmentCheckFailed",
       "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AlignmentCheckFailed",
       "disposition": "aims-obligation",
