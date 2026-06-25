@@ -7,7 +7,7 @@
 //! - String literals (including escape sequences and multi-byte chars)
 //! - Character literals (including escape sequences)
 
-use super::helpers::{char_display_width, decimal_digit_count};
+use super::metrics::{char_display_width, decimal_digit_count};
 
 /// Calculate width of an integer literal.
 ///

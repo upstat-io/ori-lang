@@ -8,7 +8,7 @@
     clippy::manual_assert,
     reason = "Test harness code prioritizes readability over pedantic style"
 )]
-//! Comprehensive idempotence verification tests.
+//! Idempotence verification tests.
 //!
 //! These tests verify that:
 //! 1. format(format(code)) == format(code) for all .ori files
@@ -377,7 +377,7 @@ fn idempotence_tests_library() {
     assert_dir_idem_clean("library/", &dir, &result);
 }
 
-/// Comprehensive test: run idempotence on all .ori files in the repository.
+/// Runs idempotence on all .ori files in the repository.
 #[test]
 fn idempotence_comprehensive() {
     let root = repo_root();

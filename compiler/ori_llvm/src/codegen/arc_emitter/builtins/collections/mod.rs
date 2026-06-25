@@ -309,6 +309,12 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    // Fixed-capacity conversions are value-identity at runtime: `[T]` and
+    // `[T, max N]` share the `{ len, cap, data }` fat-pointer layout; the
+    // capacity constraint is type-level only. Forward the receiver unchanged.
+    // Spec: Clause 8.2.2.
+    ("list", "to_dynamic") => Some(ctx.arg_vals[0]),
+    ("list", "to_fixed") => Some(ctx.arg_vals[0]),
     ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
             // owns_data = the .iter() receiver is owned (ARC inc'd it → the iterator

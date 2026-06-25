@@ -599,7 +599,7 @@ fn width_tests_library() {
     run_tests_at_all_widths(&dir, "library");
 }
 
-/// Comprehensive test across all directories and widths.
+/// Runs width tests across all directories and widths.
 #[test]
 fn width_tests_comprehensive() {
     let root = repo_root();

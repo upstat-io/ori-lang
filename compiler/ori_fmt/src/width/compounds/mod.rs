@@ -6,7 +6,7 @@
 
 use ori_ir::{DurationUnit, SizeUnit};
 
-use super::helpers::decimal_digit_count;
+use super::metrics::decimal_digit_count;
 
 /// Calculate width of a duration literal.
 ///

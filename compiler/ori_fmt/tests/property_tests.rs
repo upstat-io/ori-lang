@@ -23,7 +23,7 @@ use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 use proptest::prelude::*;
 
-// -- Code Generation Strategies --
+// Code Generation Strategies
 
 /// Generate a valid Ori identifier.
 fn identifier_strategy() -> impl Strategy<Value = String> {
@@ -326,7 +326,7 @@ fn module_strategy() -> impl Strategy<Value = String> {
         })
 }
 
-// -- Test Helpers --
+// Test Helpers
 
 /// Parse and format source code.
 fn parse_and_format(source: &str) -> Result<String, String> {
@@ -469,7 +469,7 @@ fn assert_fixed_idempotent(source: &str, ctx: &str) {
     }
 }
 
-// -- Property Tests --
+// Property Tests
 
 proptest! {
     #![proptest_config(ProptestConfig {
@@ -555,7 +555,7 @@ proptest! {
     }
 }
 
-// -- Extended Property Tests - More Comprehensive Fuzzing --
+// Extended property tests
 
 /// Generate a method call chain.
 fn method_chain_strategy(depth: u32) -> BoxedStrategy<String> {
@@ -1003,7 +1003,7 @@ proptest! {
     }
 }
 
-// -- Additional Unit Tests for Edge Cases --
+// Additional Unit Tests for Edge Cases
 
 #[test]
 fn test_single_element_tuple_idempotence() {
@@ -1116,9 +1116,9 @@ fn test_binary_expr_line_break() {
     );
 }
 
-// -- Substantially More Comprehensive Tests --
+// Additional tests
 
-// -- Literal Edge Cases --
+// Literal Edge Cases
 
 #[test]
 fn test_zero_literal() {
@@ -1182,7 +1182,7 @@ fn test_char_escape_sequences() {
     }
 }
 
-// -- Operator Edge Cases --
+// Operator Edge Cases
 
 #[test]
 fn test_bitwise_and() {
@@ -1250,7 +1250,7 @@ fn test_mixed_comparison_logical() {
     assert_fixed_idempotent(source, "mixed comparison/logical should be idempotent");
 }
 
-// -- Collection Tests --
+// Collection Tests
 
 #[test]
 fn test_list_of_lists() {
@@ -1311,7 +1311,7 @@ fn test_range_inclusive() {
     assert_fixed_idempotent(source, "inclusive range should be idempotent");
 }
 
-// -- Control Flow Tests --
+// Control Flow Tests
 
 #[test]
 fn test_if_without_else() {
@@ -1343,7 +1343,7 @@ fn test_nested_for() {
     assert_fixed_idempotent(source, "nested for should be idempotent");
 }
 
-// -- Pattern Construct Tests --
+// Pattern Construct Tests
 
 #[test]
 fn test_run_multiple_bindings() {
@@ -1393,7 +1393,7 @@ fn test_match_list_pattern() {
     assert_fixed_idempotent(source, "match list pattern should be idempotent");
 }
 
-// -- Function Call Tests --
+// Function Call Tests
 
 #[test]
 fn test_simple_call() {
@@ -1443,7 +1443,7 @@ fn test_nested_index() {
     assert_fixed_idempotent(source, "nested index should be idempotent");
 }
 
-// -- Lambda Tests --
+// Lambda Tests
 
 #[test]
 fn test_lambda_no_params() {
@@ -1481,7 +1481,7 @@ fn test_lambda_with_complex_body() {
     assert_fixed_idempotent(source, "lambda with complex body should be idempotent");
 }
 
-// -- Type Definition Tests --
+// Type Definition Tests
 
 #[test]
 fn test_empty_struct() {
@@ -1543,7 +1543,7 @@ fn test_public_type() {
     assert_fixed_idempotent(source, "public type should be idempotent");
 }
 
-// -- Trait and Impl Tests --
+// Trait and Impl Tests
 
 #[test]
 fn test_empty_trait() {
@@ -1594,7 +1594,7 @@ fn test_impl_generic() {
     assert_fixed_idempotent(source, "generic impl should be idempotent");
 }
 
-// -- Function Signature Tests --
+// Function Signature Tests
 
 #[test]
 fn test_function_no_params() {
@@ -1676,7 +1676,7 @@ fn test_function_all_features() {
     assert_fixed_idempotent(source, "function with all features should be idempotent");
 }
 
-// -- Import Tests --
+// Import Tests
 
 #[test]
 fn test_import_single() {
@@ -1703,7 +1703,7 @@ fn test_import_relative() {
     assert_fixed_idempotent(source, "relative import should be idempotent");
 }
 
-// -- Constant Tests --
+// Constant Tests
 
 #[test]
 fn test_const_int() {
@@ -1735,7 +1735,7 @@ fn test_const_public() {
     assert_fixed_idempotent(source, "public const should be idempotent");
 }
 
-// -- Test Declaration Tests --
+// Test Declaration Tests
 
 #[test]
 fn test_targeted_test() {
@@ -1750,7 +1750,7 @@ fn test_free_floating_test() {
     assert_fixed_idempotent(source, "free floating test should be idempotent");
 }
 
-// -- Comment Tests --
+// Comment Tests
 
 #[test]
 fn test_single_comment() {
@@ -1777,7 +1777,7 @@ fn test_multiple_comments() {
     assert_fixed_idempotent(source, "multiple comments should be idempotent");
 }
 
-// -- Line Width Edge Cases --
+// Line Width Edge Cases
 
 #[test]
 fn test_long_int_chain() {
@@ -1811,7 +1811,7 @@ fn test_very_long_expression() {
     assert_fixed_idempotent(source, "very long expression should be idempotent");
 }
 
-// -- Complex Combined Tests --
+// Complex Combined Tests
 
 #[test]
 fn test_full_module() {
@@ -1850,7 +1850,7 @@ fn test_deeply_nested_everything() {
     assert_fixed_idempotent(source, "deeply nested everything should be idempotent");
 }
 
-// -- Additional Property Tests for More Coverage --
+// Additional property tests
 
 /// Generate a duration literal.
 fn duration_literal_strategy() -> impl Strategy<Value = String> {

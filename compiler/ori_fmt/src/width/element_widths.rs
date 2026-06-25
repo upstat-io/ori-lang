@@ -6,13 +6,13 @@
 
 use ori_ir::{ExprId, StringLookup};
 
-use super::helpers::COMMA_SEPARATOR_WIDTH;
+use super::metrics::COMMA_SEPARATOR_WIDTH;
 use super::{WidthCalculator, ALWAYS_STACKED};
 
 impl<I: StringLookup> WidthCalculator<'_, I> {
     /// Calculate width of an expression list (comma-separated).
     pub(super) fn width_of_expr_list(&mut self, exprs: &[ExprId]) -> usize {
-        super::helpers::accumulate_widths(exprs, |id| self.width(*id), COMMA_SEPARATOR_WIDTH)
+        super::metrics::accumulate_widths(exprs, |id| self.width(*id), COMMA_SEPARATOR_WIDTH)
     }
 
     /// Calculate width of call arguments (name: value, ...).

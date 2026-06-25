@@ -7,7 +7,7 @@
 //! - Struct patterns (`{ x, y }`) or `{ $x, y }`
 //! - List patterns with optional rest (`[a, b, ..rest]`)
 
-use super::helpers::COMMA_SEPARATOR_WIDTH;
+use super::metrics::COMMA_SEPARATOR_WIDTH;
 use ori_ir::{BindingPattern, StringLookup};
 
 /// Calculate width of a binding pattern (for `let` bindings — includes `$` for immutable).

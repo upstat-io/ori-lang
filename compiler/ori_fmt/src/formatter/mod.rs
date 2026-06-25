@@ -24,10 +24,10 @@
 //!
 //! # Layer Integration Points
 //!
-//! - `helpers::is_simple_item()` → Layer 2 `packing::is_simple_item()`
-//! - `helpers::format_receiver()` → Layer 4 `rules::needs_parens(Receiver)`
-//! - `helpers::format_call_target()` → Layer 4 `rules::needs_parens(CallTarget)`
-//! - `helpers::format_iter()` → Layer 4 `rules::needs_parens(IteratorSource)`
+//! - `operands::is_simple_item()` → Layer 2 `packing::is_simple_item()`
+//! - `operands::format_receiver()` → Layer 4 `rules::needs_parens(Receiver)`
+//! - `operands::format_call_target()` → Layer 4 `rules::needs_parens(CallTarget)`
+//! - `operands::format_iter()` → Layer 4 `rules::needs_parens(IteratorSource)`
 //!
 //! # Modules
 //!
@@ -36,12 +36,12 @@
 //! - [`stacked`]: Always-multi-line constructs (run, try, match)
 //! - [`patterns`]: Match and binding pattern rendering
 //! - [`literals`]: Literal value rendering
-//! - [`helpers`]: Collection and wrapper helpers (Layer 2, 4 integration)
+//! - [`operands`]: Operand emission for collections, calls, and wrappers (Layer 2, 4 integration)
 
 mod broken;
-mod helpers;
 mod inline;
 mod literals;
+mod operands;
 mod patterns;
 mod stacked;
 #[cfg(test)]

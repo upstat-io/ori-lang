@@ -124,18 +124,13 @@ pub enum ConstructKind {
 
 impl ConstructKind {
     /// Check if this construct is always stacked (never inline).
+    ///
+    /// Derives from `base_packing` so the always-stacked membership has one home.
     #[inline]
     pub fn is_always_stacked(self) -> bool {
         matches!(
-            self,
-            ConstructKind::RunTopLevel
-                | ConstructKind::Try
-                | ConstructKind::Match
-                | ConstructKind::Recurse
-                | ConstructKind::Parallel
-                | ConstructKind::Spawn
-                | ConstructKind::Nursery
-                | ConstructKind::MatchArms
+            super::strategy::base_packing(self),
+            super::Packing::AlwaysStacked
         )
     }
 

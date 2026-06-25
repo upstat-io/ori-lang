@@ -1,7 +1,8 @@
-//! Collection and Wrapper Helpers
+//! Operand Emission
 //!
-//! Helper methods for emitting collections (lists, tuples), call arguments,
-//! and Result/Option wrappers.
+//! Formatter methods for emitting the operands of compound expressions:
+//! collections (lists, tuples), call arguments, receivers, call targets,
+//! iterator sources, and Result/Option wrappers, inline or broken.
 //!
 //! # Layer Integration
 //!

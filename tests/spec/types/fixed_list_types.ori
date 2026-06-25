@@ -158,28 +158,25 @@ use std.testing { assert, assert_eq }
 // Conversion Between Fixed and Dynamic
 // =============================================================================
 
-// @test_to_dynamic tests @to_dynamic () -> void = {
-//     let fixed: [int, max 5] = [1, 2, 3],
-//     let dynamic: [int] = fixed.to_dynamic(),
-//     assert_eq(actual: dynamic.len(), expected: 3),
-//     assert_eq(actual: dynamic[0], expected: 1),
-// }
+// Value-identity is correct on interp; the AOT path double-frees the shared
+// fat-pointer buffer (same_alloc_reps forwarder-result floor). Spec: Clause 8.2.2.
+#skip(backend: "llvm", reason: "BUG-04-224: to_dynamic AOT value-identity same_alloc double-free — aims-burden floor")
+@test_to_dynamic tests @to_dynamic () -> void = {
+    let fixed: [int, max 5] = [1, 2, 3];
+    let dynamic: [int] = fixed.to_dynamic();
+    assert_eq(actual: dynamic.len(), expected: 3);
+    assert_eq(actual: dynamic[0], expected: 1)
+}
 
-// @to_dynamic () -> [int] = {
-//     let fixed: [int, max 5] = [1, 2, 3],
-//     fixed.to_dynamic(),
-// }
-
-// @test_to_fixed tests @to_fixed () -> void = {
-//     let dynamic: [int] = [1, 2, 3],
-//     let fixed: [int, max 10] = dynamic.to_fixed<10>(),
-//     assert_eq(actual: fixed.len(), expected: 3),
-// }
-
-// @to_fixed () -> [int, max 10] = {
-//     let dynamic: [int] = [1, 2, 3],
-//     dynamic.to_fixed<10>(),
-// }
+// Value-identity is correct on interp; the AOT path double-frees the shared
+// fat-pointer buffer (same_alloc_reps forwarder-result floor). Spec: Clause 8.2.2.
+#skip(backend: "llvm", reason: "BUG-04-224: to_fixed AOT value-identity same_alloc double-free — aims-burden floor")
+@test_to_fixed tests @to_fixed () -> void = {
+    let dynamic: [int] = [1, 2, 3];
+    let fixed: [int, max 10] = dynamic.to_fixed<10>();
+    assert_eq(actual: fixed.len(), expected: 3);
+    assert_eq(actual: fixed[0], expected: 1)
+}
 
 // @test_try_to_fixed tests @try_to_fixed () -> void = {
 //     let dynamic: [int] = [1, 2, 3, 4, 5],
