@@ -36,7 +36,7 @@ extern "C-unwind" {
     fn ori_raise_exception() -> !;
 }
 
-// ── Print functions ──────────────────────────────────────────────────────
+// Print functions
 
 /// Print a string to stdout.
 #[no_mangle]
@@ -71,7 +71,7 @@ pub extern "C" fn ori_print_bool(b: bool) {
     println!("{b}");
 }
 
-// ── Panic functions ──────────────────────────────────────────────────────
+// Panic functions
 
 /// Panic with a message. OWNS the message: the caller transfers its message
 /// reference (callers pass a fresh +1 — ARC marks the arg Owned and dup-incs
@@ -199,7 +199,7 @@ extern "C-unwind" fn aot_raise_exception(_msg: String) -> ! {
     unsafe { ori_raise_exception() }
 }
 
-// ── Catch/recover ────────────────────────────────────────────────────────
+// Catch/recover
 
 /// Free a caught exception from a `catch(expr:)` landing pad.
 ///
@@ -247,7 +247,7 @@ pub extern "C" fn ori_catch_recover() -> OriStr {
     OriStr::from_owned(&text)
 }
 
-// ── Assert functions ─────────────────────────────────────────────────────
+// Assert functions
 
 /// Assert that a condition is true.
 ///

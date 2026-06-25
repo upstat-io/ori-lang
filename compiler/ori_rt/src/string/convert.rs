@@ -132,6 +132,23 @@ pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
     OriStr::from_owned(&f.to_string())
 }
 
+/// Append `c` to `out`, escaping the control/quote characters that Debug and
+/// Printable string rendering both escape (`\n`, `\r`, `\t`, `\`, `"`, `\0`).
+///
+/// Shared by `ori_str_debug_format` and `ori_str_escape_control` so the escape
+/// table has one home. Matches the evaluator's `escape_debug_str`.
+fn push_escaped_str_char(out: &mut String, c: char) {
+    match c {
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        '\\' => out.push_str("\\\\"),
+        '"' => out.push_str("\\\""),
+        '\0' => out.push_str("\\0"),
+        c => out.push(c),
+    }
+}
+
 /// Format a string with Debug semantics: wraps in quotes and escapes special chars.
 ///
 /// `"hello"` → `"\"hello\""`, `"a\nb"` → `"\"a\\nb\""`.
@@ -148,15 +165,7 @@ pub extern "C" fn ori_str_debug_format(s: *const OriStr) -> OriStr {
     let mut result = String::with_capacity(src.len() + 2);
     result.push('"');
     for c in src.chars() {
-        match c {
-            '\n' => result.push_str("\\n"),
-            '\r' => result.push_str("\\r"),
-            '\t' => result.push_str("\\t"),
-            '\\' => result.push_str("\\\\"),
-            '"' => result.push_str("\\\""),
-            '\0' => result.push_str("\\0"),
-            c => result.push(c),
-        }
+        push_escaped_str_char(&mut result, c);
     }
     result.push('"');
     OriStr::from_owned(&result)
@@ -186,15 +195,7 @@ pub extern "C" fn ori_str_escape_control(s: *const OriStr) -> OriStr {
     }
     let mut result = String::with_capacity(src.len());
     for c in src.chars() {
-        match c {
-            '\n' => result.push_str("\\n"),
-            '\r' => result.push_str("\\r"),
-            '\t' => result.push_str("\\t"),
-            '\\' => result.push_str("\\\\"),
-            '"' => result.push_str("\\\""),
-            '\0' => result.push_str("\\0"),
-            c => result.push(c),
-        }
+        push_escaped_str_char(&mut result, c);
     }
     OriStr::from_owned(&result)
 }

@@ -7,7 +7,7 @@ use crate::string::OriStr;
 use super::ori_str_substring;
 use super::ori_str_trim;
 
-// ── ori_str_substring ─────────────────────────────────────────────────
+// ori_str_substring
 
 #[test]
 fn substring_of_heap_string_produces_slice() {
@@ -174,7 +174,7 @@ fn substring_of_slice_accumulates_offsets() {
     ori_rc_free(heap_data, 45, 1);
 }
 
-// ── ori_str_trim ──────────────────────────────────────────────────────
+// ori_str_trim
 
 #[test]
 fn trim_heap_string_produces_slice() {
@@ -270,7 +270,7 @@ fn trim_heap_short_result_uses_sso() {
     ori_rc_free(heap_data, padded.len(), 1);
 }
 
-// ── ori_str_split slices ──────────────────────────────────────────────
+// ori_str_split slices
 
 #[test]
 fn split_heap_string_long_pieces_are_slices() {

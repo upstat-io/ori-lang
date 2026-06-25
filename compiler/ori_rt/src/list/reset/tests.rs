@@ -88,14 +88,7 @@ fn zero_new_len_returns_null() {
     let data = alloc_i64_buffer(4);
     let mut out_cap: i64 = 99;
 
-    // Reuse with 0 new elements → old buffer freed, null returned.
-    // But first the old buffer's elements are cleaned up (no dec fn here).
-    // The unique buffer gets freed because we can't reuse with 0 capacity.
-    // Actually, new_len=0 → alloc_fresh returns null.
-    // But old buffer is unique → it gets cleaned and... let's see.
-    // reuse_buffer: oc(4) >= new_len(0) → reuse as-is. out_cap = 4.
-    // Actually that would return the old buffer with cap=4 for 0 elements.
-    // That's correct — the buffer is reused, caller stores 0 elements.
+    // cap(4) >= new_len(0) → reuse as-is; out_cap stays 4, buffer holds 0 elements.
     let result = ori_list_reset_buffer(data, 4, 4, 0, 8, None, &mut out_cap);
     assert_eq!(result, data, "unique buffer reused even for 0 elements");
     assert_eq!(out_cap, 4);

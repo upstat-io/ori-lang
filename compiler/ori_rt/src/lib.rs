@@ -116,7 +116,7 @@ use std::sync::atomic::Ordering;
 pub(crate) const OPTION_TAG_SOME: i64 = 0;
 pub(crate) const OPTION_TAG_NONE: i64 = 1;
 
-// ── Exception handling personality ──────────────────────────────────────
+// Exception handling personality
 //
 // All EH is implemented in C (`eh_personality.c`), zero Rust panic dependency:
 //   - Itanium (Linux, macOS, MinGW): ori_eh_personality + ori_raise_exception
@@ -166,7 +166,7 @@ pub struct OriResult<T> {
     pub value: T,
 }
 
-// ── Collection growth strategy ──────────────────────────────────────────
+// Collection growth strategy
 
 /// Minimum collection capacity (list, set, map, string).
 ///
@@ -190,7 +190,7 @@ fn next_capacity(current: usize, required: usize) -> usize {
     doubled.max(required).max(MIN_COLLECTION_CAPACITY)
 }
 
-// ── Memory allocation ───────────────────────────────────────────────────
+// Memory allocation
 
 /// Allocate memory with the given size and alignment.
 ///
@@ -263,7 +263,7 @@ pub extern "C" fn ori_realloc(
     unsafe { std::alloc::realloc(ptr, old_layout, new_size) }
 }
 
-// ── Comparison utilities ────────────────────────────────────────────────
+// Comparison utilities
 
 /// Compare two integers (for sorting, etc.)
 /// Returns -1 if a < b, 0 if a == b, 1 if a > b.
@@ -288,7 +288,7 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     a.max(b)
 }
 
-// ── Args & entry point ──────────────────────────────────────────────────
+// Args & entry point
 
 /// Convert C `argc`/`argv` to an Ori `[str]` list.
 ///
@@ -376,7 +376,7 @@ pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
     rc::ori_rc_free(data, alloc_size, std::mem::align_of::<string::OriStr>());
 }
 
-// ── ori_try_call (C++ implementation, MSVC only) ────────────────────────
+// ori_try_call (C++ implementation, MSVC only)
 //
 // On MSVC, ori_try_call is implemented in eh_personality_msvc.cpp using
 // C++ try/catch(OriPanicException&). Thunks are `C-unwind` because the

@@ -28,7 +28,7 @@ fn free_heap_str(s: &OriStr) {
     }
 }
 
-// ── Basic RC lifecycle ──────────────────────────────────────────────────
+// Basic RC lifecycle
 
 #[test]
 fn rc_alloc_initializes_count_to_one() {
@@ -83,7 +83,7 @@ fn rc_null_pointer_is_noop() {
     assert_eq!(ori_rc_count(std::ptr::null()), 0);
 }
 
-// ── Drop function called exactly once ───────────────────────────────────
+// Drop function called exactly once
 
 /// Global counter for tracking drop function calls.
 static DROP_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -134,7 +134,7 @@ fn drop_function_not_called_above_zero() {
     assert_eq!(DROP_CALL_COUNT.load(Ordering::SeqCst), 1);
 }
 
-// ── Concurrent refcount operations ──────────────────────────────────────
+// Concurrent refcount operations
 
 #[test]
 fn concurrent_increments_are_correct() {
@@ -227,7 +227,7 @@ extern "C" fn concurrent_test_drop_fn(data_ptr: *mut u8) {
     ori_rc_free(data_ptr, 16, 8);
 }
 
-// ── Leak detection (RC_LIVE_COUNT) ────────────────────────────────────
+// Leak detection (RC_LIVE_COUNT)
 
 #[test]
 fn rc_live_count_tracks_alloc_and_free() {
@@ -352,7 +352,7 @@ fn concurrent_dec_triggers_drop_exactly_once() {
     assert_eq!(CONCURRENT_DROP_COUNT.load(Ordering::SeqCst), 1);
 }
 
-// ── Overflow detection ────────────────────────────────────────────────
+// Overflow detection
 
 #[test]
 fn rc_inc_does_not_overflow_under_normal_use() {
@@ -436,7 +436,7 @@ fn rc_dec_skips_at_max_refcount() {
     ori_rc_dec(ptr, None);
 }
 
-// ── Collection Dec Immortal-Path Tests ────────────────────────────
+// Collection Dec Immortal-Path Tests
 //
 // Regression: Section 07 extracted rc_dec_to_zero as the
 // shared core, but only ori_rc_inc/ori_rc_dec had immortal-path unit
@@ -626,7 +626,7 @@ fn slice_buffer_rc_dec_skips_at_max_refcount() {
     ori_rc_free(original_data, 32, 8);
 }
 
-// ── Argv Header Propagation ───────────────────────────────────────
+// Argv Header Propagation
 //
 // Regression: ori_args_from_argv stores elem_dec_fn at
 // construction, but no test verified the value propagates through
@@ -705,7 +705,7 @@ const _: () = {
     assert!(MAX_REFCOUNT > 0);
 };
 
-// ── RC Event Tracing ────────────────────────────────────────────────
+// RC Event Tracing
 
 #[test]
 fn rc_trace_disabled_by_default() {
@@ -820,7 +820,7 @@ fn rc_trace_produces_balanced_sequence_child() {
     ori_rc_free(ptr, 16, 8); // free
 }
 
-// ── Leak Attribution ─────────────────────────────────────────────────
+// Leak Attribution
 
 #[test]
 #[expect(
@@ -928,7 +928,7 @@ fn leak_attribution_child() {
     std::process::exit(exit_code);
 }
 
-// ── Uniqueness check (COW foundation) ────────────────────────────────
+// Uniqueness check (COW foundation)
 
 #[test]
 fn rc_is_unique_freshly_allocated() {
@@ -1002,7 +1002,7 @@ fn rc_is_unique_or_null_shared_returns_false() {
     ori_rc_free(ptr, 16, 8);
 }
 
-// ── Capacity management primitives (COW foundation) ──────────────────
+// Capacity management primitives (COW foundation)
 
 #[test]
 fn rc_realloc_preserves_data_on_growth() {
@@ -1420,7 +1420,7 @@ fn memmove_elements_zero_count_is_noop() {
     assert_eq!(buf, [1, 2, 3, 4], "zero count should not move anything");
 }
 
-// ── Growth strategy (COW foundation) ─────────────────────────────────
+// Growth strategy (COW foundation)
 
 #[test]
 fn next_capacity_from_zero() {
@@ -1541,7 +1541,7 @@ fn list_ensure_capacity_grows_buffer() {
     ori_list_free_data(list.data, list.cap, 8);
 }
 
-// ── Empty collection sentinels (COW foundation) ──────────────────────
+// Empty collection sentinels (COW foundation)
 
 #[test]
 fn list_empty_sentinel_is_null() {
@@ -2067,7 +2067,7 @@ fn concat_utf8_multibyte() {
     assert_eq!(result.len(), 13);
 }
 
-// ── COW string transforms ──────────────────────────────────────────────
+// COW string transforms
 
 // to_uppercase: SSO ASCII → mutate SSO bytes in place
 #[test]
@@ -2338,7 +2338,7 @@ fn sentinel_rc_operations_are_noop() {
     assert_eq!(ori_rc_count(null as *const u8), 0);
 }
 
-// ── Boxed list functions (ori_list_box_new) ──────────────────────────
+// Boxed list functions (ori_list_box_new)
 
 #[test]
 fn list_box_new_creates_rc_struct() {
@@ -2395,7 +2395,7 @@ fn list_box_new_round_trip_with_data() {
     );
 }
 
-// ── COW list push (ori_list_push_cow) ────────────────────────────────
+// COW list push (ori_list_push_cow)
 
 /// Helper: read an `OriList` from a raw byte buffer (sret pattern).
 unsafe fn read_list_result(out: &[u8; 24]) -> (i64, i64, *mut u8) {
@@ -2691,7 +2691,7 @@ fn cow_push_1000_sequential_amortized() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW list pop (ori_list_pop_cow) ──────────────────────────────────
+// COW list pop (ori_list_pop_cow)
 
 #[test]
 fn cow_pop_unique_decrements_len() {
@@ -2821,7 +2821,7 @@ fn cow_pop_empty_list_returns_empty() {
     assert!(data.is_null(), "empty pop should return null data");
 }
 
-// ── COW list set (ori_list_set_cow) ──────────────────────────────────
+// COW list set (ori_list_set_cow)
 
 #[test]
 fn cow_set_unique_overwrites_in_place() {
@@ -2964,7 +2964,7 @@ fn cow_set_at_index_zero() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW list insert (ori_list_insert_cow) ────────────────────────────
+// COW list insert (ori_list_insert_cow)
 
 #[test]
 fn cow_insert_unique_at_beginning() {
@@ -3208,7 +3208,7 @@ fn cow_insert_into_empty() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW list remove (ori_list_remove_cow) ────────────────────────────
+// COW list remove (ori_list_remove_cow)
 
 #[test]
 fn cow_remove_unique_at_beginning() {
@@ -3353,7 +3353,7 @@ fn cow_remove_shared_copies() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW list concat (ori_list_concat_cow) ────────────────────────────
+// COW list concat (ori_list_concat_cow)
 
 #[test]
 fn cow_concat_unique_with_capacity() {
@@ -3610,7 +3610,7 @@ fn cow_concat_empty_list1_shared_list2() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW concat: inc_fn counting tests ────────────────────────────────
+// COW concat: inc_fn counting tests
 //
 // These tests use a counting inc_fn to verify that the runtime correctly
 // skips RC increments when list2 is uniquely owned (moved, not copied).
@@ -3836,7 +3836,7 @@ fn cow_concat_self_same_buffer() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW list reverse (ori_list_reverse_cow) ──────────────────────────
+// COW list reverse (ori_list_reverse_cow)
 
 #[test]
 fn cow_reverse_unique_in_place() {
@@ -3975,7 +3975,7 @@ fn cow_reverse_empty_unchanged() {
     assert!(result_data.is_null());
 }
 
-// ── COW list sort (ori_list_sort_cow) ────────────────────────────────
+// COW list sort (ori_list_sort_cow)
 
 /// Comparison function for i64 elements (ascending order).
 extern "C" fn compare_i64_asc(a: *const u8, b: *const u8) -> i32 {
@@ -4237,7 +4237,7 @@ fn cow_sort_empty_unchanged() {
     assert!(result_data.is_null());
 }
 
-// ── COW list stable sort (ori_list_sort_stable_cow) ──────────────────
+// COW list stable sort (ori_list_sort_stable_cow)
 
 /// Stability test: elements with equal keys preserve their original order.
 /// We sort pairs (key, id) by key — ids should stay in insertion order for equal keys.
@@ -4511,7 +4511,7 @@ fn debug_check_not_freed_passes_for_live_pointer() {
     });
 }
 
-// ── Release-mode underflow detection ──────────────────────────────────
+// Release-mode underflow detection
 
 #[test]
 fn rc_underflow_aborts_process() {
@@ -4573,7 +4573,7 @@ fn rc_underflow_aborts_process_child() {
     unreachable!("ori_rc_dec should have aborted on zero refcount");
 }
 
-// ── COW map insert tests ─────────────────────────────────────────────
+// COW map insert tests
 
 /// i64 key equality comparator for COW map tests.
 extern "C" fn i64_key_eq(a: *const u8, b: *const u8) -> bool {
@@ -5034,7 +5034,7 @@ fn cow_map_insert_1000_sequential_amortized() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW map remove tests ────────────────────────────────────────────
+// COW map remove tests
 
 #[test]
 fn cow_map_remove_key_not_found() {
@@ -5450,7 +5450,7 @@ fn cow_map_remove_from_empty() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW map update tests ────────────────────────────────────────────
+// COW map update tests
 
 #[test]
 fn cow_map_update_key_not_found() {
@@ -5667,7 +5667,7 @@ fn cow_map_update_on_empty() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW set insert tests ────────────────────────────────────────────
+// COW set insert tests
 
 /// Helper: allocate an RC'd hash table set buffer with i64 elements.
 ///
@@ -5969,7 +5969,7 @@ fn cow_set_insert_unique_needs_growth() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW set remove tests ────────────────────────────────────────────
+// COW set remove tests
 
 #[test]
 fn cow_set_remove_not_found() {
@@ -6193,7 +6193,7 @@ fn cow_set_remove_from_empty() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW set union tests ────────────────────────────────────────────────
+// COW set union tests
 
 #[test]
 fn cow_set_union_both_empty() {
@@ -6517,7 +6517,7 @@ fn cow_set_union_superset_noop() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW set intersection tests ─────────────────────────────────────────
+// COW set intersection tests
 
 #[test]
 fn cow_set_intersection_either_empty() {
@@ -6743,7 +6743,7 @@ fn cow_set_intersection_self_identity() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW set difference tests ───────────────────────────────────────────
+// COW set difference tests
 
 #[test]
 fn cow_set_difference_set1_empty() {
@@ -7216,7 +7216,7 @@ fn tag_constants_match_canonical_values() {
     assert_eq!(OPTION_TAG_NONE, ori_ir::OPTION_TAG_NONE, "OPTION_TAG_NONE");
 }
 
-// ── COW list updated (ori_list_updated_cow — IndexSet) ───────────────
+// COW list updated (ori_list_updated_cow — IndexSet)
 
 #[test]
 fn cow_updated_unique_releases_replaced_element_and_moves_value_in() {
@@ -7338,7 +7338,7 @@ fn cow_updated_shared_copies_and_keeps_old_element_in_old_buffer() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── COW map updated (ori_map_updated_cow — IndexSet) ─────────────────
+// COW map updated (ori_map_updated_cow — IndexSet)
 
 #[test]
 fn cow_map_updated_releases_caller_value_reference() {
@@ -7443,7 +7443,7 @@ fn cow_map_updated_replaces_existing_key_value() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ─── ori_panic message ownership ───
+// ori_panic message ownership
 
 thread_local! {
     /// Message pointer smuggled into the `extern "C"` panic thunk below

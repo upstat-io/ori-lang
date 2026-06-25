@@ -1,6 +1,6 @@
 use super::*;
 
-// ── Layout Tests ────────────────────────────────────────────────────────
+// Layout Tests
 
 #[test]
 fn map_layout_basic() {
@@ -31,7 +31,7 @@ fn set_layout_basic() {
     assert_eq!(layout.total_size, 8 + 4 * 8); // 40
 }
 
-// ── Capacity Tests ──────────────────────────────────────────────────────
+// Capacity Tests
 
 #[test]
 fn next_hash_capacity_minimum() {
@@ -75,7 +75,7 @@ fn needs_rehash_larger() {
     assert!(needs_rehash(6, 8));
 }
 
-// ── Align Up Tests ──────────────────────────────────────────────────────
+// Align Up Tests
 
 #[test]
 fn align_up_basics() {
@@ -87,7 +87,7 @@ fn align_up_basics() {
     assert_eq!(align_up(16, 8), 16);
 }
 
-// ── Metadata Tests ──────────────────────────────────────────────────────
+// Metadata Tests
 
 #[test]
 fn metadata_read_write() {
@@ -102,7 +102,7 @@ fn metadata_read_write() {
     }
 }
 
-// ── Probing Tests ───────────────────────────────────────────────────────
+// Probing Tests
 
 extern "C" fn i64_eq(a: *const u8, b: *const u8) -> bool {
     unsafe { *a.cast::<i64>() == *b.cast::<i64>() }
@@ -260,7 +260,7 @@ fn probe_find_skips_tombstone() {
     }
 }
 
-// ── Rehash Tests ────────────────────────────────────────────────────────
+// Rehash Tests
 
 #[test]
 fn rehash_map_preserves_entries() {
@@ -340,7 +340,7 @@ fn rehash_set_preserves_entries() {
     }
 }
 
-// ── Count Occupied Test ─────────────────────────────────────────────────
+// Count Occupied Test
 
 #[test]
 fn count_occupied_mixed_metadata() {

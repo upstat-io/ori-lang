@@ -58,7 +58,7 @@ pub(super) fn take_panic_message() -> Option<String> {
     PANIC_MESSAGE.with(|m| m.borrow_mut().take())
 }
 
-// ── Panic handler registration ──────────────────────────────────────────
+// Panic handler registration
 
 /// Type for the panic trampoline function.
 ///

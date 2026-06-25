@@ -38,7 +38,7 @@ fn read_elements(data: *const u8, count: usize) -> Vec<i64> {
         .collect()
 }
 
-// ── ori_list_slice ──────────────────────────────────────────────────────
+// ori_list_slice
 
 #[test]
 fn slice_of_regular_list() {
@@ -234,7 +234,7 @@ fn slice_end_clamped_to_len() {
     ori_rc_free(data, 3 * ELEM_SIZE as usize, 8);
 }
 
-// ── ori_list_slice_take ─────────────────────────────────────────────────
+// ori_list_slice_take
 
 #[test]
 fn take_first_n() {
@@ -289,7 +289,7 @@ fn take_zero() {
     ori_rc_free(data, 3 * ELEM_SIZE as usize, 8);
 }
 
-// ── ori_list_slice_drop ─────────────────────────────────────────────────
+// ori_list_slice_drop
 
 #[test]
 fn drop_first_n() {
@@ -344,7 +344,7 @@ fn drop_more_than_len() {
     ori_rc_free(data, 2 * ELEM_SIZE as usize, 8);
 }
 
-// ── Multiple slice references ───────────────────────────────────────────
+// Multiple slice references
 
 #[test]
 fn multiple_slices_share_buffer() {
@@ -378,7 +378,7 @@ fn multiple_slices_share_buffer() {
     ori_rc_free(data, 5 * ELEM_SIZE as usize, 8);
 }
 
-// ── COW on Slice Mutation (05.5) ─────────────────────────────────────
+// COW on Slice Mutation (05.5)
 
 #[test]
 fn cow_push_on_slice_materializes() {
@@ -762,7 +762,7 @@ fn cow_push_on_slice_rc_lifecycle() {
     ori_rc_free(data, 3 * ELEM_SIZE as usize, 8);
 }
 
-// ── Slice-Aware RC (05.4) ───────────────────────────────────────────
+// Slice-Aware RC (05.4)
 
 #[test]
 fn ori_list_rc_inc_on_regular_list() {
@@ -897,7 +897,7 @@ fn ori_rc_data_size_null_returns_zero() {
 #[test]
 fn slice_rc_full_lifecycle() {
     let _g = crate::test_helpers::lock_rc();
-    // Comprehensive lifecycle: create list → multiple slices → drop in order
+    // Lifecycle: create list → multiple slices → drop in order
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     assert_eq!(ori_rc_count(data), 1);
 

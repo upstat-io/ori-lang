@@ -1,6 +1,5 @@
 //! COW list sort operations (unstable and stable variants).
 //!
-//! Extracted from `cow_sort/mod.rs` to keep files under the 500-line limit.
 //! Uses index-permutation for unique buffers, copy-in-sorted-order for shared.
 
 use crate::rc::{ori_rc_alloc, ori_rc_is_unique};
