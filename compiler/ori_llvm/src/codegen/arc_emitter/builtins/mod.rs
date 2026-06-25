@@ -88,6 +88,7 @@ mod option_result_monadic;
 pub(crate) mod prelude;
 mod primitives;
 mod result_monadic;
+mod structural_eq;
 mod traits;
 mod trampolines;
 

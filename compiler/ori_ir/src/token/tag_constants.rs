@@ -22,8 +22,7 @@ impl TokenKind {
     pub const TAG_TEMPLATE_FULL: u8 = TokenTag::TemplateComplete as u8;
     pub const TAG_FORMAT_SPEC: u8 = TokenTag::FormatSpec as u8;
 
-    // Keywords — reserved (12-39)
-    // TAG_ASYNC removed (was 11)
+    // Keywords — reserved (12-39); discriminant 11 is unused
     pub const TAG_BREAK: u8 = TokenTag::KwBreak as u8;
     pub const TAG_CONTINUE: u8 = TokenTag::KwContinue as u8;
     pub const TAG_RETURN: u8 = TokenTag::KwReturn as u8;

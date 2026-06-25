@@ -341,7 +341,7 @@ fn try_resolve_deferred_call(
         clippy::cast_possible_truncation,
         reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
     )]
-    let new_id = MonoInstanceId(mono_instances.len() as u32);
+    let new_id = MonoInstanceId::new(mono_instances.len() as u32);
     mono_instances.push(instance);
     mono_dispatch_pre_dedup.push((deferred.call_expr_id, new_id));
 }

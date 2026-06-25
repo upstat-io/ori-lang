@@ -140,7 +140,7 @@ pub fn collect_mono_functions(
         reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
     )]
     for (idx, instance) in mono_instances.iter().enumerate() {
-        let instance_id = MonoInstanceId(idx as u32);
+        let instance_id = MonoInstanceId::new(idx as u32);
         let (lookup, is_imported) = if instance.receiver_type.is_some() {
             let shell = instance
                 .receiver_type

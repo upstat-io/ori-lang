@@ -93,7 +93,15 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         ],
         ret: Some(Ty::Bool),
         attrs: &[Attr::Nounwind],
-        jit_allowed: false,
+        jit_allowed: true,
+    },
+    // ori_map_hash(m: ptr, key_size, val_size, key_hash, val_hash) -> i64
+    RtFn {
+        name: "ori_map_hash",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
     },
     RtFn {
         name: "ori_str_ne",

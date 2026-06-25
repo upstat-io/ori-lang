@@ -44,8 +44,7 @@ pub enum TokenTag {
     TemplateTail = 9,
     TemplateComplete = 10,
 
-    // Keywords — reserved (12-39)
-    // 11: removed (was KwAsync)
+    // Keywords — reserved (12-39); discriminant 11 is unused
     KwBreak = 12,
     KwContinue = 13,
     KwReturn = 14,

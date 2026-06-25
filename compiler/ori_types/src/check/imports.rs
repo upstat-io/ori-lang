@@ -81,7 +81,7 @@ impl ModuleChecker<'_> {
         self.mono_dispatch_pre_dedup.extend(
             dispatch_entries
                 .into_iter()
-                .map(|(eid, MonoInstanceId(local))| (eid, MonoInstanceId(local + offset))),
+                .map(|(eid, id)| (eid, MonoInstanceId::new(id.raw() + offset))),
         );
     }
 

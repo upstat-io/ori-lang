@@ -265,8 +265,7 @@ impl TokenKind {
             9 => Some("template tail"),     // TemplateTail
             10 => Some("template literal"), // TemplateComplete
 
-            // Keywords — reserved (12-39)
-            // 11: removed (was async)
+            // Keywords — reserved (12-39); discriminant 11 is unused
             12 => Some("break"),
             13 => Some("continue"),
             14 => Some("return"),

@@ -9,9 +9,9 @@
 use crate::Name;
 
 use super::arena::CanArena;
-use super::expr::PatternProblem;
 use super::ids::CanId;
 use super::pools::{ConstantPool, DecisionTreePool};
+use super::support::PatternProblem;
 
 /// A canonicalized function root — body + canonical default expressions.
 ///
@@ -52,10 +52,32 @@ pub struct MethodRoot {
 ///
 /// Lives in `ori_ir` (leaf crate; re-exported by `ori_types`) so every consuming
 /// crate shares the handle without a cross-crate cycle. Equality / hashing match
-/// index identity; construct via `MonoInstanceId(idx)`, read the index via `id.0`.
+/// index identity; construct via [`MonoInstanceId::new`], read the index via
+/// [`MonoInstanceId::raw`] / [`MonoInstanceId::index`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
-pub struct MonoInstanceId(pub u32);
+pub struct MonoInstanceId(u32);
+
+impl MonoInstanceId {
+    /// Create a new `MonoInstanceId` from a raw index into the
+    /// typeck-side `Vec<MonoInstance>`.
+    #[inline]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// Get the raw `u32` index.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Get the raw index as a `usize` for slice indexing.
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 /// Output of the canonicalization pass.
 ///
@@ -93,7 +115,7 @@ pub struct CanonResult {
     /// The ARC carriers (`ArcInstr::Apply` / `ArcTerminator::Invoke`)
     /// read this side-table to transfer the abstract index onto the ARC-level
     /// call. LLVM + eval dispatch then look up
-    /// `TypedModule.mono_instances[id.0]` and call `mangle_mono_name` locally
+    /// `TypedModule.mono_instances[id.index()]` and call `mangle_mono_name` locally
     /// inside `ori_llvm` — preserving phase purity (canon
     /// produces canonical IR + side-tables; no LLVM strings).
     ///

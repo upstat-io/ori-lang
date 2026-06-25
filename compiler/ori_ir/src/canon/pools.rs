@@ -9,7 +9,7 @@ use std::fmt;
 use crate::arena::to_u32;
 use crate::Name;
 
-use super::expr::ConstValue;
+use super::support::ConstValue;
 use super::tree::DecisionTree;
 
 /// Index into a [`ConstantPool`]. References a compile-time-folded value.

@@ -687,10 +687,10 @@ fn dedup_and_remap_mono_instances(
     // which sorts by `ExprId` for the O(log n) binary-search shape.
     let mono_dispatch_map: Vec<(ori_ir::ExprId, crate::MonoInstanceId)> = mono_dispatch_pre_dedup
         .into_iter()
-        .map(|(eid, crate::MonoInstanceId(old))| {
-            let dedup_idx = old_to_dedup[old as usize];
+        .map(|(eid, id)| {
+            let dedup_idx = old_to_dedup[id.index()];
             let final_idx = dedup_to_sorted[dedup_idx as usize];
-            (eid, crate::MonoInstanceId(final_idx))
+            (eid, crate::MonoInstanceId::new(final_idx))
         })
         .collect();
 

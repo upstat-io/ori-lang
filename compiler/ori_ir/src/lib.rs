@@ -55,6 +55,8 @@ pub const MONO_SEPARATOR: &str = "$m$";
 /// constant — never inline `"$im$"`.
 pub const IMPL_METHOD_SEPARATOR: &str = "$im$";
 
+mod macros;
+
 mod arena;
 pub mod ast;
 pub mod builtin_constants;

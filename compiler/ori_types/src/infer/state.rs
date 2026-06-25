@@ -88,7 +88,7 @@ impl InferEngine<'_> {
         let local_idx = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
         self.mono_instances.push(instance);
         self.mono_dispatch_pre_dedup
-            .push((call_expr_id, MonoInstanceId(local_idx)));
+            .push((call_expr_id, MonoInstanceId::new(local_idx)));
     }
 
     /// Take mono instances, leaving an empty vector.

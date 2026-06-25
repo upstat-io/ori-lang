@@ -205,7 +205,11 @@ impl Interpreter<'_> {
             // Calls
             CanExpr::Call { func, args } => {
                 if let Some(id) = self.mono_instance_id_for(can_id) {
-                    tracing::trace!(?can_id, mono_instance_id = id.0, "eval Call mono dispatch");
+                    tracing::trace!(
+                        ?can_id,
+                        mono_instance_id = id.raw(),
+                        "eval Call mono dispatch"
+                    );
                 }
                 let func_val = self.eval_can(func)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
@@ -221,7 +225,7 @@ impl Interpreter<'_> {
                 if let Some(id) = self.mono_instance_id_for(can_id) {
                     tracing::trace!(
                         ?can_id,
-                        mono_instance_id = id.0,
+                        mono_instance_id = id.raw(),
                         "eval MethodCall mono dispatch"
                     );
                 }

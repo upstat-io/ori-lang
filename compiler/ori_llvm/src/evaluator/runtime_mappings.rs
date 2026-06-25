@@ -199,6 +199,8 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_map_keys_to_list" => runtime::map::ori_map_keys_to_list as *const () as usize,
         "ori_map_values_to_list" => runtime::map::ori_map_values_to_list as *const () as usize,
         "ori_map_get" => runtime::map::ori_map_get as *const () as usize,
+        "ori_map_eq" => runtime::map::ori_map_eq as *const () as usize,
+        "ori_map_hash" => runtime::map::ori_map_hash as *const () as usize,
         "ori_map_insert_cow" => runtime::map::cow::ori_map_insert_cow as *const () as usize,
         "ori_map_updated_cow" => {
             runtime::map::cow_updated::ori_map_updated_cow as *const () as usize

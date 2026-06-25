@@ -7,7 +7,7 @@
 use crate::arena::{to_u16, to_u32};
 use crate::{Span, TypeId};
 
-use super::expr::{CanExpr, CanField, CanMapEntry, CanNode};
+use super::expr::{CanExpr, CanNode};
 use super::ids::{
     CanBindingPatternId, CanBindingPatternRange, CanFieldBindingRange, CanFieldRange, CanId,
     CanMapEntryRange, CanRange,
@@ -15,6 +15,7 @@ use super::ids::{
 use super::patterns::{
     CanBindingPattern, CanFieldBinding, CanNamedExpr, CanNamedExprRange, CanParam, CanParamRange,
 };
+use super::support::{CanField, CanMapEntry};
 
 /// Arena for canonical expressions.
 ///

@@ -28,6 +28,7 @@ mod ids;
 mod patterns;
 mod pools;
 mod result;
+mod support;
 pub mod tree;
 
 pub use arena::*;
@@ -36,6 +37,7 @@ pub use ids::*;
 pub use patterns::*;
 pub use pools::*;
 pub use result::*;
+pub use support::*;
 pub use tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
     TestValue,

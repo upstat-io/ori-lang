@@ -92,4 +92,40 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "map_eq",
         )
     }
+
+    /// `{K: V}.hash() -> int`
+    ///
+    /// Calls `ori_map_hash(m, key_size, val_size, key_hash, val_hash)`. The
+    /// runtime XORs `hash_combine(key_hash(k), val_hash(v))` over entries, so
+    /// the result is order-independent — matching the interpreter's map-hash
+    /// arm (dual-execution parity).
+    pub(crate) fn emit_map_hash(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_hash");
+
+        // ori_map_hash expects a ptr to OriMap ({i64, i64, ptr} — same layout).
+        let map_ty = self.resolve_type(ori_types::Idx::STR);
+        let recv_ptr = self
+            .builder
+            .create_entry_alloca(self.current_function, "mh.recv", map_ty);
+        self.builder.store(receiver, recv_ptr);
+
+        let key_size = self.element_store_size(key_ty);
+        let val_size = self.element_store_size(val_ty);
+        let key_size_val = self.builder.const_i64(key_size as i64);
+        let val_size_val = self.builder.const_i64(val_size as i64);
+
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+        let val_hash = self.get_or_create_hash_thunk(val_ty)?;
+
+        self.emit_rt_call(
+            func_id,
+            &[recv_ptr, key_size_val, val_size_val, key_hash, val_hash],
+            "map_hash",
+        )
+    }
 }

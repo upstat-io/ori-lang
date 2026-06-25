@@ -62,7 +62,7 @@ pub(crate) fn build_imported_mono_functions(
         reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
     )]
     for (idx, instance) in type_result.typed.mono_instances.iter().enumerate() {
-        let instance_id = ori_ir::canon::MonoInstanceId(idx as u32);
+        let instance_id = ori_ir::canon::MonoInstanceId::new(idx as u32);
         let Some((generic_sig, module_idx, source_original_name)) =
             imported_generic_sigs.get(&instance.fn_name)
         else {
