@@ -766,6 +766,10 @@ fn build_mono_var_subst(
 /// from the generic-vs-instantiated return type. Returns `None` when no
 /// concrete type can be resolved yet — the outer worklist skips the var and
 /// revisits on a later iteration.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "threads the full scheme-var resolution context (param mapping + generic/concrete param + return types) — distinct inputs, not a cohesive struct"
+)]
 fn resolve_scheme_var(
     engine: &mut InferEngine<'_>,
     i: usize,

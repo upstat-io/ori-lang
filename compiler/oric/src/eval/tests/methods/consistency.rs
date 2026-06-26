@@ -71,21 +71,21 @@ fn iterator_methods_match_registry() {
 
 // Format spec variant registration consistency
 //
-// The `FormatType`, `Alignment`, and `Sign` enums appear as string arrays in
-// 4 independent locations:
-//   1. `ori_ir/src/format_spec.rs` — enum definition (source of truth)
-//   2. `ori_types/src/check/registration/mod.rs` — type registration
-//   3. `ori_eval/src/interpreter/mod.rs` — `register_format_variants()` globals
-//   4. `ori_rt/src/format/mod.rs` — runtime enum + parse (guarded by ori_rt tests)
+// `FormatType`, `Alignment`, and `Sign` are defined once in the `ori_format`
+// leaf crate (the source of truth). Two consumers mirror the variant names as
+// string literals:
+//   1. `ori_types/src/check/registration/builtin_types.rs` — type registration
+//   2. `ori_eval/src/interpreter/prelude.rs` — prelude format-variant globals
 //
-// ori_rt <-> ori_ir sync is guarded by `format_type_variant_count()` in ori_rt.
-// These tests guard ori_types <-> ori_ir and ori_eval <-> ori_ir sync.
+// These tests guard ori_types <-> ori_format and ori_eval <-> ori_format sync.
+// The AOT runtime backend (`ori_rt/src/format/mod.rs`) calls `ori_format`
+// directly and keeps no local copy, so it needs no sync guard.
 
-/// Source-of-truth variant names for `ori_ir::FormatType`.
+/// Source-of-truth variant names for `ori_format::FormatType`.
 ///
-/// Exhaustive match ensures compile failure if a variant is added to `ori_ir`.
+/// Exhaustive match ensures compile failure if a variant is added to `ori_format`.
 fn ir_format_type_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::FormatType;
+    use ori_format::FormatType;
     [
         FormatType::Binary,
         FormatType::Octal,
@@ -110,9 +110,9 @@ fn ir_format_type_names() -> Vec<&'static str> {
     .collect()
 }
 
-/// Source-of-truth variant names for `ori_ir::Align`.
+/// Source-of-truth variant names for `ori_format::Align`.
 fn ir_align_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::Align;
+    use ori_format::Align;
     [Align::Left, Align::Center, Align::Right]
         .iter()
         .map(|a| match a {
@@ -123,9 +123,9 @@ fn ir_align_names() -> Vec<&'static str> {
         .collect()
 }
 
-/// Source-of-truth variant names for `ori_ir::Sign`.
+/// Source-of-truth variant names for `ori_format::Sign`.
 fn ir_sign_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::Sign;
+    use ori_format::Sign;
     [Sign::Plus, Sign::Minus, Sign::Space]
         .iter()
         .map(|s| match s {

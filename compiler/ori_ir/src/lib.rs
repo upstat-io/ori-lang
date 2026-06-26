@@ -66,7 +66,6 @@ pub mod canon;
 mod comment;
 mod derives;
 mod expr_id;
-pub mod format_spec;
 pub mod hash_constants;
 pub mod incremental;
 mod interner;

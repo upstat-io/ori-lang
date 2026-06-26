@@ -10,9 +10,6 @@ repository.workspace = true
 cache = ["serde"]
 
 [dependencies]
-# Shared scalar format-spec SSOT (re-exported by format_spec)
-ori_format.workspace = true
-
 # String interning
 rustc-hash.workspace = true
 parking_lot.workspace = true

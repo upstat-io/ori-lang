@@ -5,11 +5,6 @@
 //! backends share (the cross-backend conformance the dual-execution spec corpus
 //! verifies end-to-end).
 
-#![allow(
-    clippy::approx_constant,
-    reason = "3.14 is a literal test value, not an approximation of PI"
-)]
-
 use super::{format_float, format_int, format_str, parse_format_spec, Align, FormatType, Sign};
 
 /// Parse a spec string that is known-valid in tests.
@@ -103,6 +98,10 @@ fn format_int_i64_min_uses_unsigned_abs() {
 
 // Float matrix: default / fixed / scientific / percent x precision / sign / zero-pad
 
+#[expect(
+    clippy::approx_constant,
+    reason = "3.14 / 3.14159 are literal test inputs, not approximations of PI"
+)]
 #[test]
 fn format_float_default_precision() {
     assert_eq!(ff(3.14, ""), "3.14");
@@ -110,6 +109,10 @@ fn format_float_default_precision() {
     assert_eq!(ff(3.14, "+"), "+3.14");
 }
 
+#[expect(
+    clippy::approx_constant,
+    reason = "3.14 is a literal test input, not an approximation of PI"
+)]
 #[test]
 fn format_float_fixed_default_six_places() {
     assert_eq!(ff(3.14, ".2f"), "3.14");
@@ -220,24 +223,36 @@ fn parse_empty_spec_is_all_none() {
     assert_eq!(p, super::ParsedFormatSpec::EMPTY);
 }
 
-/// Self-verifying matrix completeness: every `FormatType` variant round-trips
-/// through `from_char` so a new variant cannot silently skip the matrix.
+/// Self-verifying matrix completeness: the exhaustive `match` in `char_of`
+/// forces a compile error when a `FormatType` variant is added, so a new
+/// variant cannot silently skip the `from_char` round-trip below.
 #[test]
 fn format_type_roundtrips_every_variant() {
-    let all = [
-        ('b', FormatType::Binary),
-        ('o', FormatType::Octal),
-        ('x', FormatType::Hex),
-        ('X', FormatType::HexUpper),
-        ('e', FormatType::Exp),
-        ('E', FormatType::ExpUpper),
-        ('f', FormatType::Fixed),
-        ('%', FormatType::Percent),
-    ];
-    let mut count = 0;
-    for (c, ty) in all {
-        assert_eq!(FormatType::from_char(c), Some(ty));
-        count += 1;
+    // Exhaustive match — adding a `FormatType` variant breaks compilation here,
+    // forcing this matrix to cover the new variant.
+    fn char_of(ty: FormatType) -> char {
+        match ty {
+            FormatType::Binary => 'b',
+            FormatType::Octal => 'o',
+            FormatType::Hex => 'x',
+            FormatType::HexUpper => 'X',
+            FormatType::Exp => 'e',
+            FormatType::ExpUpper => 'E',
+            FormatType::Fixed => 'f',
+            FormatType::Percent => '%',
+        }
     }
-    assert_eq!(count, 8, "every FormatType variant must be covered");
+    let all = [
+        FormatType::Binary,
+        FormatType::Octal,
+        FormatType::Hex,
+        FormatType::HexUpper,
+        FormatType::Exp,
+        FormatType::ExpUpper,
+        FormatType::Fixed,
+        FormatType::Percent,
+    ];
+    for ty in all {
+        assert_eq!(FormatType::from_char(char_of(ty)), Some(ty));
+    }
 }

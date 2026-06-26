@@ -80,6 +80,8 @@ pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3.10"
 ori_rt = { path = "../ori_rt" }
+# Format-spec SSOT (variant-registration consistency tests)
+ori_format.workspace = true
 ori_lexer_core.workspace = true
 ori_test_harness = { path = "../ori_test_harness" }
 

@@ -804,6 +804,7 @@ name = "ori_canon"
 version = "2026.4.26-alpha.1"
 dependencies = [
  "ori_arc",
+ "ori_format",
  "ori_ir",
  "ori_types",
  "pretty_assertions",
@@ -873,7 +874,6 @@ version = "2026.4.26-alpha.1"
 name = "ori_ir"
 version = "2026.4.26-alpha.1"
 dependencies = [
- "ori_format",
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
@@ -1001,6 +1001,7 @@ version = "2026.4.26-alpha.1"
 dependencies = [
  "bitflags 2.11.0",
  "ori_diagnostic",
+ "ori_format",
  "ori_ir",
  "ori_lexer",
  "ori_parse",
@@ -1025,6 +1026,7 @@ dependencies = [
  "ori_diagnostic",
  "ori_eval",
  "ori_fmt",
+ "ori_format",
  "ori_ir",
  "ori_lexer",
  "ori_lexer_core",

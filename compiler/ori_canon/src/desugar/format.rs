@@ -14,8 +14,8 @@
 //!   existing `Idx::STR => "ori_format_str"` arm that applies width/align/fill/
 //!   precision identically in both backends.
 
+use ori_format::{parse_format_spec, Align, FormatType, ParsedFormatSpec, Sign};
 use ori_ir::canon::{CanExpr, CanField, CanId};
-use ori_ir::format_spec::{parse_format_spec, Align, FormatType, ParsedFormatSpec, Sign};
 use ori_ir::{Name, Span, TypeId};
 use ori_types::{FormatSpecTypes, Idx};
 

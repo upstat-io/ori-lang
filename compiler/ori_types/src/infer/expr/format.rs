@@ -182,7 +182,7 @@ pub(crate) fn validate_format_spec(
     expr_type: Idx,
     span: Span,
 ) {
-    use ori_ir::format_spec::parse_format_spec;
+    use ori_format::parse_format_spec;
 
     let Some(spec_str) = engine.lookup_name(format_spec) else {
         return;

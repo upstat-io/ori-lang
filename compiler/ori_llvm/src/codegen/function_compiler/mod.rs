@@ -18,6 +18,7 @@
 //! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
 
 mod define_phase;
+mod derive_methods;
 mod entry_point;
 mod impls;
 mod lambda_mono;
@@ -26,6 +27,7 @@ mod panic_trampoline;
 mod purity_analysis;
 mod seh_main_thunk;
 mod shared_seam;
+mod test_wrappers;
 
 pub(crate) use nounwind::pre_lower_monos_to_arc_cache;
 pub use nounwind::rewrite_apply_targets_for_monos;
