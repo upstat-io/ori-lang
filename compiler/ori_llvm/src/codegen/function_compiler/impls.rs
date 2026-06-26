@@ -373,11 +373,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         type_name: &str,
         canon: &CanonResult,
     ) {
-        // The leading `Idx` is the owning impl receiver. It is the type-qualified
-        // dispatch key for no-receiver associated calls (`Widget.make()`), which
-        // resolve via `type_idx_to_name` keyed on the owning type, not the self
-        // param. Sourcing the key from this `Idx` (not `param_types.first()`) is
-        // what makes an associated-only impl resolvable at the call site.
+        // The leading `Idx` is the owning impl receiver — the type-qualified
+        // dispatch key for a no-receiver associated call (`Widget.make()`),
+        // which has no self param to source the key from.
         let Some((owning_type_idx, sig_name, sig)) = sig_iter.next() else {
             trace!(
                 name = %self.interner.lookup(method_name),
@@ -415,12 +413,24 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .method_functions
             .insert((type_name_name, method_name), (func_id, abi.clone()));
 
-        // Map the self type Idx → type Name for receiver resolution
+        // Map the type Idx → type Name for receiver/return-type resolution.
+        // Register BOTH keys (additive — strict superset of the prior behavior):
+        //  - the self-receiver Idx (`param_types.first()`) — the monomorphized
+        //    self type a self-method call resolves through; load-bearing for
+        //    generic/builtin self-method dispatch (where it does NOT coincide
+        //    with the impl-receiver `owning_type_idx`). Unchanged.
+        //  - the owning impl-receiver Idx — the key a no-receiver associated
+        //    call resolves through (an associated function has no self param to
+        //    source the self key from). Without it an associated-only impl
+        //    never registers its owning type and the call site misses (E5001).
         if let Some(&self_type_idx) = sig.param_types.first() {
             self.codegen_ctx
                 .type_idx_to_name
                 .insert(self_type_idx, type_name_name);
         }
+        self.codegen_ctx
+            .type_idx_to_name
+            .insert(*owning_type_idx, type_name_name);
 
         // Verify round-trip: what we registered is immediately retrievable.
         debug_assert!(

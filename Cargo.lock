@@ -839,6 +839,7 @@ dependencies = [
 name = "ori_eval"
 version = "2026.4.26-alpha.1"
 dependencies = [
+ "ori_format",
  "ori_ir",
  "ori_lexer",
  "ori_parse",
@@ -865,9 +866,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_format"
+version = "2026.4.26-alpha.1"
+
+[[package]]
 name = "ori_ir"
 version = "2026.4.26-alpha.1"
 dependencies = [
+ "ori_format",
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
@@ -968,6 +974,7 @@ name = "ori_rt"
 version = "2026.4.26-alpha.1"
 dependencies = [
  "cc",
+ "ori_format",
  "ori_ir",
 ]
 
