@@ -7,10 +7,11 @@ use ori_registry::burden::table::{
 };
 use rustc_hash::FxHashMap;
 
-use super::super::super::InferEngine;
 use crate::pool::substitute::{extract_var_from_types, substitute_in_pool};
 use crate::registry::burden_compose::compose_user_burden;
 use crate::{GenericArg, Idx, MonoInstance, Pool, Tag, TypeFlags};
+
+use super::super::super::InferEngine;
 
 /// Record a monomorphization instance if the callee is a generic function.
 ///

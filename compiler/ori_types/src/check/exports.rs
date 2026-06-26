@@ -256,14 +256,8 @@ pub(super) fn refresh_method_mono_body_type_maps(
         }
 
         // Reconstruct the `var_id → concrete` substitution from the eager map's
-        // leaf (Var / RigidVar / BoundVar) entries. `Pool::data` on a variable
-        // item IS its `var_id`.
-        let mut var_subst: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
-        for &(key, val) in &inst.body_type_map {
-            if matches!(pool.tag(key), Tag::Var | Tag::RigidVar | Tag::BoundVar) {
-                var_subst.insert(pool.data(key), val);
-            }
-        }
+        // leaf entries via the canonical extractor.
+        let var_subst = var_subst_from_body_type_map(pool, &inst.body_type_map);
         if var_subst.is_empty() {
             continue;
         }
