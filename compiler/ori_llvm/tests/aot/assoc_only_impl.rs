@@ -92,7 +92,7 @@ fn test_assoc_only_inherent_impl_self_return_builds_and_runs() {
 // `lookup_method_by_return_type` (`arc_emitter/apply.rs`) keys on the full return
 // type (the `Result<Widget,str>` `Idx`, NEVER the owning `Widget` `Idx`), so no
 // owning-type registration in `type_idx_to_name` can resolve this call — distinct
-// root cause from BUG-04-215's registration gap (proven: a self-method that
+// root cause from the owning-type registration gap (proven: a self-method that
 // registers the owning type does not fix it). The cure is owning-type-qualifier
 // threading through the ARC `Apply` lowering, owned by BUG-04-228. This pin
 // asserts the post-BUG-04-228 behavior (stdout `9`); ignored until that lands.
@@ -114,7 +114,7 @@ impl Widget {
 #[test]
 #[ignore = "BUG-04-228: non-Self-return no-receiver associated dispatch — \
             return-type-keyed lookup cannot resolve a non-Self return; distinct \
-            root cause + cure surface from BUG-04-215's owning-type registration"]
+            root cause + cure surface from the owning-type registration gap"]
 fn test_assoc_only_impl_non_self_return_resolves_and_runs() {
     assert_cell_output(
         ASSOC_ONLY_NON_SELF_RETURN_SRC,
@@ -206,7 +206,7 @@ fn test_assoc_only_impl_multiarg_param_arity_builds_and_runs() {
 
 // ---------------------------------------------------------------------------
 // Cell 5 — Genuine-unsupported preserved: a call to a NON-EXISTENT associated
-// function never produces a runnable binary. The BUG-04-215 fix only ADDS
+// function never produces a runnable binary. The owning-type registration fix only ADDS
 // owning-type registration for real impl methods — it must NOT over-broaden a
 // genuinely unresolvable call into a successful build. PASSES PRE-FIX (that is
 // its job: build does not succeed).

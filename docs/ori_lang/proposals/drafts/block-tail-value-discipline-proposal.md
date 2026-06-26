@@ -3,7 +3,7 @@
 **Status:** Draft
 **Author:** Eric
 **Created:** 2026-06-26
-**Affects:** Compiler (type checker, canonicalization), formatter (`ori_fmt`), tooling (`ori fix`), spec (Clause 7, Clause 11, Clause 16), Annex D (formatting) — grammar UNCHANGED (the rule is a type-checker constraint over the existing `statement` production)
+**Affects:** Compiler (type checker, canonicalization), formatter (`ori_fmt`), tooling (`ori fix` — **NEW command, hard prerequisite**: no `fix` driver exists today, only the `MachineApplicable` suggestion infrastructure; the migration + the `Never`-tail canonicalization require it), spec (Clause 7, Clause 11, Clause 16), Annex D (formatting) — grammar UNCHANGED (the rule is a type-checker constraint over the existing `statement` production)
 **Amends:** block-expression-syntax.md
 **Related:** optional-semicolon-after-block-expressions-proposal.md, redundant-trailing-unit-normalization-proposal.md
 
@@ -11,7 +11,7 @@
 
 ## Summary
 
-At a block tail, ground the value/effect distinction in the tail expression's **type** and make the trailing `;` enforce it. A no-`;` simple (non-block-ending) tail whose **type is `void`** is ill-formed — it must carry `;`; a no-`;` simple tail of **non-`void`** type is the block's produced value, and a **`Never`** tail is a value tail by coercion. The **type checker** enforces this (diagnostics D1/D2); the **canonical formatter** reinforces it with a *syntactic* blank-line rule (a blank line above the no-`;` value, none above `;`-statements). This tightens the one currently-ambiguous case — a no-`;` void simple tail, legal today — so that, for a simple tail, **no `;` ⟺ the block produces a non-`void` value**.
+At a block tail, ground the value/effect distinction in the tail expression's **type** and make the trailing `;` enforce it. A no-`;` simple (non-block-ending) tail whose **type is `void`** is ill-formed — it must carry `;`; a no-`;` simple tail of **non-`void`** type is the block's produced value, and a **`Never`** tail is a value tail by coercion. The **type checker** enforces this (diagnostics D1/D2); the **canonical formatter** reinforces it with a *syntactic* blank-line rule (a blank line above the no-`;` value, none above `;`-statements). This tightens the one currently-ambiguous case — a no-`;` void simple tail, legal today — so that, for a simple tail **other than the literal `()`** (the empty-void idiom, carved out below), **no `;` ⟺ the block produces a non-`void` value**.
 
 ---
 
@@ -66,7 +66,7 @@ When the effect line and the value line are typographically indistinguishable, t
 
 **Goals:**
 
-- Make the no-`;` simple-tail spelling reliable: for a simple (non-`}`-ending) tail, **no `;` ⟺ the block produces a non-`void` value** (or diverges).
+- Make the no-`;` simple-tail spelling reliable: for a simple (non-`}`-ending) tail **other than the literal `()`**, **no `;` ⟺ the block produces a non-`void` value** (or diverges). The literal `()` (the empty-void idiom) is the one carved-out exception (Rule 2).
 - Tighten the one ambiguous case (a no-`;` void simple tail) so it is ill-formed and must carry `;`, enforced by the **type checker** (D1).
 - Add the formatter's missing **syntactic** negative rule: no blank line above a `;`-terminated tail statement (complementing the existing blank-line-above-the-no-`;`-value rule).
 - Ship two targeted diagnostics (D1, D2) that name the value/effect cause and the exact fix, replacing the oblique `found void` mismatch on the void side.
@@ -156,6 +156,7 @@ The `;` in `= expr;` terminates the *declaration* (the same role it plays in `le
 | Non-`void` value (Rule 1) | none | yes |
 | `Never` / diverging (Rule 2a) | none (canonical) | yes |
 | `void`, discarded (Rule 2) | **required** (D1) | no |
+| Literal `()` (void idiom, carved out) | none — legal (formatter may delete a redundant one) | yes (syntactic) |
 
 | Tail (block-ending, `}`) | `;` | Blank line above |
 |---|---|---|
@@ -190,7 +191,7 @@ D1 fires only when the tail's type is `void` (so adding `;` yields a well-formed
 **D2 — `;` on the tail of a non-void body.** A simple tail terminated by `;` whose removal would make the (then non-`void`) expression match the declared return type:
 
 ```
-error: this `;` discards the block's value, but `apply_discount` must produce `int`
+error: this `;` discards the block's value, but `apply_discount` must produce `Order`
   --> discount.ori:6:38
    |
  6 |     Order { ...order, total: capped };
@@ -221,6 +222,10 @@ The `-> int` direction is already enforced today; D2 sharpens its message. The `
 - **Migration is `ori fix`, not `ori fmt`.** Deciding where to insert `;` needs the tail's type (void-call → insert; non-void value → leave; `Never`-call → leave); the three look identical syntactically. So the one-shot migration runs as `ori fix` applying D1's machine-applicable suggestion **after type-checking**, NOT as a parse-only `ori fmt` pass. `ori_fmt` stays type-free (it only places the syntactic blank line and, with the related proposal, deletes a redundant `()`).
 - **The no-`;` signal means "value OR diverges," and only in type-checked source.** Because `Never`-calls and value-calls are syntactically identical, the no-`;` spelling is not derivable from the bare token stream — the type checker enforces exactly one spelling per tail. The signal is reliable in checked/formatted source, not in arbitrary hand-written text.
 - **The braceless `= expr;` form breaks "no `;` ⟺ value" globally.** Inside braces the value omits `;`; braceless it carries `;`. Scoped, but a real one-way-to-do-things wart (Rule 4 vs Alternative 3).
+- **The literal `()` carve-out is a hole in the simple-tail biconditional.** Because `()` (type `void`) is carved out of Rule 2, a no-`;` `()` simple tail is legal — so "no `;` simple ⟺ non-`void` value" has one exception. The exception is intentional (it preserves the empty-void `{ () }` idiom and defers the redundant `()` to the formatter), but it means a reader cannot treat the simple-tail no-`;` signal as exception-free.
+- **The carve-out is syntactic inside a type-based rule.** Rule 2 keys on type, but the carve-out keys on the literal token `()`: `{ work(); () }` is legal while `{ work(); u }` (`let $u = ()`, `u: void`) is D1-ill-formed — the same void value, opposite treatment by spelling.
+- **D2 coverage is simple-tail-only.** An accidental `;` discarding a non-`void` `}`-ending value (`match e { … };` in a non-`void` body) falls to the general "expected `T`, found `void`" mismatch, not the targeted D2 — even though `}`-ending value tails are the motivating multi-line case.
+- **Braceless void control-flow flips the `;` requirement on brace presence.** A void `if c then foo()` (non-`}`-ending) is a simple tail → Rule 2 → `;` required; the same logic as `if c then { foo() }` is `}`-ending → Rule 3 → `;` optional. Adding/removing branch braces silently changes the `;` requirement.
 - **The void `}`-ending tail keeps a residual ambiguity.** Preserving §11.12.1's optional-`;` means a void `}`-ending tail's value/effect status rests on the formatter blank line alone. Fully removing it would require Alternative 2 (mandate `;` after `}`), which reverts an approved fix.
 
 ---
@@ -276,13 +281,14 @@ This supersedes the earlier "disjoint triggers / fully resolved" claim. An indep
 - **Annex D (`annex-d-formatting.md`):** Add the *syntactic* negative blank-line rule — no blank line above a `;`-terminated tail statement — complementing the existing positive rule (blank line above the no-`;` last expression). No type information is consulted.
 - **`.claude/rules/ori-syntax.md`:** Update the "Semicolon rule" and "Block expressions" entries.
 - **Diagnostics (`ori_diagnostic`):** Allocate a type-checker code for D1 (void simple tail missing `;`) and a type-checker code for D2 (`;` on the tail of a non-void body), each with `ori --explain` docs and a machine-applicable suggestion. Both gate on type-reconciliation (above). D1's suggestion is what `ori fix` applies during migration.
-- **Tooling (`ori fix`):** The type-dependent normalizations live here, post-type-check: (a) inserting `;` on a legacy void simple tail (D1's machine-applicable suggestion), and (b) dropping `;` to the canonical no-`;` form on a `Never` tail (Rule 2a). Both need the tail/callee type, so neither is an `ori_fmt` action. Canonical pipeline: parse → type-check (D1/D2) → `ori fix` (the two type-dependent normalizations) → `ori fmt` (syntactic blank-line placement + the sibling proposal's literal-`()` deletion). The `()` carve-out (Rule 2) means D1 never touches `()`, so this order has no `()` ambiguity regardless of where `ori fmt` sits.
+- **Tooling (`ori fix` — NEW, a hard prerequisite):** there is no `fix` command today (only `MachineApplicable`/suggestion infrastructure in `ori_diagnostic` / `ori_types`, with no applying driver). This proposal must deliver `ori fix` before its migration or its canonical `Never` spelling is reachable. The type-dependent normalizations live here, post-type-check: (a) inserting `;` on a legacy void simple tail (D1's machine-applicable suggestion), and (b) dropping `;` to the canonical no-`;` form on a `Never` tail (Rule 2a). Both need the tail/callee type, so neither is an `ori_fmt` action. Canonical pipeline: parse → type-check (D1/D2) → `ori fix` (the two type-dependent normalizations) → `ori fmt` (syntactic blank-line placement + the sibling proposal's literal-`()` deletion). The `()` carve-out (Rule 2) means D1 never touches `()`, so this order has no `()` ambiguity regardless of where `ori fmt` sits.
+- **Spec-clause placement:** locate the NORMATIVE void-simple-tail well-formedness rule in the **type-checking** clause (the rule is type-conditional), and leave Clause 7 §7.8.1 / Clause 11 §11.12 / Clause 16 §16.0.2 (currently unconditional, syntactic) carrying only a **forward pointer** to it — do NOT embed a type-dependent constraint in the lexical/structural clauses.
 
 ---
 
 ## Prior Art
 
-- **Rust** — Ori's direct ancestor: tail without `;` is the block value; with `;` is a discarded statement. Rust does not *mandate* `;` on a discarded void tail (it leaves it to `clippy::needless_return` / `unused_must_use`). Ori tightens what Rust leaves to lint — but, like Rust, the value/effect spelling is type-dependent, not derivable from surface form alone.
+- **Rust** — Ori's direct ancestor: tail without `;` is the block value; with `;` is a discarded statement. Rust does not *mandate* `;` on a discarded void tail (it leaves it to `clippy::needless_return` / `unused_must_use`). Ori tightens what Rust leaves to lint — but, like Rust, the value/effect spelling is type-dependent, not derivable from surface form alone. **Novelty (stated plainly):** no surveyed language makes a no-`;` void tail a hard *error* — Rust uses a lint, Gleam/Elm/Roc/Koka have no discarded-tail terminator, Go's mandatory `;` is a different model, and the Zig issues are unresolved litigation, not precedent. Ori would be the sole expression-based language to promote this from lint-grade style to a well-formedness error (plus a breaking migration). Defensible under one-way-to-do-things, but genuinely novel, not merely a "tightening."
 - **Ruby, Scala** — expression-oriented, last expression is the value, `return` optional and discouraged; newline-terminated, so no semicolon signal.
 - **Gleam, Elm, Roc, Koka** — functional, expression-oriented, no `return`, no discarded-tail terminator (few bare effect-statements).
 - **Go** — statement-oriented, mandatory `;` + explicit `return`; the opposite design point.
@@ -295,4 +301,4 @@ This supersedes the earlier "disjoint triggers / fully resolved" claim. An indep
 - **Braceless scoping (Rule 4 vs Alternative 3):** scope to block bodies (recommended, Rule 4) and keep the braceless `= expr;` terminator, OR go global (Alternative 3). The recommendation is Rule 4; the review gate ratifies it.
 - **Void `}`-ending residual ambiguity:** accept it (recommended — preserves the approved optional-`;` fix) OR adopt Alternative 2 (mandate `;` after `}`). Note the honest limit: for a void `}`-ending tail the syntactic blank line does **not** distinguish it from a value `}`-tail (both no-`;` last expressions get a blank line); the enforced signal (Rule 2/D1) covers only **simple** void tails. The recommendation is to accept the residual.
 - **`()` standalone vs dependency:** `()` is carved out of Rule 2, so standalone `{ work(); () }` stays legal (no D1, no forced `();`). Land with `redundant-trailing-unit-normalization` (recommended) so the formatter erases the redundant `()` → `{ work(); }`; without it, the redundant `()` simply remains (not a correctness issue). No dependency.
-- **Polymorphic / type-parameter tail:** a no-`;` simple tail of an abstract type `T` (`@f<T> (...) -> T = { effect(); produce_t() }`) passes Rule 2 at definition-check (`T` is not concretely `void`), but a `T = void` instantiation yields a no-`;` void simple tail. Resolve during review: (a) if `void` cannot instantiate a type parameter, the case cannot arise (preferred — confirm against Clause 9); (b) else Rule 2 / D1 is checked per-instantiation (monomorphization-time), OR (c) a tail whose type is a type variable is exempt with the residual documented. The invariant "no-`;` simple ⟺ non-`void`" holds for concrete types; this names the polymorphic hole.
+- **Polymorphic / type-parameter tail (DECIDED — exempt):** a no-`;` simple tail whose type is an **unresolved type variable** (`@f<T> (...) -> T = { effect(); produce_t() }`, tail `: T`) is **exempt from Rule 2 / D1**. D1 fires only when the tail's type resolves to a **concrete `void`** at the definition's type-check; a tail of abstract type `T` is never `void` at that point, so it is well-formed and the rule stays in the type checker (NOT monomorphization — no per-instantiation error, no action-at-a-distance). Residual (documented, not enforced): a `T = void` instantiation yields a no-`;` void simple tail that D1 does not catch; the invariant "no-`;` simple ⟺ non-`void`" therefore holds for **concretely-typed** tails, not type-variable tails. (Open during review only: confirm whether Clause 9 even permits `void` as a type argument — if not, the residual cannot arise at all and the exemption is vacuous; if so, the exemption above governs.)
