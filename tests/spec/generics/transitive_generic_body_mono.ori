@@ -1,0 +1,71 @@
+// Regression: broad ROOT-B transitive-generic-body monomorphization. A generic
+// function whose body calls a NESTED generic operation on its OWN rigid type
+// param — a generic constructor, a passed closure, or a trait method — invoked
+// from ANOTHER generic body with a concrete instantiation. The outer generic
+// fn records its own MonoInstance, but the nested call is type-checked against
+// rigid `T` and (pre-fix) never recorded per concrete instantiation, so at
+// LLVM/AOT codegen `apply.rs:resolve_callee -> lookup_mono_dispatch` supplies
+// `mono_instance_id = None`, the arg-type fallback finds no `inner$m$<concrete>`
+// entry in `ctx.mono_dispatch`, and emission aborts with
+// `unresolved function '<callee>' in apply -- missing mono instance?`.
+//
+// Pre-fix: interp PASS (dynamic dispatch resolves the nested call at runtime);
+// LLVM/AOT compile FAIL (missing mono instance). The dual-exec divergence IS
+// the regression guard. The fix records the nested generic/trait/closure call
+// per concrete instantiation so dispatch resolves it at the AOT call site.
+//
+// §05 (assert_eq_generic_body_mono.ori) cured the trait-method-on-rigid-T case
+// where the concrete type arrives via associated-type projection. This file
+// covers the sibling clusters the §05 fix did not reach: a generic CONSTRUCTOR
+// call, a PASSED CLOSURE call, and a chained GENERIC-FN call on rigid T.
+
+use std.testing { assert_eq }
+
+// --- Cluster A: generic fn calls a NESTED generic fn (generic-constructor body)
+// on its rigid T, from another generic body. `wrap<T>` builds `[T]` (a generic
+// constructor of the rigid `T`); `forward<T>` calls `wrap(x)` on rigid `T`. The
+// concrete `int`/`str` instantiation must collect the nested `wrap<int>`/
+// `wrap<str>` mono instance, not record it against rigid `T`. ---
+@wrap<T> (x: T) -> [T] = [x];
+
+@forward<T> (x: T) -> [T] = wrap(x);
+
+@test_transitive_constructor_int tests @forward () -> void = {
+    let $r = forward(42);
+    assert_eq(actual: r.len(), expected: 1)
+}
+
+@test_transitive_constructor_str tests @forward () -> void = {
+    let $r = forward("hello");
+    assert_eq(actual: r.len(), expected: 1)
+}
+
+// --- Cluster B: generic fn calls a PASSED CLOSURE on its rigid T, from a
+// generic body. `apply_cb<T>` invokes `cb(x)` where `cb: (T) -> T` on rigid `T`;
+// `run_cb<T>` forwards through it. The closure-call dispatch must resolve per
+// concrete instantiation. ---
+@apply_cb<T> (x: T, cb: (T) -> T) -> T = cb(x);
+
+@run_cb<T> (x: T, cb: (T) -> T) -> T = apply_cb(x, cb);
+
+@test_transitive_closure_int tests @apply_cb () -> void = {
+    assert_eq(actual: run_cb(5, (n) -> n + 1), expected: 6)
+}
+
+// --- Cluster C: generic fn calls a NESTED generic-trait method on rigid T,
+// chained through another generic body (the trait-method-return cluster). ---
+trait Doubler {
+    @double (self) -> Self
+}
+
+impl int: Doubler {
+    @double (self) -> int = self * 2;
+}
+
+@transform<T: Doubler> (x: T) -> T = x.double();
+
+@chain<T: Doubler> (x: T) -> T = transform(x);
+
+@test_transitive_trait_chain_int tests @transform () -> void = {
+    assert_eq(actual: chain(5), expected: 10)
+}

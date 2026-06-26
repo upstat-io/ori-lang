@@ -3,10 +3,10 @@
 //! Salsa-first incremental compiler.
 
 use oric::commands::{
-    accumulate_build_options, add_target, build_file, check_file, demangle_symbol, emit_scip_file,
-    explain_error, lex_file, list_installed_targets, list_targets, parse_file, remove_target,
-    run_file, run_file_compiled, run_format, run_tests, watch_file, TargetFilter, TargetSubcommand,
-    TestEnforcement,
+    accumulate_build_options, add_target, build_file, check_file, demangle_symbol,
+    emit_aims_state_file, emit_scip_file, explain_error, lex_file, list_installed_targets,
+    list_targets, parse_file, remove_target, run_file, run_file_compiled, run_format, run_tests,
+    watch_file, TargetFilter, TargetSubcommand, TestEnforcement,
 };
 use oric::test::TestRunnerConfig;
 
@@ -258,6 +258,35 @@ fn real_main() {
 
             emit_scip_file(path, &output);
         }
+        "emit-aims-state" => {
+            if args.len() < 3 {
+                eprintln!("Usage: ori emit-aims-state <file.ori> [-o <output>]");
+                std::process::exit(1);
+            }
+
+            let mut file_path = None;
+            let mut output = "aims-state.jsonl".to_string();
+            let mut iter = args.iter().skip(2);
+            while let Some(arg) = iter.next() {
+                if arg == "-o" || arg == "--output" {
+                    let Some(val) = iter.next() else {
+                        eprintln!("error: missing value for '{arg}'");
+                        std::process::exit(1);
+                    };
+                    output.clone_from(val);
+                } else if !arg.starts_with('-') && file_path.is_none() {
+                    file_path = Some(arg.as_str());
+                }
+            }
+
+            let Some(path) = file_path else {
+                eprintln!("error: missing file path");
+                eprintln!("Usage: ori emit-aims-state <file.ori> [-o <output>]");
+                std::process::exit(1);
+            };
+
+            emit_aims_state_file(path, &output);
+        }
         "fmt" => {
             run_format(&args[2..]);
         }
@@ -412,6 +441,7 @@ fn print_usage() {
     println!("  test [paths...]      Run tests (default: current directory)");
     println!("  check <file.ori>     Type check a file (no execution)");
     println!("  emit-scip <file.ori> Emit a minimal SCIP index (index.scip)");
+    println!("  emit-aims-state <file.ori> Emit per-function AIMS state JSONL (aims-state.jsonl)");
     println!("  watch <file.ori>     Watch and re-check on changes");
     println!("  fmt [paths...]       Format Ori source files");
     println!("  target <subcommand>  Manage cross-compilation targets");

@@ -116,7 +116,7 @@ impl AimsEvent {
 /// Apply/Invoke at the caller IS the same heap allocation as the consumed
 /// argument(s) — the callee transferred ownership through return. This
 /// side-table records that identity so the caller's RC emission can avoid
-/// double-decrementing the shared allocation (BUG-04-090).
+/// double-decrementing the shared allocation.
 ///
 /// Distinct from `borrow_sources` (Project-level borrow facts) and from
 /// `project_alias_sources` (transitive Let/Jump alias chains) — see §1.9
@@ -204,7 +204,7 @@ pub struct AimsStateMap {
     /// Per-variable (not per-point) — see module doc for precision trade-off.
     borrow_sources: FxHashMap<ArcVarId, BorrowSource>,
 
-    /// Apply-result allocation-identity side table (BUG-04-090; §1.9 third
+    /// Apply-result allocation-identity side table (§1.9 third
     /// side-table). Sparse: only entries for Apply/Invoke destinations whose
     /// callee `MemoryContract` carries `return_alias != None` for one or
     /// more Owned params. Empty when no in-scope callee transfers ownership
@@ -797,7 +797,7 @@ impl AimsStateMap {
         }
     }
 
-    // Apply-result allocation-identity provenance (BUG-04-090)
+    // Apply-result allocation-identity provenance
 
     /// Look up the Apply-result allocation-identity record for a variable.
     ///
@@ -1173,6 +1173,15 @@ impl AimsStateMap {
     #[must_use]
     pub fn fip_construct_count(&self) -> u32 {
         self.fip_construct_count
+    }
+
+    /// Number of consumed non-scalar values with reusable shape (provide reuse
+    /// tokens).
+    ///
+    /// Effect Activation.
+    #[must_use]
+    pub fn fip_consumed_count(&self) -> u32 {
+        self.fip_consumed_count
     }
 
     /// Whether the function's allocations are token-balanced by consumed values.
