@@ -1,8 +1,8 @@
 use std.testing { assert_eq }
 
-// BUG-04-146: impl-level generic (T from receiver) AND method-level generic (U
-// from the method binder) present together. Exercises the §03 impl-T path plus
-// the new method-U path in one instance.
+// An impl-level generic (T from the receiver) AND a method-level generic (U from
+// the method binder) present together: a single instantiation substitutes both
+// the impl-level T and the method-level U.
 type Box<T> = { inner: T }
 
 impl<T> Box<T> {

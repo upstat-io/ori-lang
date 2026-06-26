@@ -373,6 +373,12 @@ impl Parser<'_> {
                 matches!(self.cursor.peek_kind_at(scan), TokenKind::Colon)
             }
 
+            // `{ if :` / `{ type :` → map with a keyword-as-identifier key.
+            // Keyword tokens are not `Ident`, so route a keyword usable as an
+            // identifier (per grammar.ebnf § `map_key` `identifier`) to the map
+            // path when followed by `:`; otherwise it is a block.
+            _ if self.cursor.peek_is_ident_or_keyword(offset) => self.peek_colon_after(offset),
+
             // Everything else → block expression
             _ => false,
         }
@@ -445,8 +451,27 @@ impl Parser<'_> {
                     span: elem_span.merge(end_span),
                 });
             } else {
-                // Regular entry: key: value
-                let key = p.parse_expr().into_result()?;
+                // Regular entry: key: value — dispatch the `map_key` production
+                // (grammar.ebnf § `map_key`) instead of a uniform `parse_expr`.
+                let key = if p.cursor.check(&TokenKind::LBracket) {
+                    // `[ expr ]` → computed key: the inner expression IS the key
+                    // (never the `List` wrapper).
+                    p.cursor.advance(); // [
+                    let inner = p.parse_expr().into_result()?;
+                    p.cursor.expect(&TokenKind::RBracket)?;
+                    inner
+                } else if p.cursor.peek_is_ident_or_keyword(0) {
+                    // `identifier` → literal string key: `{foo: v}` keys on "foo",
+                    // not the variable `foo` (covers keyword keys `{if: v}` too).
+                    let key_span = p.cursor.current_span();
+                    let name = p.cursor.expect_ident_or_keyword()?;
+                    p.arena
+                        .alloc_expr(Expr::new(ExprKind::String(name), key_span))
+                } else {
+                    // `string_literal` (already a correct `Str` via parse_expr)
+                    // + int/bool/char literal keys (preserved behavior).
+                    p.parse_expr().into_result()?
+                };
                 p.cursor.expect(&TokenKind::Colon)?;
                 let value = p.parse_expr().into_result()?;
                 let end_span = p.arena.get_expr(value).span;

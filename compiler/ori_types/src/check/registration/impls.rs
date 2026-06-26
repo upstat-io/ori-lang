@@ -439,7 +439,7 @@ fn inherit_default_methods(
 
     // Step 2: Transitive defaults from super-trait hierarchy via the registry.
     // Borrow dance: scope the immutable trait_registry borrow to extract the
-    // data we need, then use checker mutably for build_impl_method.
+    // needed data, then use checker mutably for build_impl_method.
     if let Some(t_idx) = trait_idx {
         let transitive_defaults: Vec<(Name, Idx, ExprId, Span)> = {
             let reg = checker.trait_registry();
@@ -532,7 +532,7 @@ fn check_conflicting_defaults(
     // get_trait_by_idx; a None branch indicates registry inconsistency between
     // find_conflicting_defaults's view and the registry's get_trait_by_idx surface.
     // Surface in debug, fall back to filter_map in release so diagnostic emission
-    // continues with the providers we can name.
+    // continues with the nameable providers.
     let conflicts: Vec<(Name, Vec<Name>)> = {
         let reg = checker.trait_registry();
         reg.find_conflicting_defaults(trait_idx)

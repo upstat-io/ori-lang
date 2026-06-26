@@ -1,0 +1,25 @@
+// Regression: the imported prelude generic `is_empty<T>(collection: [T]) -> bool`
+// monomorphized on a list receiver routes through the same borrowed-receiver
+// forwarder as `len` (emit_collection_is_empty_forwarded, the sibling of
+// emit_collection_length_forwarded). A borrowed receiver left a raw ptr would make
+// the is_empty dispatch read the zero-placeholder len (0) -> is_empty TRUE under
+// LLVM for a non-empty list (false under the interpreter = dual-execution parity
+// break). is_empty is list-only in the prelude, so the pin covers the list
+// element-type dimension: [int] (scalar) + [str] (heap element).
+// Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq };
+
+@test_imported_is_empty_int_list_nonempty_mono tests _ () -> void = {
+    assert_eq(actual: is_empty(collection: [1, 2, 3]), expected: false)
+}
+
+@test_imported_is_empty_str_list_nonempty_mono tests _ () -> void = {
+    assert_eq(actual: is_empty(collection: ["a", "b"]), expected: false)
+}
+
+@test_imported_is_empty_int_list_empty_positive_mono tests _ () -> void = {
+    let e: [int] = [];
+
+    assert_eq(actual: is_empty(collection: e), expected: true)
+}

@@ -493,8 +493,7 @@ fn build_and_register_body_type_map(
             body_type_map.push((generic_idx, concrete));
         }
     }
-    body_type_map.sort_by_key(|(k, _)| k.raw());
-    body_type_map.dedup_by_key(|(k, _)| k.raw());
+    crate::pool::substitute::finalize_body_type_map(&mut body_type_map);
     register_concrete_applied_resolutions(pool, &body_type_map, generic_type_params);
     body_type_map
 }

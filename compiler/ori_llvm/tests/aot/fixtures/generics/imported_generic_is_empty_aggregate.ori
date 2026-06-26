@@ -1,0 +1,17 @@
+// Regression: the imported prelude generic `is_empty<T>(collection: [T]) -> bool`
+// monomorphized on a list receiver routes through the identical borrowed-receiver
+// forwarder (emit_collection_is_empty_forwarded) as len/count/length
+// (emit_collection_length_forwarded). If the borrowed receiver were left a raw ptr
+// the is_empty dispatch would read the {i64,i64,ptr} zero-placeholder len (0) ->
+// is_empty TRUE under AOT for a non-empty list (false under interp = parity break).
+// is_empty is list-only in the prelude (unlike len, which is T: Len over
+// [T]/{K:V}/Set<T>), so the pin covers the list element-type dimension: [int]
+// (scalar element) + [str] (heap element). The non-empty lines are the negative
+// pins (AOT placeholder bug returns true); the empty-list line is the positive pin.
+@main () -> int = {
+    let a = is_empty(collection: [1, 2, 3]);
+    let h = is_empty(collection: ["a", "b"]);
+    let empty_int: [int] = [];
+    let e = is_empty(collection: empty_int);
+    if !a && !h && e then 0 else 1
+}

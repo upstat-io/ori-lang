@@ -746,9 +746,9 @@ impl<S: std::hash::BuildHasher> BodyTypeMapSink for std::collections::HashMap<Id
 ///   `Tag::BoundVar` reaching codegen's `TypeInfoStore` as a defensive ICE
 ///   signal per AIMS Invariant 2.
 ///
-/// Callers are responsible for any per-site post-processing (sort+dedup
-/// for `Vec` sinks to reach a Salsa-deterministic shape; Applied-type
-/// resolution registration; etc.).
+/// Callers are responsible for any per-site post-processing: `Vec` sinks
+/// reach the Salsa-deterministic shape via [`finalize_body_type_map`] (the
+/// SSOT for that sort+dedup step); Applied-type resolution registration; etc.
 #[expect(
     clippy::implicit_hasher,
     reason = "var_subst is consistently FxHashMap<u32, Idx> across the whole ori_types \
@@ -782,6 +782,18 @@ pub fn build_mono_body_type_map<Sink: BodyTypeMapSink>(
             sink.record(bound_idx, concrete_idx);
         }
     }
+}
+
+/// Canonicalize a `Vec`-sink `body_type_map` into the deterministic
+/// Salsa-friendly shape: sort by source-key raw `Idx`, then dedup by the same
+/// key. SSOT for the post-`build_mono_body_type_map` finalization step shared
+/// across every `Vec` call site (eager typeck `maybe_record_mono_instance`,
+/// deferred typeck `build_mono_instance` + `refresh_method_mono_body_type_maps`)
+/// — the deterministic-shape invariant has exactly one home so Salsa's `Eq`
+/// early cutoff sees a stable key order.
+pub fn finalize_body_type_map(body_type_map: &mut Vec<(Idx, Idx)>) {
+    body_type_map.sort_by_key(|(k, _)| k.raw());
+    body_type_map.dedup_by_key(|(k, _)| k.raw());
 }
 
 /// Extend `var_subst` with `{union_find_root_var_id → concrete}` entries for

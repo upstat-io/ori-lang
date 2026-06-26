@@ -39,6 +39,21 @@ fn test_imported_generic_len_aggregate_receiver() {
     );
 }
 
+/// Regression: the imported prelude generic `is_empty<T>(collection: [T])`
+/// monomorphized on a list receiver routes through the same borrowed-receiver
+/// forwarder (`emit_collection_is_empty_forwarded`) as `len`. A borrowed receiver
+/// left a raw ptr would make is_empty read the zero-placeholder len (0) -> TRUE
+/// under AOT for a non-empty list (false under interp = parity break). Sibling AOT
+/// pin to `test_imported_generic_len_aggregate_receiver`; is_empty is list-only in
+/// the prelude, so the pin covers the [int] (scalar) + [str] (heap) element dims.
+#[test]
+fn test_imported_generic_is_empty_aggregate_receiver() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_is_empty_aggregate.ori"),
+        "imported_generic_is_empty_aggregate",
+    );
+}
+
 // Regression: method-level type generic on a concrete-receiver impl returning
 // a layout-bearing [T]. A rigid_var-at-codegen ICE regressed only the LLVM/AOT
 // path (the interpreter always passed). Exercises int + str (heap-element)

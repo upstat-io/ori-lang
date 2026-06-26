@@ -1,6 +1,6 @@
 use std.testing { assert_eq }
 
-// BUG-04-146: heap-element method-level generic (T = str, returns [T]).
+// Heap-element method-level generic (T = str, returns [T]).
 type Boxer = { tag: int }
 
 impl Boxer {

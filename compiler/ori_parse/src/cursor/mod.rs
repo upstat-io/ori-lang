@@ -368,6 +368,16 @@ impl<'a> Cursor<'a> {
         is_ident && matches!(self.peek_kind_at(n + 1), TokenKind::Colon)
     }
 
+    /// Check if the token at offset `n` is an identifier or a keyword usable as
+    /// an identifier (soft or positional).
+    ///
+    /// A valid bare map-key / field name per grammar.ebnf § `map_key` (the
+    /// `identifier` alternative). Consume the text via [`Cursor::expect_ident_or_keyword`].
+    pub fn peek_is_ident_or_keyword(&self, n: usize) -> bool {
+        let kind = self.peek_kind_at(n);
+        matches!(kind, TokenKind::Ident(_)) || is_keyword_usable_as_ident(kind)
+    }
+
     /// Advance to the next token and return the consumed token.
     ///
     /// # Safety invariant

@@ -16,7 +16,7 @@ impl<U> Vec<U> {
     @find<T> (self, key: T) -> Option<int> = None;
 }
 
-#skip("BUG-04-194: ARC leak (2 allocs) on combined impl+method generic mono (impl<U> Vec<U> { @find<T> }) — RC-emission domain, routed to the in-progress ARC memory-management migration; surfaced once BUG-04-146 enabled the combined-axis mono recording")
+#skip("BUG-04-194: ARC leak (2 allocs) on combined impl+method generic mono (impl<U> Vec<U> { @find<T> }) — RC-emission domain, routed to the in-progress ARC memory-management migration")
 @test_method_mono tests _ () -> void = {
     let v_int: Vec<int> = Vec { items: [1, 2, 3] };
     let v_str: Vec<str> = Vec { items: ["a", "b"] };

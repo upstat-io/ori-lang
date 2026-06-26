@@ -1,8 +1,8 @@
 use std.testing { assert_eq }
 
-// BUG-04-146: positional method-call form exercises infer_method_call (the
-// positional entry point) — the named-arg fixtures exercise infer_method_call_named.
-// Both entry points call the shared mono-recording hook.
+// Positional method-call form (no named args) on a method-level generic: T is
+// inferred from the positional argument and the call records a mono instance for
+// @wrap<int>, the same as the named-argument call form.
 type Boxer = { tag: int }
 
 impl Boxer {

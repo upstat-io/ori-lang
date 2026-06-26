@@ -3,12 +3,10 @@
 // Boundary clamp: a single associated function (no self) on a NON-generic impl
 // resolves through the immediate-emit path (`compile_impls` / `register_method`),
 // not the generic mono-collection path (`collect_mono_functions`). This case
-// passes on both backends — it pins the boundary so the generic-impl
-// mono-collection fix does not regress single-impl non-generic dispatch. The
-// body transforms its input (+100) so a mis-resolution would compute a wrong
-// number, clamping owner-correct dispatch for the single-impl shape.
-// (The TWO-impl name-collision cross-dispatch on this same non-generic path is a
-// distinct immediate-emit defect tracked separately; it is NOT this fix's scope.)
+// passes on both backends; it pins the boundary so generic-impl mono-collection
+// does not regress single-impl non-generic dispatch. The body transforms its
+// input (+100) so a mis-resolution would compute a wrong number, clamping
+// owner-correct dispatch for the single-impl shape.
 
 use std.testing { assert_eq }
 

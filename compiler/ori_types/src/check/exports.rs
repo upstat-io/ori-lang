@@ -267,8 +267,7 @@ pub(super) fn refresh_method_mono_body_type_maps(
                 refreshed.push((key, val));
             }
         }
-        refreshed.sort_by_key(|(k, _)| k.raw());
-        refreshed.dedup_by_key(|(k, _)| k.raw());
+        crate::pool::substitute::finalize_body_type_map(&mut refreshed);
 
         crate::infer::register_concrete_applied_resolutions(pool, &refreshed, generic_type_params);
         inst.body_type_map = refreshed;
@@ -457,7 +456,9 @@ fn build_mono_instance(
     return_type: crate::Idx,
     var_subst: &rustc_hash::FxHashMap<u32, crate::Idx>,
 ) -> crate::MonoInstance {
-    use crate::pool::substitute::{build_mono_body_type_map, substitute_in_pool};
+    use crate::pool::substitute::{
+        build_mono_body_type_map, finalize_body_type_map, substitute_in_pool,
+    };
     use crate::Idx;
 
     let concrete_param_types: Vec<Idx> = param_types
@@ -470,8 +471,7 @@ fn build_mono_instance(
     // Salsa-deterministic shape is call-site-local post-processing.
     let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
     build_mono_body_type_map(pool, var_subst, &mut body_type_map);
-    body_type_map.sort_by_key(|(k, _)| k.raw());
-    body_type_map.dedup_by_key(|(k, _)| k.raw());
+    finalize_body_type_map(&mut body_type_map);
 
     crate::MonoInstance::new_top_level(
         fn_name,
