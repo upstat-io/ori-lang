@@ -2,7 +2,7 @@
 //!
 //! Covers the explicit `snake_case` enum match tables (positive mappings +
 //! negative pins that a renamed variant or a `Debug`-derive substitution would
-//! break), the §12.1 record projection, and an end-to-end emit on a tiny
+//! break), the 18-property record projection, and an end-to-end emit on a tiny
 //! compiled fixture.
 
 use ori_arc::aims::contract::FipContract;
@@ -139,7 +139,7 @@ fn lattice_value_json_carries_position_and_all_seven_dims() {
     assert_eq!(value["aims_effect_may_throw"], Value::from(true));
 }
 
-// Record projection: §12.1 18-property surface + identity + FipContract payloads.
+// Record projection: 18-property surface + identity + FipContract payloads.
 
 fn assert_eighteen_property_surface(record: &Value) {
     for key in [
@@ -162,7 +162,7 @@ fn assert_eighteen_property_surface(record: &Value) {
     ] {
         assert!(
             record.get(key).is_some(),
-            "record missing §12.1 property `{key}`"
+            "record missing 18-property surface key `{key}`"
         );
     }
     // Identity surface.
@@ -323,5 +323,34 @@ fn build_records_emits_aims_state_for_compiled_fixture() {
         "expected a `collection_buffer` per-variable shape for the `[n, n, n]` \
          collection literal; got {shapes:?} (a uniform `non_reusable` set means \
          the per-variable shape SSOT `var_shape` is not being projected)"
+    );
+}
+
+// Negative pin: `build_records` PROPAGATES a broken-pipeline error as `Err`
+// rather than swallowing it and emitting partial / unsound JSONL (the
+// LEAK:swallowed-error discipline the frontend-error gate + the ARC-problems
+// gate share). A syntactically-invalid source fails the frontend; reverting the
+// gate to `Ok(records)` on a broken pipeline fails this assertion.
+#[test]
+fn build_records_returns_err_on_broken_pipeline() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!(
+        "ori_emit_aims_state_err_{}.ori",
+        std::process::id()
+    ));
+    // Unterminated function body — the frontend reports errors.
+    std::fs::write(&path, "@broken (n: int) -> int = {\n")
+        .unwrap_or_else(|e| panic!("write fixture: {e}"));
+
+    let Some(path_str) = path.to_str() else {
+        panic!("temp fixture path is not valid utf8");
+    };
+    let result = super::build_records(path_str);
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        result.is_err(),
+        "build_records must return Err on a broken pipeline, never Ok with \
+         partial/unsound AIMS state"
     );
 }

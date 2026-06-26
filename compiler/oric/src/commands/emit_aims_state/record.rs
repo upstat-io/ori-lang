@@ -1,6 +1,6 @@
 //! JSONL record projection for the `emit-aims-state` producer.
 //!
-//! Projects the AIMS §12.1 18-property contract surface plus per-variable
+//! Projects the AIMS 18-property contract surface plus per-variable
 //! lattice values to JSON through EXPLICIT snake-case match tables. The
 //! field-name + variant-name pairing is the join surface a downstream
 //! code-intelligence consumer reads — it is a stable contract, never a
@@ -115,7 +115,7 @@ pub(super) fn lattice_value_json(position: u32, state: AimsState) -> Value {
     })
 }
 
-/// Build one JSONL record: the §12.1 18-property surface + identity +
+/// Build one JSONL record: the 18-property surface + identity +
 /// per-variable lattice values.
 pub(super) fn build_record(
     id: &RecordIdentity,

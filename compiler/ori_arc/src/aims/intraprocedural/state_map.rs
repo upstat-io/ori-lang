@@ -199,7 +199,7 @@ pub struct AimsStateMap {
     /// ending in Invoke.
     invoke_edge_states: FxHashMap<ArcBlockId, InvokeEdgeState>,
 
-    /// Borrow provenance side table (solutions.md Decision 1/5).
+    /// Borrow provenance side table.
     /// Sparse: only entries for variables currently in `AccessClass::Borrowed`.
     /// Per-variable (not per-point) — see module doc for precision trade-off.
     borrow_sources: FxHashMap<ArcVarId, BorrowSource>,
@@ -873,7 +873,7 @@ impl AimsStateMap {
         self.apply_result_aliases.contains_key(&var)
     }
 
-    // SSA-alias equivalence-class accessors ( )
+    // SSA-alias equivalence-class accessors
 
     /// Return the equivalence-class id for `var` if it participates in a
     /// multi-member class; `None` for singletons.
@@ -939,8 +939,7 @@ impl AimsStateMap {
     /// equals `var.raw()` per the existing materialization scheme; this
     /// helper consolidates the lookup so callers don't repeat the fallback.
     /// Used by the post-convergence edge recorder to resolve arg/dst class ids
-    /// without re-running the local `UnionFind` from `compute_ssa_alias_classes`
-    ///
+    /// without re-running the local `UnionFind` from `compute_ssa_alias_classes`.
     pub(crate) fn class_id_of(&self, var: ArcVarId) -> u32 {
         self.ssa_alias_class_of(var).unwrap_or_else(|| var.raw())
     }
@@ -990,7 +989,7 @@ impl AimsStateMap {
         }
     }
 
-    // Per-variable contract-narrowed call-result side tables ( )
+    // Per-variable contract-narrowed call-result side tables
 
     /// Record the contract-narrowed uniqueness for a call-result variable.
     ///

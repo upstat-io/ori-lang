@@ -3,7 +3,7 @@
 //!
 //! Drives the full pipeline — lex -> parse -> typecheck -> canonicalize -> ARC
 //! lowering -> AIMS interprocedural contract computation — then, per top-level
-//! function, projects the §12.1 18-property `MemoryContract` / `ReturnContract`
+//! function, projects the 18-property `MemoryContract` / `ReturnContract`
 //! / `EffectSummary` / `FipContract` surface plus the converged `AimsStateMap`
 //! per-variable lattice values to one JSONL record. The enum serialization runs
 //! through explicit snake-case match tables in [`record`], never a derive.
@@ -27,8 +27,9 @@ use ori_arc::{
     ArcBlockId, ArcClassifier, ArcFunction, ArcVarId, BuiltinOwnershipSets, MemoryContract,
 };
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use ori_ir::Name;
-use ori_types::Pool;
+use ori_ir::canon::CanonResult;
+use ori_ir::{Name, StringInterner};
+use ori_types::{FunctionSig, Pool};
 use oric::{CompilerDb, Db, SourceFile};
 use rustc_hash::FxHashMap;
 use serde_json::Value;
@@ -37,6 +38,7 @@ use super::emit_scip::symbol::ModuleMinter;
 use super::emit_scip::{module_identity, project_relative_path};
 use super::read_file;
 use super::report_frontend_errors;
+use crate::parser::ParseOutput;
 
 /// The 1-based source line containing `byte_offset`, counting `\n` up to it.
 fn line_of(source: &str, byte_offset: u32) -> u32 {
@@ -147,6 +149,55 @@ pub fn emit_aims_state_file(path: &str, output: &str) {
 
 /// Drive the pipeline and build the sorted `(scip_moniker, record)` set.
 ///
+/// Lower every non-generic top-level function (and its lambdas) to ARC IR.
+/// Lambdas join the analysis set so interprocedural contracts are complete;
+/// records are emitted only for the named top-level functions (lambdas carry no
+/// source span / SCIP moniker and map to no `:Symbol`).
+///
+/// Returns `Err` when ARC lowering surfaces problems — the lowered IR is then
+/// possibly malformed and the projected AIMS state would be unsound, so no
+/// partial JSONL is emitted (the normal codegen path gates the same set).
+fn lower_module_to_arc(
+    parse_result: &ParseOutput,
+    function_sigs: &[FunctionSig],
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+) -> Result<Vec<ArcFunction>, String> {
+    let mut arc_problems = Vec::new();
+    let mut all_funcs: Vec<ArcFunction> = Vec::new();
+    for (func, sig) in parse_result
+        .module
+        .functions
+        .iter()
+        .zip(function_sigs.iter())
+    {
+        if sig.is_generic() {
+            continue;
+        }
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+            func.name,
+            sig,
+            func.name,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            None,
+        );
+        all_funcs.push(arc_fn);
+        all_funcs.extend(lambdas);
+    }
+
+    if !arc_problems.is_empty() {
+        return Err(format!(
+            "error: ARC lowering reported {} problem(s); AIMS state not emitted",
+            arc_problems.len()
+        ));
+    }
+    Ok(all_funcs)
+}
+
 /// Returns `Err` with a diagnostic message on a frontend error (diagnostics are
 /// already emitted to stderr by then) so the caller controls process exit; this
 /// keeps the projection testable without `std::process::exit`.
@@ -184,35 +235,13 @@ fn build_records(path: &str) -> Result<Vec<(String, Value)>, String> {
     let function_sigs =
         crate::typeck::build_function_sigs(&frontend.parse_result, &frontend.type_result);
 
-    // Lower every non-generic top-level function (and its lambdas) to ARC IR.
-    // Lambdas join the analysis set so interprocedural contracts are complete;
-    // records are emitted only for the named top-level functions (lambdas carry
-    // no source span / SCIP moniker and map to no `:Symbol`).
-    let mut arc_problems = Vec::new();
-    let mut all_funcs: Vec<ArcFunction> = Vec::new();
-    for (func, sig) in frontend
-        .parse_result
-        .module
-        .functions
-        .iter()
-        .zip(function_sigs.iter())
-    {
-        if sig.is_generic() {
-            continue;
-        }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            None,
-        );
-        all_funcs.push(arc_fn);
-        all_funcs.extend(lambdas);
-    }
+    let all_funcs = lower_module_to_arc(
+        &frontend.parse_result,
+        &function_sigs,
+        canon,
+        interner,
+        pool,
+    )?;
 
     // Source identity for the named top-level functions: the SCIP moniker (same
     // `ModuleMinter` the SCIP index uses) + source line.
