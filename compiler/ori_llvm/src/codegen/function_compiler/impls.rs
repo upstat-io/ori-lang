@@ -373,9 +373,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         type_name: &str,
         canon: &CanonResult,
     ) {
-        // The leading `Idx` is the owning impl receiver (used by mono-collection
-        // dispatch keying, not the immediate-emit path here).
-        let Some((_, sig_name, sig)) = sig_iter.next() else {
+        // The leading `Idx` is the owning impl receiver. It is the type-qualified
+        // dispatch key for no-receiver associated calls (`Widget.make()`), which
+        // resolve via `type_idx_to_name` keyed on the owning type, not the self
+        // param. Sourcing the key from this `Idx` (not `param_types.first()`) is
+        // what makes an associated-only impl resolvable at the call site.
+        let Some((owning_type_idx, sig_name, sig)) = sig_iter.next() else {
             trace!(
                 name = %self.interner.lookup(method_name),
                 "no type signature for impl method — exhausted sig iterator"

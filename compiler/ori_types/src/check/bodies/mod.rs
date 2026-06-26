@@ -32,6 +32,7 @@
 //! re-exports via `pub use` so `check::bodies::check_function_bodies`
 //! and siblings continue to resolve without changing import paths.
 
+mod contracts;
 pub mod def_impls;
 pub mod functions;
 pub mod impls;

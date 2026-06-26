@@ -1,9 +1,9 @@
 # Proposal: Block-Tail Value Discipline
 
 **Status:** Draft
-**Author:** Eric (with AI assistance)
+**Author:** Eric
 **Created:** 2026-06-26
-**Affects:** Compiler (parser), formatter (`ori_fmt`), spec (Clause 11, Clause 16), grammar (Annex A), Annex D (formatting)
+**Affects:** Compiler (type checker, canonicalization), formatter (`ori_fmt`), spec (Clause 11, Clause 16), grammar (Annex A), Annex D (formatting)
 **Amends:** block-expression-syntax.md, optional-semicolon-after-block-expressions-proposal.md
 
 ---
@@ -92,14 +92,18 @@ A tail expression that **is** the block's value:
 
 ### Rule 2 — Discarded/effect tail
 
-A tail expression **evaluated for effect** (its value discarded) — this includes void-returning calls, value-returning calls whose result is dropped, assignments, and diverging calls such as `panic(...)`:
+A tail expression **evaluated for effect** (its value discarded) — this includes void-returning calls, value-returning calls whose result is dropped, and assignments:
 
 - carries a trailing `;` **when its last token is not `}`** (the new tightening — see Rule 3 for the `}` carve-out), and
 - has **no blank line above it**.
 
+**Diverging tails are NOT in this class.** A diverging tail (`panic(...)`, `todo()`, `unreachable()`) has type `Never`, which coerces to the declared return type. It is a **value tail** — written **without** `;` — because `Never` carries no value to discard, so Rule 2's `;`-mandate does not apply. (`break` / `break value` are not diverging tails — they produce values in labeled blocks and `for...yield` — and are out of scope.)
+
 ### Rule 3 — Block-ending tails keep the optional `;`
 
 When the tail's last token is `}` (`match { }`, `if...then { }`, `for...do { }`, `while...do { }`, `loop { }`, `unsafe { }`, `block:label { }`, bare `{ }`), the trailing `;` remains **optional** per spec §11.12.1. Rule 2's mandatory `;` applies only to simple (non-`}`-ending) tails — call statements and assignments. This preserves the approved optional-semicolon rule, which exists specifically to kill the `};`-after-a-closing-brace friction.
+
+The optional-`;` latitude is exercised only by **void / `Never`** block-ending tails. A block-ending tail that produces a **non-void** value is NOT freely-optional: if it IS the block's value it follows Rule 1 (no `;`, blank line above); if its non-void value is discarded it carries `;` to mark the discard (the formatter normalizes this). The blank-line rule remains the **universal** value/effect carrier across every `}`-ending shape; the semicolon latitude does not weaken it.
 
 For block-ending tails the **blank-line rule (Rules 1/2) is the carrier of the value/effect signal**, since the semicolon is uncommitted there:
 
@@ -184,7 +188,7 @@ The semicolon selects the block's value type, and the declared return type decid
 | `-> void` | `cleanup();` (discarded) | `cleanup()` no `;` becomes ill-formed under Rule 2 (D1) |
 | `-> int` | `capped` no `;` (produced value) | `capped;` → block is `void`, type error (D2); `"hi"` no `;` → wrong-type mismatch |
 
-The `-> int` direction is already enforced by the type checker today (the block-value type must equal the declared return type); this proposal only sharpens its message (D2). The `-> void` direction is where the new well-formedness rule (Rule 2 / D1) adds teeth. Diverging tails (`panic`, `todo`, `unreachable`) are the carve-out tracked in Unresolved Questions: in a non-`void` body the diverging tail is written **without** `;` so its `Never` type coerces to the return type — it is a value tail, not a discarded one.
+The `-> int` direction is already enforced by the type checker today (the block-value type must equal the declared return type); this proposal only sharpens its message (D2). The `-> void` direction is where the new well-formedness rule (Rule 2 / D1) adds teeth. Diverging tails (`panic`, `todo`, `unreachable`) are **value tails** per Rule 2's diverging-tails clause: in a non-`void` body the diverging tail is written **without** `;` so its `Never` type coerces to the return type — it is a value tail, not a discarded one.
 
 The companion `ori fmt` pass enforces the blank-line placement (blank line above a produced-value tail; none above a discarded tail), consistent with Ori's single-canonical-format design.
 
@@ -238,7 +242,7 @@ This resolves Unresolved Question #4.
 **Can be pure Ori?** NO.
 **If not, why:** This is a surface-grammar and formatter change. It alters the `statement` grammar production (the trailing-`;` requirement on simple tail statements) and adds a blank-line rule to `ori_fmt`. Neither is expressible as a library.
 **Missing features that would enable purity:** None applicable — syntax and canonical-format rules are inherently compiler/tooling concerns.
-**Recommendation:** Proceed as a compiler + formatter proposal. No new keywords; the parser change is narrow (mandate `;` on a simple tail statement whose value is discarded), and the formatter change is one new blank-line invariant.
+**Recommendation:** Proceed as a compiler + formatter proposal. No new keywords; the well-formedness change is narrow (after type resolution, mandate `;` on a simple tail whose value is discarded — a type-checker / canonicalization check, since the discarded-vs-value distinction needs the tail's type), and the formatter change is one new blank-line invariant.
 
 ---
 
@@ -246,10 +250,10 @@ This resolves Unresolved Question #4.
 
 - **Clause 11 (`11-blocks-and-scope.md` §11.12 / §11.12.1):** Add that a simple (non-`}`-ending) tail expression evaluated for effect shall be terminated by `;`; the block value is the sole tail that omits `;`. Preserve §11.12.1's optional-`;`-after-`}` unchanged; cross-reference the produce-vs-discard axis.
 - **Clause 16 (`16-control-flow.md` §16.0.1):** Reinforce the produce-vs-discard framing already present ("any expression terminated by `;` is used as a statement").
-- **Grammar (`grammar.ebnf`, `statement` production):** Distinguish a simple tail statement (requires `;`) from a block-ending tail statement (optional `;`, per the existing §11.12.1 production) from the block-value expression (no `;`).
+- **Grammar (`grammar.ebnf`, `statement` production):** The production ALREADY distinguishes the three forms — `expression ";"` (simple statement), `block_ending_expression [ ";" ]` (block-ending statement), and the trailing `[ expression ]` block-value slot. This proposal adds NO new grammar distinction; it tightens **well-formedness**: a simple discarded tail must use the `expression ";"` form (the no-`;` simple tail is reserved for the block-value slot). The grammar productions are unchanged; the rule is a well-formedness constraint layered on the existing grammar.
 - **Annex D (`annex-d-formatting.md`):** Add the negative blank-line rule — no blank line above a discarded/effect tail — complementing the existing positive rule (blank line above a produced-value tail).
 - **`.claude/rules/ori-syntax.md`:** Update the "Semicolon rule" and "Block expressions" entries to state the produce-vs-discard signal.
-- **Diagnostics (`ori_diagnostic`):** Allocate a parser/well-formedness code for D1 (simple discarded tail missing `;`) and a type-checker code for D2 (`;` on the tail of a non-void body), each with `ori --explain` extended docs and the structured "remove/add the `;`" suggestion. D2 specializes the existing tail-produces-`void` mismatch rather than replacing the general type-mismatch path.
+- **Diagnostics (`ori_diagnostic`):** Allocate a type-checker / canonicalization code for D1 (simple discarded tail missing `;`) and a type-checker code for D2 (`;` on the tail of a non-void body), each with `ori --explain` extended docs and the structured "remove/add the `;`" suggestion. D1 fires AFTER type resolution, NOT in the parser: distinguishing a discarded simple-call tail from a produced-value tail requires the tail's type, which the parser does not have. D2 specializes the existing tail-produces-`void` mismatch rather than replacing the general type-mismatch path.
 
 ---
 
@@ -267,6 +271,6 @@ The novel element — using the trailing `;` plus a canonical-formatter blank li
 ## Unresolved Questions
 
 - **Braceless scoping (Rule 4 vs Alternative 3):** Resolve during review — scope the rules to block bodies (recommended, Rule 4) and keep the braceless `= expr;` declaration terminator, or go global (Alternative 3) and drop `;` on braceless value bodies. The recommendation is Rule 4; this is the primary design decision the review gate should ratify.
-- **Diverging tails (`panic`, `todo`, `unreachable`, `break`):** Confirm these are treated as discarded/effect tails (Rule 2 — `;` when simple) rather than value tails via `Never`-coercion. Expected: effect tails. Resolve during review.
+- **Diverging tails (`panic`, `todo`, `unreachable`):** RESOLVED — a diverging tail has type `Never` and is a VALUE tail, written **without** `;` (its `Never` coerces to the declared return type; it carries no value to discard). See Rule 2's diverging-tails clause + the Symmetric-case section. `break` / `break value` are NOT diverging tails (they produce values in labeled blocks and `for...yield`) and are out of scope for this rule.
 - **Migration tooling:** Confirm `ori fmt` can mechanically apply both the `;`-insertion (Rule 2) and the blank-line normalization (Rules 1/2) so the breaking change is a one-shot reformat. Resolve during implementation.
 - **Interaction with `redundant-trailing-unit-normalization` (draft):** RESOLVED — see `## Composition with redundant-trailing-unit-normalization`. The two have disjoint triggers (literal `()` deletion vs void-call `;`-mandate) and converge to the canonical all-`;` void form; no conflict, no dependency, recommended to land together.
