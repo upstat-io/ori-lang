@@ -586,7 +586,6 @@ declare_builtins! { emitter, ctx;
     // range
     ("range", "iter") => emitter.emit_range_iter(ctx.arg_vals[0]),
     ("range", "len") => emitter.emit_range_len(ctx.arg_vals[0]),
-    ("range", "length") => emitter.emit_range_len(ctx.arg_vals[0]),
     ("range", "count") => emitter.emit_range_len(ctx.arg_vals[0]),
     ("range", "contains") => {
         if ctx.arg_vals.len() >= 2 {
