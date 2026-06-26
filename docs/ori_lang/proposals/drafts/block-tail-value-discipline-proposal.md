@@ -215,6 +215,24 @@ Make `@double (x: int) -> int = x * 2` (no `;`) the value form and require `;` o
 
 ---
 
+## Composition with `redundant-trailing-unit-normalization`
+
+The draft `redundant-trailing-unit-normalization-proposal.md` occupies the adjacent void-block-tail design space and shares the same "no `return` keyword" lineage (`block-expression-syntax.md §Not return`). The two are **orthogonal-but-aligned**: they normalize *different* tail shapes via *disjoint* triggers and converge to the same canonical void form.
+
+| Tail shape | `redundant-trailing-unit` | This proposal (Rule 2) | Composed canonical form |
+|---|---|---|---|
+| Literal `()` unit after ≥1 `;`-statement (`{ work(); () }`) | formatter DELETES the `()` | not in scope (no call/effect) | `{ work(); }` — all-`;`, `void` |
+| Void/discarded simple CALL or assignment tail (`{ work(); cleanup() }`) | not in scope (not a literal `()`) | requires `;` → `{ work(); cleanup(); }` | `{ work(); cleanup(); }` — all-`;`, `void` |
+
+- **No conflict — disjoint triggers.** `redundant-trailing-unit` fires ONLY on a literal `()` result expression; this proposal's Rule 2 fires ONLY on a void/discarded *call* or assignment tail. No input matches both.
+- **Same destination.** Both converge a void-block tail to the canonical all-`;` form — a `()` tail is deleted, a void-call tail gains its `;` — and neither yields a produced-value tail. The two are complementary realizations of one "make void-block endings canonical without a `return`" intent.
+- **Formatter ordering.** Apply `redundant-trailing-unit`'s `()` deletion FIRST (it removes the tail outright); this proposal's `;`-mandate then has nothing to act on for that case. The order is observational only (disjoint triggers make it commutative in effect).
+- **No dependency.** Each proposal stands alone and is independently approvable. They are RECOMMENDED to land together for a single coherent void-block-tail story, but neither blocks the other.
+
+This resolves Unresolved Question #4.
+
+---
+
 ## Purity Analysis
 
 **Can be pure Ori?** NO.
@@ -251,4 +269,4 @@ The novel element — using the trailing `;` plus a canonical-formatter blank li
 - **Braceless scoping (Rule 4 vs Alternative 3):** Resolve during review — scope the rules to block bodies (recommended, Rule 4) and keep the braceless `= expr;` declaration terminator, or go global (Alternative 3) and drop `;` on braceless value bodies. The recommendation is Rule 4; this is the primary design decision the review gate should ratify.
 - **Diverging tails (`panic`, `todo`, `unreachable`, `break`):** Confirm these are treated as discarded/effect tails (Rule 2 — `;` when simple) rather than value tails via `Never`-coercion. Expected: effect tails. Resolve during review.
 - **Migration tooling:** Confirm `ori fmt` can mechanically apply both the `;`-insertion (Rule 2) and the blank-line normalization (Rules 1/2) so the breaking change is a one-shot reformat. Resolve during implementation.
-- **Interaction with `redundant-trailing-unit-normalization` (draft):** Check whether that draft's trailing-unit handling overlaps the discarded-tail rule here. Resolve during review.
+- **Interaction with `redundant-trailing-unit-normalization` (draft):** RESOLVED — see `## Composition with redundant-trailing-unit-normalization`. The two have disjoint triggers (literal `()` deletion vs void-call `;`-mandate) and converge to the canonical all-`;` void form; no conflict, no dependency, recommended to land together.
