@@ -1,0 +1,119 @@
+// Spec: 08-declarations.md § Associated Functions
+// Spec: Annex E §AIMS (dual-execution parity — interp ≡ LLVM)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Associated functions (no `self`) on an impl whose methods are ALL associated
+// functions ("assoc-only impl").
+// =============================================================================
+// The existing associated_functions.ori corpus only covers types that ALSO
+// carry an instance method (the instance method's `self` registers the owning
+// type for LLVM/AOT receiver-resolution). These cases isolate the assoc-ONLY
+// shape: under `ori run` (interpreter) they pass; under `ori test --backend=llvm`
+// they currently FAIL with `error[E5001]: unresolved function ... in apply`
+// until the owning-type registration fix lands. They are the L9 dual-exec
+// parity + L11 spec pins for that fix.
+
+// -----------------------------------------------------------------------------
+// Inherent assoc-only impl, `-> Self` return
+// -----------------------------------------------------------------------------
+
+type Widget = { id: int }
+
+impl Widget {
+    @new () -> Self = Widget { id: 42 }
+}
+
+@test_inherent_assoc_only_self_return tests @_use_widget () -> void = {
+    let w = Widget.new();
+    assert_eq(actual: w.id, expected: 42)
+}
+
+@_use_widget (w: Widget) -> int = w.id;
+
+// -----------------------------------------------------------------------------
+// Trait-impl assoc-only impl, `-> Self` return (impl-colon syntax)
+// -----------------------------------------------------------------------------
+
+trait Make {
+    @make () -> Self
+}
+
+type Gadget = { tag: int }
+
+impl Gadget: Make {
+    @make () -> Self = Gadget { tag: 7 }
+}
+
+@test_trait_impl_assoc_only_self_return tests @_use_gadget () -> void = {
+    let g = Gadget.make();
+    assert_eq(actual: g.tag, expected: 7)
+}
+
+@_use_gadget (g: Gadget) -> int = g.tag;
+
+// -----------------------------------------------------------------------------
+// Assoc-only impl with a non-`Self` return type (negative pin against the
+// rejected return-type-sourcing fix — the owning receiver must be sourced from
+// the impl, not the return type)
+// -----------------------------------------------------------------------------
+
+type Token = { value: int }
+
+impl Token {
+    @try_make () -> Result<Token, str> = Ok(Token { value: 9 });
+}
+
+@test_assoc_only_non_self_return tests @_use_token () -> void = {
+    let r = Token.try_make();
+    match r {
+        Ok(t) -> assert_eq(actual: t.value, expected: 9),
+        Err(e) -> assert(cond: false),
+    }
+}
+
+@_use_token (t: Token) -> int = t.value;
+
+// -----------------------------------------------------------------------------
+// Multi-arg assoc-only impl (param-arity dimension)
+// -----------------------------------------------------------------------------
+
+type Point = { x: int, y: int }
+
+impl Point {
+    @at (x: int, y: int) -> Self = Point { x, y }
+}
+
+@test_assoc_only_multiarg tests @_use_point () -> void = {
+    let p = Point.at(x: 3, y: 4);
+    assert_eq(actual: p.x, expected: 3);
+    assert_eq(actual: p.y, expected: 4)
+}
+
+@_use_point (p: Point) -> int = p.x;
+
+// -----------------------------------------------------------------------------
+// Distinct types sharing an assoc-fn name (no cross-wire — the owning-type
+// registration must resolve each `make()` to its own type)
+// -----------------------------------------------------------------------------
+
+type Alpha = { a: int }
+type Beta = { b: int }
+
+impl Alpha: Make {
+    @make () -> Self = Alpha { a: 1 }
+}
+
+impl Beta: Make {
+    @make () -> Self = Beta { b: 2 }
+}
+
+@test_assoc_only_distinct_types_no_crosswire tests @_use_ab () -> void = {
+    let alpha = Alpha.make();
+    let beta = Beta.make();
+    assert_eq(actual: alpha.a, expected: 1);
+    assert_eq(actual: beta.b, expected: 2)
+}
+
+@_use_ab (a: Alpha) -> int = a.a;

@@ -9,6 +9,7 @@ pub mod aims_interactions;
 pub mod apply_alias_coverage;
 pub mod arc;
 pub mod assert_eq_generic_body;
+pub mod assoc_only_impl;
 pub mod borrow_independence;
 pub mod borrowed_invoke_leak;
 pub mod builtin_apply_in_generic;

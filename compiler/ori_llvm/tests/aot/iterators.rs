@@ -295,7 +295,9 @@ fn test_iter_join_char() {
 }
 
 /// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
-/// Regression guard for BUG-05-002 (`OriStr` temporary leak).
+/// Regression guard: the heap-backed `OriStr` temporary the `to_str` join
+/// trampoline allocates is `Copy`/no-`Drop`, so it leaks without an explicit
+/// `ori_str_rc_dec` — under `ORI_CHECK_LEAKS=1` a missing dec exits 2.
 #[test]
 fn test_iter_join_long_float() {
     assert_aot_success(
