@@ -1,0 +1,16 @@
+// FAIL-FIRST: missing mono instance pre-fix (broad transitive-generic-body
+// monomorphization gap, ROOT-B). `make_empty<U>`'s body calls the generic
+// constructor `empty_queue` on its own rigid `U`; the concrete `Queue<int>`
+// instantiation records `make_empty<int>` but nested `empty_queue<int>` is
+// never recorded, so AOT dispatch starves: `unresolved function 'empty_queue'
+// in apply -- missing mono instance?`. Interp passes.
+type Queue<T> = { items: [T] }
+
+@empty_queue<T> () -> Queue<T> = Queue { items: [] };
+
+@make_empty<U> () -> Queue<U> = empty_queue();
+
+@main () -> int = {
+    let q: Queue<int> = make_empty();
+    q.items.len()
+}

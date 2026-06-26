@@ -1,0 +1,20 @@
+// FAIL-FIRST: missing mono instance pre-fix (broad transitive-generic-body
+// monomorphization gap, ROOT-B). `check_box<T: Eq + Debug>`'s body calls
+// `assert_eq` on a generic user struct of its own rigid `T`; the concrete
+// `Box<int>` instantiation records `check_box<int>` but the nested
+// `assert_eq<Box<int>>` stays typed against rigid `T` and is never recorded,
+// so AOT dispatch (apply.rs:resolve_callee -> lookup_mono_dispatch,
+// mono_instance_id=None) starves: error[E5001] `unresolved function
+// 'assert_eq' in apply -- missing mono instance?`. Interp passes (dynamic
+// dispatch). Open: BUG-04-191 (assert_eq/debug on derived-Eq aggregates).
+use std.testing { assert_eq }
+
+#derive(Eq, Debug)
+type Box<T> = { item: T }
+
+@check_box<T: Eq + Debug> (a: Box<T>, b: Box<T>) -> void = assert_eq(actual: a, expected: b);
+
+@main () -> int = {
+    check_box(a: Box { item: 1 }, b: Box { item: 1 });
+    0
+}
