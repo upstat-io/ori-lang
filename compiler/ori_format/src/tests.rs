@@ -5,7 +5,10 @@
 //! backends share (the cross-backend conformance the dual-execution spec corpus
 //! verifies end-to-end).
 
-use super::{format_float, format_int, format_str, parse_format_spec, Align, FormatType, Sign};
+use super::{
+    format_bool, format_char, format_float, format_int, format_str, parse_format_spec, Align,
+    FormatSpecError, FormatType, Sign,
+};
 
 /// Parse a spec string that is known-valid in tests.
 fn spec(s: &str) -> super::ParsedFormatSpec {
@@ -25,6 +28,14 @@ fn ff(f: f64, s: &str) -> String {
 
 fn fs(text: &str, s: &str) -> String {
     format_str(text, &spec(s))
+}
+
+fn fb(b: bool, s: &str) -> String {
+    format_bool(b, &spec(s))
+}
+
+fn fc(c: char, s: &str) -> String {
+    format_char(c, &spec(s))
 }
 
 // Integer matrix: decimal / binary / octal / hex / hexupper x sign / zero-pad / width / align
@@ -172,6 +183,40 @@ fn format_str_no_spec_is_identity() {
     assert_eq!(fs("hello", ""), "hello");
 }
 
+/// Center alignment with ODD padding puts the extra fill on the RIGHT
+/// (`left = padding / 2`, `right = padding - left`). Every even-padding cell
+/// (in this matrix and the dual-exec spec corpus) leaves this asymmetric split
+/// unpinned — a swap to extra-on-left would pass them all. This is the cell
+/// that pins which side the odd byte lands on, for the shared `apply_alignment`
+/// path every type (int/float/str/bool/char) routes through.
+#[test]
+fn format_str_center_odd_padding_extra_goes_right() {
+    // "ab" in width 5: padding 3 → left 1, right 2.
+    assert_eq!(fs("ab", "*^5"), "*ab**");
+    // negative pin: the swapped split (extra fill on the left) is wrong.
+    assert_ne!(fs("ab", "*^5"), "**ab*");
+}
+
+// Bool / char share the format_str path — the canonical kernel both backends call
+
+#[test]
+fn format_bool_renders_true_false() {
+    assert_eq!(fb(true, ""), "true");
+    assert_eq!(fb(false, ""), "false");
+}
+
+#[test]
+fn format_bool_width_right_align_pads_left() {
+    assert_eq!(fb(true, ">6"), "  true");
+    assert_eq!(fb(false, "<6"), "false ");
+}
+
+#[test]
+fn format_char_renders_single_codepoint() {
+    assert_eq!(fc('a', ""), "a");
+    assert_eq!(fc('z', ">3"), "  z");
+}
+
 // Negative pins — catch a broken kernel
 
 #[test]
@@ -199,7 +244,39 @@ fn negative_pin_hex_lowercase_stays_lowercase() {
 fn negative_pin_invalid_spec_is_err_not_panic() {
     // The fallible parser returns Err; the ori_rt thin wrapper's unwrap_or(EMPTY)
     // must not panic on this.
-    assert!(parse_format_spec("zz").is_err());
+    assert!(matches!(
+        parse_format_spec("z"),
+        Err(FormatSpecError::UnknownType('z'))
+    ));
+}
+
+#[test]
+fn negative_pin_trailing_characters_variant() {
+    // A valid type char (`f`) followed by extra input is TrailingCharacters.
+    assert!(matches!(
+        parse_format_spec("fx"),
+        Err(FormatSpecError::TrailingCharacters(_))
+    ));
+}
+
+#[test]
+fn negative_pin_invalid_width_overflow() {
+    // A width that overflows usize is rejected as InvalidWidth, never silently wrapped.
+    let huge = "9".repeat(40);
+    assert!(matches!(
+        parse_format_spec(&huge),
+        Err(FormatSpecError::InvalidWidth(_))
+    ));
+}
+
+#[test]
+fn negative_pin_invalid_precision_overflow() {
+    // A precision that overflows usize is rejected as InvalidPrecision.
+    let huge = format!(".{}", "9".repeat(40));
+    assert!(matches!(
+        parse_format_spec(&huge),
+        Err(FormatSpecError::InvalidPrecision(_))
+    ));
 }
 
 // Parser roundtrip — every spec dimension reaches its structured field

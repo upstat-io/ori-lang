@@ -107,18 +107,29 @@ pub fn format_str(s: &str, spec: &ParsedFormatSpec) -> String {
         return s.to_string();
     }
 
-    // Apply precision as max length for strings
-    let truncated = if let Some(prec) = spec.precision {
+    // Apply precision as max length for strings, then width/align. Only the
+    // over-length-precision case needs an owned truncation; every other path
+    // formats the borrowed `s` directly.
+    if let Some(prec) = spec.precision {
         if s.chars().count() > prec {
-            s.chars().take(prec).collect::<String>()
-        } else {
-            s.to_string()
+            let truncated: String = s.chars().take(prec).collect();
+            return apply_alignment(&truncated, spec);
         }
-    } else {
-        s.to_string()
-    };
+    }
 
-    apply_alignment(&truncated, spec)
+    apply_alignment(s, spec)
+}
+
+/// Format a boolean value according to the spec — renders `true` / `false`,
+/// then applies width/align/fill/precision via the shared string path.
+pub fn format_bool(b: bool, spec: &ParsedFormatSpec) -> String {
+    format_str(if b { "true" } else { "false" }, spec)
+}
+
+/// Format a char value according to the spec — renders the single codepoint,
+/// then applies width/align/fill/precision via the shared string path.
+pub fn format_char(c: char, spec: &ParsedFormatSpec) -> String {
+    format_str(&c.to_string(), spec)
 }
 
 /// Multiply by 100 and append `%`, honoring precision.

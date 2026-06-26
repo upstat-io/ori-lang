@@ -12,6 +12,7 @@ pub mod assert_eq_generic_body;
 pub mod assoc_only_impl;
 pub mod borrow_independence;
 pub mod borrowed_invoke_leak;
+pub mod broad_transitive_generic_body_mono;
 pub mod builtin_apply_in_generic;
 pub mod burden_branch_release;
 pub mod burden_dup_inc;

@@ -9,7 +9,9 @@
 //! `{expr:spec}` interpolation to a user `format()` `MethodCall` or a `to_str()`
 //! + str-FormatWith re-route.
 
-use ori_format::{format_float, format_int, format_str, parse_format_spec};
+use ori_format::{
+    format_bool, format_char, format_float, format_int, format_str, parse_format_spec,
+};
 use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_patterns::{EvalError, EvalResult, Value};
@@ -50,11 +52,8 @@ impl Interpreter<'_> {
             Value::Int(n) => format_int(n.raw(), &parsed),
             Value::Float(f) => format_float(*f, &parsed),
             Value::Str(s) => format_str(s, &parsed),
-            Value::Bool(b) => {
-                let s = if *b { "true" } else { "false" };
-                format_str(s, &parsed)
-            }
-            Value::Char(c) => format_str(&c.to_string(), &parsed),
+            Value::Bool(b) => format_bool(*b, &parsed),
+            Value::Char(c) => format_char(*c, &parsed),
             other => {
                 unreachable!(
                     "non-primitive FormatWith reached interpreter (desugared in ori_canon): {other:?}"

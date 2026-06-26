@@ -1,0 +1,18 @@
+// Spec: 14-expressions.md string interpolation — format-spec validation.
+// An unparseable `{expr:spec}` format specification (unknown format-type
+// character, trailing garbage) is a compile error (E2034). The spec is parsed
+// by the ori_format kernel; validate_format_spec surfaces the parse error.
+
+#[compile_fail(code: "E2034", message: "invalid format spec")]
+@test_unknown_format_type tests _ () -> void = {
+    let n = 42;
+    let _ = `{n:z}`;
+    ()
+}
+
+#[compile_fail(code: "E2034", message: "invalid format spec")]
+@test_trailing_garbage_after_type tests _ () -> void = {
+    let x = 3.14;
+    let _ = `{x:fq}`;
+    ()
+}

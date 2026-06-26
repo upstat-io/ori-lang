@@ -556,6 +556,10 @@ impl<'a> ModuleChecker<'a> {
         let (mono_instances, mono_dispatch_map) =
             dedup_and_remap_mono_instances(mono_instances, self.mono_dispatch_pre_dedup);
 
+        eprintln!("PROBE finish_with_pool deferred={} final_mono_instances={:?}",
+            deferred_mono_calls.len(),
+            mono_instances.iter().map(|m| (m.fn_name.raw(), m.generic_args.clone())).collect::<Vec<_>>());
+
         // Generate portable type descriptors for all public function signatures.
         // These enable cross-module type reconstruction without AST access.
         let type_descriptors = exports::generate_export_descriptors(&pool, &functions);

@@ -68,10 +68,9 @@ pub(crate) fn check_interpolation_printable(
         return;
     }
 
-    // Phase B-Residual-2 (c): a method-level RigidVar with `T: Printable`
-    // declared inline (or via where-clause once threaded) satisfies Printable
-    // by assumption — body-internal trait dispatch on the binder treats it
-    // as Printable without requiring a registry impl. The check runs before
+    // A method-level RigidVar bound by `T: Printable` satisfies Printable by
+    // assumption — body-internal trait dispatch on the binder treats it as
+    // Printable without requiring a registry impl. The check runs before
     // WellKnownNames / TraitRegistry queries because RigidVars never satisfy
     // either of those paths.
     if let Some(p_name) = engine.well_known().map(|wk| wk.printable) {

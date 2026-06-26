@@ -15,7 +15,7 @@
 mod emit;
 mod spec;
 
-pub use emit::{format_float, format_int, format_str};
+pub use emit::{format_bool, format_char, format_float, format_int, format_str};
 pub use spec::{parse_format_spec, Align, FormatSpecError, FormatType, ParsedFormatSpec, Sign};
 
 #[cfg(test)]

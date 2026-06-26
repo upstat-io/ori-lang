@@ -158,7 +158,7 @@ impl Lowerer<'_> {
         types: Option<FormatSpecTypes>,
         span: Span,
     ) -> CanId {
-        let opt_ty = opt_ty(types, |t| t.opt_char);
+        let opt_ty = field_ty(types, |t| t.opt_char);
         match fill {
             Some(c) => {
                 let inner = self.push(CanExpr::Char(c), span, TypeId::CHAR);
@@ -175,8 +175,8 @@ impl Lowerer<'_> {
         types: Option<FormatSpecTypes>,
         span: Span,
     ) -> CanId {
-        let opt_ty = opt_ty(types, |t| t.opt_alignment);
-        let variant_ty = variant_ty(types, |t| t.alignment);
+        let opt_ty = field_ty(types, |t| t.opt_alignment);
+        let variant_ty = field_ty(types, |t| t.alignment);
         match align {
             Some(a) => {
                 let variant = match a {
@@ -198,8 +198,8 @@ impl Lowerer<'_> {
         types: Option<FormatSpecTypes>,
         span: Span,
     ) -> CanId {
-        let opt_ty = opt_ty(types, |t| t.opt_sign);
-        let variant_ty = variant_ty(types, |t| t.sign);
+        let opt_ty = field_ty(types, |t| t.opt_sign);
+        let variant_ty = field_ty(types, |t| t.sign);
         match sign {
             Some(s) => {
                 let variant = match s {
@@ -221,7 +221,7 @@ impl Lowerer<'_> {
         types: Option<FormatSpecTypes>,
         span: Span,
     ) -> CanId {
-        let opt_ty = opt_ty(types, |t| t.opt_int);
+        let opt_ty = field_ty(types, |t| t.opt_int);
         match value {
             Some(w) => {
                 let n = i64::try_from(w).unwrap_or(i64::MAX);
@@ -239,8 +239,8 @@ impl Lowerer<'_> {
         types: Option<FormatSpecTypes>,
         span: Span,
     ) -> CanId {
-        let opt_ty = opt_ty(types, |t| t.opt_format_type);
-        let variant_ty = variant_ty(types, |t| t.format_type);
+        let opt_ty = field_ty(types, |t| t.opt_format_type);
+        let variant_ty = field_ty(types, |t| t.format_type);
         match ft {
             Some(ft) => {
                 let variant = match ft {
@@ -270,15 +270,12 @@ fn is_primitive_format_ty(expr_ty: TypeId) -> bool {
     )
 }
 
-/// The `Option<_>` field type, or `TypeId::ERROR` when types are absent.
-fn opt_ty(types: Option<FormatSpecTypes>, pick: impl Fn(&FormatSpecTypes) -> Idx) -> TypeId {
-    types.map_or(TypeId::ERROR, |t| TypeId::from_raw(pick(&t).raw()))
-}
-
-/// The precise enum type (`Alignment`/`Sign`/`FormatType`) for a nullary
-/// variant `Ident` node. The ARC lowerer reads this `ty` when emitting the
-/// variant `Construct`, so it MUST be the enum idx, not the enclosing
-/// `Option<_>` idx. Falls back to `TypeId::ERROR` when types are absent.
-fn variant_ty(types: Option<FormatSpecTypes>, pick: impl Fn(&FormatSpecTypes) -> Idx) -> TypeId {
+/// Resolve a `FormatSpecTypes` field to a `TypeId`, or `TypeId::ERROR` when
+/// types are absent. `pick` selects the field: an `Option<_>` wrapper idx for a
+/// `Some`/`None` node, or the precise enum idx (`Alignment`/`Sign`/`FormatType`)
+/// for a nullary-variant `Ident` node. The ARC lowerer reads the `Ident` node's
+/// `ty` when emitting the variant `Construct`, so variant call sites MUST pick
+/// the enum field, never the enclosing `Option<_>` field.
+fn field_ty(types: Option<FormatSpecTypes>, pick: impl Fn(&FormatSpecTypes) -> Idx) -> TypeId {
     types.map_or(TypeId::ERROR, |t| TypeId::from_raw(pick(&t).raw()))
 }
