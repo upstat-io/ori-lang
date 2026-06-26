@@ -50,7 +50,7 @@ impl<I: StringLookup> WidthCalculator<'_, I> {
         if raw == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
-        let brackets = usize::from(crate::formatter::map_key_needs_brackets(
+        let brackets = usize::from(crate::rules::map_key_needs_brackets(
             &self.arena.get_expr(key).kind,
         )) * 2;
         raw + brackets

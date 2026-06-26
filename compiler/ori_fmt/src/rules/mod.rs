@@ -20,6 +20,7 @@
 //! 5. **`NestedForRule`**: each nested `for` increases indentation
 //! 6. **`ParenthesesRule`**: Preserve user parens, add when needed
 //! 7. **`FunctionSeq helpers`**: Query functions for try, match, generic `FunctionSeq`
+//! 8. **`map_key_needs_brackets`**: Computed map keys re-emit `[ ]`
 //!
 //! # Spec Reference
 //!
@@ -28,6 +29,7 @@
 
 mod boolean_break;
 mod chained_else_if;
+mod map_key;
 mod method_chain;
 mod nested_for;
 mod parentheses;
@@ -36,6 +38,7 @@ mod short_body;
 
 pub use boolean_break::{collect_or_clauses, is_or_expression, BooleanBreakRule};
 pub use chained_else_if::{collect_if_chain, ChainedElseIfRule, ElseIfBranch, IfChain};
+pub use map_key::map_key_needs_brackets;
 pub use method_chain::{
     collect_method_chain, is_method_chain, ChainedCall, MethodChain, MethodChainRule,
 };

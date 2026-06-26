@@ -5,7 +5,9 @@
 
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
-use super::{binary_op_str, map_key_needs_brackets, needs_binary_parens, unary_op_str, Formatter};
+use crate::rules::map_key_needs_brackets;
+
+use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a map-literal key inline, wrapping a computed key in `[ ]` per

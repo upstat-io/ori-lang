@@ -93,22 +93,8 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
     }
 }
 
-/// Whether a map-literal key must be emitted wrapped in `[ ]`.
-///
-/// Per grammar.ebnf § `map_key`, a bare (unbracketed) key is only valid when it
-/// is a literal the parser accepts in key position — `string_literal`,
-/// `identifier` (parsed to an interned `String`), or a bare `Int`/`Bool`/`Char`
-/// literal. Every other key node (`Ident`, `Float`, a method call, an operator
-/// expression, ...) exists in source only as a computed `[ expr ]` key, so the
-/// formatter re-emits the brackets to round-trip the AST shape.
-pub(crate) fn map_key_needs_brackets(kind: &ExprKind) -> bool {
-    !matches!(
-        kind,
-        ExprKind::String(_) | ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Char(_)
-    )
-}
-
-// Parenthesis decisions: see rules::needs_parens() + rules::ParenPosition (Layer 4).
+// Delimiter decisions: see rules::needs_parens() + rules::ParenPosition +
+// rules::map_key_needs_brackets() (Layer 4).
 
 /// Check if a binary operand needs parentheses based on precedence and associativity.
 ///
