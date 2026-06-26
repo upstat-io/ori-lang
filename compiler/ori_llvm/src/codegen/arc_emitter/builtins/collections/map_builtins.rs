@@ -15,18 +15,6 @@ use crate::codegen::value_id::{LLVMTypeId, ValueId};
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `map.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
-    pub(crate) fn emit_map_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, FIELD_LEN, "map.len")
-    }
-
-    /// Emit `map.is_empty()` — `len == 0`.
-    pub(crate) fn emit_map_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.builder.extract_value(receiver, FIELD_LEN, "map.len")?;
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.icmp_eq(len, zero, "map.is_empty"))
-    }
-
     /// Emit `map.contains_key(key)` — hash table lookup with type-specific equality.
     ///
     /// Calls `ori_map_contains_key(data, cap, len, needle, key_size, key_eq, key_hash)`.

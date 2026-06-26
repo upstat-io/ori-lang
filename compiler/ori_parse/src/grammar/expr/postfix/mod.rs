@@ -18,7 +18,7 @@ use ori_ir::{Expr, ExprId, ExprKind, Param, ParsedTypeId, ParsedTypeRange, Token
 /// with a compiler-enforced exhaustive match — so the gate and the dispatch
 /// cannot drift (a new variant forces a `from_tag` arm + a dispatch arm, and the
 /// bitset picks it up automatically). Mirrors the `OPER_TABLE` exhaustiveness
-/// discipline in `operators.rs` (parse.md §PR-7).
+/// discipline in `operators.rs`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum PostfixOp {
     /// `(` — function call.
@@ -142,7 +142,7 @@ impl Parser<'_> {
             };
 
             // Exhaustive over `PostfixOp` — a new variant is a compile error here
-            // (parse.md §PR-7 registration-sync discipline).
+            // (registration-sync discipline).
             match op {
                 PostfixOp::Call => {
                     self.cursor.advance();
@@ -273,8 +273,8 @@ impl Parser<'_> {
         // immediately followed by `(` (a method call). Otherwise restore and let `<`
         // fall through to the comparison path. The trailing-`(` gate is the parse-time
         // half; the resolve-time comparison fallback (for `a.b < c > (d)`-shaped
-        // ambiguity) is the parser/typeck breadth sections' deliverable. Never the
-        // unsound deterministic commit (per the call-site-method-generics proposal).
+        // ambiguity) is not yet wired. Never the unsound deterministic commit
+        // (per the call-site-method-generics proposal).
         let call_type_args = self.parse_call_site_type_args();
 
         if self.cursor.check(&TokenKind::LParen) {
@@ -336,8 +336,8 @@ impl Parser<'_> {
     /// `EMPTY` so `<` is parsed as the less-than operator. Reuses the snapshot
     /// (SN-3) + `IN_TYPE` context (CF-1) machinery and the existing
     /// `parse_optional_generic_args_range`. The trailing-`(` requirement is the
-    /// parse-time disambiguation half; resolve-time comparison fallback is the
-    /// parser/typeck breadth sections' deliverable.
+    /// parse-time disambiguation half; the resolve-time comparison fallback is
+    /// not yet wired.
     fn parse_call_site_type_args(&mut self) -> ParsedTypeRange {
         self.try_parse_type_args(&TokenKind::LParen)
     }

@@ -155,8 +155,10 @@ pub struct ExprArena {
 
     /// Call-site type arguments for `MethodCall` / `MethodCallNamed`, keyed by the
     /// call expression's `ExprId`. Recorded by the parser for a method turbofish
-    /// (`obj.method<T>(...)`); the type checker's call-site type-argument resolution
-    /// reads them. A sparse side-table (turbofish calls are rare).
+    /// (`obj.method<T>(...)`). The downstream method-generic instantiation consumer
+    /// is not yet wired, so these are parser-recorded only — pinned by the
+    /// `method_*_turbofish_parses_with_type_args` parser tests, not yet read by
+    /// typeck. A sparse side-table (turbofish calls are rare).
     method_call_type_args: SparseSideTable<ExprId, ParsedTypeRange>,
 
     /// Receiver-position type arguments for a primary-position type-path turbofish
@@ -284,7 +286,7 @@ impl ExprArena {
         &self.stmts[id.index()]
     }
 
-    // -- Parsed Type Storage --
+    // Parsed Type Storage
 
     /// Allocate a parsed type, return ID.
     #[inline]
@@ -304,7 +306,7 @@ impl ExprArena {
         &self.parsed_types[id.index()]
     }
 
-    // -- Call-site Type Arguments (method-call turbofish side-table) --
+    // Call-site Type Arguments (method-call turbofish side-table)
 
     /// Record call-site type arguments for a `MethodCall` / `MethodCallNamed`
     /// expression, keyed by its `ExprId`. An `EMPTY` range is a no-op (the table
@@ -347,7 +349,7 @@ impl ExprArena {
             .unwrap_or(ParsedTypeRange::EMPTY)
     }
 
-    // -- Match Pattern Storage --
+    // Match Pattern Storage
 
     /// Allocate a match pattern, return ID.
     #[inline]
@@ -367,7 +369,7 @@ impl ExprArena {
         &self.match_patterns[id.index()]
     }
 
-    // -- Binding Pattern Storage --
+    // Binding Pattern Storage
 
     /// Allocate a binding pattern, return ID.
     #[inline]
@@ -387,7 +389,7 @@ impl ExprArena {
         &self.binding_patterns[id.index()]
     }
 
-    // -- Function Sequence Storage --
+    // Function Sequence Storage
 
     /// Allocate a function sequence, return ID.
     #[inline]
@@ -407,7 +409,7 @@ impl ExprArena {
         &self.function_seqs[id.index()]
     }
 
-    // -- Function Expression Storage --
+    // Function Expression Storage
 
     /// Allocate a function expression, return ID.
     #[inline]

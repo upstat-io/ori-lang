@@ -162,13 +162,13 @@ pub(super) fn resolve_deferred_mono_calls(
     );
 
     // Seed pass: a deferred call whose bindings are all caller-independent
-    // (`Concrete` / `PoolVar`, no `CallerSchemeVar`) was recorded from a
+    // (`Concrete` / `DeferredType`, no `CallerSchemeVar`) was recorded from a
     // NON-generic caller, which carries no `MonoInstance` for the
     // instance-driven worklist below to key on. Resolve it directly against
-    // the fully-linked pool — `PoolVar` follows the transient var's union-find
-    // link to its concrete root. The caller's `generic_args` are irrelevant
-    // here (no `CallerSchemeVar` binding reads them), so an empty slice is the
-    // correct caller context.
+    // the fully-linked pool — `DeferredType` follows the transient var's
+    // union-find link to its concrete root. The caller's `generic_args` are
+    // irrelevant here (no `CallerSchemeVar` binding reads them), so an empty
+    // slice is the correct caller context.
     for deferred in deferred_calls.iter().filter(|d| {
         d.var_subst
             .iter()
@@ -337,6 +337,26 @@ fn try_resolve_deferred_call(
 
     let key = (deferred.callee, generic_args.clone());
     if !seen.insert(key) {
+        // The `(callee, generic_args)` instance already exists — created
+        // eagerly (seeded into `seen` from the pre-existing instances) or by an
+        // earlier deferred call site sharing this key. The eager path publishes
+        // a dispatch entry PER call site and relies on the downstream
+        // dedup-remap (`check/mod.rs::dedup_and_remap_mono_instances`) to dedup
+        // instances. This path mirrors it: publish THIS call site's dispatch
+        // entry against the existing instance, else `call_expr_id` receives no
+        // `MonoInstanceId` and AOT mono-dispatch drops the call (interp↔LLVM
+        // parity break).
+        if let Some(existing_idx) = mono_instances
+            .iter()
+            .position(|inst| inst.fn_name == deferred.callee && inst.generic_args == generic_args)
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
+            )]
+            let existing_id = MonoInstanceId::new(existing_idx as u32);
+            mono_dispatch_pre_dedup.push((deferred.call_expr_id, existing_id));
+        }
         return;
     }
 

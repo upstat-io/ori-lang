@@ -3,7 +3,7 @@
 mod postfix_op_table_tests {
     //! Pins the single-source-of-truth link between `PostfixOp::from_tag`, the
     //! `apply_postfix_ops` dispatch, and the derived `POSTFIX_BITSET` — the
-    //! postfix analogue of `operators.rs` PR-7 `OPER_TABLE` exhaustiveness.
+    //! postfix analogue of the `operators.rs` `OPER_TABLE` exhaustiveness pin.
 
     use super::super::{is_postfix_tag, PostfixOp, POSTFIX_BITSET};
 

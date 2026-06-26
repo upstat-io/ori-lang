@@ -16,18 +16,6 @@ use crate::codegen::value_id::ValueId;
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `set.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
-    pub(crate) fn emit_set_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, FIELD_LEN, "set.len")
-    }
-
-    /// Emit `set.is_empty()` — `len == 0`.
-    pub(crate) fn emit_set_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.builder.extract_value(receiver, FIELD_LEN, "set.len")?;
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.icmp_eq(len, zero, "set.is_empty"))
-    }
-
     /// Extract set data, len, cap from `{i64 len, i64 cap, ptr data}`.
     fn extract_set_components(&mut self, receiver: ValueId) -> (ValueId, ValueId, ValueId) {
         let data_ptr = self

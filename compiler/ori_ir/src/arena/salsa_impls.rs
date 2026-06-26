@@ -1,7 +1,7 @@
 //! Manual `PartialEq` / `Eq` / `Hash` / `Debug` impls for [`ExprArena`].
 //!
 //! Why: `ExprArena` is a Salsa input; its `Eq`/`Hash` key downstream query
-//! memoization. The 22 structural fields define arena identity. The call-site
+//! memoization. The structural fields define arena identity. The call-site
 //! type-args side-tables (`method_call_type_args`/`receiver_type_args`) are
 //! EXCLUDED — they are sparse parse-recorded metadata, not arena structure;
 //! folding them into the Salsa key shifts memoization and perturbs downstream

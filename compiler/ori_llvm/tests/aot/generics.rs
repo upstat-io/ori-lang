@@ -21,6 +21,24 @@ fn test_generic_identity_string() {
     );
 }
 
+/// Regression: an imported prelude generic `len<T: Len>` monomorphized on an
+/// aggregate receiver ([int]/{str:int}) left the borrowed receiver a pointer-only
+/// param whose LLVM value at use sites is a zero {i64,i64,ptr} placeholder; the
+/// len dispatch did extract_value(FIELD_LEN) on that placeholder -> 0 under AOT
+/// (3 under interp = parity break). The str line is the embedded negative control
+/// (str.len reads via str_to_ptr_forwarded and was always correct). Fix:
+/// emit_collection_length_forwarded reads FIELD_LEN via a struct_gep+load on the
+/// borrowed_param_ptrs source pointer (mirroring emit_str_length_forwarded), so
+/// the param stays pointer-only (no RC-flow change); compute_pointer_only_params
+/// is unchanged.
+#[test]
+fn test_imported_generic_len_aggregate_receiver() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_len_aggregate.ori"),
+        "imported_generic_len_aggregate",
+    );
+}
+
 // Regression: method-level type generic on a concrete-receiver impl returning
 // a layout-bearing [T]. A rigid_var-at-codegen ICE regressed only the LLVM/AOT
 // path (the interpreter always passed). Exercises int + str (heap-element)

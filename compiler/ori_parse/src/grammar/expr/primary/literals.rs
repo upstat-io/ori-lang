@@ -146,8 +146,8 @@ impl Parser<'_> {
             "parse_ident_primary"
         );
 
-        // Map token to (intern_str, should_advance_first) — all follow the same pattern:
-        // intern the name, advance, return Ident expression.
+        // Non-Ident arms yield the canonical name to intern; the shared tail
+        // interns it and advances. The Ident arm advances + returns early.
         let name = match *self.cursor.current_kind() {
             TokenKind::Ident(name) => {
                 self.cursor.advance();

@@ -20,15 +20,6 @@ use crate::codegen::value_id::ValueId;
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `str.length()` — call `ori_str_len(*const OriStr) -> i64`.
-    ///
-    /// SSO-safe: the runtime helper dispatches on the SSO flag byte.
-    pub(crate) fn emit_str_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_len");
-        let ptr = self.str_to_ptr(receiver, "str_len.self");
-        self.emit_rt_call(func_id, &[ptr], "str.len")
-    }
-
     /// Emit `str.length()` with borrowed parameter forwarding.
     ///
     /// When the receiver is a borrowed parameter, forwards its pointer directly
@@ -43,9 +34,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(func_id, &[ptr], "str.len")
     }
 
-    /// Emit `str.is_empty()` — `ori_str_len(s) == 0`.
-    pub(crate) fn emit_str_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.emit_str_length(receiver)?;
+    /// Emit `str.is_empty()` — `ori_str_len(s) == 0` — with the same borrowed-
+    /// parameter forwarding as [`Self::emit_str_length_forwarded`] (read the len
+    /// via the source pointer when the receiver is a borrowed pointer-only param).
+    pub(crate) fn emit_str_is_empty_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ArcVarId,
+    ) -> Option<ValueId> {
+        let len = self.emit_str_length_forwarded(receiver, var)?;
         let zero = self.builder.const_i64(0);
         Some(self.builder.icmp_eq(len, zero, "str.is_empty"))
     }

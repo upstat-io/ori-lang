@@ -21,7 +21,7 @@ declare_builtins! { emitter, ctx;
     ("str", "into") => emitter.emit_str_into_error(ctx.arg_vals[0], ctx.receiver_ty, ctx.dst_ty),
     ("str", "length") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "len") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
-    ("str", "is_empty") => emitter.emit_str_is_empty(ctx.arg_vals[0]),
+    ("str", "is_empty") => emitter.emit_str_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "concat") => {
         if ctx.arg_vals.len() >= 2 {
             Some(emitter.emit_str_runtime_call("ori_str_concat", ctx.arg_vals[0], ctx.arg_vals[1], true))
@@ -95,10 +95,10 @@ declare_builtins! { emitter, ctx;
     ("str", "iter") => emitter.emit_str_iter(ctx.arg_vals[0]),
     // list
     ("list", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("list", "count") => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "length") => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "len") => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "is_empty") => emitter.emit_list_is_empty(ctx.arg_vals[0]),
+    ("list", "count") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
+    ("list", "length") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
+    ("list", "len") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
+    ("list", "is_empty") => emitter.emit_collection_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.is_empty"),
     ("list", "concat") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -343,9 +343,9 @@ declare_builtins! { emitter, ctx;
         }
     },
     ("map", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("map", "length") => emitter.emit_map_length(ctx.arg_vals[0]),
-    ("map", "len") => emitter.emit_map_length(ctx.arg_vals[0]),
-    ("map", "is_empty") => emitter.emit_map_is_empty(ctx.arg_vals[0]),
+    ("map", "length") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "map.len"),
+    ("map", "len") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "map.len"),
+    ("map", "is_empty") => emitter.emit_collection_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "map.is_empty"),
     ("map", "contains_key") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, .. } = ctx.type_info {
@@ -466,9 +466,9 @@ declare_builtins! { emitter, ctx;
         }
     },
     ("Set", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("Set", "length") => emitter.emit_set_length(ctx.arg_vals[0]),
-    ("Set", "len") => emitter.emit_set_length(ctx.arg_vals[0]),
-    ("Set", "is_empty") => emitter.emit_set_is_empty(ctx.arg_vals[0]),
+    ("Set", "length") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "set.len"),
+    ("Set", "len") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "set.len"),
+    ("Set", "is_empty") => emitter.emit_collection_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "set.is_empty"),
     ("Set", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
@@ -629,7 +629,55 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ptr
     }
 
-    /// Build the LLVM struct type `{i64, i64, ptr}` for list sret returns.
+    /// Emit a collection `len`/`length` field-read with borrowed-parameter
+    /// forwarding, mirroring [`Self::emit_str_length_forwarded`]. When the
+    /// receiver is a borrowed pointer-only param its LLVM value is a zero
+    /// `{i64, i64, ptr}` placeholder (the entry-block struct-value load was
+    /// elided — 24-byte collections pass indirectly per the ABI), so read
+    /// `FIELD_LEN` directly from the source pointer via GEP + load. This keeps
+    /// the param pointer-only (no struct-value materialization, no RC-flow
+    /// change). Otherwise the receiver is a loaded struct value and
+    /// `extract_value` reads it. Shared by list/map/set — identical
+    /// `{i64, i64, ptr}` fat-pointer layout.
+    pub(crate) fn emit_collection_length_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ori_arc::ir::ArcVarId,
+        name: &str,
+    ) -> Option<ValueId> {
+        if let Some(&src_ptr) = self.borrowed_param_ptrs.get(&var) {
+            let struct_ty = self.list_struct_type();
+            let len_ptr = self
+                .builder
+                .struct_gep(struct_ty, src_ptr, ori_ir::FIELD_LEN, name);
+            let i64_ty = self
+                .builder
+                .register_type(self.builder.scx().type_i64().into());
+            return Some(self.builder.load(i64_ty, len_ptr, name));
+        }
+        self.builder
+            .extract_value(receiver, ori_ir::FIELD_LEN, name)
+    }
+
+    /// Emit a collection `is_empty` (`len == 0`) with the same borrowed-parameter
+    /// forwarding as [`Self::emit_collection_length_forwarded`]: read `FIELD_LEN`
+    /// via the source pointer when the receiver is a borrowed pointer-only param
+    /// (its struct value is a zero placeholder), else `extract_value`. Shared by
+    /// list/map/set — identical `{i64, i64, ptr}` fat-pointer layout.
+    pub(crate) fn emit_collection_is_empty_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ori_arc::ir::ArcVarId,
+        name: &str,
+    ) -> Option<ValueId> {
+        let len = self.emit_collection_length_forwarded(receiver, var, name)?;
+        let zero = self.builder.const_i64(0);
+        Some(self.builder.icmp_eq(len, zero, name))
+    }
+
+    /// Build the LLVM struct type `{i64, i64, ptr}` — the shared list/map/set
+    /// fat-pointer layout used for list sret returns AND the borrowed-parameter
+    /// `FIELD_LEN` forwarding in [`Self::emit_collection_length_forwarded`].
     pub(crate) fn list_struct_type(&mut self) -> LLVMTypeId {
         self.builder.register_type(
             self.builder

@@ -9,7 +9,6 @@
 mod helpers;
 mod sort_thunks;
 
-use ori_ir::FIELD_LEN;
 use ori_types::Idx;
 
 use crate::codegen::type_info::TypeInfo;
@@ -20,20 +19,6 @@ use super::super::super::ArcIrEmitter;
 // Read-only accessors
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `list.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
-    pub(crate) fn emit_list_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, FIELD_LEN, "list.len")
-    }
-
-    /// Emit `list.is_empty()` — `len == 0`.
-    pub(crate) fn emit_list_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self
-            .builder
-            .extract_value(receiver, FIELD_LEN, "list.len")?;
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.icmp_eq(len, zero, "list.is_empty"))
-    }
-
     /// Emit `list.first()` — returns `Option<T>` as `{i64 tag, T value}`.
     pub(crate) fn emit_list_first(
         &mut self,

@@ -44,7 +44,7 @@ pub(crate) fn infer_method_call(
             ret_ty,
             receiver_ty,
         } => {
-            let arg_ids: Vec<ExprId> = arena.get_expr_list(args).to_vec();
+            let arg_ids = arena.get_expr_list(args);
             let arg_types: Vec<Idx> = arg_ids
                 .iter()
                 .map(|&arg_id| infer_expr(engine, arena, arg_id))
@@ -480,10 +480,6 @@ fn check_range_float_iteration(
 /// the suggestion points users straight at that fix. When no (or when the
 /// tag has no registry mapping — type variables, named types, projections,
 /// etc.), the suggestion falls back to the generic "wrap in iterator" message.
-///
-/// Replaces a hardcoded tag set (`List | Set | Map | Str | Range | Option`)
-/// — that form was a LEAK:scattered-knowledge violation duplicating registry
-/// method knowledge.
 pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
     use super::super::registry_bridge::tag_to_type_tag;
     let has_iter = tag_to_type_tag(inner_tag)
