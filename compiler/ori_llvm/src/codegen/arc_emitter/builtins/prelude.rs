@@ -21,7 +21,8 @@ use crate::codegen::value_id::ValueId;
     dead_code,
     reason = "used by sync tests for prelude coverage verification"
 )]
-pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &["byte", "float", "hash_combine", "int", "str"];
+pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] =
+    &["byte", "float", "hash_combine", "int", "repeat", "str"];
 
 /// Prelude functions recognized but not yet implementable in AOT codegen.
 ///
@@ -31,7 +32,7 @@ pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &["byte", "float", "hash_combi
     dead_code,
     reason = "documents pending prelude AOT support for sync completeness"
 )]
-pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error", "repeat", "thread_id"];
+pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error", "thread_id"];
 
 /// Try to emit a prelude builtin function call.
 ///
@@ -49,6 +50,7 @@ pub(in crate::codegen::arc_emitter) fn try_emit_prelude_function<'scx: 'ctx, 'ct
         "float" => emit_float(emitter, args, arc_func),
         "byte" => emit_byte(emitter, args, arc_func),
         "hash_combine" => emit_hash_combine(emitter, args),
+        "repeat" => emit_repeat(emitter, args, arc_func),
         // Not yet implementable — need runtime infrastructure.
         _ => None,
     }
@@ -151,6 +153,58 @@ fn emit_byte<'scx: 'ctx, 'ctx>(
         }
         _ => None,
     }
+}
+
+/// Emit `repeat(value)` — construct an infinite iterator over copies of `value`.
+///
+/// Calls `ori_iter_repeat(value_ptr, elem_size, elem_dec_fn)`. The runtime
+/// memcpy's the value into a master buffer; because that creates a reference
+/// the iterator holds for its whole lifetime (it may outlive the borrowed
+/// source binding), the value's RC is incremented here before the copy —
+/// mirroring `emit_option_iter`. The master's reference is released by the
+/// runtime's `Drop for IterState` via `elem_dec_fn`; each yielded element is
+/// inc'd by the consumer (e.g. `collect`).
+fn emit_repeat<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+    arc_func: &ArcFunction,
+) -> Option<ValueId> {
+    // The free prelude `repeat(value:) -> Iterator<T>` takes EXACTLY one arg.
+    // The string method `str.repeat(count:) -> str` lowers to the same
+    // `Apply @repeat(self, count)` callee name with TWO args; decline it here so
+    // it falls through to the string-method emitter (name-only prelude dispatch
+    // would otherwise shadow the method).
+    if args.len() != 1 {
+        return None;
+    }
+    let value_ty = arc_func.var_type(args[0]);
+    let value_val = emitter.var(args[0]);
+
+    // RC-retain the value: the runtime memcpy's the value bytes into the
+    // master buffer, creating a second reference to any inner RC-managed data.
+    // The master outlives the (borrowed) source, so without this retain both
+    // the source and the iterator master would dec the same RC → double-free.
+    emitter.inc_value_rc(value_val, value_ty, 1);
+
+    // Store the value to an alloca so the runtime can read it through a pointer.
+    let value_llvm = emitter.resolve_type(value_ty);
+    let alloca = emitter.builder.alloca(value_llvm, "repeat.val.a");
+    emitter.builder.store(value_val, alloca);
+
+    let elem_size =
+        crate::codegen::abi::abi_size(value_ty, emitter.type_info, emitter.repr_plan) as i64;
+    let elem_size_val = emitter.builder.const_i64(elem_size);
+
+    // elem_dec_fn releases the master's reference at iterator drop (null for
+    // scalar elements).
+    let elem_dec_fn = emitter.get_or_generate_elem_dec_fn(value_ty);
+
+    let func_id = emitter.builder.runtime_fn("ori_iter_repeat");
+    emitter.emit_rt_call(
+        func_id,
+        &[alloca, elem_size_val, elem_dec_fn],
+        "repeat.iter",
+    )
 }
 
 /// Emit `hash_combine(a, b)` — delegates to the existing inline emitter.

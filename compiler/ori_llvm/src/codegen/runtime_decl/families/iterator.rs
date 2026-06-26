@@ -69,6 +69,14 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_iter_repeat",
+        // (value_ptr, elem_size, elem_dec_fn)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Iterator next — extern "C" (callbacks called inside, panics abort at boundary)
     RtFn {
         name: "ori_iter_next",

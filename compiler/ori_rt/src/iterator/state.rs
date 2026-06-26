@@ -203,6 +203,22 @@ pub(crate) enum IterState {
         key_dec_fn: Option<extern "C" fn(*mut u8)>,
         val_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
+
+    /// Infinitely yields copies of a single owned master value.
+    ///
+    /// Mirrors the interpreter's `IteratorValue::Repeat`. `value` holds the
+    /// elem_size-byte master; `ori_iter_repeat`'s caller (codegen) inc'd the
+    /// value's RC once before construction so the master owns a reference
+    /// independent of the (borrowed) source binding. Each `next()` yields a
+    /// bitwise copy of the master WITHOUT incrementing — the consumer's
+    /// per-yield inc (e.g. `ori_iter_collect`'s `elem_inc_fn`) covers the
+    /// yielded aliases, identical to the `Cycled` ownership protocol. `Drop`
+    /// decs the master exactly once via `elem_dec_fn` (null for scalars).
+    Repeat {
+        value: Vec<u8>,
+        elem_size: i64,
+        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    },
 }
 
 /// Dec every owned element master in a flat `elem_size`-byte buffer exactly
@@ -324,6 +340,16 @@ impl Drop for IterState {
                 // The elements buffer OWNS its copies (inc'd at collect time in
                 // ori_iter_rev).
                 dec_owned_buffer(elements, *elem_size, *dec);
+            }
+            IterState::Repeat {
+                value,
+                elem_size,
+                elem_dec_fn: Some(dec),
+            } => {
+                // The master OWNS one copy (the caller inc'd the value's RC
+                // before construction). Release it exactly once; yielded
+                // aliases are owned by the consumer's per-yield inc.
+                dec_owned_buffer(value, *elem_size, *dec);
             }
             _ => {}
         }

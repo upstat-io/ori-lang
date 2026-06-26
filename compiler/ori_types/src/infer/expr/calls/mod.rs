@@ -8,6 +8,7 @@ mod impl_signature;
 mod infinite_iterator;
 mod method_call;
 mod method_diagnostics;
+mod method_receiver;
 mod monomorphization;
 mod traits;
 

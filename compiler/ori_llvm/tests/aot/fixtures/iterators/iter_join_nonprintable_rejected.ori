@@ -1,0 +1,12 @@
+// Negative pin: join over a genuinely non-Printable element type (a struct with
+// no Printable / to_str impl) has no to_str trampoline, so emit_iter_join's
+// codegen guard rejects it at compile time with the "not yet supported in LLVM
+// backend" diagnostic (E5001). Keeps the reject-unsupported-join invariant
+// pinned while Duration (Printable) moves to a positive pin.
+type NoPrint = { x: int }
+
+@main () -> int = {
+    let items = [NoPrint { x: 1 }, NoPrint { x: 2 }];
+    let result = items.iter().join(separator: ", ");
+    if len(collection: result) > 0 then 0 else 1
+}

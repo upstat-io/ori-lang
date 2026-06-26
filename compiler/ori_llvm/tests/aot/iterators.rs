@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{assert_aot_success, assert_cell_output, compile_and_run_capture};
 
 // List.iter() — construct from list
 
@@ -304,25 +304,36 @@ fn test_iter_join_long_float() {
     );
 }
 
-/// Negative pin: unsupported element types (Duration) must be rejected at
-/// compile time — the codegen error guard rejects them with E5001.
+/// Positive pin: join over Printable `Duration` elements compiles, runs, and
+/// emits the `to_str`-converted elements ("1s, 2s"). Duration is Printable, so
+/// `emit_iter_join`'s `ln_to_str_trampoline` path converts each element; this
+/// pins the now-correct behavior (formerly mis-classified as unsupported).
 #[test]
-fn test_iter_join_unsupported_type_rejected() {
-    let source = r#"
-@main () -> int = {
-    let result = [1s, 2s].iter().join(separator: ", ");
-    if result == "1s, 2s" then 0 else 1
+fn test_iter_join_duration_supported() {
+    assert_cell_output(
+        include_str!("fixtures/iterators/iter_join_duration_supported.ori"),
+        "iter_join_duration_supported",
+        "1s, 2s",
+    );
 }
-"#;
-    let (exit_code, _, stderr) = compile_and_run_capture(source);
-    // Must fail at compile time (-1), not crash at runtime or silently succeed
+
+/// Negative pin: join over a genuinely non-Printable element type (a struct
+/// with no Printable / `to_str` impl) has no `to_str` trampoline, so
+/// `emit_iter_join`'s codegen guard rejects it at compile time (E5001). Pins
+/// the reject-genuinely-unsupported-join invariant.
+#[test]
+fn test_iter_join_nonprintable_rejected() {
+    let (exit_code, _, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/iterators/iter_join_nonprintable_rejected.ori"
+    ));
+    // Must fail at compile time (-1), not crash at runtime or silently succeed.
     assert_eq!(
         exit_code, -1,
-        "Duration join should be rejected at compile time, got exit code {exit_code}"
+        "non-Printable struct join should be rejected at compile time, got exit code {exit_code}"
     );
     assert!(
         stderr.contains("not yet supported in LLVM backend"),
-        "Expected codegen error for unsupported join type, got:\n{stderr}"
+        "Expected codegen error for unsupported join element type, got:\n{stderr}"
     );
 }
 
@@ -361,5 +372,25 @@ fn test_iter_chain_collect() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_chain_collect.ori"),
         "iter_chain_collect",
+    );
+}
+
+// repeat() — prelude builtin generic, infinite iterator source.
+
+#[test]
+fn test_repeat_int_take_sum() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/repeat_int_take_sum.ori"),
+        "repeat_int_take_sum",
+    );
+}
+
+#[test]
+fn test_repeat_str_take_collect() {
+    // Heap element: pins per-yield RC clone + master release (leak-checked).
+    assert_cell_output(
+        include_str!("fixtures/iterators/repeat_str_take_collect.ori"),
+        "repeat_str_take_collect",
+        "hi,hi,hi",
     );
 }

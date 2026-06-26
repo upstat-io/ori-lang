@@ -32,6 +32,7 @@ pub(super) fn maybe_record_mono_instance(
     call_expr_id: ExprId,
     func_name: Option<Name>,
     params: &[Idx],
+    inst_return_type: Idx,
 ) {
     let Some(fn_name) = func_name else {
         return;
@@ -73,6 +74,8 @@ pub(super) fn maybe_record_mono_instance(
         &generic_param_mapping,
         &param_types,
         params,
+        return_type,
+        inst_return_type,
     );
 
     // All type params must be mapped (even if some are still variables).
@@ -705,8 +708,10 @@ fn extract_type_args(pool: &Pool, idx: Idx) -> Vec<Idx> {
 /// Build the `var_id` -> `resolved_type` substitution map for monomorphization.
 ///
 /// For each scheme variable, resolves it either directly from function params
-/// (when type param maps to a parameter position) or indirectly by structural
-/// extraction from generic param types.
+/// (when type param maps to a parameter position), indirectly by structural
+/// extraction from generic param types, or — when neither binds the param (a
+/// zero-arg / return-type-determined generic) — by structural extraction from
+/// the generic-vs-instantiated return type.
 ///
 /// Returns `(var_subst, generic_args, has_unresolved_vars)`.
 fn build_mono_var_subst(
@@ -715,6 +720,8 @@ fn build_mono_var_subst(
     generic_param_mapping: &[Option<usize>],
     param_types: &[Idx],
     params: &[Idx],
+    sig_return_type: Idx,
+    inst_return_type: Idx,
 ) -> (FxHashMap<u32, Idx>, Vec<GenericArg>, bool) {
     let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
     let mut generic_args = Vec::with_capacity(scheme_var_ids.len());
@@ -728,6 +735,8 @@ fn build_mono_var_subst(
             generic_param_mapping,
             param_types,
             params,
+            sig_return_type,
+            inst_return_type,
         ) else {
             continue;
         };
@@ -752,9 +761,11 @@ fn build_mono_var_subst(
 
 /// Resolve a single scheme variable at position `i` to a concrete type, either
 /// directly from a function parameter (when `generic_param_mapping[i]` points
-/// at a parameter) or indirectly by structural extraction from the generic
-/// parameter types. Returns `None` when no concrete type can be resolved yet
-/// — the outer worklist skips the var and revisits on a later iteration.
+/// at a parameter), indirectly by structural extraction from the generic
+/// parameter types, or — when no parameter binds it — by structural extraction
+/// from the generic-vs-instantiated return type. Returns `None` when no
+/// concrete type can be resolved yet — the outer worklist skips the var and
+/// revisits on a later iteration.
 fn resolve_scheme_var(
     engine: &mut InferEngine<'_>,
     i: usize,
@@ -762,6 +773,8 @@ fn resolve_scheme_var(
     generic_param_mapping: &[Option<usize>],
     param_types: &[Idx],
     params: &[Idx],
+    sig_return_type: Idx,
+    inst_return_type: Idx,
 ) -> Option<Idx> {
     if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
         // Type param appears directly as a function parameter -- resolve it.
@@ -771,7 +784,19 @@ fn resolve_scheme_var(
 
     // Indirect type param (e.g., T in Pair<T, int>) -- extract concrete
     // type by walking generic and concrete param types in parallel.
-    extract_indirect_scheme_var(engine, var_id, param_types, params)
+    if let Some(c) = extract_indirect_scheme_var(engine, var_id, param_types, params) {
+        return Some(c);
+    }
+
+    // Return-type-determined type param: a zero-arg (or otherwise not-arg-bound)
+    // generic whose `T` is fixed only by the call's expected/return binding
+    // (`let b: Box<int> = empty_box()` -> `T = int`). At recording time the
+    // call's expected-type unification has not yet run, so the extracted type is
+    // the fresh instantiation `Tag::Var`; it carries `HAS_VAR` and routes to the
+    // deferred path, where the body-final seed pass resolves it once the var
+    // links to its concrete root.
+    let c = extract_var_from_types(engine.pool(), sig_return_type, inst_return_type, var_id)?;
+    Some(engine.resolve(c))
 }
 
 /// Walk generic and concrete parameter types in parallel looking for a

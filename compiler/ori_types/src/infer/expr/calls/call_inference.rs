@@ -80,7 +80,7 @@ pub(crate) fn infer_call(
 
     // Record monomorphization instance for generic function calls.
     // At this point type variables have been unified with concrete types.
-    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params);
+    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params, ret);
 
     resolve_return_projection(engine, func_name_id, &params, ret)
 }
@@ -167,7 +167,7 @@ pub(crate) fn infer_call_named(
     }
 
     // Record monomorphization instance for generic function calls.
-    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params);
+    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params, ret);
 
     // Validate where-clause constraints after argument type-checking.
     // At this point, generic type variables have been unified with concrete types.

@@ -33,6 +33,42 @@ fn list_iter_empty() {
     ori_iter_drop(iter);
 }
 
+// Repeat iterator — infinite, scalar elements (no RC, so elem_dec_fn = None).
+
+#[test]
+fn repeat_yields_same_value_indefinitely() {
+    let value: i64 = 7;
+    let iter = ori_iter_repeat((&raw const value).cast(), 8, None);
+
+    let mut out: i64 = 0;
+    // Every next() yields the master value and never exhausts.
+    for _ in 0..5 {
+        assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
+        assert_eq!(out, 7);
+    }
+
+    ori_iter_drop(iter);
+}
+
+#[test]
+fn repeat_bounded_by_take() {
+    let value: i64 = 99;
+    let src = ori_iter_repeat((&raw const value).cast(), 8, None);
+    let iter = ori_iter_take(src, 3);
+
+    let mut out: i64 = 0;
+    assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
+    assert_eq!(out, 99);
+    assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
+    assert_eq!(out, 99);
+    assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
+    assert_eq!(out, 99);
+    // take(3) exhausts after 3 elements even though the source is infinite.
+    assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
+
+    ori_iter_drop(iter);
+}
+
 // Range iterator
 
 #[test]

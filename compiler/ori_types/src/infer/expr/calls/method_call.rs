@@ -4,18 +4,16 @@ use ori_diagnostic::Suggestion;
 use ori_ir::{ExprArena, ExprId, Name, Span};
 
 use super::super::super::InferEngine;
-use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
+use super::super::{infer_expr, lookup_struct_field_types};
 use super::closure_unify::unify_higher_order_constraints;
 use super::constraints::{check_method_inline_bounds, check_method_where_clauses};
 use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
-use super::infinite_iterator::check_infinite_iterator_consumed;
-use super::method_diagnostics::{
-    emit_into_not_implemented, emit_unknown_method, is_named_generic_var,
-};
+use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
+use super::method_receiver::{resolve_receiver_and_builtin, ReceiverDispatch};
 use super::monomorphization::maybe_record_method_mono_instance;
 use crate::infer::expr::type_resolution::resolve_parsed_type_list;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag};
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
 ///
@@ -107,6 +105,13 @@ pub(crate) fn infer_method_call(
         // instantiation vars are unified; inert for every other dispatch kind.
         maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
         return ret_ty;
+    }
+
+    // Callable struct field: `s.transform(21)` where `transform: (int) -> int`
+    // is a FIELD, not a method (typeck's concrete-receiver dispatch is otherwise
+    // incomplete here — see `callable_field_fn_ty`).
+    if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
+        return check_callable_field_positional(engine, arena, fn_ty, arg_ids, span, expected);
     }
 
     // Error or not found -- infer all args for side effects
@@ -222,6 +227,15 @@ pub(crate) fn infer_method_call_named(
         return sig.ret;
     }
 
+    // Callable struct field: a closure-typed field invoked through the receiver
+    // (typeck's concrete-receiver dispatch is otherwise incomplete here — see
+    // `callable_field_fn_ty`). The closure type carries no parameter names, so
+    // check each named arg's value positionally against the closure params.
+    if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
+        let value_ids: Vec<ExprId> = call_args.iter().map(|arg| arg.value).collect();
+        return check_callable_field_positional(engine, arena, fn_ty, &value_ids, span, expected);
+    }
+
     // Error or not found -- infer all args for side effects
     for arg in arena.get_call_args(args) {
         infer_expr(engine, arena, arg.value);
@@ -238,6 +252,69 @@ pub(crate) fn infer_method_call_named(
     }
 
     Idx::ERROR
+}
+
+/// If `receiver_ty` is a struct carrying a field named `method` whose type is a
+/// closure (`Tag::Function`), return that field's resolved function type.
+///
+/// typeck's concrete-receiver method dispatch is otherwise incomplete for
+/// callable struct fields — `s.transform(21)` where `transform: (int) -> int`
+/// is a FIELD, not a method. Without resolving it here, the method call silently
+/// poisons to `Idx::ERROR` (no diagnostic), and only the evaluator's dynamic
+/// dispatch produces the right value. The LLVM backend needs the real return
+/// type in the typed IR (the ARC lowerer projects the field and emits an
+/// indirect call). Mirrors `ori_eval` callable-struct-field dispatch.
+fn callable_field_fn_ty(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+) -> Option<Idx> {
+    let (type_name, type_args) = match engine.pool().tag(receiver_ty) {
+        Tag::Named => (engine.pool().named_name(receiver_ty), None),
+        Tag::Applied => (
+            engine.pool().applied_name(receiver_ty),
+            Some(engine.pool().applied_args(receiver_ty)),
+        ),
+        _ => return None,
+    };
+    let fields = lookup_struct_field_types(engine, type_name, type_args.as_deref())?;
+    let field_ty = engine.resolve(*fields.get(&method)?);
+    (engine.pool().tag(field_ty) == Tag::Function).then_some(field_ty)
+}
+
+/// Check positional call args against a closure field's parameter types and
+/// return the closure's return type. Shared by the positional method-call path.
+fn check_callable_field_positional(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    fn_ty: Idx,
+    arg_ids: &[ExprId],
+    span: Span,
+    expected: Option<&Expected>,
+) -> Idx {
+    let params = engine.pool().function_params(fn_ty);
+    let ret = engine.pool().function_return(fn_ty);
+    for (i, &arg_id) in arg_ids.iter().enumerate() {
+        let arg_ty = infer_expr(engine, arena, arg_id);
+        if let Some(&param_ty) = params.get(i) {
+            let arg_expected = Expected {
+                ty: param_ty,
+                origin: ExpectedOrigin::Context {
+                    span,
+                    kind: ContextKind::FunctionArgument {
+                        func_name: None,
+                        arg_index: i,
+                        param_name: None,
+                    },
+                },
+            };
+            let _ = engine.check_type(arg_ty, &arg_expected, arena.get_expr(arg_id).span);
+        }
+    }
+    if let Some(exp) = expected {
+        let _ = engine.check_type(ret, exp, span);
+    }
+    ret
 }
 
 /// Instantiate a primary-position type-path turbofish receiver (`Box<int>.new(...)`)
@@ -288,15 +365,6 @@ fn apply_receiver_type_args(
     }
 }
 
-/// Result of resolving a method receiver and checking builtin dispatch.
-enum ReceiverDispatch {
-    /// Return this type. Caller must infer all args first.
-    /// `receiver_ty` is the resolved receiver, needed for higher-order constraint propagation.
-    Return { ret_ty: Idx, receiver_ty: Idx },
-    /// No builtin found. Proceed to impl lookup with this resolved receiver.
-    Continue { resolved: Idx },
-}
-
 /// Type-check positional method call arguments against resolved param types.
 fn check_positional_args(
     engine: &mut InferEngine<'_>,
@@ -321,156 +389,6 @@ fn check_positional_args(
         let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
     }
     sig.ret
-}
-
-/// Resolve the receiver type and try builtin method dispatch.
-///
-/// Handles: receiver inference, error propagation, scheme instantiation,
-/// type-variable deferral, builtin method lookup, `DoubleEndedIterator`
-/// gating, and `Range<float>` iteration rejection.
-///
-/// Returns `Return(ty)` for early results (caller should infer all args
-/// and return the type). Returns `Continue { resolved }` to proceed
-/// with impl method lookup.
-fn resolve_receiver_and_builtin(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    receiver: ExprId,
-    method: Name,
-    span: Span,
-) -> ReceiverDispatch {
-    let receiver_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(receiver_ty);
-
-    // Propagate errors silently
-    if resolved == Idx::ERROR {
-        return ReceiverDispatch::Return {
-            ret_ty: Idx::ERROR,
-            receiver_ty: Idx::ERROR,
-        };
-    }
-
-    // If receiver is a scheme, instantiate it to get the concrete type
-    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
-        engine.instantiate(resolved)
-    } else {
-        resolved
-    };
-
-    // For unresolved type variables, defer resolution UNLESS the var has
-    // registered trait bounds (bound-chain dispatch on top-level
-    // function type-params, which use `pool.fresh_named_var` and surface
-    // as `Tag::Var` rather than `Tag::RigidVar`). Bounded vars must
-    // continue through `lookup_impl_method` so the bound chain runs;
-    // otherwise the early-return masks the dispatch.
-    let tag = engine.pool().tag(resolved);
-    if tag == Tag::Var {
-        let has_bounds = engine.rigid_var_bounds(resolved).is_some();
-        if !has_bounds {
-            // A NAMED unbound var that is a generic type parameter (`@f<T>(x: T)`,
-            // surfaced via `fresh_named_var`, name not a registered trait) has no
-            // methods statically, so `x.m()` MUST surface a diagnostic via the
-            // NotFound path, NOT defer. An ANONYMOUS unbound var (genuine
-            // inference var) and a capability/trait-namespace named var (`Http`,
-            // name IS a registered trait) defer — see `is_named_generic_var`.
-            if !is_named_generic_var(engine, resolved) {
-                return ReceiverDispatch::Return {
-                    ret_ty: engine.pool_mut().fresh_var(),
-                    receiver_ty: resolved,
-                };
-            }
-            // Named generic with no bound: fall through to `lookup_impl_method`,
-            // which returns NotFound → `emit_unknown_method` reports the error.
-        }
-    }
-
-    let method_str = engine.lookup_name(method);
-
-    // 1. Try built-in method resolution
-    if let Some(name_str) = method_str {
-        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
-            // 1a. Before returning, check for infinite iterator consumption
-            if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
-                check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
-            }
-            return ReceiverDispatch::Return {
-                ret_ty: ret,
-                receiver_ty: resolved,
-            };
-        }
-    }
-
-    // 1b. Reject DoubleEndedIterator methods on plain Iterator receivers
-    if tag == Tag::Iterator {
-        if let Some(name_str) = method_str {
-            if ori_registry::is_dei_only(name_str) {
-                engine.push_error(TypeCheckError::unsatisfied_bound(
-                    span,
-                    format!(
-                        "`{name_str}` requires a DoubleEndedIterator, \
-                         but this is an Iterator (use .iter() on a list, range, \
-                         or string to get a DoubleEndedIterator)"
-                    ),
-                ));
-                return ReceiverDispatch::Return {
-                    ret_ty: Idx::ERROR,
-                    receiver_ty: Idx::ERROR,
-                };
-            }
-        }
-    }
-
-    // 1c. Reject ALL methods on Range<float> — ranges are int-only per spec.
-    // Float range construction is now rejected in infer_range(), but this guard
-    // is defense-in-depth in case Range<float> is constructed through other means.
-    // Iteration methods get a specific diagnostic; other methods get a generic
-    // "Range<float> not supported" error with a diagnostic (not silent).
-    if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
-        if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
-            return ReceiverDispatch::Return {
-                ret_ty: err,
-                receiver_ty: resolved,
-            };
-        }
-        // Non-iteration methods: emit diagnostic, then return error
-        engine.push_error(TypeCheckError::range_float_not_constructible(span));
-        return ReceiverDispatch::Return {
-            ret_ty: Idx::ERROR,
-            receiver_ty: resolved,
-        };
-    }
-
-    ReceiverDispatch::Continue { resolved }
-}
-
-/// Check if a method call on a `Range<float>` is attempting iteration.
-///
-/// Returns `Some(Idx::ERROR)` with a diagnostic pushed if the method
-/// is an iteration method and the range element type is `float`.
-/// Returns `None` if the check doesn't apply.
-fn check_range_float_iteration(
-    engine: &mut InferEngine<'_>,
-    resolved: Idx,
-    tag: Tag,
-    method_str: Option<&str>,
-    span: Span,
-) -> Option<Idx> {
-    if tag != Tag::Range {
-        return None;
-    }
-    let name_str = method_str?;
-    if !range_method_requires_iteration(name_str) {
-        return None;
-    }
-    let elem = engine.pool().range_elem(resolved);
-    if elem != Idx::FLOAT {
-        return None;
-    }
-    engine.push_error(TypeCheckError::range_float_not_iterable(
-        span,
-        "(0..10).iter().map((i) -> i.to_float() / 10.0)",
-    ));
-    Some(Idx::ERROR)
 }
 
 /// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.

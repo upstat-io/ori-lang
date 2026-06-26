@@ -102,7 +102,18 @@ impl IterState {
                 val_size,
                 ..
             } => Self::next_map(*data, *cap, *len, pos, *key_size, *val_size, out_ptr),
+            Self::Repeat {
+                value, elem_size, ..
+            } => Self::next_repeat(value, *elem_size, out_ptr),
         }
+    }
+
+    /// Repeat: yield a bitwise copy of the master value (no inc — the consumer
+    /// owns the per-yield inc). Always produces an element (infinite).
+    unsafe fn next_repeat(value: &[u8], elem_size: i64, out_ptr: *mut u8) -> bool {
+        let es = elem_size.max(0) as usize;
+        ptr::copy_nonoverlapping(value.as_ptr(), out_ptr, es);
+        true
     }
 
     unsafe fn next_list(data: *mut u8, len: i64, pos: &mut i64, es: i64, out_ptr: *mut u8) -> bool {

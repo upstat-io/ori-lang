@@ -225,6 +225,41 @@ pub extern "C" fn ori_iter_from_map(
     Box::into_raw(Box::new(state)).cast()
 }
 
+/// Create an infinite iterator that yields copies of `value`.
+///
+/// Mirrors the interpreter's `IteratorValue::from_repeat`. Copies `elem_size`
+/// bytes from `value_ptr` into the master buffer. The CALLER (codegen) inc'd
+/// the value's RC once before this call, so the master owns one reference and
+/// stays live independent of the (borrowed) source binding; `Drop` releases it
+/// once via `elem_dec_fn` (null for scalar elements). Each `next()` yields a
+/// bitwise copy WITHOUT incrementing — the consumer's per-yield inc covers the
+/// yielded aliases (identical to the `Cycled` / `ori_iter_from_option`
+/// protocol). The result is infinite; bound it with `.take(n)` before any
+/// eager consumer.
+#[no_mangle]
+pub extern "C" fn ori_iter_repeat(
+    value_ptr: *const u8,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
+    assert_elem_size(elem_size, "ori_iter_repeat");
+    let size = elem_size.max(0) as usize;
+    let mut value = vec![0u8; size];
+    if !value_ptr.is_null() && size > 0 {
+        // SAFETY: caller guarantees `value_ptr` is valid for `size` bytes;
+        // `value` is freshly allocated with `size` bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(value_ptr, value.as_mut_ptr(), size);
+        }
+    }
+    let state = IterState::Repeat {
+        value,
+        elem_size,
+        elem_dec_fn,
+    };
+    Box::into_raw(Box::new(state)).cast()
+}
+
 /// Create an iterator from an `Option<T>`.
 ///
 /// Mirrors the interpreter's `IteratorValue::from_value()` for Option:
