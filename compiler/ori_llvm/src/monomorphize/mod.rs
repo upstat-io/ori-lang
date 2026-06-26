@@ -135,6 +135,16 @@ pub fn collect_mono_functions(
     let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
     let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
 
+    tracing::debug!(
+        target: "ori_llvm::mono",
+        instance_count = mono_instances.len(),
+        names = ?mono_instances
+            .iter()
+            .map(|i| (interner.lookup(i.fn_name), i.receiver_type.is_some()))
+            .collect::<Vec<_>>(),
+        "collect_mono_functions: instances received"
+    );
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"

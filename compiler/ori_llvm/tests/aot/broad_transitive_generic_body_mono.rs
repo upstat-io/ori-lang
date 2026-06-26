@@ -19,11 +19,16 @@
 //!
 //! FAIL-FIRST cells (missing mono instance pre-fix; green once nested calls are
 //! recorded per concrete instantiation): `assert_eq`, `empty_queue`, `dequeue`,
-//! `buffer_pop`, `thread_id`. They are live red pins, not `#[ignore]`d — the
-//! red state is the TDD gate. The CURED guard cell (`repeat`) passes pre-fix and
-//! pins an already-resolved face of the same shape against regression.
+//! `buffer_pop`. They are live red pins, not `#[ignore]`d — the red state is the
+//! TDD gate. The CURED guard cell (`repeat`) passes pre-fix and pins an
+//! already-resolved face of the same shape against regression.
 //!
 //! Out of scope here:
+//! - `thread_id` (`#[ignore]`'d against BUG-04-229): the prelude builtin
+//!   `thread_id()` has no `ori_rt`/LLVM AOT lowering — it fails E5001 even in a
+//!   DIRECT non-generic call, so it is NOT the transitive-generic-body mono gap.
+//!   `get_id<int>` monomorphizes correctly after the cure; the nested
+//!   `thread_id()` call simply has no AOT target. Separate deliverable.
 //! - `repeat_value` (const-only generic method `@m<$N: int>`): its AOT miss is
 //!   the const-only-method monomorphization gate (the `tests/spec` corpus marks
 //!   it `#skip("BUG-02-023: ...")`), and it ALSO fails at interp with E6020 —
@@ -92,11 +97,17 @@ fn buffer_pop_generic_fn_in_generic_body_monos() {
 }
 
 // ---------------------------------------------------------------------------
-// FAIL-FIRST — `thread_id` cluster. `forward_id<U>` calls `get_id<U>` whose
-// body calls `thread_id()`; nested `get_id<int>` unrecorded. Pre-fix: AOT
-// E5001 `unresolved function 'thread_id'`. Interp passes.
+// SEPARATE ROOT (BUG-04-229) — `thread_id` is a prelude builtin registered
+// ONLY as an interpreter `function_val` (no `ori_rt` runtime symbol, no LLVM
+// builtin-call lowering). It fails AOT with E5001 `unresolved function
+// 'thread_id'` even in a DIRECT non-generic call (`@main = { thread_id() }`),
+// so it is NOT the transitive-generic-body mono gap (ROOT-B): `get_id<int>`
+// now monomorphizes correctly after the s-a86e53ac cures, but the
+// `thread_id()` call inside its body has no AOT target. Ignored against
+// BUG-04-229 (prelude-builtin AOT codegen lowering) until that lands.
 // ---------------------------------------------------------------------------
 #[test]
+#[ignore = "BUG-04-229: prelude builtin thread_id() has no AOT/LLVM lowering — separate root from the ROOT-B transitive-mono gap; fails AOT even non-generically"]
 fn thread_id_nested_in_generic_body_monos() {
     assert_aot_success(
         include_str!("fixtures/broad_transitive_generic_body_mono/thread_id.ori"),

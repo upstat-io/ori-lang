@@ -67,6 +67,21 @@ pub(super) fn maybe_record_mono_instance(
         sig_return_type,
     );
 
+    {
+        let resolved_args: Vec<Idx> = params.iter().map(|&p| engine.resolve(p)).collect();
+        let name_str = engine.lookup_name(fn_name).map(str::to_string);
+        let pool = engine.pool();
+        tracing::debug!(
+            target: "ori_types::mono",
+            name = ?name_str,
+            sig_params = ?param_types.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
+            actual_args = ?resolved_args.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
+            scheme_vars = ?scheme_var_ids,
+            gpm = ?generic_param_mapping,
+            "maybe_record_mono_instance: extraction inputs"
+        );
+    }
+
     // Build the var_id -> resolved_type substitution map.
     let (mut var_subst, generic_args, has_unresolved_vars) = build_mono_var_subst(
         engine,
@@ -76,6 +91,16 @@ pub(super) fn maybe_record_mono_instance(
         params,
         return_type,
         inst_return_type,
+    );
+
+    tracing::debug!(
+        target: "ori_types::mono",
+        ?fn_name,
+        var_subst_len = var_subst.len(),
+        scheme_len = scheme_var_ids.len(),
+        has_unresolved_vars,
+        subst = ?var_subst.iter().map(|(k, v)| (*k, engine.pool().tag(*v), engine.pool().flags(*v))).collect::<Vec<_>>(),
+        "maybe_record_mono_instance: routing decision"
     );
 
     // All type params must be mapped (even if some are still variables).
@@ -123,24 +148,57 @@ pub(super) fn maybe_record_mono_instance(
         &mut var_subst,
     );
 
+    // Concrete case: all type params resolved -- build + register the instance.
+    record_top_level_mono_instance(
+        engine,
+        call_expr_id,
+        fn_name,
+        generic_args,
+        &var_subst,
+        &param_types,
+        return_type,
+    );
+
+    // Burden composition for generic-builtin instances runs once per body at
+    // `InferEngine::take_composed_burdens` (a single full-pool sweep), NOT
+    // per-monomorphization here — the per-call sweep was a quadratic full-pool
+    // walk on every generic call AND missed collection instances minted by
+    // literals that never flow through a generic free-function call. Spec:
+    // Annex E §AIMS — composition at type-instantiation time prevents Phase 5
+    // from emitting indirect dispatch on each burden walk.
+}
+
+/// Build the concrete top-level `MonoInstance` and publish its dispatch entry,
+/// once `maybe_record_mono_instance`'s routing gates have proven every scheme
+/// var resolved + recordable and `var_subst` extended with equivalence-class
+/// roots. `generic_args` is consumed into the minted instance; `var_subst` is
+/// read-only here (the root extension already ran in the caller).
+fn record_top_level_mono_instance(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    fn_name: Name,
+    generic_args: Vec<GenericArg>,
+    var_subst: &FxHashMap<u32, Idx>,
+    param_types: &[Idx],
+    return_type: Idx,
+) {
     // Collect generic-composite type params before taking pool_mut(), so
     // register_concrete_applied_resolutions can build Named->Idx substitutions
     // for struct fields and enum payloads (which use Named tags, not Var tags).
     let generic_type_params = collect_generic_type_params(engine);
 
-    // Concrete case: all type params resolved -- build full MonoInstance.
     let pool = engine.pool_mut();
     let concrete_param_types: Vec<Idx> = param_types
         .iter()
-        .map(|&pt| substitute_in_pool(pool, pt, &var_subst))
+        .map(|&pt| substitute_in_pool(pool, pt, var_subst))
         .collect();
-    let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
+    let concrete_return_type = substitute_in_pool(pool, return_type, var_subst);
 
     // Top-level free functions carry no impl-binder (`Tag::Named`) entries, so
     // `extra_named` is empty here — the shared helper reduces to the canonical
     // build + sort + dedup + Applied-resolution registration.
     let body_type_map =
-        build_and_register_body_type_map(pool, &var_subst, &[], &generic_type_params);
+        build_and_register_body_type_map(pool, var_subst, &[], &generic_type_params);
 
     // Register the concrete struct resolution for each concrete param / return
     // type (e.g. `Box<[int]>`) — the free-function analogue of the method path's
@@ -173,14 +231,6 @@ pub(super) fn maybe_record_mono_instance(
     // same `call_expr_id` on `DeferredMonoCall` and publishes its entry once
     // the deferred call resolves to a concrete `MonoInstance`.
     engine.record_mono_with_dispatch(call_expr_id, instance);
-
-    // Burden composition for generic-builtin instances runs once per body at
-    // `InferEngine::take_composed_burdens` (a single full-pool sweep), NOT
-    // per-monomorphization here — the per-call sweep was a quadratic full-pool
-    // walk on every generic call AND missed collection instances minted by
-    // literals that never flow through a generic free-function call. Spec:
-    // Annex E §AIMS — composition at type-instantiation time prevents Phase 5
-    // from emitting indirect dispatch on each burden walk.
 }
 
 /// `(method_args, method_named, var_subst)` triple from `resolve_method_binder_args`.

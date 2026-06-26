@@ -489,15 +489,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             fc.declare_imports(import_sigs);
         }
         fc.declare_all(&parse_result.module.functions, &function_sigs);
-        eprintln!("PROBE mono_functions.len()={}", mono_functions.len());
-        for mf in &mono_functions {
-            eprintln!(
-                "  PROBE mono_fn original={} mangled={} instance_ids={:?}",
-                interner.lookup(mf.original_name),
-                interner.lookup(mf.mangled_name),
-                mf.instance_ids
-            );
-        }
         fc.declare_mono_functions(&mono_functions);
 
         // Why: impl methods use type-qualified canon lookup paths and are not

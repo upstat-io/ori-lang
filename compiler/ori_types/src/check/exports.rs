@@ -179,8 +179,11 @@ pub(super) fn resolve_deferred_mono_calls(
             mono_instances,
             mono_dispatch_pre_dedup,
             &mut seen,
-            deferred.caller,
-            &[],
+            &CallerContext {
+                name: deferred.caller,
+                generic_args: &[],
+                body_type_map: &[],
+            },
             deferred,
         );
     }
@@ -190,6 +193,11 @@ pub(super) fn resolve_deferred_mono_calls(
     while i < mono_instances.len() {
         let caller_name = mono_instances[i].fn_name;
         let caller_generic_args = mono_instances[i].generic_args.clone();
+        // The caller instance's `body_type_map` carries the per-instantiation
+        // rigid->concrete bindings (`U -> int`) the deferred resolver needs to
+        // mint a return-type-determined nested generic call whose `DeferredType`
+        // binding holds the caller's own rigid type param.
+        let caller_body_type_map = mono_instances[i].body_type_map.clone();
 
         for deferred in deferred_calls.iter().filter(|d| d.caller == caller_name) {
             try_resolve_deferred_call(
@@ -197,8 +205,11 @@ pub(super) fn resolve_deferred_mono_calls(
                 mono_instances,
                 mono_dispatch_pre_dedup,
                 &mut seen,
-                caller_name,
-                &caller_generic_args,
+                &CallerContext {
+                    name: caller_name,
+                    generic_args: &caller_generic_args,
+                    body_type_map: &caller_body_type_map,
+                },
                 deferred,
             );
         }
@@ -274,6 +285,36 @@ pub(super) fn refresh_method_mono_body_type_maps(
     }
 }
 
+/// Reconstruct a `var_id -> concrete` substitution from a caller mono
+/// instance's `body_type_map`. Mirrors the leaf-extraction in
+/// `refresh_method_mono_body_type_maps`: `Pool::data` on a variable item IS
+/// its `var_id`, so each `(Var | RigidVar | BoundVar, concrete)` entry yields
+/// the per-instantiation binding the ARC lowerer applies to the caller body.
+fn var_subst_from_body_type_map(
+    pool: &Pool,
+    body_type_map: &[(crate::Idx, crate::Idx)],
+) -> rustc_hash::FxHashMap<u32, crate::Idx> {
+    use crate::Tag;
+    let mut subst: rustc_hash::FxHashMap<u32, crate::Idx> = rustc_hash::FxHashMap::default();
+    for &(key, val) in body_type_map {
+        if matches!(pool.tag(key), Tag::Var | Tag::RigidVar | Tag::BoundVar) {
+            subst.insert(pool.data(key), val);
+        }
+    }
+    subst
+}
+
+/// The realized caller instance's context a deferred call resolves against:
+/// its identity (trace), its realized `generic_args` (the `CallerSchemeVar`
+/// binding lookup), and its `body_type_map` (the return-type-determined
+/// rigid->concrete bindings). Read together from one `MonoInstance` at every
+/// call site, so they travel as one domain value rather than three params.
+struct CallerContext<'a> {
+    name: Name,
+    generic_args: &'a [crate::GenericArg],
+    body_type_map: &'a [(crate::Idx, crate::Idx)],
+}
+
 /// Attempt to resolve a single deferred call against the caller's
 /// already-realized `generic_args`. Pushes a fresh `MonoInstance` onto
 /// `mono_instances` iff the call's `var_subst` is fully concrete, the
@@ -286,21 +327,18 @@ fn try_resolve_deferred_call(
     mono_instances: &mut Vec<crate::MonoInstance>,
     mono_dispatch_pre_dedup: &mut Vec<(ExprId, MonoInstanceId)>,
     seen: &mut rustc_hash::FxHashSet<(Name, Vec<crate::GenericArg>)>,
-    caller_name: Name,
-    caller_generic_args: &[crate::GenericArg],
+    caller: &CallerContext<'_>,
     deferred: &crate::DeferredMonoCall,
 ) {
     tracing::trace!(
-        caller = ?caller_name,
+        caller = ?caller.name,
         callee = ?deferred.callee,
-        ?caller_generic_args,
+        caller_generic_args = ?caller.generic_args,
         var_subst = ?deferred.var_subst,
         "processing deferred call"
     );
 
-    let Some(mut resolved_var_subst) =
-        resolve_deferred_var_subst(pool, caller_generic_args, deferred)
-    else {
+    let Some(mut resolved_var_subst) = resolve_deferred_var_subst(pool, caller, deferred) else {
         return;
     };
 
@@ -398,7 +436,7 @@ fn try_resolve_deferred_call(
 /// instances land.
 fn resolve_deferred_var_subst(
     pool: &mut Pool,
-    caller_generic_args: &[crate::GenericArg],
+    caller: &CallerContext<'_>,
     deferred: &crate::DeferredMonoCall,
 ) -> Option<rustc_hash::FxHashMap<u32, crate::Idx>> {
     use rustc_hash::FxHashMap;
@@ -410,7 +448,7 @@ fn resolve_deferred_var_subst(
     for (callee_var_id, binding) in &deferred.var_subst {
         let concrete = match binding {
             crate::DeferredVarBinding::CallerSchemeVar(pos) => {
-                let Some(crate::GenericArg::Type(idx)) = caller_generic_args.get(*pos) else {
+                let Some(crate::GenericArg::Type(idx)) = caller.generic_args.get(*pos) else {
                     return None;
                 };
                 *idx
@@ -423,7 +461,27 @@ fn resolve_deferred_var_subst(
                 // the composite (`[Var]` → `[str]`). The `is_recordable` gate
                 // below rejects the publish (retry) if any interior var is
                 // still unbound.
-                crate::pool::substitute::substitute_in_pool(pool, *idx, &empty)
+                let direct = crate::pool::substitute::substitute_in_pool(pool, *idx, &empty);
+                // A return-type-determined nested generic call (e.g.
+                // `make_empty<U>() -> Queue<U> = empty_queue()`) captures the
+                // callee scheme var bound to the CALLER's own rigid type param
+                // (`empty_queue`'s `T` -> `make_empty`'s `U`), recorded as a
+                // `DeferredType` whose `idx` is that rigid var. The empty-map
+                // substitute above leaves it rigid (the rigid->concrete binding
+                // lives in the caller INSTANCE's `body_type_map`, not in the
+                // pool's union-find), so `is_recordable` would reject it and the
+                // nested instance is never minted (AOT missing-mono). When the
+                // direct result is still non-recordable, re-resolve `idx`
+                // through the caller instance's `body_type_map` — the proven
+                // per-instantiation substitution (`U -> int`) the ARC lowerer
+                // already uses for the caller body — minting the nested instance
+                // per concrete instantiation.
+                if pool.flags(direct).is_recordable() || caller.body_type_map.is_empty() {
+                    direct
+                } else {
+                    let caller_subst = var_subst_from_body_type_map(pool, caller.body_type_map);
+                    crate::pool::substitute::substitute_in_pool(pool, *idx, &caller_subst)
+                }
             }
         };
 

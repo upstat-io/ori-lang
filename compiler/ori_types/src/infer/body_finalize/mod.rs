@@ -92,6 +92,35 @@ impl InferEngine<'_> {
             self.body_inference_complete,
             "body_inference_complete invariant violated — defaulting called before body inference finished"
         );
+        // Union-find-close the exempt set against the post-body-inference
+        // pool. The caller builds `exempt` at body ENTRY (from
+        // `scheme_var_ids` / capability marker vars) before any body
+        // unification runs, so it lists each exempt var by its entry-time id.
+        // Body inference then unifies a scheme type param with a fresh var
+        // introduced by a constructor in the body (e.g. `None`'s inner var in
+        // `(None, q)`), and union-find may make that fresh var the class
+        // REPRESENTATIVE. `collect_unbound_reachable_vars` resolves each
+        // candidate to its current root before the exempt check, so the
+        // entry-time exempt id no longer matches the resolved root — the
+        // scheme var would be defaulted to `Idx::NEVER`, erasing the type
+        // param from the signature (`Queue<T>` -> `Queue<never>`). Add each
+        // exempt var's CURRENT union-find root id so a fresh var unified with
+        // a scheme var (a constrained var, never genuinely unconstrained)
+        // stays exempt.
+        let exempt: FxHashSet<u32> = {
+            let pool = self.pool();
+            let mut closed = exempt.clone();
+            let roots: Vec<u32> = exempt
+                .iter()
+                .filter_map(|&var_id| pool.var_idx_for_id(var_id))
+                .map(|idx| pool.resolve_fully(idx))
+                .filter(|&root| pool.tag(root) == Tag::Var)
+                .map(|root| pool.data(root))
+                .collect();
+            closed.extend(roots);
+            closed
+        };
+        let exempt = &exempt;
         // 1. Collect unbound var ids reachable from defaulting-root expr roots.
         //    `EmptyLiteralRoot` walks the full stored type; `IntroducerSlot`
         //    restricts the walk to the slot whose fresh var was introduced
