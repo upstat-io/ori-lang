@@ -209,13 +209,6 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("tuple", "count") => {
-        if let TypeInfo::Tuple { elements } = ctx.type_info {
-            Some(emitter.builder.const_i64(elements.len() as i64))
-        } else {
-            None
-        }
-    },
 }
 
 use ori_ir::Name;
