@@ -24,12 +24,12 @@ fn test_generic_identity_string() {
 /// Regression: an imported prelude generic `len<T: Len>` monomorphized on an
 /// aggregate receiver ([int]/{str:int}) left the borrowed receiver a pointer-only
 /// param whose LLVM value at use sites is a zero {i64,i64,ptr} placeholder; the
-/// len dispatch did extract_value(FIELD_LEN) on that placeholder -> 0 under AOT
+/// len dispatch did `extract_value(FIELD_LEN)` on that placeholder -> 0 under AOT
 /// (3 under interp = parity break). The str line is the embedded negative control
-/// (str.len reads via str_to_ptr_forwarded and was always correct). Fix:
-/// emit_collection_length_forwarded reads FIELD_LEN via a struct_gep+load on the
-/// borrowed_param_ptrs source pointer (mirroring emit_str_length_forwarded), so
-/// the param stays pointer-only (no RC-flow change); compute_pointer_only_params
+/// (str.len reads via `str_to_ptr_forwarded` and was always correct). Fix:
+/// `emit_collection_length_forwarded` reads `FIELD_LEN` via a `struct_gep+load` on the
+/// `borrowed_param_ptrs` source pointer (mirroring `emit_str_length_forwarded`), so
+/// the param stays pointer-only (no RC-flow change); `compute_pointer_only_params`
 /// is unchanged.
 #[test]
 fn test_imported_generic_len_aggregate_receiver() {
@@ -42,9 +42,9 @@ fn test_imported_generic_len_aggregate_receiver() {
 /// Regression: the imported prelude generic `is_empty<T>(collection: [T])`
 /// monomorphized on a list receiver routes through the same borrowed-receiver
 /// forwarder (`emit_collection_is_empty_forwarded`) as `len`. A borrowed receiver
-/// left a raw ptr would make is_empty read the zero-placeholder len (0) -> TRUE
+/// left a raw ptr would make `is_empty` read the zero-placeholder len (0) -> TRUE
 /// under AOT for a non-empty list (false under interp = parity break). Sibling AOT
-/// pin to `test_imported_generic_len_aggregate_receiver`; is_empty is list-only in
+/// pin to `test_imported_generic_len_aggregate_receiver`; `is_empty` is list-only in
 /// the prelude, so the pin covers the [int] (scalar) + [str] (heap) element dims.
 #[test]
 fn test_imported_generic_is_empty_aggregate_receiver() {

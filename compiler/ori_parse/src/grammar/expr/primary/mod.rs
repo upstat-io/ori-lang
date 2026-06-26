@@ -8,6 +8,7 @@
 //! doesn't match, enabling clean ordered alternation.
 
 mod bindings;
+mod block_map;
 mod collections;
 mod control_flow;
 mod helpers;

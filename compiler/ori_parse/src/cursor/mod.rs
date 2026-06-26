@@ -422,8 +422,6 @@ impl<'a> Cursor<'a> {
     /// let capture = cursor.complete_capture(start);
     /// ```
     #[inline]
-    /// Begin a token capture at the current position; pair with
-    /// [`complete_capture`] to materialize the consumed token range.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Token count cannot exceed u32::MAX (4 billion tokens would require ~100GB of source)"

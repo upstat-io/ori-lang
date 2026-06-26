@@ -10,9 +10,9 @@
 )]
 //! Idempotence verification tests.
 //!
-//! These tests verify that:
-//! 1. format(format(code)) == format(code) for all .ori files
-//! 2. The AST is semantically equivalent before and after formatting
+//! These tests verify, for every .ori file in the repository:
+//! 1. format(format(code)) == format(code) — formatting is idempotent
+//! 2. The formatted output re-parses (the format->parse round-trip holds)
 //!
 //! This covers all test files in the repository, not just golden tests.
 

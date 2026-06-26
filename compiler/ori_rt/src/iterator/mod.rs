@@ -39,7 +39,7 @@ pub use consumers::{
 };
 pub use sources::{
     ori_iter_from_list, ori_iter_from_map, ori_iter_from_option, ori_iter_from_range,
-    ori_iter_from_str,
+    ori_iter_from_str, ori_range_contains, ori_range_len,
 };
 
 // Re-export types used by submodules (consumers needs these from state).

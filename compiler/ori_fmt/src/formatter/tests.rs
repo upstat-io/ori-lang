@@ -589,3 +589,94 @@ fn stacked_dispatch_has_no_wildcard() {
          every ExprKind variant must be handled explicitly"
     );
 }
+
+// Map key bracketing — computed `[expr]` keys vs bare literal keys.
+// Regression: a computed map key parses to its inner expression node (e.g.
+// `Ident`); the formatter must re-emit the `[ ]` brackets so the round-trip
+// preserves the computed-key semantics (a bare `Ident` key in source is a
+// literal-string key, not the value of the binding). Bare literal keys
+// (`String`/`Int`/`Bool`/`Char`) must stay unbracketed.
+
+/// Positive pin: a computed key whose node is an `Ident` MUST format with `[ ]`.
+#[test]
+fn format_computed_map_key_emits_brackets() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let key = make_expr(&mut arena, ExprKind::Ident(interner.intern("k")));
+    let value = make_expr(&mut arena, ExprKind::Int(30));
+    let entries = arena.alloc_map_entries([ori_ir::MapEntry {
+        key,
+        value,
+        span: Span::new(0, 1),
+    }]);
+    let map = make_expr(&mut arena, ExprKind::Map(entries));
+
+    let out = format_to_string(&arena, &interner, map);
+    assert_eq!(out.trim_end(), "{[k]: 30}");
+}
+
+/// Negative pin: a bare `String`-literal key MUST format without brackets.
+#[test]
+fn format_literal_map_key_has_no_brackets() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let key = make_expr(&mut arena, ExprKind::String(interner.intern("k")));
+    let value = make_expr(&mut arena, ExprKind::Int(30));
+    let entries = arena.alloc_map_entries([ori_ir::MapEntry {
+        key,
+        value,
+        span: Span::new(0, 1),
+    }]);
+    let map = make_expr(&mut arena, ExprKind::Map(entries));
+
+    let out = format_to_string(&arena, &interner, map);
+    assert_eq!(out.trim_end(), "{\"k\": 30}");
+    assert!(
+        !out.contains('['),
+        "literal key must not be bracketed: {out}"
+    );
+}
+
+/// Negative pin: a bare `Int`-literal key MUST format without brackets — the
+/// parser accepts a bare `{42: v}` key, so the formatter normalizes the
+/// computed form `{[42]: v}` to it.
+#[test]
+fn format_int_map_key_has_no_brackets() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let key = make_expr(&mut arena, ExprKind::Int(42));
+    let value = make_expr(&mut arena, ExprKind::Int(30));
+    let entries = arena.alloc_map_entries([ori_ir::MapEntry {
+        key,
+        value,
+        span: Span::new(0, 1),
+    }]);
+    let map = make_expr(&mut arena, ExprKind::Map(entries));
+
+    let out = format_to_string(&arena, &interner, map);
+    assert_eq!(out.trim_end(), "{42: 30}");
+    assert!(!out.contains('['), "int key must not be bracketed: {out}");
+}
+
+/// Positive pin (round-trip-critical): a `Float`-literal key MUST format WITH
+/// `[ ]`. Float is not a map-key-start token, so the parser rejects a bare
+/// `{3.14: v}`; the only valid source form is the computed `{[3.14]: v}`, and
+/// the formatter must re-emit the brackets or the output fails to re-parse.
+/// Clamps the `map_key_needs_brackets` unbracketed-set boundary against a fix
+/// that wrongly drops Float brackets.
+#[test]
+fn format_float_map_key_emits_brackets() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let key = make_expr(&mut arena, ExprKind::Float(3.14f64.to_bits()));
+    let value = make_expr(&mut arena, ExprKind::Int(30));
+    let entries = arena.alloc_map_entries([ori_ir::MapEntry {
+        key,
+        value,
+        span: Span::new(0, 1),
+    }]);
+    let map = make_expr(&mut arena, ExprKind::Map(entries));
+
+    let out = format_to_string(&arena, &interner, map);
+    assert_eq!(out.trim_end(), "{[3.14]: 30}");
+}

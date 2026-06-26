@@ -62,6 +62,65 @@ pub extern "C" fn ori_iter_from_range(start: i64, end: i64, step: i64, inclusive
     Box::into_raw(Box::new(state)).cast()
 }
 
+/// Compute the element count of a bounded integer range.
+///
+/// Mirrors `RangeValue::len`: a zero step yields 0; otherwise the span from
+/// `start` to the inclusivity-adjusted `end` is ceiling-divided by `|step|`.
+/// The `.len()` lowering reaches this only for bounded ranges.
+#[no_mangle]
+pub extern "C" fn ori_range_len(start: i64, end: i64, step: i64, inclusive: bool) -> i64 {
+    if step == 0 {
+        return 0;
+    }
+    let adjusted_end = if inclusive {
+        if step > 0 {
+            end.saturating_add(1)
+        } else {
+            end.saturating_sub(1)
+        }
+    } else {
+        end
+    };
+    let diff = if step > 0 {
+        adjusted_end.saturating_sub(start).max(0)
+    } else {
+        start.saturating_sub(adjusted_end).max(0)
+    };
+    // step != 0, so |step| >= 1 and the division below is well-defined.
+    let step_abs = step.saturating_abs();
+    diff.saturating_add(step_abs).saturating_sub(1) / step_abs
+}
+
+/// Test membership of `value` in a bounded integer range.
+///
+/// Mirrors `RangeValue::contains`: a zero step contains nothing; otherwise the
+/// value must lie within the directional bounds and be step-aligned with
+/// `start`.
+#[no_mangle]
+pub extern "C" fn ori_range_contains(
+    start: i64,
+    end: i64,
+    step: i64,
+    inclusive: bool,
+    value: i64,
+) -> bool {
+    if step == 0 {
+        return false;
+    }
+    let in_bounds = if step > 0 {
+        let upper_ok = if inclusive { value <= end } else { value < end };
+        value >= start && upper_ok
+    } else {
+        let upper_ok = if inclusive { value >= end } else { value > end };
+        value <= start && upper_ok
+    };
+    if !in_bounds {
+        return false;
+    }
+    // step != 0, so the remainder is well-defined.
+    value.wrapping_sub(start) % step == 0
+}
+
 /// Create an iterator over a UTF-8 string, yielding Unicode codepoints.
 ///
 /// Takes a pointer to an `OriStr` (SSO-safe). For heap strings, the iterator

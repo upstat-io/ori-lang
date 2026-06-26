@@ -41,6 +41,21 @@ impl<I: StringLookup> WidthCalculator<'_, I> {
         total
     }
 
+    /// Width of a formatted map key, including the `[ ]` brackets the formatter
+    /// emits around a computed (non-literal) key. Propagates the `ALWAYS_STACKED`
+    /// sentinel WITHOUT overflow — a stacked computed key (e.g. `[match k {...}]`)
+    /// stays `ALWAYS_STACKED`, never `usize::MAX + 2`.
+    fn map_key_width(&mut self, key: ori_ir::ExprId) -> usize {
+        let raw = self.width(key);
+        if raw == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
+        }
+        let brackets = usize::from(crate::formatter::map_key_needs_brackets(
+            &self.arena.get_expr(key).kind,
+        )) * 2;
+        raw + brackets
+    }
+
     /// Calculate width of map entries (key: value, ...).
     pub(super) fn width_of_map_entries(&mut self, entries: &[ori_ir::MapEntry]) -> usize {
         if entries.is_empty() {
@@ -49,7 +64,7 @@ impl<I: StringLookup> WidthCalculator<'_, I> {
 
         let mut total = 0;
         for (i, entry) in entries.iter().enumerate() {
-            let key_w = self.width(entry.key);
+            let key_w = self.map_key_width(entry.key);
             let value_w = self.width(entry.value);
             if key_w == ALWAYS_STACKED || value_w == ALWAYS_STACKED {
                 return ALWAYS_STACKED;
@@ -174,7 +189,7 @@ impl<I: StringLookup> WidthCalculator<'_, I> {
         for (i, element) in elements.iter().enumerate() {
             match element {
                 ori_ir::MapElement::Entry(entry) => {
-                    let key_w = self.width(entry.key);
+                    let key_w = self.map_key_width(entry.key);
                     let value_w = self.width(entry.value);
                     if key_w == ALWAYS_STACKED || value_w == ALWAYS_STACKED {
                         return ALWAYS_STACKED;

@@ -230,6 +230,8 @@ fn lookup_jit_address(name: &str) -> usize {
         // Iterator sources
         "ori_iter_from_list" => runtime::iterator::ori_iter_from_list as *const () as usize,
         "ori_iter_from_range" => runtime::iterator::ori_iter_from_range as *const () as usize,
+        "ori_range_len" => runtime::iterator::ori_range_len as *const () as usize,
+        "ori_range_contains" => runtime::iterator::ori_range_contains as *const () as usize,
         "ori_iter_from_str" => runtime::iterator::ori_iter_from_str as *const () as usize,
         "ori_iter_from_map" => runtime::iterator::ori_iter_from_map as *const () as usize,
         "ori_iter_from_option" => runtime::iterator::ori_iter_from_option as *const () as usize,

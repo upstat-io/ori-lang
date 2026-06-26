@@ -5,9 +5,22 @@
 
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
-use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
+use super::{binary_op_str, map_key_needs_brackets, needs_binary_parens, unary_op_str, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
+    /// Emit a map-literal key inline, wrapping a computed key in `[ ]` per
+    /// [`map_key_needs_brackets`].
+    pub(super) fn emit_inline_map_key(&mut self, key: ExprId) {
+        let bracketed = map_key_needs_brackets(&self.arena.get_expr(key).kind);
+        if bracketed {
+            self.ctx.emit("[");
+        }
+        self.emit_inline(key);
+        if bracketed {
+            self.ctx.emit("]");
+        }
+    }
+
     /// Emit an expression inline (single line).
     #[expect(
         clippy::too_many_lines,
@@ -154,9 +167,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Lambda — render through the lambda emit-shape SSOT
-            // (`width::lambda::needs_parens_for_lambda`). Param type
-            // annotations preserved per Annex D typed_lambda; ret_ty
-            // when present emits ` -> RetTy = ` before the body.
+            // `width::lambda::needs_parens_for_lambda`. Param/ret_ty type
+            // annotations preserved per Annex D typed_lambda.
             ExprKind::Lambda {
                 params,
                 ret_ty,
@@ -227,7 +239,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     if i > 0 {
                         self.ctx.emit(", ");
                     }
-                    self.emit_inline(entry.key);
+                    self.emit_inline_map_key(entry.key);
                     self.ctx.emit(": ");
                     self.emit_inline(entry.value);
                 }
@@ -241,7 +253,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     }
                     match element {
                         ori_ir::MapElement::Entry(entry) => {
-                            self.emit_inline(entry.key);
+                            self.emit_inline_map_key(entry.key);
                             self.ctx.emit(": ");
                             self.emit_inline(entry.value);
                         }

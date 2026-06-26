@@ -367,4 +367,74 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(func_id, &[start, end, step, inclusive], "range.iter")
     }
+
+    /// Emit the element count of a bounded range via `ori_range_len`.
+    ///
+    /// Reads the same 4-field `{start, end, step, inclusive}` tuple layout as
+    /// [`Self::emit_range_iter`] and forwards to the runtime, which mirrors
+    /// `RangeValue::len`.
+    pub(crate) fn emit_range_len(&mut self, receiver: ValueId) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_range_len");
+
+        let start = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_START, "range.start")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let end = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_END, "range.end")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let step = self
+            .builder
+            .extract_value(receiver, 2, "range.step")
+            .unwrap_or_else(|| self.builder.const_i64(1));
+        let incl_i64 = self
+            .builder
+            .extract_value(receiver, 3, "range.incl.raw")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let bool_ty = self.builder.bool_type();
+        let inclusive = self.builder.trunc(incl_i64, bool_ty, "range.len.inclusive");
+
+        self.emit_rt_call(func_id, &[start, end, step, inclusive], "range.len")
+    }
+
+    /// Emit a range membership test (`range.contains(value)`) via
+    /// `ori_range_contains`, reading the same 4-field range layout as
+    /// [`Self::emit_range_iter`] plus the needle `value`.
+    pub(crate) fn emit_range_contains(
+        &mut self,
+        receiver: ValueId,
+        value: ValueId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_range_contains");
+
+        let start = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_START, "range.start")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let end = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_END, "range.end")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let step = self
+            .builder
+            .extract_value(receiver, 2, "range.step")
+            .unwrap_or_else(|| self.builder.const_i64(1));
+        let incl_i64 = self
+            .builder
+            .extract_value(receiver, 3, "range.incl.raw")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let bool_ty = self.builder.bool_type();
+        let inclusive = self
+            .builder
+            .trunc(incl_i64, bool_ty, "range.contains.inclusive");
+
+        self.emit_rt_call(
+            func_id,
+            &[start, end, step, inclusive, value],
+            "range.contains",
+        )
+    }
 }

@@ -20,6 +20,22 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_range_len",
+        //        start  end   step  inclusive
+        params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_range_contains",
+        //        start  end   step  inclusive  value
+        params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool, Ty::I64],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_iter_from_str",
         params: &[Ty::Ptr],
         //        *const OriStr (SSO-safe)

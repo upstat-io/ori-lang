@@ -357,6 +357,18 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    // `map.contains(key)` is the `Contains`-trait spelling of `contains_key`.
+    ("map", "contains") => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Map { key, .. } = ctx.type_info {
+                emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1], *key, ctx.receiver_ty)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("map", "keys") => {
         if let TypeInfo::Map { key, .. } = ctx.type_info {
             emitter.emit_map_keys(ctx.arg_vals[0], *key, ctx.receiver_ty)
@@ -573,6 +585,16 @@ declare_builtins! { emitter, ctx;
     },
     // range
     ("range", "iter") => emitter.emit_range_iter(ctx.arg_vals[0]),
+    ("range", "len") => emitter.emit_range_len(ctx.arg_vals[0]),
+    ("range", "length") => emitter.emit_range_len(ctx.arg_vals[0]),
+    ("range", "count") => emitter.emit_range_len(ctx.arg_vals[0]),
+    ("range", "contains") => {
+        if ctx.arg_vals.len() >= 2 {
+            emitter.emit_range_contains(ctx.arg_vals[0], ctx.arg_vals[1])
+        } else {
+            None
+        }
+    },
 }
 
 use ori_types::Idx;

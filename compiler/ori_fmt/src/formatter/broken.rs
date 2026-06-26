@@ -7,9 +7,22 @@ use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
 use crate::width::ALWAYS_STACKED;
 
-use super::{binary_op_str, needs_binary_parens, Formatter};
+use super::{binary_op_str, map_key_needs_brackets, needs_binary_parens, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
+    /// Emit a map-literal key in broken format, wrapping a computed key in `[ ]`
+    /// per [`map_key_needs_brackets`].
+    fn format_map_key(&mut self, key: ExprId) {
+        let bracketed = map_key_needs_brackets(&self.arena.get_expr(key).kind);
+        if bracketed {
+            self.ctx.emit("[");
+        }
+        self.format(key);
+        if bracketed {
+            self.ctx.emit("]");
+        }
+    }
+
     /// Emit an expression in broken (multi-line) format.
     ///
     /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
@@ -102,7 +115,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.indent();
                     for (i, entry) in entries_list.iter().enumerate() {
                         self.ctx.emit_indent();
-                        self.format(entry.key);
+                        self.format_map_key(entry.key);
                         self.ctx.emit(": ");
                         self.format(entry.value);
                         self.ctx.emit(",");
@@ -127,7 +140,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.ctx.emit_indent();
                         match element {
                             ori_ir::MapElement::Entry(entry) => {
-                                self.format(entry.key);
+                                self.format_map_key(entry.key);
                                 self.ctx.emit(": ");
                                 self.format(entry.value);
                             }
@@ -323,9 +336,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Lambda with body on new line — render through the lambda
-            // emit-shape SSOT. Param type annotations preserved per
-            // Annex D typed_lambda; ret_ty when present emits
-            // ` -> RetTy =` before the broken body.
+            // emit-shape SSOT `width::lambda::needs_parens_for_lambda`.
+            // Param/ret_ty type annotations preserved per Annex D typed_lambda.
             ExprKind::Lambda {
                 params,
                 ret_ty,
