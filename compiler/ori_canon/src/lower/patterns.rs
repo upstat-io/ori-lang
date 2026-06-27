@@ -299,6 +299,10 @@ impl Lowerer<'_> {
         }
 
         // Copy out to avoid borrow conflict.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies (name, default) out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let param_data: Vec<_> = src_params.iter().map(|p| (p.name, p.default)).collect();
 
         let can_params: Vec<_> = param_data
@@ -326,6 +330,10 @@ impl Lowerer<'_> {
     ) -> Vec<Option<CanId>> {
         let src_params = self.src.get_params(param_range);
         // Copy out to avoid borrow conflict with `self.lower_expr`.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies the defaults out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let defaults: Vec<_> = src_params.iter().map(|p| p.default).collect();
         defaults
             .into_iter()
@@ -347,6 +355,11 @@ impl Lowerer<'_> {
 
         // Lower each named prop value.
         let src_props = self.src.get_named_exprs(func_exp.props);
+        // Copy out to avoid borrow conflict with `self.lower_expr`.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies (name, value) out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let prop_data: Vec<_> = src_props.iter().map(|p| (p.name, p.value)).collect();
         let can_props: Vec<_> = prop_data
             .into_iter()

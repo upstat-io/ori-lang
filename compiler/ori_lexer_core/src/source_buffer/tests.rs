@@ -125,12 +125,10 @@ fn detects_multiple_interior_nulls() {
 fn no_false_positive_nulls() {
     // Source without null bytes should have no InteriorNull issues
     let buf = SourceBuffer::new("hello world\nfoo bar");
-    let nulls: Vec<_> = buf
+    assert!(!buf
         .encoding_issues()
         .iter()
-        .filter(|i| i.kind == EncodingIssueKind::InteriorNull)
-        .collect();
-    assert!(nulls.is_empty());
+        .any(|i| i.kind == EncodingIssueKind::InteriorNull));
 }
 
 // Multiple Issues

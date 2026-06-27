@@ -102,7 +102,7 @@ fn seed_does_not_overwrite_existing() {
     // Pre-insert a custom contract for "len".
     let len_name = interner.intern("len");
     let custom = MemoryContract::conservative(3);
-    sigs.insert(len_name, custom.clone());
+    sigs.insert(len_name, custom);
 
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 

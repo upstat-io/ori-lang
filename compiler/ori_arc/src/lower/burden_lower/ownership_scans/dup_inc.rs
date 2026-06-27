@@ -466,7 +466,7 @@ pub(in crate::lower::burden_lower) fn compute_sum_payload_iter_consume_dup_inc_s
     }
     // A var transitively reaches an iter-consume through `Let { Var }` move
     // aliases (`%11 = %8; @iter(%11 [own])` folds the intermediate move).
-    let mut reaches_iter_consume = iter_consumed.clone();
+    let mut reaches_iter_consume = iter_consumed;
     loop {
         let mut grew = false;
         for block in &func.blocks {

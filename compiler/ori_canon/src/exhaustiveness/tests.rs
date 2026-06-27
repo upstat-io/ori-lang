@@ -460,13 +460,11 @@ fn guard_on_enum_does_not_count_as_covering() {
     };
     let result = check(&tree, 1);
     // Missing false (no edge), and guard on true can fail (Fail node).
-    let non_exhaustive: Vec<_> = result
-        .problems
-        .iter()
-        .filter(|p| matches!(p, PatternProblem::NonExhaustive { .. }))
-        .collect();
     assert!(
-        !non_exhaustive.is_empty(),
+        result
+            .problems
+            .iter()
+            .any(|p| matches!(p, PatternProblem::NonExhaustive { .. })),
         "expected NonExhaustive, got: {:?}",
         result.problems
     );

@@ -1,0 +1,15 @@
+// NEGATIVE PIN — struct-literal multi-field soundness (infer_struct known-field arm).
+// A struct literal with MULTIPLE fields whose value types conflict with their
+// declared types MUST be rejected with E2001. Each field is checked independently;
+// a mismatched field does not suppress the check on the next.
+// Spec: 08-declarations.md § Type Definitions; typeck E2001 (Mismatch).
+
+type Point = { x: int, y: int }
+
+#compile_fail(code: "E2001")
+@test_struct_multi_field_mismatch tests @_anchor_multi () -> void = {
+    let $p = Point { x: "a", y: "b" };
+    ()
+}
+
+@_anchor_multi () -> bool = true;

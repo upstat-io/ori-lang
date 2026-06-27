@@ -66,9 +66,11 @@ mod tests {
         linker.gc_sections(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,--gc-sections".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,--gc-sections"));
     }
 
     #[test]
@@ -79,9 +81,11 @@ mod tests {
         linker.gc_sections(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,-dead_strip".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,-dead_strip"));
     }
 
     #[test]
@@ -101,9 +105,11 @@ mod tests {
         linker.strip_symbols(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,--strip-all".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,--strip-all"));
     }
 
     #[test]
@@ -114,9 +120,11 @@ mod tests {
         linker.strip_symbols(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,-S".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,-S"));
     }
 
     #[test]
@@ -155,9 +163,11 @@ mod tests {
         linker.link_arg("--as-needed");
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,--as-needed".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,--as-needed"));
     }
 
     #[test]
@@ -168,9 +178,11 @@ mod tests {
         linker.add_arg("-v");
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-v".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-v"));
     }
 
     #[test]
@@ -213,10 +225,12 @@ mod tests {
         linker.set_output_kind(LinkOutput::StaticLibrary);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
         // Should not have -shared or other flags
-        assert!(!args.contains(&"-shared".into()));
+        assert!(!cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-shared"));
     }
 
     #[test]
@@ -276,9 +290,11 @@ mod tests {
         linker.cmd().arg("--help");
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"--help".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "--help"));
     }
 
     // -- Static/dynamic hint switching tests --
@@ -345,9 +361,11 @@ mod tests {
         linker.export_symbols(&["foo".to_string(), "bar".to_string()]);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-Wl,--export-dynamic".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-Wl,--export-dynamic"));
     }
 
     #[test]

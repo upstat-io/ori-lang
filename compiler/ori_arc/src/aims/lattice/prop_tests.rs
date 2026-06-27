@@ -878,7 +878,7 @@ proptest! {
 
         let baseline = fold_join(&states);
 
-        let mut shuffled = states.clone();
+        let mut shuffled = states;
         for i in (1..shuffled.len()).rev() {
             let mut hasher = DefaultHasher::new();
             seed.hash(&mut hasher);

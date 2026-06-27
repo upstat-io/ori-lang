@@ -566,7 +566,7 @@ fn exported_collection_surfaces_forward_transitively_a_b_c() {
 
     // Step 3: Module A imports B's surfaces (which contain C's forwarded hash).
     let mut checker_a = ModuleChecker::new(&arena, &interner);
-    checker_a.set_imported_collection_surfaces(result_b.typed.exported_collection_surfaces.clone());
+    checker_a.set_imported_collection_surfaces(result_b.typed.exported_collection_surfaces);
     let (result_a, _pool_a) = checker_a.finish_with_pool();
 
     // A should see C's hash through the full transitive chain.
@@ -599,7 +599,7 @@ fn exported_collection_surfaces_diamond_dedup() {
     let (result_d, _) = checker_d.finish_with_pool();
 
     // Module A imports both B and D
-    let mut combined = result_b.typed.exported_collection_surfaces.clone();
+    let mut combined = result_b.typed.exported_collection_surfaces;
     combined.extend(&result_d.typed.exported_collection_surfaces);
 
     let mut checker_a = ModuleChecker::new(&arena, &interner);

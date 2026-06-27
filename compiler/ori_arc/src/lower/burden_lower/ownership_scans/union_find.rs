@@ -120,6 +120,10 @@ impl ForwarderUnionFind {
     /// sum-aggregate `Construct` — the construct-fed lineage gate. Resolves every
     /// recorded sum-Construct dst to its rep and checks for a match.
     pub(super) fn is_sum_aggregate_construct_rep(&mut self, rep: ArcVarId) -> bool {
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies the dsts out of the &self.sum_aggregate_construct_dsts borrow so the any() closure can call self.find with &mut self"
+        )]
         let dsts: Vec<ArcVarId> = self.sum_aggregate_construct_dsts.iter().copied().collect();
         dsts.into_iter().any(|d| self.find(d) == rep)
     }
@@ -128,6 +132,10 @@ impl ForwarderUnionFind {
     /// collection-buffer `Construct` (`ListLiteral`/`MapLiteral`/`SetLiteral`) OR
     /// a `Let { Literal::String }` (heap str body).
     pub(super) fn is_fresh_collection_construct_rep(&mut self, rep: ArcVarId) -> bool {
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies the dsts out of the &self.fresh_collection_construct_dsts borrow so the any() closure can call self.find with &mut self"
+        )]
         let dsts: Vec<ArcVarId> = self
             .fresh_collection_construct_dsts
             .iter()

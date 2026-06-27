@@ -136,7 +136,7 @@ fn check_def_impl_method(
     let param_types_ref = &mut param_types;
     let return_type_ref = &mut return_type;
     let const_params_for_engine = method_const_params.clone();
-    let inline_bounds_for_engine = method_inline_bounds.clone();
+    let inline_bounds_for_engine = method_inline_bounds;
     let (
         expr_types,
         errors,

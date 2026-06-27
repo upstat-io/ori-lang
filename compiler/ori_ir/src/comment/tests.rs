@@ -63,11 +63,9 @@ fn test_comment_list_comments_before() {
         Comment::regular(interner.intern("c3"), Span::new(30, 40)),
     ]);
 
-    let before_20: Vec<_> = comments.comments_before(20).collect();
-    assert_eq!(before_20.len(), 1);
+    assert_eq!(comments.comments_before(20).count(), 1);
 
-    let before_30: Vec<_> = comments.comments_before(30).collect();
-    assert_eq!(before_30.len(), 2);
+    assert_eq!(comments.comments_before(30).count(), 2);
 }
 
 #[test]

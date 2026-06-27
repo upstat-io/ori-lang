@@ -340,7 +340,7 @@ fn recursive_signature_terminates_on_tree_shaped_spec() {
     };
 
     let tree_for_fetch = tree_spec.clone();
-    let leaf_for_fetch = leaf_spec.clone();
+    let leaf_for_fetch = leaf_spec;
 
     let fetch = move |idx: Idx| -> Option<UserBurdenSpec> {
         if idx == tree_int {

@@ -43,7 +43,7 @@ fn test_graph_build_context_cycle_detection() {
     assert!(!ctx.would_cycle(&path_b));
 
     // Starting A again should error
-    let result = ctx.start_loading(path_a.clone());
+    let result = ctx.start_loading(path_a);
     assert!(matches!(
         result,
         Err(MultiFileError::CyclicDependency { .. })

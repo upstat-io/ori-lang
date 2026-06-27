@@ -471,7 +471,7 @@ pub(crate) fn initialize_native_target() -> Result<(), TargetError> {
 
     NATIVE_TARGET_INIT.call_once(|| {
         if let Err(e) = Target::initialize_native(&InitializationConfig::default()) {
-            result = Err(TargetError::InitializationFailed(e.clone()));
+            result = Err(TargetError::InitializationFailed(e));
         }
     });
 

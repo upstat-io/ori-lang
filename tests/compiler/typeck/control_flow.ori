@@ -180,7 +180,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: try returns Result with correct types
 @test_try_result_type tests _ () -> void = {
     let result = try {
-        let x = succeed(x: 21);
+        let x = succeed(x: 21)?;
         Ok(x * 2)
     };
     assert(cond: is_ok(r: result))

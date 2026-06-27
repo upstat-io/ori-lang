@@ -223,7 +223,7 @@ pub fn analyze_function(
     // the persistent copy consumed AFTER convergence (PL-5: read-only after
     // install). AIMS Invariant #5(c) — extends the unified model via typed
     // pre-pass input on AimsStateMap.
-    state_map.set_project_alias_sources(project_alias_sources.clone());
+    state_map.set_project_alias_sources(project_alias_sources);
 
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;

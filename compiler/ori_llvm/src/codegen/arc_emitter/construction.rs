@@ -175,7 +175,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 } else {
                     eff_args = arg_vals.clone();
                     eff_arc_args = args.to_vec();
-                    eff_field_types = variant_field_types.clone();
+                    eff_field_types = variant_field_types;
                 }
 
                 let has_boxed_fields = eff_field_types

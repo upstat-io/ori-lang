@@ -166,7 +166,7 @@ fn test_artifact_cache_validate() {
 
     // Cache should be invalid for old version check
     let config_old = CacheConfig::new(&dir).with_version("1.0.0");
-    let _cache_old = ArtifactCache::new(config_old.clone()).unwrap();
+    let _cache_old = ArtifactCache::new(config_old).unwrap();
     // But the version file now says 2.0.0, so validating with 1.0.0 should fail
     // (We need to recreate to get the fresh version file)
 

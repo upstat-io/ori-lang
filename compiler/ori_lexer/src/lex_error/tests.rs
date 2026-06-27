@@ -123,12 +123,12 @@ fn string_char_template_factories_produce_expected_fields() {
         (
             LexError::invalid_template_escape(s, 'q'),
             LexErrorKind::InvalidTemplateEscape { escape_char: 'q' },
-            in_tmpl.clone(),
+            in_tmpl,
         ),
         (
             LexError::single_quote_escape_in_string(s),
             LexErrorKind::SingleQuoteEscapeInString,
-            in_str.clone(),
+            in_str,
         ),
         (
             LexError::double_quote_escape_in_char(s),

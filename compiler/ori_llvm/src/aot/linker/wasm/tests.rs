@@ -30,8 +30,10 @@ fn test_wasm_linker_executable() {
     let mut linker = WasmLinker::new(&target);
     linker.set_output_kind(LinkOutput::Executable);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--entry=_start".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--entry=_start"));
 }
 
 #[test]
@@ -62,8 +64,10 @@ fn test_wasm_linker_stack_size() {
     let mut linker = WasmLinker::new(&target);
     linker.set_stack_size(512 * 1024);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--stack-size=524288".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--stack-size=524288"));
 }
 
 #[test]
@@ -132,8 +136,10 @@ fn test_wasm_linker_link_library() {
     let mut linker = WasmLinker::new(&target);
     linker.link_library("c", LibraryKind::Static);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"-lc".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "-lc"));
 }
 
 #[test]
@@ -142,8 +148,10 @@ fn test_wasm_linker_custom_entry() {
     let mut linker = WasmLinker::new(&target);
     linker.set_entry("main");
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--entry=main".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--entry=main"));
 }
 
 #[test]
@@ -152,8 +160,10 @@ fn test_wasm_linker_no_entry() {
     let mut linker = WasmLinker::new(&target);
     linker.no_entry();
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--no-entry".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--no-entry"));
 }
 
 #[test]
@@ -162,8 +172,10 @@ fn test_wasm_linker_allow_undefined() {
     let mut linker = WasmLinker::new(&target);
     linker.allow_undefined(true);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--allow-undefined".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--allow-undefined"));
 }
 
 #[test]
@@ -201,8 +213,10 @@ fn test_wasm_linker_verbose() {
     let mut linker = WasmLinker::new(&target);
     linker.verbose(true);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--verbose".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--verbose"));
 }
 
 #[test]
@@ -211,8 +225,10 @@ fn test_wasm_linker_shared_memory() {
     let mut linker = WasmLinker::new(&target);
     linker.shared_memory(true);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--shared-memory".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--shared-memory"));
 }
 
 #[test]
@@ -221,8 +237,10 @@ fn test_wasm_linker_exception_handling() {
     let mut linker = WasmLinker::new(&target);
     linker.enable_exception_handling(true);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--enable-exception-handling".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--enable-exception-handling"));
 }
 
 #[test]
@@ -231,6 +249,8 @@ fn test_wasm_linker_reference_types() {
     let mut linker = WasmLinker::new(&target);
     linker.enable_reference_types(true);
     let cmd = linker.finalize();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-    assert!(args.contains(&"--enable-reference-types".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--enable-reference-types"));
 }

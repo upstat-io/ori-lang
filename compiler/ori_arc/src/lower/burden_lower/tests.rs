@@ -658,7 +658,7 @@ fn settag_emits_burden_dec_variant_before_settag() {
         !bdv.uses_var(ArcVarId::new(99)),
         "BurdenDecVariant uses_var(other) does not hold",
     );
-    let mut bdv_sub = bdv.clone();
+    let mut bdv_sub = bdv;
     bdv_sub.substitute_var(ArcVarId::new(0), ArcVarId::new(7));
     assert!(
         matches!(bdv_sub, ArcInstr::BurdenDecVariant { var } if var == ArcVarId::new(7)),
@@ -2816,12 +2816,11 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
     // BurdenInc per `RL-1` — conservative Phase 5 emission
     // mirroring `emit_instr_burdens` instruction-level pattern; lattice
     // rewrite eliminates redundant Incs.
-    let incs: Vec<&ArcInstr> = body_0
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
-        .collect();
     assert_eq!(
-        incs.len(),
+        body_0
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
+            .count(),
         1,
         "Invoke.args[0] at owned position MUST receive exactly one BurdenInc at terminator (rule 5 emission-side per RL-1); got body={body_0:?}",
     );
@@ -2905,12 +2904,11 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
     // consultation (RC traffic overcounted but balanced); lattice
     // rewrite eliminates redundant Incs. Mirrors instruction-level pattern
     // at `emit_instr_burdens` line ~966.
-    let incs: Vec<&ArcInstr> = body_0
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
-        .collect();
     assert_eq!(
-        incs.len(),
+        body_0
+            .iter()
+            .filter(|i| matches!(i, ArcInstr::BurdenInc { var } if *var == ArcVarId::new(0)))
+            .count(),
         1,
         "Jump.args[0] (var(0)) to Owned-target-block-param MUST receive exactly one BurdenInc at terminator (rule 3 emission-side per RL-1); got body={body_0:?}",
     );
@@ -3948,7 +3946,7 @@ fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
         &mut registry,
         "Inner_closure",
         inner_idx,
-        Some(inner_spec.clone()),
+        Some(inner_spec),
     );
 
     // Outer closure: captures the INNER closure by value (captures-of-captures).
@@ -3964,7 +3962,7 @@ fn nested_closure_emits_recursive_burden_inc_through_outer_env() {
         &mut registry,
         "Outer_closure",
         outer_idx,
-        Some(outer_spec.clone()),
+        Some(outer_spec),
     );
 
     // Sanity: outer's owned_field carries the inner closure's Idx.

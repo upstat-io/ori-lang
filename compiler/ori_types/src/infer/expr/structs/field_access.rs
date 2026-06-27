@@ -7,8 +7,8 @@ use ori_ir::{ExprArena, ExprId, Name, Span};
 use rustc_hash::FxHashMap;
 
 use super::super::infer_expr;
-use super::substitute_named_types;
 use crate::infer::InferEngine;
+use crate::pool::substitute::substitute_named_in_pool;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError, TypeKind};
 
 /// Infer the type of a field access expression: `receiver.field`.
@@ -144,7 +144,7 @@ pub(crate) fn infer_struct_field(
                 .zip(args.iter())
                 .map(|(&param, &arg)| (param, arg))
                 .collect();
-            return substitute_named_types(engine.pool_mut(), field_def.ty, &subst);
+            return substitute_named_in_pool(engine.pool_mut(), field_def.ty, &subst);
         }
     }
 
@@ -185,7 +185,7 @@ pub(crate) fn lookup_struct_field_types(
     let mut field_types = FxHashMap::default();
     for field in &struct_def.fields {
         let ty = if let Some(ref subst) = subst {
-            substitute_named_types(engine.pool_mut(), field.ty, subst)
+            substitute_named_in_pool(engine.pool_mut(), field.ty, subst)
         } else {
             field.ty
         };

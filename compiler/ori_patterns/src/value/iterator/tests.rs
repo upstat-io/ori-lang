@@ -710,7 +710,7 @@ fn from_value_str() {
 #[test]
 fn from_value_iterator() {
     let inner = IteratorValue::from_range(0, Some(5), 1, false);
-    let val = Value::iterator(inner.clone());
+    let val = Value::iterator(inner);
     let Some(iter) = IteratorValue::from_value(&val) else {
         panic!("iterator should be iterable");
     };
@@ -1086,7 +1086,7 @@ fn is_double_ended_adapters() {
     assert!(mapped_de.is_double_ended());
 
     let mapped_non_de = IteratorValue::Mapped {
-        source: Box::new(non_de_source.clone()),
+        source: Box::new(non_de_source),
         transform: Box::new(Value::Bool(true)),
     };
     assert!(!mapped_non_de.is_double_ended());

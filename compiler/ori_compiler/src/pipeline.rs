@@ -77,7 +77,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
     // Build interpreter
     let print_handler = buffer_handler();
     let mut interpreter = InterpreterBuilder::new(&interner, &parse_result.arena)
-        .print_handler(print_handler.clone())
+        .print_handler(print_handler)
         .canon(shared_canon.clone())
         .build();
 

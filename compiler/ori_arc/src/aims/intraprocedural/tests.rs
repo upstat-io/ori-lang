@@ -1081,12 +1081,11 @@ fn sparse_events_reusable_allocation_for_enum_construct() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert_eq!(
-        reusable.len(),
+        events
+            .iter()
+            .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+            .count(),
         1,
         "EnumVariant Construct should record ReusableAllocation"
     );
@@ -1115,12 +1114,10 @@ fn sparse_events_no_reusable_allocation_for_list_literal() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert!(
-        reusable.is_empty(),
+        !events
+            .iter()
+            .any(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. })),
         "ListLiteral should NOT record ReusableAllocation"
     );
 }
@@ -1187,12 +1184,11 @@ fn sparse_events_multiple_constructs_in_block() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert_eq!(
-        reusable.len(),
+        events
+            .iter()
+            .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+            .count(),
         2,
         "Both Constructs should record ReusableAllocation"
     );
@@ -1352,9 +1348,8 @@ fn block_local_construct_stays_block_local() {
     // demand it), confirming it stays block-local. Verify via the sparse
     // event table: v0 should be a LocalAllocCandidate.
     let events = state_map.events_in_block(block_id(0));
-    let local_alloc: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        events.iter().any(|e| {
             matches!(
                 e,
                 super::AimsEvent::LocalAllocCandidate {
@@ -1362,10 +1357,7 @@ fn block_local_construct_stays_block_local() {
                     ..
                 } if *v == var(0)
             )
-        })
-        .collect();
-    assert!(
-        !local_alloc.is_empty(),
+        }),
         "block-local construct should be a LocalAllocCandidate"
     );
 }
@@ -3278,17 +3270,13 @@ fn no_context_events_when_not_context_hole() {
 
     // No context events should be recorded.
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        !events.iter().any(|e| {
             matches!(
                 e,
                 AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
             )
-        })
-        .collect();
-    assert!(
-        context_events.is_empty(),
+        }),
         "no context events when shape is not ContextHole"
     );
 }
@@ -3340,17 +3328,13 @@ fn empty_context_regions_no_events() {
 
     // But no ContextOpen/ContextClose events — context_regions is empty.
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        !events.iter().any(|e| {
             matches!(
                 e,
                 AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
             )
-        })
-        .collect();
-    assert!(
-        context_events.is_empty(),
+        }),
         "empty context_regions → no context events"
     );
 }
@@ -3475,17 +3459,16 @@ fn context_events_recorded_despite_may_share_true() {
     assert!(state_map.effect_summary().may_share);
 
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
-            )
-        })
-        .collect();
     assert_eq!(
-        context_events.len(),
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
+                )
+            })
+            .count(),
         2,
         "context events should be recorded despite may_share=true (gate is logged, not enforced)"
     );

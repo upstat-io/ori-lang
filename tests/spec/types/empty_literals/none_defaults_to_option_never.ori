@@ -1,0 +1,14 @@
+// §11.1: `let x = None` (no outer annotation) defaults the payload slot to
+// Never, producing `Option<Never>`. A naked `None` compiles clean and is None.
+
+use std.testing { assert }
+
+@test_none_defaults_to_option_never tests @none_defaults_to_option_never () -> void = {
+    let x = None;
+    assert(cond: !is_some(option: x))
+}
+
+@none_defaults_to_option_never () -> bool = {
+    let x = None;
+    is_none(option: x)
+}

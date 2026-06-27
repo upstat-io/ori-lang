@@ -241,7 +241,7 @@ fn loading_context_cycle_error() {
     let path = PathBuf::from("/a.ori");
 
     ctx.start_loading(path.clone()).unwrap();
-    let result = ctx.start_loading(path.clone());
+    let result = ctx.start_loading(path);
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("circular import"));
 }

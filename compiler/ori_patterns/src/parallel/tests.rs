@@ -23,14 +23,14 @@ mod execute_task_tests {
     #[test]
     fn ok_passthrough() {
         let task = Value::ok(Value::Int(42.into()));
-        let result = execute_task(task.clone());
+        let result = execute_task(task);
         assert!(matches!(result, Value::Ok(_)));
     }
 
     #[test]
     fn err_passthrough() {
         let task = Value::err(Value::string("error"));
-        let result = execute_task(task.clone());
+        let result = execute_task(task);
         assert!(matches!(result, Value::Err(_)));
     }
 

@@ -1,0 +1,15 @@
+// NEGATIVE PIN — struct-literal field-value type soundness (infer_struct known-field arm).
+// A struct-literal field value whose type conflicts with the declared field type
+// MUST be rejected with E2001. The field-value inference path must surface a
+// concrete-vs-concrete Mismatch, never silently accept it.
+// Spec: 08-declarations.md § Type Definitions; typeck E2001 (Mismatch).
+
+type Point = { x: int, y: int }
+
+#compile_fail(code: "E2001")
+@test_struct_field_type_mismatch tests @_anchor_field () -> void = {
+    let $p = Point { x: "not an int", y: 2 };
+    ()
+}
+
+@_anchor_field () -> bool = true;

@@ -1614,12 +1614,11 @@ fn same_generic_call_twice_deduplicates() {
 
     let instances = result.mono_instances_for("identity");
     // Both calls use int, so dedup should give exactly one instance.
-    let int_instances: Vec<_> = instances
-        .iter()
-        .filter(|m| m.concrete_param_types[0] == Idx::INT)
-        .collect();
     assert_eq!(
-        int_instances.len(),
+        instances
+            .iter()
+            .filter(|m| m.concrete_param_types[0] == Idx::INT)
+            .count(),
         1,
         "same generic args should dedup to one instance"
     );

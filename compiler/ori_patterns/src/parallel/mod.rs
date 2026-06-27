@@ -305,7 +305,7 @@ pub fn execute_task(task: Value) -> Value {
     match task {
         Value::FunctionVal(func, _) => match func(&[]) {
             Ok(v) => wrap_in_result(v),
-            Err(e) => Value::err(Value::string(e.message.clone())),
+            Err(e) => Value::err(Value::string(e.message)),
         },
         // If task is already a Result, keep it
         Value::Ok(_) | Value::Err(_) => task,

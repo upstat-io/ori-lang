@@ -9,7 +9,7 @@ fn print_handler_integration_println() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     // Directly call the print handler
@@ -25,7 +25,7 @@ fn print_handler_integration_print() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     interpreter.print_handler.print("hello");
@@ -41,7 +41,7 @@ fn print_handler_integration_clear() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     interpreter.print_handler.println("first");
@@ -92,7 +92,7 @@ fn call_method_println_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let println_name = interner.intern("println");
@@ -116,7 +116,7 @@ fn call_method_print_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let print_name = interner.intern("print");
@@ -140,7 +140,7 @@ fn call_method_builtin_println_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let builtin_println_name = interner.intern("__builtin_println");

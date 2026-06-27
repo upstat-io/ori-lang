@@ -306,7 +306,7 @@ fn generalize_identity_function() {
     // stays as a scheme-construction smoke check).
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
     assert_eq!(params.len(), 1);
     assert_eq!(engine.pool().tag(params[0]), Tag::BoundVar);
@@ -363,7 +363,7 @@ fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
 
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
     assert_eq!(params.len(), 1);
 
@@ -412,14 +412,14 @@ fn generalize_then_instantiate_twice_yields_independent_fresh_vars() {
 
     // First instantiation — unify with int.
     let inst1 = engine.instantiate(scheme);
-    let inst1_params: Vec<Idx> = engine.pool().function_params(inst1).clone();
+    let inst1_params: Vec<Idx> = engine.pool().function_params(inst1);
     let inst1_ret = engine.pool().function_return(inst1);
     assert!(engine.unify(inst1_params[0], Idx::INT).is_ok());
     assert_eq!(engine.resolve(inst1_ret), Idx::INT);
 
     // Second instantiation — unify with str. Must NOT be affected by inst1's int.
     let inst2 = engine.instantiate(scheme);
-    let inst2_params: Vec<Idx> = engine.pool().function_params(inst2).clone();
+    let inst2_params: Vec<Idx> = engine.pool().function_params(inst2);
     let inst2_ret = engine.pool().function_return(inst2);
     assert!(engine.unify(inst2_params[0], Idx::STR).is_ok());
     assert_eq!(engine.resolve(inst2_ret), Idx::STR);
@@ -445,7 +445,7 @@ fn generalize_unused_poly_lambda_canonicalizes_to_bound_var_body() {
 
     // Scheme never instantiated — body STILL must be canonicalized.
     let body = engine.pool().scheme_body(scheme);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
 
     assert_eq!(engine.pool().tag(params[0]), Tag::BoundVar);
@@ -476,18 +476,18 @@ fn generalize_nested_lambda_rewrites_both_binders_to_bound_var() {
 
     // Outer fn: param(0)=BoundVar, return=inner fn.
     let body = engine.pool().scheme_body(scheme);
-    let outer_params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let outer_params: Vec<Idx> = engine.pool().function_params(body);
     let outer_ret = engine.pool().function_return(body);
     assert_eq!(engine.pool().tag(outer_params[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(outer_ret), Tag::Function);
 
     // Inner fn: param(0)=BoundVar, return=Tuple<BoundVar, BoundVar>.
-    let inner_params: Vec<Idx> = engine.pool().function_params(outer_ret).clone();
+    let inner_params: Vec<Idx> = engine.pool().function_params(outer_ret);
     let inner_ret = engine.pool().function_return(outer_ret);
     assert_eq!(engine.pool().tag(inner_params[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(inner_ret), Tag::Tuple);
 
-    let tuple_elems: Vec<Idx> = engine.pool().tuple_elems(inner_ret).clone();
+    let tuple_elems: Vec<Idx> = engine.pool().tuple_elems(inner_ret);
     assert_eq!(tuple_elems.len(), 2);
     assert_eq!(engine.pool().tag(tuple_elems[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(tuple_elems[1]), Tag::BoundVar);
@@ -511,7 +511,7 @@ fn generalize_return_position_polymorphic_type_rewrites_nested_var() {
     let scheme = engine.generalize(fn_ty);
 
     let body = engine.pool().scheme_body(scheme);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
 
     assert_eq!(

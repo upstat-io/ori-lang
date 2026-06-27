@@ -60,6 +60,19 @@ pre-commit:
       # once dogfood shows true-positive rate is reliable.
       glob: "**/*.{rs,ori}"
       run: python3 scripts/version-naming-lint.py --warn-only
+    operation-name-lint:
+      # Operation-name-without-operation detector (NAME-34 / TEST-34) — see
+      # impl-hygiene.md NAME-34 + `python3 scripts/operation-name-lint.py --help`.
+      # Mechanically gates ONLY the near-zero-false-positive subset: a Rust
+      # `let cloned = <expr>;` whose initializer performs no clone (the residue a
+      # clippy `redundant_clone` autofix leaves). `copied`/`duplicated`, `.ori`
+      # value-semantics copies, and the `*_clone`-test-body case are NAME-34/
+      # TEST-34/TEST-35 reviewer-time only.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.rs"
+      run: python3 scripts/operation-name-lint.py --warn-only
     prose-lint:
       # Source-side internal-vocabulary leak detector — see
       # `../scripts/prose-lint.py --help` for the full pattern reference.

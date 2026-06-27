@@ -367,7 +367,7 @@ fn compile_and_cache(
         output: binary_path.to_path_buf(),
         output_kind: LinkOutput::Executable,
         gc_sections: true, // Remove unused sections
-        sanitizer: opt_config.sanitizer.clone(),
+        sanitizer: opt_config.sanitizer,
         ..Default::default()
     };
 
