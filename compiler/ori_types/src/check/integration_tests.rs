@@ -856,6 +856,95 @@ pub @public_fn () -> int = 1;
     );
 }
 
+#[test]
+fn module_alias_qualified_call_types_to_function_return() {
+    // Positive semantic pin (Spec: Clause 12 Module Alias): a qualified call
+    // `math.add(a: 10, b: 20)` against a module alias resolves to the aliased
+    // function's return type. Pre-fix this poisoned to `Idx::ERROR` (qualified
+    // access was deferred), cascading cross-module `assert_eq` to AOT
+    // missing-mono. Fails if the module_alias_call resolver is reverted.
+    let interner = StringInterner::new();
+    let provider = parse_source("pub @add (a: int, b: int) -> int = a + b;", &interner);
+    let consumer = parse_source("@caller () -> int = math.add(a: 10, b: 20);", &interner);
+
+    let (result, _pool) = crate::check::check_module_with_imports(
+        &consumer.module,
+        &consumer.arena,
+        &interner,
+        |checker| {
+            let alias = interner.intern("math");
+            checker.register_module_alias(alias, &provider.module, &provider.arena);
+        },
+    );
+
+    assert!(
+        !result.has_errors(),
+        "qualified module-alias call must type-check; errors: {:?}",
+        result
+            .typed
+            .errors
+            .iter()
+            .map(|e| &e.kind)
+            .collect::<Vec<_>>()
+    );
+
+    let caller_name = interner.intern("caller");
+    let caller_func = consumer
+        .module
+        .functions
+        .iter()
+        .find(|f| f.name == caller_name)
+        .unwrap();
+    let caller_body_ty = result
+        .typed
+        .expr_type(caller_func.body.raw() as usize)
+        .unwrap();
+    assert_eq!(
+        caller_body_ty,
+        Idx::INT,
+        "math.add(...) must type to the aliased function's int return, not Idx::ERROR"
+    );
+}
+
+#[test]
+fn module_alias_unknown_qualified_method_does_not_resolve() {
+    // Negative pin: a qualified call to a function NOT exported by the aliased
+    // module must NOT spuriously resolve to a concrete type via the
+    // module-alias path. `math.nonexistent(...)` has no matching signature, so
+    // the resolver returns None and the call falls through to ordinary method
+    // dispatch (which finds nothing on the namespace placeholder).
+    let interner = StringInterner::new();
+    let provider = parse_source("pub @add (a: int, b: int) -> int = a + b;", &interner);
+    let consumer = parse_source("@caller () -> int = math.nonexistent(x: 1);", &interner);
+
+    let (result, _pool) = crate::check::check_module_with_imports(
+        &consumer.module,
+        &consumer.arena,
+        &interner,
+        |checker| {
+            let alias = interner.intern("math");
+            checker.register_module_alias(alias, &provider.module, &provider.arena);
+        },
+    );
+
+    let caller_name = interner.intern("caller");
+    let caller_func = consumer
+        .module
+        .functions
+        .iter()
+        .find(|f| f.name == caller_name)
+        .unwrap();
+    let caller_body_ty = result
+        .typed
+        .expr_type(caller_func.body.raw() as usize)
+        .unwrap();
+    assert_ne!(
+        caller_body_ty,
+        Idx::INT,
+        "math.nonexistent(...) must NOT resolve to int via the module-alias path"
+    );
+}
+
 // Regression Guards
 
 #[test]

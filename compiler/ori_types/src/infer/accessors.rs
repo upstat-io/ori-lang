@@ -69,6 +69,19 @@ impl<'pool> InferEngine<'pool> {
         self.signatures = Some(sigs);
     }
 
+    /// Set the module-alias namespaces for qualified-call resolution.
+    pub fn set_module_aliases(&mut self, aliases: &'pool FxHashMap<Name, Vec<FunctionSig>>) {
+        self.module_aliases = Some(aliases);
+    }
+
+    /// Look up the aliased module's public function signatures for an alias
+    /// name. Returns `None` when the name is not a registered module alias.
+    pub fn module_alias_sigs(&self, alias: Name) -> Option<&'pool [FunctionSig]> {
+        self.module_aliases
+            .and_then(|m| m.get(&alias))
+            .map(Vec::as_slice)
+    }
+
     /// Set the type registry for struct/enum/newtype lookup.
     pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
         self.type_registry = Some(registry);

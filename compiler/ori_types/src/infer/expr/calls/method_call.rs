@@ -11,6 +11,7 @@ use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
 use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
 use super::method_receiver::{resolve_receiver_and_builtin, ReceiverDispatch};
+use super::module_alias_call;
 use super::monomorphization::maybe_record_method_mono_instance;
 use crate::infer::expr::type_resolution::resolve_parsed_type_list;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag};
@@ -37,6 +38,21 @@ pub(crate) fn infer_method_call(
     span: Span,
     expected: Option<&Expected>,
 ) -> Idx {
+    // Module-alias qualified call `alias.func(args)` (Spec: Clause 12). Resolved
+    // against the aliased module's signature BEFORE ordinary method dispatch so
+    // the namespace receiver does not poison to `Idx::ERROR`.
+    {
+        let arg_ids = arena.get_expr_list(args).to_vec();
+        if let Some(ret) = module_alias_call::try_infer_module_alias_call(
+            engine, arena, receiver, method, &arg_ids, span,
+        ) {
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret, exp, span);
+            }
+            return ret;
+        }
+    }
+
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return {
             ret_ty,
@@ -147,6 +163,19 @@ pub(crate) fn infer_method_call_named(
     span: Span,
     expected: Option<&Expected>,
 ) -> Idx {
+    // Module-alias qualified call `alias.func(name: value, ...)` (Spec: Clause 12).
+    {
+        let call_args = arena.get_call_args(args).to_vec();
+        if let Some(ret) = module_alias_call::try_infer_module_alias_call_named(
+            engine, arena, receiver, method, &call_args, span,
+        ) {
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret, exp, span);
+            }
+            return ret;
+        }
+    }
+
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return {
             ret_ty,

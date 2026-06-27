@@ -1,0 +1,45 @@
+// Spec: 12-modules.md Module Alias — qualified access `alias.func(args)`
+//
+// Pins module-alias qualified access (`math.add(a:, b:)`). The `ori_types`
+// typeck half resolves the qualified call against the aliased module's public
+// signature so it types to the function's return type instead of poisoning to
+// `Idx::ERROR` — which closes the cross-module `assert_eq` missing-mono cascade
+// these calls otherwise produce in the LLVM backend. The eval backend executes
+// the call via dynamic `Value::ModuleNamespace` dispatch and passes today.
+//
+// The LLVM/AOT EXECUTION of qualified access requires the canon lowering + the
+// codegen import-wiring tracked by BUG-02-072 (the namespace `MethodCall` must
+// lower to a free `Call` and the aliased module's referenced functions must be
+// declared as imported). Until BUG-02-072 lands, the qualified tests are
+// skip-tracked; the typeck-resolution deliverable is verified by the eval
+// backend run plus the ori_types unit suite.
+
+use std.testing { assert_eq }
+use "../math_lib" as math
+
+@helper () -> int = 42;
+
+#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+@test_qualified_add tests @helper () -> void = {
+    assert_eq(actual: math.add(a: 10, b: 20), expected: 30)
+}
+
+#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+@test_qualified_subtract tests @helper () -> void = {
+    assert_eq(actual: math.subtract(a: 50, b: 8), expected: 42)
+}
+
+#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+@test_qualified_multiply tests @helper () -> void = {
+    assert_eq(actual: math.multiply(a: 6, b: 7), expected: 42)
+}
+
+#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+@test_qualified_double tests @helper () -> void = {
+    assert_eq(actual: math.double(x: 21), expected: 42)
+}
+
+#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+@test_qualified_use_internal tests @helper () -> void = {
+    assert_eq(actual: math.use_internal(x: 5), expected: 105)
+}

@@ -114,6 +114,12 @@ pub struct InferEngine<'pool> {
     /// Function signatures for where-clause lookup.
     signatures: Option<&'pool FxHashMap<Name, FunctionSig>>,
 
+    /// Module-alias namespaces (`use "path" as alias`): each alias name maps to
+    /// the aliased module's public function signatures. Consulted to resolve a
+    /// qualified call `alias.func(args)` (Spec: Clause 12 Module Alias) against
+    /// the named function's signature.
+    module_aliases: Option<&'pool FxHashMap<Name, Vec<FunctionSig>>>,
+
     /// Type registry for struct/enum/newtype lookup during inference.
     type_registry: Option<&'pool TypeRegistry>,
 
@@ -308,6 +314,7 @@ impl<'pool> InferEngine<'pool> {
             well_known: None,
             trait_registry: None,
             signatures: None,
+            module_aliases: None,
             type_registry: None,
             builtin_extensions: FxHashMap::default(),
             self_type: None,

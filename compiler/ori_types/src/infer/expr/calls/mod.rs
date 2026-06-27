@@ -9,6 +9,7 @@ mod infinite_iterator;
 mod method_call;
 mod method_diagnostics;
 mod method_receiver;
+mod module_alias_call;
 mod monomorphization;
 mod traits;
 

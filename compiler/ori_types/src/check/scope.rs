@@ -153,6 +153,7 @@ impl ModuleChecker<'_> {
         // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
+        let aliases = &self.module_aliases;
         let types = &self.types;
         let consts = &self.const_types;
         let impl_self = self.current_impl_self;
@@ -164,6 +165,7 @@ impl ModuleChecker<'_> {
         engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
+        engine.set_module_aliases(aliases);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
         engine.set_builtin_extensions(builtin_exts);
@@ -185,6 +187,7 @@ impl ModuleChecker<'_> {
         // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
+        let aliases = &self.module_aliases;
         let types = &self.types;
         let consts = &self.const_types;
         let impl_self = self.current_impl_self;
@@ -208,6 +211,7 @@ impl ModuleChecker<'_> {
         engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
+        engine.set_module_aliases(aliases);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
         engine.set_builtin_extensions(builtin_exts);
