@@ -16,13 +16,20 @@ use crate::codegen::value_id::ValueId;
 /// Prelude functions with complete AOT codegen (sorted).
 ///
 /// Must stay in sync with `try_emit_prelude_function()` match arms and
-/// `ori_eval/src/interpreter/mod.rs::register_prelude()`.
+/// `ori_eval/src/interpreter/prelude.rs::register_prelude()`.
 #[allow(
     dead_code,
     reason = "used by sync tests for prelude coverage verification"
 )]
-pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] =
-    &["byte", "float", "hash_combine", "int", "repeat", "str"];
+pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
+    "byte",
+    "float",
+    "hash_combine",
+    "int",
+    "repeat",
+    "str",
+    "thread_id",
+];
 
 /// Prelude functions recognized but not yet implementable in AOT codegen.
 ///
@@ -32,7 +39,7 @@ pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] =
     dead_code,
     reason = "documents pending prelude AOT support for sync completeness"
 )]
-pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error", "thread_id"];
+pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error"];
 
 /// Try to emit a prelude builtin function call.
 ///
@@ -51,6 +58,7 @@ pub(in crate::codegen::arc_emitter) fn try_emit_prelude_function<'scx: 'ctx, 'ct
         "byte" => emit_byte(emitter, args, arc_func),
         "hash_combine" => emit_hash_combine(emitter, args),
         "repeat" => emit_repeat(emitter, args, arc_func),
+        "thread_id" => emit_thread_id(emitter, args),
         // Not yet implementable — need runtime infrastructure.
         _ => None,
     }
@@ -218,4 +226,21 @@ fn emit_hash_combine<'scx: 'ctx, 'ctx>(
     let a = emitter.var(args[0]);
     let b = emitter.var(args[1]);
     Some(emitter.emit_hash_combine(a, b))
+}
+
+/// Emit `thread_id()` — a 0-arg scalar builtin returning the current OS thread
+/// id as `int` (`i64`). Lowers to a direct `ori_thread_id()` runtime call (no
+/// args, no RC — scalar result per RE-2); the runtime reads a thread-local and
+/// never unwinds. The eval oracle `function_val_thread_id` shares the same
+/// `ThreadId` Debug-parse algorithm (dual-exec parity is structural — both
+/// backends compute `id > 0`, not a fixed value).
+fn emit_thread_id<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+) -> Option<ValueId> {
+    if !args.is_empty() {
+        return None;
+    }
+    let func_id = emitter.builder.runtime_fn("ori_thread_id");
+    emitter.emit_rt_call(func_id, &[], "thread_id")
 }

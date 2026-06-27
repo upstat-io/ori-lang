@@ -288,6 +288,24 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     a.max(b)
 }
 
+/// Current OS thread id as a positive integer.
+///
+/// Mirrors the evaluator oracle (`ori_eval::function_val::function_val_thread_id`)
+/// so eval and AOT share one algorithm: parse the `ThreadId(N)` Debug form
+/// (`ThreadId::as_u64()` is unstable, rust#67939). `unwrap_or(1)` keeps the
+/// positivity invariant the spec asserts (`parallel_threads.ori`: `id > 0`) on
+/// the unreachable parse-failure path; no `.unwrap()` (workspace
+/// `unwrap_used = "deny"`).
+#[no_mangle]
+pub extern "C" fn ori_thread_id() -> i64 {
+    let id_str = format!("{:?}", std::thread::current().id());
+    id_str
+        .trim_start_matches("ThreadId(")
+        .trim_end_matches(')')
+        .parse::<i64>()
+        .unwrap_or(1)
+}
+
 // Args & entry point
 
 /// Convert C `argc`/`argv` to an Ori `[str]` list.

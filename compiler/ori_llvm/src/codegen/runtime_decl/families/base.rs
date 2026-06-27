@@ -32,6 +32,15 @@ pub(in crate::codegen::runtime_decl) static BASE: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // Prelude builtin `thread_id() -> int`: reads a thread-local, never
+    // unwinds (extern "C" -> Nounwind per RT-1); JIT-callable.
+    RtFn {
+        name: "ori_thread_id",
+        params: &[],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Panic (cold + noreturn, NOT nounwind — must unwind for RC cleanup)
     RtFn {
         name: "ori_panic",

@@ -97,17 +97,13 @@ fn buffer_pop_generic_fn_in_generic_body_monos() {
 }
 
 // ---------------------------------------------------------------------------
-// SEPARATE ROOT (BUG-04-229) — `thread_id` is a prelude builtin registered
-// ONLY as an interpreter `function_val` (no `ori_rt` runtime symbol, no LLVM
-// builtin-call lowering). It fails AOT with E5001 `unresolved function
-// 'thread_id'` even in a DIRECT non-generic call (`@main = { thread_id() }`),
-// so it is NOT the transitive-generic-body mono gap (ROOT-B): `get_id<int>`
-// now monomorphizes correctly after the s-a86e53ac cures, but the
-// `thread_id()` call inside its body has no AOT target. Ignored against
-// BUG-04-229 (prelude-builtin AOT codegen lowering) until that lands.
+// DISTINCT ROOT from the transitive-generic-body mono gap: `thread_id` is a
+// prelude builtin whose AOT path is its runtime-symbol + codegen lowering
+// (`ori_thread_id` + the `emit_thread_id` prelude arm), NOT monomorphization.
+// `get_id<int>` monomorphizes correctly; this pins that the `thread_id()` call
+// inside a generic body also lowers at AOT once the builtin lowering lands.
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore = "BUG-04-229: prelude builtin thread_id() has no AOT/LLVM lowering — separate root from the ROOT-B transitive-mono gap; fails AOT even non-generically"]
 fn thread_id_nested_in_generic_body_monos() {
     assert_aot_success(
         include_str!("fixtures/broad_transitive_generic_body_mono/thread_id.ori"),

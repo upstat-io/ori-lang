@@ -78,6 +78,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_print_int" => runtime::ori_print_int as *const () as usize,
         "ori_print_float" => runtime::ori_print_float as *const () as usize,
         "ori_print_bool" => runtime::ori_print_bool as *const () as usize,
+        "ori_thread_id" => runtime::ori_thread_id as *const () as usize,
         // Panic / assert
         "ori_panic" => runtime::ori_panic as *const () as usize,
         "ori_panic_cstr" => runtime::ori_panic_cstr as *const () as usize,
