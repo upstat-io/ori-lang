@@ -1,8 +1,9 @@
 # Proposal: `ori fix` — Apply-Driver for Machine-Applicable Suggestions
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-06-26
+**Approved:** 2026-06-26
 **Affects:** Compiler driver (`oric` — new `fix` subcommand), `ori_diagnostic` (suggestion serialization), `ori_test_harness` (producer-correctness corpus gate), tooling, spec (Annex D interaction; CLI surface), guide
 **Related:** block-tail-value-discipline-proposal.md (a consumer; routes its void-tail `;` normalization + `Never`-tail spelling through `ori fix`), built-in-lint-format-on-compile-proposal.md, redundant-trailing-unit-normalization-proposal.md
 

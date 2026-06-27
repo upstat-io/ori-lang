@@ -270,7 +270,6 @@ fn build_and_register_body_type_map(
     extra_named: &[(Name, Idx)],
     generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) -> Vec<(Idx, Idx)> {
-    let mut body_type_map: Vec<(Idx, Idx)> = Vec::new();
     // Merge impl-level `Tag::RigidVar(var_id) → concrete` entries into the
     // var-subst so `build_mono_body_type_map` records BOTH leaf rigids
     // (`self.value: T`) AND rigid-containing COMPOSITES (a `Pair<B, A>` ctor
@@ -290,14 +289,21 @@ fn build_and_register_body_type_map(
         combined.extend(rigid_subst);
         combined
     };
-    crate::pool::substitute::build_mono_body_type_map(pool, &combined_subst, &mut body_type_map);
-    for &(name, concrete) in extra_named {
-        let generic_idx = pool.named(name);
-        if generic_idx != concrete {
-            body_type_map.push((generic_idx, concrete));
-        }
-    }
-    crate::pool::substitute::finalize_body_type_map(&mut body_type_map);
+    // Pre-resolve the impl-binder `Tag::Named` entries (generic-idx, concrete),
+    // identity-skipping generic_idx == concrete, as the bookend's already-resolved
+    // `extra_named` slice; the register tail stays SITE-LOCAL.
+    let named_entries: Vec<(Idx, Idx)> = extra_named
+        .iter()
+        .filter_map(|&(name, concrete)| {
+            let generic_idx = pool.named(name);
+            (generic_idx != concrete).then_some((generic_idx, concrete))
+        })
+        .collect();
+    let body_type_map = crate::pool::substitute::build_finalized_body_type_map(
+        pool,
+        &combined_subst,
+        &named_entries,
+    );
     register_concrete_applied_resolutions(pool, &body_type_map, generic_type_params);
     body_type_map
 }

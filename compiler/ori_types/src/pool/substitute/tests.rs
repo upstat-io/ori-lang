@@ -738,3 +738,124 @@ fn materialize_self_referential_enum_terminates() {
         "in_progress guard must drain on completion"
     );
 }
+
+// build_finalized_body_type_map
+//
+// The build->(extend named)->finalize bookend has one home shared by the three
+// Vec-sink sites (build_mono_instance, refresh_method_mono_body_type_maps,
+// build_and_register_body_type_map). These pins fix the helper's contract: build
+// into a fresh Vec, extend with the caller's already-resolved (key, val) pairs,
+// finalize (sort+dedup), return.
+
+use super::build_finalized_body_type_map;
+
+// Two-fresh-pool setup: build_mono_body_type_map interns BoundVars that then
+// carry HAS_BOUND_VAR, so a second call on the SAME pool re-scans them — it is
+// NOT idempotent on one pool. fresh_var allocates var_ids sequentially, so two
+// fresh pools built identically produce identical maps.
+fn two_var_subst(pool: &mut Pool) -> FxHashMap<u32, Idx> {
+    let v1 = pool.fresh_var();
+    let id1 = pool.data(v1);
+    let v2 = pool.fresh_var();
+    let id2 = pool.data(v2);
+    let mut vs: FxHashMap<u32, Idx> = FxHashMap::default();
+    vs.insert(id1, Idx::INT);
+    vs.insert(id2, Idx::STR);
+    vs
+}
+
+#[test]
+fn build_finalized_empty_extra_equals_manual_build_then_finalize() {
+    // SSOT-collapse pin: the helper with no extra_named is EXACTLY the
+    // build_mono_body_type_map + finalize_body_type_map bookend the three sites
+    // duplicated. Build the manual baseline and the helper on two fresh pools.
+    let mut pool_manual = Pool::new();
+    let vs_manual = two_var_subst(&mut pool_manual);
+    let mut manual: Vec<(Idx, Idx)> = Vec::new();
+    super::body_type_map::build_mono_body_type_map(&mut pool_manual, &vs_manual, &mut manual);
+    super::body_type_map::finalize_body_type_map(&mut manual);
+
+    let mut pool_helper = Pool::new();
+    let vs_helper = two_var_subst(&mut pool_helper);
+    let helper = build_finalized_body_type_map(&mut pool_helper, &vs_helper, &[]);
+
+    assert_eq!(
+        helper, manual,
+        "helper with empty extra_named must equal the manual build+finalize bookend"
+    );
+    assert!(
+        !helper.is_empty(),
+        "two-var subst must produce a non-empty map"
+    );
+}
+
+#[test]
+fn build_finalized_sorts_extra_named_by_key() {
+    // Extra_named entries are passed through finalize (sort by key.raw()), NOT
+    // appended raw. Empty var_subst isolates the extra_named path.
+    let mut pool = Pool::new();
+    let empty: FxHashMap<u32, Idx> = FxHashMap::default();
+    // Two distinct keys, deliberately out of raw() order.
+    let mut keys = [Idx::BOOL, Idx::INT, Idx::STR];
+    keys.sort_by_key(|k| k.raw());
+    let extra = [(keys[2], Idx::INT), (keys[0], Idx::STR)];
+
+    let result = build_finalized_body_type_map(&mut pool, &empty, &extra);
+
+    assert_eq!(result.len(), 2, "two distinct extra keys survive finalize");
+    assert!(
+        result.windows(2).all(|w| w[0].0.raw() < w[1].0.raw()),
+        "finalize must sort extra_named by key.raw() ascending"
+    );
+}
+
+#[test]
+fn build_finalized_dedups_duplicate_extra_named_key() {
+    // Clamp / negative pin: a duplicate-key extra entry is deduped by finalize.
+    // This ONLY holds if extend happens BEFORE finalize — appending extra AFTER
+    // finalize would leave the duplicate, yielding len 2. Pins the ordering.
+    let mut pool = Pool::new();
+    let empty: FxHashMap<u32, Idx> = FxHashMap::default();
+    let extra = [(Idx::INT, Idx::STR), (Idx::INT, Idx::BOOL)];
+
+    let result = build_finalized_body_type_map(&mut pool, &empty, &extra);
+
+    assert_eq!(
+        result.len(),
+        1,
+        "duplicate extra_named key must be deduped by finalize (extend-before-finalize)"
+    );
+    assert_eq!(result[0].0, Idx::INT, "the surviving entry keys on the dup");
+}
+
+// (negative / no-register clamp) — the bookend helper is PURE build+extend+finalize:
+// it NEVER registers Applied->concrete resolutions. register_concrete_applied_resolutions
+// stays site-local; build_mono_instance must NOT register. Pins the no-register
+// invariant the other pins miss.
+#[test]
+fn build_finalized_does_not_register_applied_resolutions() {
+    let mut pool = Pool::new();
+    // An Applied(List, [int]) the caller has NOT registered to any concrete enum.
+    let interner = ori_ir::StringInterner::new();
+    let list = interner.intern("List");
+    let applied = pool.applied(list, &[Idx::INT]);
+    assert!(
+        pool.resolve(applied).is_none(),
+        "precondition: the Applied type starts unregistered"
+    );
+    // Drive the bookend over a non-empty var_subst (so it does real build work).
+    let v1 = pool.fresh_var();
+    let id1 = pool.data(v1);
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    var_subst.insert(id1, Idx::INT);
+
+    let _map = build_finalized_body_type_map(&mut pool, &var_subst, &[]);
+
+    // The helper builds the body-type-map ONLY; it MUST NOT have registered the
+    // Applied type to a concrete resolution (that is register_concrete_applied_resolutions'
+    // job, kept site-local at the two registering call sites — NEVER in the bookend).
+    assert!(
+        pool.resolve(applied).is_none(),
+        "build_finalized_body_type_map must NOT register Applied->concrete resolutions"
+    );
+}

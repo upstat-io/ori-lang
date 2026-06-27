@@ -268,15 +268,20 @@ pub(super) fn refresh_method_mono_body_type_maps(
 
         // Re-walk the now-complete pool so body composites interned AFTER eager
         // recording are captured. Preserve the eager `Tag::Named` binder entries
-        // (`build_mono_body_type_map` does not produce them).
-        let mut refreshed: Vec<(Idx, Idx)> = Vec::new();
-        crate::pool::substitute::build_mono_body_type_map(pool, &var_subst, &mut refreshed);
-        for &(key, val) in &inst.body_type_map {
-            if pool.tag(key) == Tag::Named {
-                refreshed.push((key, val));
-            }
-        }
-        crate::pool::substitute::finalize_body_type_map(&mut refreshed);
+        // (`build_mono_body_type_map` does not produce them) by pushing them as
+        // the bookend's already-resolved `extra_named` slice; the register tail
+        // stays SITE-LOCAL.
+        let named_entries: Vec<(Idx, Idx)> = inst
+            .body_type_map
+            .iter()
+            .copied()
+            .filter(|&(key, _)| pool.tag(key) == Tag::Named)
+            .collect();
+        let refreshed = crate::pool::substitute::build_finalized_body_type_map(
+            pool,
+            &var_subst,
+            &named_entries,
+        );
 
         crate::infer::register_concrete_applied_resolutions(pool, &refreshed, generic_type_params);
         inst.body_type_map = refreshed;
