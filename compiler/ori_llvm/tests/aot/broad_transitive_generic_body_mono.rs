@@ -24,14 +24,9 @@
 //! already-resolved face of the same shape against regression.
 //!
 //! Out of scope here:
-//! - `thread_id` (`#[ignore]`'d against BUG-04-229): the prelude builtin
-//!   `thread_id()` has no `ori_rt`/LLVM AOT lowering — it fails E5001 even in a
-//!   DIRECT non-generic call, so it is NOT the transitive-generic-body mono gap.
-//!   `get_id<int>` monomorphizes correctly after the cure; the nested
-//!   `thread_id()` call simply has no AOT target. Separate deliverable.
 //! - `repeat_value` (const-only generic method `@m<$N: int>`): its AOT miss is
-//!   the const-only-method monomorphization gate (the `tests/spec` corpus marks
-//!   it `#skip("BUG-02-023: ...")`), and it ALSO fails at interp with E6020 —
+//!   the const-only-method monomorphization gate (the `tests/spec` corpus
+//!   marks it `#skip` for that gate), and it ALSO fails at interp with E6020 —
 //!   not a clean interp-pass / AOT-miss parity break. Distinct root, own bug.
 //! - The closure (`cb`) and trait-method-chain (`transform`) faces of this
 //!   shape are AOT-resolved today and already pinned at the spec-corpus level

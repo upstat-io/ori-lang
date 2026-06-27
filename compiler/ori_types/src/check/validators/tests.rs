@@ -691,6 +691,8 @@ fn polylambda_return_type_with_boundvar_emits_no_diagnostic() {
 /// is the leak alarm's correct behavior.
 ///
 /// Cell L of the leak-alarm matrix.
+///
+/// Not the enforcement point.
 #[test]
 fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();

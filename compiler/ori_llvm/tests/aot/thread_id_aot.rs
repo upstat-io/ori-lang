@@ -1,12 +1,13 @@
-//! AOT pins for the prelude builtin `thread_id()` codegen-lowering gap.
+//! AOT pins for the prelude builtin `thread_id()` codegen lowering.
 //!
 //! `thread_id` is registered driver-side as `() -> int` and as an interpreter
-//! builtin, but has no AOT/LLVM lowering — every AOT call reaches
-//! `arc_emitter/apply.rs::resolve_callee` unresolved and aborts with
+//! builtin; its AOT lowering is the `ori_thread_id() -> i64` runtime symbol +
+//! the scalar `emit_thread_id` arm. These pins lock down that lowering against
+//! the pre-fix gap, where every AOT call reached
+//! `arc_emitter/apply.rs::resolve_callee` unresolved and aborted with
 //! `error[E5001]`: `unresolved function 'thread_id' in apply -- missing mono
 //! instance?` (the generic apply-dispatch fallback string, NOT a real
-//! monomorphization gap — the call has zero type params). The fix adds an
-//! `ori_thread_id() -> i64` runtime symbol + a scalar `emit_thread_id` arm.
+//! monomorphization gap — the call has zero type params).
 //!
 //! `thread_id()` is non-deterministic per-thread, so these pins assert
 //! AOT-compilation success + a STRUCTURAL property (positive — `id > 0`,

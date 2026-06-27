@@ -4,8 +4,9 @@
 //! that have no canonical IR body. Each function dispatches on argument types
 //! to emit inline LLVM IR or runtime calls.
 //!
-//! This module is the unified replacement for scattered special-case
-//! interceptions (e.g., `hash_combine`) in `emit_invoke()` and `emit_apply()`.
+//! This module is the unified interception point for these prelude builtins
+//! (e.g., `hash_combine`); `emit_invoke()` and `emit_apply()` carry no
+//! per-builtin special cases.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 
@@ -17,10 +18,9 @@ use crate::codegen::value_id::ValueId;
 ///
 /// Must stay in sync with `try_emit_prelude_function()` match arms and
 /// `ori_eval/src/interpreter/prelude.rs::register_prelude()`.
-#[allow(
-    dead_code,
-    reason = "used by sync tests for prelude coverage verification"
-)]
+///
+/// Consumed by `is_callee_intercepted` (`arc_emitter/context.rs`) to route
+/// these names through prelude interception.
 pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
     "byte",
     "float",
@@ -30,16 +30,6 @@ pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
     "str",
     "thread_id",
 ];
-
-/// Prelude functions recognized but not yet implementable in AOT codegen.
-///
-/// These need runtime infrastructure (iterators, error construction, thread
-/// locals) that isn't available in the AOT pipeline yet.
-#[allow(
-    dead_code,
-    reason = "documents pending prelude AOT support for sync completeness"
-)]
-pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error"];
 
 /// Try to emit a prelude builtin function call.
 ///
@@ -59,7 +49,6 @@ pub(in crate::codegen::arc_emitter) fn try_emit_prelude_function<'scx: 'ctx, 'ct
         "hash_combine" => emit_hash_combine(emitter, args),
         "repeat" => emit_repeat(emitter, args, arc_func),
         "thread_id" => emit_thread_id(emitter, args),
-        // Not yet implementable — need runtime infrastructure.
         _ => None,
     }
 }
