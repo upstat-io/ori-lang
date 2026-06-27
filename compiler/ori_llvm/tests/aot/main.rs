@@ -98,6 +98,7 @@ mod struct_self_rebuild_cross_block;
 pub mod structs;
 pub mod tagless_enum;
 pub mod template_str_chain;
+pub mod thread_id_aot;
 pub mod traits;
 pub mod trmc;
 pub mod tuples;
