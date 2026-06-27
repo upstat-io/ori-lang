@@ -1,0 +1,229 @@
+// Spec: 06-types.md § Derive — derived traits on a nested-generic instantiation receiver
+// Formal semantics: a derived method must resolve for EVERY concrete instantiation a call
+// site can demand, including an inner instantiation reachable ONLY by nesting a generic
+// inside itself (`Wrap<Wrap<T>>` -> inner `Wrap<T>`) or inside a distinct generic
+// (`Box<Cell<T>>` -> inner `Cell<T>`). Resolving the nested `Applied(Wrap, [Applied(Wrap,
+// [int])])` shape drives type-pool resolution of the inner `Applied(Wrap, [int])`; a
+// non-terminating resolver here overflows the host stack and aborts typecheck — taking
+// down the WHOLE spec runner (interpreter ERR + LLVM backend CRASHED).
+//
+// Matrix coverage:
+//   inner type int : every derived trait {Eq, Hashable, Comparable, Clone, Debug,
+//                    Printable, Default} at depth 2; depth 3 (Eq+Hashable+Debug);
+//                    single-level control.
+//   inner type str : {Eq, Hashable, Clone, Debug, Printable} at depth 2.
+//   inner type bool: {Eq, Hashable, Clone, Debug} at depth 2.
+//   shape          : self-nest (`Wrap<Wrap<T>>`) AND distinct-outer (`Box<Cell<int>>`)
+//                    incl. distinct-outer Default.
+// Every cell must type-check and run WITHOUT overflowing; single-level cells are the
+// positive controls that already work and must KEEP working.
+
+use std.testing { assert, assert_eq }
+
+#[derive(Eq, Hashable, Comparable, Clone, Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+#[derive(Eq, Hashable, Comparable, Clone, Debug, Printable, Default)]
+type Cell<T> = { slot: T }
+
+#[derive(Eq, Hashable, Comparable, Clone, Debug, Printable, Default)]
+type Box<T> = { held: Cell<T> }
+
+// --- Control: single-level generic derive must keep working (no nesting) ---
+
+@test_single_level_eq tests @single_level_eq () -> void = {
+    assert(cond: Wrap { inner: 1 } == Wrap { inner: 1 })
+}
+@single_level_eq () -> bool = { Wrap { inner: 1 } == Wrap { inner: 1 } }
+
+// --- Self-nest depth 2, inner int: every derived trait ---
+
+@test_nested_int_eq tests @nested_int_eq () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    let c = Wrap { inner: Wrap { inner: 8 } };
+    assert(cond: a == b);
+    assert(cond: a != c)
+}
+@nested_int_eq () -> bool = {
+    Wrap { inner: Wrap { inner: 7 } } == Wrap { inner: Wrap { inner: 7 } }
+}
+
+@test_nested_int_hash tests @nested_int_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    let c = Wrap { inner: Wrap { inner: 8 } };
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.hash() != c.hash())
+}
+@nested_int_hash () -> bool = {
+    Wrap { inner: Wrap { inner: 7 } }.hash() == Wrap { inner: Wrap { inner: 7 } }.hash()
+}
+
+@test_nested_int_compare tests @nested_int_compare () -> void = {
+    let small = Wrap { inner: Wrap { inner: 1 } };
+    let big = Wrap { inner: Wrap { inner: 2 } };
+    assert(cond: small < big);
+    assert(cond: big > small)
+}
+@nested_int_compare () -> bool = {
+    Wrap { inner: Wrap { inner: 1 } } < Wrap { inner: Wrap { inner: 2 } }
+}
+
+@test_nested_int_clone tests @nested_int_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let cloned = a.clone();
+    assert(cond: cloned == a)
+}
+@nested_int_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    a.clone() == a
+}
+
+@test_nested_int_debug tests @nested_int_debug () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.debug() != "")
+}
+@nested_int_debug () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.debug()
+}
+
+@test_nested_int_printable tests @nested_int_printable () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.to_str() != "")
+}
+@nested_int_printable () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.to_str()
+}
+
+@test_nested_int_default tests @nested_int_default () -> void = {
+    let d = Wrap<Wrap<int>>.default();
+    assert(cond: d == Wrap { inner: Wrap { inner: 0 } })
+}
+@nested_int_default () -> bool = {
+    Wrap<Wrap<int>>.default() == Wrap { inner: Wrap { inner: 0 } }
+}
+
+// --- Self-nest depth 2, inner str: Eq / Hashable / Clone / Debug / Printable ---
+
+@test_nested_str_eq tests @nested_str_eq () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } } == Wrap { inner: Wrap { inner: "x" } });
+    assert(cond: Wrap { inner: Wrap { inner: "x" } } != Wrap { inner: Wrap { inner: "y" } })
+}
+@nested_str_eq () -> bool = {
+    Wrap { inner: Wrap { inner: "x" } } == Wrap { inner: Wrap { inner: "x" } }
+}
+
+@test_nested_str_hash tests @nested_str_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    let b = Wrap { inner: Wrap { inner: "x" } };
+    assert(cond: a.hash() == b.hash())
+}
+@nested_str_hash () -> bool = {
+    Wrap { inner: Wrap { inner: "x" } }.hash() == Wrap { inner: Wrap { inner: "x" } }.hash()
+}
+
+@test_nested_str_clone tests @nested_str_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    assert(cond: a.clone() == a)
+}
+@nested_str_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    a.clone() == a
+}
+
+@test_nested_str_debug tests @nested_str_debug () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } }.debug() != "")
+}
+@nested_str_debug () -> str = {
+    Wrap { inner: Wrap { inner: "x" } }.debug()
+}
+
+@test_nested_str_printable tests @nested_str_printable () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } }.to_str() != "")
+}
+@nested_str_printable () -> str = {
+    Wrap { inner: Wrap { inner: "x" } }.to_str()
+}
+
+// --- Self-nest depth 2, inner bool: Eq / Hashable / Clone / Debug ---
+
+@test_nested_bool_eq tests @nested_bool_eq () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: true } } == Wrap { inner: Wrap { inner: true } });
+    assert(cond: Wrap { inner: Wrap { inner: true } } != Wrap { inner: Wrap { inner: false } })
+}
+@nested_bool_eq () -> bool = {
+    Wrap { inner: Wrap { inner: true } } == Wrap { inner: Wrap { inner: true } }
+}
+
+@test_nested_bool_hash tests @nested_bool_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    let b = Wrap { inner: Wrap { inner: true } };
+    assert(cond: a.hash() == b.hash())
+}
+@nested_bool_hash () -> bool = {
+    Wrap { inner: Wrap { inner: true } }.hash() == Wrap { inner: Wrap { inner: true } }.hash()
+}
+
+@test_nested_bool_clone tests @nested_bool_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    assert(cond: a.clone() == a)
+}
+@nested_bool_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    a.clone() == a
+}
+
+@test_nested_bool_debug tests @nested_bool_debug () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: true } }.debug() != "")
+}
+@nested_bool_debug () -> str = {
+    Wrap { inner: Wrap { inner: true } }.debug()
+}
+
+// --- Self-nest depth 3: Wrap<Wrap<Wrap<int>>> ---
+
+@test_triple_nested_eq tests @triple_nested_eq () -> void = {
+    let a = Wrap { inner: Wrap { inner: Wrap { inner: 9 } } };
+    let b = Wrap { inner: Wrap { inner: Wrap { inner: 9 } } };
+    assert(cond: a == b);
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.debug() != "")
+}
+@triple_nested_eq () -> bool = {
+    Wrap { inner: Wrap { inner: Wrap { inner: 9 } } }
+        == Wrap { inner: Wrap { inner: Wrap { inner: 9 } } }
+}
+
+// --- Distinct-outer nesting: Box<Cell<int>> (inner Cell<int> reached through a distinct generic) ---
+
+@test_distinct_outer_eq tests @distinct_outer_eq () -> void = {
+    let a = Box { held: Cell { slot: 3 } };
+    let b = Box { held: Cell { slot: 3 } };
+    let c = Box { held: Cell { slot: 4 } };
+    assert(cond: a == b);
+    assert(cond: a != c);
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.debug() != "")
+}
+@distinct_outer_eq () -> bool = {
+    Box { held: Cell { slot: 3 } } == Box { held: Cell { slot: 3 } }
+}
+
+@test_distinct_outer_default tests @distinct_outer_default () -> void = {
+    let d = Box<int>.default();
+    assert(cond: d == Box { held: Cell { slot: 0 } })
+}
+@distinct_outer_default () -> bool = {
+    Box<int>.default() == Box { held: Cell { slot: 0 } }
+}
+
+// --- Exact-value parity pin (L9): golden Debug string for Wrap<Wrap<int>> ---
+
+@test_nested_debug_exact tests @nested_debug_exact () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert_eq(actual: a.debug(), expected: "Wrap { inner: Wrap { inner: 7 } }")
+}
+@nested_debug_exact () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.debug()
+}

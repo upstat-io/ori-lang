@@ -671,7 +671,6 @@ fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
 /// defect (Error not registered in `TypeRegistry`; falls through to
 /// `fresh_named_var` at `type_resolution.rs:175`).
 #[test]
-#[ignore = "BUG-02-030: parse error on `impl <primitive>: Trait<...>` syntax (E1002 expected identifier). Blocks user-defined-trait-on-primitive verification of the BD-2 gate; gate itself works correctly on Error/Into case (cell 1)."]
 fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
     let source = "trait Convert<T> { @to_t (self) -> T }\n\
                   type MyErr = { msg: str }\n\
@@ -693,7 +692,6 @@ fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
 /// method-calls AND closure-return propagation (closure-param-from-receiver
 /// was wired earlier; this pins the closure-return direction).
 #[test]
-#[ignore = "BUG-02-029: closure-return BD-2 propagation absent — outer Check(Result<T,E2>) does not flow through map_err's (E) -> E2 closure signature into closure body. The closure-param-from-receiver path is wired; symmetric closure-return-from-outer-expected gap. Sibling cure surface in unify_higher_order_constraints."]
 fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     let (result, _interner) = parse_and_check(
         "@f (ok_int: Result<int, str>) -> Result<int, Error> = { ok_int.map_err(msg -> msg.into()) }",

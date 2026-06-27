@@ -1,4 +1,4 @@
-// Spec: 10-patterns.md § List Destructuring; 15-patterns.md:276-281 (CF-3 irrefutability context)
+// Spec: 10-patterns.md § List Destructuring; 15-patterns.md § Pattern Refutability (CF-3 irrefutability context)
 //
 // Regression coverage:
 //   - BUG-04-086 (LLVM list-pattern destructuring used field projection on the
@@ -8,9 +8,9 @@
 //
 // MIGRATION NOTE (2026-05-05, BUG-02-022 close): the original let-form
 // regression cells used refutable patterns (`let [$a] = [42]`,
-// `let [$a, $b, ..rest] = items`) that are now CF-3 violations. Per the
-// file's pre-migration line-322 comment, the let-form cells were transient
-// pending CF-3 enforcement, and the match-form pins are the permanent
+// `let [$a, $b, ..rest] = items`) that are now CF-3 violations. The
+// let-form cells were transient pending CF-3 enforcement, and the
+// match-form pins are the permanent
 // regression guard. This file now preserves the match-form pins +
 // representative compile-fail negative pins; per-shape coverage of refutable
 // `let` patterns lives in `tests/spec/declarations/let-irrefutable/`
@@ -87,17 +87,15 @@ type Point = { x: int, y: int }
 }
 
 // =============================================================================
-// Irrefutable rest-only — compiles, but ARC leak (BUG-05-004) on dynamic [T]
+// Irrefutable rest-only — compiles; seamless slice co-owns the original buffer
 // =============================================================================
 
-#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
 @test_list_destructure_rest_only tests _ () -> void = {
     let items = [1, 2, 3];
     let [..rest] = items;
     assert_eq(actual: rest.len(), expected: 3)
 }
 
-#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
 @test_list_destructure_empty_list_with_rest_only tests _ () -> void = {
     let items: [int] = [];
     let [..rest] = items;
@@ -108,7 +106,7 @@ type Point = { x: int, y: int }
 // Match-path parity — decision_tree/emit.rs::PathInstruction::ListElement fix
 // =============================================================================
 // These are the permanent regression guard for BUG-04-086. Match patterns
-// permit refutable shapes per Spec/15-patterns.md:276-281, so they remain
+// permit refutable shapes per Spec/15-patterns.md § Pattern Refutability, so they remain
 // CF-3-compatible.
 
 @test_match_list_two_heads tests @match_list_two_heads () -> void = {

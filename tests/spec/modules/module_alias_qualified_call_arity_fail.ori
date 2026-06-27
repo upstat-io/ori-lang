@@ -1,0 +1,46 @@
+// Spec: 18-modules.md Module Alias — qualified-call arity validation
+//
+// Negative pins: a wrong-arity module-alias qualified call must emit E2004, at
+// parity with an ordinary call. The alias-call resolution path arity-checks the
+// argument count against the resolved signature
+// (`required_params <= count <= param_types.len()`) before checking each
+// argument; a short-circuited path that skipped this would silently type the
+// call to the function's return type with no diagnostic. Clamped from both
+// sides: too-few and too-many args.
+
+use std.testing { assert_eq }
+use "./math_lib" as math
+
+// Too-few args: `math.add` declares two required params (a, b); one arg -> E2004.
+#compile_fail(code: "E2004")
+@test_alias_call_too_few_args_rejected tests _ () -> void = {
+    let $x = math.add(a: 1);
+    assert_eq(actual: x, expected: 1)
+}
+
+// Too-many args: `math.subtract` declares two params (a, b); three args -> E2004
+// (the arity check fires before per-argument name matching).
+#compile_fail(code: "E2004")
+@test_alias_call_too_many_args_rejected tests _ () -> void = {
+    let $x = math.subtract(a: 1, b: 2, c: 3);
+    assert_eq(actual: x, expected: 1)
+}
+
+// Positional calling convention: clamps `check_positional`'s arity branch
+// (the named pins above clamp `check_named`). Positional alias calls route
+// through `try_infer_module_alias_call` -> `check_positional`, a parallel
+// arity check that must reject wrong arity at parity with the named path.
+
+// Too-few args, positional: `math.add` declares two required params; one arg.
+#compile_fail(code: "E2004")
+@test_alias_positional_too_few_args_rejected tests _ () -> void = {
+    let $x = math.add(1);
+    assert_eq(actual: x, expected: 1)
+}
+
+// Too-many args, positional: `math.subtract` declares two params; three args.
+#compile_fail(code: "E2004")
+@test_alias_positional_too_many_args_rejected tests _ () -> void = {
+    let $x = math.subtract(1, 2, 3);
+    assert_eq(actual: x, expected: 1)
+}

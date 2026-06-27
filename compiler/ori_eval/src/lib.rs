@@ -59,8 +59,9 @@ pub use unary_operators::evaluate_unary;
 
 pub use derives::{process_derives, DefaultFieldTypeRegistry};
 pub use function_val::{
-    function_val_byte, function_val_error, function_val_float, function_val_hash_combine,
-    function_val_int, function_val_repeat, function_val_str, function_val_thread_id,
+    function_val_byte, function_val_drop_early, function_val_error, function_val_float,
+    function_val_hash_combine, function_val_int, function_val_repeat, function_val_str,
+    function_val_thread_id,
 };
 pub use interpreter::{Interpreter, InterpreterBuilder, ScopedInterpreter};
 pub use ori_stack::ensure_sufficient_stack;

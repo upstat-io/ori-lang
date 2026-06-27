@@ -8,8 +8,45 @@ fn prelude_functions_complete() {
     let names: Vec<&str> = PRELUDE_FUNCTIONS.iter().map(|f| f.name).collect();
     assert_eq!(
         names,
-        ["byte", "float", "hash_combine", "int", "repeat", "str"],
+        [
+            "byte",
+            "drop_early",
+            "float",
+            "hash_combine",
+            "int",
+            "repeat",
+            "str"
+        ],
         "PRELUDE_FUNCTIONS must contain exactly these entries in alphabetical order"
+    );
+}
+
+/// Semantic pin: `drop_early` has signature `<T>(value: T) -> void` and CONSUMES
+/// its argument (`Ownership::Owned`), so the caller does not also drop at scope exit.
+///
+/// Regression: `drop_early` was documented in the prelude + recommended by E2048 but
+/// implemented in zero compiler layers — `drop_early(value: x)` failed typecheck with
+/// E2003. Its arg MUST be `Owned` (consume), never the shared `Ownership::Borrow`
+/// `GENERIC_PARAM` (which would leave the caller's scope-exit drop in place → double-drop).
+#[test]
+fn drop_early_signature() {
+    let f =
+        find_prelude_function("drop_early").unwrap_or_else(|| panic!("drop_early should exist"));
+    assert_eq!(f.params.len(), 1, "drop_early should have 1 param");
+    assert_eq!(
+        f.params[0].ty,
+        ReturnTag::Fresh,
+        "drop_early param should be Fresh (generic T)"
+    );
+    assert_eq!(
+        f.params[0].ownership,
+        crate::Ownership::Owned,
+        "drop_early MUST consume its argument (Owned), never Borrow — else double-drop"
+    );
+    assert_eq!(
+        f.returns,
+        ReturnTag::Unit,
+        "drop_early returns void (ReturnTag::Unit)"
     );
 }
 

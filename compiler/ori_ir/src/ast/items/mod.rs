@@ -14,7 +14,8 @@ pub use function::{
     Param, PostContract, PreContract, TargetAttr, TestBackend, TestDef,
 };
 pub use imports::{
-    ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath, UseDef, UseItem,
+    qualified_alias_name, ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath,
+    UseDef, UseItem,
 };
 pub use traits::{
     DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,

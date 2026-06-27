@@ -684,3 +684,150 @@ fn desugar_nested_index_assign_wraps_right_to_left() {
         other => panic!("expected INNER MethodCall(updated), got {other:?}"),
     }
 }
+
+#[test]
+fn module_alias_qualified_call_lowers_to_function_ref_call() {
+    // Positive pin: an alias-qualified call `math.add(a: 5)` whose
+    // typeck side-table (`module_alias_call_map`) records the resolved qualified
+    // name lowers to a free `Call(FunctionRef("math.add"))`, NOT a MethodCall on
+    // the namespace placeholder receiver. Fails if the canon module-alias rewrite
+    // (desugar_method_call_named -> lower_module_alias_call) is reverted.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let math = interner.intern("math");
+    let add = interner.intern("add");
+    let qualified = interner.intern("math.add");
+    let arg_name = interner.intern("a");
+
+    let recv = arena.alloc_expr(Expr::new(ExprKind::Ident(math), Span::new(0, 4)));
+    let val = arena.alloc_expr(Expr::new(ExprKind::Int(5), Span::new(11, 12)));
+    let args = arena.alloc_call_args([CallArg {
+        name: Some(arg_name),
+        value: val,
+        is_spread: false,
+        span: Span::new(8, 12),
+    }]);
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MethodCallNamed {
+            receiver: recv,
+            method: add,
+            args,
+        },
+        Span::new(0, 13),
+    ));
+
+    let mut typed = TypedModule::new();
+    typed.expr_types.push(Idx::INT); // [0] recv (namespace placeholder)
+    typed.expr_types.push(Idx::INT); // [1] arg value
+    typed.expr_types.push(Idx::INT); // [2] MethodCallNamed root
+    typed.module_alias_call_map.insert(root, qualified);
+    let type_result = TypeCheckResult::ok(typed);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    match result.arena.kind(result.root) {
+        CanExpr::Call { func, .. } => match result.arena.kind(*func) {
+            CanExpr::FunctionRef(name) => assert_eq!(
+                *name, qualified,
+                "alias call must lower to Call(FunctionRef(\"math.add\"))"
+            ),
+            other => panic!("expected FunctionRef(math.add) callee, got {other:?}"),
+        },
+        other => panic!("expected free Call for alias-qualified call, got {other:?}"),
+    }
+}
+
+#[test]
+fn module_alias_positional_call_lowers_to_function_ref_call() {
+    // Positive pin (positional calling convention): an alias-qualified
+    // positional call `math.add(5)` whose typeck side-table records the
+    // resolved qualified name lowers to a free `Call(FunctionRef("math.add"))`
+    // via the `lower/collections.rs` MethodCall rewrite — the parallel branch
+    // to the named-arg rewrite (`desugar/calls.rs`) pinned above. Fails if the
+    // positional module-alias rewrite branch is reverted.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let math = interner.intern("math");
+    let add = interner.intern("add");
+    let qualified = interner.intern("math.add");
+
+    let recv = arena.alloc_expr(Expr::new(ExprKind::Ident(math), Span::new(0, 4)));
+    let val = arena.alloc_expr(Expr::new(ExprKind::Int(5), Span::new(9, 10)));
+    let args = arena.alloc_expr_list([val]);
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MethodCall {
+            receiver: recv,
+            method: add,
+            args,
+        },
+        Span::new(0, 11),
+    ));
+
+    let mut typed = TypedModule::new();
+    typed.expr_types.push(Idx::INT); // [0] recv (namespace placeholder)
+    typed.expr_types.push(Idx::INT); // [1] arg value
+    typed.expr_types.push(Idx::INT); // [2] MethodCall root
+    typed.module_alias_call_map.insert(root, qualified);
+    let type_result = TypeCheckResult::ok(typed);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    match result.arena.kind(result.root) {
+        CanExpr::Call { func, .. } => match result.arena.kind(*func) {
+            CanExpr::FunctionRef(name) => assert_eq!(
+                *name, qualified,
+                "positional alias call must lower to Call(FunctionRef(\"math.add\"))"
+            ),
+            other => panic!("expected FunctionRef(math.add) callee, got {other:?}"),
+        },
+        other => panic!("expected free Call for positional alias call, got {other:?}"),
+    }
+}
+
+#[test]
+fn ordinary_method_call_not_rewritten_to_function_ref() {
+    // Negative pin: an ordinary method call `x.add(a: 5)` with NO
+    // `module_alias_call_map` entry must stay a MethodCall, never a free
+    // Call(FunctionRef). Clamps the alias-rewrite branch so it fires ONLY on a
+    // recorded alias-qualified call — guards against the rewrite wrongly firing
+    // on every method call.
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let x = interner.intern("x");
+    let add = interner.intern("add");
+    let arg_name = interner.intern("a");
+
+    let recv = arena.alloc_expr(Expr::new(ExprKind::Ident(x), Span::new(0, 1)));
+    let val = arena.alloc_expr(Expr::new(ExprKind::Int(5), Span::new(8, 9)));
+    let args = arena.alloc_call_args([CallArg {
+        name: Some(arg_name),
+        value: val,
+        is_spread: false,
+        span: Span::new(5, 9),
+    }]);
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MethodCallNamed {
+            receiver: recv,
+            method: add,
+            args,
+        },
+        Span::new(0, 10),
+    ));
+
+    // module_alias_call_map left empty -> no rewrite.
+    let type_result = test_type_result(vec![Idx::INT, Idx::INT, Idx::INT]);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    assert!(
+        matches!(result.arena.kind(result.root), CanExpr::MethodCall { .. }),
+        "ordinary method call must stay a MethodCall, got {:?}",
+        result.arena.kind(result.root)
+    );
+}

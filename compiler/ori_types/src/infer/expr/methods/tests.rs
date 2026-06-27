@@ -349,12 +349,82 @@ fn computed_returns_produce_structured_types() {
         Tag::Var,
         "List.fold should return a fresh type variable"
     );
+}
 
-    // Unhandled Result method falls through to fresh
-    let result_map_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "map");
+/// Result closure-methods return a structured `Result<_, _>` (BD-2 propagation):
+/// `map`/`and_then` transform Ok (Err preserved); `map_err`/`or_else` transform
+/// Err (Ok preserved). A `Tag::Error` poison receiver falls through to a fresh
+/// Var (the family helper guards on `Tag::Result`).
+#[test]
+fn result_closure_methods_produce_structured_returns() {
+    use super::computed_returns::resolve_computed_return;
+    use crate::{Idx, Pool, Tag};
+
+    let mut pool = Pool::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    // result_ok = Result<int, str>
+    let result_ok = engine.pool_mut().result(Idx::INT, Idx::STR);
+
+    let map_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "map");
     assert_eq!(
-        engine.pool().tag(result_map_ret),
+        engine.pool().tag(map_ret),
+        Tag::Result,
+        "Result.map returns a structured Result<_, _>"
+    );
+    let map_ok = engine.pool().result_ok(map_ret);
+    let map_err = engine.pool().result_err(map_ret);
+    assert_eq!(
+        engine.pool().tag(map_ok),
         Tag::Var,
-        "Result.map should return a fresh type variable"
+        "Result.map Ok slot is fresh"
+    );
+    assert_eq!(map_err, Idx::STR, "Result.map preserves the Err type");
+
+    let map_err_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "map_err");
+    assert_eq!(
+        engine.pool().tag(map_err_ret),
+        Tag::Result,
+        "Result.map_err returns a structured Result<_, _>"
+    );
+    let merr_ok = engine.pool().result_ok(map_err_ret);
+    let merr_err = engine.pool().result_err(map_err_ret);
+    assert_eq!(merr_ok, Idx::INT, "Result.map_err preserves the Ok type");
+    assert_eq!(
+        engine.pool().tag(merr_err),
+        Tag::Var,
+        "Result.map_err Err slot is fresh"
+    );
+
+    let and_then_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "and_then");
+    assert_eq!(
+        engine.pool().tag(and_then_ret),
+        Tag::Result,
+        "Result.and_then returns a structured Result<_, _>"
+    );
+    assert_eq!(
+        engine.pool().result_err(and_then_ret),
+        Idx::STR,
+        "Result.and_then preserves the Err type"
+    );
+
+    let or_else_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "or_else");
+    assert_eq!(
+        engine.pool().tag(or_else_ret),
+        Tag::Result,
+        "Result.or_else returns a structured Result<_, _>"
+    );
+    assert_eq!(
+        engine.pool().result_ok(or_else_ret),
+        Idx::INT,
+        "Result.or_else preserves the Ok type"
+    );
+
+    // A Tag::Error poison receiver must NOT extract slots (result_ok/result_err
+    // assert Tag::Result) — it falls through to a fresh Var.
+    let err_map_ret = resolve_computed_return(&mut engine, Idx::ERROR, Tag::Error, "map");
+    assert_eq!(
+        engine.pool().tag(err_map_ret),
+        Tag::Var,
+        "Result-family method on a Tag::Error receiver falls through to fresh Var"
     );
 }

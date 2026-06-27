@@ -24,7 +24,10 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args};
+use crate::util::{
+    compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args,
+    compile_and_run_with_build_env,
+};
 
 /// User `@drop` runs first, then the compiler walks owned fields in reverse
 /// declaration order, then the allocation is freed. The captured stdout order
@@ -340,8 +343,124 @@ impl Logged: Hashable {
     );
 }
 
-/// A `@drop`-typed value created inside a `for ... do` body drops at each loop
-/// iteration's scope exit.
+// A `@drop`-typed value created inside a `for ... do` body drops at each loop
+// iteration's scope exit.
+// BUG-05-006 matrix — `.iter().collect()` result + element ownership.
+// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the arc.md §STOP
+// RC/AOT verdict surface; the leak reproduces on both default + gated paths.
+// These pins FAIL on the unfixed code (collect result mis-classified non-fresh
+// -> dead-value cleanup leak; collect copies elements -> source re-drops).
+
+const BUG_05_006_GATED: &[(&str, &str)] = &[
+    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+    ("ORI_VERIFY_ARC", "1"),
+];
+
+/// P2 — USED set-collect with an `@drop` element: the element `@drop` must fire
+/// EXACTLY ONCE (set teardown), not twice (source-list + set). Pre-fix: `drop`
+/// prints twice (collect copies the element; source buffer re-drops its copy).
+#[test]
+#[ignore = "BUG-05-006: collect copies elements + source re-drops -> @drop fires 2x on AOT (correct: 1x)"]
+fn drop_set_collect_element_drops_exactly_once_when_used() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop     { @drop (self) -> void = print(msg: `drop-elem-{self.tag}`); }
+impl Logged: Eq       { @equals (self, other: Logged) -> bool = self.tag == other.tag; }
+impl Logged: Hashable { @hash (self) -> int = self.tag.length(); }
+
+@main () -> void = {
+    let s: Set<Logged> = [Logged { tag: "e1" }].iter().collect();
+    print(msg: `size={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "drop-elem-e1").count();
+    assert_eq!(
+        drops, 1,
+        "collected set element @drop must fire exactly once (one logical value), \
+         not once-per-buffer; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("size=1"),
+        "set must contain the collected element; stdout:\n{stdout}"
+    );
+}
+
+/// P3 — UNUSED list-collect leaks its buffer (NOT set-specific). Pre-fix: the
+/// `ori_iter_collect` result is mis-classified non-fresh -> no scope-exit dec
+/// -> exit 2 (leak). Post-fix: exit 0, `@drop` once.
+#[test]
+#[ignore = "BUG-05-006: unused .iter().collect() result (list family) not admitted -> buffer leak (exit 2)"]
+fn drop_list_collect_unused_result_is_freed() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop { @drop (self) -> void = print(msg: `drop-elem-{self.tag}`); }
+
+@main () -> void = {
+    let l: [Logged] = [Logged { tag: "e1" }].iter().collect()
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "unused list-collect result must be freed (no leak, exit 0); \
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let drops = stdout.lines().filter(|l| *l == "drop-elem-e1").count();
+    assert_eq!(
+        drops, 1,
+        "element @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// P5 — heap-element (non-SSO str) USED set-collect: no double-FREE (RC of the
+/// shared heap str must balance) AND `@drop` exactly once. Pre-fix: `@drop` 2x
+/// (RC balanced, no double-free) — the count is the regression, not memory.
+#[test]
+#[ignore = "BUG-05-006: heap-element collect runs @drop 2x (correct: 1x); RC balanced so no double-free"]
+fn drop_set_collect_heap_element_drops_once_no_double_free() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop     { @drop (self) -> void = print(msg: "drop"); }
+impl Logged: Eq       { @equals (self, other: Logged) -> bool = self.tag == other.tag; }
+impl Logged: Hashable { @hash (self) -> int = self.tag.length(); }
+
+@main () -> void = {
+    let s: Set<Logged> = [Logged { tag: "this-string-is-longer-than-twenty-three-bytes-heap" }].iter().collect();
+    print(msg: `size={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(exit_code, 0, "no leak / no double-free; stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "drop").count();
+    assert_eq!(
+        drops, 1,
+        "heap-element @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// P6 — scalar-element collect (no `@drop`, no RC children): positive pin that
+/// MUST stay green across the fix (no regression on the scalar path).
+#[test]
+fn drop_set_collect_scalar_element_no_leak() {
+    let source = r#"
+@main () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    print(msg: `n={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "scalar set-collect must not leak; stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("n=3"),
+        "set has 3 elements; stdout:\n{stdout}"
+    );
+}
+
 #[test]
 fn drop_value_inside_for_do_drops_at_each_iteration() {
     let source = r#"

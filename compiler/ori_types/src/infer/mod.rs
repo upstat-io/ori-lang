@@ -216,6 +216,13 @@ pub struct InferEngine<'pool> {
     /// `ExprId`s; no body-local re-anchoring needed.
     assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
 
+    /// Module-alias qualified calls resolved during this body pass: the call's
+    /// AST `ExprId` paired with the qualified imported-function `Name`
+    /// (`"alias.func"`). Drained per body via `take_module_alias_calls`,
+    /// accumulated into `TypedModule::module_alias_call_map`; consumed by
+    /// `ori_canon` to rewrite the namespace `MethodCall` to a free `Call`.
+    module_alias_calls: Vec<(ExprId, Name)>,
+
     /// Deferred monomorphization calls (generic calling generic).
     ///
     /// Populated by `record_deferred_mono_call()` when a generic function calls
@@ -329,6 +336,7 @@ impl<'pool> InferEngine<'pool> {
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
             assign_desugars: Vec::new(),
+            module_alias_calls: Vec::new(),
             deferred_mono_calls: Vec::new(),
             composed_burdens: Vec::new(),
             current_function: None,

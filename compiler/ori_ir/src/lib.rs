@@ -83,6 +83,8 @@ pub mod visitor;
 
 pub use arena::{ExprArena, SharedArena};
 pub use ast::{
+    // Module-alias qualified-name builder
+    qualified_alias_name,
     // Assignment-target access steps
     AccessStep,
     AccessStepRange,

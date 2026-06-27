@@ -152,7 +152,7 @@ pub(crate) fn register_imports(
 ) -> Result<(), Vec<ImportError>> {
     // Handle module alias: `use path as alias`
     if let Some(alias) = import.module_alias {
-        return register_module_alias(import, imported, env, alias, import_path, canon)
+        return register_module_alias(import, imported, env, alias, interner, import_path, canon)
             .map_err(|e| vec![e]);
     }
 
@@ -253,6 +253,7 @@ fn register_module_alias(
     imported: &ImportedModule<'_>,
     env: &mut Environment,
     alias: Name,
+    interner: &StringInterner,
     import_path: &Path,
     canon: Option<&SharedCanonResult>,
 ) -> Result<(), ImportError> {
@@ -298,6 +299,21 @@ fn register_module_alias(
                     func_value.set_canon(can_id, cr.clone());
                 }
             }
+
+            // Bind the function directly under the qualified name `"alias.func"`
+            // so a canon-rewritten alias-qualified call
+            // (`Call(FunctionRef("alias.func"))`) resolves on the eval backend,
+            // matching the AOT/LLVM path. The namespace binding below remains for
+            // any residual `Value::ModuleNamespace` dispatch.
+            let qualified = interner.intern(&ori_ir::qualified_alias_name(
+                interner.lookup(alias),
+                interner.lookup(func.name),
+            ));
+            env.define(
+                qualified,
+                Value::Function(func_value.clone()),
+                Mutability::Immutable,
+            );
 
             namespace.insert(func.name, Value::Function(func_value));
         }

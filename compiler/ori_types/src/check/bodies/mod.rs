@@ -91,6 +91,11 @@ pub(super) struct BodyOutputs {
     /// extends the checker's accumulator without re-anchoring. Consumed by
     /// `ori_canon` via [`crate::TypedModule::assign_desugar_map`].
     pub assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
+    /// Module-alias qualified-call rewrite entries resolved in this body. Keys
+    /// are module-wide AST `ExprId`s; `accumulate_module_alias_calls` extends
+    /// the checker's accumulator. Consumed by `ori_canon` via
+    /// [`crate::TypedModule::module_alias_call_map`].
+    pub module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
 }
 
 /// Shared post-inference spine for every body-checking pass.
@@ -118,6 +123,7 @@ pub(super) fn finalize_body_and_export(
         composed_burdens,
         capability_exempt_var_ids,
         assign_desugars,
+        module_alias_calls,
     } = outputs;
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
@@ -165,6 +171,7 @@ pub(super) fn finalize_body_and_export(
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
     checker.accumulate_assign_desugars(assign_desugars);
+    checker.accumulate_module_alias_calls(module_alias_calls);
 
     // Flush composed burdens into the TypeRegistry. Each entry was
     // accumulated by the body's `InferEngine::record_composed_burden`

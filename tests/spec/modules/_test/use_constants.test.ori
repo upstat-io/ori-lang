@@ -1,4 +1,4 @@
-// Spec: 12-modules.md § Imports
+// Spec: 18-modules.md § Imports
 // Grammar: import_item = ... | "$" identifier .
 //
 // Tests for importing constant/config values using $ prefix.

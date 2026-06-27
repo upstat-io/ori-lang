@@ -23,6 +23,7 @@ use crate::codegen::value_id::ValueId;
 /// these names through prelude interception.
 pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
     "byte",
+    "drop_early",
     "float",
     "hash_combine",
     "int",
@@ -46,11 +47,27 @@ pub(in crate::codegen::arc_emitter) fn try_emit_prelude_function<'scx: 'ctx, 'ct
         "int" => emit_int(emitter, args, arc_func),
         "float" => emit_float(emitter, args, arc_func),
         "byte" => emit_byte(emitter, args, arc_func),
+        "drop_early" => emit_drop_early(emitter, args, arc_func),
         "hash_combine" => emit_hash_combine(emitter, args),
         "repeat" => emit_repeat(emitter, args, arc_func),
         "thread_id" => emit_thread_id(emitter, args),
         _ => None,
     }
+}
+
+/// Emit `drop_early(value)` — decrement the reference count of the value.
+fn emit_drop_early<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+    arc_func: &ArcFunction,
+) -> Option<ValueId> {
+    if args.is_empty() {
+        return None;
+    }
+    let arg_ty = arc_func.var_type(args[0]);
+    let arg_val = emitter.var(args[0]);
+    emitter.dec_value_rc(arg_val, arg_ty);
+    Some(emitter.builder.const_i64(0))
 }
 
 /// Emit `str(value)` — dispatch on argument type to `ori_str_from_*` runtime.

@@ -1,4 +1,4 @@
-// Spec: 12-modules.md § Test Modules
+// Spec: 18-modules.md § Test Modules
 // Design: (modules not yet in design docs)
 //
 // Tests that test modules in _test/ directories can access private items

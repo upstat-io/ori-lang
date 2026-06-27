@@ -1,45 +1,105 @@
-// Spec: 12-modules.md Module Alias — qualified access `alias.func(args)`
+// Spec: 18-modules.md Module Alias — qualified access `alias.func(args)`
 //
-// Pins module-alias qualified access (`math.add(a:, b:)`). The `ori_types`
-// typeck half resolves the qualified call against the aliased module's public
-// signature so it types to the function's return type instead of poisoning to
-// `Idx::ERROR` — which closes the cross-module `assert_eq` missing-mono cascade
-// these calls otherwise produce in the LLVM backend. The eval backend executes
-// the call via dynamic `Value::ModuleNamespace` dispatch and passes today.
+// Pins module-alias qualified access (`math.add(a:, b:)`) end-to-end on BOTH
+// backends. The `ori_types` typeck half resolves the qualified call against the
+// aliased module's public signature so it types to the function's return type
+// instead of poisoning to `Idx::ERROR`. The eval backend executes the call via
+// dynamic `Value::ModuleNamespace` dispatch. The LLVM/AOT backend requires the
+// canon rewrite (typeck records the alias call into `TypedModule`'s
+// `module_alias_call_map`; canon's `lower_method_call` reads it and rewrites the
+// namespace `MethodCall` to a free `Call`) so both backends see one shape.
 //
-// The LLVM/AOT EXECUTION of qualified access requires the canon lowering + the
-// codegen import-wiring tracked by BUG-02-072 (the namespace `MethodCall` must
-// lower to a free `Call` and the aliased module's referenced functions must be
-// declared as imported). Until BUG-02-072 lands, the qualified tests are
-// skip-tracked; the typeck-resolution deliverable is verified by the eval
-// backend run plus the ori_types unit suite.
+// Matrix dimensions: arity (2-arg add/subtract/multiply, 1-arg double),
+// module-internal callee (use_internal -> private internal_helper), call-site
+// body (test body vs plain `@function` body -> exercises the check_test AND
+// check_function side-table drains), nesting (qualified call as an argument
+// to a qualified call), and aliasing multiplicity (two aliases of one source
+// module -> internal callees declared once, keyed by source-file identity).
 
 use std.testing { assert_eq }
 use "../math_lib" as math
+// Second alias of the SAME source module — pins same-module two-alias codegen.
+use "../math_lib" as calc
 
 @helper () -> int = 42;
 
-#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
+// Plain `@function`-body call site — exercises the typeck `check_function`
+// side-table drain (the test-body cases below only exercise check_test).
+@sum_via_alias () -> int = math.add(a: 10, b: 20);
+
 @test_qualified_add tests @helper () -> void = {
     assert_eq(actual: math.add(a: 10, b: 20), expected: 30)
 }
 
-#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
 @test_qualified_subtract tests @helper () -> void = {
     assert_eq(actual: math.subtract(a: 50, b: 8), expected: 42)
 }
 
-#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
 @test_qualified_multiply tests @helper () -> void = {
     assert_eq(actual: math.multiply(a: 6, b: 7), expected: 42)
 }
 
-#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
 @test_qualified_double tests @helper () -> void = {
     assert_eq(actual: math.double(x: 21), expected: 42)
 }
 
-#skip("BUG-02-072: module-alias qualified access not yet lowered for LLVM/AOT codegen")
 @test_qualified_use_internal tests @helper () -> void = {
     assert_eq(actual: math.use_internal(x: 5), expected: 105)
+}
+
+// check_function drain: the qualified call lives in `sum_via_alias`'s body.
+@test_qualified_in_function_body tests @sum_via_alias () -> void = {
+    assert_eq(actual: sum_via_alias(), expected: 30)
+}
+
+// Calling-convention dimension: positional alias calls (`math.add(10, 20)`)
+// route through `check_positional` (typeck) + the `lower/collections.rs`
+// MethodCall rewrite (canon) — the parallel path to the named-arg cells
+// above. Pins the positional path end-to-end on both backends: 2-arg,
+// 1-arg, internal-callee drain, and a nested positional-in-positional call.
+@test_qualified_positional tests @helper () -> void = {
+    assert_eq(actual: math.add(10, 20), expected: 30);
+    assert_eq(actual: math.double(21), expected: 42);
+    assert_eq(actual: math.use_internal(5), expected: 105);
+    assert_eq(actual: math.add(math.multiply(2, 3), math.double(2)), expected: 10)
+}
+
+// Same-module two-alias: `math` and `calc` alias one source module. Both invoke
+// `use_internal`, whose body calls the private `internal_helper`. Pins the
+// two-alias-of-one-source-module codegen path end-to-end on both backends —
+// each alias resolves its own qualified entries while sharing the source
+// module's internal-callee declarations.
+@test_two_aliases_same_module tests @helper () -> void = {
+    assert_eq(actual: math.use_internal(x: 5), expected: 105);
+    assert_eq(actual: calc.use_internal(x: 7), expected: 107)
+}
+
+// Nesting: qualified call as an argument to a qualified call.
+// multiply(2,3)=6, double(2)=4, add(6,4)=10.
+@test_qualified_nested tests @helper () -> void = {
+    assert_eq(actual: math.add(a: math.multiply(a: 2, b: 3), b: math.double(x: 2)), expected: 10)
+}
+
+// check_impl_method drain: the qualified call lives in an inherent impl method body.
+type Calc = { base: int }
+
+impl Calc {
+    @combine (self, n: int) -> int = math.add(a: self.base, b: n);
+}
+
+@test_qualified_in_impl_method tests _ () -> void = {
+    let c = Calc { base: 100 };
+    assert_eq(actual: c.combine(n: 5), expected: 105)
+}
+
+// check_def_impl_method drain: a def-impl (default, stateless) method body
+// containing an alias call type-checks here — exercising the check_def_impl_method
+// recording drain at typeck — even though stateless def-impl-method DISPATCH is a
+// separate (unimplemented) surface, so it is not invoked end-to-end.
+trait AliasSum {
+    @alias_sum () -> int
+}
+
+def impl AliasSum {
+    @alias_sum () -> int = math.add(a: 40, b: 2);
 }

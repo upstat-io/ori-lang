@@ -179,3 +179,11 @@ pub fn function_val_thread_id(args: &[Value]) -> Result<Value, EvalError> {
         .map_err(|_| EvalError::new("failed to parse thread id"))?;
     Ok(Value::int(id_num))
 }
+
+/// `drop_early(value)` — no-op consume in interpreter (returns void).
+pub fn function_val_drop_early(args: &[Value]) -> Result<Value, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::new("drop_early expects 1 argument"));
+    }
+    Ok(Value::Void)
+}

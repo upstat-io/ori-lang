@@ -16,6 +16,83 @@ use super::arc_lowering::lower_and_infer_borrows;
 use super::TestRunner;
 use super::TestRunnerConfig;
 
+/// Index into `imported_sigs_storage` and `resolved.modules` for linking
+/// imported function codegen structs back to their source data.
+struct FnRef {
+    func_index: usize,
+    module_index: usize,
+    local_name: crate::ir::Name,
+    original_name: crate::ir::Name,
+}
+
+/// Declare a module-aliased module's functions under their ORIGINAL names into
+/// the codegen sig/ref sets.
+///
+/// An aliased module's bodies call their same-module callees (public OR private)
+/// by original name — the module never sees the importer's alias — so the
+/// importer-facing qualified `alias.func` entries do not cover internal calls.
+/// These entries are NOT in `resolved.imported_functions` (that list is shared
+/// with typeck, where an original-name entry would wrongly bring a bare `func`
+/// into the importer's scope and break alias scoping). Keyed by SOURCE-FILE
+/// identity (not the per-`use` `module_index`, which differs for two aliases of
+/// the same module) so two aliases of one source module re-intern + declare its
+/// internals once; `declare_all` separately dedups by `func.name`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "threads the test runner's re-intern context (pools, caches, var-remaps, output vectors) for one codegen step"
+)]
+fn declare_module_alias_internals(
+    resolved: &crate::imports::ResolvedImports,
+    imported_type_results: &[TypeCheckResult],
+    imported_pools: &[std::sync::Arc<ori_types::Pool>],
+    per_module_caches: &mut [rustc_hash::FxHashMap<ori_types::Idx, ori_types::Idx>],
+    per_module_var_remaps: &mut [rustc_hash::FxHashMap<u32, u32>],
+    merged_pool: &mut ori_types::Pool,
+    re_interned_sigs: &mut Vec<ori_types::FunctionSig>,
+    fn_refs: &mut Vec<FnRef>,
+) {
+    let mut declared_internal: rustc_hash::FxHashSet<(
+        Option<crate::input::SourceFile>,
+        crate::ir::Name,
+    )> = rustc_hash::FxHashSet::default();
+    for func_ref in &resolved.imported_functions {
+        if !func_ref.is_module_alias {
+            continue;
+        }
+        let module_index = func_ref.module_index;
+        let imp_module = &resolved.modules[module_index];
+        let tc = &imported_type_results[module_index];
+        for (idx, func) in imp_module.parse_output.module.functions.iter().enumerate() {
+            if !declared_internal.insert((imp_module.source_file, func.name)) {
+                continue;
+            }
+            let Some(sig) = tc.typed.functions.iter().find(|s| s.name == func.name) else {
+                continue;
+            };
+            if sig.is_generic() {
+                continue;
+            }
+            let source_pool = &imported_pools[module_index];
+            let cache = &mut per_module_caches[module_index];
+            let var_remap = &mut per_module_var_remaps[module_index];
+            let re_interned = ori_types::re_intern_sig_with_var_remap(
+                sig,
+                source_pool,
+                merged_pool,
+                cache,
+                var_remap,
+            );
+            re_interned_sigs.push(re_interned);
+            fn_refs.push(FnRef {
+                func_index: idx,
+                module_index,
+                local_name: func.name,
+                original_name: func.name,
+            });
+        }
+    }
+}
+
 impl TestRunner {
     /// Run regular (non-`compile_fail`) tests using the LLVM JIT backend.
     ///
@@ -47,13 +124,6 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
     ) {
-        /// Index into `imported_sigs_storage` and `resolved.modules` for linking
-        /// imported function codegen structs back to their source data.
-        struct FnRef {
-            func_index: usize,
-            module_index: usize,
-        }
-
         // Skip LLVM compilation if no regular tests to run
         if regular_tests.is_empty() {
             return;
@@ -175,7 +245,7 @@ impl TestRunner {
             vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
         let mut per_module_var_remaps: Vec<rustc_hash::FxHashMap<u32, u32>> =
             vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
-        let re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
+        let mut re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
             .iter()
             .enumerate()
             .map(|(module_idx, shared_canon)| {
@@ -239,21 +309,47 @@ impl TestRunner {
                     let source_pool = &imported_pools[func_ref.module_index];
                     let cache = &mut per_module_caches[func_ref.module_index];
                     let var_remap = &mut per_module_var_remaps[func_ref.module_index];
-                    let re_interned = ori_types::re_intern_sig_with_var_remap(
+                    let mut re_interned = ori_types::re_intern_sig_with_var_remap(
                         sig,
                         source_pool,
                         &mut merged_pool,
                         cache,
                         var_remap,
                     );
+                    // Aliased imports (incl. the synthesized `"alias.func"`
+                    // module-alias entries) are codegen'd + mangled under their
+                    // LOCAL name so a `Call(FunctionRef(local_name))` links to the
+                    // declared symbol. `sig.name` is one of three surfaces keyed
+                    // under local_name; the renamed `Function` (declare/body key)
+                    // and the aliased `CanonRoot` (body lookup) are set below.
+                    if func_ref.local_name != func_ref.original_name {
+                        re_interned.name = func_ref.local_name;
+                    }
                     re_interned_sigs.push(re_interned);
                     fn_refs.push(FnRef {
                         func_index: idx,
                         module_index: func_ref.module_index,
+                        local_name: func_ref.local_name,
+                        original_name: func_ref.original_name,
                     });
                 }
             }
         }
+
+        // Codegen-only: declare each module-aliased module's internal callees
+        // under their ORIGINAL names (importer-facing `alias.func` entries do
+        // not cover same-module internal calls). See helper doc for the keying
+        // + scoping contract.
+        declare_module_alias_internals(
+            &resolved,
+            &imported_type_results,
+            &imported_pools,
+            &mut per_module_caches,
+            &mut per_module_var_remaps,
+            &mut merged_pool,
+            &mut re_interned_sigs,
+            &mut fn_refs,
+        );
 
         // Collect imported generic sigs for monomorphization resolution.
         // Generic sigs are skipped for ImportedFunctionForCodegen (they aren't
@@ -334,14 +430,52 @@ impl TestRunner {
             interner,
         );
 
+        // Rename aliased imports onto their local_name across the two remaining
+        // codegen surfaces (the sig is already renamed above): a `Function` clone
+        // (declare_all + prepare_all_cached key the symbol/body on `func.name`)
+        // and an aliased `CanonRoot` (so `canon.root_for(local_name)` resolves to
+        // the original body). All three keys then agree, so
+        // `Call(FunctionRef(local_name))` declares + links.
+        let mut renamed_functions: Vec<Option<crate::ir::Function>> =
+            Vec::with_capacity(fn_refs.len());
+        for fref in &fn_refs {
+            if fref.local_name == fref.original_name {
+                renamed_functions.push(None);
+                continue;
+            }
+            let canon = &mut re_interned_canons[fref.module_index];
+            if canon.root_for(fref.local_name).is_none() {
+                if let Some(mut aliased) = canon
+                    .roots
+                    .iter()
+                    .find(|r| r.name == fref.original_name)
+                    .cloned()
+                {
+                    aliased.name = fref.local_name;
+                    canon.roots.push(aliased);
+                }
+            }
+            let mut renamed = resolved.modules[fref.module_index]
+                .parse_output
+                .module
+                .functions[fref.func_index]
+                .clone();
+            renamed.name = fref.local_name;
+            renamed_functions.push(Some(renamed));
+        }
+
         // Build ImportedFunctionForCodegen — all Idx values are valid in merged_pool
         let imported_for_codegen: Vec<ImportedFunctionForCodegen<'_>> = fn_refs
             .iter()
             .enumerate()
             .map(|(sig_idx, fref)| {
                 let parse_output = &resolved.modules[fref.module_index].parse_output;
+                let function = match &renamed_functions[sig_idx] {
+                    Some(renamed) => renamed,
+                    None => &parse_output.module.functions[fref.func_index],
+                };
                 ImportedFunctionForCodegen {
-                    function: &parse_output.module.functions[fref.func_index],
+                    function,
                     sig: re_interned_sigs[sig_idx].clone(),
                     canon: &re_interned_canons[fref.module_index],
                 }

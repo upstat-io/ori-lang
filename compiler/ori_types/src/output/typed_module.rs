@@ -228,6 +228,21 @@ pub struct TypedModule {
     /// Empty when no index/field assignment appears in the module.
     pub assign_desugar_map: SparseSideTable<ExprId, AssignDesugar>,
 
+    /// Module-alias qualified-call rewrite targets, keyed by call `ExprId`.
+    ///
+    /// Each entry maps the AST `ExprId` of a `MethodCall` / `MethodCallNamed`
+    /// that resolved to a module-alias qualified call (`alias.func(args)`) to
+    /// the qualified imported-function `Name` (`"alias.func"`). `ori_canon`
+    /// reads this side-table at both `lower_method_call` (positional) and
+    /// `desugar_method_call_named` (named) and rewrites the namespace
+    /// `CanExpr::MethodCall` into a free `CanExpr::Call { func: FunctionRef }`
+    /// so both backends see one shape and the receiver namespace is never
+    /// threaded as a `self` argument. Sorted `Vec<(ExprId, Name)>` like
+    /// `assign_desugar_map` (Salsa `Eq + Hash`). Lookup via
+    /// [`Self::resolve_module_alias_call`]. Empty when no alias-qualified call
+    /// appears in the module.
+    pub module_alias_call_map: SparseSideTable<ExprId, Name>,
+
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
     /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
@@ -305,6 +320,7 @@ impl TypedModule {
             mono_instances: Vec::new(),
             mono_dispatch_map: SparseSideTable::new(),
             assign_desugar_map: SparseSideTable::new(),
+            module_alias_call_map: SparseSideTable::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
@@ -368,6 +384,17 @@ impl TypedModule {
     /// on the sorted `assign_desugar_map`.
     pub fn resolve_assign_desugar(&self, key: ExprId) -> Option<&AssignDesugar> {
         self.assign_desugar_map.get(key)
+    }
+
+    /// Look up the qualified imported-function `Name` a module-alias qualified
+    /// call (`alias.func(args)`) at this call `ExprId` rewrites to.
+    ///
+    /// Returns `Some(name)` when the type checker recorded this call as an
+    /// alias-qualified call, `None` otherwise. `ori_canon` rewrites the
+    /// namespace `MethodCall` to a free `CanExpr::Call { func: FunctionRef(name) }`
+    /// on a hit. O(log n) binary search on `module_alias_call_map`.
+    pub fn resolve_module_alias_call(&self, key: ExprId) -> Option<Name> {
+        self.module_alias_call_map.get(key).copied()
     }
 
     /// Whether `ty` carries an explicit `impl T: Formattable`.

@@ -114,6 +114,20 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.assign_desugars)
     }
 
+    /// Record a resolved module-alias qualified call.
+    ///
+    /// `key` is the call's module-wide AST `ExprId`; `qualified` is the
+    /// qualified imported-function `Name` (`"alias.func"`) the call rewrites to
+    /// in `ori_canon`.
+    pub fn record_module_alias_call(&mut self, key: ExprId, qualified: Name) {
+        self.module_alias_calls.push((key, qualified));
+    }
+
+    /// Take module-alias qualified-call entries, leaving an empty vector.
+    pub fn take_module_alias_calls(&mut self) -> Vec<(ExprId, Name)> {
+        std::mem::take(&mut self.module_alias_calls)
+    }
+
     /// Take mono dispatch pre-dedup entries, leaving an empty vector.
     pub fn take_mono_dispatch_pre_dedup(&mut self) -> Vec<(ExprId, MonoInstanceId)> {
         std::mem::take(&mut self.mono_dispatch_pre_dedup)

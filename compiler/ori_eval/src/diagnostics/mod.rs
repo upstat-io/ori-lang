@@ -9,6 +9,16 @@
 //! for runtime error diagnostics. The backtrace is stored on `EvalError`
 //! as `EvalBacktrace` (defined in `ori_patterns`).
 
+// Rc is the immutable structural-sharing backbone of the persistent CallStack
+// cons-list; no interior mutability is needed, so LocalScope<T> (Rc<RefCell<T>>)
+// is the wrong abstraction here.
+#![expect(
+    clippy::disallowed_types,
+    reason = "Rc backs the immutable persistent CallStack cons-list"
+)]
+
+use std::rc::Rc;
+
 use ori_ir::{Name, Span, StringInterner};
 use ori_patterns::{BacktraceFrame, EvalBacktrace, EvalError};
 
@@ -24,29 +34,45 @@ pub struct CallFrame {
     pub call_span: Option<Span>,
 }
 
+/// One node of the persistent call-stack cons-list.
+///
+/// Immutable once constructed: `parent` is shared via `Rc`, so a child call's
+/// frame is a single new node pointing at the parent chain.
+#[derive(Debug)]
+struct CallStackNode {
+    frame: CallFrame,
+    /// Total frame count up to and including this node — cached so `depth()`
+    /// is O(1) and never walks the chain.
+    depth: usize,
+    parent: Option<Rc<CallStackNode>>,
+}
+
 /// Live call stack for the interpreter.
 ///
 /// Each function/method call pushes a frame; return pops it. The depth
-/// check is integrated into `push()` for ergonomic use.
+/// check is integrated into `push()`.
 ///
-/// # Clone-per-child model
+/// # Persistent (structural-sharing) model
 ///
-/// When the interpreter creates a child for a function call, it clones
-/// the parent's `CallStack` and calls `push()` on the clone. This is
-/// thread-safe (no shared mutable state) and O(N) per call, which is
-/// acceptable at practical depths (~24 bytes per frame, ~24 KiB at 1000).
+/// `CallStack` is an immutable singly-linked cons-list: each node holds a
+/// frame, a cached `depth`, and an `Rc` to its parent. Cloning the stack for
+/// a child call (`create_function_interpreter`) is an O(1) `Rc` refcount bump;
+/// pushing a frame onto the clone allocates ONE node pointing at the shared
+/// parent, leaving the parent's stack untouched. `depth()` reads the cached
+/// head depth in O(1); call-stack maintenance over a recursion chain of depth
+/// D is therefore O(D) total.
 ///
 /// # Example
 ///
 /// ```ignore
-/// let mut stack = CallStack::new(200);
+/// let mut stack = CallStack::new(Some(200));
 /// stack.push(CallFrame { name, call_span: Some(span) })?;
 /// // ... evaluate function body ...
 /// stack.pop();
 /// ```
 #[derive(Clone, Debug)]
 pub struct CallStack {
-    frames: Vec<CallFrame>,
+    head: Option<Rc<CallStackNode>>,
     max_depth: Option<usize>,
 }
 
@@ -57,7 +83,7 @@ impl CallStack {
     /// or `Some(n)` for bounded modes (WASM, `ConstEval`, `TestRun`).
     pub fn new(max_depth: Option<usize>) -> Self {
         Self {
-            frames: Vec::new(),
+            head: None,
             max_depth,
         }
     }
@@ -67,12 +93,17 @@ impl CallStack {
     /// Returns `Err(EvalError)` with `StackOverflow` kind if the limit
     /// is exceeded. The frame is NOT pushed on overflow.
     pub fn push(&mut self, frame: CallFrame) -> Result<(), EvalError> {
+        let depth = self.depth();
         if let Some(max) = self.max_depth {
-            if self.frames.len() >= max {
+            if depth >= max {
                 return Err(ori_patterns::recursion_limit_exceeded(max));
             }
         }
-        self.frames.push(frame);
+        self.head = Some(Rc::new(CallStackNode {
+            frame,
+            depth: depth.saturating_add(1),
+            parent: self.head.take(),
+        }));
         Ok(())
     }
 
@@ -84,47 +115,50 @@ impl CallStack {
     /// this is a no-op on an empty stack.
     pub fn pop(&mut self) {
         debug_assert!(
-            !self.frames.is_empty(),
+            self.head.is_some(),
             "CallStack::pop() called on empty stack"
         );
-        self.frames.pop();
+        self.head = self.head.as_ref().and_then(|n| n.parent.clone());
     }
 
     /// Current call depth.
     #[inline]
     pub fn depth(&self) -> usize {
-        self.frames.len()
+        self.head.as_ref().map_or(0, |n| n.depth)
     }
 
     /// Check if the stack is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.frames.is_empty()
+        self.head.is_none()
     }
 
     /// The current (most recent) call frame, if any.
     #[inline]
     pub fn current_frame(&self) -> Option<&CallFrame> {
-        self.frames.last()
+        self.head.as_ref().map(|n| &n.frame)
     }
 
     /// Capture a snapshot of the current call stack as an `EvalBacktrace`.
     ///
     /// The frames are converted to `BacktraceFrame` using the string interner
-    /// to resolve interned `Name`s to display strings.
+    /// to resolve interned `Name`s to display strings. The head is the most
+    /// recent call, so walking head -> parent yields most-recent-first directly.
     pub fn capture(&self, interner: &StringInterner) -> EvalBacktrace {
-        if self.frames.is_empty() {
+        let Some(mut node) = self.head.as_ref() else {
             return EvalBacktrace::default();
+        };
+        let mut frames = Vec::with_capacity(node.depth);
+        loop {
+            frames.push(BacktraceFrame {
+                name: interner.lookup(node.frame.name).to_string(),
+                span: node.frame.call_span,
+            });
+            match &node.parent {
+                Some(parent) => node = parent,
+                None => break,
+            }
         }
-        let frames = self
-            .frames
-            .iter()
-            .rev() // Most recent call first
-            .map(|f| BacktraceFrame {
-                name: interner.lookup(f.name).to_string(),
-                span: f.call_span,
-            })
-            .collect();
         EvalBacktrace::new(frames)
     }
 
@@ -133,7 +167,7 @@ impl CallStack {
     /// Convenience method for the common pattern of capturing a backtrace
     /// and attaching it to an error at the error site.
     pub fn attach_backtrace(&self, err: EvalError, interner: &StringInterner) -> EvalError {
-        if self.frames.is_empty() {
+        if self.head.is_none() {
             return err;
         }
         err.with_backtrace(self.capture(interner))

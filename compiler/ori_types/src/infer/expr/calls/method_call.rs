@@ -38,13 +38,19 @@ pub(crate) fn infer_method_call(
     span: Span,
     expected: Option<&Expected>,
 ) -> Idx {
-    // Module-alias qualified call `alias.func(args)` (Spec: Clause 12). Resolved
+    // Module-alias qualified call `alias.func(args)` (Spec: Clause 18.3.4). Resolved
     // against the aliased module's signature BEFORE ordinary method dispatch so
     // the namespace receiver does not poison to `Idx::ERROR`.
     {
         let arg_ids = arena.get_expr_list(args).to_vec();
         if let Some(ret) = module_alias_call::try_infer_module_alias_call(
-            engine, arena, receiver, method, &arg_ids, span,
+            engine,
+            arena,
+            call_expr_id,
+            receiver,
+            method,
+            &arg_ids,
+            span,
         ) {
             if let Some(exp) = expected {
                 let _ = engine.check_type(ret, exp, span);
@@ -163,11 +169,17 @@ pub(crate) fn infer_method_call_named(
     span: Span,
     expected: Option<&Expected>,
 ) -> Idx {
-    // Module-alias qualified call `alias.func(name: value, ...)` (Spec: Clause 12).
+    // Module-alias qualified call `alias.func(name: value, ...)` (Spec: Clause 18.3.4).
     {
         let call_args = arena.get_call_args(args).to_vec();
         if let Some(ret) = module_alias_call::try_infer_module_alias_call_named(
-            engine, arena, receiver, method, &call_args, span,
+            engine,
+            arena,
+            call_expr_id,
+            receiver,
+            method,
+            &call_args,
+            span,
         ) {
             if let Some(exp) = expected {
                 let _ = engine.check_type(ret, exp, span);

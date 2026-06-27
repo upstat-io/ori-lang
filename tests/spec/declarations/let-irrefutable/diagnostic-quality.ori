@@ -20,7 +20,7 @@ type AddrBook = {
 }
 
 // =============================================================================
-// Message recommends `match` per Spec 15-patterns.md:276-281
+// Message recommends `match` per Spec 15-patterns.md § Pattern Refutability
 // =============================================================================
 
 #compile_fail(code: "E2001", message: "match")

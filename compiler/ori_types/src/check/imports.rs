@@ -99,6 +99,14 @@ impl ModuleChecker<'_> {
         self.assign_desugars.extend(desugars);
     }
 
+    /// Accumulate one body pass's module-alias qualified-call entries into the
+    /// module-wide store drained at `finish` into
+    /// `TypedModule::module_alias_call_map`. Keys are module-wide AST `ExprId`s,
+    /// so entries extend without re-anchoring.
+    pub fn accumulate_module_alias_calls(&mut self, calls: Vec<(ExprId, ori_ir::Name)>) {
+        self.module_alias_calls.extend(calls);
+    }
+
     /// Flush composed `UserBurdenSpec` entries from one body-pass session
     /// into the `TypeRegistry`.
     ///
@@ -342,9 +350,10 @@ impl ModuleChecker<'_> {
     /// stores them under the alias name. Also binds the alias in the import
     /// environment as a named type placeholder.
     ///
-    /// **Note:** Full qualified-access resolution (`alias.func(...)`) is deferred —
-    /// it requires inference engine changes for `ExprKind::FieldAccess` on
-    /// namespace types. The data storage is in place for when that's needed.
+    /// Qualified access (`alias.func(args)`) resolves through the `MethodCall`
+    /// inference path: the call records into `TypedModule.module_alias_call_map`,
+    /// which `ori_canon` reads to rewrite the namespace call to a free `Call`.
+    /// The signatures stored here back that resolution at inference time.
     pub fn register_module_alias(
         &mut self,
         alias: Name,

@@ -130,8 +130,8 @@ fn inc_elidable_at_realization(state: &AimsState) -> bool {
 
 /// Eliminate burden ops whose DP-2/DP-3 predicates fire.
 ///
-/// Walks every block backward (matches `coalesce_block_rc` shape at
-/// `aims/emit_rc/coalesce/mod.rs:44`); for each burden-op instruction,
+/// Walks every block backward (matches the `coalesce_block_rc` shape in
+/// `aims/emit_rc/coalesce`); for each burden-op instruction,
 /// queries the appropriate predicate against `var_state_at_block_exit`
 /// for the op's target var; removes the instruction when the predicate
 /// returns `true`.

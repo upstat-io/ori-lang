@@ -62,12 +62,24 @@ impl Lowerer<'_> {
         span: Span,
         ty: TypeId,
     ) -> ori_ir::canon::CanId {
-        let lowered_receiver = self.lower_expr(receiver);
+        // Get source call arguments (named).
+        let src_args: Vec<(Option<Name>, ExprId)> = self
+            .src
+            .get_call_args(args)
+            .iter()
+            .map(|a| (a.name, a.value))
+            .collect();
 
-        // Get source call arguments.
-        let src_args = self.src.get_call_args(args);
-        let src_args: Vec<(Option<Name>, ExprId)> =
-            src_args.iter().map(|a| (a.name, a.value)).collect();
+        // Module-alias qualified named call (`alias.func(a: v, ...)`): the type
+        // checker recorded this call's rewrite target. Lower it as a free `Call`
+        // to the qualified imported function — the namespace receiver is dropped
+        // (not lowered, not threaded as `self`). This is the path ALL named
+        // alias-qualified spec cases take. Mirrors `lower_method_call`.
+        if let Some(qualified) = self.typed.resolve_module_alias_call(call_expr_id) {
+            return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
+        }
+
+        let lowered_receiver = self.lower_expr(receiver);
 
         // Try to resolve the method signature for reordering and default filling.
         // Pass the source receiver's type so same-named methods on different impls

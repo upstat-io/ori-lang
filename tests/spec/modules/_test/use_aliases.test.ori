@@ -1,4 +1,4 @@
-// Spec: 12-modules.md § Import with Aliases
+// Spec: 18-modules.md § Import with Aliases
 // Design: (modules not yet in design docs)
 //
 // Tests for importing with aliases using 'as' keyword.

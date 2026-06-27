@@ -347,6 +347,7 @@ fn prelude_function_to_idx(
     // Build return type
     let ret = match def.returns {
         ReturnTag::Concrete(tag) => super::registry_bridge::type_tag_to_idx(tag),
+        ReturnTag::Unit => Idx::UNIT,
         ReturnTag::IteratorOf(_) => {
             // For repeat: (T) -> Iterator<T>, use the first fresh var
             let elem = first_fresh.unwrap_or_else(|| engine.pool_mut().fresh_var());

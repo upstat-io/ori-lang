@@ -594,6 +594,42 @@ pub(crate) fn resolve_imports(
                 is_module_alias: true,
                 span: imp.span,
             });
+
+            // Import-wiring for qualified access (`alias.func(args)`): synthesize
+            // one ordinary import entry per PUBLIC function of the aliased module,
+            // under the qualified local name `"alias.func"`. These are
+            // `is_module_alias: false`, so the regular import machinery registers
+            // them in typeck (`register_imported_function_as`), declares them in
+            // codegen, and merges their canon bodies — exactly what the namespace
+            // entry above does NOT do. `ori_canon` rewrites the alias-qualified
+            // `MethodCall` to `Call(FunctionRef("alias.func"))` (the SAME interned
+            // name, per `ori_types::module_alias_call::record_qualified_call`), so
+            // the rewritten free call links to the declared import. The qualified
+            // name is never typeable as a bare identifier (the parser reads
+            // `alias.func` as a `MethodCall`), so alias scoping is preserved.
+            let interner = db.interner();
+            let alias_str = interner.lookup(alias).to_string();
+            let public_fn_names: Vec<Name> = modules[module_index]
+                .parse_output
+                .module
+                .functions
+                .iter()
+                .filter(|f| f.visibility == ori_ir::Visibility::Public)
+                .map(|f| f.name)
+                .collect();
+            for fn_name in public_fn_names {
+                let qualified = interner.intern(&ori_ir::qualified_alias_name(
+                    &alias_str,
+                    interner.lookup(fn_name),
+                ));
+                imported_functions.push(ImportedFunctionRef {
+                    local_name: qualified,
+                    original_name: fn_name,
+                    module_index,
+                    is_module_alias: false,
+                    span: imp.span,
+                });
+            }
             continue;
         }
 

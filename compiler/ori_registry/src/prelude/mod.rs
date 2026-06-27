@@ -44,6 +44,13 @@ static GENERIC_PARAM: [ParamDef; 1] = [ParamDef {
     ownership: crate::Ownership::Borrow,
 }];
 
+/// Parameter for `drop_early`: `(value: T)` with Owned (consuming) semantics.
+static DROP_EARLY_PARAMS: [ParamDef; 1] = [ParamDef {
+    name: "value",
+    ty: ReturnTag::Fresh,
+    ownership: crate::Ownership::Owned,
+}];
+
 /// All builtin prelude free-function signatures.
 ///
 /// Sorted alphabetically by name. The type checker and evaluator both
@@ -58,6 +65,11 @@ pub static PRELUDE_FUNCTIONS: &[PreludeFunctionDef] = &[
         name: "byte",
         params: &GENERIC_PARAM,
         returns: ReturnTag::Concrete(TypeTag::Byte),
+    },
+    PreludeFunctionDef {
+        name: "drop_early",
+        params: &DROP_EARLY_PARAMS,
+        returns: ReturnTag::Unit,
     },
     PreludeFunctionDef {
         name: "float",

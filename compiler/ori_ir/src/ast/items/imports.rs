@@ -93,6 +93,20 @@ pub struct ExtensionImportItem {
     pub span: Span,
 }
 
+/// Build the qualified local name for an alias-qualified call (`alias.func`).
+///
+/// The single canonical definition of the `"alias.func"` naming convention.
+/// Every site that must produce the identical interned qualified `Name` calls
+/// this: the type checker's alias-call recording (`ori_types`), the
+/// import-wiring synthesis (`oric::imports`), and the eval-backend qualified
+/// binding (`oric::eval::module::import`). Each caller interns the returned
+/// string with its own interner; centralizing the separator + ordering makes
+/// the cross-crate agreement structural, not convention-enforced.
+#[must_use]
+pub fn qualified_alias_name(alias: &str, func: &str) -> String {
+    format!("{alias}.{func}")
+}
+
 /// Structured error kind for import resolution failures.
 ///
 /// The canonical definition for import errors, used by both the import

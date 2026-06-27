@@ -1,4 +1,4 @@
-// Spec: 12-modules.md Re-exports
+// Spec: 18-modules.md Re-exports
 // Design: (modules not yet in design docs)
 //
 // Module that re-exports items from other modules.

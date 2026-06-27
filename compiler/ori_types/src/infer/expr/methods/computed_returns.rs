@@ -35,8 +35,42 @@ pub(super) fn resolve_computed_return(
         // Spec: Clause 9.9 — Traceable trait: trace_entries() -> [TraceEntry]
         Tag::Result | Tag::Error => match method_name {
             "trace_entries" => computed_trace_entries(engine),
+            // Why: a `Result<_,_>` shape (not a bare fresh var) gives the closure
+            // return an Ok/Err slot to bind. Guarded on Tag::Result only — a
+            // Tag::Error poison receiver falls through (`result_ok`/`result_err` assert Tag::Result).
+            "map" | "map_err" | "and_then" | "or_else" if tag == Tag::Result => {
+                computed_result_closure_return(engine, receiver_ty, method_name)
+            }
             _ => engine.fresh_var(),
         },
+        _ => engine.fresh_var(),
+    }
+}
+
+/// Result closure-methods: construct the `Result<_,_>` shape that preserves the
+/// untransformed slot and freshens the transformed slot. `map`/`and_then`
+/// transform the Ok type (Err preserved); `map_err`/`or_else` transform the Err
+/// type (Ok preserved). The fresh slot is pinned to the closure return by
+/// `unify_higher_order_constraints` (`closure_unify` Result-family arm).
+/// Precondition: `receiver_ty` resolves to `Tag::Result`.
+fn computed_result_closure_return(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Idx {
+    match method {
+        // Ok transformed, Err preserved.
+        "map" | "and_then" => {
+            let err = engine.pool().result_err(receiver_ty);
+            let fresh_ok = engine.fresh_var();
+            engine.pool_mut().result(fresh_ok, err)
+        }
+        // Err transformed, Ok preserved.
+        "map_err" | "or_else" => {
+            let ok = engine.pool().result_ok(receiver_ty);
+            let fresh_err = engine.fresh_var();
+            engine.pool_mut().result(ok, fresh_err)
+        }
         _ => engine.fresh_var(),
     }
 }

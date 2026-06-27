@@ -1,0 +1,13 @@
+// Spec: Annex C §drop_early; 08-types.md §8.10.5
+// drop_early on a unique heap value consumes it. However, if the value is used
+// downstream, the compiler's liveness analysis will keep it alive (emitting an RcInc
+// before the drop_early call and an RcDec after the last use). This ensures the
+// use after drop_early is defined and safe, preventing Use-After-Free.
+use std.testing { assert_eq }
+
+@drop_early_use_after_consume tests _ () -> void = {
+    let s = "hello".to_str();
+    drop_early(value: s);
+    assert_eq(actual: s, expected: "hello");
+    ()
+}

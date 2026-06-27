@@ -143,7 +143,6 @@ type Node = { value: int, next: Option<Node> }
 /// is RED until that builtin is implemented (typeck signature + eval semantics
 /// + AOT early `rc_dec` codegen); it goes green with no edit once it lands.
 #[test]
-#[ignore = "BUG-02-032: drop_early prelude builtin not yet implemented (E2003 unknown identifier) — blocks the rc-above-one drop-skip pin"]
 fn recursive_drop_skips_body_when_rc_above_one() {
     // drop_early surface per spec/08-types.md §8.10.5 (`@drop_early<T> (value: T) -> void`).
     let source = r#"
@@ -201,6 +200,50 @@ type Node = { value: int, next: Option<Node> }
          reach rc=0 / invoke the recursive drop body while n1_alias is live; \
          a FREE as the first dec violates shared-reference correctness. \
          first dec: {first_dec}\nall dec events:\n{}",
+        dec_events.join("\n")
+    );
+}
+
+/// Regression: companion negative-RC pin to `recursive_drop_skips_body_when_rc_above_one`
+/// — the UNIQUE (rc==1) case. `drop_early` on a unique heap value runs the FULL drop
+/// immediately (rc 1->0, recursive drop body + free), leaving zero leaks. Paired with
+/// the shared case above per the ARC should-fire / should-not-fire discipline.
+/// See BUG-02-032 (`drop_early` prelude builtin).
+#[test]
+fn drop_early_unique_runs_full_drop() {
+    let source = r#"
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let captured = n1.value;
+    drop_early(value: n1);
+    assert_eq(actual: captured, expected: 1);
+    ()
+}
+"#;
+
+    let (exit_code, _stdout, stderr) = compile_and_run_with_env(source, &[("ORI_TRACE_RC", "1")]);
+
+    // Compilation + run must succeed; exit 2 = leak, 1 = panic, -1 = compile failure.
+    // The always-on ORI_CHECK_LEAKS oracle covers the zero-leak half: a unique
+    // drop_early that failed to free the chain would surface as a leak (exit 2).
+    assert_eq!(
+        exit_code, 0,
+        "drop_early_unique_runs_full_drop did not run clean (exit {exit_code}); \
+         leak/panic/compile-failure. stderr:\n{stderr}"
+    );
+
+    // Unique drop_early: the chain is unique (rc=1), so drop_early frees it NOW —
+    // at least one `rc=0 FREE` dec (the head node, cascading to its recursive child).
+    let dec_events: Vec<&str> = stderr.lines().filter(|l| l.contains("[RC] dec")).collect();
+    let free_events = dec_events.iter().filter(|l| l.contains("FREE")).count();
+    assert!(
+        free_events >= 1,
+        "expected at least one `rc=0 FREE` dec (unique drop_early reclaims the chain), \
+         found none. dec events:\n{}",
         dec_events.join("\n")
     );
 }

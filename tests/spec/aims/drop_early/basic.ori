@@ -1,0 +1,13 @@
+// Spec: Annex C §drop_early; 08-types.md §8.10.5
+// drop_early consumes a shared (rc>1) heap value: it decrements the refcount
+// without running the drop body or freeing, leaving an alias valid.
+use std.testing { assert_eq }
+
+type Box = { value: int }
+
+@drop_early_shared_keeps_alias tests _ () -> void = {
+    let b = Box { value: 42 };
+    let b_alias = b;
+    drop_early(value: b);
+    assert_eq(actual: b_alias.value, expected: 42)
+}

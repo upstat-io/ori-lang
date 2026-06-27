@@ -61,6 +61,21 @@ impl Lowerer<'_> {
         span: Span,
         ty: TypeId,
     ) -> CanId {
+        // Module-alias qualified call (`alias.func(args)`): the type checker
+        // recorded this call's rewrite target. Lower it as a free `Call` to the
+        // qualified imported function — the namespace receiver is NOT threaded
+        // as a `self` argument (it is not a value). Both backends then see one
+        // shape (a plain `Call`), matching the eval `Value::ModuleNamespace`
+        // result on the AOT/LLVM path.
+        if let Some(qualified) = self.typed.resolve_module_alias_call(call_expr_id) {
+            let src_args: Vec<(Option<Name>, ExprId)> = self
+                .src
+                .get_expr_list(args)
+                .iter()
+                .map(|&id| (None, id))
+                .collect();
+            return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
+        }
         // Capture the SOURCE receiver's resolved type before `receiver` is shadowed
         // by its lowered CanId — used to disambiguate same-named methods across impls
         // so each receiver fills its own defaults.
@@ -85,6 +100,30 @@ impl Lowerer<'_> {
             span,
             ty,
         );
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
+    }
+
+    /// Lower a module-alias qualified call (`alias.func(args)`) — recorded by
+    /// the type checker in `TypedModule::module_alias_call_map` — to a free
+    /// `CanExpr::Call { func: FunctionRef(qualified), args }`. The namespace
+    /// receiver is dropped (it is not a value); args are reordered + default-
+    /// filled against the qualified imported function's params, exactly as a
+    /// plain free call. Shared by `lower_method_call` (positional) and
+    /// `desugar_method_call_named` (named).
+    pub(crate) fn lower_module_alias_call(
+        &mut self,
+        call_expr_id: ExprId,
+        qualified: Name,
+        src_args: &[(Option<Name>, ExprId)],
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
+        let func = self.push(CanExpr::FunctionRef(qualified), span, ty);
+        let params = self.resolve_func_params(ori_ir::ExprKind::FunctionRef(qualified));
+        let lowered_args = self.reorder_and_lower_args(src_args, params.as_deref());
+        let args = self.arena.push_expr_list(&lowered_args);
+        let can_id = self.push(CanExpr::Call { func, args }, span, ty);
         self.record_mono_dispatch_if_present(call_expr_id, can_id);
         can_id
     }
