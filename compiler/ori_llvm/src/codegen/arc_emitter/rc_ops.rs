@@ -26,10 +26,13 @@
 //! field traversal. The container itself is stack-allocated (no container
 //! refcount), but inner RC-typed fields need inc/dec for correct sharing.
 //!
-//! # Design: no `extract_rc_data_ptrs` calls
+//! # Design: strategy handlers extract directly; the heap-fallback delegates
 //!
-//! None of the handlers in this module call `extract_rc_data_ptrs`. Each
-//! strategy knows its own layout and extracts pointers directly:
+//! Each named strategy below knows its own layout and extracts pointers
+//! directly. Only the `emit_rc_inc_heap` `_` catch-all (for heap types without a
+//! named strategy) delegates to `extract_rc_data_ptrs`; an `Option`/`Result`/`Enum`
+//! value never reaches that catch-all — it routes through `InlineEnum` (the
+//! tag-aware `emit_inline_enum_inc`/`_dec`):
 //!
 //! - `HeapPointer`: slice-aware for List/Set (data+cap → `ori_list_rc_inc`); Map field 2
 //! - `FatPointer`: always field 1 (the `data_ptr` half)

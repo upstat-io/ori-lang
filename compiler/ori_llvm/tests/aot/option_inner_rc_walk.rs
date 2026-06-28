@@ -159,3 +159,22 @@ fn option_str_field_inc_via_clone_leak_free() {
     );
     assert_eq!(stdout.trim(), "c", "inc-via-clone cell wrong stdout");
 }
+
+/// Derived-`Clone` None negative pin: cloning a `Holder { f: None }` MUST inc
+/// nothing for the empty Option field. The derived-Clone emission surface
+/// (`derive_codegen/clone_rc.rs`) is separate from the value-walk; a tag-blind
+/// clone reads the `None`'s uninitialized field-1 payload as a live RC pointer
+/// and inc-on-garbage. The tag-aware `emit_clone_option_rc_inc` guards on the
+/// discriminant; this cell pins it leak-free + crash-free under the gated probe.
+#[test]
+fn option_str_field_none_inc_via_clone_leak_free() {
+    let (exit, stdout, stderr) = compile_and_run_with_build_env(
+        include_str!("fixtures/option_inner_rc_walk/option_str_field_none_inc_via_clone.ori"),
+        GATED_PROBE,
+    );
+    assert_eq!(
+        exit, 0,
+        "Option<str> None-clone must inc nothing + run leak-free under the gated probe\nstdout:{stdout}\nstderr:{stderr}"
+    );
+    assert_eq!(stdout.trim(), "c", "None-clone cell wrong stdout");
+}
