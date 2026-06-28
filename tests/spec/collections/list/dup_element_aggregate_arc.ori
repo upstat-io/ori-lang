@@ -9,8 +9,8 @@
 // (N-1) duplication incs, never releasing `a`'s original heap-field ref -> the
 // heap field LEAKS (rc never reaches 0).
 //
-// L9 (dual-exec parity): interp and LLVM produce identical results.
-// L10 (leak-free): zero RC leaks under ORI_CHECK_LEAKS=1 on BOTH the default and
+// dual-exec parity: interp and LLVM produce identical results.
+// leak-free: zero RC leaks under ORI_CHECK_LEAKS=1 on BOTH the default and
 //   the gated burden probe (ORI_DISABLE_PREDICATE_STACK_RC=1) paths.
 // These cells PASS their value assertions even on the unfixed code (the leak does
 // not corrupt values) — the leak-check is the failing-on-unfixed pin.
@@ -81,6 +81,24 @@ type Bag = { items: [int] }
 
 @test_dup_map_str_n2 tests @dup_map_str_n2 () -> void = {
     assert_eq(actual: dup_map_str_n2(), expected: 2)
+}
+
+// =============================================================================
+// CLAMP (map): source LIVE-after a map literal. The dead-after gating is
+// CtorKind-agnostic (keyed on the source aggregate's liveness, not the
+// collection kind), so the over-suppression clamp must hold for the map path
+// too — a wrong "always-suppress" fix double-frees `a`'s field on the later read.
+// =============================================================================
+
+@dup_map_str_source_live () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = {1: a, 2: a};
+    held.length() + a.content.length()
+}
+
+@test_dup_map_str_source_live tests @dup_map_str_source_live () -> void = {
+    // length 2 + content length 30 = 32
+    assert_eq(actual: dup_map_str_source_live(), expected: 32)
 }
 
 // =============================================================================
