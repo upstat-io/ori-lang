@@ -265,3 +265,93 @@ fn diagnostic_pin_orphan_attr_full_message_before_identifier() {
         "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
     );
 }
+
+// Test-only attrs on a plain (non-test) function — BUG-07-171.
+//
+// A test-only attribute (`#compile_fail`/`#fail`/`#skip`) on a plain function
+// has nowhere to live (the `Function` struct carries no `expected_errors`/
+// `fail_expected`), so the parser silently dropped it — a zero-protection ghost
+// test. These mirror `reject_compile_fail_on_const`: a plain function cannot
+// host a test attribute (Spec: 19-testing.md §19.8 / 10-declarations.md §10.7.3
+// define them on `tests`-marked declarations only).
+
+#[test]
+fn reject_compile_fail_on_function() {
+    parse_err("#compile_fail(\"err\")\n@f () -> int = 1;", "#compile_fail");
+}
+
+#[test]
+fn reject_fail_on_function() {
+    parse_err("#fail(\"boom\")\n@f () -> int = 1;", "#fail");
+}
+
+#[test]
+fn reject_skip_on_function() {
+    parse_err("#skip(\"later\")\n@f () -> int = 1;", "#skip");
+}
+
+#[test]
+fn reject_skip_backend_on_function() {
+    parse_err(
+        "#skip(backend: \"llvm\", reason: \"x\")\n@f () -> int = 1;",
+        "#skip",
+    );
+}
+
+// Positive pins — the gate must NOT over-reject. `#fbip`/`#cfg`/`#target` are
+// legitimate on a plain function (the `Function` struct carries `is_fbip`/
+// `target_attr`/`cfg_attr`); reusing `has_non_conditional_attrs()` (which
+// includes `is_fbip`) would regress `#fbip @f`, so the gate uses a
+// test-only-scoped predicate.
+
+#[test]
+fn accept_fbip_on_function() {
+    let output = parse_ok("#fbip\n@f () -> int = 1;");
+    assert_eq!(output.module.functions.len(), 1);
+    assert!(output.module.functions[0].is_fbip);
+}
+
+#[test]
+fn accept_cfg_on_function() {
+    let output = parse_ok("#cfg(debug)\n@f () -> int = 1;");
+    assert_eq!(output.module.functions.len(), 1);
+    assert!(output.module.functions[0].cfg_attr.is_some());
+}
+
+#[test]
+fn accept_target_on_function() {
+    let output = parse_ok("#target(os: \"linux\")\n@f () -> int = 1;");
+    assert_eq!(output.module.functions.len(), 1);
+    assert!(output.module.functions[0].target_attr.is_some());
+}
+
+// Positive pins — test-marked functions DO legitimately host test attributes;
+// the gate fires only on the plain-function branch, never the `tests` branch.
+
+#[test]
+fn accept_compile_fail_on_floating_test() {
+    let output = parse_ok("#compile_fail(\"err\")\n@check tests _ () -> void = ()");
+    assert_eq!(output.module.tests.len(), 1);
+    assert!(output.module.tests[0].is_compile_fail());
+}
+
+#[test]
+fn accept_compile_fail_on_attached_test() {
+    let output = parse_ok("#compile_fail(\"err\")\n@check tests @target () -> void = ()");
+    assert_eq!(output.module.tests.len(), 1);
+    assert!(output.module.tests[0].is_compile_fail());
+}
+
+#[test]
+fn accept_skip_on_test() {
+    let output = parse_ok("#skip(\"later\")\n@check tests _ () -> void = ()");
+    assert_eq!(output.module.tests.len(), 1);
+    assert!(output.module.tests[0].skip_reason.is_some());
+}
+
+#[test]
+fn accept_fail_on_test() {
+    let output = parse_ok("#fail(\"boom\")\n@check tests _ () -> void = ()");
+    assert_eq!(output.module.tests.len(), 1);
+    assert!(output.module.tests[0].fail_expected.is_some());
+}

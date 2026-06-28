@@ -139,9 +139,10 @@ pub(in crate::lower::burden_lower) fn compute_collection_literal_dead_source_sup
         if construct.is_none() || aliases.len() < 2 {
             continue;
         }
-        // Gate 3: the source is FRESH (a Construct definer) — not a param / call
-        // result / projection (those have their own transfer machinery).
-        if !source_is_fresh_construct(func, *src) {
+        // Gate 3: the source is a FRESH aggregate producer (Construct / Reuse /
+        // CollectionReuse) — not a param / call result / projection (those have
+        // their own transfer machinery).
+        if !source_is_fresh_aggregate(func, *src) {
             continue;
         }
         // Gate 4: every use of the source is one of its collection-literal
@@ -157,16 +158,23 @@ pub(in crate::lower::burden_lower) fn compute_collection_literal_dead_source_sup
     out
 }
 
-/// True iff `var`'s definer is a `Construct` (a fresh heap aggregate). Param /
-/// call-result / projection sources are excluded — their ref does not originate
-/// at a fresh-site inc this scan owns.
-fn source_is_fresh_construct(func: &ArcFunction, var: ArcVarId) -> bool {
+/// True iff `var`'s definer is a fresh heap-aggregate producer — `Construct`
+/// (TF-3), `Reuse` (TF-9), or `CollectionReuse` (TF-9a), each of which AIMS
+/// classifies as a fresh allocation owned by the caller. Param / call-result /
+/// projection sources are excluded — their ref does not originate at a
+/// fresh-site inc this scan owns. Mirrors the sibling `dup_inc` fresh-producer
+/// classification.
+fn source_is_fresh_aggregate(func: &ArcFunction, var: ArcVarId) -> bool {
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Construct { dst, .. } = instr {
-                if *dst == var {
-                    return true;
-                }
+            let dst = match instr {
+                ArcInstr::Construct { dst, .. }
+                | ArcInstr::Reuse { dst, .. }
+                | ArcInstr::CollectionReuse { dst, .. } => *dst,
+                _ => continue,
+            };
+            if dst == var {
+                return true;
             }
         }
     }
