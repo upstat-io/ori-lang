@@ -1,7 +1,7 @@
 //! Phase-dump + post-codegen finalization helpers.
 //!
-//! - `dump_arc_phases`: the `ORI_DUMP_AFTER_ARC` + `ORI_EMIT_ARC_DOT` phase-dump
-//!   invocations. Both are `dbg_do!`-gated — no-op when the env vars are unset.
+//! - `dump_arc_phases`: the `ORI_DUMP_AFTER_ARC` (via the dump orchestrator) +
+//!   `ORI_EMIT_ARC_DOT` phase-dump invocations — no-op when the env vars unset.
 //! - `finalize_module`: the post-codegen diagnostics-and-verify phase. Runs
 //!   LLVM-IR dump (if requested), codegen audit (if requested), and module
 //!   verification. Returns the cloned module on success or a diagnostic string
@@ -20,9 +20,9 @@ use rustc_hash::FxHashMap;
 
 /// Emit ARC-IR phase dumps when the corresponding env-var gates are set.
 ///
-/// Both dumps are gated via `crate::dbg_do!`; the function is a single call
-/// site for both invocations so the caller doesn't carry the `dbg_do!` noise
-/// inline.
+/// The ARC IR dump routes through the dump orchestrator (ARC phase); the
+/// `ORI_EMIT_ARC_DOT` `GraphViz` emit stays `dbg_do!`-gated. A single call site
+/// for both so the caller doesn't carry the gating noise inline.
 #[cfg(feature = "llvm")]
 pub(super) fn dump_arc_phases(
     arc_cache: &FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
@@ -33,17 +33,15 @@ pub(super) fn dump_arc_phases(
     type_registry: &ori_types::TypeRegistry,
     source_path: &str,
 ) {
-    crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_ARC, {
-        crate::arc_dump::dump_arc_ir(
-            arc_cache,
-            annotated_sigs,
-            classifier,
-            pool,
-            interner,
-            type_registry,
-            source_path,
-        );
-    });
+    crate::dump_orchestrator::dump_arc(
+        arc_cache,
+        annotated_sigs,
+        classifier,
+        pool,
+        interner,
+        type_registry,
+        source_path,
+    );
     crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
         crate::arc_dot::emit_arc_dot(
             arc_cache,
@@ -63,9 +61,8 @@ pub(super) fn dump_arc_phases(
 /// verification. Returns the cloned module on success; `Err(msg)` when any
 /// stage fails. The caller aborts AOT on `Err`.
 ///
-/// Order mirrors the in-line code it replaces — IR dump BEFORE verify so the
-/// dump is emitted even when the module has structural errors, matching the
-/// JIT path pattern.
+/// IR dump runs BEFORE verify so the dump is emitted even when the module has
+/// structural errors, matching the JIT path pattern.
 #[cfg(feature = "llvm")]
 pub(super) fn finalize_module<'ctx>(
     scx: &SimpleCx<'ctx>,
@@ -86,14 +83,9 @@ pub(super) fn finalize_module<'ctx>(
         ));
     }
 
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &scx.llmod.print_to_string().to_string_lossy(),
-            pool,
-            interner,
-            source_path,
-        );
-    }
+    crate::dump_orchestrator::dump_llvm(pool, interner, source_path, || {
+        scx.llmod.print_to_string().to_string_lossy().into_owned()
+    });
 
     crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
         let audit_report = ori_llvm::verify::audit_module(&scx.llmod);

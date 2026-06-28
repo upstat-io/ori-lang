@@ -18,6 +18,78 @@ impl Pool {
         buf
     }
 
+    /// Format a type with its resolved pool `Idx` annotations, for debugging the
+    /// monomorphization / interning surface. Each type renders as `<name>#<idx>`;
+    /// a composite additionally shows its resolved body idx (`=>#<body>` when the
+    /// body interns at a different idx) and recursively each field/payload as
+    /// `<field>: <name>#<idx>`. Reveals nested-generic instantiation DUPLICATION
+    /// (two distinct bodies for one surface type, e.g. `Wrap<int>#217` vs
+    /// `#231`) and an UN-SUBSTITUTED generic field (a field resolving to a bare
+    /// param `T#<idx>` instead of the concrete arg). Consumed by the
+    /// `ORI_DUMP_AFTER_TYPECK` dump under `ORI_DUMP_TYPE_IDX=1`.
+    pub fn format_type_with_idx(&self, idx: Idx, interner: &StringInterner) -> String {
+        let mut buf = String::new();
+        self.format_type_idx_into(idx, interner, &mut buf, 0);
+        buf
+    }
+
+    fn format_type_idx_into(
+        &self,
+        idx: Idx,
+        interner: &StringInterner,
+        buf: &mut String,
+        depth: usize,
+    ) {
+        use std::fmt::Write;
+        let name = self.format_type_resolved(idx, interner);
+        let _ = write!(buf, "{name}#{}", idx.raw());
+        // Bound recursion: deep / cyclic composites stop at a fixed depth.
+        if depth >= 4 {
+            return;
+        }
+        let resolved = self.resolve_fully(idx);
+        match self.tag(resolved) {
+            Tag::Struct => {
+                if resolved != idx {
+                    let _ = write!(buf, "=>#{}", resolved.raw());
+                }
+                buf.push('{');
+                for (i, (fname, fty)) in self.struct_fields(resolved).into_iter().enumerate() {
+                    if i > 0 {
+                        buf.push_str(", ");
+                    }
+                    let _ = write!(buf, "{}: ", interner.lookup(fname));
+                    self.format_type_idx_into(fty, interner, buf, depth + 1);
+                }
+                buf.push('}');
+            }
+            Tag::Enum => {
+                if resolved != idx {
+                    let _ = write!(buf, "=>#{}", resolved.raw());
+                }
+                buf.push('[');
+                for (i, (vname, payloads)) in self.enum_variants(resolved).into_iter().enumerate() {
+                    if i > 0 {
+                        buf.push_str(" | ");
+                    }
+                    let _ = write!(buf, "{}", interner.lookup(vname));
+                    if !payloads.is_empty() {
+                        buf.push('(');
+                        for (j, pty) in payloads.into_iter().enumerate() {
+                            if j > 0 {
+                                buf.push_str(", ");
+                            }
+                            self.format_type_idx_into(pty, interner, buf, depth + 1);
+                        }
+                        buf.push(')');
+                    }
+                }
+                buf.push(']');
+            }
+            _ => {}
+        }
+    }
+
     /// Format a type into an existing string buffer.
     #[expect(
         clippy::too_many_lines,

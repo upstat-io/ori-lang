@@ -87,8 +87,8 @@ pub use decision_tree::{
     TestValue,
 };
 pub use drop::{
-    collect_drop_infos, compute_closure_env_drop, compute_drop_info, type_drop_may_unwind,
-    DropInfo, DropKind,
+    collect_drop_infos, compute_closure_env_drop, compute_consumer_attribution, compute_drop_info,
+    drop_glue_symbol, type_drop_may_unwind, DropInfo, DropKind, DROP_GLUE_PREFIX,
 };
 pub use fbip::check_fbip_enforcement;
 pub use graph::call_graph::CallGraph;

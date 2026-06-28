@@ -163,7 +163,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Tag::Struct => self.extract_rc_from_struct_fields(val, resolved),
             Tag::Tuple => self.extract_rc_from_tuple_elems(val, resolved),
             Tag::Option => {
-                // {i64 tag, T payload} — recurse into inner type at field 1
+                // {i64 tag, T payload} — recurse into inner type at field 1.
+                // This flat path is NOT tag-aware, so callers MUST NOT route a
+                // possibly-None Option through it: `emit_drop_rc_dec`,
+                // `inc_value_rc`/`dec_value_rc`, and the buffer elem-dec glue all
+                // route Option through the tag-aware value-traversal
+                // (`emit_inline_enum_inc`/`_dec`) before reaching here, so this
+                // arm is unreached for a live None (a None's field-1 payload is
+                // uninitialized).
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {

@@ -310,6 +310,7 @@ These environment variables control the compiler and runtime instrumentation. Th
 | `ORI_DUMP_AFTER_TYPECK=1` | Compiler | Dump typed IR after type checking |
 | `ORI_DUMP_AFTER_ARC=1` | Compiler | Dump ARC IR with RC strategy annotations |
 | `ORI_DUMP_AFTER_LLVM=1` | Compiler | Dump annotated LLVM IR (superset of `ORI_DEBUG_LLVM`) |
+| `ORI_TRACE_IDX=<n>` | Compiler | Provenance DAG (structure/resolution/mono edges, generic-leaf divergence, drop-glue attribution) for type-pool index `<n>` to stderr. CLI equivalent: `ori explain idx <n> <file.ori>` (DAG to stdout). Discover `<n>` with `ORI_DUMP_AFTER_TYPECK=1 ORI_DUMP_TYPE_IDX=1` |
 | `ORI_AUDIT_CODEGEN=1` | Compiler | In-pipeline RC/COW/ABI verification |
 | `ORI_AUDIT_STRICT=1` | Compiler | Pessimistic audit mode (with `ORI_AUDIT_CODEGEN`) |
 | `ORI_AUDIT_FUNCTION=name` | Compiler | Filter audit to functions matching substring |

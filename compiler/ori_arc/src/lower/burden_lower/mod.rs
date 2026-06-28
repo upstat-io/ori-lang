@@ -551,6 +551,7 @@ pub(super) fn burden_carries_rc(burden: &BurdenRef<'_>) -> bool {
         || burden.element_burden().is_some()
         || burden.variant_burdens().next().is_some()
         || burden.owned_fields().next().is_some()
+        || burden.user_drop().is_some()
 }
 
 /// `ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP=1` restores the legacy TYPE-level-only

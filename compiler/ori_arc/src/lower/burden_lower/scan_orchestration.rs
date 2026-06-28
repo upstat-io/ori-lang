@@ -13,7 +13,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::lower::burden_lookup::type_has_user_drop;
 use crate::ownership::DerivedOwnership;
 use ori_ir::Name;
 
@@ -820,5 +821,56 @@ pub(crate) fn emit_burden_ops<'a>(
     for var in &claimed_no_sink_vars {
         super::mark_emitted(&mut func.burden_emitted, var.index());
     }
+    emit_unused_scalar_user_drop_decs(func, type_registry, &owned_vars_needing_rc);
     ctx
+}
+
+/// RL-DROP completeness: a never-used scalar-repr local whose type carries a
+/// user `@drop` gets NO last-use anchor (`detect_last_uses` records no point for
+/// a zero-use var) and NO predicate-stack dead-value dec (the legacy path skips
+/// `Scalar` repr), so its `@drop` would be lost. Emit EXACTLY ONE scope-exit
+/// `BurdenDec` (lowered Phase-7 to `RcDec { UserDrop }`) at the end of the
+/// defining block's body. Fires on BOTH paths: the predicate stack emits nothing
+/// competing for a scalar, so there is no double-free. Spec: Annex E §AIMS
+/// RL-DROP (`RLDROP_exactly_once_on_glue`) + RL-2 (unused-owned dec).
+fn emit_unused_scalar_user_drop_decs(
+    func: &mut ArcFunction,
+    type_registry: &TypeRegistry,
+    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
+) {
+    let mut used: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            used.extend(instr.used_vars().iter().copied());
+        }
+        used.extend(block.terminator.used_vars().iter().copied());
+    }
+    let mut to_emit: Vec<(usize, ArcVarId)> = Vec::new();
+    for &var in owned_vars_needing_rc {
+        if used.contains(&var)
+            || func
+                .burden_emitted
+                .get(var.index())
+                .copied()
+                .unwrap_or(false)
+            || !super::is_provably_scalar_repr(func, var)
+        {
+            continue;
+        }
+        if !type_has_user_drop(func.var_type(var), type_registry) {
+            continue;
+        }
+        // Why: `defines_var` covers every definition site — body instrs, block
+        // params, AND Invoke/InvokeIndirect terminator results — so a never-used
+        // scalar+`@drop` local defined by a may-unwind Invoke result is not missed.
+        if let Some(block_idx) = func.blocks.iter().position(|b| b.defines_var(var)) {
+            to_emit.push((block_idx, var));
+        }
+    }
+    for (block_idx, var) in to_emit {
+        func.blocks[block_idx]
+            .body
+            .push(ArcInstr::BurdenDec { var });
+        super::mark_emitted(&mut func.burden_emitted, var.index());
+    }
 }

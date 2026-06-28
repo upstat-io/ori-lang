@@ -7,30 +7,67 @@
 //! resolved types on every expression node, function signatures with inferred
 //! types, and method dispatch info.
 
+mod collections;
 mod expr;
+mod type_annot;
 
 use std::fmt::Write;
 
 use ori_ir::StringInterner;
 use ori_parse::ParseOutput;
-use ori_types::{Pool, TypedModule};
+use ori_types::{Idx, Pool, TypedModule};
 
 use self::expr::dump_expr;
+use crate::dump_common;
+
+/// Immutable render context threaded through the typed-IR dump recursion.
+/// Bundles the per-dump state (the type pool + interner + idx-filter view) so
+/// the recursive walkers stay at a small fixed arity instead of threading each
+/// field positionally.
+#[derive(Clone, Copy)]
+pub(super) struct DumpCtx<'a> {
+    pub(super) arena: &'a ori_ir::ExprArena,
+    pub(super) typed: &'a TypedModule,
+    pub(super) pool: &'a Pool,
+    pub(super) interner: &'a StringInterner,
+    /// Typeck idx-filter view: annotate every type with its resolved pool `Idx`.
+    pub(super) with_idx: bool,
+}
+
+/// Render a type for the dump. When `with_idx` is set (the dump orchestrator's
+/// typeck idx-filter view, folded in from `ORI_DUMP_TYPE_IDX`) annotates every
+/// type with its resolved pool `Idx` (+ composite field/payload idxs) per
+/// `Pool::format_type_with_idx`; otherwise the name-only resolved form.
+pub(crate) fn fmt_ty(pool: &Pool, idx: Idx, interner: &StringInterner, with_idx: bool) -> String {
+    if with_idx {
+        pool.format_type_with_idx(idx, interner)
+    } else {
+        pool.format_type_resolved(idx, interner)
+    }
+}
 
 /// Dump the typed IR to stderr.
 ///
 /// Called when `ORI_DUMP_AFTER_TYPECK=1` is set. Shows the AST with resolved
 /// types on every node, function signatures, and method dispatch info.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub fn dump_typed_ir(
+pub(crate) fn dump_typed_ir(
     parse_result: &ParseOutput,
     typed: &TypedModule,
     pool: &Pool,
     interner: &StringInterner,
     path: &str,
+    with_idx: bool,
 ) {
     let arena = &*parse_result.arena;
     let module = &parse_result.module;
+    let ctx = DumpCtx {
+        arena,
+        typed,
+        pool,
+        interner,
+        with_idx,
+    };
     let mut out = String::with_capacity(8192);
 
     writeln!(out, "=== Typed IR after typeck: {path} ===").unwrap();
@@ -47,14 +84,7 @@ pub fn dump_typed_ir(
 
     // Imports (no type info, context only)
     for use_def in &module.imports {
-        let path_str = match &use_def.path {
-            ori_ir::ast::ImportPath::Relative(name) => interner.lookup(*name).to_string(),
-            ori_ir::ast::ImportPath::Module(parts) => parts
-                .iter()
-                .map(|n| interner.lookup(*n))
-                .collect::<Vec<_>>()
-                .join("."),
-        };
+        let path_str = dump_common::format_import_path(&use_def.path, interner);
         writeln!(out, "Use {path_str}").unwrap();
     }
 
@@ -72,30 +102,21 @@ pub fn dump_typed_ir(
 
     // Impl blocks
     for imp in &module.impls {
-        let trait_str = imp.trait_path.as_ref().map_or_else(
-            || "(inherent)".to_string(),
-            |path| {
-                path.iter()
-                    .map(|n| interner.lookup(*n))
-                    .collect::<Vec<_>>()
-                    .join(".")
-            },
-        );
-        let self_str: Vec<_> = imp.self_path.iter().map(|n| interner.lookup(*n)).collect();
-        writeln!(out, "Impl {trait_str} for {}", self_str.join(".")).unwrap();
+        let header = dump_common::format_impl_header(imp, interner);
+        writeln!(out, "Impl {header}").unwrap();
     }
 
     // Functions — pair AST bodies with TypedModule signatures
     for ast_func in &module.functions {
         let sig = typed.function(ast_func.name);
-        dump_function(&mut out, ast_func, sig, arena, typed, pool, interner);
+        dump_function(&mut out, ast_func, sig, &ctx);
     }
 
     // Tests
     for test in &module.tests {
         let name = interner.lookup(test.name);
         writeln!(out, "Test \"{name}\"").unwrap();
-        dump_expr(&mut out, test.body, arena, typed, pool, interner, 1);
+        dump_expr(&mut out, test.body, &ctx, 1);
     }
 
     // Extern blocks
@@ -118,11 +139,14 @@ fn dump_function(
     out: &mut String,
     func: &ori_ir::Function,
     sig: Option<&ori_types::FunctionSig>,
-    arena: &ori_ir::ExprArena,
-    typed: &TypedModule,
-    pool: &Pool,
-    interner: &StringInterner,
+    ctx: &DumpCtx,
 ) {
+    let DumpCtx {
+        pool,
+        interner,
+        with_idx,
+        ..
+    } = *ctx;
     let name = interner.lookup(func.name);
     let vis = if func.visibility == ori_ir::ast::Visibility::Public {
         "pub "
@@ -132,7 +156,7 @@ fn dump_function(
 
     let Some(sig) = sig else {
         writeln!(out, "{vis}Function @{name} (not typed)").unwrap();
-        dump_expr(out, func.body, arena, typed, pool, interner, 1);
+        dump_expr(out, func.body, ctx, 1);
         return;
     };
 
@@ -143,12 +167,12 @@ fn dump_function(
         .zip(sig.param_types.iter())
         .map(|(pname, pty)| {
             let pname_str = interner.lookup(*pname);
-            let type_str = pool.format_type_resolved(*pty, interner);
+            let type_str = fmt_ty(pool, *pty, interner, with_idx);
             format!("{pname_str}: {type_str}")
         })
         .collect();
 
-    let ret_str = pool.format_type_resolved(sig.return_type, interner);
+    let ret_str = fmt_ty(pool, sig.return_type, interner, with_idx);
 
     // Generic parameters
     let generics = if sig.is_generic() {
@@ -182,5 +206,5 @@ fn dump_function(
     .unwrap();
 
     // Body
-    dump_expr(out, func.body, arena, typed, pool, interner, 1);
+    dump_expr(out, func.body, ctx, 1);
 }

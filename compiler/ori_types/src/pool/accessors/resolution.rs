@@ -132,7 +132,24 @@ impl Pool {
     /// falls back to searching for a `Named` resolution with the same name.
     ///
     /// Returns the fully-resolved type, or the input if no resolution exists.
+    ///
+    /// INVARIANT: terminates on self-similar nested `Applied` types. An
+    /// `Applied(Wrap, [Applied(Wrap, [int])])` key collides on name + arity with
+    /// the inner `Applied(Wrap, [int])` it nests, so `Applied`-arg matching is
+    /// guarded against re-entering a type already on the resolution stack (the
+    /// in-progress set threaded by [`Self::resolve_fully_guarded`]); a re-entered
+    /// type yields its own unresolved leaf.
     pub fn resolve_fully(&self, idx: Idx) -> Idx {
+        // Why: `Vec::new()` does not allocate until the first `push`, so the
+        // common non-`Applied`-matching path stays allocation-free; the guard
+        // cost is paid only when `Applied`-arg matching actually recurses.
+        let mut in_progress: Vec<Idx> = Vec::new();
+        self.resolve_fully_guarded(idx, &mut in_progress)
+    }
+
+    /// [`Self::resolve_fully`] threading the in-progress `Applied`-resolution
+    /// stack used to break self-referential `Applied`-arg matching cycles.
+    fn resolve_fully_guarded(&self, idx: Idx, in_progress: &mut Vec<Idx>) -> Idx {
         // Bounds check: return early for indices outside the pool.
         if idx.raw() as usize >= self.items.len() {
             return idx;
@@ -142,7 +159,7 @@ impl Pool {
             return resolved;
         }
         if self.tag(current) == Tag::Applied {
-            if let Some(concrete) = self.resolve_applied_via_matching_args(current) {
+            if let Some(concrete) = self.resolve_applied_via_matching_args(current, in_progress) {
                 return concrete;
             }
         }
@@ -190,13 +207,33 @@ impl Pool {
     /// then matches. Falls back to bare `Named` keys for non-generic
     /// aliases (e.g., `Applied("Shape", [])` resolving to a registered
     /// `Named("Shape")`).
-    fn resolve_applied_via_matching_args(&self, current: Idx) -> Option<Idx> {
+    ///
+    /// `in_progress` is the stack of `Applied` indices currently being resolved.
+    /// A self-referential candidate — an outer `Applied(Wrap, [Applied(Wrap,
+    /// [int])])` key matched while resolving the inner `Applied(Wrap, [int])` —
+    /// re-enters this method on the same `current`; the in-progress guard returns
+    /// `None` for that re-entry so the cycle breaks and the genuine resolution
+    /// (or the unresolved leaf) wins.
+    fn resolve_applied_via_matching_args(
+        &self,
+        current: Idx,
+        in_progress: &mut Vec<Idx>,
+    ) -> Option<Idx> {
+        // Why: a type already on the resolution stack cannot resolve in terms
+        // of itself; treat the re-entered candidate as unresolved here.
+        if in_progress.contains(&current) {
+            return None;
+        }
+        in_progress.push(current);
+
         let name = self.applied_name(current);
         let resolved_args: Vec<Idx> = self
             .applied_args(current)
             .iter()
-            .map(|&a| self.resolve_fully(a))
+            .map(|&a| self.resolve_fully_guarded(a, in_progress))
             .collect();
+
+        let mut matched: Option<Idx> = None;
 
         // Match Applied keys with the same name whose args resolve equal.
         for &key in self.resolutions.keys() {
@@ -210,25 +247,30 @@ impl Pool {
             let all_match = key_args
                 .iter()
                 .zip(&resolved_args)
-                .all(|(k, r)| self.resolve_fully(*k) == *r);
+                .all(|(k, r)| self.resolve_fully_guarded(*k, in_progress) == *r);
             if all_match {
                 if let Some(concrete) = self.resolve(key) {
-                    return Some(concrete);
+                    matched = Some(concrete);
+                    break;
                 }
             }
         }
 
         // Non-generic fallback: Named resolution for the same name.
-        for &key in self.resolutions.keys() {
-            if self.tag(key) != Tag::Named || self.named_name(key) != name {
-                continue;
-            }
-            if let Some(concrete) = self.resolve(key) {
-                return Some(concrete);
+        if matched.is_none() {
+            for &key in self.resolutions.keys() {
+                if self.tag(key) != Tag::Named || self.named_name(key) != name {
+                    continue;
+                }
+                if let Some(concrete) = self.resolve(key) {
+                    matched = Some(concrete);
+                    break;
+                }
             }
         }
 
-        None
+        in_progress.pop();
+        matched
     }
 
     // Variable Lookup
@@ -255,52 +297,4 @@ impl Pool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ori_ir::Name;
-
-    /// INVARIANT: `resolve_fully` terminates on a self-similar nested `Applied`
-    /// type (`Wrap<Wrap<int>>` resolving its inner `Wrap<int>`) whose registered
-    /// concrete-instantiation key collides on name + arity with the inner type
-    /// being resolved — the in-progress guard breaks the self-referential match
-    /// candidate, and a type with no registered resolution of its own returns
-    /// its own unresolved leaf.
-    #[test]
-    fn resolve_fully_terminates_on_self_similar_nested_applied() {
-        let mut pool = Pool::new();
-        let wrap = Name::from_raw(2075);
-        // inner = Wrap<int>; outer = Wrap<Wrap<int>>; both share name + arity 1.
-        let inner = pool.applied(wrap, &[Idx::INT]);
-        let outer = pool.applied(wrap, &[inner]);
-        // Register only the OUTER instantiation as a resolution key. Resolving the
-        // INNER type then scans keys, finds OUTER (name+arity match), and recurses
-        // on OUTER's nested arg (== inner) — the self-referential cycle.
-        pool.set_resolution(outer, Idx::INT);
-        // Must return (not overflow). Inner has no registered resolution of its
-        // own, so the self-referential candidate is rejected and the leaf returns.
-        assert_eq!(pool.resolve_fully(inner), inner);
-    }
-
-    /// Negative pin: the `resolve_applied_via_matching_args` path still resolves
-    /// a generic instantiation whose query `Idx` differs structurally from the
-    /// registered key but whose args resolve-equal — the cycle guard does NOT
-    /// block legitimate match-based resolution. The query has NO direct
-    /// resolution (so `resolve()` returns `None` and the matching path runs);
-    /// the registered key carries an arg that must itself be resolved to match.
-    #[test]
-    fn resolve_fully_matches_applied_with_resolution_equal_args() {
-        let mut pool = Pool::new();
-        let wrap = Name::from_raw(2076);
-        // A named alias that resolves to int — forces the matching loop to
-        // resolve the key's arg before comparing.
-        let alias = pool.named(Name::from_raw(2077));
-        pool.set_resolution(alias, Idx::INT);
-        // key = Wrap<alias> (alias resolves to int); resolves to the FLOAT marker.
-        let key = pool.applied(wrap, &[alias]);
-        pool.set_resolution(key, Idx::FLOAT);
-        // query = Wrap<int> — structurally distinct from `key` (int vs alias),
-        // has no direct resolution of its own, so it routes through matching.
-        let query = pool.applied(wrap, &[Idx::INT]);
-        assert_eq!(pool.resolve_fully(query), Idx::FLOAT);
-    }
-}
+mod tests;

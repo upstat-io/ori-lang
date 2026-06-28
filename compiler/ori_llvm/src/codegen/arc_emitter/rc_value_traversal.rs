@@ -159,23 +159,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.inc_aggregate_fields(val, resolved, &elems, count);
             }
 
-            // Option: recurse into inner type at field 1
-            // NOTE: latent bug — doesn't check runtime tag. If value is None,
-            // field 1 is uninitialized. Matches existing behavior; tracked as
-            // BUG-04-130 (tag-blind Option RC walk).
+            // Option: route through the tag-aware inline-enum path, which loads
+            // the discriminant and walks only the live variant's payload — a
+            // None incs nothing; a Some incs its inner. Covers boxed AND
+            // non-boxed inner; never an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
-                    if is_boxed_enum_field(self.pool, resolved, inner) {
-                        // Boxed recursive inner: the None payload slot holds the
-                        // niche/tag, not a pointer. Route through the tag-aware
-                        // inline path so only Some incs the box pointer.
-                        self.emit_inline_enum_inc(val, resolved, tag, count);
-                    } else if let Some(field) =
-                        self.builder.extract_value(val, 1, "rc_inc.opt_inner")
-                    {
-                        self.inc_value_rc(field, inner, count);
-                    }
+                    self.emit_inline_enum_inc(val, resolved, tag, count);
                 }
             }
 
@@ -267,20 +258,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.dec_aggregate_fields(val, resolved, &elems);
             }
 
-            // Option: recurse into inner (same latent bug as inc)
+            // Option: tag-aware via the shared inline-enum path (lockstep with
+            // the inc arm) — a None decs nothing; a Some decs its inner. Never
+            // an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
-                    if is_boxed_enum_field(self.pool, resolved, inner) {
-                        // Boxed recursive inner: the None payload slot holds the
-                        // niche/tag, not a pointer. Route through the tag-aware
-                        // inline path so only Some decs the box pointer.
-                        self.emit_inline_enum_dec(val, resolved, tag);
-                    } else if let Some(field) =
-                        self.builder.extract_value(val, 1, "rc_dec.opt_inner")
-                    {
-                        self.dec_value_rc(field, inner);
-                    }
+                    self.emit_inline_enum_dec(val, resolved, tag);
                 }
             }
 

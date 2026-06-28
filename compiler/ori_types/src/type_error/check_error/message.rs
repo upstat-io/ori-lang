@@ -253,6 +253,11 @@ impl TypeCheckError {
                  make the field projection unconditional, or mirror it symmetrically on every branch"
                     .to_string()
             }
+            TypeErrorKind::UseAfterDropEarly { .. } => {
+                "use of a binding after `drop_early` consumed it; \
+                 use the value before the `drop_early` call, or re-bind the name afterward"
+                    .to_string()
+            }
             TypeErrorKind::DropPartialMove { .. } => {
                 "partial move on type implementing `Drop` is forbidden; \
                  the compiler-walked field drop after the user `@drop` body \
@@ -470,6 +475,9 @@ impl TypeCheckError {
 
             // E2048: Partial move on type implementing Drop
             TypeErrorKind::DropPartialMove { .. } => ErrorCode::E2048,
+
+            // E2054: Use of a binding after `drop_early` consumed it
+            TypeErrorKind::UseAfterDropEarly { .. } => ErrorCode::E2054,
             // E2049: Value + Drop mutual exclusion
             TypeErrorKind::ValueDropConflict { .. } => ErrorCode::E2049,
 

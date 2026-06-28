@@ -40,7 +40,7 @@ pub(crate) use emit_unified::fresh_rc_alloc_dst_terminator;
 pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
 
 use ori_ir::Name;
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
@@ -112,6 +112,7 @@ pub fn realize_rc_reuse(
     interner: &ori_ir::StringInterner,
     _builtins: &BuiltinOwnershipSets,
     pool: &Pool,
+    type_registry: &TypeRegistry,
 ) -> RealizationResult {
     // emit_arg_ownership runs as a Step 4b-prelude in
     // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
@@ -129,7 +130,7 @@ pub fn realize_rc_reuse(
     // lowering; the burden path is the sole RC emitter.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
-        emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts)
+        emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts, type_registry)
     };
 
     // Sub-step C: emit reuse from the collected death/alloc events.

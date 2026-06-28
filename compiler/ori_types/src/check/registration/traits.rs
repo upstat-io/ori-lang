@@ -60,7 +60,7 @@ pub fn register_traits(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module)
 /// which exist at every level of the hierarchy regardless of `Self` rebinding.
 ///
 /// BI-6 object safety. Spec: Clause 8.8 (trait objects);
-/// `compiler_repo/docs/ori_lang/proposals/approved/object-safety-rules-proposal.md`.
+/// `docs/ori_lang/proposals/approved/object-safety-rules-proposal.md`.
 pub fn register_object_safety_violations(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
     // Pass 1: read-only — collect inherited GenericMethod violations
     // for each trait by walking the transitive super-trait DAG.

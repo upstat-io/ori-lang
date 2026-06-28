@@ -17,6 +17,7 @@ use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::lower::burden::Burden;
 
 use super::cow_aliases::{compute_borrowed_alias_vars, compute_scalar_literal_vars};
 use super::ctx::BurdenLowerCtx;
@@ -164,7 +165,15 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // (net=-1 per exit path). Consult the SAME `var_reprs` classification the
     // lowering consults; skip ONLY the provable case ([`is_provably_scalar_repr`]).
     // Spec: Annex E §AIMS L-9 + RE-2.
-    owned_vars_needing_rc.retain(|v| !is_provably_scalar_repr(func, *v));
+    owned_vars_needing_rc.retain(|v| {
+        let burden = ctx
+            .collected
+            .iter()
+            .find(|(var, _)| var == v)
+            .and_then(|(_, b)| b.as_ref());
+        let has_user_drop = burden.is_some_and(|b| b.user_drop().is_some());
+        has_user_drop || !is_provably_scalar_repr(func, *v)
+    });
     // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
     owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
     // Exclude borrowed-derived locals: a `Let { Var(src) }` alias of a borrowed

@@ -68,13 +68,17 @@ inductive RcOp
   | inc      -- RcInc: +1
   | dec      -- RcDec: -1
   | noop     -- any non-RC instruction: 0
+  | userDrop -- scope-exit user @drop call: 0 (drop-glue, NOT an RC ref-count op)
 deriving Repr, DecidableEq
 
-/-- §8 the net reference-count delta of one RC op. -/
+/-- §8 the net reference-count delta of one RC op. A `userDrop` runs the type's
+    user `@drop` body; it is a drop-glue CALL, not an RC inc/dec, so it carries a
+    ref-count delta of 0 (RC-balance-neutral). -/
 def RcOp.delta : RcOp → Int
-  | .inc  => 1
-  | .dec  => -1
-  | .noop => 0
+  | .inc      => 1
+  | .dec      => -1
+  | .noop     => 0
+  | .userDrop => 0
 
 /-- §8 the net balance of a lifecycle = the sum of its op deltas. A value
     allocated at RC = 1 is released exactly once iff its lifecycle (excluding the
@@ -384,6 +388,78 @@ theorem RL5_borrowed_absent_no_dec (p : EntryParamInputs)
     with a live reference (RC = 1) that is never used; the immediate cleanup dec
     releases it exactly once — `[inc, dec]` nets to 0. -/
 theorem RL5_cleanup_balanced : rcBalance [RcOp.inc, RcOp.dec] = 0 := by decide
+
+/-! ## §8.1 RL-DROP — scope-exit user `@drop` for a drop-glue value (annex-e §AIMS §8)
+
+    The RC realization rules (RL-2 / RL-4 / RL-5) all gate dec emission on
+    `!isScalar`: a value whose monomorphized repr is `Scalar` carries no RC header
+    and provably receives NO `RcDec` (that gating is the soundness basis VF-1's
+    `RcOnScalar` invariant enforces). But a value's TYPE may carry a user `@drop`
+    (drop-glue) INDEPENDENT of its RC repr — a `Scalar`-repr struct
+    (`type Guard = { id: int }` with `impl Guard: Drop`) has drop-glue yet no RC
+    field. Such a value still needs its `@drop` run exactly once at its death
+    point. The RC ops cannot express this (an `RcDec` on a `Scalar` is rejected by
+    VF-1), so the realization op set carries a SEPARATE `userDrop` op: a drop-glue
+    CALL with ref-count delta 0. RL-DROP emits exactly one `userDrop` at the death
+    point iff the type has drop-glue, gated on drop-glue existence INDEPENDENT of
+    `isScalar`; because `userDrop` is RC-balance-neutral, the `!isScalar` RcDec
+    invariant (RL-2/4/5) is preserved untouched — a scalar value still receives no
+    `RcDec`, only the balance-neutral `@drop` call. -/
+
+/-- §8.1 RL-DROP the death-point drop inputs for a value. `hasUserDrop` = the
+    value's type carries a user `@drop`; `isScalar` = its monomorphized repr is
+    `Scalar` (RC-headerless). -/
+structure DropInputs where
+  hasUserDrop : Bool
+  isScalar : Bool
+deriving Repr, DecidableEq
+
+/-- §8.1 RL-DROP emission: emit a scope-exit `userDrop` iff the type carries
+    drop-glue — INDEPENDENT of `isScalar`. -/
+def rldrop_emits_user_drop (d : DropInputs) : Bool := d.hasUserDrop
+
+/-- §8.1 RL-DROP (decision): the scope-exit user-drop is emitted iff drop-glue
+    exists, regardless of RC repr. -/
+theorem RLDROP_emit_on_drop_glue (d : DropInputs) :
+    rldrop_emits_user_drop d = d.hasUserDrop := by rfl
+
+/-- §8.1 RL-DROP scalar-independence: a `Scalar`-repr value with a user `@drop`
+    STILL emits its scope-exit drop — the bug this cures (the prior RC-only
+    realization elided it because every RC dec is `!isScalar`-gated). -/
+theorem RLDROP_scalar_value_still_drops (h : Bool) :
+    rldrop_emits_user_drop { hasUserDrop := true, isScalar := h } = true := by rfl
+
+/-- §8.1 RL-DROP a value with no drop-glue emits no scope-exit drop (whatever its
+    repr) — the `@drop`-less common case is untouched. -/
+theorem RLDROP_no_glue_no_drop (h : Bool) :
+    rldrop_emits_user_drop { hasUserDrop := false, isScalar := h } = false := by rfl
+
+/-- §8.1 RL-DROP balance-neutrality: a single `userDrop` op nets 0 on the RC
+    ledger — it is a drop-glue call, not an RC ref-count op, so emitting it never
+    perturbs the RL-1..RL-5 RC-balance invariant. -/
+theorem RLDROP_user_drop_balance_neutral : rcBalance [RcOp.userDrop] = 0 := by decide
+
+/-- §8.1 RL-DROP scalar-soundness (the load-bearing one): the death-point
+    lifecycle of a `Scalar`-repr value with drop-glue emits the balance-neutral
+    `userDrop` AND NO `RcDec` (the `!isScalar` invariant). Its RC balance is 0 —
+    the `@drop` runs without ever placing an `RcDec` on a scalar (which VF-1 would
+    reject). Models the cured shape: ops = `[userDrop]` (no dec), balance 0. -/
+theorem RLDROP_scalar_lifecycle_sound :
+    rcBalance [RcOp.userDrop] = 0
+      ∧ rldrop_emits_user_drop { hasUserDrop := true, isScalar := true } = true := by
+  decide
+
+/-- §8.1 RL-DROP exactly-once: a drop-glue value's death-point lifecycle carries
+    exactly ONE `userDrop` op — modeled as the singleton emission; the op count is
+    1 iff drop-glue exists, never duplicated (no double-drop) and never elided. -/
+def rldrop_lifecycle (d : DropInputs) : List RcOp :=
+  if rldrop_emits_user_drop d then [RcOp.userDrop] else []
+
+theorem RLDROP_exactly_once_on_glue :
+    (rldrop_lifecycle { hasUserDrop := true, isScalar := true }).length = 1
+      ∧ (rldrop_lifecycle { hasUserDrop := true, isScalar := false }).length = 1
+      ∧ (rldrop_lifecycle { hasUserDrop := false, isScalar := true }).length = 0 := by
+  decide
 
 /-! ## §8.2 COW — mode selection over Uniqueness (annex-e §AIMS §8 RL-6 / RL-7 / RL-8)
 

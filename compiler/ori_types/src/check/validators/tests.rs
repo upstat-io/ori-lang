@@ -884,7 +884,7 @@ fn error_typed_expr_with_sibling_wellformed_expr_emits_no_diagnostic() {
 /// validator catches it at `SIG_SPAN` with `E2005`.
 ///
 /// Companion spec file:
-/// `compiler_repo/tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`.
+/// `tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori`.
 /// The Rust pin proves the diagnostic identity (E2005 at `sig_span`),
 /// which the `.ori` file cannot assert directly beyond the error-code match.
 ///

@@ -380,6 +380,18 @@ pub enum TypeErrorKind {
         field: Name,
     },
 
+    /// Use of a binding after `drop_early` consumed it (E2054).
+    ///
+    /// Spec: Clause 13 §13.7 (Variable Lifetime) — `drop_early(value: x)`
+    /// consumes `x` and runs its drop immediately; the binding is
+    /// inaccessible afterward and any subsequent use reads reclaimed memory
+    /// (use-after-free). A re-binding `let` shadowing the name restores
+    /// accessibility.
+    UseAfterDropEarly {
+        /// The consumed binding name (e.g., `x` in `drop_early(value: x)`).
+        binding: Name,
+    },
+
     /// Pre-condition contract type must be bool (E2044).
     ///
     /// Spec: Clause 15 § Function-Level Contracts — `pre(cond)` requires

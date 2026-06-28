@@ -30,6 +30,24 @@ use crate::ir::{ArcFunction, ArcInstr};
 use crate::ArcClassification;
 
 mod burden_bridge;
+mod consumer_attribution;
+
+pub use consumer_attribution::compute_consumer_attribution;
+
+/// The drop-glue symbol prefix. The codegen emitter names each generated
+/// per-type drop function `<DROP_GLUE_PREFIX><idx_raw>` (e.g. `_ori_drop$141`).
+/// SSOT for the naming convention; consumed both by the emitter
+/// (`ori_llvm::codegen::arc_emitter::drop_gen`) and by the read-only
+/// [`compute_consumer_attribution`] below, so an attributed symbol can never
+/// drift from the emitted one.
+pub const DROP_GLUE_PREFIX: &str = "_ori_drop$";
+
+/// The drop-glue symbol the codegen emitter names for the per-type drop
+/// function of `ty`.
+#[must_use]
+pub fn drop_glue_symbol(ty: Idx) -> String {
+    format!("{DROP_GLUE_PREFIX}{}", ty.raw())
+}
 
 // Drop descriptor types
 
@@ -161,8 +179,7 @@ pub struct DropInfo {
 /// `ori_arc::lower::burden_lower` emission boundary and (post-
 /// convergence partial retirement) for the
 /// `ori_llvm::codegen::arc_emitter::element_fn_gen` cross-crate caller —
-/// the only cross-crate production consumer (verified zero `ori_eval`
-/// callers.B audit).
+/// the only cross-crate production consumer (no `ori_eval` callers).
 pub fn compute_drop_info(
     ty: Idx,
     classifier: &dyn ArcClassification,
@@ -280,28 +297,7 @@ fn drop_may_unwind_rec(
     // (always `None` on this path; the local check above is authoritative).
     let kids: Vec<Idx> = match compute_drop_info(ty, classifier, pool) {
         None => Vec::new(),
-        Some(info) => match info.kind {
-            DropKind::Trivial => Vec::new(),
-            DropKind::Fields { fields, .. } => fields.iter().map(|(_, t)| *t).collect(),
-            DropKind::Enum { variants, .. } => variants.iter().flatten().map(|(_, t)| *t).collect(),
-            DropKind::Collection { element_type } => vec![element_type],
-            DropKind::Map {
-                key_type,
-                value_type,
-                dec_keys,
-                dec_values,
-            } => {
-                let mut k = Vec::new();
-                if dec_keys {
-                    k.push(key_type);
-                }
-                if dec_values {
-                    k.push(value_type);
-                }
-                k
-            }
-            DropKind::ClosureEnv(captures) => captures.iter().map(|(_, t)| *t).collect(),
-        },
+        Some(info) => drop_info_child_types(&info.kind),
     };
 
     let mut any = false;
@@ -412,6 +408,38 @@ fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
             None => (ty, tag),
         },
         _ => (ty, tag),
+    }
+}
+
+/// The child types whose drop functions a [`DropKind`]'s teardown references.
+///
+/// SSOT for "what does this drop descriptor descend into" — the per-field /
+/// per-variant / element / key-value / capture child set. Consumed by
+/// [`drop_may_unwind_rec`] (transitive may-unwind) and
+/// [`compute_consumer_attribution`] (consumer edges) so the two never diverge
+/// on the descent shape.
+pub(super) fn drop_info_child_types(kind: &DropKind) -> Vec<Idx> {
+    match kind {
+        DropKind::Trivial => Vec::new(),
+        DropKind::Fields { fields, .. } => fields.iter().map(|(_, t)| *t).collect(),
+        DropKind::Enum { variants, .. } => variants.iter().flatten().map(|(_, t)| *t).collect(),
+        DropKind::Collection { element_type } => vec![*element_type],
+        DropKind::Map {
+            key_type,
+            value_type,
+            dec_keys,
+            dec_values,
+        } => {
+            let mut k = Vec::new();
+            if *dec_keys {
+                k.push(*key_type);
+            }
+            if *dec_values {
+                k.push(*value_type);
+            }
+            k
+        }
+        DropKind::ClosureEnv(captures) => captures.iter().map(|(_, t)| *t).collect(),
     }
 }
 

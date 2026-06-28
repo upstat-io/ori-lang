@@ -304,6 +304,30 @@ impl TypeCheckError {
         }
     }
 
+    /// Create a use-after-`drop_early` error (E2054).
+    ///
+    /// Emitted by `validate_consumed_binding` when a binding is used after a
+    /// `drop_early(value: x)` call consumed it. Per Spec Clause 13 §13.7 the
+    /// binding is inaccessible after the consume; a later use would read
+    /// reclaimed memory (use-after-free).
+    pub fn use_after_drop_early(span: Span, binding: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UseAfterDropEarly { binding },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "use the value before the `drop_early` call, or remove the later use",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR re-bind the name with a fresh `let` after the drop to make it accessible again",
+                    1,
+                ),
+            ],
+        }
+    }
+
     /// Create a partial-move-on-Drop-type error (E2048).
     ///
     /// Emitted by `validate_drop_partial_move` when `let $f = v.field` projects

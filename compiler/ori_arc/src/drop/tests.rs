@@ -831,7 +831,7 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
     );
 }
 
-//.A structural-equivalence pin
+// structural-equivalence pin
 //
 // For every concrete type currently exercised by the surrounding tests,
 // the BurdenSpec-lifted wrapper at `compute_drop_info` MUST produce the
@@ -971,7 +971,7 @@ fn drop_info_via_burden_matches_legacy() {
     assert_eq!(env_trivial, DropKind::Trivial);
 }
 
-//.A positive pin — `Option<str>` regression
+// positive pin — `Option<str>` regression
 //
 // The same observation as `option_str_is_enum_drop` above, but written
 // against the BurdenSpec-lifted wrapper specifically. Co-existing with
@@ -1001,7 +1001,7 @@ fn drop_info_via_burden_for_option_str() {
     );
 }
 
-//.A negative pin — newly-monomorphized generic
+// negative pin — newly-monomorphized generic
 //
 // Engineered fixture: intern a fresh `Result<List<str>, str>` AFTER the
 // pool already contains an unrelated `Result` cell, then call the
@@ -1163,4 +1163,109 @@ fn may_unwind_negative_pin_plain_str_struct_does_not_unwind() {
         ],
     );
     assert!(!may_unwind(s, &pool, &[]));
+}
+
+// Consumer attribution: read-only drop-glue -> Idx-chain attribution for the
+// provenance DAG. Naming SSOT + descent shape + the generic-leaf thru-line
+// (a drop fn named for a leaf that should not carry RC, pointing at the chain
+// that produced it).
+
+#[test]
+fn drop_glue_symbol_names_per_type_drop_fn() {
+    assert_eq!(drop_glue_symbol(Idx::from_raw(141)), "_ori_drop$141");
+    assert_eq!(
+        drop_glue_symbol(Idx::STR),
+        format!("_ori_drop${}", Idx::STR.raw())
+    );
+}
+
+#[test]
+fn consumer_attribution_scalar_root_yields_no_edges() {
+    // A scalar root gets no per-type drop function — no attributed symbol.
+    let pool = Pool::new();
+    let c = cls(&pool);
+    let edges = compute_consumer_attribution(Idx::INT, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    assert!(
+        edges.is_empty(),
+        "a scalar root generates no drop glue, so no consumer edge"
+    );
+}
+
+#[test]
+fn consumer_attribution_nested_struct_descends_with_chain() {
+    // Outer { inner: Inner }, Inner { s: str } — each level generates a drop fn.
+    let mut pool = Pool::new();
+    let inner = pool.struct_type(Name::from_raw(50), &[(Name::from_raw(51), Idx::STR)]);
+    let outer = pool.struct_type(Name::from_raw(52), &[(Name::from_raw(53), inner)]);
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    // Root + Inner + str, each attributed once, chain root-first.
+    let by_type = |t: Idx| edges.iter().find(|e| e.type_idx == t);
+
+    let root_edge = by_type(outer).unwrap_or_else(|| panic!("missing root edge:\n{edges:?}"));
+    assert_eq!(root_edge.drop_glue_symbol, drop_glue_symbol(outer));
+    assert_eq!(root_edge.walked_chain, vec![outer]);
+
+    let inner_edge = by_type(inner).unwrap_or_else(|| panic!("missing Inner edge:\n{edges:?}"));
+    assert_eq!(inner_edge.drop_glue_symbol, drop_glue_symbol(inner));
+    assert_eq!(inner_edge.walked_chain, vec![outer, inner]);
+
+    let str_edge = by_type(Idx::STR).unwrap_or_else(|| panic!("missing str edge:\n{edges:?}"));
+    assert_eq!(str_edge.drop_glue_symbol, drop_glue_symbol(Idx::STR));
+    assert_eq!(str_edge.walked_chain, vec![outer, inner, Idx::STR]);
+}
+
+#[test]
+fn consumer_attribution_skips_iterator_child_no_phantom_edge() {
+    // A struct field of iterator type is `needs_rc` (NonTrivial), so it lands in
+    // the parent's `DropKind::Fields` children — but the codegen emitter
+    // dispatches iterator drops inline (`RcStrategy::Iterator`) and generates NO
+    // per-type `_ori_drop$<iter>` function. Negative pin: the descent must NOT
+    // attribute a drop-glue symbol the emitter never produces. Positive
+    // companion: the drop-bearing `str` sibling still gets its edge (the gate
+    // suppresses only the non-drop-bearing child, never over-suppresses).
+    let mut pool = Pool::new();
+    let iter = pool.iterator(Idx::INT);
+    let outer = pool.struct_type(
+        Name::from_raw(80),
+        &[(Name::from_raw(81), iter), (Name::from_raw(82), Idx::STR)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    assert!(
+        edges.iter().any(|e| e.type_idx == outer),
+        "the drop-bearing root must be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().any(|e| e.type_idx == Idx::STR),
+        "the drop-bearing str child must still be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().all(|e| e.type_idx != iter),
+        "the iterator child has no per-type drop function — no phantom edge:\n{edges:?}"
+    );
+}
+
+#[test]
+fn consumer_attribution_dedups_diamond_to_one_edge_per_symbol() {
+    // Root { a: Shared, b: Shared }, Shared { s: str } — the shared child's drop
+    // glue is generated once; attribution records it once (first chain).
+    let mut pool = Pool::new();
+    let shared = pool.struct_type(Name::from_raw(60), &[(Name::from_raw(61), Idx::STR)]);
+    let root = pool.struct_type(
+        Name::from_raw(62),
+        &[(Name::from_raw(63), shared), (Name::from_raw(64), shared)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(root, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    let shared_edges = edges.iter().filter(|e| e.type_idx == shared).count();
+    assert_eq!(
+        shared_edges, 1,
+        "a generated drop symbol is attributed exactly once (deduped diamond)"
+    );
 }

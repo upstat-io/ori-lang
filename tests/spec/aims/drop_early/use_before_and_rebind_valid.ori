@@ -1,0 +1,21 @@
+// POSITIVE PIN — valid `drop_early` usage MUST NOT trigger E2054.
+// (a) using a value BEFORE drop_early is legal (the consume is the last use);
+// (b) re-binding the name with a fresh `let` after drop_early restores access.
+// The consumed-binding validator must accept both without a false positive.
+//
+// Spec: 13-variables.md §13.7; annex-c-built-in-functions.md §drop_early.
+use std.testing { assert_eq }
+
+@drop_early_use_before_consume_ok tests _ () -> void = {
+    let s = "hello".to_str();
+    let n = s.length();
+    drop_early(value: s);
+    assert_eq(actual: n, expected: 5)
+}
+
+@drop_early_rebind_after_consume_ok tests _ () -> void = {
+    let s = "hello".to_str();
+    drop_early(value: s);
+    let s = "worlds".to_str();
+    assert_eq(actual: s.length(), expected: 6)
+}

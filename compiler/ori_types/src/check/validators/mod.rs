@@ -1,4 +1,4 @@
-//! Producer-side enforcement of.
+//! Producer-side enforcement of type-checker output invariants.
 //!
 //! This module contains [`validate_body_types`] — the canonical validator
 //! that walks a function body's `expr_types` and `FunctionSig` after
@@ -441,9 +441,14 @@ fn emit_ambiguous_if_not_exempt(
     true
 }
 
+pub mod consumed_binding;
+pub mod drop_partial_move;
+pub(crate) mod expr_children;
 pub mod partial_move;
 
-pub use partial_move::{validate_drop_partial_move, validate_partial_move};
+pub use consumed_binding::validate_consumed_binding;
+pub use drop_partial_move::validate_drop_partial_move;
+pub use partial_move::validate_partial_move;
 
 #[cfg(test)]
 mod tests;

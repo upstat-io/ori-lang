@@ -8,7 +8,7 @@
 
 use ori_ir::{DerivedMethodShape, DerivedTrait, Name};
 use ori_types::Idx;
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::super::abi::{compute_function_abi, FunctionAbi, ParamPassing, ReturnPassing};
 use super::super::function_compiler::FunctionCompiler;
@@ -31,34 +31,29 @@ pub(super) struct DeriveSetup {
     pub(super) type_idx: Idx,
 }
 
-/// Common scaffolding for all derived trait codegen functions.
-///
-/// Handles: method name interning, signature construction (driven by
-/// [`DerivedMethodShape`]), ABI computation, symbol mangling, and function
-/// declaration. Returns a [`DeriveSetup`] with the function handle and
-/// parameter values for the body to use.
-pub(super) fn setup_derive_function<'a>(
+/// Build the `(method_name, abi, mangled_symbol)` descriptor for a derived
+/// method. Shared by PASS 1 ([`declare_derive_method`]) and PASS 2
+/// ([`setup_derive_function`]) so both agree on the symbol + ABI.
+fn derive_method_descriptor<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
-    type_name: Name,
     type_idx: Idx,
     type_name_str: &str,
     mono: bool,
-) -> DeriveSetup {
+) -> (Name, FunctionAbi, String) {
     let method_name_str = trait_kind.method_name();
     let method_name = fc.intern(method_name_str);
     let shape = trait_kind.shape();
 
     let (param_names, param_types) = build_derive_params(fc, shape, type_idx);
     let return_type = derive_return_type(shape, type_idx);
-
     let sig = make_sig(method_name, param_names, param_types, return_type);
     let abi = compute_function_abi(&sig, fc.type_info(), fc.repr_plan());
     // A generic composite emits one method per concrete instantiation; the
-    // type-name-only symbol would collide across instantiations, so a mono
-    // method carries a per-instantiation discriminator from its concrete Idx
-    // Derived methods dispatch by `FunctionId` via the lookup
-    // maps, never by the mangled string, so the suffix is internal-only.
+    // type-name-only symbol would collide across instantiations, so a mono method
+    // carries a per-instantiation discriminator from its concrete Idx. Derived
+    // methods dispatch by `FunctionId` via the lookup maps, never the mangled
+    // string, so the suffix is internal-only.
     let symbol = if mono {
         format!(
             "{}$M{}",
@@ -68,24 +63,77 @@ pub(super) fn setup_derive_function<'a>(
     } else {
         fc.mangle_method(type_name_str, method_name_str)
     };
+    (method_name, abi, symbol)
+}
 
-    let (func_id, self_val, param_vals) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
-
+/// PASS 1 (declare-all-then-define-all): declare + register a derived method's
+/// LLVM function with NO entry block / body, so every transitively-demanded
+/// instantiation's method is registered before any dependent body is emitted —
+/// the field-dispatch lookup (`get_derived_method_for_type`) then always
+/// resolves, order-independently AND for self/mutually-recursive derive types.
+pub(super) fn declare_derive_method<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    trait_kind: DerivedTrait,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    mono: bool,
+) -> FunctionId {
+    let (method_name, abi, symbol) =
+        derive_method_descriptor(fc, trait_kind, type_idx, type_name_str, mono);
+    let func_id = fc.declare_derive_function(&symbol, &abi, type_name, method_name, type_idx);
+    trace!(
+        target: "ori_llvm::codegen::derive_codegen",
+        method = %trait_kind.method_name(),
+        type_idx = ?type_idx,
+        mono,
+        "derive method registration"
+    );
     if mono {
         // Key per-instantiation dispatch on the materialized concrete Idx so
-        // nested + multi-instantiation call sites resolve the layout-correct
-        // body. `type_idx` is already the concrete Struct/Enum Idx.
-        fc.register_mono_derive_function(type_idx, method_name, func_id, abi.clone());
+        // nested + multi-instantiation call sites resolve the layout-correct body.
+        fc.register_mono_derive_function(type_idx, method_name, func_id, abi);
     }
-
-    // Approach (b.1): mark pure derived methods as nounwind directly.
-    // Eq, Comparable, Hashable, Clone, Default only do field operations and
-    // call nounwind runtime functions (ori_rc_inc, etc.). Printable and Debug
-    // allocate strings and may call non-nounwind runtime functions.
+    // Pure derived methods (Eq/Comparable/Hashable/Clone/Default — field ops +
+    // nounwind runtime calls) are marked nounwind; Printable/Debug allocate.
     if trait_kind.is_nounwind_derived() {
         fc.builder_mut().add_nounwind_attribute(func_id);
     }
+    func_id
+}
+
+/// PASS 2 (declare-all-then-define-all): bind the entry block + params for an
+/// already-[`declare_derive_method`]-declared method and return its
+/// [`DeriveSetup`] for body emission.
+///
+/// Reuses the PASS-1-declared function; falls back to a one-shot
+/// declare+register+bind when the method was not pre-declared (non-two-pass
+/// path). Returns a [`DeriveSetup`] with the function handle and parameter values
+/// for the body to use.
+pub(super) fn setup_derive_function<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    trait_kind: DerivedTrait,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    mono: bool,
+) -> DeriveSetup {
+    let shape = trait_kind.shape();
+    let (method_name, abi, _symbol) =
+        derive_method_descriptor(fc, trait_kind, type_idx, type_name_str, mono);
+
+    // Reuse the PASS-1-declared function; declare + register it now when absent
+    // (the non-two-pass / fallback path delegates to the same Pass-1 declarer).
+    let (func_id, bound_abi) =
+        if let Some(hit) = fc.get_derived_method_for_type(type_idx, method_name) {
+            hit
+        } else {
+            let func_id =
+                declare_derive_method(fc, trait_kind, type_name, type_idx, type_name_str, mono);
+            (func_id, abi)
+        };
+
+    let (self_val, param_vals) = fc.bind_derive_entry(func_id, &bound_abi);
 
     let self_opt = if shape.has_self() {
         Some(self_val)
@@ -111,7 +159,7 @@ pub(super) fn setup_derive_function<'a>(
 
     DeriveSetup {
         func_id,
-        abi,
+        abi: bound_abi,
         self_val: self_opt,
         other_val: other_opt,
         str_ty_id,

@@ -283,6 +283,7 @@ pub(crate) fn run_aims_pipeline(
             config.interner,
             config.builtins,
             config.pool,
+            config.type_registry,
         )
     };
     trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner, config.observer);

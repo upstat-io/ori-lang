@@ -47,7 +47,8 @@ use ori_ir::{ExprId, ExprKind};
 use rustc_hash::FxHashMap;
 
 use crate::check::validators::{
-    validate_body_types, validate_drop_partial_move, validate_partial_move, ValidatorContext,
+    validate_body_types, validate_consumed_binding, validate_drop_partial_move,
+    validate_partial_move, ValidatorContext,
 };
 use crate::check::ModuleChecker;
 use crate::output::FunctionSig;
@@ -140,7 +141,7 @@ pub(super) fn finalize_body_and_export(
     // branches of `if`/`match`. Producer-side guard so Phase 5 ARC lowering
     // (`ori_arc::lower::burden_lower`) never sees patterns that would
     // require fixpoint dataflow over `moved_out_fields[v]`.
-    run_partial_move_validator(checker, &expr_types, sig, body_root);
+    run_partial_move_validator(checker, &expr_types, body_root);
 
     // Validate Drop-partial-move rejection — emits E2048 for `let $f =
     // v.field` bindings where `v`'s type implements `Drop`. Per
@@ -148,7 +149,13 @@ pub(super) fn finalize_body_and_export(
     // types are forbidden regardless of CFG path (axis disjoint from
     // E2043). Producer-side guard so the compiler-walked field drop
     // after the user `@drop` body never observes absent fields.
-    run_drop_partial_move_validator(checker, &expr_types, sig, body_root);
+    run_drop_partial_move_validator(checker, &expr_types, body_root);
+
+    // Validate use-after-`drop_early` rejection — emits E2054 for a use of a
+    // binding after `drop_early(value: x)` consumed it (Spec Clause 13 §13.7).
+    // Producer-side guard so a consumed binding never reaches the burden path
+    // as a live read of reclaimed memory (use-after-free).
+    run_consumed_binding_validator(checker, body_root);
 
     // Store expression types.
     for (expr_index, ty) in expr_types {
@@ -287,14 +294,13 @@ pub(super) fn run_validator(
 pub(super) fn run_partial_move_validator(
     checker: &mut ModuleChecker<'_>,
     expr_types: &FxHashMap<ExprIndex, Idx>,
-    sig: &FunctionSig,
     body_root: ExprId,
 ) {
     let validation_errors: Vec<TypeCheckError> = {
         let arena = checker.arena();
         let pool = checker.pool();
         let mut errs: Vec<TypeCheckError> = Vec::new();
-        validate_partial_move(pool, arena, expr_types, sig, body_root, &mut errs);
+        validate_partial_move(pool, arena, expr_types, body_root, &mut errs);
         errs
     };
     for err in validation_errors {
@@ -321,7 +327,6 @@ pub(super) fn run_partial_move_validator(
 pub(super) fn run_drop_partial_move_validator(
     checker: &mut ModuleChecker<'_>,
     expr_types: &FxHashMap<ExprIndex, Idx>,
-    sig: &FunctionSig,
     body_root: ExprId,
 ) {
     let validation_errors: Vec<TypeCheckError> = {
@@ -336,10 +341,33 @@ pub(super) fn run_drop_partial_move_validator(
             expr_types,
             trait_registry,
             drop_trait_name,
-            sig,
             body_root,
             &mut errs,
         );
+        errs
+    };
+    for err in validation_errors {
+        checker.push_error(err);
+    }
+}
+
+/// Shared E2054 use-after-`drop_early` enforcement for every body-checking
+/// pass.
+///
+/// Walks `body_root`'s AST in execution order and emits `E2054`
+/// (`EUSE_AFTER_DROP_EARLY`) for any use of a binding after
+/// `drop_early(value: x)` consumed it (Spec Clause 13 §13.7). Producer-side
+/// guard so a consumed binding never reaches the burden path as a live read
+/// of reclaimed memory.
+///
+/// Recognises `drop_early` by interning its prelude name; when the name never
+/// appears in a call the walk is a no-op.
+pub(super) fn run_consumed_binding_validator(checker: &mut ModuleChecker<'_>, body_root: ExprId) {
+    let validation_errors: Vec<TypeCheckError> = {
+        let arena = checker.arena();
+        let drop_early_name = checker.interner().intern("drop_early");
+        let mut errs: Vec<TypeCheckError> = Vec::new();
+        validate_consumed_binding(arena, drop_early_name, body_root, &mut errs);
         errs
     };
     for err in validation_errors {

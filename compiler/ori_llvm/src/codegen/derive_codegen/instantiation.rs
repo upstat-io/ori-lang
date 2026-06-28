@@ -141,20 +141,39 @@ pub(super) fn nested_derive_instantiations<'a>(
     let pool = fc.pool();
     let mut out = Vec::new();
     for child in nested_field_payload_types(pool, concrete_idx) {
-        // Find the `Applied`-headed type reachable through transparent wrappers
-        // (the child itself, or an inner of Option/Result/Tuple/List/Set).
-        for applied in applied_heads(pool, child) {
-            let name = pool.applied_name(applied);
+        // Find each derive-instantiation head reachable through transparent
+        // wrappers (the child itself, an inner of Option/Result/Tuple/List/Set,
+        // OR a directly-nested already-resolved generic Struct/Enum body).
+        for head in derive_instantiation_heads(pool, child) {
+            // The head is either a `Tag::Applied` node (resolve to its body) or
+            // an already-materialized concrete `Tag::Struct`/`Tag::Enum` body
+            // (a directly-nested generic instantiation field, e.g. the `Wrap<int>`
+            // field of `Wrap<Wrap<int>>` is stored as the resolved struct body,
+            // never an `Applied` node — these must be enqueued under the SAME idx
+            // the field-dispatch `get_derived_method_for_type` looks up).
+            let (applied, body, name) = match pool.tag(head) {
+                Tag::Applied => {
+                    let name = pool.applied_name(head);
+                    let Some(concrete) = pool.resolve(head) else {
+                        continue;
+                    };
+                    (head, pool.resolve_fully(concrete), name)
+                }
+                Tag::Struct => (head, head, pool.struct_name(head)),
+                Tag::Enum => (head, head, pool.enum_name(head)),
+                _ => continue,
+            };
+            // `derive_bearing` is the set of GENERIC derive-bearing type names
+            // (built in `compile_derives`), so this gate admits only generic
+            // instantiations — a non-generic derive-bearing struct/enum field
+            // dispatches via the type-name path, never the per-instantiation
+            // mono map.
             if !derive_bearing.contains(&name) {
                 continue;
             }
-            let Some(concrete) = pool.resolve(applied) else {
-                continue;
-            };
             // Gate on the materialized BODY's concreteness, not the `Applied`
             // node's flag (which carries HAS_VAR on its arg list — see
             // `concrete_instantiations`).
-            let body = pool.resolve_fully(concrete);
             if pool.flags(body).has_any_var_or_infer() {
                 continue;
             }
@@ -185,17 +204,22 @@ fn nested_field_payload_types(pool: &ori_types::Pool, concrete_idx: Idx) -> Vec<
     }
 }
 
-/// Collect every `Applied`-headed type reachable from `ty` through transparent
-/// generic wrappers (`Option`/`Result`/`Tuple`/`List`/`Set`). Returns `ty`
-/// itself when it resolves to an `Applied`. Cycle-safe via a visited set.
-fn applied_heads(pool: &ori_types::Pool, ty: Idx) -> Vec<Idx> {
+/// Collect every derive-instantiation head reachable from `ty` through
+/// transparent generic wrappers (`Option`/`Result`/`Tuple`/`List`/`Set`). A head
+/// is either a `Tag::Applied` node OR an already-resolved concrete
+/// `Tag::Struct`/`Tag::Enum` body (a directly-nested generic instantiation field,
+/// which the type pool stores as the resolved body, not an `Applied`). Returns
+/// `ty` itself when it resolves to such a head. One hop only — a Struct/Enum head
+/// is NOT descended into (the caller's work-list drives transitivity). Cycle-safe
+/// via a visited set.
+fn derive_instantiation_heads(pool: &ori_types::Pool, ty: Idx) -> Vec<Idx> {
     let mut out = Vec::new();
     let mut visiting = FxHashSet::default();
-    collect_applied_heads(pool, ty, &mut visiting, &mut out);
+    collect_derive_instantiation_heads(pool, ty, &mut visiting, &mut out);
     out
 }
 
-fn collect_applied_heads(
+fn collect_derive_instantiation_heads(
     pool: &ori_types::Pool,
     ty: Idx,
     visiting: &mut FxHashSet<Idx>,
@@ -206,19 +230,28 @@ fn collect_applied_heads(
         return;
     }
     match pool.tag(resolved) {
-        Tag::Applied => out.push(resolved),
-        Tag::Option => collect_applied_heads(pool, pool.option_inner(resolved), visiting, out),
+        // A nested generic instantiation head — pushed as a one-hop head, NOT
+        // descended into (the caller's work-list closes the transitive set).
+        Tag::Applied | Tag::Struct | Tag::Enum => out.push(resolved),
+        // Transparent wrappers — descend to the inner head(s).
+        Tag::Option => {
+            collect_derive_instantiation_heads(pool, pool.option_inner(resolved), visiting, out);
+        }
         Tag::Result => {
-            collect_applied_heads(pool, pool.result_ok(resolved), visiting, out);
-            collect_applied_heads(pool, pool.result_err(resolved), visiting, out);
+            collect_derive_instantiation_heads(pool, pool.result_ok(resolved), visiting, out);
+            collect_derive_instantiation_heads(pool, pool.result_err(resolved), visiting, out);
         }
         Tag::Tuple => {
             for elem in pool.tuple_elems(resolved) {
-                collect_applied_heads(pool, elem, visiting, out);
+                collect_derive_instantiation_heads(pool, elem, visiting, out);
             }
         }
-        Tag::List => collect_applied_heads(pool, pool.list_elem(resolved), visiting, out),
-        Tag::Set => collect_applied_heads(pool, pool.set_elem(resolved), visiting, out),
+        Tag::List => {
+            collect_derive_instantiation_heads(pool, pool.list_elem(resolved), visiting, out);
+        }
+        Tag::Set => {
+            collect_derive_instantiation_heads(pool, pool.set_elem(resolved), visiting, out);
+        }
         _ => {}
     }
     visiting.remove(&resolved);

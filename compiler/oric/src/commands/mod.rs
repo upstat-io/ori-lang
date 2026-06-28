@@ -36,7 +36,9 @@ mod demangle;
 mod emit_aims_state;
 mod emit_scip;
 mod explain;
+mod explain_idx;
 mod fmt;
+mod provenance;
 #[cfg(feature = "llvm")]
 mod repr_setup;
 mod run;
@@ -89,6 +91,7 @@ pub use demangle::demangle_symbol;
 pub use emit_aims_state::emit_aims_state_file;
 pub use emit_scip::emit_scip_file;
 pub use explain::explain_error;
+pub use explain_idx::explain_idx;
 pub use fmt::run_format;
 pub use run::{run_file, run_file_compiled};
 pub use target::{add_target, list_installed_targets, remove_target, TargetSubcommand};
@@ -154,11 +157,12 @@ pub(super) fn report_frontend_errors(
     // deduplication and soft-error suppression after hard errors
     let parse_result = parsed(db, file);
 
-    // Phase dump: AST after parse (gated behind ORI_DUMP_AFTER_PARSE=1)
-    crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_PARSE, {
-        let path_str = file.path(db).display().to_string();
-        crate::ast_dump::dump_ast(&parse_result, db.interner(), &path_str);
-    });
+    // Phase dump: AST after parse, via the dump orchestrator (PARSE phase).
+    crate::dump_orchestrator::dump_parse(
+        &parse_result,
+        db.interner(),
+        &file.path(db).display().to_string(),
+    );
 
     if parse_result.has_errors() {
         let source = file.text(db);
@@ -187,17 +191,19 @@ pub(super) fn report_frontend_errors(
         return None;
     };
 
-    // Phase dump: Typed IR after type checking (gated behind ORI_DUMP_AFTER_TYPECK=1)
-    crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_TYPECK, {
-        let path_str = file.path(db).display().to_string();
-        crate::ir_dump::dump_typed_ir(
-            &parse_result,
-            &type_result.typed,
-            &pool,
-            db.interner(),
-            &path_str,
-        );
-    });
+    // Phase dump: Typed IR after type checking, via the dump orchestrator
+    // (TYPECK phase; the orchestrator applies the idx-filter view).
+    crate::dump_orchestrator::dump_typeck(
+        &parse_result,
+        &type_result.typed,
+        &pool,
+        db.interner(),
+        &file.path(db).display().to_string(),
+    );
+
+    // Provenance DAG: read-only STRUCTURE/RESOLUTION/MONO-edge walk for one
+    // type-pool `Idx` (gated behind ORI_TRACE_IDX). Diagnostic view only.
+    provenance::emit_provenance_trace(&pool, &type_result.typed.mono_instances, db.interner());
 
     if type_result.has_errors() {
         let renderer = TypeErrorRenderer::new(&pool, db.interner());

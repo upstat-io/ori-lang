@@ -157,11 +157,18 @@ pub enum RcStrategy {
     /// so `Inc` is a no-op. `Dec` calls `ori_iter_drop(ptr)` directly,
     /// bypassing the `ori_rc_dec` path which would dereference a
     /// non-existent refcount header.
-    ///
-    /// Spec: previously iterators were classified as
-    /// `Scalar` (no cleanup emitted at all), leaking the Box-allocated
-    /// state in any container that held an unconsumed iterator.
     Iterator,
+
+    /// Scalar-repr value whose type carries a user `@drop`.
+    ///
+    /// `ValueRepr::Scalar` (all-scalar payload, no heap field, no RC header) but
+    /// the type declares a `Drop` impl, so the scope-exit op is the user `@drop`
+    /// CALL alone — no reference-count arithmetic, no field walk. Inc: no-op
+    /// (scalar, no header). Dec: invoke the `@drop` for the inline value
+    /// (panic-path via landing pad). Balance-neutral, so it is a distinct
+    /// category exempt from the VF-1 `RcOnScalar` check.
+    /// Spec: Annex E §AIMS RL-DROP (`RLDROP_scalar_lifecycle_sound`).
+    UserDrop,
 }
 
 /// Whether an RC operation uses atomic or non-atomic reference-count
@@ -272,8 +279,9 @@ impl RcStrategy {
 /// (`Closure` walks captured env, `AggregateFields` walks RC fields, `InlineEnum`
 /// switches on tag and dec's variant payloads, `HeapPointer` runs `elem_dec_fn`
 /// over collection elements). Returns `false` for `FatPointer` (str — drop dec's
-/// the data buffer ONLY, the `FatPointer` IS the leaf payload) and `Iterator` (drop
-/// calls `ori_iter_drop` directly without payload-walk).
+/// the data buffer ONLY, the `FatPointer` IS the leaf payload), `Iterator` (drop
+/// calls `ori_iter_drop` directly without payload-walk), and `UserDrop` (scalar
+/// value — the `@drop` call manages no transitive RC payload).
 ///
 /// Pure function on the enum — no Pool query, no `AimsStateMap` query. The
 /// `RcStrategy` value already carries the answer.

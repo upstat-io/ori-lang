@@ -21,6 +21,7 @@ mod item;
 mod lifetime;
 mod output;
 mod pool;
+pub mod provenance;
 mod registry;
 pub mod reporting;
 mod salsa_assertions;
@@ -51,6 +52,10 @@ pub use pool::{
     re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
     substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
     VarState, VariantDescriptor, DEFAULT_RANK,
+};
+pub use provenance::{
+    ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,
+    MAX_DEPTH as PROVENANCE_MAX_DEPTH,
 };
 pub use registry::burden;
 pub use registry::burden_compose;

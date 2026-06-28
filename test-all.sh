@@ -109,6 +109,9 @@ AOT_OUTPUT=$(mktemp)
 WASM_OUTPUT=$(mktemp)
 ORI_INTERP_OUTPUT=$(mktemp)
 ORI_LLVM_OUTPUT=$(mktemp)
+# Per-leg wall-time capture dir: each timed_leg writes "<secs>" to
+# $LEG_TIMING_DIR/<name>. Additive observability only — no pass/fail effect.
+LEG_TIMING_DIR=$(mktemp -d)
 # Machine-readable runner JSON (`ori test --format json`) per backend, written
 # to disc-backed files (single run per backend; the console summary + failure
 # detail are reconstructed from these via diagnostics/parse_test_json.py — no
@@ -127,8 +130,23 @@ rm -f "$ORI_INTERP_JSON" "$ORI_LLVM_JSON"
 # Cleanup temp files on exit
 cleanup() {
     rm -f "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$DOCTEST_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
+    rm -rf "$LEG_TIMING_DIR"
 }
 trap cleanup EXIT
+
+# timed_leg <name> <command...>: run the command, record its wall-clock seconds
+# to $LEG_TIMING_DIR/<name>, and pass through its exit code unchanged. Purely
+# additive — the timing capture never alters the leg's behavior or result.
+timed_leg() {
+    local _name="$1"; shift
+    local _t0 _t1 _rc
+    _t0=$(date +%s.%N)
+    "$@"
+    _rc=$?
+    _t1=$(date +%s.%N)
+    awk "BEGIN { printf \"%.1f\", ${_t1} - ${_t0} }" > "$LEG_TIMING_DIR/${_name}" 2>/dev/null
+    return $_rc
+}
 
 # Track failures
 RUST_EXIT=0
@@ -581,6 +599,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     # test execution (the lone exception is run_rust_doctests — rustdoc
     # compiles at run time and runs as the single compiler in Phase 2).
     echo "=== Pre-building all debug test artifacts (serial, race-free) ==="
+    _PHASE1_T0=$(date +%s.%N)
     PRECOMPILE_OUTPUT=$(mktemp)
     if cargo_race_retry "$PRECOMPILE_OUTPUT" cargo test --no-run -q --workspace --lib --bins --tests; then
         echo "  ✓ Debug test binaries pre-built"
@@ -615,6 +634,7 @@ if [[ $PARALLEL -eq 1 ]]; then
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1
     fi
+    awk "BEGIN { printf \"%.1f\", $(date +%s.%N) - ${_PHASE1_T0} }" > "$LEG_TIMING_DIR/phase1_build" 2>/dev/null
 
     echo ""
 
@@ -638,29 +658,29 @@ if [[ $PARALLEL -eq 1 ]]; then
     rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
 
-    run_rust_workspace &
+    timed_leg rust_workspace run_rust_workspace &
     RUST_PID=$!
 
-    run_rust_doctests &
+    timed_leg rust_doctests run_rust_doctests &
     DOCTEST_PID=$!
 
-    run_wasm_build &
+    timed_leg wasm_build run_wasm_build &
     WASM_PID=$!
 
-    run_rust_rt &
+    timed_leg rust_rt run_rust_rt &
     RUST_RT_PID=$!
 
-    run_rust_llvm &
+    timed_leg rust_llvm run_rust_llvm &
     RUST_LLVM_PID=$!
 
-    run_aot &
+    timed_leg aot run_aot &
     AOT_PID=$!
 
-    run_ori_interpreter &
+    timed_leg ori_interpreter run_ori_interpreter &
     ORI_INTERP_PID=$!
 
     if [[ $LLVM_BUILD_OK -eq 1 ]]; then
-        run_ori_llvm &
+        timed_leg ori_llvm run_ori_llvm &
         ORI_LLVM_PID=$!
     fi
 
@@ -682,7 +702,7 @@ else
     echo -e "${BOLD}Running tests sequentially...${NC}"
     echo ""
 
-    run_rust_workspace || RUST_EXIT=1
+    timed_leg rust_workspace run_rust_workspace || RUST_EXIT=1
     echo ""
     echo "=== Building runtime library (debug) ==="
     if ! cargo build -p ori_rt -q 2>&1; then
@@ -696,27 +716,39 @@ else
         ORI_LLVM_EXIT=1
     fi
     echo ""
-    run_rust_rt || RUST_RT_EXIT=1
+    timed_leg rust_rt run_rust_rt || RUST_RT_EXIT=1
     echo ""
-    run_rust_llvm || RUST_LLVM_EXIT=1
+    timed_leg rust_llvm run_rust_llvm || RUST_LLVM_EXIT=1
     echo ""
-    run_rust_doctests || DOCTEST_EXIT=1
+    timed_leg rust_doctests run_rust_doctests || DOCTEST_EXIT=1
     echo ""
     # AOT identity-gate baseline + stale-manifest delete (see the parallel
     # block's comment for the Go-model contract).
     rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
-    run_aot || AOT_EXIT=1
+    timed_leg aot run_aot || AOT_EXIT=1
     echo ""
-    run_wasm_build || WASM_EXIT=1
+    timed_leg wasm_build run_wasm_build || WASM_EXIT=1
     echo ""
     ORI_INTERP_EXIT=0
-    run_ori_interpreter || ORI_INTERP_EXIT=$?
+    timed_leg ori_interpreter run_ori_interpreter || ORI_INTERP_EXIT=$?
     echo ""
     if [[ $LLVM_BUILD_OK -eq 1 ]]; then
         ORI_LLVM_EXIT=0
-        run_ori_llvm || ORI_LLVM_EXIT=$?
+        timed_leg ori_llvm run_ori_llvm || ORI_LLVM_EXIT=$?
     fi
+fi
+
+# Per-leg wall-time breakdown (additive observability). In parallel mode the
+# legs OVERLAP, so the slowest leg (top row) is the critical path that sets the
+# Phase-2 wall time; phase1_build is the serial pre-build ahead of Phase 2.
+if compgen -G "$LEG_TIMING_DIR/*" > /dev/null 2>&1; then
+    echo ""
+    echo -e "${BOLD}Per-leg wall time (seconds, slowest first):${NC}"
+    for _tf in "$LEG_TIMING_DIR"/*; do
+        printf '%s %s\n' "$(cat "$_tf" 2>/dev/null)" "$(basename "$_tf")"
+    done | sort -rn | awk '{ printf "  %8.1fs  %s\n", $1, $2 }'
+    echo ""
 fi
 
 # Show verbose output if requested or on failure

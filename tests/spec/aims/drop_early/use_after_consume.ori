@@ -1,13 +1,18 @@
-// Spec: Annex C §drop_early; 08-types.md §8.10.5
-// drop_early on a unique heap value consumes it. However, if the value is used
-// downstream, the compiler's liveness analysis will keep it alive (emitting an RcInc
-// before the drop_early call and an RcDec after the last use). This ensures the
-// use after drop_early is defined and safe, preventing Use-After-Free.
-use std.testing { assert_eq }
+// NEGATIVE PIN — use-after-`drop_early` (E2054).
+// `drop_early(value: s)` takes ownership of `s`, runs its destructor (if any),
+// and reclaims its memory immediately. The binding is inaccessible afterward;
+// any subsequent use reads reclaimed memory (use-after-free), so typeck MUST
+// reject it with E2054 — the consuming-destructor discipline (cf. Rust `drop`).
+//
+// Spec: 13-variables.md §13.7 (Variable Lifetime); 08-types.md §8.10.5;
+// annex-c-built-in-functions.md §drop_early.
 
-@drop_early_use_after_consume tests _ () -> void = {
-    let s = "hello".to_str();
+#compile_fail(code: "E2054", message: "after `drop_early` consumed it")
+@drop_early_use_after_consume_rejected tests @_anchor () -> void = {
+    let $s = "hello";
     drop_early(value: s);
-    assert_eq(actual: s, expected: "hello");
+    print(msg: s);
     ()
 }
+
+@_anchor () -> bool = true;

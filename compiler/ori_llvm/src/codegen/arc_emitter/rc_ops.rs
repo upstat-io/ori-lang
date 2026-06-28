@@ -13,6 +13,12 @@
 //! | `Closure`         | `emit_rc_inc_closure`    | `emit_rc_dec_closure`     |
 //! | `AggregateFields` | `emit_rc_inc_aggregate`  | `emit_rc_dec_aggregate`   |
 //! | `InlineEnum`      | `emit_rc_inc_inline_enum`| `emit_rc_dec_inline_enum` |
+//! | `Iterator`        | `emit_rc_inc_iterator`   | `emit_rc_dec_iterator`    |
+//! | `UserDrop`        | *(no-op)*                | `emit_rc_dec_user_drop`   |
+//!
+//! `UserDrop` Inc is a no-op (a scalar value carries no RC header); Dec routes
+//! to `emit_rc_dec_user_drop`, which emits ONLY the user `@drop` call — no field
+//! walk, no `ori_rc_dec`.
 //!
 //! # `InlineEnum`
 //!
@@ -39,7 +45,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId, RcStrategy};
 use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA};
-use ori_types::Tag;
+use ori_types::{Idx, Tag};
 
 use super::ArcIrEmitter;
 
@@ -72,15 +78,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // Temporary validation: verify strategy matches Pool-derived expectation.
-        // Removed once all Pool queries are eliminated from the emitter.
+        // Why: debug-only cross-check that the instruction's strategy matches the
+        // Pool-derived expectation; `UserDrop` is excluded because `from_repr`
+        // rejects Scalar repr and never produces it.
         #[cfg(debug_assertions)]
-        if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
-            debug_assert_eq!(
-                strategy, expected,
-                "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
-            );
+        if strategy != RcStrategy::UserDrop {
+            if let Some(repr) = func.var_repr(var) {
+                let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
+                debug_assert_eq!(
+                    strategy, expected,
+                    "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
+                );
+            }
         }
 
         match strategy {
@@ -90,6 +99,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::AggregateFields => self.emit_rc_inc_aggregate(var, count, func),
             RcStrategy::InlineEnum => self.emit_rc_inc_inline_enum(var, count, func),
             RcStrategy::Iterator => self.emit_rc_inc_iterator(var, count),
+            // A scalar-repr value carrying a user `@drop` has no RC header —
+            // inc is a no-op (Spec: Annex E §AIMS RL-DROP, balance-neutral).
+            RcStrategy::UserDrop => {}
         }
     }
 
@@ -113,14 +125,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // Temporary validation: verify strategy matches Pool-derived expectation.
+        // Why: debug-only cross-check that the instruction's strategy matches the
+        // Pool-derived expectation; `UserDrop` is excluded because `from_repr`
+        // rejects Scalar repr and never produces it.
         #[cfg(debug_assertions)]
-        if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
-            debug_assert_eq!(
-                strategy, expected,
-                "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
-            );
+        if strategy != RcStrategy::UserDrop {
+            if let Some(repr) = func.var_repr(var) {
+                let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
+                debug_assert_eq!(
+                    strategy, expected,
+                    "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
+                );
+            }
         }
 
         match strategy {
@@ -130,6 +146,90 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::AggregateFields => self.emit_rc_dec_aggregate(var, func),
             RcStrategy::InlineEnum => self.emit_rc_dec_inline_enum(var, func),
             RcStrategy::Iterator => self.emit_rc_dec_iterator(var),
+            RcStrategy::UserDrop => self.emit_rc_dec_user_drop(var, func),
+        }
+    }
+
+    // UserDrop handlers
+
+    /// Dec a scalar-repr value whose type carries a user `@drop`.
+    ///
+    /// The value has `ValueRepr::Scalar` — no RC header, no RC fields — so this
+    /// emits ONLY the user `@drop` CALL: an `invoke` to a re-raise-only cleanup
+    /// pad on the recoverable-panic path (Itanium), a plain call otherwise.
+    /// There is NO `dec_value_rc` field walk and NO `ori_rc_dec`, so the op is
+    /// reference-count-neutral. Spec: Annex E §AIMS RL-DROP
+    /// (`RLDROP_scalar_lifecycle_sound`).
+    fn emit_rc_dec_user_drop(&mut self, var: ArcVarId, func: &ArcFunction) {
+        let val = self.var(var);
+        let ty = func.var_type(var);
+        let resolved = self.pool.resolve_fully(ty);
+        // The UserDrop strategy is assigned (in burden lowering) ONLY for a
+        // type carrying a user `@drop`; a missing method here is an upstream
+        // invariant violation (a `UserDrop` strategy on a non-Drop type).
+        // Record a codegen error so the compile fails loudly rather than
+        // silently dropping the op (no invisible gaps) — mirrors the
+        // use-before-def handler in `emit_rc_dec`.
+        if self.user_drop_method(resolved).is_none() {
+            tracing::error!(
+                var = var.raw(),
+                "RcDec UserDrop on a type with no user @drop — realized ARC IR invariant violation"
+            );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcDec UserDrop on v{} whose type has no user @drop — realized ARC IR invariant violation",
+                var.raw()
+            ));
+            return;
+        }
+        // Scalar repr — no RC fields to free on the unwind path, so the cleanup
+        // pad re-raises directly (`unwind_rc_walk = None`).
+        self.emit_inline_user_drop(resolved, val, "user_drop", None);
+    }
+
+    /// Emit an inline-value user `@drop` with its recoverable-panic cleanup pad.
+    ///
+    /// `block_prefix` names the `cont`/`cleanup`/landingpad blocks. A may-unwind
+    /// `@drop` on the Itanium model is `invoke`d with a cleanup pad: `unwind_rc_walk
+    /// = Some(ty)` walks the value's RC fields (a heap-field aggregate whose
+    /// `@drop` panicked still owes its field decs, fenced by
+    /// `ori_drop_cleanup_enter`/`exit`); `None` leaves a bare re-raise (scalar
+    /// repr has no RC fields). The `@drop` is reference-count-neutral.
+    /// Spec: Annex E §AIMS RL-DROP (`RLDROP_scalar_lifecycle_sound`).
+    fn emit_inline_user_drop(
+        &mut self,
+        resolved: Idx,
+        val: super::ValueId,
+        block_prefix: &str,
+        unwind_rc_walk: Option<Idx>,
+    ) {
+        let itanium = self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+        let unwinds = self.drop_may_unwind(resolved) && itanium;
+        if unwinds {
+            let cont = self
+                .builder
+                .append_block(self.current_function, &format!("{block_prefix}.cont"));
+            let cleanup = self
+                .builder
+                .append_block(self.current_function, &format!("{block_prefix}.cleanup"));
+            if self.invoke_user_drop_for_inline_value(resolved, val, cont, cleanup) {
+                self.builder.position_at_end(cleanup);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self
+                    .builder
+                    .landingpad(personality, true, &format!("{block_prefix}.lp"));
+                if let Some(walk_ty) = unwind_rc_walk {
+                    let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                    self.builder.call(enter, &[], "");
+                    self.dec_value_rc(val, walk_ty);
+                    let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                    self.builder.call(exit, &[], "");
+                }
+                self.builder.resume(lp);
+
+                self.builder.position_at_end(cont);
+            }
+        } else {
+            self.emit_user_drop_for_inline_value(resolved, val);
         }
     }
 
@@ -222,6 +322,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_rc_dec_aggregate(&mut self, var: ArcVarId, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
+        let resolved = self.pool.resolve_fully(ty);
+        if self.user_drop_method(resolved).is_some() {
+            // Heap-field-bearing aggregate: run the `@drop` first, walking the
+            // RC fields on the unwind path (`unwind_rc_walk = Some(ty)`).
+            self.emit_inline_user_drop(resolved, val, "agg_drop", Some(ty));
+        }
         self.dec_value_rc(val, ty);
     }
 

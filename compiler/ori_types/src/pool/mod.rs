@@ -396,6 +396,17 @@ impl Pool {
         self.items.len() <= Idx::FIRST_DYNAMIC as usize
     }
 
+    /// True when `idx` is in range for this pool — i.e. `Pool::tag` /
+    /// `Pool::data` / `Pool::item` / `Pool::format_type_with_idx` index `items`
+    /// without panicking. Canonical bounds check: a consumer guarding a raw or
+    /// externally-supplied `Idx` queries this instead of re-deriving
+    /// `idx.raw() < len`.
+    #[inline]
+    #[must_use]
+    pub fn is_valid_idx(&self, idx: Idx) -> bool {
+        (idx.raw() as usize) < self.items.len()
+    }
+
     /// Iterate every pool `Idx` in interning order (`Idx(0)..Idx(len)`). SSOT for
     /// a full-pool linear walk: the saturating `usize -> u32` length conversion
     /// and `Idx::from_raw` mapping live here, not duplicated at each scan site.

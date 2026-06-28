@@ -44,6 +44,22 @@ pub(crate) fn materialize_applied_body(
     // Only a still-generic arg AFTER resolution (a `BoundVar`/`RigidVar` param)
     // means this is not a concrete instantiation — leave it for instantiation.
     let raw_args = pool.applied_args(applied);
+    // Materialize any nested-`Applied` arg FIRST (bottom-up) so its concrete body
+    // is recorded before the concreteness guard below resolves it. The pool-wide
+    // sweep visits indices in interning order; without this, visiting the OUTER
+    // `Applied(Wrap, [Wrap<int>])` before the inner `Wrap<int>` resolves the
+    // inner arg to its still-`HAS_VAR`-stale `Applied` node, trips the
+    // `has_any_var_or_infer` guard, and PERMANENTLY skips the outer (the sweep
+    // never retries) — leaving the outer to resolve to the GENERIC body whose
+    // field is the bare param. Pre-materializing the arg makes the walk
+    // order-independent; the `in_progress` + `resolve(applied).is_some()` guards
+    // keep it terminating + idempotent.
+    for &arg in &raw_args {
+        let resolved_arg = pool.resolve_fully(arg);
+        if pool.tag(resolved_arg) == Tag::Applied {
+            materialize_applied_body(pool, resolved_arg, type_params, in_progress);
+        }
+    }
     let resolved_args: Vec<Idx> = raw_args
         .iter()
         .map(|&a| {

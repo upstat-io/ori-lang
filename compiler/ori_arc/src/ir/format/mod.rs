@@ -153,6 +153,7 @@ pub fn fmt_strategy(strategy: RcStrategy) -> &'static str {
         RcStrategy::AggregateFields => "AggFields",
         RcStrategy::InlineEnum => "InlineEnum",
         RcStrategy::Iterator => "Iterator",
+        RcStrategy::UserDrop => "UserDrop",
     }
 }
 

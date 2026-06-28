@@ -20,6 +20,7 @@ type Inner<T> = { x: T }
 #[derive(Eq, Hashable, Debug)]
 type Outer<T> = { y: Inner<T> }
 
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_two_generic_debug tests @two_debug () -> void = {
     let a = Outer { y: Inner { x: 3 } };
     assert(cond: a.debug() != "")

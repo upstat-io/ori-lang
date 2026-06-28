@@ -226,7 +226,15 @@ fn emit_user_type_field_op<'a>(
         FieldOp::Hash => DerivedTrait::Hashable,
     };
     let method = fc.intern(trait_kind.method_name());
-    if let Some((fid, abi)) = fc.get_derived_method_for_type(field_type, method) {
+    let resolved = fc.get_derived_method_for_type(field_type, method);
+    trace!(
+        target: "ori_llvm::codegen::derive_codegen",
+        method = %trait_kind.method_name(),
+        field_type = ?field_type,
+        resolved = resolved.is_some(),
+        "derive field-op dispatch lookup"
+    );
+    if let Some((fid, abi)) = resolved {
         return match op {
             FieldOp::Hash => emit_method_call_for_derive(fc, fid, &abi, &[lhs], name),
             _ => emit_method_call_for_derive(fc, fid, &abi, &[lhs, expect_rhs(rhs)], name),

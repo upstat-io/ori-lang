@@ -1,0 +1,17 @@
+// NEGATIVE PIN — use-after-`drop_early` of an index in an assignment target (E2054).
+// `xs[i] = v` reads `i` (and `xs`); after `drop_early` consumed `i` the index
+// read is a use of reclaimed memory. The child-walker must descend AssignTarget
+// index-step expressions.
+//
+// Spec: 13-variables.md §13.7 (Variable Lifetime).
+
+#compile_fail(code: "E2054", message: "after `drop_early` consumed it")
+@drop_early_use_after_consume_index_assign_rejected tests @_anchor () -> void = {
+    let xs = [1, 2, 3];
+    let i = 0;
+    drop_early(value: i);
+    xs[i] = 9;
+    ()
+}
+
+@_anchor () -> bool = true;

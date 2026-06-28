@@ -11,7 +11,7 @@ use ori_registry::burden::table::{burden_type_id, BurdenRegistry, TYPE_PARAM_E};
 use ori_registry::TypeTag;
 use ori_types::{Idx, TypeRegistry};
 
-use super::burden::{BurdenRef, TypeRef};
+use super::burden::{Burden, BurdenRef, TypeRef};
 
 /// Reserved sentinel raw value for `TYPE_PARAM_E` (`u32::MAX - 1`). User pool
 /// indices MUST stay strictly below this to avoid collision when
@@ -91,6 +91,18 @@ pub fn idx_to_type_ref(idx: Idx, _type_registry: &TypeRegistry) -> TypeRef {
         _ => return TypeRef::User(idx),
     };
     TypeRef::Builtin(burden_type_id(tag))
+}
+
+/// Whether `ty` carries a user `@drop`, read from the canonical burden
+/// registry. Single home for the "has user `@drop`" predicate so burden
+/// lowering and the RL-DROP completeness pass query one source instead of
+/// re-composing the `lookup_burden` + `Burden::user_drop` chain at each site.
+///
+/// Spec: Annex E §AIMS RL-DROP.
+#[must_use]
+pub fn type_has_user_drop(ty: Idx, type_registry: &TypeRegistry) -> bool {
+    lookup_burden(idx_to_type_ref(ty, type_registry), type_registry)
+        .is_some_and(|b| b.user_drop().is_some())
 }
 
 #[cfg(test)]

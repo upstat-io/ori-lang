@@ -299,6 +299,12 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*field)
                 )
             }
+            TypeErrorKind::UseAfterDropEarly { binding } => {
+                format!(
+                    "use of `{}` after `drop_early` consumed it",
+                    self.format_name(*binding)
+                )
+            }
             TypeErrorKind::DropPartialMove {
                 aggregate,
                 field,

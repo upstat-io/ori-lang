@@ -7,8 +7,9 @@ mod burden_lowering_tests;
 
 use std::sync::LazyLock;
 
+use crate::lower::type_has_user_drop;
 use ori_ir::Name;
-use ori_types::Pool;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
@@ -142,6 +143,7 @@ pub(super) fn emit_rc_unified(
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &TypeRegistry,
 ) -> (
     usize,
     Vec<DeathEvent>,
@@ -192,6 +194,7 @@ pub(super) fn emit_rc_unified(
         &take_move_facts,
         &block_deferred,
         &same_alloc_reps,
+        type_registry,
     );
 
     // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
@@ -274,6 +277,7 @@ fn emit_burden_path_probe_tail(
     take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     block_deferred: &FxHashMap<usize, Vec<DeferredDec>>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    type_registry: &TypeRegistry,
 ) {
     crate::aims::emit_rc::emit_edge_cleanup(
         func,
@@ -893,7 +897,14 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
-    lower_and_diagnose_burden_path(func, pool, interner, contracts, same_alloc_reps);
+    lower_and_diagnose_burden_path(
+        func,
+        pool,
+        type_registry,
+        interner,
+        contracts,
+        same_alloc_reps,
+    );
 }
 
 /// Probe-tail Phase 7: mechanically lower the surviving burden ops to real RC
@@ -904,6 +915,7 @@ fn emit_burden_path_probe_tail(
 fn lower_and_diagnose_burden_path(
     func: &mut ArcFunction,
     pool: &Pool,
+    type_registry: &TypeRegistry,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
@@ -923,7 +935,7 @@ fn lower_and_diagnose_burden_path(
         contracts,
         &conversion_source_reps,
     );
-    lower_burden_ops_to_rc(func, pool, &elidable_fresh_incs);
+    lower_burden_ops_to_rc(func, pool, type_registry, &elidable_fresh_incs);
     trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
 
     // Phase-7 alias-lineage RC-net diagnostic (ORI_LOG=ori_arc::aims::realize):
@@ -11100,6 +11112,7 @@ pub(super) fn compute_cow_mutated_lineage_reps(
 fn lower_burden_ops_to_rc(
     func: &mut ArcFunction,
     pool: &Pool,
+    type_registry: &TypeRegistry,
     elidable_fresh_incs: &FxHashSet<ArcVarId>,
 ) {
     let mut fresh_inc_elided: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -11129,20 +11142,31 @@ fn lower_burden_ops_to_rc(
                 elided_sites.push((block_idx, instr_idx));
                 continue;
             }
-            // RE-2 backstop: scalars carry no RcStrategy. emit_burden_ops never
-            // emits whole-var burden ops on scalars (the type-level
-            // burden_carries_rc filter + the per-var repr-aware admission gate
-            // consulting this SAME var_reprs source), so a Scalar/absent repr
-            // at this point is a contract violation — leave the burden op in
-            // place (codegen no-ops it) rather than emit unsound RC.
+            // RE-2 backstop: an ABSENT repr is unpopulated — emit_burden_ops never
+            // emits whole-var burden ops on a repr-less var, so an absent repr at
+            // this point is a contract violation — leave the burden op in place
+            // (codegen no-ops it) rather than emit unsound RC.
             let Some(repr) = func.var_repr(var) else {
                 continue;
             };
-            if matches!(repr, crate::ir::ValueRepr::Scalar) {
+            let ty = func.var_type(var);
+            let has_user_drop = type_has_user_drop(ty, type_registry);
+            // Why: a Scalar repr carries no RC header — skip it (no RC op) UNLESS
+            // its type has a user `@drop`, which falls through to the `UserDrop`
+            // branch below (the `@drop` call alone). Spec: Annex E §AIMS RL-DROP.
+            if matches!(repr, crate::ir::ValueRepr::Scalar) && !has_user_drop {
                 continue;
             }
-            let ty = func.var_type(var);
-            let strategy = RcStrategy::from_repr(repr, pool, ty);
+            // Why: scalar+`@drop` has no RC fields → `UserDrop` (the `@drop` call
+            // alone, balance-neutral); heap-field+`@drop` → `AggregateFields` (run
+            // `@drop` THEN walk RC fields). Spec: Annex E §AIMS RL-DROP.
+            let strategy = if has_user_drop && matches!(repr, crate::ir::ValueRepr::Scalar) {
+                RcStrategy::UserDrop
+            } else if has_user_drop {
+                RcStrategy::AggregateFields
+            } else {
+                RcStrategy::from_repr(repr, pool, ty)
+            };
             let atomicity = RcAtomicity::default_atomic();
             let lowered = match func.blocks[block_idx].body[instr_idx] {
                 ArcInstr::BurdenInc { var } => ArcInstr::RcInc {

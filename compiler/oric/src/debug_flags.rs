@@ -14,7 +14,7 @@
 //!
 //! # Pattern
 //!
-//! Historical influence: the `debug_flags` crate SHAPE from Roc:
+//! Three macros:
 //! - `dbg_set!` — returns `true` if the flag is set
 //! - `dbg_do!` — executes an expression if the flag is set
 //! - `flags!` — defines flag constants with doc comments
@@ -93,6 +93,29 @@ flags! {
     /// Shows type annotations on every node and resolved method dispatch.
     /// Usage: `ORI_DUMP_AFTER_TYPECK=1 ori check file.ori`
     ORI_DUMP_AFTER_TYPECK
+
+    /// Annotate every type in the `ORI_DUMP_AFTER_TYPECK` dump with its resolved
+    /// pool `Idx` (and each composite's body + field/payload idxs), exposing
+    /// nested-generic instantiation duplication + un-substituted generic fields.
+    ///
+    /// Usage: `ORI_DUMP_AFTER_TYPECK=1 ORI_DUMP_TYPE_IDX=1 ori check file.ori`
+    ORI_DUMP_TYPE_IDX
+
+    /// Emit a read-only provenance DAG (STRUCTURE + RESOLUTION + MONO edges,
+    /// generic-leaf DIVERGENCE verdicts, drop-glue CONSUMER attribution) to
+    /// stderr for one type-pool `Idx`, after type checking. The value is the
+    /// target `Idx` as a raw `u32` (discover it with
+    /// `ORI_DUMP_AFTER_TYPECK=1 ORI_DUMP_TYPE_IDX=1`). The walk never mutates the
+    /// pool or compilation; it is a diagnostic view over the stable session
+    /// type-pool `Idx`. An unset or empty value emits nothing; a non-numeric or
+    /// out-of-range value names the cause and emits no trace.
+    ///
+    /// Usage: `ORI_TRACE_IDX=102 ori check file.ori`
+    ///
+    /// Equivalent CLI surface: `ori explain idx <index> <file.ori>` prints the
+    /// same DAG to stdout (`ori explain idx --help` documents it). Both surfaces
+    /// funnel through the one tracer entry — no duplicate DAG-walk / render logic.
+    ORI_TRACE_IDX
 
     /// Dump the ARC IR to stderr after ARC lowering.
     ///

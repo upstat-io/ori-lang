@@ -346,7 +346,7 @@ impl Logged: Hashable {
 // A `@drop`-typed value created inside a `for ... do` body drops at each loop
 // iteration's scope exit.
 // BUG-05-006 matrix — `.iter().collect()` result + element ownership.
-// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the arc.md §STOP
+// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the
 // RC/AOT verdict surface; the leak reproduces on both default + gated paths.
 // These pins FAIL on the unfixed code (collect result mis-classified non-fresh
 // -> dead-value cleanup leak; collect copies elements -> source re-drops).
@@ -651,7 +651,7 @@ type Wrapper = Solo(only: Loud) | Pair(quiet: Quiet, loud: Loud);
 /// child (the inner `str`) and NEVER ran the inline struct payload's user
 /// `@drop` — so the inner node's `quiet-inner-*` sentinels silently vanished.
 /// Each node has TWO Drop-impl payload fields so the per-node multi-field walk
-/// (the IH-06-001 surface) is exercised: both fields' `@drop` must run.
+/// is exercised: both fields' `@drop` must run.
 #[test]
 fn drop_boxed_recursive_enum_runs_every_node_payload_drop_in_reverse_order() {
     let source = r#"
@@ -694,7 +694,7 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
 }
 
 /// Recoverable boxed-recursive enum `@drop` panic, reached through
-/// `emit_drop_enum` (the F1 surface). A `next: EventLog` field forces the
+/// `emit_drop_enum`. A `next: EventLog` field forces the
 /// genuinely boxed-recursive heap drop-fn path: the OUTER `Entry` node is dec'd
 /// through `_ori_drop$<EventLog>` (`emit_drop_enum`), which runs the node's own
 /// `@drop` then walks the variant payload — including the boxed `next` child,
@@ -759,14 +759,14 @@ impl EventLog: Drop {
 /// still dropped via the per-field cleanup pad. A 2-variant niche-encoded enum
 /// (`Option<Pair>` with `Pair` carrying a niche-bearing field) routes its data
 /// variant teardown through `emit_drop_enum_niche` (heap) / `emit_niche_enum_rc`
-/// (inline) — the F2 surface. Both now route through the canonical
+/// (inline). Both now route through the canonical
 /// `dec_fields_may_unwind` SSOT, so a panicking payload field's `@drop` frees
 /// the later-walked sibling instead of leaking it.
 ///
 /// IGNORED: niche-encoded codegen is feature-gated OFF
 /// (`NICHE_CODEGEN_READY = false` in `ori_repr/src/canonical/type_repr.rs`), so
 /// no user program reaches the niche dec paths today — a behavioral AOT cell
-/// cannot exercise them. The F2 cure (SSOT routing) is verified at the IR level
+/// cannot exercise them. The niche-dec SSOT routing is verified at the IR level
 /// (per-field `invoke @drop → fld.cont/fld.cleanup` + `landingpad` + `resume`,
 /// confirmed with the gate temporarily flipped). This cell activates when niche
 /// codegen ships under BUG-04-222 (niche/tagless `TagEncoding` codegen-consumer
@@ -1019,5 +1019,179 @@ impl Resource: Drop {
     assert!(
         stdout.contains("drop-a"),
         "the owned field must still drop on the unwind path; stdout:\n{stdout}"
+    );
+}
+
+// Scalar-repr struct with a user `@drop`.
+//
+// A struct whose monomorphized repr is provably `Scalar` (all-scalar fields, no
+// heap field, no RC header) carrying a user `@drop`. Two pre-fix failure modes:
+//   * READ local (`let r = Guard{7}; print(r.id)`): the surviving scope-exit
+//     whole-var `RcDec` on a Scalar repr tripped VF-1 `RcOnScalar` -> compile
+//     ICE under `ORI_VERIFY_ARC=1`.
+//   * DEAD local (`let r = Guard{7}` never read): no last-use anchor + the
+//     predicate stack skips scalars -> the `@drop` was silently elided.
+// The fix routes a scalar+`@drop` scope-exit op through `RcStrategy::UserDrop`
+// (the `@drop` CALL alone, balance-neutral, exempt from VF-1) and emits a
+// completeness dec for the never-used case. Spec: Annex E §AIMS RL-DROP
+// (`RLDROP_scalar_lifecycle_sound` / `RLDROP_exactly_once_on_glue`).
+//
+// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`)
+// is the RC/AOT verdict surface; these pins are non-ignored (the
+// bug is fixed) and revert-detecting (revert -> DEAD loses its drop, READ ICEs).
+
+const SCALAR_DROP_GATED: &[(&str, &str)] = &[
+    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+    ("ORI_VERIFY_ARC", "1"),
+];
+
+/// Semantic pin (filed bug): a DEAD scalar-repr struct local's `@drop` runs at
+/// scope exit. Pre-fix: nothing prints (the `@drop` was elided).
+#[test]
+fn drop_dead_scalar_struct_local_runs_user_drop_at_scope_exit() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let r = Guard { id: 7 };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(
+        stdout.contains("dropped-7"),
+        "the dead scalar-struct local's @drop must run at scope exit; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("body"),
+        "the body must execute before the scope-exit drop; stdout:\n{stdout}"
+    );
+}
+
+/// Semantic pin (ICE case): a READ scalar-repr struct local compiles clean
+/// under `ORI_VERIFY_ARC=1` (no `RcDec on scalar` VF-1 ICE) AND runs its
+/// `@drop`. Pre-fix: compilation failed with the VF-1 `RcOnScalar` ICE.
+#[test]
+fn drop_read_scalar_struct_local_compiles_clean_and_runs_user_drop() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let r = Guard { id: 7 };
+    print(msg: `read-{r.id}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "scalar-struct read must compile clean (no RcOnScalar ICE) + run; stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("read-7"),
+        "the field read must execute; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("dropped-7"),
+        "the read scalar-struct local's @drop must run at scope exit; stdout:\n{stdout}"
+    );
+}
+
+/// Type-dimension clamp: a multi-field scalar-repr struct (still all-scalar, no
+/// heap field) drops exactly once. Guards against the repr-`Scalar` gate keying
+/// on field count rather than repr.
+#[test]
+fn drop_dead_multi_field_scalar_struct_runs_user_drop_once() {
+    let source = r#"
+type Pair = { a: int, b: bool }
+impl Pair: Drop { @drop (self) -> void = print(msg: "dropped-pair"); }
+
+@main () -> void = {
+    let p = Pair { a: 1, b: true };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "dropped-pair").count();
+    assert_eq!(
+        drops, 1,
+        "the multi-field scalar struct @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// Multiplicity clamp (double-emit guard): two distinct DEAD scalar-struct
+/// locals each drop EXACTLY once. A completeness pass that over-emitted would
+/// drop one of them twice; one that under-emitted would miss one.
+#[test]
+fn drop_two_dead_scalar_structs_each_drop_exactly_once() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let a = Guard { id: 1 };
+    let b = Guard { id: 2 };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let d1 = stdout.lines().filter(|l| *l == "dropped-1").count();
+    let d2 = stdout.lines().filter(|l| *l == "dropped-2").count();
+    assert_eq!(
+        d1, 1,
+        "first scalar struct drops exactly once; stdout:\n{stdout}"
+    );
+    assert_eq!(
+        d2, 1,
+        "second scalar struct drops exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// Negative pin: a scalar-repr struct with NO `Drop` impl emits NO drop op (no
+/// spurious output, no ICE). Clamps that the completeness pass fires ONLY for a
+/// type carrying a user `@drop`.
+#[test]
+fn dead_scalar_struct_without_drop_emits_no_drop_op() {
+    let source = r#"
+type Plain = { id: int }
+
+@main () -> void = {
+    let r = Plain { id: 7 };
+    print(msg: "only-body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(
+        stdout.trim(),
+        "only-body",
+        "a no-Drop scalar struct must emit no drop output; stdout:\n{stdout}"
+    );
+}
+
+/// Regression clamp: the existing heap-field-struct dead-value drop path is NOT
+/// disturbed by the scalar fix (the `@drop` still runs at scope exit for a
+/// never-used heap-bearing struct).
+#[test]
+fn drop_dead_heap_field_struct_still_runs_user_drop() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop { @drop (self) -> void = print(msg: `dropped-{self.tag}`); }
+
+@main () -> void = {
+    let r = Logged { tag: "x" };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "dropped-x").count();
+    assert_eq!(
+        drops, 1,
+        "the dead heap-field struct @drop must still fire exactly once; stdout:\n{stdout}"
     );
 }

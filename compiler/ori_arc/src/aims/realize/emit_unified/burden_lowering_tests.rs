@@ -41,7 +41,7 @@ use crate::ir::{
 use crate::ownership::Ownership;
 use crate::pipeline::rc_count::count_rc_ops;
 use ori_ir::BinaryOp;
-use ori_types::{EnumVariant, Idx, Pool};
+use ori_types::{EnumVariant, Idx, Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 fn v(n: u32) -> ArcVarId {
@@ -103,7 +103,12 @@ fn lower_whole_var_burden_inc_dec_becomes_real_rc() {
     assert_eq!(before.inc, 0, "no real RcInc before lowering");
     assert_eq!(before.dec, 0, "no real RcDec before lowering");
 
-    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+    lower_burden_ops_to_rc(
+        &mut func,
+        &pool,
+        &TypeRegistry::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
 
     // Semantic pin (b): the burden path produced real, balanced RC ops.
     let after = count_rc_ops(&func);
@@ -143,7 +148,12 @@ fn lower_respells_field_grain_decs_to_realized_forms() {
         ],
     );
 
-    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+    lower_burden_ops_to_rc(
+        &mut func,
+        &pool,
+        &TypeRegistry::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
 
     // The whole-var BurdenInc lowered; the three field-grain variants
     // re-spelled to their realized forms with payloads preserved.
@@ -209,7 +219,12 @@ fn lower_partial_dec_pair_nets_zero_on_vf1_ledger_after_respelling() {
     );
     func.burden_emitted = vec![true];
 
-    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+    lower_burden_ops_to_rc(
+        &mut func,
+        &pool,
+        &TypeRegistry::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
 
     assert_eq!(
         burden_count(&func),
@@ -237,7 +252,12 @@ fn lower_leaves_scalar_repr_field_grain_dec_in_place() {
     );
     func.var_reprs[0] = ValueRepr::Scalar;
 
-    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+    lower_burden_ops_to_rc(
+        &mut func,
+        &pool,
+        &TypeRegistry::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
 
     assert_eq!(
         burden_count(&func),
@@ -255,7 +275,12 @@ fn lower_leaves_scalar_repr_burden_in_place() {
     let mut func = rc_pointer_func(1, vec![ArcInstr::BurdenInc { var: v(0) }]);
     func.var_reprs[0] = ValueRepr::Scalar;
 
-    lower_burden_ops_to_rc(&mut func, &pool, &rustc_hash::FxHashSet::default());
+    lower_burden_ops_to_rc(
+        &mut func,
+        &pool,
+        &TypeRegistry::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
 
     let after = count_rc_ops(&func);
     assert_eq!(
@@ -287,7 +312,7 @@ fn lower_elided_fresh_inc_is_removed_and_vf1_ledger_nets_zero() {
     func.burden_emitted = vec![true];
     let elidable: rustc_hash::FxHashSet<ArcVarId> = std::iter::once(v(0)).collect();
 
-    lower_burden_ops_to_rc(&mut func, &pool, &elidable);
+    lower_burden_ops_to_rc(&mut func, &pool, &TypeRegistry::default(), &elidable);
 
     // The elided inc is GONE (not a surviving no-op marker); the release
     // lowered to a real RcDec.
@@ -322,7 +347,7 @@ fn lower_elided_var_second_inc_still_lowers_to_rcinc() {
     );
     let elidable: rustc_hash::FxHashSet<ArcVarId> = std::iter::once(v(0)).collect();
 
-    lower_burden_ops_to_rc(&mut func, &pool, &elidable);
+    lower_burden_ops_to_rc(&mut func, &pool, &TypeRegistry::default(), &elidable);
 
     let after = count_rc_ops(&func);
     assert_eq!(

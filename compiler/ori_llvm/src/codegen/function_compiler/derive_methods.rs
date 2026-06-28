@@ -25,33 +25,27 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         super::super::derive_codegen::compile_derives(self, module, user_types);
     }
 
-    /// Declare a derived method LLVM function, create entry block, bind params.
+    /// PASS 1 (declare-all-then-define-all): declare a derived method LLVM
+    /// function + register its dispatch maps, WITHOUT an entry block or body.
     ///
-    /// Delegates to [`Self::declare_function_llvm`] for declaration and
-    /// [`Self::load_param_values`] for parameter loading. Registers the method
-    /// in `method_functions` and `type_idx_to_name` for dispatch.
+    /// LLVM permits calling a declared-but-not-yet-defined function, so declaring
+    /// and registering every transitively-demanded instantiation's method FIRST
+    /// lets any later body dispatch to it order-independently (and handles
+    /// self/mutually-recursive derive types a body-emission ordering cannot).
+    /// Registers `method_functions` + `type_idx_to_name`; the per-instantiation
+    /// `mono_derive_functions` registration is the caller's
+    /// (`register_mono_derive_function`).
     ///
-    /// Returns `(func_id, self_value, other_param_values)`.
-    pub(crate) fn declare_and_bind_derive(
+    /// Returns the declared `func_id`.
+    pub(crate) fn declare_derive_function(
         &mut self,
         symbol: &str,
         abi: &FunctionAbi,
         type_name: Name,
         method_name: Name,
         type_idx: Idx,
-    ) -> (FunctionId, ValueId, Vec<ValueId>) {
+    ) -> FunctionId {
         let func_id = self.declare_function_llvm(symbol, abi);
-
-        let entry = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(func_id);
-
-        let values = self.load_param_values(func_id, abi);
-        let self_value = values
-            .first()
-            .copied()
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let other_vals = values.into_iter().skip(1).collect();
 
         self.codegen_ctx
             .method_functions
@@ -76,6 +70,30 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             type_idx,
         );
 
-        (func_id, self_value, other_vals)
+        func_id
+    }
+
+    /// PASS 2 (declare-all-then-define-all): create the entry block + bind the
+    /// params for an already-declared derived method ([`Self::declare_derive_function`]),
+    /// positioning the builder to emit the body.
+    ///
+    /// Returns `(self_value, other_param_values)`.
+    pub(crate) fn bind_derive_entry(
+        &mut self,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+    ) -> (ValueId, Vec<ValueId>) {
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let values = self.load_param_values(func_id, abi);
+        let self_value = values
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let other_vals = values.into_iter().skip(1).collect();
+
+        (self_value, other_vals)
     }
 }

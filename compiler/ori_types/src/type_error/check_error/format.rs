@@ -408,6 +408,13 @@ impl TypeCheckError {
                     format_name(*field)
                 )
             }
+            TypeErrorKind::UseAfterDropEarly { binding } => {
+                format!(
+                    "use of `{}` after `drop_early` consumed it; use the value before the \
+                     `drop_early` call, or re-bind the name afterward",
+                    format_name(*binding)
+                )
+            }
             TypeErrorKind::DropPartialMove { aggregate, field, type_name } => {
                 format!(
                     "cannot partially move field `{}.{}` of type `{}` (implements `Drop`); \

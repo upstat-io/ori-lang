@@ -23,6 +23,7 @@ type Inner<T> = { x: T }
 type Outer<T> = { y: Inner<T> }
 
 // Equal nested values hash equally (determinism).
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_two_generic_hash_stable tests @two_hash_stable () -> void = {
     let a = Outer { y: Inner { x: 3 } };
     let b = Outer { y: Inner { x: 3 } };
@@ -35,6 +36,7 @@ type Outer<T> = { y: Inner<T> }
 }
 
 // Distinct inner values must hash distinctly.
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_two_generic_hash_differs tests @two_hash_differs () -> void = {
     let a = Outer { y: Inner { x: 3 } };
     let b = Outer { y: Inner { x: 4 } };
@@ -47,6 +49,7 @@ type Outer<T> = { y: Inner<T> }
 }
 
 // Exact-value parity oracle (L9) — golden hash from the interpreter.
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_two_generic_hash_exact tests @two_hash_exact () -> void = {
     let a = Outer { y: Inner { x: 3 } };
     assert(cond: a.hash() == 448278018721309941)

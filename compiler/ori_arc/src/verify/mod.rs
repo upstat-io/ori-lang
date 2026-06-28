@@ -174,7 +174,17 @@ fn check_rc_instr_scalar(
     errors: &mut Vec<VerifyError>,
 ) {
     let (var, is_inc) = match instr {
+        // VF-1 exemption (Spec: Annex E §AIMS RL-DROP; `RLDROP_scalar_lifecycle_sound`):
+        // a `RcDec { UserDrop }` is the balance-neutral user `@drop` CALL, not an RC
+        // dec on a scalar, so it is exempt from `RcOnScalar`. An `RcInc { UserDrop }`
+        // is NOT exempt — a scalar carries no refcount to duplicate, so a surviving
+        // one is a spurious RL-1 dup-inc that SHALL fail loud here rather than
+        // codegen silently-wrong drops.
         ArcInstr::RcInc { var, .. } => (*var, true),
+        ArcInstr::RcDec {
+            strategy: crate::ir::RcStrategy::UserDrop,
+            ..
+        } => return,
         ArcInstr::RcDec { var, .. } => (*var, false),
         _ => return,
     };

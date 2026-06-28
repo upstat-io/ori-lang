@@ -4,9 +4,9 @@
 
 use oric::commands::{
     accumulate_build_options, add_target, build_file, check_file, demangle_symbol,
-    emit_aims_state_file, emit_scip_file, explain_error, lex_file, list_installed_targets,
-    list_targets, parse_file, remove_target, run_file, run_file_compiled, run_format, run_tests,
-    watch_file, TargetFilter, TargetSubcommand, TestEnforcement,
+    emit_aims_state_file, emit_scip_file, explain_error, explain_idx, lex_file,
+    list_installed_targets, list_targets, parse_file, remove_target, run_file, run_file_compiled,
+    run_format, run_tests, watch_file, TargetFilter, TargetSubcommand, TestEnforcement,
 };
 use oric::test::TestRunnerConfig;
 
@@ -406,12 +406,17 @@ fn real_main() {
             watch_file(path, enforcement);
         }
         "--explain" | "explain" => {
-            if args.len() < 3 {
-                eprintln!("Usage: ori --explain <ERROR_CODE>");
-                eprintln!("Example: ori --explain E2001");
-                std::process::exit(1);
+            if args.get(2).map(String::as_str) == Some("idx") {
+                explain_idx(&args[3..]);
+            } else {
+                if args.len() < 3 {
+                    eprintln!("Usage: ori --explain <ERROR_CODE>");
+                    eprintln!("Example: ori --explain E2001");
+                    eprintln!("         ori explain idx <index> <file.ori>");
+                    std::process::exit(1);
+                }
+                explain_error(&args[2]);
             }
-            explain_error(&args[2]);
         }
         _ => {
             // If it looks like a file path, try to run it
@@ -450,6 +455,7 @@ fn print_usage() {
     println!("  parse <file.ori>     Parse and display AST info");
     println!("  lex <file.ori>       Tokenize and display tokens");
     println!("  --explain <code>     Explain an error code (e.g., E2001)");
+    println!("  explain idx <n> <f>  Trace the provenance DAG for one type-pool index in a file");
     println!("  help                 Show this help message");
     println!("  version              Show version information");
     println!();

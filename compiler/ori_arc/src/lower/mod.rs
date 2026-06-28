@@ -36,7 +36,7 @@ pub use burden::{
     BorrowedFieldView, Burden, BurdenRef, OwnedFieldView, TransferRuleView, TypeRef,
     VariantBurdenView,
 };
-pub use burden_lookup::{idx_to_type_ref, lookup_burden};
+pub use burden_lookup::{idx_to_type_ref, lookup_burden, type_has_user_drop};
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};

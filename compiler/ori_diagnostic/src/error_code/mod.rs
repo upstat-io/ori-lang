@@ -165,6 +165,7 @@ define_error_codes! {
     E2051, "Cannot assign through a parameter binding";
     E2052, "`EOR_PATTERN_NAME_DIVERGENCE`: or-pattern alternatives bind different variable names";
     E2053, "`EOR_PATTERN_TYPE_DIVERGENCE`: or-pattern alternatives bind a name at different types";
+    E2054, "`EUSE_AFTER_DROP_EARLY`: use of a binding after `drop_early` consumed it";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

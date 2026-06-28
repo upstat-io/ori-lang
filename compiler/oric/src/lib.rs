@@ -71,6 +71,8 @@ pub mod ast_dump;
 pub mod commands;
 pub mod db;
 pub mod debug_flags;
+pub(crate) mod dump_common;
+pub mod dump_orchestrator;
 pub mod imports;
 pub mod input;
 pub mod ir;
