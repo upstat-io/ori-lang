@@ -3,6 +3,7 @@
 //! `Let { Var }` move-alias chains so the move source's last-use `BurdenDec`
 //! is suppressed.
 
+use ori_types::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::emit_rc::block_id;
@@ -11,7 +12,6 @@ use crate::graph::DominatorTree;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::lower::burden::{Burden, TypeRef};
 use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
-use ori_types::TypeRegistry;
 
 use super::{instr_transfer_vars, successor_reachable_blocks};
 

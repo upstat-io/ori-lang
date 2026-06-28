@@ -7,11 +7,12 @@
 //! precomputed analysis maps via `BurdenAnalysisCtx`; emits no lattice
 //! consultation of its own.
 
+use ori_ir::Name;
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::Uniqueness;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue};
-use ori_ir::Name;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::instr_owned_position_transfer_vars;
 use super::ownership_scans::ForwarderReleasePos;

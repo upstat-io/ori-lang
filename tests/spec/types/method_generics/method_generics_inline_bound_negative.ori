@@ -12,6 +12,7 @@
 // Eq/Clone/Debug/Printable which are structural).
 
 #compile_fail(message: "does not satisfy trait bound")
+@method_generics_inline_bound_negative tests _ () -> void = { () }
 
 type Box<T> = { value: T }
 type NonHashable = { x: int }

@@ -8,6 +8,7 @@
 // `diagnostics.len() == 2` for the dual-hole case (T13 in §05.1.2).
 
 #compile_fail(code: "E2005")
+@empty_list_multiple_unannotated tests _ () -> void = { () }
 
 @count_first (xs) -> int = xs.len();
 

@@ -1,5 +1,6 @@
 // Invalid: #repr("c") + #repr("packed") — contradictory combination.
 #compile_fail(code: "E2041", message: "cannot combine")
+@repr_attr_c_packed tests _ () -> void = { () }
 
 #repr("c")
 #repr("packed")

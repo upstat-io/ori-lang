@@ -22,7 +22,7 @@
 //!
 //! Caller-side dec suppression fires based on the CALLER's local Access of
 //! the arg (Owned → suppress; Borrowed → no-op), evaluated in
-//! `should_suppress_apply_aliased_dec` at File 13 (`realize/walk.rs`). The
+//! `should_suppress_apply_aliased_dec` in `realize/walk.rs`. The
 //! callee's contract Access governs only the callee's own RC accounting
 //! (the callee-side compensating Inc on Project'd dst is gated on
 //! Owned-callee in `build_return_project_inc_targets`).
@@ -336,7 +336,7 @@ fn install_alias_entry_inner(
         }
         _ => {
             // Conditional case (E-mat): 2+ Owned params alias the return at
-            // runtime. Suppress all candidates' scope-exit decs at File 13;
+            // runtime. Suppress all candidates' scope-exit decs in `realize/walk.rs`;
             // dst's RC ops are retained as the canonical owner.
             //
             // Phase 4 #6: is_let_var_alias

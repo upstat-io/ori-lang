@@ -7,12 +7,13 @@
 //! RL-2`. Pure structural bookkeeping over `BurdenLowerCtx`'s per-block maps;
 //! no lattice consultation.
 
+use ori_types::TypeRegistry;
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use crate::graph::{compute_postorder, compute_predecessors};
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use crate::lower::burden::{Burden, TypeRef};
 use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
-use ori_types::TypeRegistry;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{instr_transfer_vars, BurdenLowerCtx};
 

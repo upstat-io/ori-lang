@@ -314,7 +314,6 @@ fn find_preceding_comment_start(comments: &CommentList, decl_start: u32) -> Opti
     earliest
 }
 
-/// Format a single declaration.
 fn format_single_declaration<I: StringLookup>(
     module: &Module,
     decl: &DeclInfo,

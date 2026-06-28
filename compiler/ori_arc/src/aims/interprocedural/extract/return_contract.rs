@@ -109,7 +109,6 @@ fn var_is_fresh_self_alloc(
     list_take_name: Name,
     sigs: &FxHashMap<Name, MemoryContract>,
 ) -> bool {
-    use crate::ir::CtorKind;
     if param_vars.contains(&var) {
         return false;
     }
@@ -122,12 +121,8 @@ fn var_is_fresh_self_alloc(
         return false;
     };
     match instr {
-        ArcInstr::Construct {
-            ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-            ..
-        }
-        | ArcInstr::CollectionReuse { .. }
-        | ArcInstr::Reuse { .. } => true,
+        ArcInstr::Construct { ctor, .. } if ctor.is_collection_literal() => true,
+        ArcInstr::CollectionReuse { .. } | ArcInstr::Reuse { .. } => true,
         ArcInstr::Apply { func: callee, .. } => {
             *callee == list_take_name
                 || sigs

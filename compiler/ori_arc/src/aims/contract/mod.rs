@@ -305,7 +305,7 @@ pub struct ParamContract {
     /// = x`). Project case: callee returns a field projection
     /// (`@unwrap<T>(b: Box<T>) -> T = b.inner`).
     ///
-    /// Consumed by File 12's `apply_result_aliases` population at the
+    /// Consumed by the caller-side `apply_result_aliases` population at the
     /// caller's Apply site. Invariant: `transfers_through_return == true`
     /// IFF `return_alias == Some(ReturnAliasShape::Direct)`. Both fields
     /// are derived together in `extract_contract`; downstream callers read

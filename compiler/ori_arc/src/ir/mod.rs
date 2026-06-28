@@ -234,6 +234,20 @@ pub enum CtorKind {
     Closure { func: Name },
 }
 
+impl CtorKind {
+    /// True for the collection-literal constructors (`[..]` / `{k: v}` / `{..}`),
+    /// each lowered to a fresh heap `CollectionBuffer` allocation. Canonical home
+    /// for the `ListLiteral | MapLiteral | SetLiteral` classification consumed by
+    /// the burden-lowering ownership scans.
+    #[must_use]
+    pub fn is_collection_literal(&self) -> bool {
+        matches!(
+            self,
+            CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
+        )
+    }
+}
+
 // Parameters
 
 /// A function parameter in the ARC IR, annotated with ownership.

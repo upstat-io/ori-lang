@@ -1,5 +1,6 @@
 // #repr("aligned", 3) — 3 is not a power of two: must produce E2041.
 #compile_fail(code: "E2041", message: "alignment must be a power of two")
+@repr_attr_aligned_not_power_of_two tests _ () -> void = { () }
 
 #repr("aligned", 3)
 type BadAlign = { value: int }

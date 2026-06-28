@@ -303,7 +303,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a where clause.
     pub(super) fn copy_where_clause(
         &self,
         clause: &WhereClause,

@@ -815,7 +815,7 @@ impl AimsStateMap {
     /// Read-only borrow of the entire Apply-result alias map.
     ///
     /// Consumed by `compute_project_alias_sources` Step 1b (composition with
-    /// the project alias graph) and by File 13's forward-walk
+    /// the project alias graph) and by the `realize/walk.rs` forward-walk
     /// `is_ownership_transfer` / `is_owned_call_position` classification.
     #[must_use]
     pub fn apply_result_aliases(&self) -> &FxHashMap<ArcVarId, ApplyAliasSource> {

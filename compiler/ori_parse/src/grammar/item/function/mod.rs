@@ -76,6 +76,24 @@ impl Parser<'_> {
             self.parse_test_body(name, targets, attrs, start_span)
                 .with_error_context(crate::ErrorContext::TestDef)
         } else {
+            // Test-only attributes (#compile_fail/#fail/#skip) require a
+            // `tests`-marked declaration; a plain function has no field to hold
+            // them, so reject here rather than silently drop them.
+            // Spec: Clause 19.8.
+            if attrs.has_test_only_attrs() {
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        format!(
+                            "{} not supported on a plain function; a test attribute requires a `tests _` / `tests @target` declaration",
+                            attrs.test_only_attr_names()
+                        ),
+                        start_span,
+                    ),
+                    start_span,
+                );
+            }
+
             // Regular function
             // Optional generic parameters: <T, U: Bound>
             let generics = if self.cursor.check(&TokenKind::Lt) {

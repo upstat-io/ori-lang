@@ -123,6 +123,21 @@ impl Parser<'_> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Type) {
+            // Test-only attributes (#compile_fail/#fail/#skip) cannot live on a
+            // type declaration; reject rather than silently drop them. Type
+            // decls legitimately carry #derive/#repr/#target/#cfg, so the
+            // test-only-scoped predicate is used (not has_non_conditional_attrs).
+            // Spec: Clause 19.8.
+            if attrs.has_test_only_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on a type declaration; a `type` cannot host a test attribute",
+                        attrs.test_only_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_type_decl(attrs, visibility);
             self.handle_outcome(
                 outcome,

@@ -123,7 +123,6 @@ pub trait Visitor<'ast> {
         let _ = param;
     }
 
-    /// Visit a match arm.
     fn visit_match_arm(&mut self, arm: &'ast MatchArm, arena: &'ast ExprArena) {
         walk_match_arm(self, arm, arena);
     }

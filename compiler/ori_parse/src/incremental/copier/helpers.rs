@@ -254,7 +254,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a match arm.
     pub(super) fn copy_match_arm(&self, arm: &MatchArm, new_arena: &mut ExprArena) -> MatchArm {
         MatchArm {
             pattern: self.copy_match_pattern(&arm.pattern, new_arena),
@@ -264,7 +263,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a match pattern.
     fn copy_match_pattern(
         &self,
         pattern: &MatchPattern,
@@ -394,7 +392,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a map entry.
     pub(super) fn copy_map_entry(&self, entry: &MapEntry, new_arena: &mut ExprArena) -> MapEntry {
         MapEntry {
             key: self.copy_expr(entry.key, new_arena),

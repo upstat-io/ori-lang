@@ -5,7 +5,8 @@
 // with a type mismatch (E2001), not be silenced by a "fallback to Never"
 // interpretation.
 
-#compile_fail("E2001")
+#compile_fail(code: "E2001")
+@negative_annotation_conflict tests _ () -> void = { () }
 @main () -> int = {
     let empty = [];
     let ints: [int] = empty;

@@ -34,7 +34,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
 /// RL-1 + RL-2 dead-thread orphaned-inc elision. Returns the same-alloc lineage
 /// vars to remove from `owned_vars_needing_rc` (eliding the orphan FRESH-site inc
@@ -234,11 +234,7 @@ fn collect_fresh_collection_roots(
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
-                ArcInstr::Construct {
-                    dst,
-                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-                    ..
-                } => {
+                ArcInstr::Construct { dst, ctor, .. } if ctor.is_collection_literal() => {
                     roots.push(*dst);
                 }
                 ArcInstr::Apply {

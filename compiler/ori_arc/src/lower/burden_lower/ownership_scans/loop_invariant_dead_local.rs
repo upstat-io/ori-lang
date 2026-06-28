@@ -19,7 +19,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 /// `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1` declines the RL-5 release
 /// for a purely-dead loop-invariant fresh-collection local (the bisection
@@ -67,11 +67,11 @@ pub(in crate::lower::burden_lower) fn compute_loop_invariant_dead_local_releases
         .iter()
         .flat_map(|b| b.body.iter())
         .filter_map(|instr| match instr {
-            ArcInstr::Construct {
-                dst,
-                ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-                ..
-            } if owned_vars_needing_rc.contains(dst) => Some(*dst),
+            ArcInstr::Construct { dst, ctor, .. }
+                if ctor.is_collection_literal() && owned_vars_needing_rc.contains(dst) =>
+            {
+                Some(*dst)
+            }
             _ => None,
         })
         .collect();

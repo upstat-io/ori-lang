@@ -7,7 +7,6 @@ use ori_ir::{BindingPattern, MatchPattern, StringLookup};
 use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
-    /// Emit a match pattern.
     #[expect(
         clippy::too_many_lines,
         reason = "exhaustive MatchPattern formatting dispatch"

@@ -2,6 +2,10 @@
 //! classification (incl. string-literal decline), gate declines (owned-position
 //! consume, no-borrowed-invoke), death-point selection, and the toggle skip.
 
+use ori_ir::Name;
+use ori_types::Idx;
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use super::death_point::{
     choose_dead_param_release_site, choose_death_point, choose_no_sink_carrier, DeathPointModes,
 };
@@ -10,9 +14,6 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
     CtorKind, LitValue, ValueRepr,
 };
-use ori_ir::Name;
-use ori_types::Idx;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 fn vv(n: u32) -> ArcVarId {
     ArcVarId::new(n)

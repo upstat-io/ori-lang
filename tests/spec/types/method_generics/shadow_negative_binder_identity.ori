@@ -8,6 +8,7 @@
 // expected MUST be a type error per §05 B.2 line 126.
 
 #compile_fail(message: "type")
+@shadow_negative_binder_identity tests _ () -> void = { () }
 
 type Box<T> = { value: T }
 

@@ -147,7 +147,7 @@ pub(crate) fn compute_project_alias_table(
     //   - Project { arg,.. } → seed alias_sources[apply_dst] = [arg]
     //                          (variable-level only — field info not tracked
     //                          here; field-level discrimination happens at
-    //                          File 13 walk.rs realization)
+    //                          `realize/walk.rs`)
     //   - Conditional { candidates } → seed alias_sources[apply_dst] = candidates
     //                          (multi-root union — dst aliases ONE of N at
     //                          runtime; analysis keeps ALL parents alive)

@@ -646,8 +646,9 @@ mod mixed_declarations {
             "#skip(\"not implemented\")\n@test_something tests @target () -> void = ();",
             // Multiple attributes
             "#derive(Eq)\n#derive(Clone)\ntype Data = { value: int }",
-            // Compile fail attribute
-            "#compile_fail(\"type error\")\n@bad () -> int = \"not an int\";",
+            // Compile fail attribute (test-only attr requires a `tests` host —
+            // a plain-function host is rejected per BUG-07-171 reject_compile_fail_on_function)
+            "#compile_fail(\"type error\")\n@bad tests _ () -> void = { () }",
             // Fail attribute
             "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\");",
         ];

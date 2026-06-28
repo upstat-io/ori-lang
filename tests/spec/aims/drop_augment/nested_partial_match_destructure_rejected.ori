@@ -13,7 +13,8 @@
 //
 // Spec: drop-trait-proposal.md §Execution Timing.
 
-#compile_fail(code: "E2048", message: "partial move on type implementing")
+#compile_fail(code: "E2048")
+@nested_partial_match_destructure_rejected tests _ () -> void = { () }
 
 type Inner = { x: int, y: int }
 

@@ -7,6 +7,7 @@
 // are read — if they were ignored, `T` would infer to `int` from `5` and succeed.
 
 #compile_fail(code: "E2001", message: "cannot use number as string")
+@type_path_turbofish_mismatch tests _ () -> void = { () }
 
 type Box<T> = { value: T }
 

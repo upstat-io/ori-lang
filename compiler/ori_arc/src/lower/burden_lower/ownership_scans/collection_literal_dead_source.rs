@@ -16,14 +16,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, CtorKind};
-
-fn is_collection_literal_ctor(ctor: &CtorKind) -> bool {
-    matches!(
-        ctor,
-        CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
-    )
-}
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
 /// `ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS=1` restores the spurious
 /// source keep-alive inc (the pre-cure +1 leak) for bisection.
@@ -82,7 +75,7 @@ pub(in crate::lower::burden_lower) fn compute_collection_literal_dead_source_sup
             else {
                 continue;
             };
-            if !is_collection_literal_ctor(ctor) {
+            if !ctor.is_collection_literal() {
                 continue;
             }
             for arg in args {

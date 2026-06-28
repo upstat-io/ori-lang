@@ -23,8 +23,7 @@ use crate::ir::{
 
 use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
 use super::super::lattice::{
-    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ReuseCtorKind,
-    ShapeClass, Uniqueness,
+    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
 };
 use super::super::transfer::transfer_def;
 use super::state_map::{AimsEvent, AimsStateMap};
@@ -311,16 +310,9 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
                 continue;
             }
             let shape = match instr {
-                ArcInstr::Construct { ctor, .. } | ArcInstr::Reuse { ctor, .. } => match ctor {
-                    CtorKind::Struct(_) => ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-                    CtorKind::EnumVariant { .. } => {
-                        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant)
-                    }
-                    CtorKind::ListLiteral | CtorKind::SetLiteral | CtorKind::MapLiteral => {
-                        ShapeClass::CollectionBuffer
-                    }
-                    CtorKind::Tuple | CtorKind::Closure { .. } => ShapeClass::NonReusable,
-                },
+                ArcInstr::Construct { ctor, .. } | ArcInstr::Reuse { ctor, .. } => {
+                    crate::aims::transfer::shape_from_ctor(ctor)
+                }
                 ArcInstr::CollectionReuse { .. } => ShapeClass::CollectionBuffer,
                 _ => ShapeClass::NonReusable,
             };

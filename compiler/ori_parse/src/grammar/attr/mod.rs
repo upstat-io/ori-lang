@@ -83,6 +83,7 @@ impl ParsedAttrs {
     /// that only support conditional compilation (imports, constants, impls).
     pub fn has_non_conditional_attrs(&self) -> bool {
         self.skip_reason.is_some()
+            || !self.skip_backends.is_empty()
             || !self.expected_errors.is_empty()
             || self.fail_expected.is_some()
             || !self.derive_traits.is_empty()
@@ -90,11 +91,38 @@ impl ParsedAttrs {
             || self.is_fbip
     }
 
+    /// Returns true if any test-only attribute (`#skip`, `#skip(backend:)`,
+    /// `#compile_fail`, `#fail`) is present. Test-only attributes are valid
+    /// only on a `tests`-marked declaration (Spec: Clause 19.8); on any other
+    /// host they have no field to live in and would be silently dropped.
+    pub fn has_test_only_attrs(&self) -> bool {
+        self.skip_reason.is_some()
+            || !self.skip_backends.is_empty()
+            || !self.expected_errors.is_empty()
+            || self.fail_expected.is_some()
+    }
+
+    /// Returns a comma-separated list of the present test-only attribute names,
+    /// for the E1006 message when a test-only attr is rejected on a non-test host.
+    pub fn test_only_attr_names(&self) -> String {
+        let mut names = Vec::new();
+        if self.skip_reason.is_some() || !self.skip_backends.is_empty() {
+            names.push("#skip");
+        }
+        if !self.expected_errors.is_empty() {
+            names.push("#compile_fail");
+        }
+        if self.fail_expected.is_some() {
+            names.push("#fail");
+        }
+        names.join(", ")
+    }
+
     /// Returns a comma-separated list of human-readable names for attributes
     /// that are not `#target` or `#cfg`. Used in error messages.
     pub fn non_conditional_attr_names(&self) -> String {
         let mut names = Vec::new();
-        if self.skip_reason.is_some() {
+        if self.skip_reason.is_some() || !self.skip_backends.is_empty() {
             names.push("#skip");
         }
         if !self.expected_errors.is_empty() {
@@ -141,6 +169,7 @@ impl ParsedAttrs {
     /// were malformed attributes that didn't parse correctly.
     pub fn is_empty(&self) -> bool {
         self.skip_reason.is_none()
+            && self.skip_backends.is_empty()
             && self.expected_errors.is_empty()
             && self.fail_expected.is_none()
             && self.derive_traits.is_empty()

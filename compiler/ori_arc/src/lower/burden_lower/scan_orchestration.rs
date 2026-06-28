@@ -10,13 +10,13 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ori_ir::Name;
 use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use crate::lower::burden_lookup::type_has_user_drop;
 use crate::ownership::DerivedOwnership;
-use ori_ir::Name;
 
 use super::cow_aliases::compute_cow_inc_and_mutators;
 use super::ctx::BurdenLowerCtx;

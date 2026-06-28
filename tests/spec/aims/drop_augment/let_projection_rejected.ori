@@ -4,7 +4,8 @@
 //
 // Spec: drop-trait-proposal.md §Execution Timing.
 
-#compile_fail(code: "E2048", message: "partial move on type implementing")
+#compile_fail(code: "E2048")
+@let_projection_rejected tests _ () -> void = { () }
 
 type Pair = { a: int, b: int }
 

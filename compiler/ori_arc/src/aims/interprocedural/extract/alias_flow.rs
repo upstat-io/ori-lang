@@ -23,8 +23,8 @@ use super::build_definition_map;
 ///
 /// Used by `detect_param_facts` to produce the per-param shape map that
 /// `extract_contract` writes into `ParamContract::return_alias`. The shape
-/// is then consumed by File 12's `apply_result_aliases` population at the
-/// caller's Apply site .
+/// is then consumed by the caller-side `apply_result_aliases` population at
+/// the Apply site.
 pub(super) fn find_return_alias_shapes(
     func: &ArcFunction,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,

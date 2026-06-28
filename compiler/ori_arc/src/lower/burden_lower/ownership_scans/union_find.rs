@@ -71,13 +71,10 @@ impl ForwarderUnionFind {
                 // Record FRESH heap-buffer dsts: list/map/set literal Constructs
                 // (CollectionBuffer) + `Let { Literal::String }` (heap str body) —
                 // the same dead-block-param over-emission shape, buffer-rooted.
-                if let ArcInstr::Construct {
-                    dst,
-                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-                    ..
-                } = instr
-                {
-                    uf.fresh_collection_construct_dsts.insert(*dst);
+                if let ArcInstr::Construct { dst, ctor, .. } = instr {
+                    if ctor.is_collection_literal() {
+                        uf.fresh_collection_construct_dsts.insert(*dst);
+                    }
                 }
                 if let ArcInstr::Let {
                     dst,

@@ -44,11 +44,9 @@ pub(super) fn collect_fresh_construct_roots(
         for instr in &block.body {
             match instr {
                 // Collection buffers: always heap rc=1, no `owned_vars_needing_rc` gate.
-                ArcInstr::Construct {
-                    dst,
-                    ctor: CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral,
-                    ..
-                } => roots.push(*dst),
+                ArcInstr::Construct { dst, ctor, .. } if ctor.is_collection_literal() => {
+                    roots.push(*dst);
+                }
                 // Sum-aggregate `Construct` + heap str-literal `Let`: heap rc=1
                 // ONLY when the `owned_vars_needing_rc` membership proves an RC
                 // burden (excludes niche-packed scalar sums + SSO strings).

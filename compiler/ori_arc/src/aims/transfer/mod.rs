@@ -549,8 +549,11 @@ pub fn consumed_state() -> AimsState {
 
 // Helpers
 
-/// Map a [`CtorKind`] to a [`ShapeClass`].
-fn shape_from_ctor(ctor: &CtorKind) -> ShapeClass {
+/// Map a [`CtorKind`] to a [`ShapeClass`]. Canonical home for the
+/// ctor-to-shape classification (collection literals → `CollectionBuffer`,
+/// struct/variant → `ReusableCtor`, tuple/closure → `NonReusable`); consumed
+/// by `TF-3` Construct/Reuse transfer and post-convergence shape backfill.
+pub(crate) fn shape_from_ctor(ctor: &CtorKind) -> ShapeClass {
     match ctor {
         CtorKind::Struct(_) => ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
         CtorKind::EnumVariant { .. } => ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),

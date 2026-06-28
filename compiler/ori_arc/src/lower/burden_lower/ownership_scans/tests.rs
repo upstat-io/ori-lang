@@ -986,3 +986,201 @@ fn fresh_to_str_result_owned_arg_position_keeps_inc() {
         "an owned-position transfer keeps the inc: {out:?}"
     );
 }
+
+// compute_collection_literal_dead_source_suppression (RL-1 + RL-2): a fresh
+// owned aggregate fully consumed by (N-1) duplication aliases + 1 move alias
+// into ONE collection-literal Construct is dead-after, so its spurious
+// fresh-site keep-alive inc is suppressed. Gates: (1) owned RC source, (2) >= 2
+// aliases feeding ONE literal, (3) source is a fresh aggregate, (4) every source
+// use is one of those aliases (live-after declines). These IR-level pins
+// distinguish the gate boundaries the `.ori` spec corpus cannot isolate (the
+// fresh-aggregate decline + the split-across-two-literals poison branch).
+// Spec: Annex E §AIMS RL-1 + RL-2.
+
+/// Fresh owned aggregate source: `dst = Construct Tuple []`.
+fn fresh_tuple(dst: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: Vec::new(),
+    }
+}
+
+/// Collection literal consuming `args`: `dst = Construct ListLiteral [args..]`.
+fn list_literal(dst: u32, args: &[u32]) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: ArcVarId::new(dst),
+        ty: Idx::STR,
+        ctor: CtorKind::ListLiteral,
+        args: args.iter().copied().map(ArcVarId::new).collect(),
+    }
+}
+
+fn owned_set(vars: &[u32]) -> FxHashSet<ArcVarId> {
+    vars.iter().copied().map(ArcVarId::new).collect()
+}
+
+fn run_dead_source(func: &ArcFunction, owned: &FxHashSet<ArcVarId>) -> FxHashSet<ArcVarId> {
+    super::compute_collection_literal_dead_source_suppression(func, owned)
+}
+
+/// `%0 = Construct Tuple; %1 = %0; %2 = %0; %3 = ListLiteral[%1, %2]` — `%0`
+/// dead after the literal, two aliases feed ONE literal → suppress `%0`.
+#[test]
+fn dead_source_two_aliases_one_literal_suppressed() {
+    let func = func_of(
+        vec![block(
+            0,
+            Vec::new(),
+            vec![
+                fresh_tuple(0),
+                alias_of(1, 0),
+                alias_of(2, 0),
+                list_literal(3, &[1, 2]),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        )],
+        4,
+    );
+    let out = run_dead_source(&func, &owned_set(&[0]));
+    assert_eq!(
+        out,
+        owned_set(&[0]),
+        "dead-after source fully consumed by 2 literal aliases is suppressed"
+    );
+}
+
+/// Single alias (`[a]`) — `(N-1) = 0` duplications, the lone read MOVES `%0`
+/// into the one slot. Gate 2 (>= 2 aliases) declines.
+#[test]
+fn single_alias_declines() {
+    let func = func_of(
+        vec![block(
+            0,
+            Vec::new(),
+            vec![fresh_tuple(0), alias_of(1, 0), list_literal(2, &[1])],
+            ArcTerminator::Return {
+                value: ArcVarId::new(2),
+            },
+        )],
+        3,
+    );
+    let out = run_dead_source(&func, &owned_set(&[0]));
+    assert!(
+        out.is_empty(),
+        "single-element literal is a move, not a dup: {out:?}"
+    );
+}
+
+/// Source LIVE-after the literal (an extra `Let { Var }` use of `%0`) — the
+/// over-suppression clamp: `%0` keeps its own ref. Gate 4 (use count == alias
+/// count) declines.
+#[test]
+fn source_live_after_declines() {
+    let func = func_of(
+        vec![block(
+            0,
+            Vec::new(),
+            vec![
+                fresh_tuple(0),
+                alias_of(1, 0),
+                alias_of(2, 0),
+                list_literal(3, &[1, 2]),
+                alias_of(4, 0),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        )],
+        5,
+    );
+    let out = run_dead_source(&func, &owned_set(&[0]));
+    assert!(
+        out.is_empty(),
+        "a live-after source keeps its keep-alive inc: {out:?}"
+    );
+}
+
+/// Source is a function PARAM, not a fresh aggregate — Gate 3
+/// (`source_is_fresh_aggregate`) declines (params have their own transfer
+/// machinery).
+#[test]
+fn non_fresh_param_source_declines() {
+    let func = func_of(
+        vec![block(
+            0,
+            vec![(ArcVarId::new(0), Idx::STR)],
+            vec![alias_of(1, 0), alias_of(2, 0), list_literal(3, &[1, 2])],
+            ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        )],
+        4,
+    );
+    let out = run_dead_source(&func, &owned_set(&[0]));
+    assert!(
+        out.is_empty(),
+        "a param source is not a fresh-site inc this scan owns: {out:?}"
+    );
+}
+
+/// Source is a fresh aggregate fully consumed by 2 literal aliases, but NOT in
+/// `owned_vars_needing_rc` — Gate 1 declines (a non-RC-bearing source has no
+/// fresh-site keep-alive inc to suppress). Same IR as the positive pin; only the
+/// owned set differs, so this clamps Gate 1 independently of Gates 2/3/4.
+#[test]
+fn non_owned_source_declines() {
+    let func = func_of(
+        vec![block(
+            0,
+            Vec::new(),
+            vec![
+                fresh_tuple(0),
+                alias_of(1, 0),
+                alias_of(2, 0),
+                list_literal(3, &[1, 2]),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        )],
+        4,
+    );
+    let out = run_dead_source(&func, &owned_set(&[]));
+    assert!(
+        out.is_empty(),
+        "a source absent from owned_vars_needing_rc owes no keep-alive inc: {out:?}"
+    );
+}
+
+/// Aliases of one source split across TWO collection literals — out of scope
+/// (each literal needs its own transfer). The poison branch declines.
+#[test]
+fn aliases_split_across_two_literals_declines() {
+    let func = func_of(
+        vec![block(
+            0,
+            Vec::new(),
+            vec![
+                fresh_tuple(0),
+                alias_of(1, 0),
+                alias_of(2, 0),
+                alias_of(3, 0),
+                list_literal(4, &[1, 2]),
+                list_literal(5, &[3]),
+            ],
+            ArcTerminator::Return {
+                value: ArcVarId::new(4),
+            },
+        )],
+        6,
+    );
+    let out = run_dead_source(&func, &owned_set(&[0]));
+    assert!(
+        out.is_empty(),
+        "a source split across two literals is poisoned: {out:?}"
+    );
+}
