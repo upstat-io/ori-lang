@@ -6984,6 +6984,17 @@ fn compute_dead_owned_collection_releases(
         let nets =
             crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
 
+        // Convergence guard (BUG-04-237): `entry_net` is authoritative only on a
+        // converged result. On `!converged` the nets are stale (freeze-on-disagree
+        // / cap exhaustion), so an alloc-aware-net release decision derived from
+        // them would be non-deterministic. Decline (the verifier reports the
+        // non-convergence as a HARD failure; a missed release is a leak surfaced
+        // there, never a UAF from a wrong release). No-op on every converged
+        // function (Spec: Annex E §AIMS RL-2).
+        if !nets.converged {
+            continue;
+        }
+
         // No-use case (RL-2 unused-owned): a fresh-owned-collection lineage with
         // ZERO uses anywhere (Dead / Absent) has no borrowed-read last-use sink, so
         // the borrowed-read loop below never fires on it — the value would leak (and
@@ -7327,6 +7338,16 @@ fn compute_dead_collection_source_releases(
         }
         let nets =
             crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
+
+        // Convergence guard (BUG-04-237): the dead-sink leak release reads
+        // `entry_net` at the sink; it is authoritative only on a converged
+        // result. On `!converged` (freeze-on-disagree / cap exhaustion) the nets
+        // are stale — decline rather than emit a release off a non-deterministic
+        // net (the verifier reports the non-convergence as a HARD failure).
+        // No-op on every converged function (Spec: Annex E §AIMS RL-2).
+        if !nets.converged {
+            continue;
+        }
 
         for b in 0..func.blocks.len() {
             // The leaked source dies at the DEAD-SINK block for this lineage: it

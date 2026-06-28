@@ -141,6 +141,9 @@ fn violation_exit_kind(func: &ArcFunction, v: &BalanceViolation) -> &'static str
     if v.kind == BalanceViolationKind::MergeDisagree {
         return "merge-disagree";
     }
+    if v.kind == BalanceViolationKind::ConvergenceExhausted {
+        return "convergence-exhausted";
+    }
     match func.blocks[v.block_idx].terminator {
         ArcTerminator::Return { .. } => "return",
         ArcTerminator::Resume => "resume",

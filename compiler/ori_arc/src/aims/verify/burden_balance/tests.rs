@@ -168,6 +168,34 @@ fn burden_dec_partial_balances_inc() {
     );
 }
 
+// BUG-04-237 pin 2 — verify-gate fail-closed on a cyclic non-convergent input.
+// A loop whose body carries a non-zero per-iteration whole-var burden delta has
+// no static entry net; the forward dataflow records the loop-header merge as a
+// disagreement (freeze-on-disagree) and `verify_burden_balance` MUST report a
+// HARD error (fail-closed) rather than silently passing on stale nets. Pre-cure
+// (`balance_verdict` returning `violation: None` on the non-converged path) this
+// returned ZERO errors — the under-verification BUG-04-237 exists to eliminate.
+#[test]
+fn cyclic_nonconvergent_loop_verify_fails_closed() {
+    //   b0 entry  : Jump b1
+    //   b1 header : Branch b2 | b3
+    //   b2 body   : BurdenInc(v0); Jump b1   (back-edge, non-zero cycle delta)
+    //   b3 exit   : Return v0
+    let entry = jump_block(0, Vec::new(), b(1));
+    let header = branch_block(1, b(2), b(3));
+    let body = jump_block(2, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
+    let exit = return_block(3, Vec::new());
+    let func = make_burden_func(vec![entry, header, body, exit]);
+
+    let errors = verify_burden_balance(&func);
+
+    assert!(
+        !errors.is_empty(),
+        "a cyclic non-convergent burden delta MUST fail verification closed, never pass silently; \
+         got: {errors:?}"
+    );
+}
+
 //  TDD matrix — axis-1 Let-Literal slice.
 // Per `TF-3` / TF-1 + Clamping.
 

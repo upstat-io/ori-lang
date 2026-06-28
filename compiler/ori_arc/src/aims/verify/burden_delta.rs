@@ -169,6 +169,12 @@ pub(crate) enum BalanceViolationKind {
     /// A reachable terminal block (`Return` / `Resume` / `Unreachable`)
     /// nets nonzero — function-exit imbalance on a straight-line path.
     TerminalNonZero,
+    /// The forward dataflow exited via the iteration cap without converging
+    /// (`!converged`) AND recorded no merge disagreement — the nets are stale
+    /// and no path-imbalance verdict can be derived from them. Reported as a
+    /// HARD verification failure per `aims-rules.md §5 IC-7` (abort at 100% of
+    /// cap), never silently passed (the fail-closed posture; Spec: Annex E §AIMS).
+    ConvergenceExhausted,
 }
 
 /// First per-var burden-balance violation, with the per-block delta the
@@ -216,13 +222,21 @@ pub(crate) fn balance_verdict(
     }
 
     // The terminal-net check trusts the converged entry nets. When the dataflow
-    // exited via the iteration cap (`!converged`) the nets are stale, so a
-    // `TerminalNonZero` verdict derived from them would be a false positive; the
-    // merge-disagree check above stays sound (disagree blocks are recorded then
-    // frozen, not oscillated).
+    // exited via the iteration cap (`!converged`) without a recorded disagree,
+    // the nets are stale — a `TerminalNonZero` verdict derived from them would be
+    // a false positive, but silently passing (`violation: None`) reinstates the
+    // under-verification this verifier exists to prevent. Report a HARD
+    // `ConvergenceExhausted` violation instead (fail-closed; Spec: Annex E §AIMS,
+    // aims-rules.md §5 IC-7 abort-at-100%-of-cap). The merge-disagree check above
+    // already handled the converged-with-disagree case (frozen, not oscillated),
+    // so this path is the defensive fail-closed for genuine non-convergence.
     if !nets.converged {
         return BalanceVerdict {
-            violation: None,
+            violation: Some(BalanceViolation {
+                kind: BalanceViolationKind::ConvergenceExhausted,
+                block_idx: func.entry.index(),
+                observed_net: 0,
+            }),
             delta,
         };
     }
