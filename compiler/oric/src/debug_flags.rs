@@ -1081,6 +1081,24 @@ flags! {
     /// Usage: `ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION=1 ori build file.ori`
     ORI_DISABLE_COW_TERMINAL_CONCAT_INC_ELISION
 
+    /// Restore the spurious RL-1 source keep-alive `BurdenInc` on a fresh owned
+    /// aggregate fully consumed by `(N-1)` dup-aliases + 1 move alias into ONE
+    /// collection-literal `Construct` (`let held = [a, a]`, `a` dead-after).
+    /// Default (unset): the source's fresh-site inc is suppressed (the dup-alias
+    /// incs already fund the duplicate slots; the last-use alias MOVES the
+    /// source's ref into the Nth slot).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`
+    /// (`compute_collection_literal_dead_source_suppression` in
+    /// `ownership_scans/collection_literal_dead_source.rs`, raw `var`). Defined
+    /// here for documentation and `check-debug-flags.sh` consistency. With the
+    /// toggle set, the duplicate-element aggregate's heap field leaks (rc never
+    /// reaches 0). Bisects a duplicate-element collection-literal aggregate leak
+    /// to this suppression vs the rest of the Phase-5 walk.
+    /// Spec: Annex E §AIMS RL-1 + RL-2.
+    /// Usage: `ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS=1 ori build file.ori`
+    ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS
+
     /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
     /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
     /// w in words yield w`) read via sibling `Let`-Var aliases across two blocks
