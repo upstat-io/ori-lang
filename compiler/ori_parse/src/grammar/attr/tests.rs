@@ -21,8 +21,10 @@ fn test_parsed_attrs_token_capture() {
     let attrs = parser.parse_attributes(&mut errors);
 
     // Should have captured tokens
-    assert!(attrs.has_tokens(), "Expected tokens to be captured");
-    assert!(!attrs.token_range.is_empty());
+    assert!(
+        !attrs.token_range.is_empty(),
+        "Expected tokens to be captured"
+    );
 
     // Verify we can access the captured tokens
     let captured = tokens.get_range(attrs.token_range);
@@ -47,10 +49,9 @@ fn test_parsed_attrs_no_tokens_when_no_attributes() {
 
     // Should NOT have captured tokens (no attributes)
     assert!(
-        !attrs.has_tokens(),
+        attrs.token_range.is_empty(),
         "Should not capture tokens when no attributes"
     );
-    assert!(attrs.token_range.is_empty());
 }
 
 #[test]

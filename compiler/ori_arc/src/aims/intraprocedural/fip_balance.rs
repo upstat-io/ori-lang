@@ -219,15 +219,12 @@ fn compute_block_fip_balance(
         }
     }
 
-    // the
-    // body loop above does not visit `block.terminator`. Invoke is the
-    // only terminator that defines a `dst` variable; before the prior change
-    // an Invoke result's shape was always BOTTOM=NonReusable so missing
-    // it here was harmless. After `populate_call_result_states`
-    // can write `ReusableCtor(_)` to `var_shapes` for an Invoke result
-    // when the callee's `return_info.shape` narrows it; missing this
-    // terminator visit causes consumed reusable Invoke results to be
-    // omitted from the deaths count, miscounting FIP balance.
+    // The body loop above does not visit `block.terminator`. Invoke is the
+    // only terminator that defines a `dst` variable, and
+    // `populate_call_result_states` can write `ReusableCtor(_)` to
+    // `var_shapes` for an Invoke result when the callee's `return_info.shape`
+    // narrows it; skipping the terminator visit would omit consumed reusable
+    // Invoke results from the deaths count, miscounting FIP balance.
     if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
         if !state_map.is_excluded(*dst) {
             let exit_state = state_map.var_state_at_block_exit(block_id, *dst);
@@ -320,8 +317,7 @@ pub(crate) fn populate_fip_gate_events(
         // terminators with `FipContract::Conditional` and Unique args
         // also need FipGate events recorded; the body-only walk skips
         // them. Symmetric to populate_sparse_events' Invoke-terminator
-        // walk added in the prior change + populate_call_result_states'
-        // body+terminator coverage.
+        // walk and populate_call_result_states' body+terminator coverage.
         if let ArcTerminator::Invoke {
             func: callee_name,
             args,

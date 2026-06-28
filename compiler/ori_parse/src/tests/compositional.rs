@@ -647,7 +647,7 @@ mod mixed_declarations {
             // Multiple attributes
             "#derive(Eq)\n#derive(Clone)\ntype Data = { value: int }",
             // Compile fail attribute (test-only attr requires a `tests` host —
-            // a plain-function host is rejected per BUG-07-171 reject_compile_fail_on_function)
+            // a plain-function host is rejected at parse time)
             "#compile_fail(\"type error\")\n@bad tests _ () -> void = { () }",
             // Fail attribute
             "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\");",

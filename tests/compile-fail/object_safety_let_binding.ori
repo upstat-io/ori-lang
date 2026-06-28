@@ -7,6 +7,7 @@ trait Cloneable {
 }
 
 #[compile_fail("cannot be made into an object")]
+@object_safety_let_binding tests _ () -> void = { () }
 @use_clone () -> void = {
     let x: Cloneable = 42;
     print(msg: "done")

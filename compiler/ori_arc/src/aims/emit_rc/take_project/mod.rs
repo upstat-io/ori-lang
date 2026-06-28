@@ -257,10 +257,9 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
 
     // 4. Compute per-source bypass-safe blocks. Each take-project
     //    source gets its OWN bypass-safe set from its own `tp_block`
-    //    alone — no cross-source contamination. This is the key
-    //    change versus which merged `tp_blocks`
-    //    across every source in the same class and took the complement
-    //    of the union, shrinking bypass-safe sets incorrectly.
+    //    alone — no cross-source contamination. Merging `tp_blocks`
+    //    across every source in one class would shrink bypass-safe sets
+    //    incorrectly by complementing the union.
     let source_bypass: Vec<FxHashSet<usize>> = tp_sites
         .iter()
         .map(|&(block_idx, _)| compute_bypass_safe_blocks(func, &[block_idx], &predecessors))

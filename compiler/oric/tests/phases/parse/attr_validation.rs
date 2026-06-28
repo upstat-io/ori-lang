@@ -266,7 +266,7 @@ fn diagnostic_pin_orphan_attr_full_message_before_identifier() {
     );
 }
 
-// Test-only attrs on a plain (non-test) function — BUG-07-171.
+// Test-only attrs on a plain (non-test) function.
 //
 // A test-only attribute (`#compile_fail`/`#fail`/`#skip`) on a plain function
 // has nowhere to live (the `Function` struct carries no `expected_errors`/
@@ -364,7 +364,7 @@ fn accept_skip_backend_on_test() {
     assert!(!output.module.tests[0].skip_backends.is_empty());
 }
 
-// Test-only attrs on a type declaration — BUG-07-171 (second ghost host).
+// Test-only attrs on a type declaration (second ghost host).
 //
 // Type declarations legitimately carry `#derive`/`#repr`/`#target`/`#cfg`, so
 // the type-decl dispatch branch cannot reuse `has_non_conditional_attrs()`

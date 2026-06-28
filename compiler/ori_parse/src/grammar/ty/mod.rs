@@ -180,19 +180,6 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a type and allocate it in the arena, returning its ID.
-    ///
-    /// This is a convenience method for cases where the parsed type
-    /// needs to be stored as an ID (e.g., in lists, maps, functions).
-    #[allow(
-        dead_code,
-        reason = "helper reserved for parsing nested types in future grammar rules"
-    )]
-    pub(crate) fn parse_type_id(&mut self) -> Option<ParsedTypeId> {
-        let ty = self.parse_type()?;
-        Some(self.arena.alloc_parsed_type(ty))
-    }
-
     /// Parse optional generic arguments: `<T, U, ...>`
     /// Returns a range into the arena's type list storage.
     pub(crate) fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {

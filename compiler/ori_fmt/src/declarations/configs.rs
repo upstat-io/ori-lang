@@ -2,7 +2,7 @@
 //!
 //! Formatting for module-level constant definitions.
 
-use crate::comments::{format_comment, CommentIndex};
+use crate::comments::CommentIndex;
 use crate::formatter::Formatter;
 use ori_ir::ast::items::ConstDef;
 use ori_ir::{CommentList, StringLookup, Visibility};
@@ -26,22 +26,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         comment_index: &mut CommentIndex,
     ) {
         for const_def in consts {
-            self.emit_comments_before_const(const_def.span.start, comments, comment_index);
+            self.emit_comments_before(const_def.span.start, comments, comment_index);
             self.format_const(const_def);
-            self.ctx.emit_newline();
-        }
-    }
-
-    fn emit_comments_before_const(
-        &mut self,
-        pos: u32,
-        comments: &CommentList,
-        comment_index: &mut CommentIndex,
-    ) {
-        let indices = comment_index.take_comments_before(pos);
-        for idx in indices {
-            let comment = &comments[idx];
-            self.ctx.emit(&format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }

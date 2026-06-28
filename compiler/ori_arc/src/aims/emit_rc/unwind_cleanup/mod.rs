@@ -91,16 +91,14 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
             .map(|&(var, _)| var)
             .collect();
 
-        // an iterator is live at the Invoke only if its
-        // creation block can reach the Invoke block via CFG forward
-        // edges. The previous check (`create_block <= invoke_block_idx`)
-        // was block-ordering, not reachability — on a branched CFG a
-        // sibling branch's earlier-numbered creation block could be
-        // treated as live at an Invoke it can never reach, leading to
-        // spurious `ori_iter_drop` synthesis on the unwind edge for
-        // a variable that is uninitialized at that point. Use the
-        // same `can_reach` BFS as the drop-covering filter above so
-        // both filters speak the same semantics.
+        // An iterator is live at the Invoke only if its creation block can
+        // reach the Invoke block via CFG forward edges. A block-ordering
+        // check (`create_block <= invoke_block_idx`) is unsound — on a
+        // branched CFG a sibling branch's earlier-numbered creation block
+        // would be treated as live at an Invoke it can never reach, yielding
+        // spurious `ori_iter_drop` synthesis on the unwind edge for a
+        // variable uninitialized at that point. Use the same `can_reach` BFS
+        // as the drop-covering filter above so both filters share semantics.
         let live_iters: Vec<ArcVarId> = iter_create
             .iter()
             .filter(|&&(dst, create_block)| {

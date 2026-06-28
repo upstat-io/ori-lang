@@ -11,12 +11,14 @@ use crate::Parser;
 impl Parser<'_> {
     // Context Management
     //
-    // These methods support context-sensitive parsing. Some are not yet used
-    // internally but are part of the public API for parser extensions and testing.
+    // These methods support context-sensitive parsing. `with_context` and
+    // `allows_struct_lit` drive production grammar; the test-only helpers
+    // (`context`, `without_context`, `has_context`) are exercised by tests only.
 
     /// Get the current parsing context.
+    // test-only
+    #[cfg(test)]
     #[inline]
-    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn context(&self) -> ParseContext {
         self.context
     }
@@ -53,8 +55,9 @@ impl Parser<'_> {
     ///     p.parse_expr()
     /// })?;
     /// ```
+    // test-only
+    #[cfg(test)]
     #[inline]
-    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn without_context<T, F>(&mut self, remove: ParseContext, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
@@ -67,8 +70,9 @@ impl Parser<'_> {
     }
 
     /// Check if a context flag is set.
+    // test-only
+    #[cfg(test)]
     #[inline]
-    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn has_context(&self, flag: ParseContext) -> bool {
         self.context.has(flag)
     }
@@ -79,14 +83,8 @@ impl Parser<'_> {
         self.context.allows_struct_lit()
     }
 
-    // Error Context
-    //
-    // These methods support Elm-style error context for better error messages.
-    // `ErrorContext` describes what was being parsed when an error occurred,
-    // enabling messages like "while parsing an if expression".
-    //
-    // Note: This is distinct from `ParseContext` (the bitfield for context-sensitive
-    // parsing behavior like NO_STRUCT_LIT).
+    // Error context (distinct from `ParseContext`): wraps hard errors with a
+    // "while parsing X" annotation via `ErrorContext`.
 
     /// Execute a parser and wrap any hard errors with context.
     ///

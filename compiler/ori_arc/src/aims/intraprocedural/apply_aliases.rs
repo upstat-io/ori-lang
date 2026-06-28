@@ -298,14 +298,11 @@ fn install_alias_entry_inner(
                 // occur post type-check; skip defensively.
                 return;
             };
-            // Phase 4 #6: the is_let_var_alias
-            // filter was REMOVED. Let aliases are now in the union-find
-            // directly via build_let_alias_map, so class structure subsumes
-            // the protection this filter previously provided. Removing the
-            // filter unites caller-arg and result classes for identity
-            // functions (e.g., id<T>(x: T) -> T), preventing PIN-6 from
-            // spuriously recording a payload-of edge and then over-
-            // suppressing the child class's dec.
+            // Let aliases live in the union-find directly via
+            // build_let_alias_map, so class structure unites caller-arg and
+            // result classes for identity functions (e.g., id<T>(x: T) -> T),
+            // preventing PIN-6 from spuriously recording a payload-of edge and
+            // then over-suppressing the child class's dec.
             let alias_shape_opt = contract.params[param_idx].return_alias;
             let contains = contract.params[param_idx].return_payload_contains_param;
             let entry = if force_wrapped {

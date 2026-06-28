@@ -76,16 +76,44 @@ pub struct ParsedAttrs {
     pub token_range: TokenCapture,
 }
 
+/// Representation attribute values.
+///
+/// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.
+#[derive(Clone, Debug)]
+pub enum ReprAttr {
+    /// `#repr("c")` - C-compatible layout
+    C,
+    /// `#repr("packed")` - No padding between fields
+    Packed,
+    /// `#repr("transparent")` - Same representation as single field
+    Transparent,
+    /// `#repr("aligned", N)` - Minimum alignment (power of two)
+    Aligned(u64),
+}
+
+/// Kind of attribute being parsed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AttrKind {
+    Skip,
+    CompileFail,
+    Fail,
+    Derive,
+    Repr,
+    Target,
+    Cfg,
+    Fbip,
+    Unknown,
+}
+
+// TargetAttr and CfgAttr are defined in ori_ir and imported above.
+
 impl ParsedAttrs {
     /// Returns true if any attributes besides `#target` and `#cfg` are present.
     ///
     /// Used to validate that non-conditional attrs aren't placed on items
     /// that only support conditional compilation (imports, constants, impls).
     pub fn has_non_conditional_attrs(&self) -> bool {
-        self.skip_reason.is_some()
-            || !self.skip_backends.is_empty()
-            || !self.expected_errors.is_empty()
-            || self.fail_expected.is_some()
+        self.has_test_only_attrs()
             || !self.derive_traits.is_empty()
             || !self.repr_attrs.is_empty()
             || self.is_fbip
@@ -102,9 +130,10 @@ impl ParsedAttrs {
             || self.fail_expected.is_some()
     }
 
-    /// Returns a comma-separated list of the present test-only attribute names,
-    /// for the E1006 message when a test-only attr is rejected on a non-test host.
-    pub fn test_only_attr_names(&self) -> String {
+    /// The present test-only attribute names as a list. Canonical source for
+    /// both [`Self::test_only_attr_names`] and the test-only prefix of
+    /// [`Self::non_conditional_attr_names`].
+    fn test_only_attr_name_list(&self) -> Vec<&'static str> {
         let mut names = Vec::new();
         if self.skip_reason.is_some() || !self.skip_backends.is_empty() {
             names.push("#skip");
@@ -115,22 +144,19 @@ impl ParsedAttrs {
         if self.fail_expected.is_some() {
             names.push("#fail");
         }
-        names.join(", ")
+        names
+    }
+
+    /// Returns a comma-separated list of the present test-only attribute names,
+    /// for the E1006 message when a test-only attr is rejected on a non-test host.
+    pub fn test_only_attr_names(&self) -> String {
+        self.test_only_attr_name_list().join(", ")
     }
 
     /// Returns a comma-separated list of human-readable names for attributes
     /// that are not `#target` or `#cfg`. Used in error messages.
     pub fn non_conditional_attr_names(&self) -> String {
-        let mut names = Vec::new();
-        if self.skip_reason.is_some() || !self.skip_backends.is_empty() {
-            names.push("#skip");
-        }
-        if !self.expected_errors.is_empty() {
-            names.push("#compile_fail");
-        }
-        if self.fail_expected.is_some() {
-            names.push("#fail");
-        }
+        let mut names = self.test_only_attr_name_list();
         if !self.derive_traits.is_empty() {
             names.push("#derive");
         }
@@ -142,62 +168,15 @@ impl ParsedAttrs {
         }
         names.join(", ")
     }
-}
 
-/// Representation attribute values.
-///
-/// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.
-#[derive(Clone, Debug)]
-pub enum ReprAttr {
-    /// `#repr("c")` - C-compatible layout
-    C,
-    /// `#repr("packed")` - No padding between fields
-    Packed,
-    /// `#repr("transparent")` - Same representation as single field
-    Transparent,
-    /// `#repr("aligned", N)` - Minimum alignment (power of two)
-    Aligned(u64),
-}
-
-// TargetAttr and CfgAttr are defined in ori_ir and imported above.
-
-impl ParsedAttrs {
     /// Returns true if no attributes are set.
     ///
     /// Note: This checks semantic content, not token capture.
     /// An empty `ParsedAttrs` may still have `token_range` set if there
     /// were malformed attributes that didn't parse correctly.
     pub fn is_empty(&self) -> bool {
-        self.skip_reason.is_none()
-            && self.skip_backends.is_empty()
-            && self.expected_errors.is_empty()
-            && self.fail_expected.is_none()
-            && self.derive_traits.is_empty()
-            && self.repr_attrs.is_empty()
-            && self.target.is_none()
-            && self.cfg.is_none()
-            && !self.is_fbip
+        !self.has_non_conditional_attrs() && self.target.is_none() && self.cfg.is_none()
     }
-
-    /// Returns true if any tokens were captured for attributes.
-    #[allow(dead_code, reason = "API for formatters and IDE integration")]
-    pub fn has_tokens(&self) -> bool {
-        !self.token_range.is_empty()
-    }
-}
-
-/// Kind of attribute being parsed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AttrKind {
-    Skip,
-    CompileFail,
-    Fail,
-    Derive,
-    Repr,
-    Target,
-    Cfg,
-    Fbip,
-    Unknown,
 }
 
 impl AttrKind {

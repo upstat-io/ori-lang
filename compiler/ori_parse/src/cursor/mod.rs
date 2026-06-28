@@ -198,19 +198,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Peek at the next token (one-token lookahead).
-    /// Returns the EOF token if at the end of the stream.
-    pub fn peek_next_token(&self) -> &Token {
-        self.tokens
-            .get(self.pos + 1)
-            .unwrap_or(&self.tokens[self.tokens.len() - 1])
-    }
-
-    /// Get the next token's span.
-    pub fn peek_next_span(&self) -> Span {
-        self.peek_next_token().span
-    }
-
     /// Check if the next token is adjacent to the current one (no whitespace).
     ///
     /// Uses the pre-computed `TokenFlags::ADJACENT` flag from the lexer,

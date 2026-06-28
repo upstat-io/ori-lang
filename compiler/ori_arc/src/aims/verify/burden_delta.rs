@@ -10,6 +10,9 @@
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 
+#[cfg(test)]
+mod tests;
+
 /// Whole-var burden-dec variant target, or `None` for a non-dec instruction
 /// or the field-grain `BurdenDecField`.
 ///
@@ -38,6 +41,10 @@ pub(crate) struct BurdenEntryNets {
     /// Merge points where predecessors exit with divergent nets, paired with
     /// one observed divergent exit value (for imbalance reporting).
     pub disagree_blocks: Vec<(usize, i64)>,
+    /// `true` iff the dataflow reached a fixed point (`!changed`); `false` iff
+    /// it exited via the iteration cap. The imbalance verdict (`disagree_blocks`)
+    /// is sound only on a converged result.
+    pub converged: bool,
 }
 
 /// Worklist forward dataflow over per-block burden `delta` (from
@@ -90,7 +97,15 @@ pub(crate) fn compute_burden_entry_nets(
                 }
             }
             if let Some(c) = chosen {
-                if entry_net[b] != Some(c) {
+                // Freeze-on-disagree: once a merge block holds a defined net AND
+                // has been recorded as a disagreement, its entry net is final.
+                // Without the freeze, a back-edge predecessor's per-iteration
+                // growing net keeps re-selecting `chosen`, so the block never
+                // stabilizes and the loop oscillates to the iteration cap
+                // regardless of predecessor order.
+                let frozen =
+                    entry_net[b].is_some() && disagree_blocks.iter().any(|(db, _)| *db == b);
+                if !frozen && entry_net[b] != Some(c) {
                     entry_net[b] = Some(c);
                     changed = true;
                 }
@@ -119,6 +134,7 @@ pub(crate) fn compute_burden_entry_nets(
     BurdenEntryNets {
         entry_net,
         disagree_blocks,
+        converged: !changed,
     }
 }
 
@@ -195,6 +211,18 @@ pub(crate) fn balance_verdict(
                 block_idx,
                 observed_net,
             }),
+            delta,
+        };
+    }
+
+    // The terminal-net check trusts the converged entry nets. When the dataflow
+    // exited via the iteration cap (`!converged`) the nets are stale, so a
+    // `TerminalNonZero` verdict derived from them would be a false positive; the
+    // merge-disagree check above stays sound (disagree blocks are recorded then
+    // frozen, not oscillated).
+    if !nets.converged {
+        return BalanceVerdict {
+            violation: None,
             delta,
         };
     }

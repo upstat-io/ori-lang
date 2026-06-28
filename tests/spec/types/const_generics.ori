@@ -31,7 +31,7 @@
 // =============================================================================
 
 // Integer literal / const-param in type-argument position: `Array<int, N>` is
-// NOT yet implemented and currently fails type-checking with E2001 (BUG-07-038).
+// NOT yet implemented and currently fails type-checking with E2001.
 // This negative pin asserts the current unimplemented state; it flips (module
 // compiles) when Array lands, prompting conversion to a positive test.
 #compile_fail(code: "E2001")

@@ -7,7 +7,7 @@
 # Runs every diagnostic script on fixture programs, verifying expected
 # output patterns (not exact match). Reports pass/fail per script per fixture.
 #
-# Fixtures: 20 entries (11 pass, 5 aims-heavy, 3 expected-fail, 1 infra).
+# Fixtures span pass, aims-heavy, expected-fail, and infra categories.
 # See diagnostics/fixtures/FIXTURES.md for the canonical fixture list and
 # self-test contracts per category.
 #
@@ -499,6 +499,14 @@ else
 fi
 echo ""
 
+# ─── alive2-verify.sh modellability content-scan ──────────────────
+# Runs UNCONDITIONALLY — the --classify-function content-scan needs no alive-tv
+# and no compiler build, so this regression gate is live in CI.
+printf "${C_BOLD}alive2-verify.sh classify-modellability${C_NC}\n"
+run_test "classify-modellability matrix (self-verified cell count, no alive-tv)" \
+    bash "$ROOT_DIR/tests/alive2/test-classify-modellability.sh"
+echo ""
+
 # ─── alive2-verify.sh ─────────────────────────────────────────────
 # Only run if alive-tv is available (not in CI by default)
 if [[ -x "$ROOT_DIR/build/alive2/alive-tv" ]]; then
@@ -536,7 +544,7 @@ if command -v jq >/dev/null 2>&1; then
     export ORI_BASELINES_FILE="$BL_TMP/baselines.json"
     # Isolate the baseline self-test from the real aims-burden floor: an empty
     # floor file keeps these synthetic-id regression/fix assertions independent
-    # of diagnostics/baseline_failing_ids.txt membership (BUG-07-263 cure).
+    # of diagnostics/baseline_failing_ids.txt membership.
     : > "$BL_TMP/floor.txt"
     export ORI_BASELINE_FLOOR_FILE="$BL_TMP/floor.txt"
     cat > "$ORI_STATE_FILE" <<'BLJSON'

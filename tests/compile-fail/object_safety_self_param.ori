@@ -6,5 +6,6 @@ trait Eq {
 }
 
 #[compile_fail("cannot be made into an object")]
+@object_safety_self_param tests _ () -> void = { () }
 @compare (a: Eq, b: Eq) -> void =
     print(msg: "comparing");

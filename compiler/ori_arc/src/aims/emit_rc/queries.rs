@@ -78,8 +78,8 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
         // Phi-edge propagation: Jump args map to target block params.
         // A block param may receive values from multiple predecessors
         // (e.g., loop header from entry + back-edge). If ANY source is
-        // incremented, the param inherits the flag. We use alias_edges
-        // for single-source cases and direct insertion for multi-source.
+        // incremented, the param inherits the flag. Single-source cases
+        // record an `alias_edges` entry; multi-source uses direct insertion.
         if let ArcTerminator::Jump { target, args } = &block.terminator {
             let target_idx = target.index();
             if target_idx < func.blocks.len() {
