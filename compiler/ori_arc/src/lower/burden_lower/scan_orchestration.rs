@@ -26,13 +26,14 @@ use super::moved_fields::{
 };
 use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
-    compute_branch_exclusive_edge_releases, compute_cow_terminal_concat_inc_dsts,
-    compute_dead_forwarder_block_param_releases, compute_dead_owned_param_branch_releases,
-    compute_fresh_call_result_borrowed_arg_inc_dsts, compute_genuine_dup_move_aliases,
-    compute_live_out_owned, compute_loop_invariant_dead_local_releases,
-    compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,
-    compute_reassign_rebind_releases, compute_rebuild_lineage_dead_param_releases,
-    compute_sharing_view_surplus_inc_dsts, compute_sum_payload_iter_consume_dup_inc_suppression,
+    compute_branch_exclusive_edge_releases, compute_collection_literal_dead_source_suppression,
+    compute_cow_terminal_concat_inc_dsts, compute_dead_forwarder_block_param_releases,
+    compute_dead_owned_param_branch_releases, compute_fresh_call_result_borrowed_arg_inc_dsts,
+    compute_genuine_dup_move_aliases, compute_live_out_owned,
+    compute_loop_invariant_dead_local_releases, compute_multi_borrow_view_alias_surplus,
+    compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
+    compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
+    compute_sum_payload_iter_consume_dup_inc_suppression,
     compute_transfer_through_return_param_vars, compute_transfer_through_return_results,
     compute_transfer_via_move_alias, compute_ttr_iter_consume_dup_aliases,
     compute_use_counts_and_dup_aliases, compute_yield_identity_push_dup_args, instr_transfer_vars,
@@ -296,6 +297,19 @@ pub(crate) fn emit_burden_ops<'a>(
     // the FRESH-site inc. A value transferred at a NON-last use (aliased, still
     // live) keeps its Inc — its dec is emitted at the later non-transfer use.
     inc_suppressed_vars.extend(full_move_vars.iter().copied());
+    // RL-1 collection-literal dead-source suppression: a fresh owned aggregate
+    // fully consumed by (N-1) duplication aliases + 1 last-use move alias into a
+    // collection-literal `Construct` (`[a, a]`) is transferred at its last use
+    // through the move alias — its fresh-site keep-alive `BurdenInc` is the
+    // spurious +1 (the dup-alias incs already fund the duplicate slots). Extends
+    // the RL-2 transfer-suppression symmetry above to the one-hop-alias case.
+    // Empty when `ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS=1`.
+    // Spec: Annex E §AIMS RL-1 + RL-2.
+    inc_suppressed_vars.extend(
+        compute_collection_literal_dead_source_suppression(func, &owned_vars_needing_rc)
+            .iter()
+            .copied(),
+    );
     // RL-1 keeper inc-suppression: the assigned keeper's whole `burden_dec` at
     // last use is the designated balancing release for its dup INTERMEDIATE's
     // kept inc; the keeper's own FRESH-site dup-alias inc is therefore
