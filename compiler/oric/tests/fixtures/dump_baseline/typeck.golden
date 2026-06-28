@@ -1,0 +1,16 @@
+=== Typed IR after typeck: <FIXTURE> ===
+  9 expressions, 10 functions, 8 types, 0 errors
+
+Type Wrap
+Function @main () -> int
+  Block : int
+    Let a : Wrap<Wrap<int>> =
+      Struct Wrap : Wrap<Wrap<int>>
+        inner:
+          Struct Wrap : Wrap<int>
+            inner:
+              Int(7) : int
+    Field .inner : int
+      Field .inner : Wrap<int>
+        Ident(a) : Wrap<Wrap<int>>
+=== END Typed IR ===

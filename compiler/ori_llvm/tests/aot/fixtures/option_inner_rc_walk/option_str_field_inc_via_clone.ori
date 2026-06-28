@@ -1,0 +1,11 @@
+#derive(Clone)
+type Holder = { f: Option<str> }
+@mk (b: bool) -> Option<str> = if b then Some("hi") else None;
+@use1 (h: Holder) -> int = 1;
+@main () -> void = {
+    let h = Holder { f: mk(b: true) };
+    let h2 = h.clone();
+    let a = use1(h: h);
+    let b = use1(h: h2);
+    print(msg: "c")
+}

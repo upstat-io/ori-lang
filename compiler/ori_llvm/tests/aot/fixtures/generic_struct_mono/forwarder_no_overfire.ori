@@ -1,0 +1,16 @@
+// Negative over-fire pin — a fully-generic forwarder over a generic struct.
+// The is_fully_concrete gate must still register the CONCRETE Box<int>
+// resolution for the call site while never caching a wrong-layout resolution
+// for the still-generic forwarder body. Build clean + correct value = pin.
+use std.testing { assert_eq }
+
+type Box<T> = { val: T }
+
+@id<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let $b = Box { val: 5 };
+    let $r = id(x: b);
+    assert_eq(actual: r.val, expected: 5);
+    0
+}

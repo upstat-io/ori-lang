@@ -1,0 +1,10 @@
+type Inner = { s: str }
+type Holder = { f: Option<Inner> }
+@mk (b: bool) -> Option<Inner> = if b then Some(Inner { s: "hi" }) else None;
+@consume (h: Holder) -> void = {
+    print(msg: "c")
+}
+@main () -> void = {
+    let h = Holder { f: mk(b: true) };
+    consume(h: h)
+}

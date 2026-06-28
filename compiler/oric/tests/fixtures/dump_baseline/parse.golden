@@ -1,0 +1,14 @@
+=== AST after parse: <FIXTURE> ===
+Type Wrap
+Function @main () -> TypeId::INT
+  Block
+    Let a =
+      Struct Wrap
+        inner:
+          Struct Wrap
+            inner:
+              Int(7)
+    Field .inner
+      Field .inner
+        Ident(a)
+=== END AST ===

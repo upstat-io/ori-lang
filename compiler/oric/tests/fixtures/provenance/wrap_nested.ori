@@ -1,0 +1,6 @@
+type Wrap<T> = { inner: T }
+
+@main () -> int = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    a.inner.inner
+}

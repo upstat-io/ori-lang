@@ -1,0 +1,14 @@
+// Cell 2 — generic struct with heap (RC-bearing) fields. The field IS
+// RC-bearing, so drop must dec it exactly once (no leak, no double-free).
+// Run under ORI_CHECK_LEAKS=1 by the harness.
+use std.testing { assert_eq }
+
+type Box<T> = { val: T }
+
+@main () -> int = {
+    let $bs = Box { val: "hello" };
+    let $bl = Box { val: [1, 2, 3] };
+    assert_eq(actual: bs.val, expected: "hello");
+    assert_eq(actual: bl.val.len(), expected: 3);
+    0
+}
