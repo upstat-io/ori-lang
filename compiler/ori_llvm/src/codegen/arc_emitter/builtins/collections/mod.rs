@@ -580,7 +580,13 @@ declare_builtins! { emitter, ctx;
     },
     ("Set", "iter") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_set_iter(ctx.arg_vals[0], *element)
+            // receiver_owned mirrors the list path's owns_data (above): a borrowed-
+            // rooted Set receiver (e.g. a generic by-value `Set<T>` param AIMS infers
+            // `[borrow]`) got no callee inc, so the set-buffer dec inside emit_set_iter
+            // must be skipped (the caller owns + frees it). An owned receiver → dec.
+            let receiver_owned = !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
+                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]);
+            emitter.emit_set_iter(ctx.arg_vals[0], *element, receiver_owned)
         } else {
             None
         }

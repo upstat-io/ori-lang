@@ -584,6 +584,26 @@ flags! {
     /// Usage: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1 ori build file.ori`
     ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE
 
+    /// Decline the Phase-6.695 RL-4 both-edge release for an OWNED CLOSURE value
+    /// borrowed at a terminator-`Invoke`/`InvokeIndirect` arg (`xs.fold(init,
+    /// op)` — the `op` closure), dead at both successors, whose Phase-5 release
+    /// the base walk placed as an inline self-canceling `BurdenInc`/`BurdenDec`
+    /// pair in the call block.
+    ///
+    /// Default (unset): the inline net-0 pair is REMOVED and one `BurdenDec` is
+    /// placed at the front of BOTH successor edges (born rc=1 → one release per
+    /// dead edge); removing the pair makes Phase-6.98 a no-op for the rep (no
+    /// double unwind dec). With the toggle set, the inline pair stays (coalesced
+    /// away → the closure env leaks on the normal path). The borrowed-CLOSURE
+    /// analog of `ORI_DISABLE_BORROWED_TERMINATOR_ARG_*` (the collection case).
+    ///
+    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined
+    /// here for documentation and `check-debug-flags.sh` consistency. Bisects a
+    /// borrowed-closure-arg leak to this relocation vs the rest of the Phase-6
+    /// strip pipeline. Spec: Annex E §AIMS RL-2 + RL-4.
+    /// Usage: `ORI_DISABLE_BORROWED_TERMINATOR_CLOSURE_ARG_RELOCATION=1 ori build file.ori`
+    ORI_DISABLE_BORROWED_TERMINATOR_CLOSURE_ARG_RELOCATION
+
     /// Restore the inline last-use dec for a SOLE-CARRIER borrowed-`Invoke`
     /// alias (`compute_sole_carrier_borrowed_invoke_aliases` returns empty):
     /// the lineage's single release lands BEFORE the borrowed terminator that

@@ -22,6 +22,7 @@ pub mod burden_store_dup;
 pub mod burden_yield_identity_push_dup;
 pub mod cli;
 pub mod closure_drop;
+pub mod closure_fold_edge_dec_probe;
 pub mod coalesce;
 pub mod codegen;
 pub mod collections_ext;

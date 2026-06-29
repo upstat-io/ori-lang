@@ -43,6 +43,59 @@ impl Lowerer<'_> {
         can_id
     }
 
+    /// Iterable->Iterator desugar. When the type checker routed a
+    /// method call through the iterator surface (a Set/Iterable pipeline method
+    /// the receiver does not have natively), synthesize `recv.iter()` and return
+    /// it as the new receiver paired with the materialized iterator type, so both
+    /// method-call lowering paths thread it identically. Making the iterator a
+    /// real `MethodCall` IR node lets AIMS realize its RC correctly (vs a
+    /// backend-hidden materialization that double-frees element-extracting
+    /// consumers like `find`). Returns `None` when the call was not routed.
+    pub(crate) fn lower_iter_routed_receiver(
+        &mut self,
+        receiver: ExprId,
+        span: Span,
+    ) -> Option<(CanId, Option<ori_types::Idx>)> {
+        let iter_idx = self.typed.resolve_iter_route(receiver)?;
+        let iter_ty = TypeId::from_raw(iter_idx.raw());
+        let lowered_receiver = self.lower_expr(receiver);
+        let iter_name = self.interner.intern("iter");
+        let empty_args = self.arena.push_expr_list(&[]);
+        let iter_call = self.push(
+            CanExpr::MethodCall {
+                receiver: lowered_receiver,
+                method: iter_name,
+                args: empty_args,
+            },
+            span,
+            iter_ty,
+        );
+        // The `receiver_ty` the callers thread into `resolve_method_params` is the
+        // pool `Idx` form (matching `typed.expr_type`), NOT the node `TypeId`.
+        Some((iter_call, Some(iter_idx)))
+    }
+
+    /// Lower a method-call receiver, threading the Iterable->Iterator route
+    /// when the type checker recorded one, else lowering the plain
+    /// receiver. Returns the lowered receiver node paired with the `Idx`-form
+    /// receiver type both method-call lowering paths feed into
+    /// `resolve_method_params`. Single home for the route-or-fallback the
+    /// positional (`lower_method_call`) and named (`lower_method_call_named`)
+    /// paths share.
+    pub(crate) fn lower_method_receiver(
+        &mut self,
+        receiver: ExprId,
+        span: Span,
+    ) -> (CanId, Option<ori_types::Idx>) {
+        match self.lower_iter_routed_receiver(receiver, span) {
+            Some(routed) => routed,
+            None => (
+                self.lower_expr(receiver),
+                self.typed.expr_type(receiver.index()),
+            ),
+        }
+    }
+
     /// Lower a method call with positional args.
     ///
     /// Performs type-directed specialization for `collect()`: when the type
@@ -78,9 +131,9 @@ impl Lowerer<'_> {
         }
         // Capture the SOURCE receiver's resolved type before `receiver` is shadowed
         // by its lowered CanId — used to disambiguate same-named methods across impls
-        // so each receiver fills its own defaults.
-        let receiver_ty = self.typed.expr_type(receiver.index());
-        let receiver = self.lower_expr(receiver);
+        // so each receiver fills its own defaults. A routed call threads
+        // `recv.iter()` as the receiver (typed as the iterator).
+        let (receiver, receiver_ty) = self.lower_method_receiver(receiver, span);
         // Same positional/zero-arg default-fill as lower_call: a method
         // called with a defaulted parameter omitted positionally must fill the
         // default so the AOT/LLVM call arity matches the method signature.

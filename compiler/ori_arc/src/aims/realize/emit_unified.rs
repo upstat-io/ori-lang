@@ -637,6 +637,26 @@ fn emit_burden_path_probe_tail(
         interner,
     );
 
+    // Phase 6.695 — RL-4 both-edge release for an owned closure borrowed at a
+    // terminator-`Invoke` arg (`xs.fold(init, op)` — the `op` closure), whose
+    // Phase-5 release the base walk placed as an inline self-cancelling
+    // `BurdenInc`/`BurdenDec` pair (coalesced away → normal-path leak; Phase-6.98
+    // covers only the unwind edge). Runs AFTER 6.69 (so 6.69 still skips via the
+    // intact pair) and BEFORE 6.98 (removing the pair makes 6.98 a no-op for this
+    // rep). Spec: Annex E §AIMS RL-2 + RL-4.
+    relocate_borrowed_terminator_closure_arg_dec_to_edges(
+        func,
+        pool,
+        interner,
+        contracts,
+        all_borrowed_defs,
+    );
+    trace_phase_snapshot(
+        "after_phase_6_695_borrowed_terminator_closure_arg_edge",
+        func,
+        interner,
+    );
+
     // Step-B' RL-5 release of a genuinely-leaked OWNED collection-source whose
     // lineage flows (as a Jump-arg) into a block param dead at a normal terminal
     // (loop-exit / Return) and is never freed there (e.g. `m.keys()` /
@@ -4129,6 +4149,200 @@ fn closure_lineage_transferred_out(
         }
     }
     false
+}
+
+/// Detection half of Phase-6.695: returns `(closure_var, normal, unwind)` when
+/// `block`'s terminator-`Invoke`/`InvokeIndirect` borrows an owned closure arg that
+/// matches the relocation gate (the over-fire boundary documented on
+/// [`relocate_borrowed_terminator_closure_arg_dec_to_edges`]); `None` declines.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "gather gates read the function's params, borrowed-def set, \
+              iter-element-def set, callee contracts, and jump-threaded reps"
+)]
+fn closure_arg_relocation_for_block(
+    func: &ArcFunction,
+    block: &ArcBlock,
+    pool: &Pool,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    params: &FxHashSet<ArcVarId>,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    iter_element_defs: &FxHashSet<ArcVarId>,
+    jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    b: usize,
+) -> Option<(ArcVarId, usize, usize)> {
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let (args, arg_ownership, normal, unwind, callee): (_, _, usize, usize, Option<Name>) =
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                args,
+                arg_ownership,
+                normal,
+                unwind,
+                func: callee,
+                ..
+            } => (
+                args,
+                arg_ownership,
+                normal.index(),
+                unwind.index(),
+                Some(*callee),
+            ),
+            ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                normal,
+                unwind,
+                ..
+            } => (args, arg_ownership, normal.index(), unwind.index(), None),
+            _ => return None,
+        };
+    for (i, &arg) in args.iter().enumerate() {
+        let arg_borrowed = arg_ownership
+            .get(i)
+            .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+        if !arg_borrowed
+            || params.contains(&arg)
+            || all_borrowed_defs.contains(&arg)
+            || iter_element_defs.contains(&arg)
+            || !is_owned_closure_value(arg, func, pool)
+        {
+            continue;
+        }
+        // The call block must carry BOTH the inline net-0 BurdenInc + BurdenDec for
+        // this exact var (the base-walk spurious self-cancelling pair).
+        let has_inc = block
+            .body
+            .iter()
+            .any(|ins| matches!(ins, ArcInstr::BurdenInc { var } if *var == arg));
+        let has_dec = block
+            .body
+            .iter()
+            .any(|ins| matches!(ins, ArcInstr::BurdenDec { var } if *var == arg));
+        if !(has_inc && has_dec) {
+            continue;
+        }
+        // Dead at the normal successor (not live-out); not transferred out (env freed
+        // by a consumer's drop); callee does NOT iter-consume the arg (else
+        // `ori_iter_drop` frees the closure inward and a caller dec double-frees).
+        if lineage_live_out(func, jt_reps, rep_of(arg), b)
+            || closure_lineage_transferred_out(rep_of(arg), func, &rep_of)
+        {
+            continue;
+        }
+        if let Some(callee) = callee {
+            if contracts
+                .get(&callee)
+                .and_then(|c| c.params.get(i))
+                .is_some_and(|p| p.iter_consumes)
+            {
+                continue;
+            }
+        }
+        return Some((arg, normal, unwind));
+    }
+    None
+}
+
+/// Phase 6.695 (probe): RL-4 both-edge release for an OWNED CLOSURE value borrowed
+/// at a terminator-`Invoke`/`InvokeIndirect` arg, dead at both successors, whose
+/// Phase-5 release the base walk placed as an INLINE self-cancelling
+/// `BurdenInc`/`BurdenDec` pair in the call block.
+///
+/// The borrowed-CLOSURE analog of Phase-6.65
+/// `relocate_borrowed_terminator_arg_dec_to_edges` (the borrowed-COLLECTION case).
+/// `xs.fold(init, op)` lowers to `Invoke @fold(.. %op [borrow]) normal N unwind U`
+/// where `%op` is a `PartialApply` closure capturing heap values; the callee invokes
+/// it INTERNALLY (no ownership transfer — `Borrowed` arg), so the caller releases the
+/// closure env on every dead successor edge (RL-4). The base walk instead emits a
+/// net-0 `BurdenInc %op` + inline `BurdenDec %op` pair in the call block: Phase-3
+/// coalesce erases it, losing the NORMAL-path release; Phase-6.98
+/// `emit_invoke_unwind_pair_release` supplies the UNWIND edge only (and gates on that
+/// exact self-cancelling pair); Phase-6.69 skips `%op` via its `reps_with_burden`
+/// guard. Net: the normal successor leaks the env.
+///
+/// CURE: REMOVE the inline `BurdenInc %op` + `BurdenDec %op` pair; INSERT one
+/// `BurdenDec %op` at the front of BOTH successor blocks (normal AND unwind). The
+/// closure is born rc=1 (`PartialApply`); the spurious keep-alive inc is removed,
+/// leaving exactly ONE release per dead successor edge (born rc=1 → one dec on the
+/// taken edge → rc=0). Removing the pair makes Phase-6.98 a NO-OP for this rep (its
+/// gate is the self-cancelling pair) → no double unwind dec. Runs AFTER Phase-6.69
+/// (so 6.69 still skips via the intact pair) and BEFORE Phase-6.98.
+///
+/// Gate (the over-fire boundary): fires ONLY for a terminator `Invoke`/`InvokeIndirect`
+/// arg `op` where (a) `op` is an owned closure value (`is_owned_closure_value`),
+/// (b) NOT a param, NOT a borrowed def, NOT an iter-element view/marker, (c) borrowed
+/// at its arg position, (d) the call block carries BOTH an inline `BurdenInc op` and
+/// `BurdenDec op` (the base-walk net-0 pair), (e) `op` is NOT live-out of the call
+/// block (dead at the normal successor), (f) the lineage is NOT transferred out
+/// (`closure_lineage_transferred_out` — stored/returned/passed `[own]` → consumer's
+/// drop frees the env), (g) the callee does NOT iter-consume the arg position
+/// (`ParamContract.iter_consumes` → `ori_iter_drop` frees it inward). Probe-gated →
+/// default codegen byte-identical. Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`)
+/// + RL-4 (`RL4_edge_release_balanced`).
+fn relocate_borrowed_terminator_closure_arg_dec_to_edges(
+    func: &mut ArcFunction,
+    pool: &Pool,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+) {
+    if std::env::var("ORI_DISABLE_BORROWED_TERMINATOR_CLOSURE_ARG_RELOCATION").as_deref() == Ok("1")
+    {
+        return;
+    }
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let params: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+
+    // Gather (block, closure_var, normal, unwind) per relocation — immutable scan
+    // first (RL-4: released exactly once per concrete path), then mutate.
+    let mut relocations: Vec<(usize, ArcVarId, usize, usize)> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if let Some((var, normal, unwind)) = closure_arg_relocation_for_block(
+            func,
+            block,
+            pool,
+            contracts,
+            &params,
+            all_borrowed_defs,
+            &iter_element_defs,
+            &jt_reps,
+            b,
+        ) {
+            relocations.push((b, var, normal, unwind));
+        }
+    }
+    // Remove the inline inc+dec pair from each call block, then prepend ONE dec to
+    // BOTH successor edges (born rc=1 → exactly one release on the taken edge).
+    for &(b, var, _, _) in &relocations {
+        if let Some(block) = func.blocks.get_mut(b) {
+            if let Some(idx) = block
+                .body
+                .iter()
+                .position(|ins| matches!(ins, ArcInstr::BurdenDec { var: v } if *v == var))
+            {
+                block.body.remove(idx);
+            }
+            if let Some(idx) = block
+                .body
+                .iter()
+                .position(|ins| matches!(ins, ArcInstr::BurdenInc { var: v } if *v == var))
+            {
+                block.body.remove(idx);
+            }
+        }
+    }
+    for &(_, var, normal, unwind) in &relocations {
+        if let Some(succ) = func.blocks.get_mut(normal) {
+            succ.body.insert(0, ArcInstr::BurdenDec { var });
+        }
+        if normal != unwind {
+            if let Some(succ) = func.blocks.get_mut(unwind) {
+                succ.body.insert(0, ArcInstr::BurdenDec { var });
+            }
+        }
+    }
 }
 
 /// Phase 6.69 (probe): emit a scope-exit `BurdenDec` for every owned closure VALUE

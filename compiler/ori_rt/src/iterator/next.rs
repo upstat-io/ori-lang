@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use super::state::{assert_elem_size, IterState, PredicateFn, TransformFn, MAX_ELEM_SIZE};
+use super::state::{assert_elem_size, ElemBuf, IterState, PredicateFn, TransformFn};
 
 impl IterState {
     /// Advance the iterator, writing the next element to `out_ptr`.
@@ -169,7 +169,7 @@ impl IterState {
         in_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
-        let mut scratch = [0u8; MAX_ELEM_SIZE];
+        let mut scratch = ElemBuf::new();
         if !source.next(scratch.as_mut_ptr(), in_size) {
             return false;
         }
@@ -218,7 +218,7 @@ impl IterState {
         out_ptr: *mut u8,
     ) -> bool {
         while *remaining > 0 {
-            let mut discard = [0u8; MAX_ELEM_SIZE];
+            let mut discard = ElemBuf::new();
             if !source.next(discard.as_mut_ptr(), elem_size) {
                 *remaining = 0;
                 return false;
@@ -366,7 +366,7 @@ impl IterState {
 
         if !*source_exhausted {
             if let Some(ref mut src) = source {
-                let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+                let mut elem_buf = ElemBuf::new();
                 if src.next(elem_buf.as_mut_ptr(), elem_size) {
                     // Buffer the element for future cycles. The buffer OWNS its
                     // copy: inc the stored master so it stays live after the

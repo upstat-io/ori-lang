@@ -1,0 +1,211 @@
+// Spec: §8.2.4 Set — auto-promoted iterator-pipeline methods.
+// Set<T> is Iterable (registers `iter` -> IteratorOf(Element)); the pipeline
+// methods all/any/count/map/filter/find must route through the Iterator method
+// surface automatically, WITHOUT the explicit `.iter()` the user types today.
+//
+// TDD matrix (pins FAIL on unfixed code with E2003 `no method on {int/str}`):
+//   type    : Set<int>, Set<str>
+//   method  : all, any, count, map, filter, find  (fold is the passing control)
+//   pattern : positive assertion + negative DEI-rejection pin
+//
+// Negative/semantic pairing: the positive pins only pass with the new Iterable
+// routing; the negative pin proves the route does NOT over-grant DEI-only
+// methods (Set.iter() yields a PLAIN Iterator).
+
+use std.testing { assert, assert_eq }
+
+// Set<int> — all / any
+
+@set_int_all_true () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.all(predicate: (x) -> x > 0)
+}
+
+@test_set_int_all_true tests @set_int_all_true () -> void =
+    assert(set_int_all_true());
+
+@set_int_all_false () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.all(predicate: (x) -> x > 1)
+}
+
+@test_set_int_all_false tests @set_int_all_false () -> void =
+    assert(!set_int_all_false());
+
+@set_int_any_true () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.any(predicate: (x) -> x == 2)
+}
+
+@test_set_int_any_true tests @set_int_any_true () -> void =
+    assert(set_int_any_true());
+
+@set_int_any_false () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.any(predicate: (x) -> x == 42)
+}
+
+@test_set_int_any_false tests @set_int_any_false () -> void =
+    assert(!set_int_any_false());
+
+// Set<int> — count
+
+@set_int_count () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.count()
+}
+
+@test_set_int_count tests @set_int_count () -> void =
+    assert_eq(actual: set_int_count(), expected: 3);
+
+@set_int_count_dedup () -> int = {
+    let s: Set<int> = [1, 1, 2, 2, 3].iter().collect();
+    s.count()
+}
+
+@test_set_int_count_dedup tests @set_int_count_dedup () -> void =
+    assert_eq(actual: set_int_count_dedup(), expected: 3);
+
+// Set<int> — map / filter (return an Iterator; consume with count)
+
+@set_int_map_count () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.map(transform: (x) -> x * 2).count()
+}
+
+@test_set_int_map_count tests @set_int_map_count () -> void =
+    assert_eq(actual: set_int_map_count(), expected: 3);
+
+@set_int_filter_count () -> int = {
+    let s: Set<int> = [1, 2, 3, 4].iter().collect();
+    s.filter(predicate: (x) -> x > 2).count()
+}
+
+@test_set_int_filter_count tests @set_int_filter_count () -> void =
+    assert_eq(actual: set_int_filter_count(), expected: 2);
+
+// Set<int> — find (returns Option<int>)
+
+@set_int_find_present () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.find(predicate: (x) -> x == 2).is_some()
+}
+
+@test_set_int_find_present tests @set_int_find_present () -> void =
+    assert(set_int_find_present());
+
+@set_int_find_absent () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.find(predicate: (x) -> x == 42).is_some()
+}
+
+@test_set_int_find_absent tests @set_int_find_absent () -> void =
+    assert(!set_int_find_absent());
+
+// Set<str> — type dimension (all / count)
+
+@set_str_all_nonempty () -> bool = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.all(predicate: (x) -> x.length() > 0)
+}
+
+@test_set_str_all_nonempty tests @set_str_all_nonempty () -> void =
+    assert(set_str_all_nonempty());
+
+@set_str_count () -> int = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.count()
+}
+
+@test_set_str_count tests @set_str_count () -> void =
+    assert_eq(actual: set_str_count(), expected: 3);
+
+@set_str_any () -> bool = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.any(predicate: (x) -> x == "bb")
+}
+
+@test_set_str_any tests @set_str_any () -> void =
+    assert(set_str_any());
+
+@set_str_map_count () -> int = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.map(transform: (x: str) -> x.length()).count()
+}
+
+@test_set_str_map_count tests @set_str_map_count () -> void =
+    assert_eq(actual: set_str_map_count(), expected: 3);
+
+@set_str_filter_count () -> int = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.filter(predicate: (x) -> x.length() > 1).count()
+}
+
+@test_set_str_filter_count tests @set_str_filter_count () -> void =
+    assert_eq(actual: set_str_filter_count(), expected: 2);
+
+@set_str_find_present () -> bool = {
+    let s: Set<str> = ["a", "bb", "ccc"].iter().collect();
+    s.find(predicate: (x) -> x == "bb").is_some()
+}
+
+@test_set_str_find_present tests @set_str_find_present () -> void =
+    assert(set_str_find_present());
+
+// Set<int> — for_each (void-returning consumer; the route grants it)
+
+@set_int_for_each_count () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.for_each(action: (x) -> ());
+    s.count()
+}
+
+@test_set_int_for_each_count tests @set_int_for_each_count () -> void =
+    assert_eq(actual: set_int_for_each_count(), expected: 3);
+
+// Cross-feature interaction cells (>=3 feature interactions).
+
+// Interaction 1: adapter chaining map -> filter -> count.
+@set_int_map_filter_count () -> int = {
+    let s: Set<int> = [1, 2, 3, 4].iter().collect();
+    s.map(transform: (x) -> x * 2).filter(predicate: (x) -> x > 4).count()
+}
+
+@test_set_int_map_filter_count tests @set_int_map_filter_count () -> void =
+    assert_eq(actual: set_int_map_filter_count(), expected: 2);
+
+// Interaction 2: adapter chaining filter -> map -> find.
+@set_int_filter_map_find () -> bool = {
+    let s: Set<int> = [1, 2, 3, 4].iter().collect();
+    s.filter(predicate: (x) -> x > 1).map(transform: (x) -> x * 10).find(predicate: (x) -> x == 20).is_some()
+}
+
+@test_set_int_filter_map_find tests @set_int_filter_map_find () -> void =
+    assert(set_int_filter_map_find());
+
+// Interaction 3: generic-function dispatch — the route fires on a Set<T> receiver
+// whose element is a bound type parameter (a distinct dispatch path).
+@count_set<T> (c: Set<T>) -> int = c.count();
+
+@set_int_count_via_generic () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    count_set(c: s)
+}
+
+// The Iterable->Iterator route is proven through a generic at typeck (L1/L2) and
+// interpreter (L5); the LLVM/AOT leg is blocked by an orthogonal AIMS RC-realization
+// double-free of the by-value generic Set param's materialized iterator.
+#skip("BUG-04-239: generic Set<T> by-value param + .iter() double-frees under monomorphized LLVM/AOT (ori_set_to_list ownership); passes interpreter, blocked at LLVM RC realization")
+@test_set_int_count_via_generic tests @set_int_count_via_generic () -> void =
+    assert_eq(actual: set_int_count_via_generic(), expected: 3);
+
+// NEGATIVE PIN — the Iterable route must NOT over-grant DEI-only methods.
+// Set.iter() yields a PLAIN Iterator (IteratorOf), so `rev` (DoubleEndedIterator
+// only) stays unavailable: E2003. Proves find_method's DEI filter is preserved.
+
+#compile_fail(code: "E2003")
+@set_int_rev_rejected tests _ () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let $r = s.rev();
+    assert(true)
+}

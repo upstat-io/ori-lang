@@ -6,7 +6,7 @@
 use std::ptr;
 
 use super::state::assert_elem_size;
-use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
+use super::{ElemBuf, FoldFn, ForEachFn, IterState, PredicateFn};
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
 // Collect
@@ -48,7 +48,7 @@ pub extern "C" fn ori_iter_collect(
     let mut len: usize = 0;
     let mut data = crate::ori_rc_alloc(cap * es, 8);
 
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         if len >= cap {
             let new_cap = cap * 2;
@@ -129,7 +129,7 @@ pub extern "C" fn ori_iter_collect_set(
     // elem_dec_fn stored by codegen after collect returns (LLVM-generated thunk)
     let mut data = alloc_set_hash_buffer(cap, es, None);
 
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         let layout = HashTableLayout::for_set(cap, es);
         let hash = elem_hash(elem_buf.as_ptr());
@@ -193,7 +193,7 @@ pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
     let mut count: i64 = 0;
-    let mut discard = [0u8; MAX_ELEM_SIZE];
+    let mut discard = ElemBuf::new();
 
     while unsafe { state.next(discard.as_mut_ptr(), elem_size) } {
         count += 1;
@@ -221,7 +221,7 @@ pub extern "C" fn ori_iter_any(
     }
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
 
     let result = loop {
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -254,7 +254,7 @@ pub extern "C" fn ori_iter_all(
     }
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
 
     let result = loop {
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -301,7 +301,7 @@ pub extern "C" fn ori_iter_find(
     let state = unsafe { &mut *iter.cast::<IterState>() };
     // Payload at offset 8 (after i64 tag)
     let payload_ptr = unsafe { out_ptr.add(8) };
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
 
     let found = loop {
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -345,7 +345,7 @@ pub extern "C" fn ori_iter_for_each(
     }
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
 
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         (each_fn)(each_env, elem_buf.as_ptr());
@@ -393,9 +393,9 @@ pub extern "C" fn ori_iter_fold(
     let state = unsafe { &mut *iter.cast::<IterState>() };
 
     // Two accumulator buffers: current and next (double-buffered)
-    let mut acc_a = [0u8; MAX_ELEM_SIZE];
-    let mut acc_b = [0u8; MAX_ELEM_SIZE];
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut acc_a = ElemBuf::new();
+    let mut acc_b = ElemBuf::new();
+    let mut elem_buf = ElemBuf::new();
 
     // Initialize acc_a with init value
     if !init_ptr.is_null() {
@@ -445,7 +445,7 @@ pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8)
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
     let payload_ptr = unsafe { out_ptr.add(8) };
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     let mut found = false;
 
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -539,7 +539,7 @@ pub extern "C" fn ori_iter_join(
     let sep = unsafe { sep_str.as_str() };
 
     let mut result = String::new();
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     let mut first = true;
 
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -628,7 +628,7 @@ pub extern "C" fn ori_iter_rfold(
 
     // Collect all elements into a Vec
     let mut elements: Vec<u8> = Vec::new();
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
     }
@@ -636,8 +636,8 @@ pub extern "C" fn ori_iter_rfold(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 
     // Fold right-to-left
-    let mut acc_a = [0u8; MAX_ELEM_SIZE];
-    let mut acc_b = [0u8; MAX_ELEM_SIZE];
+    let mut acc_a = ElemBuf::new();
+    let mut acc_b = ElemBuf::new();
 
     if !init_ptr.is_null() {
         unsafe { ptr::copy_nonoverlapping(init_ptr, acc_a.as_mut_ptr(), as_) };
@@ -688,7 +688,7 @@ pub extern "C" fn ori_iter_rfind(
 
     // Collect all elements
     let mut elements: Vec<u8> = Vec::new();
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
     }

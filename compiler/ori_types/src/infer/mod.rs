@@ -223,6 +223,16 @@ pub struct InferEngine<'pool> {
     /// `ori_canon` to rewrite the namespace `MethodCall` to a free `Call`.
     module_alias_calls: Vec<(ExprId, Name)>,
 
+    /// Iterable->Iterator routed method calls resolved during this body pass.
+    /// Keyed by the call's source RECEIVER `ExprId`, paired with
+    /// the materialized iterator type `Idx` (the receiver's `iter()` return).
+    /// Populated by `record_iter_route()` in `resolve_receiver_and_builtin`'s
+    /// Iterable fallthrough; drained per body via `take_iter_routes`, accumulated
+    /// into `TypedModule::iter_route_map`; consumed by `ori_canon` to desugar
+    /// `recv.method(args)` -> `recv.iter().method(args)` so the materialized
+    /// iterator is a real IR node AIMS realizes (vs a backend-hidden one).
+    iter_route_desugars: Vec<(ExprId, Idx)>,
+
     /// Deferred monomorphization calls (generic calling generic).
     ///
     /// Populated by `record_deferred_mono_call()` when a generic function calls
@@ -337,6 +347,7 @@ impl<'pool> InferEngine<'pool> {
             mono_dispatch_pre_dedup: Vec::new(),
             assign_desugars: Vec::new(),
             module_alias_calls: Vec::new(),
+            iter_route_desugars: Vec::new(),
             deferred_mono_calls: Vec::new(),
             composed_burdens: Vec::new(),
             current_function: None,

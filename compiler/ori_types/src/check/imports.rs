@@ -107,6 +107,14 @@ impl ModuleChecker<'_> {
         self.module_alias_calls.extend(calls);
     }
 
+    /// Accumulate one body pass's Iterable->Iterator route entries
+    /// into the module-wide store drained at `finish` into
+    /// `TypedModule::iter_route_map`. Keys are module-wide AST receiver
+    /// `ExprId`s, so entries extend without re-anchoring.
+    pub fn accumulate_iter_routes(&mut self, routes: Vec<(ExprId, crate::Idx)>) {
+        self.iter_route_desugars.extend(routes);
+    }
+
     /// Flush composed `UserBurdenSpec` entries from one body-pass session
     /// into the `TypeRegistry`.
     ///

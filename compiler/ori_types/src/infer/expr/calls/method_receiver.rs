@@ -139,6 +139,27 @@ pub(super) fn resolve_receiver_and_builtin(
         };
     }
 
+    // 1d. Iterable fallthrough: a method miss on a type whose `iter`
+    // yields an Iterator routes through the Iterator surface. `find_method` is
+    // DEI-aware, so DEI-only methods (rev/last/rfind) stay rejected.
+    if let Some(name_str) = method_str {
+        if let Some(iter_ty) = resolve_builtin_method(engine, resolved, tag, "iter") {
+            let iter_tag = engine.pool().tag(iter_ty);
+            if matches!(iter_tag, Tag::Iterator | Tag::DoubleEndedIterator) {
+                if let Some(ret) = resolve_builtin_method(engine, iter_ty, iter_tag, name_str) {
+                    // Record the route so `ori_canon` lowers this to
+                    // `recv.iter().method(args)`; keyed on the source receiver
+                    // `ExprId` (unique per call site).
+                    engine.record_iter_route(receiver, iter_ty);
+                    return ReceiverDispatch::Return {
+                        ret_ty: ret,
+                        receiver_ty: iter_ty,
+                    };
+                }
+            }
+        }
+    }
+
     ReceiverDispatch::Continue { resolved }
 }
 

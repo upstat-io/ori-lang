@@ -309,25 +309,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// tables. Instead: convert to a contiguous list via `ori_set_to_list`, then
     /// create an iterator over that list.
     ///
-    /// After conversion, the set buffer is explicitly decremented — the ARC
-    /// pipeline passes the set with `[own]`, expecting the callee to handle
-    /// cleanup. For lists, `IterState::List` Drop implicitly handles this
-    /// (same buffer). For sets, the iterator holds the converted list buffer
-    /// (different allocation), so we must explicitly dec the set buffer.
-    pub(crate) fn emit_set_iter(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    /// `receiver_owned` mirrors the list path's `owns_data`: the set buffer is a
+    /// SEPARATE allocation from the converted list (unlike `emit_list_iter`, which
+    /// reuses the same buffer), so the set buffer must be decremented HERE — but
+    /// only when the receiver is owned. An owned receiver had its RC inc'd (AIMS
+    /// for `[own]`, or the auto-iter slice-aware inc), so the dec matches that inc.
+    /// A BORROWED receiver got no callee inc — the OWNER/caller emits the dec
+    /// (Spec: Annex E §AIMS RL-2; `AimsProof.Realization.RL2_borrowed_param_emits_caller_dec`),
+    /// so decrementing here would double-free the caller's still-owned set buffer.
+    pub(crate) fn emit_set_iter(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+        receiver_owned: bool,
+    ) -> Option<ValueId> {
         // Convert set to contiguous list (copies elements, incs element RCs).
         let list_val = self.emit_set_to_list(receiver, elem_ty)?;
 
-        // Dec the set buffer — the converted list now owns the element references.
-        // The set buffer's RC was incremented by AIMS for the [own] parameter;
-        // this dec matches that inc, freeing the set buffer if no other refs exist.
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
-        let elem_size = self
-            .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-        let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
-        self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+        if receiver_owned {
+            // Owned receiver: its RC was inc'd (AIMS `[own]` / auto-iter inc), so
+            // dec the set buffer here — the converted list now owns the element
+            // references; this dec matches the inc, freeing the set buffer when no
+            // other refs exist (RL2_release_exactly_once).
+            let (data_ptr, len, cap) = self.extract_set_components(receiver);
+            let elem_size = self
+                .builder
+                .const_i64(self.element_store_size(elem_ty) as i64);
+            let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+            let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
+            self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+        }
 
         // Create iterator from the contiguous list. list_val is a fresh
         // materialized buffer the iterator owns → owns_data = true.

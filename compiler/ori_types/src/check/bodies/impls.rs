@@ -271,6 +271,7 @@ fn check_impl_method(
         composed_burdens,
         assign_desugars,
         module_alias_calls,
+        iter_route_desugars,
     ) = checker.with_impl_scope(self_type, |c| {
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
@@ -393,6 +394,7 @@ fn check_impl_method(
                 engine.take_composed_burdens(),
                 engine.take_assign_desugars(),
                 engine.take_module_alias_calls(),
+                engine.take_iter_routes(),
             )
         })
     });
@@ -436,6 +438,7 @@ fn check_impl_method(
             capability_exempt_var_ids: Vec::new(),
             assign_desugars,
             module_alias_calls,
+            iter_route_desugars,
         },
     );
 

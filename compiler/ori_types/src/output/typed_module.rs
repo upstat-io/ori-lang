@@ -243,6 +243,16 @@ pub struct TypedModule {
     /// appears in the module.
     pub module_alias_call_map: SparseSideTable<ExprId, Name>,
 
+    /// Iterable->Iterator routed method calls, keyed by the call's
+    /// source RECEIVER `ExprId`, valued by the materialized iterator type `Idx`
+    /// (the receiver's `iter()` return). `ori_canon` reads this at
+    /// `lower_method_call` / `desugar_method_call_named` and rewrites
+    /// `recv.method(args)` -> `recv.iter().method(args)` so the materialized
+    /// iterator is a real IR node AIMS realizes. Lookup via
+    /// [`Self::resolve_iter_route`]. Empty when no Set/Iterable pipeline method
+    /// routes through the iterator surface.
+    pub iter_route_map: SparseSideTable<ExprId, Idx>,
+
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
     /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
@@ -321,6 +331,7 @@ impl TypedModule {
             mono_dispatch_map: SparseSideTable::new(),
             assign_desugar_map: SparseSideTable::new(),
             module_alias_call_map: SparseSideTable::new(),
+            iter_route_map: SparseSideTable::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
@@ -384,6 +395,16 @@ impl TypedModule {
     /// on the sorted `assign_desugar_map`.
     pub fn resolve_assign_desugar(&self, key: ExprId) -> Option<&AssignDesugar> {
         self.assign_desugar_map.get(key)
+    }
+
+    /// Look up the materialized iterator type for an Iterable->Iterator routed
+    /// method call, keyed by the call's source RECEIVER `ExprId`.
+    ///
+    /// Returns `Some(iter_ty)` if the type checker routed this call through the
+    /// iterator surface (so `ori_canon` must desugar `recv.method(args)` ->
+    /// `recv.iter().method(args)`), `None` otherwise.
+    pub fn resolve_iter_route(&self, key: ExprId) -> Option<Idx> {
+        self.iter_route_map.get(key).copied()
     }
 
     /// Look up the qualified imported-function `Name` a module-alias qualified

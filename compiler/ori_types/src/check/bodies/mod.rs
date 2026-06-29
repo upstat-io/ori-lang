@@ -97,6 +97,10 @@ pub(super) struct BodyOutputs {
     /// the checker's accumulator. Consumed by `ori_canon` via
     /// [`crate::TypedModule::module_alias_call_map`].
     pub module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
+    /// Iterable->Iterator routed method calls resolved in this body.
+    /// Keys are source RECEIVER `ExprId`s; values the materialized iterator type
+    /// `Idx`. Consumed by `ori_canon` via [`crate::TypedModule::iter_route_map`].
+    pub iter_route_desugars: Vec<(ExprId, crate::Idx)>,
 }
 
 /// Shared post-inference spine for every body-checking pass.
@@ -125,6 +129,7 @@ pub(super) fn finalize_body_and_export(
         capability_exempt_var_ids,
         assign_desugars,
         module_alias_calls,
+        iter_route_desugars,
     } = outputs;
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
@@ -179,6 +184,7 @@ pub(super) fn finalize_body_and_export(
     checker.accumulate_deferred_mono_calls(deferred_mono_calls);
     checker.accumulate_assign_desugars(assign_desugars);
     checker.accumulate_module_alias_calls(module_alias_calls);
+    checker.accumulate_iter_routes(iter_route_desugars);
 
     // Flush composed burdens into the TypeRegistry. Each entry was
     // accumulated by the body's `InferEngine::record_composed_burden`

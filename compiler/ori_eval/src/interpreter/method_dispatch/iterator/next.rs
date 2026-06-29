@@ -267,17 +267,25 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Pack an advance result `(item?, new_iter)` into the Ori iterator-protocol
+    /// tuple `(T?, Iterator<T>)` — the single return shape shared by `next()` and
+    /// `next_back()`.
+    fn pack_iter_advance_tuple((maybe_item, new_iter): (Option<Value>, IteratorValue)) -> Value {
+        let option_val = match maybe_item {
+            Some(v) => Value::some(v),
+            None => Value::None,
+        };
+        Value::tuple(vec![option_val, Value::iterator(new_iter)])
+    }
+
     /// `next()` returns `(T?, Iterator<T>)` tuple for the Ori protocol.
     pub(in crate::interpreter) fn eval_iter_next_as_tuple(
         &mut self,
         iter_val: IteratorValue,
     ) -> EvalResult {
-        let (maybe_item, new_iter) = self.eval_iter_next(iter_val)?;
-        let option_val = match maybe_item {
-            Some(v) => Value::some(v),
-            None => Value::None,
-        };
-        Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
+        Ok(Self::pack_iter_advance_tuple(
+            self.eval_iter_next(iter_val)?,
+        ))
     }
 
     /// Advance an iterator from the back by one step.
@@ -377,11 +385,8 @@ impl Interpreter<'_> {
         &mut self,
         iter_val: IteratorValue,
     ) -> EvalResult {
-        let (maybe_item, new_iter) = self.eval_iter_next_back(iter_val)?;
-        let option_val = match maybe_item {
-            Some(v) => Value::some(v),
-            None => Value::None,
-        };
-        Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
+        Ok(Self::pack_iter_advance_tuple(
+            self.eval_iter_next_back(iter_val)?,
+        ))
     }
 }

@@ -923,6 +923,159 @@ fn probe_set_str_passed_to_iter_consuming_fn_no_double_free() {
     assert_burden_path_self_sufficient(src, "set_str_passed_to_iter_consuming_fn");
 }
 
+// BUG-04-239 matrix: generic fn with a by-value `Set<T>` param consumed by the
+// NAMED `.iter()` form double-freed the set buffer under AOT. `emit_set_iter`
+// hand-emitted an unconditional `ori_set_buffer_rc_dec` on the borrowed param
+// buffer (no matching inc — borrow inference gave the callee no RC transfer),
+// freeing the caller's still-owned set. The cure gates that dec on the realized
+// receiver ownership (own → dec, borrow → skip), mirroring `emit_list_iter`'s
+// owns_data. Matrix: type {int scalar, str heap} x form {named .iter, auto-iter}
+// x ownership {borrowed generic param, owned local}. The borrowed-generic +
+// NAMED-iter cells are the failing pins; auto-iter (inc at emit_auto_iter:649
+// balances the dec) and owned-local (gate fires, freed once) cells clamp from
+// the other sides so the fix threads precisely between them.
+
+/// Regression: BUG-04-239 — generic by-value `Set<int>` param + named `.iter()`
+/// double-freed the borrowed set buffer (THE failing pin; pre-fix aborts -134).
+#[test]
+fn probe_generic_set_int_param_named_iter_count_no_double_free() {
+    let src = r#"
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let n = count_explicit(c: s);
+    if n == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_count");
+}
+
+/// Regression: BUG-04-239 — generic by-value `Set<str>` param (heap elements) +
+/// named `.iter()`. Heap-elem variant: `elem_inc_fn`/`elem_dec_fn` element
+/// refcounts must net zero while the source set buffer is freed exactly once.
+#[test]
+fn probe_generic_set_str_param_named_iter_count_no_double_free() {
+    let src = r#"
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let n = count_explicit(c: s);
+    if n == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "generic_set_str_param_named_iter_count");
+}
+
+/// Regression: BUG-04-239 — generic by-value `Set<int>` param + named `.iter()`
+/// feeding a DISTINCT iterator consumer (`.fold`, not `.count`). The cure gates
+/// the dec at the iter SOURCE (`emit_set_iter`), so it is consumer-agnostic; this
+/// cell pins that — a fix special-cased to the `.count` codepath would leave this
+/// genuine `.fold` consumer double-freeing the borrowed set buffer. (Generic `T`
+/// forbids summing `x: T`, so the fold counts one per element; the deliverable is
+/// the distinct fold consumer, not the accumulated value.)
+#[test]
+fn probe_generic_set_int_param_named_iter_fold_no_double_free() {
+    let src = r#"
+@fold_count<T> (c: Set<T>) -> int = c.iter().fold(initial: 0, op: (acc, x) -> acc + 1);
+
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    let n = fold_count(c: s);
+    if n == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_fold");
+}
+
+/// Clamp (BUG-04-239): generic by-value `Set<int>` param consumed by AUTO-iter
+/// (`for x in c`) is balanced — `emit_auto_iter` inc's the receiver before the
+/// set-buffer dec, so the dec stays correct (`owns_data=true`). Must stay green
+/// pre- AND post-fix (the auto-iter call site passes `receiver_owned = true`).
+#[test]
+fn probe_generic_set_int_param_auto_iter_balanced() {
+    let src = r#"
+@count_loop<T> (c: Set<T>) -> int = {
+    let total = 0;
+    for x in c do {
+        total = total + 1
+    };
+    total
+}
+
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3, 4].iter().collect();
+    let n = count_loop(c: s);
+    if n == 4 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_auto_iter");
+}
+
+/// Clamp (BUG-04-239): non-generic owned `Set<int>` local consumed by named
+/// `.iter()`. Owned receiver → the cure's gate FIRES the set-buffer dec → freed
+/// exactly once (no leak). Must stay green pre- AND post-fix.
+#[test]
+fn probe_owned_set_int_local_named_iter_count_freed_once() {
+    let src = r#"
+@main () -> int = {
+    let s: Set<int> = [5, 6, 7].iter().collect();
+    let n = s.iter().count();
+    if n == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "owned_set_int_local_named_iter_count");
+}
+
+/// Clamp (BUG-04-239): non-generic owned `Set<str>` local (heap elements)
+/// consumed by named `.iter()`. Owned + heap clamp: gate fires, set buffer +
+/// every element freed exactly once. Must stay green pre- AND post-fix.
+#[test]
+fn probe_owned_set_str_local_named_iter_count_freed_once() {
+    let src = r#"
+@main () -> int = {
+    let s: Set<str> = [
+        "owned local heap set element long enough to exceed sso inline storage",
+        "second owned local heap set element also exceeding the sso threshold"
+    ].iter().collect();
+    let n = s.iter().count();
+    if n == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "owned_set_str_local_named_iter_count");
+}
+
+/// Clamp (BUG-04-239): owned `Set<int>` consumed by named `.iter()` AND RETURNED
+/// (escapes after iteration). The receiver is `[own]` (transfers through Return),
+/// so AIMS keeps it live across the iter via a keep-alive inc (RC 2); the cure's
+/// gate fires the set-buffer dec, leaving RC 1 for the caller's surviving ref —
+/// no leak, no double-free. Covers fix-consensus Q3a + SC-4 'set escaping/
+/// returning', governed by `RL2_iter_consume_return_overlap_balanced`
+/// (aims-proof/lean/AimsProof/Realization.lean:285). If the cure over-gated and
+/// skipped the dec on this owned-surviving path, the set buffer would LEAK (the
+/// `ORI_CHECK_LEAKS=1` harness clamps that). Green pre- AND post-fix (the owned
+/// receiver was never the failing pin).
+#[test]
+fn probe_owned_set_int_returned_after_iter_freed_once() {
+    let src = r#"
+@iter_then_return (c: Set<int>) -> Set<int> = {
+    let n = c.iter().count();
+    c
+}
+
+@main () -> int = {
+    let s: Set<int> = [8, 9, 10].iter().collect();
+    let kept = iter_then_return(c: s);
+    if kept.len() == 3 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "owned_set_int_returned_after_iter");
+}
+
 #[test]
 fn probe_iter_consume_call_inside_catch_then_normal_call_no_leak() {
     // CATCH-UNWIND pin: `process_all(words)` iter-consumes `words` and is called

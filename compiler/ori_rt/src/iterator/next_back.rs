@@ -15,7 +15,7 @@
 
 use std::ptr;
 
-use super::state::{IterState, PredicateFn, TransformFn, MAX_ELEM_SIZE};
+use super::state::{ElemBuf, IterState, PredicateFn, TransformFn};
 
 impl IterState {
     /// Advance the iterator from the back, writing the element to `out_ptr`.
@@ -136,7 +136,7 @@ impl IterState {
         in_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
-        let mut scratch = [0u8; MAX_ELEM_SIZE];
+        let mut scratch = ElemBuf::new();
         if !source.next_back(scratch.as_mut_ptr(), in_size) {
             return false;
         }

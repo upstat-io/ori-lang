@@ -207,7 +207,7 @@ pub extern "C" fn ori_iter_rev(
     elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
-    use super::state::MAX_ELEM_SIZE;
+    use super::state::ElemBuf;
 
     if iter.is_null() {
         return ptr::null_mut();
@@ -220,7 +220,7 @@ pub extern "C" fn ori_iter_rev(
     // stored master via `elem_inc_fn` so the collected fat-pointers stay live
     // after the source is freed below. Dec'd once per master in Drop.
     let mut elements = Vec::new();
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut elem_buf = ElemBuf::new();
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
         if let Some(inc) = elem_inc_fn {

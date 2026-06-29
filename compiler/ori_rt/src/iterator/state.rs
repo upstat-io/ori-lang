@@ -9,6 +9,44 @@
 /// Asserted at source/adapter creation time via `assert_elem_size`.
 pub(crate) const MAX_ELEM_SIZE: usize = 256;
 
+/// Stack scratch buffer for one iterator element, 16-byte aligned.
+///
+/// A bare `[u8; MAX_ELEM_SIZE]` array has alignment 1; an element written into
+/// it (e.g. a 24-byte `OriStr` fat pointer, 8-byte aligned) is then read back by
+/// a consumer/predicate as a typed value, and creating a Rust reference to a
+/// misaligned address is UB. `align(16)` covers every Ori value type's
+/// alignment. `Deref`/`DerefMut` to the inner array keep every existing
+/// `as_ptr` / `as_mut_ptr` / slice / `&mut` use site unchanged.
+#[repr(C, align(16))]
+pub(crate) struct ElemBuf([u8; MAX_ELEM_SIZE]);
+
+// INVARIANT: the 16-byte alignment is load-bearing for UB prevention — drop it and
+// element reads through the scratch buffer become misaligned. Pin it so removing
+// `align(16)` is a compile error, not a silent regression.
+const _: () = assert!(core::mem::align_of::<ElemBuf>() == 16);
+
+impl ElemBuf {
+    #[inline]
+    pub(crate) const fn new() -> Self {
+        Self([0u8; MAX_ELEM_SIZE])
+    }
+}
+
+impl core::ops::Deref for ElemBuf {
+    type Target = [u8; MAX_ELEM_SIZE];
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for ElemBuf {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Assert that an element size fits in the stack scratch buffer.
 ///
 /// Called at iterator source/adapter creation time to catch oversized elements

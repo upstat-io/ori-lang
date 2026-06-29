@@ -244,6 +244,11 @@ pub struct ModuleChecker<'a> {
     /// stored in [`crate::TypedModule::module_alias_call_map`].
     module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
 
+    /// Iterable->Iterator route entries from all checked bodies.
+    /// Keys are module-wide AST receiver `ExprId`s; sorted in `finish_with_pool`,
+    /// then stored in [`crate::TypedModule::iter_route_map`].
+    iter_route_desugars: Vec<(ExprId, crate::Idx)>,
+
     // Impl Method Signatures
     /// Accumulated impl method signatures for codegen.
     ///
@@ -349,6 +354,7 @@ impl<'a> ModuleChecker<'a> {
             pattern_resolutions: Vec::new(),
             assign_desugars: Vec::new(),
             module_alias_calls: Vec::new(),
+            iter_route_desugars: Vec::new(),
             impl_sigs: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
@@ -525,6 +531,7 @@ impl<'a> ModuleChecker<'a> {
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
         let assign_desugar_map = self.assign_desugars;
         let module_alias_call_map = self.module_alias_calls;
+        let iter_route_map = self.iter_route_desugars;
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
         // The deferred resolver publishes dispatch entries into
@@ -610,6 +617,7 @@ impl<'a> ModuleChecker<'a> {
             format_spec_types,
             assign_desugar_map: SparseSideTable::from_unsorted(assign_desugar_map),
             module_alias_call_map: SparseSideTable::from_unsorted(module_alias_call_map),
+            iter_route_map: SparseSideTable::from_unsorted(iter_route_map),
         };
 
         (TypeCheckResult::from_typed(typed), pool)

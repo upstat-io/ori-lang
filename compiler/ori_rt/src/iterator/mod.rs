@@ -43,7 +43,7 @@ pub use sources::{
 };
 
 // Re-export types used by submodules (consumers needs these from state).
-pub(crate) use state::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
+pub(crate) use state::{ElemBuf, FoldFn, ForEachFn, IterState, PredicateFn};
 
 // Extern C API — Core
 

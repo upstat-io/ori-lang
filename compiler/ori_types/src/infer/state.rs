@@ -128,6 +128,20 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.module_alias_calls)
     }
 
+    /// Record an Iterable->Iterator routed method call.
+    ///
+    /// `key` is the call's source RECEIVER `ExprId`; `iter_ty` is the
+    /// materialized iterator type (the receiver's `iter()` return). `ori_canon`
+    /// reads this to desugar `recv.method(args)` -> `recv.iter().method(args)`.
+    pub fn record_iter_route(&mut self, key: ExprId, iter_ty: Idx) {
+        self.iter_route_desugars.push((key, iter_ty));
+    }
+
+    /// Take Iterable->Iterator route entries, leaving an empty vector.
+    pub fn take_iter_routes(&mut self) -> Vec<(ExprId, Idx)> {
+        std::mem::take(&mut self.iter_route_desugars)
+    }
+
     /// Take mono dispatch pre-dedup entries, leaving an empty vector.
     pub fn take_mono_dispatch_pre_dedup(&mut self) -> Vec<(ExprId, MonoInstanceId)> {
         std::mem::take(&mut self.mono_dispatch_pre_dedup)

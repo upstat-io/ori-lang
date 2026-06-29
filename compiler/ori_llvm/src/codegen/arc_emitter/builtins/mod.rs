@@ -652,7 +652,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::List { element } => {
                 self.emit_list_iter(receiver, receiver_ty, *element, true)
             }
-            TypeInfo::Set { element } => self.emit_set_iter(receiver, *element),
+            // The slice-aware inc above gave the iterator its own ref → receiver_owned = true
+            // (same as the List arm's hardcoded `true`); emit_set_iter decs the set buffer.
+            TypeInfo::Set { element } => self.emit_set_iter(receiver, *element, true),
             TypeInfo::Map { key, value } => {
                 self.emit_map_iter(receiver, *key, *value, receiver_ty, true)
             }

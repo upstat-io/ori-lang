@@ -79,12 +79,14 @@ impl Lowerer<'_> {
             return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
         }
 
-        let lowered_receiver = self.lower_expr(receiver);
+        // A routed call threads `recv.iter()` as the receiver (typed as the
+        // iterator) so the materialized iterator is a real IR node.
+        let (lowered_receiver, receiver_ty) = self.lower_method_receiver(receiver, span);
 
         // Try to resolve the method signature for reordering and default filling.
-        // Pass the source receiver's type so same-named methods on different impls
-        // resolve to their own signature.
-        let params = self.resolve_method_params(method, self.typed.expr_type(receiver.index()));
+        // Pass the (possibly iterator) receiver's type so same-named methods on
+        // different impls resolve to their own signature.
+        let params = self.resolve_method_params(method, receiver_ty);
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
