@@ -24,9 +24,11 @@
 //! (default path) is WRONG for this bug; this probe uses the burden-sole harness.
 //!
 //! Matrix: captured-type dimension (heap str / [int] / Option<str> / {str:int} /
-//! nested [[int]]) over the `fold` borrowed-closure consumer (positive pins,
-//! leak pre-fix); the capture-less fold (negative pin — the gate must NOT
-//! over-fire where the env is null). Subprocess-isolated — parallel-safe.
+//! nested [[int]] / user-struct / scalar-env) over the `fold` + `all` borrowed-
+//! closure consumers (positive pins, leak pre-fix). Negative pins — the gate must
+//! NOT over-fire: capture-less fold (null env), and the EXCLUSION boundary
+//! (param closure / borrowed-view closure / iter-element closure), each capturing
+//! a heap str so an over-fire double-frees it. Subprocess-isolated — parallel-safe.
 //! Spec: Annex E §AIMS RL-2 + RL-4. Regression: BUG-04-158.
 
 #![allow(
@@ -36,13 +38,23 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` with the predicate-stack RC emitter OFF (burden path is the
-/// sole real-RC emitter, the only valid RC verdict surface per arc.md §STOP) and
-/// run under the always-on `ORI_CHECK_LEAKS=1`. Asserts exit 0 with no FATAL
-/// double-free / leak diagnostic on stderr.
+/// Compile `source` on the COMPLETE gated burden probe surface (arc.md §STOP):
+/// predicate-stack RC emitter OFF (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden is
+/// the sole real-RC emitter, the only valid RC verdict surface) PLUS the per-
+/// function LLVM verification (`ORI_VERIFY_ARC=1`) + post-pass verification
+/// (`ORI_VERIFY_EACH=1`) so a burden-imbalance that compiles to wrong-but-non-
+/// crashing IR (VR-1 checkpoints + VF-1 burden-balance residual) is caught, not
+/// silently passed. Runs under the always-on `ORI_CHECK_LEAKS=1`. Asserts exit 0
+/// with no FATAL double-free / leak diagnostic on stderr.
 fn assert_no_closure_leak_burden_sole(source: &str, label: &str) {
-    let (exit, stdout, stderr) =
-        compile_and_run_with_build_env(source, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
+    let (exit, stdout, stderr) = compile_and_run_with_build_env(
+        source,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_VERIFY_ARC", "1"),
+            ("ORI_VERIFY_EACH", "1"),
+        ],
+    );
     assert!(
         exit == 0,
         "[{label}] burden-sole run exited {exit}\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -249,4 +261,84 @@ fn fold_captureless_clean_no_regression() {
 }
 "#;
     assert_no_closure_leak_burden_sole(src, "fold_captureless_clean");
+}
+
+// ----- Negative pins: the EXCLUSION boundary the relocation gate must DECLINE.
+// Each folds/threads a closure of an EXCLUDED category (param / borrowed-view /
+// iter-element) capturing a heap `str`. The gate keys its `params` /
+// `all_borrowed_defs` / `iter_element_defs` exclusion on `rep_of(arg)`, so an
+// aliased excluded closure does NOT slip into a relocation. If the gate
+// over-fired here it would relocate a dec it does not own -> double-free of the
+// captured str. Each is clean BEFORE and AFTER the fix (the relocation never
+// fires); a regression that widens the gate onto these categories crashes /
+// leaks under the burden-sole probe. Spec: Annex E §AIMS RL-2 + RL-4. -----
+
+/// Excluded category = PARAMETER closure. The `op` folded inside `apply_fold` is
+/// a borrowed PARAM (in `params`), created + owned by `@main`. The relocation
+/// MUST decline (`params.contains(rep_of(op))`) — `apply_fold` does not own `op`,
+/// so relocating its dec would free the caller's still-live closure env.
+#[test]
+fn fold_param_closure_no_overfire() {
+    let src = r#"
+@apply_fold (items: [int], op: (int, int) -> int) -> int = {
+    items.fold(initial: 0, op: op)
+}
+
+@main () -> int = {
+    let base = "a heap string longer than twenty-three bytes";
+    let r = apply_fold(items: [1, 2, 3], op: (acc, x) -> acc + x + base.length());
+    print(msg: `{r}`);
+    0
+}
+"#;
+    assert_no_closure_leak_burden_sole(src, "fold_param_closure");
+}
+
+/// Excluded category = BORROWED-VIEW closure. `red.f` is a `Project` of a struct
+/// field (a borrow-view, in `all_borrowed_defs` / not an owned closure value).
+/// The struct `red` owns the closure env; its drop frees the captured str. The
+/// relocation MUST decline — relocating a dec onto the borrowed view would
+/// double-free the captured str the struct still owns.
+#[test]
+fn fold_borrowed_view_closure_no_overfire() {
+    let src = r#"
+type Reducer = { f: (int, int) -> int }
+
+@run_reducer (items: [int], red: Reducer) -> int = {
+    items.fold(initial: 0, op: red.f)
+}
+
+@main () -> int = {
+    let base = "a heap string longer than twenty-three bytes";
+    let red = Reducer { f: (acc, x) -> acc + x + base.length() };
+    let out = run_reducer(items: [4, 5, 6], red: red);
+    print(msg: `{out}`);
+    0
+}
+"#;
+    assert_no_closure_leak_burden_sole(src, "fold_borrowed_view_closure");
+}
+
+/// Excluded category = ITER-ELEMENT closure. `g` is each element of the `[closure]`
+/// list `fns` (an iter-element view, in `iter_element_defs`), passed as the
+/// borrowed terminator-`Invoke` arg of the INNER `items.fold(.. op: g)`. The list
+/// `fns` owns the element closures; iterating it frees each via the element
+/// `elem_dec`. The relocation MUST decline on `g` — over-firing would double-free
+/// the element closure's captured str the list still owns.
+#[test]
+fn fold_iter_element_closure_no_overfire() {
+    let src = r#"
+@apply_all (fns: [(int, int) -> int], items: [int]) -> int = {
+    fns.fold(initial: 0, op: (acc, g) -> acc + items.fold(initial: 0, op: g))
+}
+
+@main () -> int = {
+    let base = "a heap string longer than twenty-three bytes";
+    let fns: [(int, int) -> int] = [(acc, x) -> acc + x + base.length(), (acc, x) -> acc + x];
+    let r = apply_all(fns: fns, items: [1, 2, 3]);
+    print(msg: `{r}`);
+    0
+}
+"#;
+    assert_no_closure_leak_burden_sole(src, "fold_iter_element_closure");
 }

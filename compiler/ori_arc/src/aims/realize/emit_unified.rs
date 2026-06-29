@@ -4169,10 +4169,17 @@ fn closure_arg_relocation_for_block(
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     iter_element_defs: &FxHashSet<ArcVarId>,
     jt_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    preds: &[Vec<usize>],
     b: usize,
 ) -> Option<(ArcVarId, usize, usize)> {
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
-    let (args, arg_ownership, normal, unwind, callee): (_, _, usize, usize, Option<Name>) =
+    // Only a DIRECT `Invoke` carries a statically-resolvable callee whose
+    // `ParamContract.iter_consumes` gates the RL-2 iter-consume inward transfer.
+    // An `InvokeIndirect` callee is unknown, so iter-consume cannot be ruled out;
+    // relocating its inline dec would double-free when the indirect callee
+    // iter-consumes the closure. Decline relocation for every non-`Invoke`
+    // terminator. Spec: Annex E §AIMS RL-2.
+    let (args, arg_ownership, normal, unwind, callee): (_, _, usize, usize, Name) =
         match &block.terminator {
             ArcTerminator::Invoke {
                 args,
@@ -4181,30 +4188,23 @@ fn closure_arg_relocation_for_block(
                 unwind,
                 func: callee,
                 ..
-            } => (
-                args,
-                arg_ownership,
-                normal.index(),
-                unwind.index(),
-                Some(*callee),
-            ),
-            ArcTerminator::InvokeIndirect {
-                args,
-                arg_ownership,
-                normal,
-                unwind,
-                ..
-            } => (args, arg_ownership, normal.index(), unwind.index(), None),
+            } => (args, arg_ownership, normal.index(), unwind.index(), *callee),
             _ => return None,
         };
     for (i, &arg) in args.iter().enumerate() {
         let arg_borrowed = arg_ownership
             .get(i)
             .is_none_or(|o| *o == crate::ir::ArgOwnership::Borrowed);
+        // Exclusion gates test `rep_of(arg)` (NOT raw `arg`) so an aliased
+        // iter-element view / param / borrowed-def closure reached via a
+        // jump-threaded or Let-Var alias is excluded — matching the lineage
+        // checks below, which also key on `rep_of(arg)`. A raw-`arg` gate would
+        // let an aliased excluded closure slip past into a relocation.
+        let arg_rep = rep_of(arg);
         if !arg_borrowed
-            || params.contains(&arg)
-            || all_borrowed_defs.contains(&arg)
-            || iter_element_defs.contains(&arg)
+            || params.contains(&arg_rep)
+            || all_borrowed_defs.contains(&arg_rep)
+            || iter_element_defs.contains(&arg_rep)
             || !is_owned_closure_value(arg, func, pool)
         {
             continue;
@@ -4225,19 +4225,34 @@ fn closure_arg_relocation_for_block(
         // Dead at the normal successor (not live-out); not transferred out (env freed
         // by a consumer's drop); callee does NOT iter-consume the arg (else
         // `ori_iter_drop` frees the closure inward and a caller dec double-frees).
-        if lineage_live_out(func, jt_reps, rep_of(arg), b)
-            || closure_lineage_transferred_out(rep_of(arg), func, &rep_of)
+        if lineage_live_out(func, jt_reps, arg_rep, b)
+            || closure_lineage_transferred_out(arg_rep, func, &rep_of)
         {
             continue;
         }
-        if let Some(callee) = callee {
-            if contracts
-                .get(&callee)
-                .and_then(|c| c.params.get(i))
-                .is_some_and(|p| p.iter_consumes)
-            {
-                continue;
-            }
+        if contracts
+            .get(&callee)
+            .and_then(|c| c.params.get(i))
+            .is_some_and(|p| p.iter_consumes)
+        {
+            continue;
+        }
+        // Single-predecessor guard: the relocated `BurdenDec` lands at the FRONT
+        // of each dead successor block. A successor with >=2 predecessors (a
+        // shared unwind landing pad reached by multiple invokes, or a merge
+        // block) would receive the dec on EVERY path into it, double-decrementing
+        // the closure env on the coexistence surface. Decline the WHOLE
+        // relocation unless BOTH dead edges are single-predecessor (mirrors the
+        // sibling collection-analog guard in
+        // `relocate_borrowed_terminator_arg_dec_to_edges`): the inline pair then
+        // stays and Phase-6.98 supplies the unwind edge (the pre-cure baseline —
+        // a leak on the normal path, never a double-free). Spec: Annex E §AIMS
+        // RL-4 (one dec per disjoint dead edge).
+        if preds.get(normal).is_none_or(|p| p.len() != 1) {
+            continue;
+        }
+        if normal != unwind && preds.get(unwind).is_none_or(|p| p.len() != 1) {
+            continue;
         }
         return Some((arg, normal, unwind));
     }
@@ -4245,9 +4260,10 @@ fn closure_arg_relocation_for_block(
 }
 
 /// Phase 6.695 (probe): RL-4 both-edge release for an OWNED CLOSURE value borrowed
-/// at a terminator-`Invoke`/`InvokeIndirect` arg, dead at both successors, whose
-/// Phase-5 release the base walk placed as an INLINE self-cancelling
-/// `BurdenInc`/`BurdenDec` pair in the call block.
+/// at a terminator-`Invoke` arg, dead at both successors, whose Phase-5 release the
+/// base walk placed as an INLINE self-cancelling `BurdenInc`/`BurdenDec` pair in
+/// the call block. `InvokeIndirect` declines (unknown callee → iter-consume
+/// transfer cannot be ruled out).
 ///
 /// The borrowed-CLOSURE analog of Phase-6.65
 /// `relocate_borrowed_terminator_arg_dec_to_edges` (the borrowed-COLLECTION case).
@@ -4269,17 +4285,20 @@ fn closure_arg_relocation_for_block(
 /// gate is the self-cancelling pair) → no double unwind dec. Runs AFTER Phase-6.69
 /// (so 6.69 still skips via the intact pair) and BEFORE Phase-6.98.
 ///
-/// Gate (the over-fire boundary): fires ONLY for a terminator `Invoke`/`InvokeIndirect`
+/// Gate (the over-fire boundary): fires ONLY for a DIRECT terminator `Invoke`
 /// arg `op` where (a) `op` is an owned closure value (`is_owned_closure_value`),
-/// (b) NOT a param, NOT a borrowed def, NOT an iter-element view/marker, (c) borrowed
-/// at its arg position, (d) the call block carries BOTH an inline `BurdenInc op` and
-/// `BurdenDec op` (the base-walk net-0 pair), (e) `op` is NOT live-out of the call
-/// block (dead at the normal successor), (f) the lineage is NOT transferred out
-/// (`closure_lineage_transferred_out` — stored/returned/passed `[own]` → consumer's
-/// drop frees the env), (g) the callee does NOT iter-consume the arg position
-/// (`ParamContract.iter_consumes` → `ori_iter_drop` frees it inward). Probe-gated →
-/// default codegen byte-identical. Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`)
-/// + RL-4 (`RL4_edge_release_balanced`).
+/// (b) `rep_of(op)` is NOT a param, NOT a borrowed def, NOT an iter-element
+/// view/marker (the exclusion keys on the jump-threaded rep, matching the lineage
+/// checks), (c) borrowed at its arg position, (d) the call block carries BOTH an
+/// inline `BurdenInc op` and `BurdenDec op` (the base-walk net-0 pair), (e) `op` is
+/// NOT live-out of the call block (dead at the normal successor), (f) the lineage
+/// is NOT transferred out (`closure_lineage_transferred_out` — stored/returned/
+/// passed `[own]` → consumer's drop frees the env), (g) the callee does NOT
+/// iter-consume the arg position (`ParamContract.iter_consumes` → `ori_iter_drop`
+/// frees it inward), (h) BOTH dead successor edges are single-predecessor (a
+/// merge / shared unwind landing pad would double-count the front-inserted dec).
+/// Probe-gated → default codegen byte-identical. Spec: Annex E §AIMS RL-2
+/// (`RL2_release_exactly_once`) + RL-4 (`RL4_edge_release_balanced`).
 fn relocate_borrowed_terminator_closure_arg_dec_to_edges(
     func: &mut ArcFunction,
     pool: &Pool,
@@ -4294,6 +4313,7 @@ fn relocate_borrowed_terminator_closure_arg_dec_to_edges(
     let jt_reps = compute_jump_threaded_reps(func, None);
     let params: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
+    let preds = crate::graph::compute_predecessors(func);
 
     // Gather (block, closure_var, normal, unwind) per relocation — immutable scan
     // first (RL-4: released exactly once per concrete path), then mutate.
@@ -4308,6 +4328,7 @@ fn relocate_borrowed_terminator_closure_arg_dec_to_edges(
             all_borrowed_defs,
             &iter_element_defs,
             &jt_reps,
+            &preds,
             b,
         ) {
             relocations.push((b, var, normal, unwind));
