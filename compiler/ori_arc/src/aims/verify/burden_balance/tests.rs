@@ -168,14 +168,14 @@ fn burden_dec_partial_balances_inc() {
     );
 }
 
-// BUG-04-237 pin 2 — verify-gate fail-closed on a cyclic disagreeing loop.
+// Verify-gate fail-closed pin on a cyclic disagreeing loop.
 // A loop whose body carries a non-zero per-iteration whole-var burden delta has
 // no static entry net; freeze-on-disagree CONVERGES the loop-header merge to a
 // recorded disagreement (rather than oscillating to the iteration cap), and
 // `verify_burden_balance` reports it as a HARD `merge-disagree` error
 // (fail-closed) rather than silently passing on stale nets. Pre-cure
 // (`balance_verdict` returning `violation: None` on the non-converged path) this
-// returned ZERO errors — the under-verification BUG-04-237 exists to eliminate.
+// returned ZERO errors — the under-verification this verifier exists to eliminate.
 // This pins the MergeDisagree path; the `ConvergenceExhausted` fail-closed branch
 // — unreachable through any real CFG once freeze-on-disagree lands — is pinned
 // directly against a hand-built non-converged net in `burden_delta/tests.rs`.

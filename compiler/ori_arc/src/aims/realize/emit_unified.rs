@@ -6984,7 +6984,7 @@ fn compute_dead_owned_collection_releases(
         let nets =
             crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
 
-        // Convergence guard (BUG-04-237): `entry_net` is authoritative only on a
+        // Convergence guard: `entry_net` is authoritative only on a
         // converged result. On `!converged` the nets are stale (freeze-on-disagree
         // / cap exhaustion), so an alloc-aware-net release decision derived from
         // them would be non-deterministic. Decline (the verifier reports the
@@ -7339,7 +7339,7 @@ fn compute_dead_collection_source_releases(
         let nets =
             crate::aims::verify::burden_delta::compute_burden_entry_nets(func, &preds, &delta);
 
-        // Convergence guard (BUG-04-237): the dead-sink leak release reads
+        // Convergence guard: the dead-sink leak release reads
         // `entry_net` at the sink; it is authoritative only on a converged
         // result. On `!converged` (freeze-on-disagree / cap exhaustion) the nets
         // are stale — decline rather than emit a release off a non-deterministic

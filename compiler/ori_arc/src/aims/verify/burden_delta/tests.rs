@@ -178,12 +178,12 @@ fn unbalanced_loop_balance_verdict_reports_merge_disagree() {
     assert_eq!(violation.kind, BalanceViolationKind::MergeDisagree);
 }
 
-// BUG-04-237 — direct pin for the `ConvergenceExhausted` fail-closed branch.
+// Direct pin for the `ConvergenceExhausted` fail-closed branch.
 // Freeze-on-disagree makes a non-converged-without-disagree state unreachable
 // through any real CFG (every non-zero-delta cycle freezes to MergeDisagree), so
 // the branch is verified against a hand-built non-converged net fed straight to
 // the extraction core. Reverting the `!converged` branch (silently passing on
-// stale nets — the under-verification BUG-04-237 cures) makes this pin RED.
+// stale nets — the under-verification this verifier prevents) makes this pin RED.
 #[test]
 fn non_converged_net_without_disagree_reports_convergence_exhausted() {
     let entry = jump_block(0, Vec::new(), b(1));
