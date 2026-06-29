@@ -1692,6 +1692,18 @@
       "note": ""
     },
     {
+      "proof_id": "RL-DROP",
+      "proof_path": "proofs/08-realization/RL-DROP.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RLDROP_scalar_lifecycle_sound",
+      "parity_tokens": [
+        "userDrop",
+        "scalar"
+      ],
+      "note": ""
+    },
+    {
       "proof_id": "VF-1",
       "proof_path": "proofs/09-verification/VF-1.proof",
       "kind": "theorem",
