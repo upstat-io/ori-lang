@@ -47,6 +47,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 &self.codegen_ctx,
             );
             emitter.set_verify_arc(self.verify_arc);
+            emitter.set_func_contract(self.aims_contracts.get(&func.arc_func.name));
             emitter.emit_function(&func.arc_func, &func.abi);
 
             // Post-emission CFG simplification

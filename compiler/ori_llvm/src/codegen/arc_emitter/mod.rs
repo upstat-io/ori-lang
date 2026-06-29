@@ -74,6 +74,7 @@ pub(crate) use narrowing_codegen::narrowed_collection_element_width;
 
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
+use ori_arc::MemoryContract;
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -264,6 +265,16 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// must be incremented if the source is borrowed-rooted (the caller
     /// retains a reference, so the boxed store creates an additional one).
     borrowed_rooted_vars: FxHashSet<ArcVarId>,
+    /// The current function's interprocedural `MemoryContract`, when available.
+    /// Read by `compute_borrowed_rooted_vars` to seed `iter_consume_owns_rooted_vars`.
+    func_contract: Option<&'a MemoryContract>,
+    /// Variables rooted at a param whose `ParamContract` proves it is iter-consume
+    /// transferred AND NOT transferred through the function's own Return
+    /// (`iter_consumes && !transfers_through_return`). For such a `.iter()`
+    /// receiver the iterator OWNS the backing buffer (the RL-2 inward transfer
+    /// gave it ownership, the caller relinquished its dec, and the param is not
+    /// also returned) → `owns_data=true` even though it is borrowed-rooted.
+    iter_consume_owns_rooted_vars: FxHashSet<ArcVarId>,
     /// Borrowed parameter pointer forwarding: maps `ArcVarId` → original LLVM
     /// parameter pointer for variables received as `Reference`/`Indirect` params.
     /// When passing such a variable to another function that also expects a
@@ -388,6 +399,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             intercepted_unwind: None,
             same_frame_catch_landing_pads: FxHashMap::default(),
             borrowed_rooted_vars: FxHashSet::default(),
+            func_contract: None,
+            iter_consume_owns_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
             pointer_only_params: FxHashSet::default(),
             iter_next_decomposed: FxHashMap::default(),
@@ -418,6 +431,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// sub-pointer increment (borrowed → yes, consumed → no).
     pub(super) fn is_var_borrowed_rooted(&self, var: ArcVarId) -> bool {
         self.borrowed_rooted_vars.contains(&var)
+    }
+
+    /// Supply the current function's interprocedural `MemoryContract` before
+    /// `emit_function`, so `compute_borrowed_rooted_vars` can seed the
+    /// iter-consume-owns set from its `ParamContract`s. Defaults to `None`
+    /// (no flips) when not set — lambdas and tests leave it unset.
+    pub(super) fn set_func_contract(&mut self, contract: Option<&'a MemoryContract>) {
+        self.func_contract = contract;
+    }
+
+    /// Whether the `.iter()` receiver `var` roots to a param proven
+    /// iter-consume-transferred AND NOT transferred through the function's own
+    /// Return (`iter_consumes && !transfers_through_return`) — the RL-2 inward
+    /// transfer that makes the iterator the buffer's owner (`owns_data=true`)
+    /// even though the receiver is borrowed-rooted. The genuinely-borrowed
+    /// receiver (flatten inner `sub.iter()`) and the iter-consume+return overlap
+    /// (`@f(x) = { x.iter().count(); x }`, where the buffer escapes via Return)
+    /// are both absent here → `false`.
+    pub(super) fn iter_receiver_owns_via_contract(&self, var: ArcVarId) -> bool {
+        self.iter_consume_owns_rooted_vars.contains(&var)
     }
 
     // Struct layout remapping

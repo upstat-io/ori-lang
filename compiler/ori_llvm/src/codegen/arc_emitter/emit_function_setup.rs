@@ -125,9 +125,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// and `Jump` block-parameter passing.
     pub(super) fn compute_borrowed_rooted_vars(&mut self, func: &ArcFunction) {
         self.borrowed_rooted_vars.clear();
+        self.iter_consume_owns_rooted_vars.clear();
         for param in &func.params {
             if param.ownership == Ownership::Borrowed {
                 self.borrowed_rooted_vars.insert(param.var);
+            }
+        }
+        // Seed the iter-consume-owns set from the interprocedural contract: a
+        // param proven iter-consume transferred (RL-2 inward transfer) AND NOT
+        // transferred through the function's own Return owns its iterator's
+        // buffer. `func.params[i]` is parallel to `contract.params[i]`.
+        if let Some(contract) = self.func_contract {
+            for (i, param) in func.params.iter().enumerate() {
+                if let Some(pc) = contract.params.get(i) {
+                    if pc.iter_consumes && !pc.transfers_through_return {
+                        self.iter_consume_owns_rooted_vars.insert(param.var);
+                    }
+                }
             }
         }
         // Trace alias chains: Let{Var} + Jump block-param passing.
@@ -148,6 +162,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         {
                             changed = true;
                         }
+                        if self.iter_consume_owns_rooted_vars.contains(src)
+                            && self.iter_consume_owns_rooted_vars.insert(*dst)
+                        {
+                            changed = true;
+                        }
                     }
                 }
                 // Jump { target, args } — args[i] flows to target.params[i]
@@ -156,6 +175,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
                         if self.borrowed_rooted_vars.contains(arg)
                             && self.borrowed_rooted_vars.insert(param_var)
+                        {
+                            changed = true;
+                        }
+                        if self.iter_consume_owns_rooted_vars.contains(arg)
+                            && self.iter_consume_owns_rooted_vars.insert(param_var)
                         {
                             changed = true;
                         }

@@ -247,6 +247,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.codegen_ctx,
         );
         emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&arc_func.name));
         emitter.emit_function(&arc_func, abi);
 
         // Post-emission CFG simplification: eliminate empty blocks and
