@@ -71,8 +71,16 @@ impl ArcLowerer<'_> {
 
     // Ok / Err / Some / None
 
-    /// Lower an `Ok` constructor to ARC IR.
-    pub(crate) fn lower_ok(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
+    /// Lower a `Result` variant (`Ok`/`Err`) to ARC IR. The payload is the
+    /// lowered `inner` expression, or unit when `inner` is invalid (unit-payload
+    /// variant). Shared body for [`Self::lower_ok`] / [`Self::lower_err`].
+    fn lower_result_variant(
+        &mut self,
+        inner: CanId,
+        ty: Idx,
+        span: Span,
+        variant: u32,
+    ) -> ArcVarId {
         let arg = if inner.is_valid() {
             self.lower_expr(inner)
         } else {
@@ -83,30 +91,21 @@ impl ArcLowerer<'_> {
             ty,
             CtorKind::EnumVariant {
                 enum_name: result_name,
-                variant: ori_ir::RESULT_VARIANT_OK,
+                variant,
             },
             vec![arg],
             Some(span),
         )
     }
 
+    /// Lower an `Ok` constructor to ARC IR.
+    pub(crate) fn lower_ok(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
+        self.lower_result_variant(inner, ty, span, ori_ir::RESULT_VARIANT_OK)
+    }
+
     /// Lower an `Err` constructor to ARC IR.
     pub(crate) fn lower_err(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
-        let arg = if inner.is_valid() {
-            self.lower_expr(inner)
-        } else {
-            self.emit_unit()
-        };
-        let result_name = self.interner.intern("Result");
-        self.builder.emit_construct(
-            ty,
-            CtorKind::EnumVariant {
-                enum_name: result_name,
-                variant: ori_ir::RESULT_VARIANT_ERR,
-            },
-            vec![arg],
-            Some(span),
-        )
+        self.lower_result_variant(inner, ty, span, ori_ir::RESULT_VARIANT_ERR)
     }
 
     /// Lower a `Some` constructor to ARC IR.

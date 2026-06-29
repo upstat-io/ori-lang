@@ -9249,6 +9249,17 @@ fn agreed_terminal_net_over(
 ) -> Option<i64> {
     use crate::aims::verify::burden_delta::compute_burden_entry_nets;
     let nets = compute_burden_entry_nets(func, preds, delta);
+    // Convergence guard: this terminal-net verdict reads `entry_net`, which is
+    // authoritative only on a converged result. On `!converged` the nets are
+    // stale (freeze-on-disagree / cap exhaustion) and `disagree_blocks` may be
+    // empty (the cap-exhausted-without-disagreement case), so a debited-net
+    // release/elision decision derived from them would be non-deterministic.
+    // Decline (the verifier reports the non-convergence as a HARD failure; a
+    // missed elision is a leak surfaced there, never a UAF from a wrong
+    // release). No-op on every converged function (Spec: Annex E §AIMS RL-2).
+    if !nets.converged {
+        return None;
+    }
     if !nets.disagree_blocks.is_empty() {
         return None;
     }

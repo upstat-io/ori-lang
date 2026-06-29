@@ -74,6 +74,15 @@ pub(super) fn classify_model(
     }
 
     let nets = compute_burden_entry_nets(func, preds, &delta);
+    // Convergence guard: this net-zero verdict reads `entry_net`, authoritative
+    // only on a converged result. On `!converged` (freeze-on-disagree / cap
+    // exhaustion) the nets are stale and `disagree_blocks` may be empty, so a
+    // release/elision verdict derived from them would be non-deterministic.
+    // Decline — Unprovable falls back to the safe baseline; the verifier
+    // reports the non-convergence as a HARD failure (Spec: Annex E §AIMS RL-2).
+    if !nets.converged {
+        return NetVerdict::Unprovable;
+    }
     if !nets.disagree_blocks.is_empty() {
         return NetVerdict::Unprovable;
     }

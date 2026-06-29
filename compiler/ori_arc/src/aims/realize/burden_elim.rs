@@ -1028,6 +1028,16 @@ fn select_single_release_dec(
         let mut delta = alloc_delta.to_vec();
         delta[keep.0] -= 1;
         let nets = compute_burden_entry_nets(func, preds, &delta);
+        // Convergence guard: the all-paths-net-zero check below reads
+        // `entry_net`, authoritative only on a converged result. On
+        // `!converged` (freeze-on-disagree / cap exhaustion) the nets are stale
+        // and `disagree_blocks` may be empty, so a single-release placement
+        // derived from them would be non-deterministic. Decline this candidate
+        // — a missed elision is a leak surfaced by the verifier, never a UAF
+        // from a wrong release (Spec: Annex E §AIMS RL-2).
+        if !nets.converged {
+            continue;
+        }
         if !nets.disagree_blocks.is_empty() {
             continue;
         }
