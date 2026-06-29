@@ -51,6 +51,16 @@ fn compute_arg_ownership(
     consuming_receiver_only: &FxHashSet<ori_ir::Name>,
     protocol_builtins: &FxHashMap<ori_ir::Name, &'static [ProtocolArgOwnership]>,
 ) -> Vec<ArgOwnership> {
+    tracing::debug!(
+        target: "ori_arc::rc_insert::annotate",
+        callee = interner.try_lookup(callee).unwrap_or("?"),
+        in_sigs = sigs.contains_key(&callee),
+        sig_param_ownership = ?sigs.get(&callee).map(|s| {
+            s.params.iter().map(|p| p.ownership).collect::<Vec<_>>()
+        }),
+        arg_count,
+        "arg_ownership verdict"
+    );
     // External C runtime: not in sigs, name starts with `ori_`.
     if !sigs.contains_key(&callee) {
         // Protocol builtins with explicit per-arg ownership — check FIRST.
