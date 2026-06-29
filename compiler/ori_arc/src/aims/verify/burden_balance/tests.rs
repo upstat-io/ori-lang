@@ -168,15 +168,19 @@ fn burden_dec_partial_balances_inc() {
     );
 }
 
-// BUG-04-237 pin 2 — verify-gate fail-closed on a cyclic non-convergent input.
+// BUG-04-237 pin 2 — verify-gate fail-closed on a cyclic disagreeing loop.
 // A loop whose body carries a non-zero per-iteration whole-var burden delta has
-// no static entry net; the forward dataflow records the loop-header merge as a
-// disagreement (freeze-on-disagree) and `verify_burden_balance` MUST report a
-// HARD error (fail-closed) rather than silently passing on stale nets. Pre-cure
+// no static entry net; freeze-on-disagree CONVERGES the loop-header merge to a
+// recorded disagreement (rather than oscillating to the iteration cap), and
+// `verify_burden_balance` reports it as a HARD `merge-disagree` error
+// (fail-closed) rather than silently passing on stale nets. Pre-cure
 // (`balance_verdict` returning `violation: None` on the non-converged path) this
 // returned ZERO errors — the under-verification BUG-04-237 exists to eliminate.
+// This pins the MergeDisagree path; the `ConvergenceExhausted` fail-closed branch
+// — unreachable through any real CFG once freeze-on-disagree lands — is pinned
+// directly against a hand-built non-converged net in `burden_delta/tests.rs`.
 #[test]
-fn cyclic_nonconvergent_loop_verify_fails_closed() {
+fn cyclic_disagree_loop_verify_reports_merge_disagree() {
     //   b0 entry  : Jump b1
     //   b1 header : Branch b2 | b3
     //   b2 body   : BurdenInc(v0); Jump b1   (back-edge, non-zero cycle delta)
@@ -189,10 +193,16 @@ fn cyclic_nonconvergent_loop_verify_fails_closed() {
 
     let errors = verify_burden_balance(&func);
 
-    assert!(
-        !errors.is_empty(),
-        "a cyclic non-convergent burden delta MUST fail verification closed, never pass silently; \
-         got: {errors:?}"
+    assert_eq!(
+        errors.len(),
+        1,
+        "a cyclic disagreeing burden delta MUST fail verification closed; got: {errors:?}"
+    );
+    assert_eq!(
+        errors[0].exit_kind, "merge-disagree",
+        "freeze-on-disagree converges the loop header to a recorded merge \
+         disagreement, not an iteration-cap exhaustion; got: {:?}",
+        errors[0].exit_kind
     );
 }
 

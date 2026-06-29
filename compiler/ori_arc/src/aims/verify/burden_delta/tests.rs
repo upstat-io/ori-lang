@@ -10,7 +10,8 @@ use ori_ir::Name;
 use ori_types::Idx;
 
 use super::{
-    balance_verdict, compute_burden_entry_nets, compute_var_block_deltas, BalanceViolationKind,
+    balance_verdict, balance_verdict_from_nets, compute_burden_entry_nets,
+    compute_var_block_deltas, BalanceViolationKind, BurdenEntryNets,
 };
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator};
 use crate::test_helpers::{b, make_func, v};
@@ -175,4 +176,63 @@ fn unbalanced_loop_balance_verdict_reports_merge_disagree() {
         panic!("unbalanced loop must produce a balance violation")
     };
     assert_eq!(violation.kind, BalanceViolationKind::MergeDisagree);
+}
+
+// BUG-04-237 — direct pin for the `ConvergenceExhausted` fail-closed branch.
+// Freeze-on-disagree makes a non-converged-without-disagree state unreachable
+// through any real CFG (every non-zero-delta cycle freezes to MergeDisagree), so
+// the branch is verified against a hand-built non-converged net fed straight to
+// the extraction core. Reverting the `!converged` branch (silently passing on
+// stale nets — the under-verification BUG-04-237 cures) makes this pin RED.
+#[test]
+fn non_converged_net_without_disagree_reports_convergence_exhausted() {
+    let entry = jump_block(0, Vec::new(), b(1));
+    let exit = return_block(1, Vec::new());
+    let func = make_burden_func(vec![entry, exit]);
+    // A net that exited via the iteration cap (`converged: false`) with NO
+    // recorded merge disagreement — the stale-nets shape the fail-closed branch
+    // exists to reject. Unreachable through a real CFG post-freeze.
+    let nets = BurdenEntryNets {
+        entry_net: vec![Some(0), Some(0)],
+        disagree_blocks: Vec::new(),
+        converged: false,
+    };
+    let delta = compute_var_block_deltas(&func, v(0));
+
+    let verdict = balance_verdict_from_nets(&func, delta, &nets);
+
+    let Some(violation) = verdict.violation else {
+        panic!(
+            "a non-converged net without a recorded disagree MUST fail closed, never pass silently"
+        )
+    };
+    assert_eq!(violation.kind, BalanceViolationKind::ConvergenceExhausted);
+    assert_eq!(violation.block_idx, func.entry.index());
+}
+
+// Negative clamp — a CONVERGED net with no disagree and balanced terminals
+// produces NO violation. Pins the `ConvergenceExhausted` branch to its
+// `!converged` gate: a fix firing the fail-closed verdict unconditionally
+// (regardless of `converged`) breaks this cell.
+#[test]
+fn converged_balanced_net_reports_no_violation() {
+    let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
+    let exit = return_block(1, vec![ArcInstr::BurdenDec { var: v(0) }]);
+    let func = make_burden_func(vec![entry, exit]);
+    // entry_net mirrors the real forward dataflow: b0 entry 0, b1 entry 0+1=1;
+    // terminal b1 nets 1 + (-1) = 0 — balanced, converged, no disagree.
+    let nets = BurdenEntryNets {
+        entry_net: vec![Some(0), Some(1)],
+        disagree_blocks: Vec::new(),
+        converged: true,
+    };
+    let delta = compute_var_block_deltas(&func, v(0));
+
+    let verdict = balance_verdict_from_nets(&func, delta, &nets);
+
+    assert!(
+        verdict.violation.is_none(),
+        "a converged balanced net must not fail closed; got: {:?}",
+        verdict.violation
+    );
 }
