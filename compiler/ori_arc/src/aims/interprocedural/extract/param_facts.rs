@@ -127,6 +127,14 @@ pub(super) fn find_iter_consume_params(
         }
     }
 
+    tracing::debug!(
+        target: "ori_arc::aims::interprocedural",
+        fn_name = interner.lookup(func.name),
+        ?iter_consumed,
+        dropped_handle_count = dropped_handles.len(),
+        "find_iter_consume_params verdict"
+    );
+
     iter_consumed
 }
 
