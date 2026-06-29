@@ -897,10 +897,10 @@ pub(super) fn find_return_flow_params(
 ///
 /// Used by `extract_contract` to populate
 /// `ParamContract::return_payload_contains_param` (the `any` set), which the
-/// `populate_class_payload_of_with_liveness` gate at
-/// `intraprocedural/post_convergence.rs` consumes to decide whether to
-/// record a `class_payload_of` edge for the param even when its access is
-/// `Borrowed`, and `ParamContract::return_payload_contains_param_all_paths`
+/// burden-path transitive-drop alias machinery (`intraprocedural/apply_aliases.rs`
+/// aliasing-params filter + `post_convergence.rs::materialize_transitive_drop_singleton_classes`)
+/// consumes to admit the param's caller-side transitive-drop containment even
+/// when its access is `Borrowed`, and `ParamContract::return_payload_contains_param_all_paths`
 /// (the `all_paths` set), which the Phase-6.99 WRAPPED transfer-anchor
 /// admission consumes as the per-path wrap proof.
 pub(super) fn find_payload_containment_params(
@@ -952,11 +952,11 @@ pub(super) fn find_payload_containment_params(
                     // We use CtorKind as a structural proxy: EnumVariant
                     // is the ctor that yields transitive-drop variant
                     // payloads. The consumer
-                    // `populate_class_payload_of_with_liveness` re-checks
-                    // is_transitive_drop_strategy on the call dst at the
-                    // caller's site, so being permissive here only
-                    // populates the contract field; the gate guards real
-                    // edge recording.
+                    // (`post_convergence.rs::materialize_transitive_drop_singleton_classes`)
+                    // re-checks is_transitive_drop_strategy on the call dst at
+                    // the caller's site, so being permissive here only
+                    // populates the contract field; the consumer guards real
+                    // class materialization.
                     let is_variant = matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
                     tracing::debug!(
                         func = ?func.name,

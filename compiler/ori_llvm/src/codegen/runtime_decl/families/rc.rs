@@ -27,8 +27,8 @@ pub(in crate::codegen::runtime_decl) static RC: &[RtFn] = &[
     },
     // May-unwind RC dec: drop fn called directly (no catch_unwind), so a
     // foreign Ori exception from a user @drop unwinds through to the caller's
-    // cleanup pad. extern "C-unwind" → NO Nounwind (per RT-1 + runtime.md
-    // §Unwinding ABI). Routed via `invoke` at may-unwind RcDec sites only.
+    // cleanup pad. extern "C-unwind" → NO Nounwind (the unwinding ABI may
+    // raise through this call). Routed via `invoke` at may-unwind RcDec sites only.
     RtFn {
         name: "ori_rc_dec_unwind",
         params: &[Ty::Ptr, Ty::Ptr],

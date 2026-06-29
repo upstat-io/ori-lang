@@ -1,6 +1,6 @@
 // (B-1) Pattern-dispatch extension: borrowed [int] param + use in
 // `match` arm + Return. Verifies the pre-compute set covers Return-as-
-// transfer through decision-tree dispatch (Maranget per canon.md §3),
+// transfer through decision-tree dispatch (Maranget),
 // not just direct return.
 
 @borrow_match_use (xs: [int], opt: Option<int>) -> [int] = {

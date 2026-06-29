@@ -1,7 +1,7 @@
-//! Helper utilities for primary expression parsing.
+//! Primary-form disambiguation for primary expression parsing.
 //!
-//! Contains lookahead checks and expression-to-parameter conversion
-//! used by the parenthesized expression parser.
+//! Lambda-parameter lookahead + conversion and channel-constructor
+//! classification used by the parenthesized/identifier primary parsers.
 
 use crate::{ParseError, Parser};
 use ori_ir::{ExprId, ExprKind, FunctionExpKind, Name, Param, ParamRange, TokenKind};

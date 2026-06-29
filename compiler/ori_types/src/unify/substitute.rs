@@ -245,7 +245,7 @@ impl UnifyEngine<'_> {
     /// Struct: recurse through field types; preserve field names. A scheme-body
     /// composite whose field type is a `Tag::BoundVar`/`Tag::Var` needs its
     /// fields rewritten at instantiation (the pool Struct stores inline field
-    /// `Idx`s per `types.md TL-2`). Substitutes through `var_subst` ONLY — NO
+    /// `Idx`s). Substitutes through `var_subst` ONLY — NO
     /// materialization, NO `&TypeRegistry`: at instantiation the args are fresh
     /// type VARIABLES, so concrete-body materialization is premature (it is the
     /// pool mono-recording path's job where the `Applied` args are concrete).

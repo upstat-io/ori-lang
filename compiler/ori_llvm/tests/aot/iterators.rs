@@ -70,7 +70,7 @@ fn test_iter_filter() {
 // correctly catches Tag::Var reaching codegen. The flatten codegen fix itself
 // is verified by:
 // (a) helper boundary discipline (production assert on non-iterator outer),
-// (b) spec tests at compiler_repo/tests/spec/traits/iterator/methods.ori under
+// (b) spec tests at tests/spec/traits/iterator/methods.ori under
 //     interpreter (semantic pin: bool/char/tuple inner produce correct values),
 // (c) zero regression in the AOT suite (2160 passing tests).
 // AOT fixture for the bool-inner case to be added when that gap closes.

@@ -37,7 +37,7 @@
 //!
 //! On-demand stale-baseline audit (this gate is subset-only — it forbids
 //! ADDITIONS but does not flag a baseline cell that is now PASSING): run
-//! `compiler_repo/diagnostics/aot-guardrail.sh --floor`. It re-runs the corpus
+//! `diagnostics/aot-guardrail.sh --floor`. It re-runs the corpus
 //! under the gated env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1
 //! ORI_VERIFY_EACH=1`) vs this baseline and lists STALE entries (now-passing ->
 //! prune) plus NEW regressions. Validate a baseline cell there before treating it

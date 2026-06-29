@@ -1,7 +1,7 @@
 //! Tests for the canonical-IR structural validator (`validate`).
 //!
-//! The validator is the sole enforcer of the Canon -> All output contract
-//! (canon.md §4.3 / impl-hygiene.md PHASE-34): no `TypeId::INFER` survives,
+//! The validator is the sole enforcer of the Canon -> All output contract:
+//! no `TypeId::INFER` survives,
 //! every `CanId` child reference is in-bounds, every `CanExpr::Match` carries
 //! an in-bounds `DecisionTreeId`, and every `ConstantId` resolves. It runs
 //! under `#[cfg(debug_assertions)]` and panics on the first violation.

@@ -220,7 +220,8 @@ fn param_contract_for(
         // Structural payload-containment fact — the param flows into a
         // returned transitive-drop variant payload. Distinct from
         // `return_alias`, which covers the result being an ALIAS of the
-        // param. Consumed by `populate_class_payload_of_with_liveness`.
+        // param. Consumed by the burden-path transitive-drop alias machinery
+        // (`intraprocedural/apply_aliases.rs` + `post_convergence.rs`).
         return_payload_contains_param: facts.payload_containment.contains(&i),
         // Per-path wrap proof — contained in the returned EnumVariant
         // payload on EVERY return path. Gates the Phase-6.99 wrapped
@@ -324,7 +325,8 @@ struct ParamFacts {
     return_alias_shapes: FxHashMap<usize, ReturnAliasShape>,
     /// Params flowing into a returned transitive-drop variant payload
     /// (e.g., `wrap_ok(m) = Ok(m)`) — contained IN the result, not aliased
-    /// to it. Consumed by the `class_payload_of` liveness gate.
+    /// to it. Consumed by the burden-path transitive-drop alias machinery
+    /// (`intraprocedural/post_convergence.rs::materialize_transitive_drop_singleton_classes`).
     payload_containment: FxHashSet<usize>,
     /// Subset of `payload_containment`: params contained in the returned
     /// `EnumVariant` payload on EVERY return path — the per-path wrap proof
@@ -408,8 +410,8 @@ fn detect_param_facts(
     // Payload-containment params are NOT promoted to Owned: the param is
     // contained IN a returned construct, not aliased TO the result. The
     // caller's edge-recording gate (post_convergence.rs) reads
-    // `return_payload_contains_param` to record the class_payload_of edge
-    // even for Borrowed-access params.
+    // `return_payload_contains_param` to admit the transitive-drop
+    // containment relationship even for Borrowed-access params.
     consumed.extend(&return_flow);
     ParamFacts {
         consumed,

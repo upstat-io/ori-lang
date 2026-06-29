@@ -323,7 +323,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // `@contains`) but never released on the NORMAL path — the walk's only dec
     // sits on the unwind / `Resume` edge. The recovered copy is a FRESH
     // `ori_catch_recover` builtin result with NO seeded contract (the deliberate
-    // no-contract decision per `arc.md §Protocol Builtins`), so the fresh-sum
+    // no-contract decision for this protocol builtin), so the fresh-sum
     // live-extract scan FORECLOSES it (`collect_fresh_sum_roots` requires a callee
     // contract; `ori_catch_recover` is a protocol builtin with no seeded contract
     // by deliberate design). This scan roots on the `ori_catch_recover` callee IDENTITY,
@@ -942,9 +942,9 @@ fn apply_nested_construct_return_passthrough(
 /// `BurdenInc` / `BurdenDec` / `BurdenDecPartial` / `BurdenDecField` /
 /// `BurdenDecVariant`. One linear pass per function, no per-var hash-map churn.
 ///
-/// Coexistence-handshake input consumed downstream by the AIMS
-/// post-convergence `class_covered` computation, which gates predicate-stack
-/// realization deferral.
+/// Coexistence-handshake input consumed downstream by the residual
+/// predicate-stack co-emission, which gates its realization deferral on
+/// `burden_emitted`.
 pub(super) fn populate_burden_emitted(func: &mut ArcFunction) {
     if func.burden_emitted.len() != func.var_types.len() {
         func.burden_emitted = vec![false; func.var_types.len()];

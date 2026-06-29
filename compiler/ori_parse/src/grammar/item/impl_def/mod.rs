@@ -138,7 +138,7 @@ impl Parser<'_> {
 
     /// Parse a method in an impl block.
     ///
-    /// Grammar (per `compiler_repo/docs/ori_lang/v2026/spec/grammar.ebnf`):
+    /// Grammar (per `docs/ori_lang/v2026/spec/grammar.ebnf`):
     /// ```text
     /// method          = "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression [ ";" ] .
     /// def_impl_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .  /* no self, no uses */

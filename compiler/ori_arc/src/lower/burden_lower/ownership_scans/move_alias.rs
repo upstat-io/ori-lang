@@ -123,7 +123,7 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     //   reference whose only release IS the terminal dec, so cancellation
     //   declines. Function PARAMS are excluded: a param's last-use dec marker
     //   is load-bearing on the default coexistence path (`emit_last_use_decs`
-    //   keeps it so `populate_class_covered` suppresses the predicate stack's
+    //   keeps it so the residual predicate-stack co-emission suppresses its
     //   own real dec); the param-transfers-through-return case is owned by the
     //   contract-driven `transfer_through_return_param_vars` strip instead.
     let param_vars: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();

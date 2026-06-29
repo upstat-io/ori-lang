@@ -138,7 +138,7 @@ fn collect_ori_fixtures(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>
 /// not just the single survivor fixture: every scenario produces a valid
 /// verdict-surface stream (auto-composed burden-sole header). Enumerates the
 /// corpus by recursive discovery + a self-verifying visited-count assertion so
-/// a silently-skipped fixture fails the test (per tests.md matrix-completeness).
+/// a silently-skipped fixture fails the test (matrix completeness).
 #[test]
 fn rc_remarks_producer_runs_over_aims_corpus() {
     let corpus_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

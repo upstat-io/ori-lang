@@ -784,8 +784,8 @@ fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
 /// eligible edge, materializes a singleton `class_members` entry for both the
 /// arg and dst classes so the `class_members(class_id)` consumers in the
 /// realize walks (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for
-/// singleton parents/children. Records no inter-class relation (the retired
-/// `class_payload_of` predicate-stack edge map is gone).
+/// singleton parents/children. Records no inter-class relation — singleton
+/// `class_members` entries only, no predicate-stack edge map.
 #[expect(
     clippy::too_many_lines,
     reason = "five edge-recording sites with structurally similar logic must be enumerated explicitly to preserve preconditions"

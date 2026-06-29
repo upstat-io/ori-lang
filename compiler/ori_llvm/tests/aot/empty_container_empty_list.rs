@@ -1,7 +1,7 @@
 //! AOT tests for empty-container matrix coverage.
 //!
 //! Pairs with the spec tests in
-//! `compiler_repo/tests/spec/types/collections/empty_list/` — this module
+//! `tests/spec/types/collections/empty_list/` — this module
 //! exercises the same matrix cells via the full AOT pipeline. Distinct
 //! from `empty_container.rs` which owns the original-repro fix.
 //!

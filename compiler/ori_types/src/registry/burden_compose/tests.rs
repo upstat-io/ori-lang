@@ -342,7 +342,7 @@ fn compose_channel_distinct_t_produces_distinct_specs() {
     // Positive (signature side): Channel<int> and Channel<str> compose to
     // structurally distinct UserBurdenSpec instances. Carries the
     // dedup contract — the BurdenSignature naturally distinguishes them
-    // via element_burden Idx contents (codex blind-spot #3 cure).
+    // via element_burden Idx contents.
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = channel_template();

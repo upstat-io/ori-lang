@@ -487,8 +487,8 @@ fn channel_int_registers_with_distinct_signature_from_channel_str() {
     // entries — their BurdenSignatures differ because the element_burden
     // Idx is folded into the FNV-1a hash (`burden_dedup.rs` fold rule).
     // the dedup contract is preserved over the Channel<T>
-    // composition shape (codex blind-spot #3 cure: signature distinctness
-    // grounded in element burden contents).
+    // composition shape: signature distinctness grounded in element
+    // burden contents.
     let mut registry = TypeRegistry::new();
     let chan_int_slot = Idx::from_raw(800);
     let chan_str_slot = Idx::from_raw(801);

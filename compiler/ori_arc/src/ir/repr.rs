@@ -334,10 +334,11 @@ pub fn compute_var_reprs(
 ///
 /// Called once at the start of the ARC pipeline, immediately after
 /// [`compute_var_reprs`] populates `func.var_reprs`. Caches the
-/// [`RcStrategy::from_repr`] result so downstream pre-walk passes (the AIMS
-/// PIN-6 `class_payload_of` population in
-/// `intraprocedural::ssa_alias_classes`) can classify a variable's strategy
-/// without holding a `&Pool` reference at analyze-time.
+/// [`RcStrategy::from_repr`] result so downstream pre-walk passes (the SSA
+/// alias-class computation in `intraprocedural::ssa_alias_classes` + the
+/// transitive-drop edge materialization in `intraprocedural::post_convergence`)
+/// can classify a variable's strategy without holding a `&Pool` reference at
+/// analyze-time.
 ///
 /// # Preconditions
 ///

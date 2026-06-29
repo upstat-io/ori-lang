@@ -2,7 +2,7 @@
 
 mod decl;
 mod expr;
-mod helpers;
+mod kind_copiers;
 mod trait_impl;
 mod types;
 

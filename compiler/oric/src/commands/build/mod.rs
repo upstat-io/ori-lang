@@ -93,7 +93,7 @@ pub fn build_file(path: &str, options: &BuildOptions) {
     // ori_arc realization-time emitter (which cannot depend on oric) picks it up
     // at first LazyLock access during codegen. Set before any codegen runs.
     // Compose the burden-sole-path gating so the stream is a valid verdict
-    // surface (the default path is FALSE-GREEN per arc.md STOP); only set the
+    // surface (the default predicate-stack path is FALSE-GREEN); only set the
     // gating vars when the user has not set them explicitly.
     if let Some(remarks_path) = options.emit_rc_remarks.as_deref() {
         std::env::set_var(crate::debug_flags::ORI_RC_REMARKS, remarks_path);

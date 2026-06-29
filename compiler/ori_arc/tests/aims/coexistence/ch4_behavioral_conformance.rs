@@ -17,14 +17,14 @@
 //! Consumed by `aims-proof/scripts/run-section-11-proofs.sh` Phase (c)
 //! compiler-conformance cross-walk; combined with Tier 1 anchored-grep for
 //! `pub(crate) fn eliminate_burden_ops` at
-//! `compiler_repo/compiler/ori_arc/src/aims/realize/burden_elim.rs:87`, the
+//! `compiler/ori_arc/src/aims/realize/burden_elim.rs`, the
 //! two-tier check emits `conformance: pass` iff both succeed.
 //!
 //! # Scope guard — target-only behavioral surface
 //!
 //! The coexistence_dispatch surface (the production composition above
 //! `eliminate_burden_ops` that the coexistence calculus models) has not yet landed in
-//! `compiler_repo/compiler/ori_arc/src/aims/`. CH-1 / CH-2 / CH-3 / CH-5 /
+//! `compiler/ori_arc/src/aims/`. CH-1 / CH-2 / CH-3 / CH-5 /
 //! CH-comp therefore map to `conformance: target-only`;
 //! only CH-4 has a shipped emission site (`eliminate_burden_ops`) the
 //! behavioral harness can drive.

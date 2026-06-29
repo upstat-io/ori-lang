@@ -187,7 +187,7 @@ pub(crate) fn populate_apply_result_aliases(
 ///
 /// Let Var aliases of a consumed arg are admitted into the
 /// `ApplyAliasSource` map and deduplicated at realize-walk emission time via
-/// the SSA alias class table (`class_payload_of` + `class_members`). The
+/// the SSA alias class table (`class_members`). The
 /// downstream `should_suppress_apply_aliased_dec` consumer fires dec
 /// suppression based on the CALLER'S local Access of the arg (Owned →
 /// suppress; Borrowed → no-op), and class membership prevents double-suppression

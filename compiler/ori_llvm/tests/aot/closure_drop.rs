@@ -2,12 +2,12 @@
 //!
 //! These tests exercise the END-TO-END closure-drop story: closure capture
 //! composition (registry-side) + env-header `drop_fn` transport (codegen side
-//! via existing `emit_rc_dec_closure` at `rc_ops.rs:256-287`) + `ori_rc_dec`
+//! via existing `emit_rc_dec_closure`) + `ori_rc_dec`
 //! invocation at refcount-zero (runtime side).
 //!
 //! The codegen path is shipped (the existing
 //! `DropKind::ClosureEnv(fields) | DropKind::Fields(fields)` shared arm at
-//! `compiler_repo/compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs:91`
+//! `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`
 //! materializes the closure drop body once burden composition populates
 //! `UserBurdenSpec.compiled_drop` for closure types). The burden walker at
 //! `ori_arc/src/lower/burden_lower.rs` consumes the registered closure
@@ -59,7 +59,7 @@ fn test_closure_capture_by_value_str_drops_at_scope_exit() {
 
 /// Regression: shared-reference pin — closure with captured str gets
 /// its env refcount-decremented at scope exit; refcount-zero branch of
-/// `ori_rc_dec` (via `emit_rc_dec_closure` at `rc_ops.rs:256-287`) loads the
+/// `ori_rc_dec` (via `emit_rc_dec_closure`) loads the
 /// closure's `drop_fn` from `env_ptr` field 0 and invokes it to walk owned
 /// captures.
 #[test]

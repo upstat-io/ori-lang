@@ -1,4 +1,4 @@
-//! Private helper methods for list builtins.
+//! List field/data extraction for list-builtin codegen.
 //!
 //! Provides shared extraction utilities (`extract_list_data_and_len`,
 //! `extract_list_fields`), the `first`/`last` shared implementation, and

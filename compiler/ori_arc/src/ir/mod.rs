@@ -423,8 +423,9 @@ pub struct ArcFunction {
     /// Cached RC strategy for each variable, indexed by `ArcVarId::index()`.
     /// `None` for scalar variables (no RC ops). Computed alongside
     /// [`var_reprs`](Self::var_reprs) at the start of the ARC pipeline so
-    /// downstream pre-walk passes (notably the AIMS PIN-6 `class_payload_of`
-    /// population in `intraprocedural::ssa_alias_classes`) can classify a
+    /// downstream pre-walk passes (the SSA alias-class computation in
+    /// `intraprocedural::ssa_alias_classes` + the transitive-drop edge
+    /// materialization in `intraprocedural::post_convergence`) can classify a
     /// var's strategy without holding a `&Pool` reference.
     ///
     /// Empty until populated by the pipeline alongside `var_reprs`.
@@ -488,13 +489,13 @@ pub struct ArcFunction {
     /// `BurdenDecField` / `BurdenDecVariant` instruction.
     ///
     /// Indexed by `ArcVarId::index()`. `true` = burden walker owns this var's
-    /// RC traffic; the predicate-stack realization should defer to the burden
-    /// walk for vars in this set when their containing SSA-alias class is
-    /// fully covered (`AimsStateMap::class_covered`).
+    /// RC traffic; the coexistence handshake (`Spec: Annex E §AIMS`, CH-1) has
+    /// the residual predicate-stack realization defer to the burden walk for
+    /// vars in this set on the default (coexistence) path.
     ///
-    /// Default: empty. Populated by `emit_burden_ops`. Read by the AIMS
-    /// post-convergence `class_covered` computation and by `decide()` at
-    /// realization. Skipped during cache serialization — derived data.
+    /// Default: empty. Populated by `emit_burden_ops`. Read by `decide()` at
+    /// realization (the coexistence handshake — CH-1 `burden_emitted` IS the
+    /// lattice `burden_owned`). Skipped during cache serialization — derived data.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
     /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs

@@ -33,9 +33,11 @@ pub(crate) fn normalize_with_trmc(
             let _span = tracing::info_span!("compute_var_reprs").entered();
             func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
             // Cache RcStrategy alongside var_reprs so the AIMS pre-walk
-            // `class_payload_of` population in
-            // `intraprocedural::ssa_alias_classes` can classify a var's
-            // strategy without holding a `&Pool` reference at analyze-time.
+            // (the SSA alias-class computation in
+            // `intraprocedural::ssa_alias_classes` + the transitive-drop edge
+            // materialization in `intraprocedural::post_convergence`) can
+            // classify a var's strategy without holding a `&Pool` reference
+            // at analyze-time.
             func.var_rc_strategies = crate::ir::compute_var_rc_strategies(func, config.pool);
         }
         super::trace_pipeline_checkpoint(

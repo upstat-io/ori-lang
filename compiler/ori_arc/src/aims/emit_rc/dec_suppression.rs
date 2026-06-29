@@ -1,4 +1,4 @@
-//! Shared RC-emission helper predicates.
+//! Apply-aliased RC-dec suppression predicates.
 
 use crate::aims::intraprocedural::state_map::{AimsStateMap, ApplyAliasSource};
 use crate::ir::ArcVarId;

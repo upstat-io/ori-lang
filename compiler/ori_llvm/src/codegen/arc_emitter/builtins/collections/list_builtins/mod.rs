@@ -6,7 +6,7 @@
 //! COW mutation methods (push, pop, concat, reverse, set, insert, remove,
 //! sort) are in the sibling `list_cow` module.
 
-mod helpers;
+mod list_field_access;
 mod sort_thunks;
 
 use ori_types::Idx;

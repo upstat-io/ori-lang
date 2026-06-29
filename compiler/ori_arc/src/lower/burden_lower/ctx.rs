@@ -54,9 +54,8 @@ pub(crate) struct BurdenLowerCtx<'a> {
     not(test),
     allow(
         dead_code,
-        reason = "accessors consumed by tests only; the returned ctx's accessors \
-                  are not yet read by the production pipeline (the class_covered \
-                  consumer is pending) — the walk reads the fields directly"
+        reason = "accessors consumed by tests only; the production pipeline walk \
+                  reads the fields directly"
     )
 )]
 impl<'a> BurdenLowerCtx<'a> {

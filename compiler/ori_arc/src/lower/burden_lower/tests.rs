@@ -426,8 +426,8 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
     // accounting marker; codegen's predicate-stack realize walk owns
     // physical RC for vars consumed at instruction-level owned positions
     // (Set.value via the TF-15 carve-out). Adding a symmetric BurdenDec
-    // would mark the var in `func.burden_emitted`, propagate through
-    // `populate_class_covered`, and suppress predicate-stack RC emission —
+    // would mark the var in `func.burden_emitted`, driving the residual
+    // predicate-stack co-emission to suppress its RC emission —
     // causing real-world RC leaks. Test uses Idx::STR (heap-burden) for
     // value — Idx::INT's lookup_burden returns Some(EMPTY_SPEC) per
     // BURDEN_TABLE, so the `burden_carries_rc` filter at
@@ -488,7 +488,7 @@ fn set_emits_burden_inc_before_and_skips_burden_dec_at_value_last_use() {
     // Pin 2: BurdenDec(var(1)) MUST NOT appear (RL-2 transfer skip).
     //  audit: predicate-stack owns physical RC for Set.value
     //  coexistence handshake; symmetric Dec emission here
-    // would mark var(1) in burden_emitted and break class_covered.
+    // would mark var(1) in burden_emitted and break the coexistence coverage handshake.
     let dec_value_present = body
         .iter()
         .any(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(1)));
@@ -1280,9 +1280,9 @@ fn apply_mixed_owned_borrowed_args_emits_burden_inc_per_position() {
 #[test]
 fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
     // success_criterion 1: ApplyIndirect's empty arg_ownership defaults
-    // to all-Borrowed per `is_some_and(Owned)` (instr.rs:367-380) — CONSERVATIVE
+    // to all-Borrowed per `is_some_and(Owned)` (instr.rs) — CONSERVATIVE
     // for unknown callees; caller retains cleanup. This is the load-bearing
-    // safety distinction from Apply (instr.rs:381-390) whose empty default is
+    // safety distinction from Apply (instr.rs) whose empty default is
     // all-Owned via `is_none_or(Owned)`. Without this pin, a future refactor
     // unifying the two predicates (copy-paste from Apply arm) would silently
     // break ApplyIndirect's conservative semantics — unannotated callsites
@@ -1327,7 +1327,7 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
     // : post-emission body is [BurdenInc(dst=2) [FRESH-site —
     // ApplyIndirect lowers to TF-5a CONSERVATIVE MaybeShared return],
     // ApplyIndirect]. The PER-ARG BurdenInc loop emits zero entries because
-    // empty arg_ownership defaults all positions to Borrowed (instr.rs:367-
+    // empty arg_ownership defaults all positions to Borrowed (instr.rs-
     // 380 is_some_and). The FRESH-site Inc is the symmetric pair-opener
     // for the last-use Dec on dst per RL-2.
     let body = &func.blocks[0].body;
@@ -1355,11 +1355,11 @@ fn apply_indirect_empty_arg_ownership_emits_no_burden_inc() {
 
 #[test]
 fn multi_block_last_use_pinned_per_block_pending_cross_block() {
-    // INTENTIONAL intra-block scope per `burden_lower.rs:128` comment.
+    // INTENTIONAL intra-block scope per `burden_lower.rs` comment.
     // cross-block CFG-aware last-use will collapse this to ONE entry
     // — that change IS the desired cell flip, not a regression.
     //
-    // walker (burden_lower.rs:132-141) does per-block backward walks:
+    // walker (burden_lower.rs) does per-block backward walks:
     // `seen: FxHashSet` declared INSIDE the block loop, so a variable used
     // in BOTH blocks produces TWO `last_use_points` entries — one per block.
     // Cross-block liveness via block-param handoffs lands.
@@ -1531,10 +1531,10 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
     //
     // This test surfaces the filter fix: `lookup_burden(Idx::INT)`
     // returns `Some(BurdenRef)` carrying `BuiltinBurdenSpec::EMPTY` (per
-    // `BURDEN_TABLE` at `ori_registry/src/burden/table.rs:184-193`), NOT
+    // `BURDEN_TABLE` at `ori_registry/src/burden/table.rs`), NOT
     // None. A naive filter `burden.as_ref.map(|_| *var)` admits EMPTY
     // and emits BurdenDec on scalars (RcOnScalar violation). The
-    // fix at `burden_lower.rs:154-178` checks BurdenRef contents via the
+    // fix at `burden_lower.rs` checks BurdenRef contents via the
     // `Burden` trait: `self_heap_alloc || element_burden.is_some ||
     // variant_burdens.next.is_some || owned_fields.next.is_some`.
     //
@@ -1571,7 +1571,7 @@ fn scalar_int_var_emits_no_burden_dec_at_last_use() {
 fn heap_burden_borrowed_param_skipped_at_ownership_filter() {
     // Burden-walk contract: ownership filter MUST skip Borrowed params BEFORE
     // `lookup_burden` is consulted. This is the load-bearing early-skip
-    // for heap-burden Borrowed params: per `burden_lower.rs:111-113`,
+    // for heap-burden Borrowed params: per `burden_lower.rs`,
     // `matches!(param_ownership.get(&var), Some(Ownership::Borrowed))
     // → continue` short-circuits the param loop before push to ctx.collected.
     //
@@ -1742,7 +1742,7 @@ fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
     //  + `VF-1` RcOnScalar` mirror to BurdenInc
     // emission. PartialApply args=[STR, INT]: STR carries heap-burden
     // (passes burden_carries_rc); INT carries EMPTY burden (per BURDEN_TABLE
-    // at `ori_registry/src/burden/table.rs:184-193`) — filter MUST
+    // at `ori_registry/src/burden/table.rs`) — filter MUST
     // admit STR and reject INT.
     //
     // This is the BurdenInc symmetric pin to this BurdenDec scalar
@@ -1802,9 +1802,9 @@ fn partial_apply_mixed_str_int_emits_burden_inc_only_for_heap_burden() {
 fn apply_indirect_scalar_owned_arg_emits_no_burden_inc() {
     //  + VF-1 RcOnScalar mirror — cross-instr coverage.
     // ApplyIndirect with arg_ownership=[Owned] + arg=Idx::INT (scalar) MUST
-    // emit ZERO BurdenInc. Per instr.rs:367-380 ApplyIndirect arm: closure
+    // emit ZERO BurdenInc. Per instr.rs ApplyIndirect arm: closure
     // at pos 0 always borrowed; arg at pos 1 owned iff arg_ownership[0]=Owned.
-    // Per filter (burden_lower.rs:171-175): owned_vars_needing_rc
+    // Per filter (burden_lower.rs): owned_vars_needing_rc
     // rejects Idx::INT (EMPTY burden) so no BurdenInc emits.
     //
     // this partial_apply_mixed_str_int test covered PartialApply;
@@ -1878,7 +1878,7 @@ fn set_scalar_value_emits_no_burden_inc_via_tf_15_carve_out_filter() {
     // `value` is owned via IA-5 alias-transfer step (1) per TF-15 carve-out;
     // NOT covered by `is_owned_position`'s `_ => false` catch-all. The
     // BurdenInc emission for Set's value happens in a SEPARATE if-let block
-    // (burden_lower.rs:217-225) distinct from the main owned-position loop.
+    // (burden_lower.rs) distinct from the main owned-position loop.
     //
     // added `owned_vars_needing_rc.contains(value)` to BOTH the
     // main loop AND the Set carve-out. This test closes the LAST unclamped
@@ -2145,7 +2145,7 @@ fn partial_apply_empty_args_emits_zero_burden_inc() {
 #[test]
 fn construct_empty_args_emits_zero_burden_inc() {
     // : empty-args boundary mirror to this PartialApply
-    // empty-args pin. Shared is_owned_position branch at instr.rs:352:
+    // empty-args pin. Shared is_owned_position branch at instr.rs:
     // `Construct { args,.. } | PartialApply { args,.. } => pos < args.len`.
     // args=[] → predicate false for all pos → zero BurdenInc.
     let registry = TypeRegistry::new();
@@ -2351,7 +2351,7 @@ fn project_then_construct_arg_sets_moved_out_fields_bit() {
     // Pass 1 collects (%1 → (%0, 0)); Pass 2 sees Construct's owned-position arg
     // %1, looks up project_origins[%1] = (%0, 0), inserts 0 into
     // moved_out_fields[%0]. Per `TF-3` Construct args at
-    // owned positions (per `instr.rs:352-354 is_owned_position` returns true
+    // owned positions (per `instr.rs is_owned_position` returns true
     // for `pos < args.len`). Construct is the canonical transfer-point
     // consumer that fires the two-stage rule.
     let registry = TypeRegistry::new();
@@ -2402,7 +2402,7 @@ fn project_then_set_value_sets_moved_out_fields_bit_via_tf15_carve_out() {
     // `TF-15` + IA-5 step (1) — `value` is Owned via alias
     // transfer despite `is_owned_position`'s `_ => false`. Clamps the
     // Set-value carve-out symmetry with the existing transfer_points /
-    // emit_instr_burdens carve-outs at `burden_lower.rs:231-236,463-466,490-491`.
+    // emit_instr_burdens carve-outs at `burden_lower.rs`.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![
@@ -2447,7 +2447,7 @@ fn project_with_no_transfer_consumer_leaves_moved_out_fields_unset() {
     // negative pin (two-stage rule clamp from below): `%1 = Project %0.0`
     // with NO downstream transfer-point consumer MUST leave `moved_out_fields[%0]`
     // unset. Per `TF-4`, Project produces Borrowed; per
-    // `instr.rs:391 _ => false`, Project is NOT an owned position itself.
+    // `instr.rs _ => false`, Project is NOT an owned position itself.
     // The two-stage rule fires only when a Project dst is THEN consumed at
     // a transfer point. This pin clamps the unsound-aggressive
     // failure mode (`populate on every Project`) — a reversion of Pass 1/Pass 2
@@ -2480,7 +2480,7 @@ fn project_with_no_transfer_consumer_leaves_moved_out_fields_unset() {
 fn project_consumed_at_is_shared_leaves_moved_out_fields_unset() {
     // negative pin (borrowed-position clamp): `%1 = Project %0.0`
     // followed by `IsShared(%1)` MUST leave `moved_out_fields[%0]` unset. Per
-    // `instr.rs:391 _ => false`, IsShared falls through `is_owned_position`'s
+    // `instr.rs _ => false`, IsShared falls through `is_owned_position`'s
     // catch-all → NOT an owned position → `instr_transfer_vars` does NOT
     // include %1. The two-stage rule's stage-2 is NOT triggered by IsShared.
     // Clamps the Pass 2 logic from below: a reversion that erroneously
@@ -2522,13 +2522,13 @@ fn project_consumed_at_is_shared_leaves_moved_out_fields_unset() {
 fn jump_arg_to_borrowed_target_block_param_emits_burden_dec_at_terminator_per_rl2_negative() {
     //  negative pin: clamps this
     // `if matches!(ownership, DerivedOwnership::Owned)` guard at
-    // `burden_lower.rs:273` from below. When target block param's
+    // `burden_lower.rs` from below. When target block param's
     // `DerivedOwnership` is `BorrowedFrom(...)` (NOT Owned), Jump.args[i]
     // MUST NOT enter terminator_transfer_vars — the prior-instruction /
     // terminator-position last-use of arg DOES receive BurdenDec because
     // Jump-to-Borrowed-param is a borrow (not an ownership transfer) per
     // `RL-2` ownership-transferring exception list.
-    // Production borrow inference at `borrow/derived.rs:60` currently marks
+    // Production borrow inference at `borrow/derived.rs` currently marks
     // all block params Owned, so this case is structurally unreachable in
     // shipped code — BUT the guard itself is load-bearing (a reversion that
     // always treats Jump.args as transfer would silently miscompile when
@@ -2608,9 +2608,9 @@ fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscala
     //): scalar-typed Invoke arg at owned position MUST
     // NOT receive BurdenInc/BurdenDec even though terminator_transfer_per_block
     // marks it as transfer. The `owned_vars_needing_rc` filter at
-    // `burden_lower.rs:225-234` rejects scalars (Idx::INT carries
+    // `burden_lower.rs` rejects scalars (Idx::INT carries
     // `BuiltinBurdenSpec::EMPTY` per `BURDEN_TABLE` at
-    // `ori_registry/src/burden/table.rs:184-193`); `burden_carries_rc`
+    // `ori_registry/src/burden/table.rs`); `burden_carries_rc`
     // returns false → var excluded from owned_vars_needing_rc → no
     // emission. Clamps this Invoke transfer logic from below.
     let registry = TypeRegistry::new();
@@ -2660,17 +2660,17 @@ fn invoke_scalar_int_arg_at_owned_position_emits_no_burden_ops_per_vf1_rconscala
 fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_balance() {
     //  InvokeIndirect positive pin + terminator-
     // level VF-1 symmetry: canonical `ArcTerminator::is_owned_position(pos)`
-    // at `terminator.rs:117-126` encodes closure-pos-0-always-Borrowed
+    // at `terminator.rs` encodes closure-pos-0-always-Borrowed
     // semantics. used_vars = [closure,...args]; closure at pos 0 →
     // is_owned_position(0) == false; args at pos 1+ checked against
     // arg_ownership[pos-1]. Test: closure var(0) + args [var(1)] with
     // arg_ownership=[Owned] → var(1) gets BurdenInc at terminator AND
     // symmetric BurdenDec at terminator to balance VF-1 intraprocedural
     // net per `VF-1`. The terminator-level symmetric Dec
-    // is safe (does NOT cause class_covered to fire for body-internal vars,
+    // is safe (does NOT cause coverage suppression to fire for body-internal vars,
     // since the var's last-use IS the terminator); the instruction-level
     // case keeps transfer-suppression per `emit_instr_burdens`. BurdenDec
-    // is a TF-N/A metadata annotation per `aims/realize/walk.rs:75-93`;
+    // is a TF-N/A metadata annotation per `aims/realize/walk.rs`;
     // codegen does NOT emit a real RcDec.
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -2718,7 +2718,7 @@ fn invoke_indirect_owned_args_at_pos_one_emits_symmetric_burden_dec_for_vf1_bala
     //  — Pin: BurdenDec on var(1) MUST appear, paired with the
     // BurdenInc to preserve VF-1 intraprocedural balance per `
     // §9 VF-1`. Codegen does NOT emit a real RcDec — BurdenDec is a TF-N/A
-    // metadata annotation per `aims/realize/walk.rs:75-93`, so the
+    // metadata annotation per `aims/realize/walk.rs`, so the
     // ownership-transfer semantic at the runtime layer is unaffected.
     let dec_arg_present = body_0
         .iter()
@@ -2760,11 +2760,11 @@ fn invoke_arg_at_owned_position_emits_symmetric_burden_dec_at_terminator_for_vf1
     // `terminator_transfer_per_block` with `Invoke + InvokeIndirect`
     // match-arms using canonical SSOT helper `is_owned_position(pos)`.
     // With empty `arg_ownership`, is_owned_position defaults to all-Owned
-    // (per `terminator.rs:100-129`). BurdenDec is a TF-N/A metadata
-    // annotation per `aims/realize/walk.rs:75-93`; codegen does NOT emit
+    // (per `terminator.rs`). BurdenDec is a TF-N/A metadata
+    // annotation per `aims/realize/walk.rs`; codegen does NOT emit
     // a real RcDec, preserving the runtime transfer semantic. The
     // terminator-level symmetric Dec is safe (does NOT trigger
-    // class_covered suppression of predicate-stack RC for body-internal
+    // coverage suppression of predicate-stack RC for body-internal
     // vars coexistence handshake).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -2841,10 +2841,10 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
     // terminator-transfer pre-computation marks Jump.args[i] as
     // transfer when target_block.params[i].0 looked up in derived_ownership
     // returns Owned. BurdenDec is a TF-N/A metadata annotation per
-    // `aims/realize/walk.rs:75-93`; codegen does NOT emit a real RcDec,
+    // `aims/realize/walk.rs`; codegen does NOT emit a real RcDec,
     // preserving Jump's runtime transfer semantic to the target block
     // param. The terminator-level symmetric Dec is safe (does NOT cause
-    // class_covered suppression of predicate-stack RC for body-internal
+    // coverage suppression of predicate-stack RC for body-internal
     // vars coexistence handshake).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
@@ -2888,7 +2888,7 @@ fn jump_arg_to_owned_target_block_param_emits_symmetric_burden_dec_at_terminator
     //  — Pin 1: BurdenDec on var(0) MUST appear at terminator,
     // paired with the BurdenInc to preserve VF-1 intraprocedural balance.
     // BurdenDec is a TF-N/A metadata annotation per
-    // `aims/realize/walk.rs:75-93`; codegen does NOT emit a real RcDec,
+    // `aims/realize/walk.rs`; codegen does NOT emit a real RcDec,
     // preserving Jump's runtime ownership-transfer semantic.
     let dec_present = body_0
         .iter()
@@ -2926,12 +2926,12 @@ fn return_scalar_int_value_emits_zero_burden_ops_per_vf1_rconscalar() {
     // BurdenInc or BurdenDec, regardless of terminator-position registration.
     // `lookup_burden(Idx::INT)` returns `Some(BurdenRef)` carrying
     // `BuiltinBurdenSpec::EMPTY` (per `BURDEN_TABLE` at
-    // `ori_registry/src/burden/table.rs:184-193`); `burden_carries_rc` filter
+    // `ori_registry/src/burden/table.rs`); `burden_carries_rc` filter
     // rejects EMPTY specs so var(0) is excluded from owned_vars_needing_rc.
     // Without this filter the terminator-position emission would attempt to
     // process the scalar var (which it now filters out via the same
     // owned_vars_needing_rc gate inherited via last_uses_at population at
-    // burden_lower.rs:211-217).
+    // burden_lower.rs).
     let registry = TypeRegistry::new();
     let mut func = ArcFunction {
         params: vec![ArcParam {
@@ -3752,8 +3752,8 @@ fn nested_match_with_inner_diamond_partial_move_emits_burden_dec_partial() {
 // (`registered_struct_with_two_owned_str_fields`) — the closure's Idx is
 // registered as a struct shell with a closure-shaped burden via
 // `compose_closure_burden_spec`. Production wiring lives at the lambda
-// type-check site (`infer_lambda` at `compiler_repo/compiler/ori_types/src/
-// infer/expr/blocks.rs:223`); the deliverable shipped here pins the
+// type-check site (`infer_lambda` at `compiler/ori_types/src/
+// infer/expr/blocks.rs`); the deliverable shipped here pins the
 // spec composer + wires the burden walker to consume registered closure
 // burdens without changes to the walker itself.
 
@@ -3863,7 +3863,7 @@ fn closure_capture_by_reference_emits_no_burden_inc() {
     // + the design the borrowed-capture's CAPTURED VARIABLE is
     // typed as a borrow target (modeled here as Idx::STR with the closure
     // taking a borrowed view). The existing PartialApply branch in
-    // `is_owned_position` (`instr.rs:350-393`) treats args as owned-position
+    // `is_owned_position` (`instr.rs`) treats args as owned-position
     // by structural shape — the negative-emission discipline here relies on
     // the captured variable itself NOT being in `owned_vars_needing_rc`
     // because borrow-captures don't surface in the closure's `owned_fields`
@@ -4564,8 +4564,8 @@ fn dead_out_value_keeps_its_single_block_last_use_dec() {
 // owned non-scalar SSA var is structurally visited and marked in
 // `func.burden_emitted` when it receives a Burden op. These pins assert the
 // observable coverage property directly over `func.burden_emitted`,
-// NOT the `class_covered` handshake (structurally empty during the
-// coexistence phase: `populate_class_covered` runs Step 4, short-circuits on
+// NOT the predicate-stack coverage handshake (structurally empty during the
+// coexistence phase: the residual co-emission runs Step 4, short-circuits on
 // empty `burden_emitted`, filled only at Step 4b).
 //
 // One cell per `ApplyAliasSource` shape modeled at the caller-side SSA level:
@@ -8079,7 +8079,7 @@ fn move_alias_cross_block_final_use_without_transfer_keeps_source_release() {
 fn move_alias_cross_block_param_source_keeps_release_marker() {
     // A function PARAM source is excluded from the relaxed cross-block gate:
     // its last-use dec marker is load-bearing on the default coexistence path
-    // (it drives `populate_class_covered` so the predicate stack's own real
+    // (it drives the residual predicate-stack co-emission so its own real
     // dec stays suppressed); the param-transfers-through-return case is owned
     // by the contract-driven `transfer_through_return_param_vars` strip.
     let mut func = cross_block_dup_source_func(

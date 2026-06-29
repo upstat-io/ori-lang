@@ -6,15 +6,17 @@
 //!
 //! # Submodules
 //!
-//! - [`arg_ownership`] — Apply/Invoke ownership propagation
+//! - [`arg_ownership`] — Apply/Invoke argument ownership annotation
+//! - [`borrowed_defs`] — borrowed-definition collection for RC emission
+//! - [`coalesce`] — static RC coalescing peephole pass
 //! - [`cow`] — COW annotation helpers
+//! - [`dec_suppression`] — Apply-aliased RC-dec suppression predicates
 //! - [`drop_hints`] — drop hint helpers
-//! - [`coalesce`] — adjacent RC op merging
-//! - [`dead_cleanup`] — dead-at-entry/invoke-dst cleanup
-//! - [`edge_cleanup`] — inter-block edge RC decrements
-//! - [`forward_walk`] — terminator RC emission
-//! - [`helpers`] — block context, use precomputation, liveness queries
-//! - [`queries`] — RC state queries (incremented vars)
+//! - [`edge_cleanup`] — inter-block edge RC cleanup
+//! - [`queries`] — post-emission RC-incremented variable tracking
+//! - [`take_project`] — take-project lineage + bypass-safe facts
+//! - [`trampoline`] — merge-edge trampoline block insertion
+//! - [`unwind_cleanup`] — Invoke-terminator unwind cleanup
 //!
 //! # References
 //!
@@ -26,9 +28,9 @@ pub mod arg_ownership;
 pub(crate) mod borrowed_defs;
 mod coalesce;
 pub mod cow;
+mod dec_suppression;
 pub mod drop_hints;
 mod edge_cleanup;
-mod helpers;
 pub(crate) mod queries;
 pub(crate) mod take_project;
 mod trampoline;
@@ -54,15 +56,14 @@ pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 // Re-exports for `realize/` unified forward walk.
 pub(crate) use borrowed_defs::{collect_all_borrowed_defs, collect_iter_element_defs};
 pub(crate) use coalesce::coalesce_block_rc;
+pub(crate) use dec_suppression::should_suppress_apply_aliased_dec;
 pub(crate) use edge_cleanup::{
     compute_same_alloc_reps, emit_edge_cleanup, emit_invoke_unwind_pair_net_releases, same_alloc,
 };
-pub(crate) use helpers::should_suppress_apply_aliased_dec;
 
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.
 ///
-/// Visible to all sibling submodules (`edge_cleanup`, `dead_cleanup`,
-/// `forward_walk`, `helpers`) via `super::rc_strategy`, and to
+/// Visible to sibling submodules via `super::rc_strategy`, and to
 /// `realize/` via `pub(crate)` re-export.
 #[inline]
 pub(crate) fn rc_strategy(

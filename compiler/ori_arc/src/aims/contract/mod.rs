@@ -324,12 +324,12 @@ pub struct ParamContract {
     /// Ok(m)`. Here `m` is contained in the returned `Result.payload[0]`
     /// but neither `Direct` nor `Project` matches.
     ///
-    /// Consumed by `populate_class_payload_of_with_liveness` in
-    /// `intraprocedural/post_convergence.rs`: the Apply/Invoke
-    /// edge-recording gate uses `owned || return_payload_contains_param`
-    /// so `class_payload_of` edges are recorded for caller-side
-    /// transitive-drop containment relationships even when the callee's
-    /// param contract has `access: Borrowed`.
+    /// Consumed by the burden-path transitive-drop alias machinery —
+    /// `intraprocedural/apply_aliases.rs` (the `aliasing_params` filter) and
+    /// `intraprocedural/post_convergence.rs::materialize_transitive_drop_singleton_classes`
+    /// — via `owned || return_payload_contains_param`, so caller-side
+    /// transitive-drop containment relationships are admitted even when the
+    /// callee's param contract has `access: Borrowed`.
     ///
     /// Default: `false` (conservative — no containment claim).
     pub return_payload_contains_param: bool,

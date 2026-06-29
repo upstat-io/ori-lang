@@ -1,4 +1,4 @@
-//! Shared helper methods for the AST copier.
+//! Per-kind AST node copy methods for the AST copier.
 //!
 //! Contains copy methods for patterns, statements, collection elements,
 //! and other building blocks used by both expression and declaration copying.

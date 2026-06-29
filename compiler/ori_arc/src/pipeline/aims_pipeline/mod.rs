@@ -238,7 +238,7 @@ pub(crate) fn run_aims_pipeline(
 
     // Step 4b-prelude — populate arg_ownership AFTER analyze_function (so
     // post-convergence's payload-edge analysis sees empty arg_ownership,
-    // preserving class_payload_of computation) but BEFORE emit_burden_ops (so
+    // preserving its transitive-drop edge computation) but BEFORE emit_burden_ops (so
     // burden_lower observes converged arg_ownership at emission time — closes
     // the VF-1 imbalance per AIMS TF-3 / RL-2). emit_arg_ownership is
     // idempotent; `realize_rc_reuse` does not re-invoke it because arg_ownership

@@ -55,7 +55,7 @@ fn string_invalid_escape() {
 // grammar.ebnf `hex_escape`; tracked by the cook_escape::mod TODO(lexer)). Until
 // implemented, `\x` is rejected as an ordinary invalid escape. These pins clamp the
 // current "not implemented" boundary so the future implementer's accept tests flip
-// these from rejection — stale-test detection per tests.md §Test Hygiene.
+// these from rejection — stale-test detection.
 
 #[test]
 fn string_hex_byte_escape_not_yet_implemented_is_invalid() {

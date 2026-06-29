@@ -15,7 +15,7 @@
 //! - `variant_burdens: []` — closures are not sums.
 //! - `compiled_drop: Some(env_drop_fn_sym)` — minted at registration, body
 //!   materialized later via existing `DropKind::ClosureEnv` arm at
-//!   `compiler_repo/compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`.
+//!   `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`.
 //! - `user_drop: None` — closures cannot have user `@drop` (only types do per
 //!   `drop-trait-proposal.md §Auto-derive`).
 //!
@@ -75,7 +75,7 @@ pub struct ClosureCapture {
 /// The composed spec is then registered via
 /// `TypeRegistry::register_user_burden(closure_idx, spec)` at the lambda's
 /// type-check site (`ori_types::infer::expr::infer_lambda` per
-/// `compiler_repo/compiler/ori_types/src/infer/expr/blocks.rs`).
+/// `compiler/ori_types/src/infer/expr/blocks.rs`).
 #[must_use]
 pub fn compose_closure_burden_spec(
     closure_idx: Idx,

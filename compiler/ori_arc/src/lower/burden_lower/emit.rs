@@ -537,11 +537,12 @@ fn cow_inc_args_consumed_by_instr(instr: &ArcInstr, ctx: &BurdenEmitCtx<'_>) -> 
 /// last-use is THIS instruction: the matching `BurdenDec` would be
 /// transfer-suppressed per AIMS RL-2, producing a `Σ Inc - Σ Dec = +1` VF-1
 /// imbalance in `aims/verify/burden_balance.rs`. Suppressing both Inc + Dec
-/// keeps the coexistence handshake clean: vars whose physical RC is owned by
-/// the `aims/realize/walk.rs` predicate-stack stay OUT of `func.burden_emitted`,
-/// preventing `populate_class_covered` from spuriously suppressing
-/// predicate-stack RC. Burden* are no-op codegen markers; the predicate-stack
-/// realize walk owns the real codegen RC for transferred-out vars.
+/// keeps the burden ledger balanced: a transferred-out var owes no caller
+/// release (RL-2), so emitting only the Inc would leave a `+1` VF-1 residual.
+/// On the default coexistence path the residual predicate-stack co-emission
+/// (the legacy path, under removal) still owns the real codegen RC for these
+/// transferred-out vars; the Burden* ops are accounting markers until the
+/// burden-sole flip makes them the real RC emitter.
 fn emit_owned_position_incs(
     new_body: &mut Vec<ArcInstr>,
     instr: &ArcInstr,
@@ -692,15 +693,14 @@ fn emit_in_place_mutation_drops(
 /// (c) emit standard `BurdenDec { var }` for the no-projection conservative
 ///     baseline.
 ///
-/// Instruction-level transfer suppression is preserved per the coexistence
-/// handshake. The owned-position `BurdenInc` deposited by `emit_instr_burdens`
-/// is a VF-1 accounting marker, NOT a real `RcInc`; codegen's predicate-stack
-/// realize walk (consulting `class_covered`) owns the physical RC management for
-/// vars consumed at instruction-level owned positions (`Apply`/`PartialApply`/
-/// `Construct`/etc.). Adding a symmetric `BurdenDec` here would mark the var in
-/// `func.burden_emitted`, propagate through `populate_class_covered`, and
-/// suppress predicate-stack RC emission — causing real-world RC leaks observed
-/// in `match_alias::test_closure_*` AOT tests. For VF-1 balance, the legacy
+/// Instruction-level transfer suppression is preserved. The owned-position
+/// `BurdenInc` deposited by `emit_instr_burdens` is a VF-1 accounting marker,
+/// NOT a real `RcInc` on the default coexistence path; the residual
+/// predicate-stack co-emission (the legacy path, under removal) owns the
+/// physical RC for vars consumed at instruction-level owned positions
+/// (`Apply`/`PartialApply`/`Construct`/etc.). Adding a symmetric `BurdenDec`
+/// here would over-suppress that RC — the real-world RC leak regression pinned
+/// by `match_alias::test_closure_*` AOT tests. For VF-1 balance, the legacy
 /// owned-position Inc/transfer-Dec pattern is rebalanced separately by
 /// `emit_terminator_burden_decs` and by `eliminate_burden_ops` paired elision.
 fn emit_last_use_decs(
@@ -765,9 +765,9 @@ fn last_use_dec_suppressor(
     // to the caller — a callee scope-exit dec double-releases it
     // (`AimsProof.Realization::RL2_transfer_kinds_no_dec` for the `Return`
     // `TerminalUse`). PROBE-ONLY: on the default path the `burden_dec` marker
-    // drives `populate_class_covered` to suppress the predicate stack's OWN real
-    // dec on this param, so removing it there un-covers the class and the
-    // predicate stack emits a real dec → double-free.
+    // drives the residual predicate-stack co-emission to suppress its OWN real
+    // dec on this param, so removing it there lets the residual predicate stack
+    // emit a real dec → double-free.
     if ctx.analysis.predicate_stack_rc_disabled
         && ctx
             .analysis

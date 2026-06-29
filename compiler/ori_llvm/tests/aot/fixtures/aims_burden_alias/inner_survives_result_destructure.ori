@@ -1,6 +1,6 @@
 // Lattice alias-tracking on the Result inner-alias destructure shape —
 // AOT mirror of the
-// Ori spec test at compiler_repo/tests/spec/aims/burden_alias_tracking.ori.
+// Ori spec test at tests/spec/aims/burden_alias_tracking.ori.
 // Runs the exact repro shape through full Phase 5 emission +
 // burden-op elimination + LLVM lowering + execution under ORI_CHECK_LEAKS.
 //
