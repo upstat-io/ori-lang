@@ -903,3 +903,43 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
         "side-table resolution must be fed by the collection_burdens argument"
     );
 }
+
+/// Regression: an imported function's body resolves its internal collection types
+/// (e.g. a dead `for…yield` `[bool]` local) into the merged pool, but
+/// `register_imported_function` composes burdens for signature types only — so the
+/// codegen registry (rebuilt via `from_typed_exports` with signature-reachable
+/// burdens only) has no burden for the imported body's `[bool]`, and
+/// `emit_burden_ops` emits no RC, leaking the allocation (BUG-04-238 test-runner
+/// surface). `register_resolved_collection_burdens` walks the pool and fills the
+/// gap. See `bug-tracker/plans/BUG-04-238/`.
+#[test]
+fn register_resolved_collection_burdens_fills_pool_collection_gap() {
+    let mut pool = Pool::new();
+    // The imported body's internal `[bool]` — interned in the merged pool but
+    // never composed (it is not a signature type).
+    let bool_list = pool.list(Idx::BOOL);
+    // The codegen registry as rebuilt by from_typed_exports carries no burden for
+    // this internal collection (signature-only export).
+    let mut registry = TypeRegistry::from_typed_exports(vec![], vec![]);
+    assert!(
+        registry.burden(bool_list).is_none(),
+        "pre-condition: the imported-body [bool] has no burden in the rebuilt registry",
+    );
+
+    crate::register_resolved_collection_burdens(&pool, &mut registry);
+
+    let filled = registry
+        .burden(bool_list)
+        .expect("the pool-walk must compose + register the [bool] collection burden");
+    assert!(
+        filled.self_heap_alloc,
+        "[bool] is heap-allocated — burden_carries_rc must be true so emit_burden_ops emits RC",
+    );
+
+    // Negative clamp: a scalar primitive (int) is never registered — the walk
+    // touches only resolved collection / composite Idxs.
+    assert!(
+        registry.burden(Idx::INT).is_none(),
+        "the pool-walk must NOT register a burden for a scalar primitive",
+    );
+}
