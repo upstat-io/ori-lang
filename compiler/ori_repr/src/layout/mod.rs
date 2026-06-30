@@ -11,10 +11,13 @@
 //! - [`niche`] — niche analysis for enum optimization
 //! - [`tagged_ptr`] — tagged pointer analysis for enum optimization
 
+pub(crate) mod enum_layout_info;
 pub(crate) mod niche;
 pub(crate) mod struct_layout;
 pub(crate) mod tagged_ptr;
 pub(crate) mod tuple_layout;
+
+pub use enum_layout_info::{compute_enum_layout_info, EnumLayoutInfo};
 
 #[cfg(test)]
 mod tests;
@@ -190,19 +193,45 @@ pub(crate) fn compute_tagless_enum_layout(variant: &VariantRepr) -> (u32, u32) {
     }
 }
 
+/// Round a field's byte size up to its `[M x i64]` slot-padded size.
+///
+/// A non-zero field occupies at least one full i64 slot (8 bytes); a zero-size
+/// field occupies none. This is the SSOT slot-packing kernel consumed by
+/// `compute_enum_payload_layout` and, after §02, the `ori_llvm` / `ori_arc`
+/// enum-payload sites.
+// Spec: Annex E §Representation Optimization (enum payload `[M x i64]` slots)
+pub fn slot_padded_size(field_bytes: u64) -> u64 {
+    if field_bytes == 0 {
+        return 0;
+    }
+    // FLOW-30: saturate the slot rounding rather than wrap.
+    field_bytes.div_ceil(8).saturating_mul(8)
+}
+
+/// Count the `i64` slots a field of `field_bytes` occupies.
+///
+/// A non-zero field occupies at least one slot; a zero-size field occupies
+/// none. `slot_count(n) * 8 == slot_padded_size(n)` for every `n`.
+// Spec: Annex E §Representation Optimization (enum payload `[M x i64]` slots)
+pub fn slot_count(field_bytes: u64) -> u64 {
+    if field_bytes == 0 {
+        return 0;
+    }
+    field_bytes.div_ceil(8).max(1)
+}
+
 /// Compute layout for an enum variant's payload using `[M x i64]` slot packing.
 ///
 /// Each field occupies at least one full i64 slot (8 bytes), regardless of its
 /// natural alignment. This matches `resolve_enum()` in `ori_llvm` and
 /// `enum_payload_size()` / `pool_type_store_size()` in `ori_arc`.
 pub(crate) fn compute_enum_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
-    // FLOW-30: saturate per-slot rounding and the running sum rather than wrap.
+    // FLOW-30: saturate the u32->u64 bridge and the running sum rather than wrap.
     let payload: u32 = fields
         .iter()
         .map(|f| {
-            let size = field_size(f);
-            // Round up to 8-byte i64 slot boundary.
-            size.div_ceil(8).saturating_mul(8)
+            let padded = slot_padded_size(u64::from(field_size(f)));
+            u32::try_from(padded).unwrap_or(u32::MAX)
         })
         .fold(0u32, u32::saturating_add);
     let align = if payload > 0 { 8 } else { 1 };

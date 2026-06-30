@@ -1583,3 +1583,50 @@ fn explicit_tag_layout_with_int_payload() {
     assert_eq!(size, 16);
     assert_eq!(align, 8);
 }
+
+// Slot-packing kernel (slot_padded_size / slot_count) — boundary-value pins.
+// The kernel is the SSOT consumed by compute_enum_payload_layout and (§02) the
+// ori_llvm / ori_arc enum-payload sites. Every cell is a positive + negative
+// pin: an off-by-one in div_ceil flips 7->8 to 7->0 or 9->16 to 9->8.
+
+#[test]
+fn slot_padded_size_zero_occupies_no_slots() {
+    assert_eq!(crate::layout::slot_padded_size(0), 0);
+}
+
+#[test]
+fn slot_padded_size_rounds_up_to_eight_byte_slots() {
+    assert_eq!(crate::layout::slot_padded_size(1), 8);
+    assert_eq!(crate::layout::slot_padded_size(7), 8);
+    assert_eq!(crate::layout::slot_padded_size(8), 8);
+    assert_eq!(crate::layout::slot_padded_size(9), 16);
+    assert_eq!(crate::layout::slot_padded_size(16), 16);
+    assert_eq!(crate::layout::slot_padded_size(24), 24);
+    assert_eq!(crate::layout::slot_padded_size(25), 32);
+}
+
+#[test]
+fn slot_count_zero_occupies_no_slots() {
+    assert_eq!(crate::layout::slot_count(0), 0);
+}
+
+#[test]
+fn slot_count_counts_eight_byte_slots() {
+    assert_eq!(crate::layout::slot_count(1), 1);
+    assert_eq!(crate::layout::slot_count(8), 1);
+    assert_eq!(crate::layout::slot_count(9), 2);
+    assert_eq!(crate::layout::slot_count(16), 2);
+    assert_eq!(crate::layout::slot_count(24), 3);
+}
+
+#[test]
+fn slot_count_times_eight_equals_padded_size() {
+    // The two kernels agree: slot_count(n) * 8 == slot_padded_size(n) for all n.
+    for n in [0u64, 1, 7, 8, 9, 16, 24, 25, 64, 65] {
+        assert_eq!(
+            crate::layout::slot_count(n).saturating_mul(8),
+            crate::layout::slot_padded_size(n),
+            "kernels disagree at n={n}",
+        );
+    }
+}
