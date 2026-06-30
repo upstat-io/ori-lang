@@ -7,11 +7,14 @@ use crate::layout::enum_layout_info::compute_enum_layout_info;
 use crate::repr::{IntWidth, MachineRepr};
 
 // Helper: a variant with the given field reprs. `size` is the slot-packed
-// payload size, computed the same way the real canonical pass does.
+// payload size via the canonical `slot_padded_size` kernel.
 fn variant(fields: Vec<MachineRepr>) -> VariantRepr {
     let size: u32 = fields
         .iter()
-        .map(|f| crate::layout::field_size(f).div_ceil(8).saturating_mul(8))
+        .map(|f| {
+            let padded = crate::layout::slot_padded_size(u64::from(crate::layout::field_size(f)));
+            u32::try_from(padded).unwrap_or(u32::MAX)
+        })
         .sum();
     VariantRepr {
         name: Name::from_raw(0),
@@ -28,7 +31,7 @@ fn int_field() -> MachineRepr {
     }
 }
 
-// --- compute_enum_layout_info: the four EnumTag variants ---
+// compute_enum_layout_info: the four EnumTag variants
 
 #[test]
 fn all_unit_enum_has_tag_no_payload() {
@@ -138,7 +141,7 @@ fn single_variant_newtype_is_tagless() {
     assert!(info.is_tagless());
 }
 
-// --- field_is_tag ---
+// field_is_tag
 
 #[test]
 fn field_is_tag_true_only_for_explicit_field_zero() {
@@ -178,7 +181,7 @@ fn field_is_tag_true_only_for_explicit_field_zero() {
     }
 }
 
-// --- payload_slot_offset: prefix-sum of slot_padded_size over payload fields ---
+// payload_slot_offset: prefix-sum of slot_padded_size over payload fields
 
 #[test]
 fn payload_slot_offset_prefix_sums_eight_byte_slots() {
@@ -236,7 +239,7 @@ fn payload_slot_offset_sub_slot_field_rounds_next_to_eight() {
     assert_eq!(info.payload_slot_offset(1), Some(8));
 }
 
-// --- negative pin: Option<[int]> does NOT niche (empty list = null data ptr) ---
+// negative pin: Option<[int]> does NOT niche (empty list = null data ptr)
 
 #[test]
 fn option_list_does_not_use_niche() {

@@ -11,8 +11,8 @@
 //! - **Safe defaults**: queries return canonical (un-narrowed) values
 //!   when no decision has been recorded — the canonical pass alone causes zero
 //!   behavioral change.
-//! - **Placeholder fields**: `escape_info` and `function_var_ranges`
-//!   use stub types until range analysis and escape analysis replace them.
+//! - **Placeholder fields**: `escape_info` uses a stub type until escape
+//!   analysis replaces it.
 
 use ori_arc::ArcVarId;
 use ori_ir::Name;

@@ -756,7 +756,7 @@ fn test_three_element_tuple_memory_index_remapping() {
     assert_eq!(result.memory_index(2), Some(2));
 }
 
-// -- min_tag_width tests --
+// min_tag_width tests
 
 use crate::enum_repr::min_tag_width;
 
@@ -1499,11 +1499,8 @@ fn payload_layout_byte_field_padded_to_slot() {
 
 #[test]
 fn payload_layout_three_byte_fields_padded_to_slots() {
-    // Three bytes → 3 × 8 = 24 bytes (each in its own slot, NOT 3 packed bytes)
-    // Documents the current i64-slot rule that will optimize.
-    // Once lands and applies tighter packing, this test should fail —
-    // a developer must update it to reflect the new packed layout (e.g.,
-    // 3 bytes packed into a single slot).
+    // Three bytes → 3 × 8 = 24 bytes (each in its own slot, NOT 3 packed bytes).
+    // Current i64-slot packing rule.
     let (size, align) = compute_enum_payload_layout(&[byte_repr(), byte_repr(), byte_repr()]);
     assert_eq!(
         size, 24,

@@ -13,9 +13,8 @@ use crate::layout::{field_size, slot_count, slot_padded_size};
 
 /// Canonical source of truth for enum layout facts.
 ///
-/// Every codegen consumer reads from this struct — no consumer computes
-/// layout independently. Computed (post-optimization) from the final
-/// [`EnumRepr`] via [`compute_enum_layout_info`].
+/// Computed (post-optimization) from the final [`EnumRepr`] via
+/// [`compute_enum_layout_info`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnumLayoutInfo {
     /// Tag encoding strategy (Explicit, Niche, `TaggedPtr`, None).
@@ -87,8 +86,8 @@ impl EnumLayoutInfo {
 
 /// Compute [`EnumLayoutInfo`] from the final [`EnumRepr`].
 ///
-/// Single computation point for all enum layout facts — replaces the scattered
-/// tag/GEP/offset logic in codegen. Handles all four `EnumTag` variants:
+/// Single computation point for all enum layout facts. Handles all four
+/// `EnumTag` variants:
 ///
 /// - `Explicit { width }` — tag at GEP 0, payload at GEP 1.
 /// - `Niche { .. }` — no explicit tag, payload occupies the full struct (GEP 0).
