@@ -17,11 +17,12 @@
 //! to Phase-6.65 `relocate_borrowed_terminator_arg_dec_to_edges`) — NOT the legacy
 //! predicate-stack `compute_invoke_edge_dead_set` (narrowing Cat-2 would double-dec).
 //!
-//! VERDICT SURFACE — burden-sole ONLY (arc.md §STOP): the default path runs the
-//! predicate stack, which masks this burden-path leak (FALSE-GREEN). Every cell
-//! compiles with `ORI_DISABLE_PREDICATE_STACK_RC=1` (burden is the sole real-RC
-//! emitter) + runs under the always-on `ORI_CHECK_LEAKS=1`. `assert_aot_success`
-//! (default path) is WRONG for this bug; this probe uses the burden-sole harness.
+//! VERDICT SURFACE — burden-sole ONLY: the default codegen path co-emits the
+//! legacy predicate-stack RC, which masks this burden-path leak (FALSE-GREEN), so
+//! it is NOT a valid RC verdict for these cells. Every cell compiles with
+//! `ORI_DISABLE_PREDICATE_STACK_RC=1` (burden is the sole real-RC emitter) + runs
+//! under the always-on `ORI_CHECK_LEAKS=1`. `assert_aot_success` (default path) is
+//! WRONG for this bug; this probe uses the burden-sole harness.
 //!
 //! Matrix: captured-type dimension (heap str / [int] / Option<str> / {str:int} /
 //! nested [[int]] / user-struct / scalar-env) over the `fold` + `all` borrowed-
@@ -29,7 +30,7 @@
 //! NOT over-fire: capture-less fold (null env), and the EXCLUSION boundary
 //! (param closure / borrowed-view closure / iter-element closure), each capturing
 //! a heap str so an over-fire double-frees it. Subprocess-isolated — parallel-safe.
-//! Spec: Annex E §AIMS RL-2 + RL-4. Regression: BUG-04-158.
+//! Spec: Annex E §AIMS RL-2 + RL-4. Regression: closure-arg edge-dec placement.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -38,9 +39,9 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` on the COMPLETE gated burden probe surface (arc.md §STOP):
-/// predicate-stack RC emitter OFF (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden is
-/// the sole real-RC emitter, the only valid RC verdict surface) PLUS the per-
+/// Compile `source` on the COMPLETE gated burden probe surface (the only valid RC
+/// verdict surface for these cells): predicate-stack RC emitter OFF
+/// (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden is the sole real-RC emitter) PLUS the per-
 /// function LLVM verification (`ORI_VERIFY_ARC=1`) + post-pass verification
 /// (`ORI_VERIFY_EACH=1`) so a burden-imbalance that compiles to wrong-but-non-
 /// crashing IR (VR-1 checkpoints + VF-1 burden-balance residual) is caught, not

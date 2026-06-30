@@ -585,10 +585,13 @@ flags! {
     ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE
 
     /// Decline the Phase-6.695 RL-4 both-edge release for an OWNED CLOSURE value
-    /// borrowed at a terminator-`Invoke`/`InvokeIndirect` arg (`xs.fold(init,
-    /// op)` — the `op` closure), dead at both successors, whose Phase-5 release
-    /// the base walk placed as an inline self-canceling `BurdenInc`/`BurdenDec`
-    /// pair in the call block.
+    /// borrowed at a DIRECT terminator-`Invoke` arg (`xs.fold(init, op)` — the
+    /// `op` closure), dead at both successors, whose Phase-5 release the base walk
+    /// placed as an inline self-canceling `BurdenInc`/`BurdenDec` pair in the call
+    /// block. An `InvokeIndirect` (unknown callee) declines unconditionally — its
+    /// iter-consume transfer cannot be ruled out. The release fires only when BOTH
+    /// dead edges are single-predecessor (a merge / shared unwind landing pad
+    /// would double-count the front-inserted dec).
     ///
     /// Default (unset): the inline net-0 pair is REMOVED and one `BurdenDec` is
     /// placed at the front of BOTH successor edges (born rc=1 → one release per
