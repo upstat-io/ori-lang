@@ -911,7 +911,7 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
 /// burdens only) has no burden for the imported body's `[bool]`, and
 /// `emit_burden_ops` emits no RC, leaking the allocation (BUG-04-238 test-runner
 /// surface). `register_resolved_collection_burdens` walks the pool and fills the
-/// gap. See `bug-tracker/plans/BUG-04-238/`.
+/// gap.
 #[test]
 fn register_resolved_collection_burdens_fills_pool_collection_gap() {
     let mut pool = Pool::new();
