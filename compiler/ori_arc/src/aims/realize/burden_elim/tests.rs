@@ -3,10 +3,10 @@
 //! Negative pins on residual ops + positive pins on paired elimination.
 //!
 //! Predicate citations:
-//! - DP-2 (`is_rc_dec_unnecessary` at `aims/transfer/mod.rs:403`):
+//! - DP-2 (`is_rc_dec_unnecessary` at `aims/transfer/mod.rs`):
 //!   `is_rc_dec_unnecessary(s) ⟺ s.cardinality = Absent ∨
 //!   s.consumption = Dead`.
-//! - DP-3 (`is_rc_inc_elidable` at `aims/transfer/mod.rs:411`):
+//! - DP-3 (`is_rc_inc_elidable` at `aims/transfer/mod.rs`):
 //!   `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧
 //!   (s.consumption = Linear ∨ Affine)`.
 

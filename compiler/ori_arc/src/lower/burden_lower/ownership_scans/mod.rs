@@ -88,7 +88,9 @@ pub(super) use live_extract::{
     compute_fresh_sum_live_extract_lineage, compute_retain_aliasing_lineage,
 };
 pub(super) use live_out::{compute_dead_owned_param_branch_releases, compute_live_out_owned};
-pub(super) use loop_closure_dead_param::compute_loop_closure_dead_param_lineage;
+pub(super) use loop_closure_dead_param::{
+    compute_loop_carried_dead_collection_param_lineage, compute_loop_closure_dead_param_lineage,
+};
 pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
 pub(super) use move_alias::{
     compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,

@@ -29,10 +29,11 @@ use super::ownership_scans::{
     compute_construct_fed_dead_param_lineage, compute_forwarder_identity_transparent_aliases,
     compute_forwarder_result_under_release, compute_fresh_sum_live_extract_lineage,
     compute_iter_consume_dead_thread_orphan_inc, compute_lazy_iter_closure_borrow_lineage,
-    compute_loop_closure_dead_param_lineage, compute_multi_exit_borrow_view_lineage,
-    compute_nested_construct_return_passthrough, compute_owned_vars_needing_rc,
-    compute_retain_aliasing_lineage, detect_last_uses, detect_transfer_points,
-    extend_owner_last_use_for_borrow_views, group_last_uses_filtered, ConstructFedDeadParamLineage,
+    compute_loop_carried_dead_collection_param_lineage, compute_loop_closure_dead_param_lineage,
+    compute_multi_exit_borrow_view_lineage, compute_nested_construct_return_passthrough,
+    compute_owned_vars_needing_rc, compute_retain_aliasing_lineage, detect_last_uses,
+    detect_transfer_points, extend_owner_last_use_for_borrow_views, group_last_uses_filtered,
+    ConstructFedDeadParamLineage,
 };
 use super::{
     is_provably_scalar_repr, mark_emitted, ownership_scans, PlacedReleaseMap,
@@ -40,8 +41,9 @@ use super::{
     CONSTRUCT_FED_DEAD_PARAM_RELEASE_DISABLED, FORWARDER_IDENTITY_ALIAS_DEDUP_DISABLED,
     FORWARDER_RESULT_RELEASE_DISABLED, FRESH_SUM_LIVE_EXTRACT_RELEASE_DISABLED,
     ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED, LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED,
-    LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED, MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED,
-    NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED, RETAIN_ALIASING_RELEASE_DISABLED,
+    LOOP_CARRIED_DEAD_COLLECTION_PARAM_RELEASE_DISABLED, LOOP_CLOSURE_DEAD_PARAM_RELEASE_DISABLED,
+    MULTI_EXIT_BORROW_VIEW_RELEASE_DISABLED, NESTED_CONSTRUCT_RETURN_PASSTHROUGH_DISABLED,
+    RETAIN_ALIASING_RELEASE_DISABLED,
 };
 
 /// Settled output of the burden-walk suppression-filter phase consumed by the
@@ -419,6 +421,18 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // `compute_loop_closure_dead_param_lineage`. Spec: Annex E §AIMS RL-5 +
     // RL-2 + RL-4.
     let loop_closure_releases = apply_loop_closure_dead_param(func, &mut owned_vars_needing_rc);
+    // RL-5 dead-at-entry treatment for a loop-carried `ori_list_take` (for-yield
+    // collect) collection dead at the post-loop block-param — the collection analog
+    // of the loop-closure scan (BUG-04-238: `let a = for .. yield ..; for .. yield ..`
+    // threads the dead first collect through the second loop to a dead param with
+    // only net-0 keep-alive pairs and no release -> +1 leak). Removes the whole
+    // same-alloc lineage from `owned_vars_needing_rc` and places ONE release at the
+    // dead post-loop param. Disjoint family (RcPointer `ori_list_take` roots vs the
+    // FatValue closure roots above). SSOT:
+    // `compute_loop_carried_dead_collection_param_lineage`. Spec: Annex E §AIMS RL-5
+    // + RL-2.
+    let loop_carried_dead_collection_releases =
+        apply_loop_carried_dead_collection_param(func, &mut owned_vars_needing_rc, interner);
     // RL-2 lazy-iterator closure-borrow treatment: a FRESH `PartialApply` closure
     // borrowed into a lazy-iterator builtin (`@map`/`@filter`) whose result
     // iterator retains the closure env as a borrowed raw pointer (the runtime
@@ -592,6 +606,16 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // family (loop-carried PartialApply FatValue roots vs call-result closures /
     // forwarder results / niche-family sums), so the merge cannot double-release.
     for (site, vars) in loop_closure_releases {
+        forwarder_result_releases
+            .entry(site)
+            .or_default()
+            .extend(vars);
+    }
+    // Merge the loop-carried dead-collection-param releases into the same surface.
+    // Disjoint family (RcPointer `ori_list_take` collection roots vs FatValue
+    // closures / call-result closures / forwarder results / niche-family sums), so
+    // the merge cannot double-release.
+    for (site, vars) in loop_carried_dead_collection_releases {
         forwarder_result_releases
             .entry(site)
             .or_default()
@@ -860,6 +884,27 @@ fn apply_loop_closure_dead_param(
         return FxHashMap::default();
     }
     let treatment = compute_loop_closure_dead_param_lineage(func, owned_vars_needing_rc);
+    owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    treatment.releases
+}
+
+/// Toggle-gated application of the RL-5 loop-carried dead-collection-param
+/// treatment ([`compute_loop_carried_dead_collection_param_lineage`]): computes
+/// the vetted loop-carried `ori_list_take` collection lineages threaded to a dead
+/// post-loop param, removes them from `owned_vars_needing_rc` (suppressing the
+/// net-0 keep-alive pairs), and returns the single placed RL-5 dead-at-entry
+/// release per lineage for the `forwarder_result_releases` merge. Empty when
+/// `ORI_DISABLE_LOOP_CARRIED_DEAD_COLLECTION_PARAM_RELEASE=1`.
+fn apply_loop_carried_dead_collection_param(
+    func: &ArcFunction,
+    owned_vars_needing_rc: &mut FxHashSet<ArcVarId>,
+    interner: &StringInterner,
+) -> PlacedReleaseMap {
+    if *LOOP_CARRIED_DEAD_COLLECTION_PARAM_RELEASE_DISABLED {
+        return FxHashMap::default();
+    }
+    let treatment =
+        compute_loop_carried_dead_collection_param_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
     treatment.releases
 }

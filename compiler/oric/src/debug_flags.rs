@@ -816,6 +816,24 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_CLOSURE_DEAD_PARAM_RELEASE
 
+    /// Skip the Phase-5 RL-5 dead-at-entry treatment for a fresh `ori_list_take`
+    /// (for-yield collect) collection threaded through a loop and dead at the
+    /// post-loop block-param — the collection analog of the loop-closure scan
+    /// (`compute_loop_carried_dead_collection_param_lineage`). Default (unset):
+    /// the whole same-alloc lineage (the `ori_list_take` root + `Let`-Var aliases
+    /// + COW-mutator-result edge + `Jump`-arg-threaded loop block-params) is
+    /// removed from `owned_vars_needing_rc` and EXACTLY ONE `BurdenDec` is placed
+    /// at the dead post-loop block-param entry; with the toggle set the dead
+    /// loop-carried collect leaks its allocation (`let a = for .. yield ..; for ..
+    /// yield ..` shape, exit 2).
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower`. Defined here for documentation
+    /// and `check-debug-flags.sh` consistency. Bisects a loop-carried-dead-
+    /// collection leak to this treatment vs the rest of the Phase-5 walk. Spec:
+    /// Annex E §AIMS RL-5 + RL-2.
+    /// Usage: `ORI_DISABLE_LOOP_CARRIED_DEAD_COLLECTION_PARAM_RELEASE=1 ori build file.ori`
+    ORI_DISABLE_LOOP_CARRIED_DEAD_COLLECTION_PARAM_RELEASE
+
     /// Skip the Phase-5 RL-2 treatment for a FRESH `PartialApply` closure
     /// borrowed into a lazy-iterator builtin (`@map` / `@filter`) whose result
     /// iterator retains the closure env as a borrowed raw pointer across the

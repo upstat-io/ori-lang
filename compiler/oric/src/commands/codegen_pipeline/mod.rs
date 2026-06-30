@@ -372,10 +372,16 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // Why: finish_with_pool consumes the live registry, so codegen rebuilds
         // it from TypedModule exports to surface UserBurdenSpec to the burden walker.
         // Spec: Annex E §AIMS.
-        let type_registry = ori_types::TypeRegistry::from_typed_exports(
+        let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
             type_result.typed.types.clone(),
             type_result.typed.collection_burdens.clone(),
         );
+        // An imported function's body resolves its internal collection types into
+        // the importer's pool, but register_imported_function composes burdens for
+        // signature types only — so emit_burden_ops finds no burden for an
+        // imported body's internal collection (e.g. a dead for-yield local) and
+        // emits no RC. Fill the gaps from the merged pool. Spec: Annex E §AIMS.
+        ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
 
         // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
         finalize::dump_arc_phases(

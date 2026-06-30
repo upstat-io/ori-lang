@@ -2738,63 +2738,6 @@ fn set_algebra_names_covers_union_difference_intersection() {
     );
 }
 
-/// BUG-04-238 recognition pin: an `ori_list_take` (for-yield collect finalizer)
-/// result is a FRESH owned collection — the runtime moves the scratch buffer out
-/// into a fresh rc=1 list. A dead-at-scope-exit for-yield local (`let a = for _ in
-/// 0..3 yield 1` with `a` unused) leaks its allocation on the burden-sole path
-/// because the recognizer omits `ori_list_take`: it is a no-contract builtin
-/// (`user_call_fresh_result` excludes it via `is_builtin`) and is in none of the
-/// conversion / iter-consumer / set-algebra / fresh-str name sets. Admitting the
-/// for-yield collect producer lets `compute_dead_owned_collection_releases` inspect
-/// the lineage so the existing returned / owned-consumed / iter-drop / conversion
-/// exclusions + the alloc-aware net free the dead local exactly once.
-/// Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`, unused-owned cleanup).
-#[test]
-fn fresh_owned_collection_reps_includes_for_yield_list_take_result() {
-    let interner = ori_ir::StringInterner::new();
-    let take = interner.intern("ori_list_take");
-    // %0 = ori_list_take(%1)   (FRESH self-alloc — the for-yield result, dead local)
-    // burden_inc %0 / burden_dec %0   (net-0 keep-alive pair; alloc +1 leaks pre-cure)
-    // Return %2 (scalar)       (%0 unused after take → dead at scope exit)
-    let func = ArcFunction {
-        var_types: vec![Idx::from_raw(0), Idx::from_raw(0), Idx::INT],
-        var_reprs: vec![
-            ValueRepr::RcPointer,
-            ValueRepr::RcPointer,
-            ValueRepr::Scalar,
-        ],
-        blocks: vec![ArcBlock {
-            id: ArcBlockId::new(0),
-            params: Vec::new(),
-            body: vec![
-                ArcInstr::Apply {
-                    dst: v(0),
-                    ty: Idx::from_raw(0),
-                    func: take,
-                    args: vec![v(1)],
-                    arg_ownership: vec![ArgOwnership::Borrowed],
-                    mono_instance_id: None,
-                },
-                ArcInstr::BurdenInc { var: v(0) },
-                ArcInstr::BurdenDec { var: v(0) },
-            ],
-            terminator: ArcTerminator::Return { value: v(2) },
-        }],
-        ..Default::default()
-    };
-    let pool = ori_types::Pool::new();
-    let jt_reps = compute_jump_threaded_reps(&func, None);
-    let rep_of = |x: ArcVarId| jt_reps.get(&x).copied().unwrap_or(x);
-    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    let reps =
-        compute_fresh_owned_collection_reps(&func, &pool, &jt_reps, &same_alloc_reps, &interner);
-    assert!(
-        reps.contains(&rep_of(v(0))),
-        "the for-yield collect result %0 (ori_list_take) must be a fresh-owned-collection \
-         candidate so the dead local is released (RL-2 unused cleanup); got {reps:?}",
-    );
-}
-
 /// Single-block-then-successors function where a USER-FUNCTION call returns a
 /// fresh owned `str` (`%2 = Apply @make_label(%0 [own])`), the result carries a
 /// dup-use keep-alive `BurdenInc` + scope-exit `BurdenDec` (net 0 on explicit

@@ -7,7 +7,6 @@ mod burden_lowering_tests;
 
 use std::sync::LazyLock;
 
-use crate::lower::type_has_user_drop;
 use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -22,6 +21,7 @@ use crate::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, PrimOp,
     RcAtomicity, RcStrategy, ValueRepr,
 };
+use crate::lower::type_has_user_drop;
 
 use super::metrics;
 use super::transfer_anchor_net;
@@ -1163,9 +1163,10 @@ fn emit_cow_inc_terminator_edge_release(
 /// the verdict says to relocate; `None` when no relocation applies (every gate
 /// that declines maps to `None`). Extracted to keep the driver loop's complexity
 /// bounded. Spec: Annex E §AIMS RL-2 + RL-4.
-#[allow(
+#[expect(
     clippy::too_many_arguments,
-    reason = "gather gates read several name sets"
+    reason = "gather gates read the escape-safe, sharing-view, and accessor-retain \
+              name sets, the callee contracts, and the jump-threaded reps"
 )]
 fn borrowed_terminator_arg_relocation_for_block(
     func: &ArcFunction,
@@ -10601,7 +10602,7 @@ fn emit_for_yield_index_consumed_element_rc(
         })
         .collect();
 
-    // Collect insertion points so we mutate after the read scan.
+    // Collect insertion points first; mutation must follow the read scan.
     let mut inserts: Vec<ForYieldElemInsert> = Vec::new();
     for (b, block) in func.blocks.iter().enumerate() {
         for (i, instr) in block.body.iter().enumerate() {
@@ -10914,7 +10915,7 @@ fn forward_reachable_from(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usi
 /// for_yield.rs`, `for_yield_option.rs`) allocates a growable scratch via
 /// `ori_list_new`, pushes each body result, then `ori_list_take`s the scratch:
 /// the runtime MOVES the data buffer out of the scratch `OriList` (freeing only
-/// the struct, not the buffer — `ori_rt/src/list/mod.rs:269`), yielding a FRESH
+/// the struct, not the buffer — `ori_rt`'s `ori_list_take`), yielding a FRESH
 /// owned `[T]` at RC = 1. For alloc-aware-net accounting this result IS a fresh
 /// self-allocation (the buffer's own `+1`), so [`fresh_self_alloc_dst`] treats it
 /// like a `Construct`.
@@ -11192,7 +11193,7 @@ pub(super) fn compute_cow_mutated_lineage_reps(
     // owned/COW/iter-consume position on any path); unknown contracts stay
     // conservatively may-COW. `ori_list_take` (the for_yield finalizer) is
     // exempt: it MOVES the scratch buffer out (consume-and-finalize), never
-    // reads the buffer's rc to COW it (`ori_rt/src/list/mod.rs:269`).
+    // reads the buffer's rc to COW it (`ori_rt`'s `ori_list_take`).
     let list_take_name = for_yield_result_finalizer_name(interner);
     // A KNOWN builtin method has compiler-known ownership: its COW-mutators
     // (`push`/`set`/`insert`/`remove`/`sort`/`reverse`) take the receiver at an

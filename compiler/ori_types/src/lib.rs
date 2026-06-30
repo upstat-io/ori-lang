@@ -39,6 +39,7 @@ pub use check::{
 pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
 pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
+pub use infer::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use item::Item;
 pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};

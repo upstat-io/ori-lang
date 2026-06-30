@@ -46,7 +46,10 @@ mod state;
 mod type_builders;
 
 pub use env::TypeEnv;
-pub use expr::{check_expr, infer_expr, resolve_parsed_type};
+pub use expr::{
+    check_expr, compose_burden_for_idx, infer_expr, register_resolved_collection_burdens,
+    resolve_parsed_type,
+};
 pub(crate) use expr::{tag_to_type_tag, OP_TRAIT_MAP};
 
 use ori_ir::{ExprId, Name, StringInterner};

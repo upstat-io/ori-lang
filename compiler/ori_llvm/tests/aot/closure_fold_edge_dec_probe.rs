@@ -68,9 +68,9 @@ fn assert_no_closure_leak_burden_sole(source: &str, label: &str) {
     );
 }
 
-// ----- Positive pins: capture-bearing closure folded over a list. The closure
+// Positive pins: capture-bearing closure folded over a list. The closure
 // env holds the RC-bearing capture; the missing normal-edge RcDec leaks the env
-// + cascades to the capture. Each LEAKS pre-fix on the burden-sole path. -----
+// + cascades to the capture. Each LEAKS pre-fix on the burden-sole path.
 
 /// Captured-type = heap `str` (>23 bytes, no SSO). Env (32B) + str buffer leak
 /// on the normal path pre-fix. The confirmed repro shape.
@@ -165,13 +165,12 @@ fn fold_capture_nested_list_no_leak() {
     assert_no_closure_leak_burden_sole(src, "fold_capture_nested_list");
 }
 
-// ----- Scalar-only-capture cell: ISOLATES the env-allocation dec from the
+// Scalar-only-capture cell: ISOLATES the env-allocation dec from the
 // capture cascade. The closure captures a SCALAR (`int offset`) — the env is a
 // non-null 32-byte `PartialApply` allocation, but the capture carries NO RC, so
 // the missing normal-edge dec leaks ONLY the env (one 32B allocation, no
 // cascade). Proves the leak is the closure ENV itself, not merely the captured
 // heap value. Distinct from the capture-less negative pin (null env, no leak).
-// -----
 
 /// Captured-type = `int` scalar (non-null env, no RC capture). Leaks ONLY the
 /// 32-byte env pre-fix — the env-alloc-dec isolation control.
@@ -191,9 +190,9 @@ fn fold_capture_scalar_env_only_no_leak() {
     assert_no_closure_leak_burden_sole(src, "fold_capture_scalar_env_only");
 }
 
-// ----- Second consumer axis: `all` (a borrowed predicate-closure consumer
+// Second consumer axis: `all` (a borrowed predicate-closure consumer
 // distinct from `fold`). Confirms the edge-dec gap is the consumer-agnostic
-// borrowed-closure shape, not a fold-specific lowering. -----
+// borrowed-closure shape, not a fold-specific lowering.
 
 /// Consumer = `all` (capture-bearing predicate closure). Same borrowed-closure
 /// terminator-Invoke shape as fold; leaks the env + capture pre-fix.
@@ -213,12 +212,12 @@ fn all_capture_heap_str_no_leak() {
     assert_no_closure_leak_burden_sole(src, "all_capture_heap_str");
 }
 
-// ----- User-defined-struct capture cell: covers the NON-BUILTIN aggregate capture
+// User-defined-struct capture cell: covers the NON-BUILTIN aggregate capture
 // path through the closure env drop. The closure captures a `Rec { val: str, count:
 // int }` — the env drop must cascade through the user-struct's drop glue to free the
 // captured `str`. Distinct from the builtin-aggregate cells (`[int]`/`{str:int}`/
 // `[[int]]`): exercises the user-`type` drop-function generation, not a builtin
-// elem_dec_fn. -----
+// elem_dec_fn.
 
 /// Captured-type = user-defined struct `Rec { val: str, count: int }`. Env drop
 /// cascades through the struct's drop glue to the captured str. Leaks #1 size=44
@@ -241,10 +240,10 @@ type Rec = { val: str, count: int }
     assert_no_closure_leak_burden_sole(src, "fold_capture_user_struct");
 }
 
-// ----- Negative pin: capture-less fold. The env is null -> the missing
+// Negative pin: capture-less fold. The env is null -> the missing
 // normal-edge dec is a no-op -> clean BEFORE and AFTER the fix. The cure's
 // normal-edge gate MUST NOT over-fire here (no spurious dec on a null env). This
-// is the masking shape from the seed snapshot. -----
+// is the masking shape from the seed snapshot.
 
 /// Capture-less lambda folded over a list — the gate emits NO closure dec (null
 /// env). Clean on the burden-sole path before AND after the fix.
@@ -264,7 +263,7 @@ fn fold_captureless_clean_no_regression() {
     assert_no_closure_leak_burden_sole(src, "fold_captureless_clean");
 }
 
-// ----- Negative pins: the EXCLUSION boundary the relocation gate must DECLINE.
+// Negative pins: the EXCLUSION boundary the relocation gate must DECLINE.
 // Each folds/threads a closure of an EXCLUDED category (param / borrowed-view /
 // iter-element) capturing a heap `str`. The gate keys its `params` /
 // `all_borrowed_defs` / `iter_element_defs` exclusion on `rep_of(arg)`, so an
@@ -272,7 +271,7 @@ fn fold_captureless_clean_no_regression() {
 // over-fired here it would relocate a dec it does not own -> double-free of the
 // captured str. Each is clean BEFORE and AFTER the fix (the relocation never
 // fires); a regression that widens the gate onto these categories crashes /
-// leaks under the burden-sole probe. Spec: Annex E §AIMS RL-2 + RL-4. -----
+// leaks under the burden-sole probe. Spec: Annex E §AIMS RL-2 + RL-4.
 
 /// Excluded category = PARAMETER closure. The `op` folded inside `apply_fold` is
 /// a borrowed PARAM (in `params`), created + owned by `@main`. The relocation

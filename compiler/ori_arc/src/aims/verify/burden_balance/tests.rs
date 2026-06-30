@@ -368,7 +368,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_construct_variant_dec_balances_inc() {
             // axis-1 = Construct(EnumVariant) → BurdenInc on enum value;
-            // BurdenDecVariant (whole-var grain per ir/instr.rs:152-167)
+            // BurdenDecVariant (whole-var grain per ir/instr.rs)
             // balances on equal footing with BurdenDec / BurdenDecPartial.
             let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
             let exit = return_block(1, vec![ArcInstr::BurdenDecVariant { var: v(0) }]);
@@ -764,7 +764,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_reuse_variant_dec_balances_inc() {
             // axis-1 = Reuse(EnumVariant) — Reset/Reuse on enum value;
-            // DecVariant balances whole-var grain per ir/instr.rs:152-167.
+            // DecVariant balances whole-var grain per ir/instr.rs.
             let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
             let exit = return_block(1, vec![ArcInstr::BurdenDecVariant { var: v(0) }]);
             let func = make_burden_func(vec![entry, exit]);

@@ -41,7 +41,7 @@ use crate::test_helpers::{b, make_func, v};
 /// Matrix cell (m) (body-walker): `ArcInstr::Construct.ty` carries `Tag::Var`;
 /// `var_types[*]` + `params[*]` + `return_type` + `blocks[*].params[*].1`
 /// fully resolved; empty exempt → `Err` with `var_id: ArcVarId(0)` (the
-/// `dst` of the offending instruction per `validate.rs:178` exhaustive
+/// `dst` of the offending instruction per `validate.rs` exhaustive
 /// `check_idx(*ty, *dst)` arm). Pins the canonical type-nominating
 /// instruction; `Construct` always carries an `Idx` payload.
 #[test]
@@ -211,7 +211,7 @@ fn test_assert_no_unresolved_idx_returns_ok_on_resolved_primitive() {
 /// `var_id` matching the terminator's `dst`. Pins the terminator-operand
 /// axis of the walker extension. `Invoke` and `InvokeIndirect` are
 /// the only `Idx`-bearing terminator variants today (per the exhaustive
-/// arm at `validate.rs:193-194`). The walker still enforces forward-safety
+/// arm at `validate.rs`). The walker still enforces forward-safety
 /// on these carriers even when construction is post-2026 panic/effect
 /// support.
 #[test]

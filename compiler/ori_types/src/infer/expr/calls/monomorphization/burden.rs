@@ -5,6 +5,7 @@ use ori_registry::burden::table::{
     TYPE_ID_SET,
 };
 
+use crate::registry::burden::UserBurdenSpec;
 use crate::registry::burden_compose::compose_user_burden;
 use crate::{Idx, Pool, Tag, TypeFlags};
 
@@ -121,83 +122,95 @@ fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
 /// tag does not match a builtin template OR when its args cannot be
 /// extracted from the pool.
 pub(crate) fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
-    // Generic-user-struct instantiation (e.g. `Box<[int]>`): the builtin
-    // templates below cover Option/Result/[T]/{K:V}/Set/Range only. A user
-    // struct's per-instantiation burden is composed from its concrete
-    // (substituted) field types — read from the concrete struct resolution set
-    // by `resolve_applied_type` at monomorphization. Without this the generic
-    // `Box<T>` declaration burden (empty `owned_fields`) is used, so the
-    // instantiated aggregate never carries RC and its heap field's drop is
-    // mis-attributed to borrowed field projections (`Spec: Annex E §AIMS`).
-    {
-        let resolved = engine.pool().resolve_fully(idx);
-        if engine.pool().tag(resolved) == Tag::Struct {
-            let field_types: Vec<Idx> = engine
-                .pool()
-                .struct_fields(resolved)
-                .iter()
-                .map(|&(_, ty)| ty)
-                .collect();
-            if let Some(composed) =
-                crate::check::registration::burden_compute::compute_struct_burden_from_field_types(
-                    &field_types,
-                    engine.pool(),
-                )
-            {
-                engine.record_composed_burden(idx, composed);
-            }
-            return;
-        }
-        // Enum twin of the struct arm: a concrete user-defined
-        // generic enum (`Either<[int], int>`) composes its per-instantiation
-        // burden from the materialized concrete variant payloads, read via
-        // `Pool::enum_variants`. Without it the builtin-template match below
-        // falls through (`Tag::Enum` is not Option/Result/[T]/{K:V}/Set/Range)
-        // and the enum heap payload's drop is mis-attributed.
-        if engine.pool().tag(resolved) == Tag::Enum {
-            let variants = engine.pool().enum_variants(resolved);
-            if let Some(composed) =
-                crate::check::registration::burden_compute::compute_enum_burden_from_variant_payloads(
-                    &variants,
-                    engine.pool(),
-                )
-            {
-                engine.record_composed_burden(idx, composed);
-            }
-            return;
-        }
-    }
-    let (template_id, type_args) = {
-        let pool = engine.pool();
-        let template_id = match pool.tag(idx) {
-            Tag::Option => TYPE_ID_OPTION,
-            Tag::Result => TYPE_ID_RESULT,
-            Tag::List => TYPE_ID_LIST,
-            Tag::Map => TYPE_ID_MAP,
-            Tag::Set => TYPE_ID_SET,
-            Tag::Range => TYPE_ID_RANGE,
-            _ => return,
-        };
-        let type_args = extract_type_args(pool, idx);
-        (template_id, type_args)
-    };
-
-    let Some(template) = BurdenRegistry::lookup_builtin(template_id) else {
-        return;
-    };
-
-    // Pool borrow released; compose under fresh immutable borrows.
-    // The composition function accepts `_pool` and `_registry` for forward-
-    // compatible signature but does not consult them today; an absent
-    // registry yields the same composed spec as a present one.
     let dummy_registry = crate::TypeRegistry::new();
     let composed = {
         let pool = engine.pool();
         let registry = engine.type_registry().unwrap_or(&dummy_registry);
-        compose_user_burden(template, &type_args, pool, registry)
+        compose_burden_for_idx(pool, registry, idx)
     };
+    if let Some(spec) = composed {
+        engine.record_composed_burden(idx, spec);
+    }
+}
 
-    engine.record_composed_burden(idx, composed);
+/// Compose the `UserBurdenSpec` for a fully-resolved generic-builtin or
+/// concrete-user-composite `Idx` from `pool` + `registry` alone (no
+/// `InferEngine`). Returns `None` for a non-composable tag (scalar, function,
+/// unresolved). SSOT for per-Idx burden composition consumed by `compose_for_idx`
+/// (the engine-bound monomorphization sweep) AND by the codegen pipeline's
+/// imported-body collection-burden pass (an imported function's internal
+/// collection types resolve into the importer's pool but never flow through the
+/// engine sweep). Spec: Annex E §AIMS.
+pub fn compose_burden_for_idx(
+    pool: &Pool,
+    registry: &crate::TypeRegistry,
+    idx: Idx,
+) -> Option<UserBurdenSpec> {
+    // Generic-user-struct / -enum instantiation: compose from the concrete
+    // (substituted) field / variant-payload types (the builtin templates below
+    // cover Option/Result/[T]/{K:V}/Set/Range only).
+    let resolved = pool.resolve_fully(idx);
+    match pool.tag(resolved) {
+        Tag::Struct => {
+            let field_types: Vec<Idx> = pool
+                .struct_fields(resolved)
+                .iter()
+                .map(|&(_, ty)| ty)
+                .collect();
+            return crate::check::registration::burden_compute::compute_struct_burden_from_field_types(
+                &field_types,
+                pool,
+            );
+        }
+        Tag::Enum => {
+            let variants = pool.enum_variants(resolved);
+            return crate::check::registration::burden_compute::compute_enum_burden_from_variant_payloads(
+                &variants,
+                pool,
+            );
+        }
+        _ => {}
+    }
+    let template_id = match pool.tag(idx) {
+        Tag::Option => TYPE_ID_OPTION,
+        Tag::Result => TYPE_ID_RESULT,
+        Tag::List => TYPE_ID_LIST,
+        Tag::Map => TYPE_ID_MAP,
+        Tag::Set => TYPE_ID_SET,
+        Tag::Range => TYPE_ID_RANGE,
+        _ => return None,
+    };
+    let template = BurdenRegistry::lookup_builtin(template_id)?;
+    let type_args = extract_type_args(pool, idx);
+    Some(compose_user_burden(template, &type_args, pool, registry))
+}
+
+/// Compose + register the burden for every fully-resolved collection / composite
+/// `Idx` in `pool` whose burden `registry` does not already carry.
+///
+/// An imported function's body resolves its internal collection types into the
+/// importer's merged pool, but `register_imported_function` composes burdens for
+/// signature types only — so an imported body's internal collection (e.g. a dead
+/// `for…yield` `[bool]` local) reaches `emit_burden_ops` with no burden and gets
+/// no RC, leaking. Both codegen registries (AOT + JIT) rebuild from typed-module
+/// exports via `TypeRegistry::from_typed_exports`, which carry signature-reachable
+/// burdens only; this pass walks the merged pool and fills the gaps using the
+/// SSOT `compose_burden_for_idx`. Pool-walking (not arc-IR-walking) so it is
+/// independent of when each function's `ArcFunction` is lowered. Spec: Annex E
+/// §AIMS.
+pub fn register_resolved_collection_burdens(pool: &Pool, registry: &mut crate::TypeRegistry) {
+    let mut composed: Vec<(Idx, UserBurdenSpec)> = Vec::new();
+    for idx in collect_candidate_indices(pool) {
+        if registry.burden(idx).is_some() {
+            continue;
+        }
+        if let Some(spec) = compose_burden_for_idx(pool, registry, idx) {
+            composed.push((idx, spec));
+        }
+    }
+    for (idx, spec) in composed {
+        let _ = registry.register_user_burden(idx, spec);
+    }
 }
 
 /// Extract the concrete type arguments for a generic-builtin Idx by reading

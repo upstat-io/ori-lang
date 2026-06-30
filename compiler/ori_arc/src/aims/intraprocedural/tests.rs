@@ -4854,7 +4854,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
 }
 
 /// Excluded variables (scalar / immortal) MUST NOT receive side-table entries.
-/// Mirrors the `is_excluded` guard in `populate_var_shapes` (`post_convergence.rs:131`).
+/// Mirrors the `is_excluded` guard in `populate_var_shapes` (`post_convergence.rs`).
 #[test]
 fn populate_call_result_states_skips_scalar_dst() {
     let callee_name = Name::from_raw(100);
@@ -5142,7 +5142,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
 
 /// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
 /// at block entry returns `MaybeShared` (load-bearing for COW emission at
-/// `emit_rc/cow.rs:67`). Pre-fix consumer reads `state.uniqueness` from
+/// `emit_rc/cow.rs`). Pre-fix consumer reads `state.uniqueness` from
 /// `var_state_at_block_entry` and gets BOTTOM=Unique, missing the `IsShared`
 /// runtime check.
 #[test]
@@ -5176,8 +5176,8 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
 
 /// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
 /// at block exit returns `MaybeShared` (load-bearing for DeathEvent.uniqueness
-/// at `realize/walk_dec.rs:250` and downstream `emit_reuse/detect.rs:86` +
-/// `emit_reuse/planner.rs:83`).
+/// at `realize/walk_dec.rs` and downstream `emit_reuse/detect.rs` +
+/// `emit_reuse/planner.rs`).
 #[test]
 fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     let callee_name = Name::from_raw(100);
@@ -5530,8 +5530,8 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
 
 // Part A: ContextHole shape inheritance
 //
-// ContextHole-shaped variables (per `aims/lattice/dimensions.rs:213` +
-// `aims/intraprocedural/post_convergence.rs:445`) inherit their BurdenSpec
+// ContextHole-shaped variables (per `aims/lattice/dimensions.rs` +
+// `aims/intraprocedural/post_convergence.rs`) inherit their BurdenSpec
 // from their UNDERLYING TypeId — there is NO synthetic ContextHole TypeId
 // registered separately. The TRMC pipeline mints a new parameter whose type
 // is the constructor's argument type (an existing pool `Idx`); its

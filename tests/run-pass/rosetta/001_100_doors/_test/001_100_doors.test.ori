@@ -8,7 +8,6 @@ use std.testing { assert_eq }
     )
 }
 
-#skip("BUG-04-238: simulate() by-value list return leaks 1 ARC allocation on the burden-sole LLVM/AOT verdict path (aims-burden domain); passes on eval, leak-only")
 @test_simulate_returns_perfect_squares tests _ () -> void = {
     assert_eq(
         actual: simulate(),
@@ -16,7 +15,6 @@ use std.testing { assert_eq }
     )
 }
 
-#skip("BUG-04-238: simulate() by-value list return leaks 1 ARC allocation on the burden-sole LLVM/AOT verdict path (aims-burden domain); passes on eval, leak-only")
 @test_both_approaches_agree tests _ () -> void = {
     assert_eq(actual: open_doors(), expected: simulate())
 }
@@ -35,7 +33,6 @@ use std.testing { assert_eq }
     assert_eq(actual: doors[9], expected: 100)
 }
 
-#skip("BUG-04-238: simulate() by-value list return leaks 1 ARC allocation on the burden-sole LLVM/AOT verdict path (aims-burden domain); passes on eval, leak-only")
 @test_non_square_doors_are_closed tests _ () -> void = {
     let $doors = simulate();
     assert_eq(actual: doors.contains(value: 2), expected: false);

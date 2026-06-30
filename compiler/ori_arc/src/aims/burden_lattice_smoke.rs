@@ -85,7 +85,7 @@ fn drive_steps_4_and_4b(
     // Step 4 (pre-burden) — establishes a converged state map the burden
     // walker would consult downstream (today it doesn't yet read the map,
     // but the call shape mirrors the production pipeline ordering per
-    // `pipeline/aims_pipeline/mod.rs:178-213`).
+    // `pipeline/aims_pipeline/mod.rs`).
     let _pre = analyze_function(func, &classifier, &sigs, &[], Vec::new());
     // Step 4b — emit burden ops.
     let smoke_interner = ori_ir::StringInterner::new();
@@ -100,7 +100,7 @@ fn drive_steps_4_and_4b(
         &smoke_interner,
     );
     // Re-run Step 4 over burden-emitted IR. 's shipped TF-N/A
-    // treatment (`aims/transfer/mod.rs:94-104` forward, `:287-297` backward)
+    // treatment (`aims/transfer/mod.rs` forward + backward)
     // burden ops contribute zero forward state + zero backward demand, so
     // the converged state should be IDENTICAL to the pre-burden run.
     analyze_function(func, &classifier, &sigs, &[], Vec::new())
@@ -330,7 +330,7 @@ fn env_var_disable_yields_zero_burden_ops() {
 
     // Simulate the pipeline gate's behavior directly: skip the
     // emit_burden_ops call. (The actual gate lives at
-    // `pipeline/aims_pipeline/mod.rs:204-217` and reads
+    // `pipeline/aims_pipeline/mod.rs` and reads
     // `ORI_DISABLE_BURDEN_OPS`. This assertion verifies that when the
     // gate skips emission, zero burden ops materialize in the IR.)
     let classifier = AllRefClassifier;

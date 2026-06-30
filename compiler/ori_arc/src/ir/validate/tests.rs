@@ -168,7 +168,7 @@ fn test_all_vars_unresolved_returns_first_violator_deterministic() {
 /// Matrix cell 6 (`Tag::Var` with exempt `var_id)`: `var_types[0]` is `Tag::Var` whose underlying
 /// pool `var_id` is 42; exempt set `{42}` → `Ok(())`. The validator's
 /// exemption key is the POOL var id (`pool.data(resolved)` per
-/// `validate.rs:111`), not the SSA position; `{42}` matches the pool id.
+/// `validate.rs`), not the SSA position; `{42}` matches the pool id.
 #[test]
 fn test_tag_var_with_exempt_var_id_passes() {
     let interner = StringInterner::new();
@@ -253,7 +253,7 @@ fn test_unresolved_projection_returns_error() {
     let mut pool = Pool::new();
 
     // Construct a Tag::Projection entry directly; the validator treats any
-    // residual Projection as a violation (per validate.rs:122-128).
+    // residual Projection as a violation (per validate.rs).
     let proj = pool.intern(Tag::Projection, 0);
 
     let func = make_func(Vec::new(), Idx::UNIT, vec![minimal_block(0)], vec![proj]);
@@ -281,7 +281,7 @@ fn test_unresolved_projection_returns_error() {
 /// `var_types[*]` is populated with `Idx::INT` (no leak) so the walk passes
 /// the `var_types` axis and proceeds to `params[*].ty`, which is where the
 /// leak lives. The reported `var_id` is `params[0].var = ArcVarId(3)` per
-/// `validate.rs:146-148` (`check_idx(param.ty, param.var)`).
+/// `validate.rs` (`check_idx(param.ty, param.var)`).
 #[test]
 fn test_unresolved_var_in_entry_param_fails() {
     let interner = StringInterner::new();
@@ -378,7 +378,7 @@ fn test_unresolved_var_in_non_entry_block_param_fails() {
 
 /// Blind Spot #5: closure-captured types must be caught. `num_captures > 0`
 /// indicates the leading `var_types` entries hold the capture environment's
-/// SSA slot types (per `ArcFunction.num_captures` doc at `ir/mod.rs:411-417`).
+/// SSA slot types (per `ArcFunction.num_captures` doc at `ir/mod.rs`).
 /// A `Tag::Var` in a capture slot SHALL fail PC-2 like any other SSA position.
 ///
 /// Uses the `make_func` + mutate pattern (Test Fixture Strategy option

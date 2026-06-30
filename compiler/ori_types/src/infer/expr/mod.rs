@@ -61,6 +61,7 @@ pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
     infer_method_call, infer_method_call_named,
 };
+pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
     infer_range, infer_tuple,
