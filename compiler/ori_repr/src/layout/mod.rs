@@ -196,10 +196,9 @@ pub(crate) fn compute_tagless_enum_layout(variant: &VariantRepr) -> (u32, u32) {
 /// Round a field's byte size up to its `[M x i64]` slot-padded size.
 ///
 /// A non-zero field occupies at least one full i64 slot (8 bytes); a zero-size
-/// field occupies none. This is the SSOT slot-packing kernel consumed by
-/// `compute_enum_payload_layout` and, after §02, the `ori_llvm` / `ori_arc`
-/// enum-payload sites.
+/// field occupies none. Canonical i64-slot packing kernel for enum payloads.
 // Spec: Annex E §Representation Optimization (enum payload `[M x i64]` slots)
+#[must_use]
 pub fn slot_padded_size(field_bytes: u64) -> u64 {
     if field_bytes == 0 {
         return 0;
@@ -213,6 +212,7 @@ pub fn slot_padded_size(field_bytes: u64) -> u64 {
 /// A non-zero field occupies at least one slot; a zero-size field occupies
 /// none. `slot_count(n) * 8 == slot_padded_size(n)` for every `n`.
 // Spec: Annex E §Representation Optimization (enum payload `[M x i64]` slots)
+#[must_use]
 pub fn slot_count(field_bytes: u64) -> u64 {
     if field_bytes == 0 {
         return 0;
@@ -223,8 +223,7 @@ pub fn slot_count(field_bytes: u64) -> u64 {
 /// Compute layout for an enum variant's payload using `[M x i64]` slot packing.
 ///
 /// Each field occupies at least one full i64 slot (8 bytes), regardless of its
-/// natural alignment. This matches `resolve_enum()` in `ori_llvm` and
-/// `enum_payload_size()` / `pool_type_store_size()` in `ori_arc`.
+/// natural alignment — the shared enum-payload packing rule.
 pub(crate) fn compute_enum_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
     // FLOW-30: saturate the u32->u64 bridge and the running sum rather than wrap.
     let payload: u32 = fields

@@ -1585,9 +1585,8 @@ fn explicit_tag_layout_with_int_payload() {
 }
 
 // Slot-packing kernel (slot_padded_size / slot_count) — boundary-value pins.
-// The kernel is the SSOT consumed by compute_enum_payload_layout and (§02) the
-// ori_llvm / ori_arc enum-payload sites. Every cell is a positive + negative
-// pin: an off-by-one in div_ceil flips 7->8 to 7->0 or 9->16 to 9->8.
+// Every cell is a positive + negative pin: an off-by-one in div_ceil flips
+// 7->8 to 7->0 or 9->16 to 9->8.
 
 #[test]
 fn slot_padded_size_zero_occupies_no_slots() {

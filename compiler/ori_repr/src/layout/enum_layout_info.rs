@@ -2,9 +2,7 @@
 //!
 //! [`EnumLayoutInfo`] is the single source of truth for every enum layout
 //! question a codegen consumer can ask — tag encoding, GEP indices for tag
-//! and payload, per-field payload offsets, ABI size, and slot count. It
-//! subsumes the logic previously scattered across `ori_llvm`'s `TagEncoding`,
-//! `enum_layout.rs`, `abi/mod.rs`, `drop_enum.rs`, and the derive walkers.
+//! and payload, per-field payload offsets, ABI size, and slot count.
 //! Consumers query this struct instead of computing layout independently.
 
 #[cfg(test)]
@@ -77,13 +75,13 @@ impl EnumLayoutInfo {
     }
 
     /// Byte offset of payload field `variant_field_idx` within the payload
-    /// region (i64-slot boundary). Out-of-range indices return 0.
+    /// region (i64-slot boundary), or `None` when the index is out of range.
     #[must_use]
-    pub fn payload_slot_offset(&self, variant_field_idx: usize) -> u64 {
+    pub fn payload_slot_offset(&self, variant_field_idx: usize) -> Option<u64> {
         self.payload_field_offsets
             .get(variant_field_idx)
             .copied()
-            .map_or(0, u64::from)
+            .map(u64::from)
     }
 }
 
@@ -97,8 +95,8 @@ impl EnumLayoutInfo {
 /// - `TaggedPtr` — discriminant in the pointer's low bits, no struct GEPs.
 /// - `None` — single variant, no tag, payload is the type itself (GEP 0).
 ///
-/// `is_runtime_abi` is supplied by the caller (it requires the type Pool to
-/// detect Option/Result — see `populate_enum_layouts`).
+/// `is_runtime_abi` is supplied by the caller (it requires the type pool to
+/// detect Option/Result).
 #[must_use]
 pub fn compute_enum_layout_info(repr: &EnumRepr, is_runtime_abi: bool) -> EnumLayoutInfo {
     let tag_gep_index = match repr.tag {
@@ -106,8 +104,11 @@ pub fn compute_enum_layout_info(repr: &EnumRepr, is_runtime_abi: bool) -> EnumLa
         EnumTag::Niche { .. } | EnumTag::TaggedPtr | EnumTag::None => None,
     };
 
+    // A tagged pointer has no struct payload region — the value is a single
+    // tagged slot, so it carries no GEP, no field offsets, and zero slots.
+    let is_tagged_ptr = matches!(repr.tag, EnumTag::TaggedPtr);
     let has_payload = repr.variants.iter().any(|v| !v.fields.is_empty());
-    let payload_gep_index = if !has_payload || matches!(repr.tag, EnumTag::TaggedPtr) {
+    let payload_gep_index = if !has_payload || is_tagged_ptr {
         None
     } else {
         // 1 for Explicit (after the tag), 0 for Niche/None (payload IS the struct).
@@ -115,14 +116,17 @@ pub fn compute_enum_layout_info(repr: &EnumRepr, is_runtime_abi: bool) -> EnumLa
     };
 
     // The first maximum-payload variant sizes the payload region; its fields
-    // give the canonical i64-slot offsets.
-    let representative = repr
-        .variants
-        .iter()
-        .fold(None::<&VariantRepr>, |best, v| match best {
-            Some(b) if b.size >= v.size => Some(b),
-            _ => Some(v),
-        });
+    // give the canonical i64-slot offsets. Tagged pointers have no such region.
+    let representative = if is_tagged_ptr {
+        None
+    } else {
+        repr.variants
+            .iter()
+            .fold(None::<&VariantRepr>, |best, v| match best {
+                Some(b) if b.size >= v.size => Some(b),
+                _ => Some(v),
+            })
+    };
 
     let mut payload_field_offsets = Vec::new();
     if let Some(v) = representative {

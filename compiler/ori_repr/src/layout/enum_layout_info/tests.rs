@@ -117,6 +117,9 @@ fn tagged_ptr_enum_has_no_struct_geps() {
     );
     assert_eq!(info.abi_size, 8);
     assert!(info.is_tagged_ptr());
+    // No struct payload region → no field offsets, zero slots.
+    assert!(info.payload_field_offsets.is_empty());
+    assert_eq!(info.payload_slot_count, 0);
 }
 
 #[test]
@@ -189,14 +192,14 @@ fn payload_slot_offset_prefix_sums_eight_byte_slots() {
         },
         false,
     );
-    assert_eq!(info.payload_slot_offset(0), 0);
-    assert_eq!(info.payload_slot_offset(1), 8);
-    assert_eq!(info.payload_slot_offset(2), 16);
+    assert_eq!(info.payload_slot_offset(0), Some(0));
+    assert_eq!(info.payload_slot_offset(1), Some(8));
+    assert_eq!(info.payload_slot_offset(2), Some(16));
     assert_eq!(info.payload_field_offsets, vec![0, 8, 16]);
     assert_eq!(
         info.payload_slot_offset(99),
-        0,
-        "out-of-range index returns 0"
+        None,
+        "out-of-range index returns None, never a masked offset"
     );
 }
 
@@ -213,7 +216,7 @@ fn payload_slot_offset_first_field_always_zero() {
             },
             false,
         );
-        assert_eq!(info.payload_slot_offset(0), 0);
+        assert_eq!(info.payload_slot_offset(0), Some(0));
     }
 }
 
@@ -229,8 +232,8 @@ fn payload_slot_offset_sub_slot_field_rounds_next_to_eight() {
         },
         false,
     );
-    assert_eq!(info.payload_slot_offset(0), 0);
-    assert_eq!(info.payload_slot_offset(1), 8);
+    assert_eq!(info.payload_slot_offset(0), Some(0));
+    assert_eq!(info.payload_slot_offset(1), Some(8));
 }
 
 // --- negative pin: Option<[int]> does NOT niche (empty list = null data ptr) ---
