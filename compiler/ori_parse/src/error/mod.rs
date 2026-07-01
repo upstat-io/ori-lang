@@ -32,10 +32,5 @@ pub use kind::ParseErrorKind;
     reason = "public API of ParseErrorKind variants; used by tests and future consumers"
 )]
 pub use kind::{ExprPosition, IdentContext, PatternArgError, PatternContext};
-#[allow(
-    unused_imports,
-    reason = "public API for error token detection; used by tests and parse_error submodule"
-)]
-pub use mistakes::{check_common_keyword_mistake, detect_common_mistake};
 pub use parse_error::ParseError;
 pub use warning::{DetachmentReason, ParseWarning};

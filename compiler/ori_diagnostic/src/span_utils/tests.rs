@@ -1,32 +1,6 @@
 use super::*;
 
 #[test]
-fn test_line_from_offset_single_line() {
-    let source = "hello world";
-    assert_eq!(line_from_offset(source, 0), 1);
-    assert_eq!(line_from_offset(source, 5), 1);
-    assert_eq!(line_from_offset(source, 10), 1);
-}
-
-#[test]
-fn test_line_from_offset_multiple_lines() {
-    let source = "line1\nline2\nline3";
-    assert_eq!(line_from_offset(source, 0), 1); // 'l' of line1
-    assert_eq!(line_from_offset(source, 5), 1); // '\n' after line1
-    assert_eq!(line_from_offset(source, 6), 2); // 'l' of line2
-    assert_eq!(line_from_offset(source, 11), 2); // '\n' after line2
-    assert_eq!(line_from_offset(source, 12), 3); // 'l' of line3
-}
-
-#[test]
-fn test_line_number_from_span() {
-    let source = "line1\nline2\nline3";
-    assert_eq!(line_number(source, Span::new(0, 5)), 1);
-    assert_eq!(line_number(source, Span::new(6, 11)), 2);
-    assert_eq!(line_number(source, Span::new(12, 17)), 3);
-}
-
-#[test]
 fn test_offset_to_line_col() {
     let source = "abc\ndefgh\nij";
     // Line 1

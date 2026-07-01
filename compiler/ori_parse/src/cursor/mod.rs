@@ -224,14 +224,6 @@ impl<'a> Cursor<'a> {
         self.flags[self.pos].has_newline_before()
     }
 
-    /// True if the current token is the first non-trivia token on its line.
-    ///
-    /// Used for layout-sensitive constructs where indentation matters.
-    #[inline]
-    pub fn at_line_start(&self) -> bool {
-        self.flags[self.pos].is_line_start()
-    }
-
     /// True if a doc comment preceded the current token (`IS_DOC` flag).
     ///
     /// Doc comments use markers `#` (description), `*` (member), `!` (warning),

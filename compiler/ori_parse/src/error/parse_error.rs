@@ -5,7 +5,6 @@ use ori_diagnostic::ErrorCode;
 use ori_ir::{Span, TokenKind};
 
 use super::kind::ParseErrorKind;
-use super::mistakes::detect_common_mistake;
 
 /// Parse error with error code for rich diagnostics.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -259,33 +258,6 @@ impl ParseError {
         }
 
         error
-    }
-
-    /// Create a [`ParseError`] for an error token with source-based mistake detection.
-    ///
-    /// This examines the actual source text that caused the lexer error
-    /// to provide targeted help for common patterns from other languages.
-    #[cold]
-    pub fn from_error_token(span: Span, source_text: &str) -> Self {
-        if let Some((description, help)) = detect_common_mistake(source_text) {
-            ParseError {
-                code: ErrorCode::E1001,
-                message: format!("unrecognized {description}: `{source_text}`"),
-                span,
-                context: None,
-                help: vec![help.to_string()],
-                severity: DiagnosticSeverity::Hard,
-            }
-        } else {
-            ParseError {
-                code: ErrorCode::E1001,
-                message: format!("unrecognized token: `{source_text}`"),
-                span,
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            }
-        }
     }
 }
 

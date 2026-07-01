@@ -65,12 +65,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 return true;
             }
 
-            let result = match protocol {
-                // Iter and IterDrop are registered as ProtocolBuiltin for
-                // borrow inference only — they go through normal function
-                // dispatch (real runtime calls), not protocol intercept.
-                ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => return false,
+            // Iter and IterDrop are registered as ProtocolBuiltin for borrow
+            // inference only — they go through normal function dispatch
+            // (real runtime calls), not protocol intercept.
+            if !protocol.is_intercepted() {
+                return false;
+            }
 
+            let result = match protocol {
                 ProtocolBuiltin::Cast => {
                     // __cast(value) — `as` conversions (ARC IR has no cast
                     // instruction). Supported primitive pairs emit inline
@@ -128,6 +130,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
                 // IterNext handled above via early return.
                 ProtocolBuiltin::IterNext => unreachable!("IterNext handled above"),
+                // Filtered out by the is_intercepted() check above.
+                ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => {
+                    unreachable!("Iter/IterDrop filtered by is_intercepted() above")
+                }
             };
             if let Some(val) = result {
                 self.def_var_repr(dst, val, func);

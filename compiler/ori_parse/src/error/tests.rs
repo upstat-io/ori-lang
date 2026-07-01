@@ -114,102 +114,6 @@ fn test_title() {
     );
 }
 
-// Common Mistake Detection Tests
-
-#[test]
-fn test_detect_triple_equals() {
-    let (desc, help) = detect_common_mistake("===").unwrap();
-    assert_eq!(desc, "triple equals");
-    assert!(help.contains("=="));
-    assert!(help.contains("statically typed"));
-}
-
-#[test]
-fn test_detect_increment_operator() {
-    let (desc, help) = detect_common_mistake("++").unwrap();
-    assert_eq!(desc, "increment operator");
-    assert!(help.contains("x += 1"), "help was: {help}");
-}
-
-#[test]
-fn test_detect_decrement_operator() {
-    let (desc, help) = detect_common_mistake("--").unwrap();
-    assert_eq!(desc, "decrement operator");
-    assert!(help.contains("x -= 1"), "help was: {help}");
-}
-
-#[test]
-fn test_compound_assignment_not_a_mistake() {
-    // Compound assignment operators are valid syntax (not common mistakes)
-    for op in &["+=", "-=", "*=", "/=", "%="] {
-        assert!(
-            detect_common_mistake(op).is_none(),
-            "{op} should not be detected as a mistake"
-        );
-    }
-}
-
-#[test]
-fn test_detect_class_keyword() {
-    let (desc, help) = check_common_keyword_mistake("class").unwrap();
-    assert_eq!(desc, "class keyword");
-    assert!(help.contains("type"));
-    assert!(help.contains("trait"));
-}
-
-#[test]
-fn test_detect_switch_keyword() {
-    let (desc, help) = check_common_keyword_mistake("switch").unwrap();
-    assert_eq!(desc, "switch keyword");
-    assert!(help.contains("match"));
-}
-
-#[test]
-fn test_detect_function_keyword() {
-    for keyword in &["function", "func", "fn"] {
-        let result = check_common_keyword_mistake(keyword);
-        assert!(result.is_some(), "Should detect {keyword}");
-        let (desc, help) = result.unwrap();
-        assert_eq!(desc, "function keyword");
-        assert!(help.contains('@'));
-    }
-}
-
-#[test]
-fn test_detect_null_variants() {
-    for keyword in &["null", "nil", "NULL"] {
-        let result = check_common_keyword_mistake(keyword);
-        assert!(result.is_some(), "Should detect {keyword}");
-        let (_, help) = result.unwrap();
-        assert!(help.contains("None"));
-    }
-}
-
-#[test]
-fn test_detect_string_type() {
-    let (desc, help) = check_common_keyword_mistake("String").unwrap();
-    assert_eq!(desc, "string type");
-    assert!(help.contains("str"));
-}
-
-#[test]
-fn test_detect_boolean_case() {
-    let (desc, help) = check_common_keyword_mistake("True").unwrap();
-    assert_eq!(desc, "boolean literal");
-    assert!(help.contains("true"));
-    assert!(help.contains("false"));
-}
-
-#[test]
-fn test_valid_tokens_not_detected() {
-    // These should NOT be detected as mistakes (they're valid in Ori)
-    assert!(detect_common_mistake("??").is_none());
-    assert!(detect_common_mistake("=>").is_none());
-    assert!(check_common_keyword_mistake("int").is_none());
-    assert!(check_common_keyword_mistake("float").is_none());
-    assert!(check_common_keyword_mistake("str").is_none());
-}
-
 // Educational Note Tests
 
 #[test]
@@ -268,23 +172,6 @@ fn test_educational_note_unclosed_bracket() {
     let note = kind.educational_note();
     assert!(note.is_some());
     assert!(note.unwrap().contains("list"));
-}
-
-// From Error Token Tests
-
-#[test]
-fn test_from_error_token_with_known_mistake() {
-    let error = ParseError::from_error_token(Span::new(0, 3), "===");
-    assert!(error.message.contains("triple equals"));
-    assert!(!error.help.is_empty());
-    assert!(error.help[0].contains("=="));
-}
-
-#[test]
-fn test_from_error_token_with_unknown() {
-    let error = ParseError::from_error_token(Span::new(0, 3), "xyz");
-    assert!(error.message.contains("unrecognized token"));
-    assert!(error.help.is_empty());
 }
 
 // Enhanced Hint Tests
@@ -469,12 +356,6 @@ fn test_from_kind_produces_hard_severity() {
         context: None,
     };
     let error = ParseError::from_kind(&kind, Span::new(0, 1));
-    assert_eq!(error.severity, DiagnosticSeverity::Hard);
-}
-
-#[test]
-fn test_from_error_token_produces_hard_severity() {
-    let error = ParseError::from_error_token(Span::new(0, 3), "===");
     assert_eq!(error.severity, DiagnosticSeverity::Hard);
 }
 

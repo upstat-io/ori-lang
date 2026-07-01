@@ -20,6 +20,7 @@
 
 // Exposed for dead-code lint satisfaction — the glob re-export below
 // is the intended public API surface.
+mod borrow_source;
 pub mod dimensions;
 #[cfg(test)]
 mod prop_tests;
@@ -30,8 +31,10 @@ mod prop_tests;
 )]
 mod tests;
 
+pub use borrow_source::BorrowSource;
 pub use dimensions::*;
 
+#[cfg(test)]
 use crate::ir::ArcVarId;
 use crate::ArcClass;
 
@@ -485,77 +488,5 @@ impl AimsState {
         Self::CHAIN_HEIGHT
             .saturating_mul(num_variables)
             .saturating_mul(num_blocks)
-    }
-}
-
-// Borrow provenance (sparse side table, not in the finite lattice)
-
-/// Tracks where a borrowed value comes from.
-///
-/// Stored in a sparse side table keyed by [`ArcVarId`], NOT in the finite
-/// lattice. Only relevant for variables with [`AccessClass::Borrowed`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BorrowSource {
-    /// Known exact source variable, optionally with the projected field index.
-    ///
-    /// `field` is `Some(idx)` when the borrow comes from a `Project` instruction,
-    /// identifying which field of the source struct/enum was extracted. Used by
-    /// the disjoint-field COW optimization to prove that a COW
-    /// mutation on a different field doesn't conflict with this borrow.
-    Exact {
-        source: ArcVarId,
-        field: Option<u32>,
-    },
-    /// Multiple sources or unknown origin.
-    Unknown,
-}
-
-impl BorrowSource {
-    /// Create an `Exact` borrow source without field info.
-    #[must_use]
-    pub fn exact(source: ArcVarId) -> Self {
-        Self::Exact {
-            source,
-            field: None,
-        }
-    }
-
-    /// Create an `Exact` borrow source with field info from a `Project`.
-    #[must_use]
-    pub fn exact_field(source: ArcVarId, field: u32) -> Self {
-        Self::Exact {
-            source,
-            field: Some(field),
-        }
-    }
-
-    /// Get the source variable, if this is an `Exact` borrow.
-    #[must_use]
-    pub fn source_var(&self) -> Option<ArcVarId> {
-        match self {
-            Self::Exact { source, .. } => Some(*source),
-            Self::Unknown => None,
-        }
-    }
-
-    /// Join two borrow sources: same source+field → keep; different → `Unknown`.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        match (self, other) {
-            (
-                Self::Exact {
-                    source: a,
-                    field: fa,
-                },
-                Self::Exact {
-                    source: b,
-                    field: fb,
-                },
-            ) if a == b && fa == fb => Self::Exact {
-                source: a,
-                field: fa,
-            },
-            _ => Self::Unknown,
-        }
     }
 }

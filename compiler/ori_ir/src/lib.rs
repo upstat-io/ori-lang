@@ -208,8 +208,7 @@ pub use tag_constants::{
     RANGE_FIELD_START, RESULT_TAG_ERR, RESULT_TAG_OK, RESULT_VARIANT_ERR, RESULT_VARIANT_OK,
 };
 pub use token::{
-    DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,
-    TokenTag,
+    DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenKind, TokenList, TokenTag,
 };
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;
