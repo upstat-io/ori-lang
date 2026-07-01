@@ -536,7 +536,7 @@ echo ""
 
 # ─── state.sh baseline ─────────────────────────────────────────────
 # Self-contained: ORI_STATE_FILE / ORI_BASELINES_FILE point at a temp dir so
-# the real .claude/state cache is never touched. Needs jq only (no ori binary).
+# the real build/state cache is never touched. Needs jq only (no ori binary).
 printf "${C_BOLD}state.sh baseline${C_NC}\n"
 if command -v jq >/dev/null 2>&1; then
     BL_TMP=$(mktemp -d)

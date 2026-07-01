@@ -251,7 +251,8 @@ impl<E: Emitter> FormatContext<E> {
     }
 
     /// Emit a text fragment.
-    pub fn emit(&mut self, text: &str) {
+    pub fn emit(&mut self, text: impl AsRef<str>) {
+        let text = text.as_ref();
         self.emitter.emit(text);
         self.column += text.len();
         self.shape = self.shape.consume(text.len());

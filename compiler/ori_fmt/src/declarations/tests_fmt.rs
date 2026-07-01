@@ -103,14 +103,14 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             if !first {
                 self.ctx.emit(", ");
             }
-            self.ctx.emit(&format!("line: {line}"));
+            self.ctx.emit(format!("line: {line}"));
             first = false;
         }
         if let Some(column) = err.column {
             if !first {
                 self.ctx.emit(", ");
             }
-            self.ctx.emit(&format!("column: {column}"));
+            self.ctx.emit(format!("column: {column}"));
         }
         self.ctx.emit(")");
     }

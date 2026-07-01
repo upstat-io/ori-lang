@@ -37,7 +37,7 @@ impl Interpreter<'_> {
 
         match &receiver {
             Value::Struct(struct_val) => {
-                let type_name = self.interner.lookup(struct_val.type_name);
+                let type_name = self.interner.lookup(struct_val.type_name).to_string();
                 #[expect(
                     clippy::arithmetic_side_effects,
                     reason = "capacity estimation, overflow is safe"
@@ -45,7 +45,7 @@ impl Interpreter<'_> {
                 let capacity = type_name.len() + 4 + info.field_names.len() * 12;
                 let mut result = String::with_capacity(capacity);
 
-                result.push_str(type_name);
+                result.push_str(&type_name);
                 match open {
                     FormatOpen::TypeNameParen => result.push('('),
                     FormatOpen::TypeNameBrace => result.push_str(" { "),
@@ -79,7 +79,7 @@ impl Interpreter<'_> {
                 if fields.is_empty() {
                     return Ok(Value::string(vname.to_string()));
                 }
-                let mut result = String::from(vname);
+                let mut result = vname.to_string();
                 result.push('(');
                 for (i, val) in fields.iter().enumerate() {
                     if i > 0 {
@@ -117,8 +117,7 @@ impl Interpreter<'_> {
                     .lookup_derived(sv.type_name, to_str_name)
                     .cloned();
 
-                let type_name = self.interner.lookup(sv.type_name);
-                let mut result = String::from(type_name);
+                let mut result = self.interner.lookup(sv.type_name).to_string();
                 result.push('(');
 
                 if let Some(ref info) = derived_info {
@@ -148,7 +147,7 @@ impl Interpreter<'_> {
                 if fields.is_empty() {
                     vname.to_string()
                 } else {
-                    let mut result = String::from(vname);
+                    let mut result = vname.to_string();
                     result.push('(');
                     for (i, fv) in fields.iter().enumerate() {
                         if i > 0 {

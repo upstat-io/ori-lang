@@ -460,7 +460,7 @@ fn format_context_fits_boundary() {
     let mut ctx = FormatContext::new();
 
     // Emit exactly MAX_LINE_WIDTH - 10 characters
-    ctx.emit(&"x".repeat(MAX_LINE_WIDTH - 10));
+    ctx.emit("x".repeat(MAX_LINE_WIDTH - 10));
     assert_eq!(ctx.column(), MAX_LINE_WIDTH - 10);
 
     // Should fit exactly 10 more

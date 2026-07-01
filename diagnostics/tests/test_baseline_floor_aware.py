@@ -1,4 +1,4 @@
-"""TDD matrix for BUG-07-263 — floor-aware `state.sh baseline compare`.
+"""TDD matrix for floor-aware `state.sh baseline compare`.
 
 The per-section test-baseline regression gate (`baseline_compare()` in
 diagnostics/state.sh) must EXCLUDE known aims-burden AOT floor cells
@@ -64,6 +64,28 @@ def _write_baseline(path: Path, key: str, failing_ids: list[str]) -> None:
     }))
 
 
+def _write_degraded_baseline(path: Path, key: str) -> None:
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "baselines": {
+            key: {
+                "key": key,
+                "captured_at": "2026-06-16T00:00:00Z",
+                "captured_at_sha": "deadbee",
+                "captured_by": "test",
+                "test_suite": {
+                    "status": "known-failing",
+                    "known_failing_count": 0,
+                    "totals": {"passed": 0, "failed": 6, "skipped": 0},
+                    "failures": [],
+                },
+                "clippy": {"status": "clean", "warnings": 0, "errors": 0},
+                "test_dispositions": {"total": 0, "untracked": 0},
+            }
+        },
+    }))
+
+
 def _compare(tmp_path: Path, *, baseline: list[str], current: list[str],
              floor: list[str], key: str = "sec") -> dict:
     """Run the real `state.sh baseline compare --key <key> --json` against
@@ -89,7 +111,7 @@ def _compare(tmp_path: Path, *, baseline: list[str], current: list[str],
     return json.loads(r.stdout)
 
 
-_FLOOR_CELL = "fat_ptr_iter::method_collect::test_iter_collect_set_str"
+_FLOOR_CELL = "aims_interactions::test_h12_rc_merge_preserves_rc_ops"
 
 
 def test_sc1_known_floor_cell_is_not_a_regression(tmp_path):
@@ -173,7 +195,7 @@ _REAL_FLOOR = Path(__file__).resolve().parents[1] / "baseline_failing_ids.txt"
 
 
 def test_sc6_production_default_floor_path_excludes_known_cell(tmp_path):
-    """SC-6 (fail-first; production-default pin per codex-F1): with NO
+    """SC-6 (fail-first; production-default pin): with NO
     ORI_BASELINE_FLOOR_FILE override, baseline_compare must read the PRODUCTION
     default floor (diagnostics/baseline_failing_ids.txt — the path the live
     callers verify-and-complete-v7 / aot-guardrail.sh use) and exclude a real
@@ -199,3 +221,30 @@ def test_sc6_production_default_floor_path_excludes_known_cell(tmp_path):
     report = json.loads(r.stdout)
     assert report["newly_failing"] == [], report
     assert report["gate_pass"] is True, report
+
+
+def test_degraded_baseline_empty_failure_ids_soft_passes(tmp_path):
+    """A baseline with failed>0 but no failure ids cannot produce a set diff.
+    The comparator returns a degraded soft-pass instead of flagging every current
+    failure as section-introduced."""
+    state_f = tmp_path / "known-state.json"
+    base_f = tmp_path / "baselines.json"
+    floor_f = tmp_path / "floor.txt"
+    _write_state(state_f, ["real::failure"])
+    _write_degraded_baseline(base_f, "sec")
+    floor_f.write_text("")
+    env = {
+        "ORI_STATE_FILE": str(state_f),
+        "ORI_BASELINES_FILE": str(base_f),
+        "ORI_BASELINE_FLOOR_FILE": str(floor_f),
+        "PATH": __import__("os").environ.get("PATH", ""),
+    }
+    r = subprocess.run(
+        ["bash", str(_STATE_SH), "baseline", "compare", "--key", "sec", "--json"],
+        capture_output=True, text=True, env=env, timeout=60,
+    )
+    report = json.loads(r.stdout)
+    assert r.returncode == 6, report
+    assert report["baseline_degraded"] is True, report
+    assert report["gate_pass"] is True, report
+    assert report["newly_failing"] == [], report

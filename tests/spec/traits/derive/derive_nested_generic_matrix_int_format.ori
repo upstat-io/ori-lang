@@ -1,0 +1,36 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, int clone/debug/printable cells
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_nested_int_clone tests @nested_int_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let cloned = a.clone();
+    assert(cond: cloned == a)
+}
+@nested_int_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    a.clone() == a
+}
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_nested_int_debug tests @nested_int_debug () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.debug() != "")
+}
+@nested_int_debug () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.debug()
+}
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_nested_int_printable tests @nested_int_printable () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.to_str() != "")
+}
+@nested_int_printable () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.to_str()
+}

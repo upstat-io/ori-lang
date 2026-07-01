@@ -2,15 +2,14 @@
 //!
 //! Walks every block backward; for each `BurdenInc` / `BurdenDec` /
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` site, queries
-//! the AIMS lattice via DP-2 (`is_rc_dec_unnecessary` in
-//! `aims/transfer/mod.rs`) or DP-3 (`is_rc_inc_elidable` in
-//! `aims/transfer/mod.rs`); on `true`, removes the instruction.
+//! the AIMS lattice via DP-2 (`is_rc_dec_unnecessary`) or DP-3
+//! (`is_rc_inc_elidable`); on `true`, removes the instruction.
 //!
 //! # Pipeline position
 //!
 //! Runs inside `emit_rc_unified` between Phase 2.1 (project-escape Incs) and
 //! Phase 3 (coalesce). Burden ops are TF-N/A in both forward and backward
-//! transfer (verified by the TF-N/A transfer rules in `aims/transfer/mod.rs`), so the
+//! transfer (verified by the TF-N/A transfer rules), so the
 //! per-block state queried via `var_state_at_block_exit(block, var)` is the
 //! state at every burden-op site within that block: burden ops carry no
 //! transfer effect, so `block_exit_state[var]` = state at every burden-op
@@ -45,7 +44,7 @@
 //! (`Once ∧ (Linear ∨ Affine)`; BOTTOM is Dead/Absent, not Once).
 //! A naïve per-op pass would elide the `BurdenDec`
 //! but retain the `BurdenInc`, producing `Σ Inc - Σ Dec = +1` and
-//! violating VF-1 per `aims/verify/burden_balance.rs`.
+//! violating the VF-1 intraprocedural balance invariant.
 //!
 //! The fix is paired elimination: group ops by target var per block,
 //! check DP-2 / DP-3 against the var's exit state once, and elide ALL
@@ -58,14 +57,18 @@
 //! # References
 //!
 //! - DP-2 + DP-3 — predicate truth tables.
-//! - `aims/transfer/mod.rs` (`is_rc_dec_unnecessary` / `is_rc_inc_elidable`) — predicate source.
+//! - `is_rc_dec_unnecessary` (DP-2) / `is_rc_inc_elidable` (DP-3) — the AIMS
+//!   transfer-function predicates.
 //! - Koka Perceus paired dup/drop elimination (Reinking et al., PLDI 2021).
 
 #[cfg(test)]
 mod tests;
 
+mod census;
+mod compact;
 mod lineage_rebalance;
 mod loop_carried;
+mod pair_atomic;
 
 use std::sync::LazyLock;
 
@@ -79,14 +82,16 @@ use crate::aims::lattice::dimensions::{Consumption, Locality};
 use crate::aims::lattice::AimsState;
 use crate::aims::transfer::is_rc_inc_elidable;
 use crate::aims::verify::burden_balance::{var_def_kind, var_repr_kind};
-use crate::graph::forward_reachable;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcValue, ArcVarId};
-use crate::lower::burden_lower::{
-    collect_move_edges_and_store_consumes, genuine_dup_pair_coupling_disabled,
-    local_construct_pair_coupling_disabled,
-};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
+use crate::lower::burden_lower::genuine_dup_pair_coupling_disabled;
 
 use super::rc_remark::{emit_rc_survivor_remark, rc_remarks_enabled, RcSurvivorSite};
+
+#[cfg(test)]
+use census::is_burden_removal_only;
+use census::{assert_burden_removal_only, burden_op_census};
+use compact::{compact_removed, force_overeliminate_releases};
+use pair_atomic::collect_pair_atomic_alias_dsts;
 
 /// `ORI_DISABLE_LINEAGE_REBALANCE=1` skips the per-same-alloc-rep lineage
 /// re-balance ([`mark_lineage_rebalance_removals`]), leaving the per-var
@@ -94,6 +99,7 @@ use super::rc_remark::{emit_rc_survivor_remark, rc_remarks_enabled, RcSurvivorSi
 /// double-free / leak to the lineage re-balance vs the per-var path without
 /// toggling the whole burden-vs-predicate-stack pipeline. Default (unset): the
 /// re-balance runs on the burden-only path. Spec: Annex E §AIMS RL-2.
+// Env: ORI_DISABLE_LINEAGE_REBALANCE — reverts the Phase-6 lineage re-balance to per-var DP-2/DP-3 elision for bisection, debug-only
 static LINEAGE_REBALANCE_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_LINEAGE_REBALANCE").as_deref() == Ok("1"));
 
@@ -116,6 +122,7 @@ static FORCE_OVERELIMINATE: LazyLock<bool> =
 /// of the rep on a forward path is REJECTED (release-before-read is a UAF /
 /// double-free per RL-2 `RL2_release_exactly_once` — the single release must
 /// sit after the lineage's last read). Spec: Annex E §AIMS RL-2.
+// Env: ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ — reverts single-release selection to terminal-net-only for bisection, debug-only
 static SINGLE_RELEASE_AFTER_LAST_READ_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ").as_deref() == Ok("1")
 });
@@ -174,68 +181,6 @@ pub(crate) fn eliminate_burden_ops(
     assert_burden_removal_only(&before, &burden_op_census(func));
 }
 
-/// Per-kind burden-op census across all blocks of a function.
-///
-/// Five counts, one per burden-op variant, in the order `[BurdenInc,
-/// BurdenDec, BurdenDecPartial, BurdenDecField, BurdenDecVariant]`. Used by the
-/// removal-only structural guard in [`eliminate_burden_ops`].
-fn burden_op_census(func: &ArcFunction) -> [usize; 5] {
-    let mut census = [0usize; 5];
-    for block in &func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::BurdenInc { .. } => census[0] += 1,
-                ArcInstr::BurdenDec { .. } => census[1] += 1,
-                ArcInstr::BurdenDecPartial { .. } => census[2] += 1,
-                ArcInstr::BurdenDecField { .. } => census[3] += 1,
-                ArcInstr::BurdenDecVariant { .. } => census[4] += 1,
-                _ => {}
-            }
-        }
-    }
-    census
-}
-
-/// Whether a Phase-6 burden census transition is removal-only.
-///
-/// `true` iff the post-pass census of EVERY burden-op kind is `≤` its
-/// pre-pass census — i.e. Phase 6 removed or left-alone every kind and
-/// constructed none. This is the SSOT predicate behind the removal-only
-/// structural guard; both the always-on assert and the negative pin consult it.
-fn is_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) -> bool {
-    (0..5).all(|kind| after[kind] <= before[kind])
-}
-
-/// Removal-only structural guard.
-///
-/// Phase 6 (the lattice optimizer) MUST only remove or annotate burden ops —
-/// it MUST NOT construct new ones: `eliminate_burden_ops` consumes DP-2/DP-3
-/// at burden-op sites and NEVER constructs burden ops. The post-pass census
-/// of EVERY burden-op kind is
-/// therefore `≤` its pre-pass census. A violation is a Phase-6 construction
-/// regression: a `BurdenInc`/`BurdenDec*` was appended where only elimination
-/// is permitted, which would mechanically lower to a spurious `RcInc`/`RcDec`
-/// in Phase 7 and corrupt RC balance. Uses `assert!` (never `debug_assert!`):
-/// a silently-corrupted RC balance in a release binary is a double-free or
-/// leak, not merely a debug-build diagnostic.
-#[track_caller]
-fn assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
-    const KIND_NAMES: [&str; 5] = [
-        "BurdenInc",
-        "BurdenDec",
-        "BurdenDecPartial",
-        "BurdenDecField",
-        "BurdenDecVariant",
-    ];
-    assert!(
-        is_burden_removal_only(before, after),
-        "AIMS Phase-6 invariant: eliminate_burden_ops constructed burden ops \
-         where only elimination is permitted — Phase 6 MUST eliminate burden \
-         ops, never construct them. \
-         per-kind census {KIND_NAMES:?}: before = {before:?}, after = {after:?}",
-    );
-}
-
 /// Eliminate redundant burden ops within one block's body.
 ///
 /// Two-pass paired elimination per VF-1 intraprocedural
@@ -246,8 +191,8 @@ fn assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
 ///    Inc AND DP-2 fires on EVERY whole-var Dec — otherwise retain every op
 ///    for that var so `Σ Inc - Σ Dec` stays at its pre-elimination value.
 /// 3. `BurdenDecField` queries DP-2 against `base`'s whole-var state but is
-///    NOT included in the whole-var balance (per `aims/verify/burden_delta.rs`
-///    it contributes to a separate field-grain accumulator); elision is
+///    NOT included in the whole-var balance (it contributes to a separate
+///    field-grain burden-delta accumulator); elision is
 ///    per-op, independent of the whole-var pairing.
 ///
 /// `OpSite` is a `(block_idx, instr_idx)` pair locating one whole-var burden
@@ -262,7 +207,7 @@ type OpSite = (usize, usize);
 // `BurdenDec` for a value live across a block boundary land in different blocks
 // (FRESH alloc in one block, last-use release in another). A per-block pass
 // could elide one side and retain the other, netting the per-value burden
-// ledger to +/-1 — the VF-1 imbalance per `aims/verify/burden_balance.rs`.
+// ledger to +/-1 — the VF-1 burden-balance imbalance.
 // Pairing across the whole function keeps the inc/dec pair atomic.
 #[derive(Default)]
 struct WholeVarBalance {
@@ -406,86 +351,6 @@ fn emit_survivor_remarks(
     }
 }
 
-/// Read-only structural scan: every `Let { Var }` alias dst whose alias-chain
-/// ROOT is a function PARAM or a LOCAL fresh `Construct`.
-///
-/// An inc-carrying alias dst with such a root is an RL-1 duplication-alias
-/// pair on the root's allocation: its `BurdenInc` IS the alias's own `+1` (an
-/// alias definition is never a birth site — the var is a same-allocation view
-/// of the root's reference), paired with either its own last-use `BurdenDec`
-/// or a cross-var release (the consumer's, when the alias was
-/// transfer-suppressed at Phase 5). The pair is ATOMIC per
-/// `AimsProof.Realization::RL1_duplication_balanced` —
-/// [`mark_whole_var_removals`] consults this set to ban the decoupled inc-only
-/// split for these vars (splitting nets -1 on the still-live root lineage —
-/// the `@stash_and_return` double-free for param roots; the local
-/// terminal-move-store double-free for Construct roots).
-///
-/// Aliases rooted at an `Apply` / `Invoke` RESULT stay on the decoupled path:
-/// their splits are load-bearing compensation for pre-existing
-/// under-emissions, coupled only WITH the matching under-emission cure (each
-/// its own cycle). Construct-rooted lineages WITHOUT a store consume likewise
-/// stay decoupled — their splits compensate borrowed-call-arg lineage
-/// arrangements the same way. The Construct-rooted admission is gated by
-/// `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1` independently of the
-/// param-rooted admission (master toggle:
-/// `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1` gates the whole pair-atomic
-/// guard in [`mark_whole_var_removals`]).
-fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<ArcVarId> {
-    // Pass 1: resolve every `Let { Var }` alias chain to its root (vars are
-    // defined before use within the function walk).
-    let mut root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                let r = root.get(src).copied().unwrap_or(*src);
-                root.insert(*dst, r);
-            }
-        }
-    }
-    let root_of = |v: ArcVarId| root.get(&v).copied().unwrap_or(v);
-    // Pass 2: admissible roots — every param; plus local `Construct` dsts
-    // whose lineage TERMINALLY moves into an aggregate-STORE (the local
-    // terminal-move-store family, `Holder { kept: w }` with no use of `w`
-    // after the store): the store transfers the root's reference into the
-    // container, so the pre-elim per-lineage ledger is exact and any split
-    // nets -1. A lineage with a use AFTER the store (the local genuine-dup
-    // shape — store + source read after) stays DECOUPLED: its FRESH-site inc
-    // is balanced by a read-alias split, the compensation arrangement the
-    // decoupled path provides until that over-emission gets its own cycle.
-    // Store-consume membership shares the Phase-5 SSOT
-    // (`collect_move_edges_and_store_consumes`).
-    let mut root_vars: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
-    if !local_construct_pair_coupling_disabled() {
-        root_vars.extend(terminal_store_construct_roots(func, &root));
-    }
-    // Pass 3: collect alias dsts whose chain root is admissible.
-    let mut pair_atomic: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if root_vars.contains(&root_of(*src)) || root_vars.contains(src) {
-                    pair_atomic.insert(*dst);
-                }
-            }
-        }
-    }
-    // Pass 4: loop-carried pure-borrow-view aliases (RL-1 pair atomicity) —
-    // see `loop_carried::extend_with_loop_carried_borrow_view_aliases`.
-    loop_carried::extend_with_loop_carried_borrow_view_aliases(func, &root, &mut pair_atomic);
-    pair_atomic
-}
-
 /// Pass 1: classify every whole-var burden op into per-var balance buckets
 /// across ALL blocks. Field-grain Decs (`BurdenDecField`) are always KEPT (the
 /// burden path is the sole RC emitter; dec-side elision would leak).
@@ -548,111 +413,6 @@ fn classify_burden_ops(
         }
     }
     balances
-}
-
-/// Local `Construct` roots whose alias lineage TERMINALLY moves into an
-/// aggregate-STORE: the lineage has at least one store-consumed member
-/// (`Construct` / `Reuse` / `CollectionReuse` arg, `Set.value` — per the
-/// Phase-5 SSOT `collect_move_edges_and_store_consumes`) and NO lineage-member
-/// use strictly after any store site ("after" = later in the store's block,
-/// OR in a block forward-reachable from the store block's successors — the
-/// loop back-edge re-reach counts, mirroring the Phase-5 reachability
-/// discriminator). A lineage used past the store is the local genuine-dup
-/// shape and stays decoupled (its FRESH-site inc is compensated by a
-/// read-alias split until that over-emission's own cycle).
-fn terminal_store_construct_roots(
-    func: &ArcFunction,
-    root: &FxHashMap<ArcVarId, ArcVarId>,
-) -> FxHashSet<ArcVarId> {
-    let root_of = |v: ArcVarId| root.get(&v).copied().unwrap_or(v);
-    let mut construct_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Construct { dst, .. } = instr {
-                construct_dsts.insert(*dst);
-            }
-        }
-    }
-    if construct_dsts.is_empty() {
-        return FxHashSet::default();
-    }
-    let (_, store_consumed) = collect_move_edges_and_store_consumes(func);
-    // Per-root lineage use sites + store-consume sites. Terminator uses at
-    // `usize::MAX` so any body index in the block precedes them.
-    let mut lineage_uses: FxHashMap<ArcVarId, Vec<(usize, usize)>> = FxHashMap::default();
-    let mut lineage_store_sites: FxHashMap<ArcVarId, Vec<(usize, usize)>> = FxHashMap::default();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            for &v in &instr.used_vars() {
-                let r = root_of(v);
-                if construct_dsts.contains(&r) {
-                    lineage_uses
-                        .entry(r)
-                        .or_default()
-                        .push((block_idx, instr_idx));
-                }
-            }
-            let store_args: &[ArcVarId] = match instr {
-                ArcInstr::Construct { args, .. }
-                | ArcInstr::Reuse { args, .. }
-                | ArcInstr::CollectionReuse { args, .. } => args,
-                ArcInstr::Set { value, .. } => std::slice::from_ref(value),
-                _ => &[],
-            };
-            for &v in store_args {
-                if !store_consumed.contains(&v) {
-                    continue;
-                }
-                let r = root_of(v);
-                if construct_dsts.contains(&r) {
-                    lineage_store_sites
-                        .entry(r)
-                        .or_default()
-                        .push((block_idx, instr_idx));
-                }
-            }
-        }
-        for v in block.terminator.used_vars() {
-            let r = root_of(v);
-            if construct_dsts.contains(&r) {
-                lineage_uses
-                    .entry(r)
-                    .or_default()
-                    .push((block_idx, usize::MAX));
-            }
-        }
-    }
-    // Forward-reachable-from-successors per store block, memoized.
-    let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
-    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
-    'roots: for (r, stores) in &lineage_store_sites {
-        let Some(uses) = lineage_uses.get(r) else {
-            continue;
-        };
-        for &(sb, si) in stores {
-            let reachable = reachable_cache.entry(sb).or_insert_with(|| {
-                let succs: Vec<usize> = func
-                    .blocks
-                    .get(sb)
-                    .map(|b| {
-                        crate::graph::successor_block_ids(&b.terminator)
-                            .into_iter()
-                            .map(crate::ir::ArcBlockId::index)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                forward_reachable(func, &succs)
-            });
-            let used_after = uses
-                .iter()
-                .any(|&(ub, ui)| (ub == sb && ui > si) || reachable.contains(&ub));
-            if used_after {
-                continue 'roots;
-            }
-        }
-        out.insert(*r);
-    }
-    out
 }
 
 /// Pass 2: per-var elimination across the whole function, DECOUPLED for
@@ -723,41 +483,5 @@ fn mark_whole_var_removals(
                 remove[b][i] = true;
             }
         }
-    }
-}
-
-/// Force-drop EVERY `BurdenDec` / `BurdenDecPartial` / `BurdenDecField` /
-/// `BurdenDecVariant` release — the deliberately-over-eliminating shape gated by
-/// `ORI_FORCE_OVERELIMINATE=1`. Removal-only (the census guard still holds); a
-/// dropped release leaks its allocation on the burden-sole path, tripping the
-/// negative pin. Never reached with the flag unset.
-fn force_overeliminate_releases(func: &ArcFunction, remove: &mut [Vec<bool>]) {
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            if matches!(
-                instr,
-                ArcInstr::BurdenDec { .. }
-                    | ArcInstr::BurdenDecPartial { .. }
-                    | ArcInstr::BurdenDecField { .. }
-                    | ArcInstr::BurdenDecVariant { .. }
-            ) {
-                remove[block_idx][instr_idx] = true;
-            }
-        }
-    }
-}
-
-/// Compact each block: retain only non-removed instructions.
-fn compact_removed(func: &mut ArcFunction, remove: &[Vec<bool>]) {
-    for (block_idx, block) in func.blocks.iter_mut().enumerate() {
-        if !remove[block_idx].iter().any(|r| *r) {
-            continue;
-        }
-        let mut idx = 0usize;
-        block.body.retain(|_| {
-            let keep = !remove[block_idx][idx];
-            idx += 1;
-            keep
-        });
     }
 }

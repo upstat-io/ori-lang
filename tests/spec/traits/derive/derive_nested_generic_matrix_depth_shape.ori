@@ -1,0 +1,51 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, depth and distinct-outer cells
+
+use std.testing { assert, assert_eq }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Cell<T> = { slot: T }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Box<T> = { held: Cell<T> }
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_triple_nested_eq tests @triple_nested_eq () -> void = {
+    let a = Wrap { inner: Wrap { inner: Wrap { inner: 9 } } };
+    let b = Wrap { inner: Wrap { inner: Wrap { inner: 9 } } };
+    assert(cond: a == b);
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.debug() != "")
+}
+@triple_nested_eq () -> bool = {
+    Wrap { inner: Wrap { inner: Wrap { inner: 9 } } }
+        == Wrap { inner: Wrap { inner: Wrap { inner: 9 } } }
+}
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_distinct_outer_eq tests @distinct_outer_eq () -> void = {
+    let a = Box { held: Cell { slot: 3 } };
+    let b = Box { held: Cell { slot: 3 } };
+    let c = Box { held: Cell { slot: 4 } };
+    assert(cond: a == b);
+    assert(cond: a != c);
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.debug() != "")
+}
+@distinct_outer_eq () -> bool = {
+    Box { held: Cell { slot: 3 } } == Box { held: Cell { slot: 3 } }
+}
+
+#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
+@test_nested_debug_exact tests @nested_debug_exact () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert_eq(actual: a.debug(), expected: "Wrap { inner: Wrap { inner: 7 } }")
+}
+@nested_debug_exact () -> str = {
+    Wrap { inner: Wrap { inner: 7 } }.debug()
+}

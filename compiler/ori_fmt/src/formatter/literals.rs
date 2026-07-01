@@ -12,7 +12,8 @@ use crate::emitter::StringEmitter;
 /// Emit a string literal with surrounding quotes and escaped control / quote
 /// characters. Free function so non-`Formatter` emitters (the `ModuleFormatter`
 /// attribute sites in `declarations/`) share one escaping implementation.
-pub(crate) fn emit_escaped_str(ctx: &mut FormatContext<StringEmitter>, s: &str) {
+pub(crate) fn emit_escaped_str(ctx: &mut FormatContext<StringEmitter>, s: impl AsRef<str>) {
+    let s = s.as_ref();
     ctx.emit("\"");
     for c in s.chars() {
         match c {
@@ -35,18 +36,18 @@ impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_int(&mut self, n: i64) {
         // i64 max is 20 digits; itoa would be zero-alloc but isn't a dep.
         // format! is clear and fast enough for a formatter.
-        self.ctx.emit(&format!("{n}"));
+        self.ctx.emit(format!("{n}"));
     }
 
     pub(super) fn emit_float(&mut self, f: f64) {
         if f.fract() == 0.0 {
-            self.ctx.emit(&format!("{f:.1}"));
+            self.ctx.emit(format!("{f:.1}"));
         } else {
-            self.ctx.emit(&format!("{f}"));
+            self.ctx.emit(format!("{f}"));
         }
     }
 
-    pub(super) fn emit_string(&mut self, s: &str) {
+    pub(super) fn emit_string(&mut self, s: impl AsRef<str>) {
         emit_escaped_str(&mut self.ctx, s);
     }
 
@@ -68,12 +69,12 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     pub(super) fn emit_duration(&mut self, value: u64, unit: ori_ir::DurationUnit) {
-        self.ctx.emit(&format!("{value}"));
+        self.ctx.emit(format!("{value}"));
         self.ctx.emit(unit.suffix());
     }
 
     pub(super) fn emit_size(&mut self, value: u64, unit: ori_ir::SizeUnit) {
-        self.ctx.emit(&format!("{value}"));
+        self.ctx.emit(format!("{value}"));
         self.ctx.emit(unit.suffix());
     }
 

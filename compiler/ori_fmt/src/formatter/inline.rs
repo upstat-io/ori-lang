@@ -548,13 +548,13 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::TemplateFull(name) => {
                 self.ctx.emit("`");
                 self.ctx
-                    .emit(&crate::escape_template_text(self.interner.lookup(*name)));
+                    .emit(crate::escape_template_text(self.interner.lookup(*name)));
                 self.ctx.emit("`");
             }
             ExprKind::TemplateLiteral { head, parts } => {
                 self.ctx.emit("`");
                 self.ctx
-                    .emit(&crate::escape_template_text(self.interner.lookup(*head)));
+                    .emit(crate::escape_template_text(self.interner.lookup(*head)));
                 for part in self.arena.get_template_parts(*parts) {
                     self.ctx.emit("{");
                     self.emit_inline(part.expr);
@@ -563,7 +563,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.ctx.emit(self.interner.lookup(part.format_spec));
                     }
                     self.ctx.emit("}");
-                    self.ctx.emit(&crate::escape_template_text(
+                    self.ctx.emit(crate::escape_template_text(
                         self.interner.lookup(part.text_after),
                     ));
                 }

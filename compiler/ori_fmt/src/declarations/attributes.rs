@@ -148,7 +148,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             }
             ReprAttrKind::Aligned(n) => {
                 self.ctx.emit("#repr(\"aligned\", ");
-                self.ctx.emit(&n.to_string());
+                self.ctx.emit(n.to_string());
                 self.ctx.emit(")");
                 self.ctx.emit_newline_indent();
             }
@@ -157,7 +157,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.ctx.emit("#repr(\"c\")");
                 self.ctx.emit_newline_indent();
                 self.ctx.emit("#repr(\"aligned\", ");
-                self.ctx.emit(&n.to_string());
+                self.ctx.emit(n.to_string());
                 self.ctx.emit(")");
                 self.ctx.emit_newline_indent();
             }

@@ -22,9 +22,9 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
-| `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
-| `tpr-liveness.sh` | Classify a TPR reviewer sub-agent as alive/quiet/dead | `/tpr-review` §9 retry decision — BEFORE deciding a silent reviewer is hung |
-| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene, **test dispositions**) at `.claude/state/known-state.json` (schema v2) | First query on any new session — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `dispositions`, `refresh --sha-only`/`--full`/`--hygiene-only`/`--dispositions-only`) |
+| `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating reviewer failures and capacity errors |
+| `tpr-liveness.sh` | Classify a TPR reviewer process as alive/quiet/dead | Retry decision support before deciding a silent reviewer is hung |
+| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene, **test dispositions**) at `build/state/known-state.json` (schema v2) | First query in a new workspace — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `dispositions`, `refresh --sha-only`/`--full`/`--hygiene-only`/`--dispositions-only`) |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -195,7 +195,7 @@ Compiles and runs through both `target/debug/ori` and `target/release/ori`, comp
 diagnostics/check-debug-flags.sh                   # Validate all ORI_* flags
 ```
 
-Checks: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (missing from CLAUDE.md).
+Checks: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (missing from project guidance).
 
 ### repo-hygiene.sh — Worktree Cleanliness
 
@@ -206,7 +206,7 @@ diagnostics/repo-hygiene.sh --clean                # Remove detected temp files
 diagnostics/repo-hygiene.sh --gitignore            # Suggest .gitignore patterns for detected files
 ```
 
-Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into `/continue-roadmap` subsection close-out and section completion checklists.
+Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into close-out and completion checks.
 
 ### self-test.sh — Script Self-Test
 
@@ -218,26 +218,26 @@ diagnostics/self-test.sh --verbose                  # Detailed output
 ### tpr-failure-summary.sh — TPR Failure Patterns
 
 ```bash
-diagnostics/tpr-failure-summary.sh                    # Full summary (both reviewers)
-diagnostics/tpr-failure-summary.sh --reviewer gemini  # Gemini only
-diagnostics/tpr-failure-summary.sh --failures         # Only failed runs
-diagnostics/tpr-failure-summary.sh --verbose          # Per-run failure details
-diagnostics/tpr-failure-summary.sh --reviewer gemini --verbose --failures  # All flags
+diagnostics/tpr-failure-summary.sh                         # Full summary
+diagnostics/tpr-failure-summary.sh --reviewer <reviewer>    # One reviewer only
+diagnostics/tpr-failure-summary.sh --failures               # Only failed runs
+diagnostics/tpr-failure-summary.sh --verbose                # Per-run failure details
+diagnostics/tpr-failure-summary.sh --reviewer <reviewer> --verbose --failures  # All flags
 ```
 
-Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, API capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the actual API error message from JSONL result events.
+Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the underlying error message from JSONL result events.
 
 ### tpr-liveness.sh — TPR Reviewer Liveness Probe
 
 ```bash
-diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 codex --human
-diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 gemini --json
-diagnostics/tpr-liveness.sh "$scratch" codex --grace-seconds 300 --tail-lines 20
+diagnostics/tpr-liveness.sh /tmp/tpr-round-example reviewer-a --human
+diagnostics/tpr-liveness.sh /tmp/tpr-round-example reviewer-b --json
+diagnostics/tpr-liveness.sh "$scratch" reviewer-a --grace-seconds 300 --tail-lines 20
 ```
 
-Classifies a `/tpr-review` sub-agent as `alive` (exit 0), `quiet` (exit 1), or `dead` (exit 2) by inspecting `$scratch/{reviewer}-stdout.txt` — the tee'd CLI output guaranteed by invariant I14 (dual-path transport).
+Classifies a TPR reviewer process as `alive` (exit 0), `quiet` (exit 1), or `dead` (exit 2) by inspecting `$scratch/{reviewer}-stdout.txt` — the tee'd CLI output guaranteed by invariant I14 (dual-path transport).
 
-**When to use:** consult this BEFORE retrying or aborting a silent reviewer. The orchestrator in `.claude/skills/tpr-review/SKILL.md §9` invokes this probe as the first step of failure handling — it prevents the "kill deep-investigating agent" bias where reviewer silence during a long `cargo build` or `grep` looks identical to a hang.
+**When to use:** consult this before retrying or aborting a silent reviewer. The review driver invokes this probe as the first step of failure handling so reviewer silence during a long `cargo build` or search does not look identical to a hang.
 
 **How it decides:**
 
@@ -264,19 +264,19 @@ diagnostics/state.sh known-failing --json                  # Same as JSON array
 diagnostics/state.sh dispositions                          # List #[ignore]/#skip annotations + tracking_bug
 diagnostics/state.sh dispositions --untracked-only         # Just the drift (no BUG-XX-NNN in reason)
 diagnostics/state.sh dispositions --json                   # JSON array of entry objects
-diagnostics/state.sh refresh --sha-only --by commit-push   # Cheap: update HEAD SHA only
+diagnostics/state.sh refresh --sha-only --by post-commit   # Cheap: update HEAD SHA only
 diagnostics/state.sh refresh --hygiene-only                # Run repo-hygiene.sh + update notes
 diagnostics/state.sh refresh --dispositions-only           # Sub-second scan for #[ignore]/#skip + BUG-XX-NNN
 diagnostics/state.sh refresh --full --by section-close     # Slow: re-run test-all.sh + clippy-all.sh + dispositions
 ```
 
-Caches the result of `./test-all.sh`, `./clippy-all.sh`, `diagnostics/repo-hygiene.sh --check`, and the disposition scan in `.claude/state/known-state.json` (schema v2) so new sessions skip the rediscover-from-scratch loop.
+Caches the result of `./test-all.sh`, `./clippy-all.sh`, `diagnostics/repo-hygiene.sh --check`, and the disposition scan in `build/state/known-state.json` (schema v2) so fresh workspace checks skip the rediscover-from-scratch loop.
 
 **When to use:**
-- **First query on any fresh session** — skills that need to know "is the tree known-failing?" should consult `state.sh show --json` before running tests.
-- **At every commit** (`/commit-push` post-commit hook) — refresh the cached HEAD SHA so `check` correctly reports OBSOLETE when the commit isn't yet reflected.
-- **At section close** (`/continue-roadmap` close-out) — `refresh --full --by section-close` captures a fresh baseline.
-- **Before any TPR or review** — reviewers should see current known-state instead of flagging expected failures as regressions.
+- **First query in a fresh workspace** — tools that need to know "is the tree known-failing?" should consult `state.sh show --json` before running tests.
+- **After a commit lands** — refresh the cached HEAD SHA so `check` correctly reports OBSOLETE when the commit isn't yet reflected.
+- **At release or milestone boundaries** — `refresh --full --by section-close` captures a fresh baseline.
+- **Before any review** — review tooling should see current known-state instead of flagging expected failures as regressions.
 
 **Freshness semantics:** `check` returns:
 - `0 / fresh` — cache SHA matches HEAD, working tree clean → trust the cache
@@ -286,9 +286,7 @@ Caches the result of `./test-all.sh`, `./clippy-all.sh`, `diagnostics/repo-hygie
 
 **Source of truth:** plan-documented "Known Failing Tests" sections remain the SSOT for intent. This cache is an index over that intent. `refresh --full` does NOT auto-populate `known_failing_files` from test output — that list is an editorial decision tied to plan remediation sections.
 
-**Test disposition tracking (schema v2).** `refresh --dispositions-only` scans `compiler/`, `tests/`, `tools/`, and `library/` for `#[ignore]` and `#skip("...")` annotations and extracts a `BUG-[A-Z0-9]+-[0-9]+` token from each annotation's reason text. Entries with no matching token are flagged `tracking_bug: null` (drift). Reason-text contract: every annotation should follow `#skip("BUG-04-077: typeck regression on generic body")` — the BUG ID anywhere in the reason satisfies the regex. The scan stays repo-local — bug-existence verification against any external bug tracker is downstream enrichment, not a `state.sh` concern. `test-all.sh` invokes this mode automatically and prints `Dispositions: N total, M untracked` (with a DRIFT banner when M>0). Use `dispositions --untracked-only` to list the offenders.
-
-**Design log:** `.claude/skills/improve-tooling/script-state-design.md` (schema v2 invariants, load-bearing rules, improvement log).
+**Test disposition tracking (schema v2).** `refresh --dispositions-only` scans `compiler/`, `tests/`, `tools/`, and `library/` for `#[ignore]` and `#skip("...")` annotations and extracts the configured tracking token from each annotation's reason text. Entries with no matching token are flagged `tracking_bug: null` (drift). The scan stays repo-local — tracker-existence verification is downstream enrichment, not a `state.sh` concern. `test-all.sh` invokes this mode automatically and prints `Dispositions: N total, M untracked` (with a DRIFT banner when M>0). Use `dispositions --untracked-only` to list the offenders.
 
 ## Environment Variables
 

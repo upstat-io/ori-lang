@@ -3,7 +3,7 @@
 //! Formatting for type declarations: structs, sum types, and newtypes.
 
 use ori_ir::ast::items::{StructField, TypeDecl, TypeDeclKind, Variant};
-use ori_ir::{StringLookup, Visibility};
+use ori_ir::{Name, StringLookup, Visibility};
 
 use super::parsed_types::{calculate_type_width, const_expr_render_width, format_parsed_type};
 use super::ModuleFormatter;
@@ -24,18 +24,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.emit_repr_attr(repr);
         }
 
-        // Derives
-        if !type_decl.derives.is_empty() {
-            self.ctx.emit("#derive(");
-            for (i, derive) in type_decl.derives.iter().enumerate() {
-                if i > 0 {
-                    self.ctx.emit(", ");
-                }
-                self.ctx.emit(self.interner.lookup(*derive));
-            }
-            self.ctx.emit(")");
-            self.ctx.emit_newline();
-        }
+        self.emit_derive_attrs(&type_decl.derives);
 
         // Visibility
         if type_decl.visibility == Visibility::Public {
@@ -69,6 +58,42 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 // Newtypes don't end with `}` — need trailing semicolon
                 self.ctx.emit(";");
             }
+        }
+    }
+
+    fn emit_derive_attrs(&mut self, derives: &[Name]) {
+        if derives.is_empty() {
+            return;
+        }
+
+        let derive_names: Vec<String> = derives
+            .iter()
+            .map(|derive| self.interner.lookup(*derive).to_string())
+            .collect();
+
+        if !self
+            .ctx
+            .would_exceed_limit(derive_attr_width(&derive_names))
+        {
+            emit_derive_attr(&mut self.ctx, &derive_names);
+            self.ctx.emit_newline_indent();
+            return;
+        }
+
+        let mut start = 0;
+        while start < derive_names.len() {
+            let mut end = start + 1;
+            while end < derive_names.len() {
+                let candidate_width = derive_attr_width(&derive_names[start..=end]);
+                if self.ctx.column() + candidate_width > self.ctx.max_width() {
+                    break;
+                }
+                end += 1;
+            }
+
+            emit_derive_attr(&mut self.ctx, &derive_names[start..end]);
+            self.ctx.emit_newline_indent();
+            start = end;
         }
     }
 
@@ -201,4 +226,24 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
         width
     }
+}
+
+fn derive_attr_width(derives: &[impl AsRef<str>]) -> usize {
+    "#derive()".len()
+        + derives
+            .iter()
+            .map(|derive| derive.as_ref().len())
+            .sum::<usize>()
+        + derives.len().saturating_sub(1) * ", ".len()
+}
+
+fn emit_derive_attr(ctx: &mut crate::FormatContext, derives: &[impl AsRef<str>]) {
+    ctx.emit("#derive(");
+    for (i, derive) in derives.iter().enumerate() {
+        if i > 0 {
+            ctx.emit(", ");
+        }
+        ctx.emit(derive.as_ref());
+    }
+    ctx.emit(")");
 }

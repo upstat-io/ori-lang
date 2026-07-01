@@ -255,9 +255,9 @@ impl<'pool> InferEngine<'pool> {
 
     /// Resolve a `Name` to its string representation, if the interner is available.
     ///
-    /// The returned `&str` has the interner's lifetime (`'pool`), not the engine
-    /// borrow lifetime. This allows holding the result while mutably borrowing
-    /// the engine for other operations.
+    /// The returned `&str` has process lifetime, not the engine borrow lifetime.
+    /// This allows holding the result while mutably borrowing the engine for
+    /// other operations.
     pub fn lookup_name(&self, name: Name) -> Option<&'pool str> {
         self.interner.map(|i| i.lookup(name))
     }

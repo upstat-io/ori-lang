@@ -89,7 +89,11 @@ pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<Ar
     }
     // Pass 4: loop-carried pure-borrow-view aliases (RL-1 pair atomicity) —
     // see `super::loop_carried::extend_with_loop_carried_borrow_view_aliases`.
-    super::loop_carried::extend_with_loop_carried_borrow_view_aliases(func, &root, &mut pair_atomic);
+    super::loop_carried::extend_with_loop_carried_borrow_view_aliases(
+        func,
+        &root,
+        &mut pair_atomic,
+    );
     pair_atomic
 }
 

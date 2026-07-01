@@ -71,7 +71,8 @@ pub(super) fn bool_width(b: bool) -> usize {
 /// - Escape sequences which take 2 characters when rendered
 /// - Multi-byte characters (CJK, emoji) which take 2 columns
 /// - Zero-width characters (combining marks) which take 0 columns
-pub(super) fn string_width(s: &str) -> usize {
+pub(super) fn string_width(s: impl AsRef<str>) -> usize {
+    let s = s.as_ref();
     let mut width = 2; // Opening and closing quotes
     for c in s.chars() {
         width += match c {

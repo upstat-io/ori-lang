@@ -112,6 +112,16 @@ pub fn prove_param_noalias(param_types: &[Idx], pool: &Pool) -> NoaliasProof {
     // (rules 5 + 7 unshipped), so it is UNPROVEN here.
     // Per RL-31 (P2), the function-attribute `noalias` requires BOTH facets;
     // an unproven facet (a) forces conservative omission downstream.
+    //
+    // FORWARD NOTE (nounwind precondition): when facet (a) ships and
+    // `call_site_provenance_proven` flips true, a function-attribute `noalias`
+    // on an UNWINDABLE function is an additional LLVM soundness hazard — the
+    // optimizer may assume the `noalias` guarantee holds across the
+    // `Invoke`/`Resume` unwind edge, where a landing pad can observe an
+    // aliasing view the normal path never establishes. The emission gate MUST
+    // THEN additionally require the function be `nounwind` (or restrict
+    // `noalias` to the non-unwinding path). Grounding: D01 §Consequences +
+    // D00 §(m); Spec: Annex E §AIMS RL-31 (P2).
     NoaliasProof {
         eligible,
         call_site_provenance_proven: false,
@@ -159,7 +169,8 @@ fn analyze_param(ty: Idx, pool: &Pool) -> ParamAnalysis {
 fn deref_borrowed(ty: Idx, pool: &Pool) -> Idx {
     let resolved = pool.resolve_fully(ty);
     if pool.tag(resolved) == Tag::Borrowed {
-        // Borrowed stores the pointee as its single child Idx.
+        // Borrowed stores the pointee in the extra array (extra[0]), not as a
+        // child Idx in the item's `data` field; `borrowed_inner` reads it.
         pool.borrowed_inner(resolved)
     } else {
         resolved

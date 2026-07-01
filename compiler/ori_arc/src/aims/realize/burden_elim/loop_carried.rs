@@ -1,5 +1,5 @@
 //! Loop-carried pure-borrow-view alias admission — Pass 4 of
-//! [`collect_pair_atomic_alias_dsts`](super::collect_pair_atomic_alias_dsts):
+//! `collect_pair_atomic_alias_dsts`:
 //! a `Let { Var }` alias of a back-edge-carrying block-param whose EVERY use
 //! is a `Project` read feeding only borrowed positions joins the pair-atomic
 //! set (RL-1 atomicity for the loop's same-allocation views).

@@ -2,16 +2,16 @@
 # state.sh — Global state indicator for the Ori compiler repo.
 #
 # Problem this exists to solve:
-#   Each fresh Claude session was rediscovering "is the tree in a known-failing
+#   Each fresh automation run was rediscovering "is the tree in a known-failing
 #   state?" from scratch — running ./test-all.sh (~2-3 min), parsing 843
 #   failures, grepping file names, cross-referencing the Known Failing Tests
 #   table in whichever plan owned the remediation. That discovery cost was
 #   paid per-session because the information, despite existing in plan
 #   docs, was not session-queryable.
 #
-#   This script caches that state in .claude/state/known-state.json and
-#   exposes it as subcommands. Skills consult `state.sh show --json` on
-#   invocation instead of rerunning the test suite.
+#   This script caches that state in a local state file and exposes it as
+#   subcommands. Callers consult `state.sh show --json` instead of rerunning
+#   the test suite.
 #
 #   Source of truth: the plan-documented "Known Failing Tests" sections
 #   remain the SSOT for intent. This cache is an index over that intent,
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # STATE_FILE / BASELINES_FILE accept env overrides (default to canonical paths)
 # so the baseline subcommand is testable in isolation against a temp dir.
-STATE_FILE="${ORI_STATE_FILE:-$ROOT_DIR/.claude/state/known-state.json}"
+STATE_FILE="${ORI_STATE_FILE:-$ROOT_DIR/build/state/known-state.json}"
 STATE_DIR="$(dirname "$STATE_FILE")"
 BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
 # Append-only test-all metrics ledger (data file; written by the test-all
@@ -35,7 +35,7 @@ BASELINES_FILE="${ORI_BASELINES_FILE:-$STATE_DIR/baselines.json}"
 LEDGER_FILE="${ORI_LEDGER_FILE:-$ROOT_DIR/build/test-all-ledger.json}"
 # Known aims-burden AOT floor (one test-id per line). baseline_compare excludes
 # these from newly_failing/newly_fixed so a known floor cell never reads as a
-# section-introduced regression (BUG-07-263). Env override for isolated testing;
+# section-introduced regression. Env override for isolated testing;
 # a missing file degrades to empty-floor (legacy) behavior.
 FLOOR_FILE="${ORI_BASELINE_FLOOR_FILE:-$SCRIPT_DIR/baseline_failing_ids.txt}"
 
@@ -49,8 +49,8 @@ usage() {
 Usage: state.sh <subcommand> [options]
 
 Global state indicator for the Ori compiler repo. Caches test-suite status,
-clippy status, and repo-hygiene status in .claude/state/known-state.json so
-skills don't re-run expensive discovery every session.
+clippy status, and repo-hygiene status in a local state file so callers do not
+re-run expensive discovery every session.
 
 Subcommands:
   show                  Pretty-print current cached state (default).
@@ -94,14 +94,15 @@ Subcommands:
                                               clippy errors); exit 4 = no baseline.
                                               capture + compare exit 6 when the
                                               test_suite cache is degraded (status
-                                              not clean/known-failing or null
-                                              totals) — refresh first.
+                                              not clean/known-failing, null totals,
+                                              or incomplete failure identifiers) —
+                                              refresh first.
                           list                List captured baselines.
                           clear --key K       Remove baseline K.
   refresh               Update the cache.
                         --sha-only          Update head_sha + updated_at only
                                             (fast; no test rerun). Use this
-                                            from commit-push post-commit.
+                                            after a commit lands.
                         --full              Run ./test-all.sh + ./clippy-all.sh
                                             + disposition scan. Slow (~3 min).
                         --hygiene-only      Run diagnostics/repo-hygiene.sh
@@ -118,8 +119,9 @@ Subcommands:
                                             current without going through --full.
                         --by <name>         Record who/what triggered the
                                             refresh. Defaults to "manual".
-                                            Values: commit-push, manual,
-                                            full-check, section-close.
+                                            Values are descriptive labels such
+                                            as manual, post-commit, full-check,
+                                            or section-close.
 
 Options (all subcommands):
   --json                Machine-readable output.
@@ -130,16 +132,15 @@ Examples:
   state.sh show
   state.sh show --json | jq '.test_suite.status'
   state.sh check && echo "cache fresh" || echo "stale"
-  state.sh refresh --sha-only --by commit-push
+  state.sh refresh --sha-only --by post-commit
   state.sh refresh --full --by section-close
   state.sh refresh --dispositions-only --by test-all
   state.sh known-failing --json | jq '.[]' | wc -l
   state.sh dispositions --untracked-only       # pull human-readable drift list
   state.sh dispositions --json | jq '.[] | select(.tracking_bug == null)'
 
-See also:
-  .claude/skills/improve-tooling/script-state-design.md — design log
-  .claude/state/known-state.json — the cache file (schema v2)
+State cache:
+  ${ORI_STATE_FILE:-<repo-local state cache>} (schema v2)
 EOF
 }
 
@@ -162,14 +163,13 @@ is_tree_dirty() {
     # Exclude the state file itself from the dirty-tree check. state.sh
     # refresh writes to it, which would otherwise always mark the tree
     # dirty post-refresh even when everything else is clean. This is
-    # load-bearing for /commit-push Step 8: after the post-push refresh,
-    # the state file is the ONLY uncommitted file; consumers must still
-    # see a FRESH verdict from state.sh check. See
-    # .claude/skills/improve-tooling/script-state-design.md §6 (closed
-    # 2026-04-18) for the surfacing incident.
-    local dirty
+    # load-bearing for post-refresh checks: after a cache refresh, the state
+    # file may be the only uncommitted file; consumers must still see a fresh
+    # verdict from state.sh check.
+    local dirty state_rel
+    state_rel="${STATE_FILE#$ROOT_DIR/}"
     dirty=$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null \
-        | grep -v '^.. \.claude/state/known-state\.json$' || true)
+        | awk -v p="$state_rel" 'substr($0, 4) != p' || true)
     [[ -n "$dirty" ]]
 }
 
@@ -201,7 +201,7 @@ cmd_show() {
     tree_dirty="no"
     if is_tree_dirty; then tree_dirty="yes"; fi
 
-    echo "=== Ori compiler state (cache @ .claude/state/known-state.json) ==="
+    echo "=== Ori compiler state (cache @ $STATE_FILE) ==="
     echo
     echo "Cache SHA:         $head_sha"
     echo "Current HEAD SHA:  $current_sha"
@@ -699,8 +699,8 @@ cmd_refresh() {
             fi
             ;;
         full)
-            # Composite-harness timeouts. CLAUDE.md §MANDATORY TEST TIMEOUTS pins
-            # individual test commands at 150s; that rule was authored for leaf
+            # Composite-harness timeouts. Project test policy pins
+            # individual test commands at 150s; that cap is for leaf
             # invocations (cargo t, cargo st), NOT for ./test-all.sh + ./clippy-all.sh
             # which orchestrate dozens of leaf commands. Documented runtime is
             # ~3 minutes; cap at 600s/300s gives headroom for slow CI hosts
@@ -789,23 +789,23 @@ cmd_refresh() {
 
             disp_block=$(build_dispositions_block "$current_sha" "$updated_at")
             # Failure-mode statuses MUST NOT bump test_suite.last_run_sha.
-            # Status callers (status-report Step 0.5, /commit-push Step 8) verify
+            # Status consumers verify
             # `test_suite.last_run_sha == HEAD_SHA` to confirm a successful refresh;
             # bumping the SHA on parse-error/missing-summary/timeout would mask the
             # failure as success. Status field still updates so observers see WHY.
             local test_suite_update
             case "$test_status" in
-                clean|known-failing)
-                    test_suite_update='.test_suite.status = $tstatus
-                                     | .test_suite.last_run_sha = $sha
-                                     | .test_suite.last_run_at = $at
-                                     | .test_suite.last_run_kind = "test-all.sh"
-                                     | .test_suite.totals.passed = $passed
-                                     | .test_suite.totals.failed = $failed
-                                     | .test_suite.totals.skipped = $skipped
-                                     | .test_suite.failures = $afailures
-                                     | .test_suite.failures_status = $fstatus
-                                     | .test_suite.per_suite = $per_suite'
+	                clean|known-failing)
+	                    test_suite_update='.test_suite.status = $tstatus
+	                                     | .test_suite.last_run_sha = $sha
+	                                     | .test_suite.last_run_at = $at
+	                                     | .test_suite.last_run_kind = "test-all.sh"
+	                                     | .test_suite.totals.passed = $passed
+	                                     | .test_suite.totals.failed = $failed
+	                                     | .test_suite.totals.skipped = $skipped
+	                                     | .test_suite.failures = $afailures[0]
+	                                     | .test_suite.failures_status = $fstatus
+	                                     | .test_suite.per_suite = $per_suite[0]'
                     ;;
                 *)
                     # parse-error | missing-summary | timeout — record status +
@@ -815,28 +815,33 @@ cmd_refresh() {
                                      | .test_suite.last_attempt_outcome = $tstatus'
                     ;;
             esac
-            local tmp
-            tmp=$(jq --arg sha "$current_sha" \
-                    --arg at "$updated_at" \
-                    --arg by "$updated_by_val" \
-                    --arg tstatus "$test_status" \
-                    --argjson passed "$passed" \
-                    --argjson failed "$failed" \
-                    --argjson skipped "$skipped" \
-                    --arg cstatus "$clippy_status" \
-                    --argjson disp "$disp_block" \
-                    --argjson afailures "$attributed_failures_json" \
-                    --argjson per_suite "$per_suite_json" \
-                    --arg fstatus "$failures_status" \
-                    ".schema_version = 3
-                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
-                     | $test_suite_update
-                     | .clippy.status = \$cstatus
-                     | .clippy.last_run_sha = \$sha
-                     | .clippy.last_run_at = \$at
-                     | .test_dispositions = \$disp" \
-                    "$STATE_FILE")
-            write_state "$tmp"
+	            local tmp json_args_dir
+	            json_args_dir=$(mktemp -d)
+	            printf '%s\n' "$disp_block" > "$json_args_dir/disp.json"
+	            printf '%s\n' "$attributed_failures_json" > "$json_args_dir/afailures.json"
+	            printf '%s\n' "$per_suite_json" > "$json_args_dir/per_suite.json"
+	            tmp=$(jq --arg sha "$current_sha" \
+	                    --arg at "$updated_at" \
+	                    --arg by "$updated_by_val" \
+	                    --arg tstatus "$test_status" \
+	                    --argjson passed "$passed" \
+	                    --argjson failed "$failed" \
+	                    --argjson skipped "$skipped" \
+	                    --arg cstatus "$clippy_status" \
+	                    --slurpfile disp "$json_args_dir/disp.json" \
+	                    --slurpfile afailures "$json_args_dir/afailures.json" \
+	                    --slurpfile per_suite "$json_args_dir/per_suite.json" \
+	                    --arg fstatus "$failures_status" \
+	                    ".schema_version = 3
+	                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
+	                     | $test_suite_update
+	                     | .clippy.status = \$cstatus
+	                     | .clippy.last_run_sha = \$sha
+	                     | .clippy.last_run_at = \$at
+	                     | .test_dispositions = \$disp[0]" \
+	                    "$STATE_FILE")
+	            rm -rf "$json_args_dir"
+	            write_state "$tmp"
             local d_total d_untracked
             d_total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
             d_untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
@@ -922,17 +927,17 @@ cmd_refresh() {
             # failure correctly. Mirrors the --full writeback contract.
             local test_suite_update
             case "$test_status" in
-                clean|known-failing)
-                    test_suite_update='.test_suite.status = $tstatus
-                                     | .test_suite.last_run_sha = $sha
-                                     | .test_suite.last_run_at = $at
-                                     | .test_suite.last_run_kind = "test-all.sh"
-                                     | .test_suite.totals.passed = $passed
-                                     | .test_suite.totals.failed = $failed
-                                     | .test_suite.totals.skipped = $skipped
-                                     | .test_suite.failures = $afailures
-                                     | .test_suite.failures_status = $fstatus
-                                     | .test_suite.per_suite = $per_suite'
+	                clean|known-failing)
+	                    test_suite_update='.test_suite.status = $tstatus
+	                                     | .test_suite.last_run_sha = $sha
+	                                     | .test_suite.last_run_at = $at
+	                                     | .test_suite.last_run_kind = "test-all.sh"
+	                                     | .test_suite.totals.passed = $passed
+	                                     | .test_suite.totals.failed = $failed
+	                                     | .test_suite.totals.skipped = $skipped
+	                                     | .test_suite.failures = $afailures[0]
+	                                     | .test_suite.failures_status = $fstatus
+	                                     | .test_suite.per_suite = $per_suite[0]'
                     ;;
                 *)
                     test_suite_update='.test_suite.status = $tstatus
@@ -940,24 +945,29 @@ cmd_refresh() {
                                      | .test_suite.last_attempt_outcome = $tstatus'
                     ;;
             esac
-            local tmp
-            tmp=$(jq --arg sha "$current_sha" \
-                    --arg at "$updated_at" \
-                    --arg by "$updated_by_val" \
-                    --arg tstatus "$test_status" \
-                    --argjson passed "$passed" \
-                    --argjson failed "$failed" \
-                    --argjson skipped "$skipped" \
-                    --argjson disp "$disp_block" \
-                    --argjson afailures "$attributed_failures_json" \
-                    --argjson per_suite "$per_suite_json" \
-                    --arg fstatus "$failures_status" \
-                    ".schema_version = 3
-                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
-                     | $test_suite_update
-                     | .test_dispositions = \$disp" \
-                    "$STATE_FILE")
-            write_state "$tmp"
+	            local tmp json_args_dir
+	            json_args_dir=$(mktemp -d)
+	            printf '%s\n' "$disp_block" > "$json_args_dir/disp.json"
+	            printf '%s\n' "$attributed_failures_json" > "$json_args_dir/afailures.json"
+	            printf '%s\n' "$per_suite_json" > "$json_args_dir/per_suite.json"
+	            tmp=$(jq --arg sha "$current_sha" \
+	                    --arg at "$updated_at" \
+	                    --arg by "$updated_by_val" \
+	                    --arg tstatus "$test_status" \
+	                    --argjson passed "$passed" \
+	                    --argjson failed "$failed" \
+	                    --argjson skipped "$skipped" \
+	                    --slurpfile disp "$json_args_dir/disp.json" \
+	                    --slurpfile afailures "$json_args_dir/afailures.json" \
+	                    --slurpfile per_suite "$json_args_dir/per_suite.json" \
+	                    --arg fstatus "$failures_status" \
+	                    ".schema_version = 3
+	                     | .head_sha = \$sha | .updated_at = \$at | .updated_by = \$by
+	                     | $test_suite_update
+	                     | .test_dispositions = \$disp[0]" \
+	                    "$STATE_FILE")
+	            rm -rf "$json_args_dir"
+	            write_state "$tmp"
             local d_total d_untracked attributed_count total_failures_count
             d_total=$(printf '%s' "$disp_block" | jq -r '.totals.total')
             d_untracked=$(printf '%s' "$disp_block" | jq -r '.totals.untracked')
@@ -1012,6 +1022,21 @@ require_measured_test_suite() {
     fi
 }
 
+baseline_failure_ids_degraded() {
+    local snapshot="$1"
+    jq -e '
+      (.test_suite.totals.failed // .test_suite.known_failing_count // 0) as $failed |
+      ((.test_suite.failures // []) | length) as $failure_ids |
+      (.test_suite.failures_status // "legacy") as $fstatus |
+      (
+        ($failed > 0) and (
+          ($failure_ids == 0) or
+          (($fstatus != "complete" and $fstatus != "legacy") and ($failure_ids < $failed))
+        )
+      )
+    ' >/dev/null <<<"$snapshot"
+}
+
 # Normalized snapshot object extracted from known-state.json.
 baseline_snapshot_from_state() {
     require_state_file
@@ -1024,7 +1049,8 @@ baseline_snapshot_from_state() {
         },
         failures: ([.test_suite.failures[]?.test_id] | map(select(. != null)) | unique),
         known_failing_count: (.test_suite.known_failing_count // 0),
-        status: (.test_suite.status // "unknown")
+        status: (.test_suite.status // "unknown"),
+        failures_status: (.test_suite.failures_status // "legacy")
       },
       clippy: {
         status: (.clippy.status // "unknown"),
@@ -1071,6 +1097,15 @@ baseline_capture() {
     require_measured_test_suite
     local snapshot captured_sha captured_at by entry merged
     snapshot=$(baseline_snapshot_from_state)
+    if baseline_failure_ids_degraded "$snapshot"; then
+        if [[ "$OUTPUT" == "json" ]]; then
+            jq -n --arg k "$BASELINE_KEY" \
+                '{action:"refused",key:$k,baseline_degraded:true,reason:"test_suite failure identifiers are incomplete; refresh before capturing a baseline",exit_code:6}'
+        else
+            echo "error: test_suite failure identifiers are incomplete; refresh before capturing a baseline" >&2
+        fi
+        exit 6
+    fi
     captured_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
     captured_at=$(iso_now)
     by="${UPDATED_BY:-manual}"
@@ -1123,9 +1158,55 @@ baseline_compare() {
         fi
         exit 4
     fi
-    local cur cur_sha report exit_code
+    local cur cur_sha report exit_code base_degraded cur_degraded
     cur=$(baseline_snapshot_from_state)
     cur_sha=$(jq -r '.test_suite.last_run_sha // .head_sha // "unknown"' "$STATE_FILE")
+    base_degraded=false
+    cur_degraded=false
+    if baseline_failure_ids_degraded "$base"; then
+        base_degraded=true
+    fi
+    if baseline_failure_ids_degraded "$cur"; then
+        cur_degraded=true
+    fi
+    if [[ "$base_degraded" == "true" || "$cur_degraded" == "true" ]]; then
+        report=$(jq -n \
+            --argjson base "$base" \
+            --argjson cur "$cur" \
+            --arg cur_sha "$cur_sha" \
+            --argjson base_degraded "$base_degraded" \
+            --argjson cur_degraded "$cur_degraded" '
+          {
+            key: $base.key,
+            baseline_sha: $base.captured_at_sha,
+            current_sha: $cur_sha,
+            baseline_degraded: $base_degraded,
+            current_degraded: $cur_degraded,
+            degraded_reasons: (
+              []
+              + (if $base_degraded then ["baseline_failure_identifiers_incomplete"] else [] end)
+              + (if $cur_degraded then ["current_failure_identifiers_incomplete"] else [] end)
+            ),
+            newly_failing: [],
+            newly_fixed: [],
+            totals_delta: {
+              passed: ($cur.test_suite.totals.passed - $base.test_suite.totals.passed),
+              failed: ($cur.test_suite.totals.failed - $base.test_suite.totals.failed),
+              skipped: ($cur.test_suite.totals.skipped - $base.test_suite.totals.skipped)
+            },
+            dispositions: { untracked_delta: ($cur.test_dispositions.untracked - $base.test_dispositions.untracked) },
+            clippy: { errors_delta: ($cur.clippy.errors - $base.clippy.errors) },
+            regression: false,
+            gate_pass: true,
+            exit_code: 6
+          }')
+        if [[ "$OUTPUT" == "json" ]]; then
+            echo "$report" | jq .
+        else
+            echo "$report" | jq -r '"baseline compare \(.key): baseline=\(.baseline_sha) current=\(.current_sha)\n  degraded baseline data: \(.degraded_reasons | join(", "))\n  no regression verdict emitted; refresh and recapture the baseline"'
+        fi
+        exit 6
+    fi
     # Known aims-burden AOT floor (one test-id per line; blank lines dropped).
     # A missing floor file degrades to empty-floor (legacy) behavior.
     local floor

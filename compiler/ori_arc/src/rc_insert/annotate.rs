@@ -51,9 +51,12 @@ fn compute_arg_ownership(
     consuming_receiver_only: &FxHashSet<ori_ir::Name>,
     protocol_builtins: &FxHashMap<ori_ir::Name, &'static [ProtocolArgOwnership]>,
 ) -> Vec<ArgOwnership> {
+    let callee_name = interner
+        .try_lookup(callee)
+        .map_or_else(|| "?".to_string(), std::string::ToString::to_string);
     tracing::debug!(
         target: "ori_arc::rc_insert::annotate",
-        callee = interner.try_lookup(callee).unwrap_or("?"),
+        callee = callee_name.as_str(),
         in_sigs = sigs.contains_key(&callee),
         sig_param_ownership = ?sigs.get(&callee).map(|s| {
             s.params.iter().map(|p| p.ownership).collect::<Vec<_>>()

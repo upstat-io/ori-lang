@@ -123,7 +123,7 @@ impl CommentIndex {
     pub fn take_comments_before_function<I: StringLookup>(
         &mut self,
         pos: u32,
-        param_names: &[&str],
+        param_names: &[impl AsRef<str>],
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
@@ -139,7 +139,7 @@ impl CommentIndex {
     pub fn take_comments_before_type<I: StringLookup>(
         &mut self,
         pos: u32,
-        field_names: &[&str],
+        field_names: &[impl AsRef<str>],
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
@@ -154,7 +154,7 @@ impl CommentIndex {
     fn take_comments_before_with_members<I: StringLookup>(
         &mut self,
         pos: u32,
-        member_names: &[&str],
+        member_names: &[impl AsRef<str>],
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
@@ -235,7 +235,7 @@ pub fn format_comment<I: StringLookup>(comment: &Comment, interner: &I) -> Strin
 pub fn reorder_param_comments<I: StringLookup>(
     param_indices: &[usize],
     comments: &CommentList,
-    param_names: &[&str],
+    param_names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     reorder_member_comments(param_indices, comments, param_names, interner)
@@ -247,7 +247,7 @@ pub fn reorder_param_comments<I: StringLookup>(
 pub fn reorder_field_comments<I: StringLookup>(
     field_indices: &[usize],
     comments: &CommentList,
-    field_names: &[&str],
+    field_names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     reorder_member_comments(field_indices, comments, field_names, interner)
@@ -260,7 +260,7 @@ pub fn reorder_field_comments<I: StringLookup>(
 fn reorder_member_comments<I: StringLookup>(
     indices: &[usize],
     comments: &CommentList,
-    names: &[&str],
+    names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     if indices.is_empty() || names.is_empty() {
@@ -271,7 +271,7 @@ fn reorder_member_comments<I: StringLookup>(
     let name_to_order: HashMap<&str, usize> = names
         .iter()
         .enumerate()
-        .map(|(i, &name)| (name, i))
+        .map(|(i, name)| (name.as_ref(), i))
         .collect();
 
     let mut ordered: Vec<(Option<usize>, usize)> = indices

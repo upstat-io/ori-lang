@@ -1,0 +1,12 @@
+// Spec: 06-types.md § Derive — single-level generic derive control for the nested matrix
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+@test_nested_matrix_single_level_eq tests @nested_matrix_single_level_eq () -> void = {
+    assert(cond: Wrap { inner: 1 } == Wrap { inner: 1 })
+}
+@nested_matrix_single_level_eq () -> bool = { Wrap { inner: 1 } == Wrap { inner: 1 } }

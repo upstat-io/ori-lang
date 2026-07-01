@@ -61,17 +61,13 @@ done
 
 # Per-run build isolation. Concurrent runs that share target/ rebuild each
 # other's artifacts mid-suite and mass-fail the AOT leg with bogus failures, and
-# a run sharing target/ with any other cargo (parallel sessions, reviewers)
-# stalls on cargo's build lock while holding the whole-run lock — hanging every
-# other run behind it. Each run builds in its OWN target/<build-id> so it never
-# contends on a foreign cargo lock; sccache (below) shares the compile cache
-# across these dirs so isolation is not a cold rebuild. The build id defaults to
-# the session id when present (distinct sessions run fully concurrently), else
-# "shared". Same-id runs still serialize on their own per-id lock (prevents the
-# shared-artifact AOT corruption). flock --close drops the lock fd before
+# a run sharing target/ with another cargo invocation can stall on cargo's build
+# lock while holding the whole-run lock. A caller can set ORI_TESTALL_BUILD_ID
+# to isolate its target/<build-id>; absent that, runs share the "shared" build id
+# and serialize on the shared lock. flock --close drops the lock fd before
 # exec'ing children so subprocesses never inherit it; the kernel releases it if
 # the holder dies.
-TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-${CLAUDE_CODE_SESSION_ID:-shared}}"
+TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-shared}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target/test-all-${TESTALL_BUILD_ID}}"
 TARGET_DIR="$CARGO_TARGET_DIR"
 mkdir -p "$TARGET_DIR" target
@@ -196,6 +192,18 @@ cargo_race_retry() {
         fi
         return 1
     done
+    return 1
+}
+
+build_with_race_retry() {
+    local out
+    out=$(mktemp)
+    if cargo_race_retry "$out" "$@"; then
+        rm -f "$out"
+        return 0
+    fi
+    cat "$out"
+    rm -f "$out"
     return 1
 }
 
@@ -529,18 +537,25 @@ else
 fi
 echo ""
 
-# Build cache: wrap every cargo build below with sccache when it is on PATH, so
-# the debug + release rebuilds reuse cached object files. Guarded on `command -v
-# sccache`: absent -> RUSTC_WRAPPER stays unset and builds proceed unwrapped
-# (graceful degrade, never a failure). Exported once here so both the parallel
-# and serial build branches inherit it.
+# Build cache: wrap every cargo build below with sccache only when the wrapper
+# can actually execute rustc. Some environments expose an unusable sccache
+# binary/socket; treating mere presence as readiness turns a cache issue into a
+# false suite failure before any tests run.
 if command -v sccache >/dev/null 2>&1; then
-    export RUSTC_WRAPPER=sccache
-    # sccache cannot cache incrementally-compiled crates; debug builds default to
-    # CARGO_INCREMENTAL=1, so without this the wrapper caches nothing (compile
-    # requests executed = 0). Disabling cargo incremental lets sccache cache + hit.
-    export CARGO_INCREMENTAL=0
-    echo "=== Build cache: sccache active (RUSTC_WRAPPER=sccache, CARGO_INCREMENTAL=0) ==="
+    SCCACHE_PREFLIGHT_OUTPUT=$(mktemp)
+    if timeout 10 sccache rustc -vV > "$SCCACHE_PREFLIGHT_OUTPUT" 2>&1; then
+        export RUSTC_WRAPPER=sccache
+        # sccache cannot cache incrementally-compiled crates; debug builds default to
+        # CARGO_INCREMENTAL=1, so without this the wrapper caches nothing (compile
+        # requests executed = 0). Disabling cargo incremental lets sccache cache + hit.
+        export CARGO_INCREMENTAL=0
+        echo "=== Build cache: sccache active (RUSTC_WRAPPER=sccache, CARGO_INCREMENTAL=0) ==="
+    else
+        unset RUSTC_WRAPPER
+        echo "=== Build cache: sccache unusable — builds proceed unwrapped ==="
+        sed -n '1,3p' "$SCCACHE_PREFLIGHT_OUTPUT" | sed 's/^/  sccache preflight: /'
+    fi
+    rm -f "$SCCACHE_PREFLIGHT_OUTPUT"
 else
     echo "=== Build cache: sccache absent — builds proceed unwrapped ==="
 fi
@@ -622,14 +637,14 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     # ori bin + libori_rt.a staticlib (cargo test --no-run builds the rlib,
     # not the staticlib; the interpreter suite + AOT links need these).
-    if ! cargo build -p oric -p ori_rt -q 2>&1; then
+    if ! build_with_race_retry cargo build -p oric -p ori_rt -q; then
         echo -e "  ${RED}✗ Debug ori/ori_rt build FAILED${NC}"
     fi
 
     # LLVM release build (sequential — shares target/ with the debug build).
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
+    if ! build_with_race_retry cargo build -p oric -p ori_rt --release -q; then
         echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1
@@ -705,12 +720,12 @@ else
     timed_leg rust_workspace run_rust_workspace || RUST_EXIT=1
     echo ""
     echo "=== Building runtime library (debug) ==="
-    if ! cargo build -p ori_rt -q 2>&1; then
+    if ! build_with_race_retry cargo build -p ori_rt -q; then
         echo -e "  ${RED}✗ Runtime library debug build FAILED${NC}"
     fi
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
+    if ! build_with_race_retry cargo build -p oric -p ori_rt --release -q; then
         echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1

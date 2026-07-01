@@ -18,7 +18,8 @@
 /// `{` -> `{{`, `}` -> `}}`. Every other character (including literal
 /// newline/tab/CR/NUL) is emitted unchanged. Single-pass so an introduced
 /// backslash is never re-escaped.
-pub fn escape_template_text(text: &str) -> String {
+pub fn escape_template_text(text: impl AsRef<str>) -> String {
+    let text = text.as_ref();
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
