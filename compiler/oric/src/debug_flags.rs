@@ -1376,6 +1376,17 @@ flags! {
     /// Usage: `ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE=1 ori build file.ori`
     ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE
 
+    /// Force the deliberately-over-eliminating Phase-6 burden-elim shape:
+    /// every whole-var + field-grain `BurdenDec*` release the DP-2 guard
+    /// normally preserves is dropped, so a value that survives its
+    /// container's drop loses its RL-2 scope-exit release and leaks.
+    ///
+    /// Default (unset): the guard stays; the pass is byte-identical.
+    /// Negative-pin harness only — never a production path. Consumed in
+    /// `ori_arc::aims::realize::burden_elim`.
+    /// Usage: `ORI_FORCE_OVERELIMINATE=1 ori build file.ori`
+    ORI_FORCE_OVERELIMINATE
+
     // Runtime Trace Flags
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.
