@@ -2820,6 +2820,124 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
 }
 
 #[test]
+fn drop_augment_self_param_emits_no_default_dec_in_arc_ir() {
+    // Conformance pin for the AIMS RL-DROP self-recursion-inhibition guard as
+    // realized in codegen. A Drop-shaped struct with ONLY scalar fields (one
+    // `int`) but a user `@drop` impl takes the AUGMENT drop-body path
+    // (`own_drop_unwinds`, drop_gen.rs:193): the drop fn runs the user `@drop`
+    // (an `invoke` on Itanium), walks its scalar fields (no RC dec), then
+    // releases `data_ptr` ONLY via the runtime free path. It emits ZERO
+    // `ori_rc_dec` — a self-dec on `data_ptr` would re-enter the drop fn
+    // infinitely, and there are no RC-typed fields to dec.
+    //
+    // Paired non-vacuous negative pin: `recursive_node_drop_fn_emits_self_
+    // referencing_rc_dec` (above) DOES emit `ori_rc_dec` on a self-typed FIELD,
+    // so the "no ori_rc_dec" assertion here is meaningful, not vacuous.
+    let mut pool = Pool::new();
+    let guard_name = ori_ir::Name::from_raw(0x0D0_9A2D);
+    let guard_ty = pool.named(guard_name);
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_drop_augment_scalar"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    // Dummy `void @dummy_drop(ptr)` — the user `@drop` method the AUGMENT path
+    // invokes. A declaration (no body) suffices: it never becomes a real call
+    // target, and only its FunctionId + ABI drive the invoke emission.
+    let ptr_ty = builder.ptr_type();
+    let dummy_drop_fid = builder.get_or_declare_void_function("dummy_drop", &[ptr_ty]);
+
+    // Populate the canonical method map the AUGMENT gate resolves through:
+    // type_idx_to_name[guard_ty] -> guard_name, then
+    // method_functions[(guard_name, "drop")] -> (dummy_drop_fid, abi). The
+    // `@drop` self param is a pass-by-pointer (Reference) receiver, so the
+    // invoke forwards `data_ptr` directly (no self-load / resolve_type).
+    let drop_name = interner.intern("drop");
+    let drop_abi = crate::codegen::abi::FunctionAbi {
+        params: vec![crate::codegen::abi::ParamAbi {
+            name: interner.intern("self"),
+            ty: guard_ty,
+            passing: crate::codegen::abi::ParamPassing::Reference,
+            readonly: false,
+        }],
+        return_abi: crate::codegen::abi::ReturnAbi {
+            ty: Idx::UNIT,
+            passing: crate::codegen::abi::ReturnPassing::Void,
+        },
+        call_conv: crate::codegen::abi::CallConv::Fast,
+    };
+    let mut codegen_ctx = super::CodegenContext::default();
+    codegen_ctx.type_idx_to_name.insert(guard_ty, guard_name);
+    codegen_ctx
+        .method_functions
+        .insert((guard_name, drop_name), (dummy_drop_fid, drop_abi));
+
+    // Classifier: the struct itself is heap-allocated (so it is freed via the
+    // runtime free path); its scalar `int` field is NOT heap (so no field
+    // ori_rc_dec).
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![guard_ty],
+    };
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // `DropKind::Fields.fields` is the RC-dec worklist — the scalar `int` field
+    // carries no RC header, so a scalar-only Drop struct lists ZERO RC fields
+    // (compute_drop_info includes only heap fields). The augment body therefore
+    // runs the user `@drop` + free with no field dec at all.
+    let info = DropInfo {
+        ty: guard_ty,
+        kind: DropKind::Fields {
+            fields: vec![],
+            user_drop: None,
+        },
+    };
+    let _ = super::drop_gen::generate_drop_fn(&mut em, guard_ty, &info);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // The drop-fn body releases the allocation ONLY through the runtime free
+    // call (emit_drop_rc_free -> ori_rc_free). `ori_rc_free` is also declared
+    // by declare_runtime, so assert on the CALL form (never the bare symbol).
+    assert!(
+        ir.contains("call void @ori_rc_free("),
+        "scalar-field Drop struct drop-fn MUST release data_ptr via the runtime \
+         ori_rc_free path:\n{ir}"
+    );
+    // ZERO ori_rc_dec of any kind (call OR invoke). declare_runtime emits a
+    // `declare ... @ori_rc_dec` line into the module, so the bare substring is
+    // always present — assert on the CALL / INVOKE forms, the only sites a dec
+    // could be EMITTED. `call void @ori_rc_dec` also covers the `_unwind` /
+    // `_to_zero` variants (prefix match). The only body in this module is the
+    // drop fn (host + dummy_drop carry no dec), so a hit would be the drop fn's.
+    assert!(
+        !ir.contains("call void @ori_rc_dec") && !ir.contains("invoke void @ori_rc_dec"),
+        "scalar-field Drop struct drop-fn MUST emit ZERO ori_rc_dec (a self-dec on \
+         data_ptr would infinitely re-enter the drop fn; no RC fields exist):\n{ir}"
+    );
+
+    drop(em);
+}
+
+#[test]
 fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
     // Mutually-recursive pair: Tree's drop fn references Forest's drop fn
     // (via field decrement) and vice versa. Both drop fns MUST be emitted
@@ -2988,6 +3106,159 @@ fn drop_fn_cache_prevents_infinite_generation() {
     assert_eq!(
         definitions, 1,
         "cache MUST prevent duplicate drop fn definitions even under repeated invocation:\n{ir}"
+    );
+
+    drop(em);
+}
+
+/// AUGMENT drop body emits ZERO self-referencing RC dec (self-recursion inhibition).
+///
+/// A `Drop`-impl type's refcount-zero drop body runs the user `@drop`
+/// (borrowing `self`), walks + decs its RC'd fields, then releases the
+/// allocation via `ori_rc_free`. It MUST NOT emit any `ori_rc_dec` /
+/// `ori_rc_dec_unwind` keyed to the by-value `self` (the `data_ptr` param fed to
+/// the user `@drop`): a scope-exit dec on `self` inside the `@drop` body would
+/// re-enter `ori_rc_dec(data_ptr, _ori_drop$<ty>)` and recurse the cleanup
+/// infinitely (double-free). The compiler-side field walk + `emit_drop_rc_free`
+/// own the actual release; `self` is a borrowed view for the user body's
+/// duration. Verification surface sc-b45c533e (§04.3 Drop AUGMENT), same
+/// harness shape as `recursive_node_drop_fn_emits_self_referencing_rc_dec` and
+/// `drop_fn_closure_env_emits_gep_and_rc_dec`.
+#[test]
+fn augment_drop_body_emits_zero_self_dec() {
+    let mut pool = Pool::new();
+    let guard_ty = pool.named(ori_ir::Name::from_raw(0x0A06_0DAA));
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_augment_drop"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    // Declare the user `@drop` impl the emitter will invoke on `self`.
+    let ptr_ty = builder.ptr_type();
+    let user_drop_fn = builder.get_or_declare_void_function("guard_user_drop", &[ptr_ty]);
+
+    // Route the Guard type through DefiniteRef (mirrors the recursive-node
+    // classifier setup); the str field is DefiniteRef via the Idx::STR arm.
+    let cl = IdxSetClassifier {
+        heap_idxs: vec![guard_ty],
+    };
+
+    // CodegenContext resolving the user `@drop`: type-name map + a
+    // Reference-passing self param so `self` (data_ptr) is forwarded to
+    // `@drop` directly (no load / no layout resolution of the bare named type).
+    let type_name = ori_ir::Name::from_raw(0x0A06_0DAB);
+    let drop_name = interner.intern("drop");
+    let guard_abi = FunctionAbi {
+        params: vec![crate::codegen::abi::ParamAbi {
+            name: type_name,
+            ty: guard_ty,
+            passing: crate::codegen::abi::ParamPassing::Reference,
+            readonly: true,
+        }],
+        return_abi: crate::codegen::abi::ReturnAbi {
+            ty: Idx::UNIT,
+            passing: crate::codegen::abi::ReturnPassing::Void,
+        },
+        call_conv: crate::codegen::abi::CallConv::C,
+    };
+    let mut codegen_ctx = super::CodegenContext::default();
+    codegen_ctx.type_idx_to_name.insert(guard_ty, type_name);
+    codegen_ctx
+        .type_idx_to_name
+        .insert(pool.resolve_fully(guard_ty), type_name);
+    codegen_ctx
+        .method_functions
+        .insert((type_name, drop_name), (user_drop_fn, guard_abi));
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // Guard { s: str } with a user @drop — the AUGMENT shape. `user_drop` on
+    // the DropKind is None (matching the pool-walk synthesizer); codegen
+    // resolves the user `@drop` from `method_functions`, exactly as production.
+    let info = DropInfo {
+        ty: guard_ty,
+        kind: DropKind::Fields {
+            fields: vec![(0, Idx::STR)],
+            user_drop: None,
+        },
+    };
+    let _ = super::drop_gen::generate_drop_fn(&mut em, guard_ty, &info);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let mangled = format!("\"_ori_drop${}\"", guard_ty.raw());
+
+    // AUGMENT fired: the drop fn is defined AND runs the user @drop on self.
+    assert!(
+        ir.contains(&format!("define void @{mangled}(ptr")),
+        "AUGMENT drop fn MUST be defined:\n{ir}"
+    );
+    assert!(
+        ir.contains("guard_user_drop"),
+        "AUGMENT body MUST invoke the user @drop on self:\n{ir}"
+    );
+    // The RC'd str field is decremented (field walk) and the allocation freed.
+    assert!(
+        ir.contains("@ori_rc_dec"),
+        "AUGMENT body MUST dec its RC'd str field:\n{ir}"
+    );
+    assert!(
+        ir.contains("@ori_rc_free"),
+        "AUGMENT body MUST free the alloc:\n{ir}"
+    );
+
+    // Parse the drop fn's `self`/data_ptr param SSA name from its define line.
+    let self_param = {
+        let def_needle = format!("@{mangled}(");
+        let start = ir.find(&def_needle).expect("drop fn define line") + def_needle.len();
+        let end = start + ir[start..].find(')').expect("param-list close");
+        let params = &ir[start..end];
+        let pct = params
+            .find('%')
+            .expect("ptr self param carries an SSA name");
+        let rest = &params[pct..];
+        let tok_end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '%' || c == '.' || c == '_'))
+            .unwrap_or(rest.len());
+        rest[..tok_end].to_string()
+    };
+
+    // The self param IS released via ori_rc_free — the compiler-side free owns
+    // the release, never a self-dec.
+    assert!(
+        ir.contains(&format!("@ori_rc_free(ptr {self_param},")),
+        "self (data_ptr `{self_param}`) MUST be released via ori_rc_free:\n{ir}"
+    );
+
+    // ZERO-SELF-DEC PIN: no ori_rc_dec / ori_rc_dec_unwind keyed to `self`.
+    // A scope-exit RcDec on self (self-recursion) would emit
+    // `@ori_rc_dec(ptr {self_param}, ptr @"_ori_drop$<guard>")` and recurse the
+    // cleanup infinitely — this assertion fails on that revert.
+    assert!(
+        !ir.contains(&format!("@ori_rc_dec(ptr {self_param},")),
+        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec on `{self_param}` \
+         (self-recursion -> infinite drop / double-free):\n{ir}"
+    );
+    assert!(
+        !ir.contains(&format!("@ori_rc_dec_unwind(ptr {self_param},")),
+        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec_unwind on `{self_param}`:\n{ir}"
     );
 
     drop(em);

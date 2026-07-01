@@ -138,10 +138,8 @@ type Node = { value: int, next: Option<Node> }
 ///      `FREE`, proving the recursive drop body was skipped while shared.
 ///
 /// Regression: shared-reference correctness — `rc > 1` release must decrement
-/// without compiled-drop-body invocation.
-/// See BUG-02-032 (`drop_early` prelude builtin) — this pin
-/// is RED until that builtin is implemented (typeck signature + eval semantics
-/// + AOT early `rc_dec` codegen); it goes green with no edit once it lands.
+/// without compiled-drop-body invocation. Exercises the `drop_early` prelude
+/// builtin (typeck signature + eval semantics + AOT early `rc_dec` codegen).
 #[test]
 fn recursive_drop_skips_body_when_rc_above_one() {
     // drop_early surface per spec/08-types.md §8.10.5 (`@drop_early<T> (value: T) -> void`).
