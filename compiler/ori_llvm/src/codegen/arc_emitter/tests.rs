@@ -624,7 +624,7 @@ fn multiple_drop_fns_for_different_types() {
     drop(em);
 }
 
-// ─── IsShared inline check tests ───
+// IsShared inline check tests
 
 #[test]
 fn is_shared_emits_gep_load_icmp() {
@@ -732,7 +732,7 @@ fn is_shared_emits_gep_load_icmp() {
     drop(em);
 }
 
-// ─── Set / SetTag (reuse fast path) tests ───
+// Set / SetTag (reuse fast path) tests
 
 #[test]
 fn set_emits_struct_gep_and_store() {
@@ -1943,7 +1943,7 @@ fn set_tag_emits_gep_and_store() {
     drop(em);
 } // set_tag_emits_gep_and_store
 
-// ─── EmittedValue helper method tests ───
+// EmittedValue helper method tests
 
 #[test]
 fn emitted_value_into_raw_single_variants() {
@@ -2059,7 +2059,7 @@ fn emitted_value_from_repr() {
     ));
 }
 
-// ─── RC strategy dispatch tests ───
+// RC strategy dispatch tests
 
 /// Verify `FatPointer` `RcDec` extracts `data_ptr` at field 1 and calls `ori_rc_dec`.
 #[test]
@@ -2740,7 +2740,7 @@ fn idx_to_type_tag_maps_dynamic_list_type() {
     drop(em);
 }
 
-// ─── Recursive drop-fn codegen ─────────────────────────────────────
+// Recursive drop-fn codegen
 //
 // Cycle safety comes from the cache-before-body pattern at drop_gen.rs:69:
 // `drop_fn_cache.insert(ty, func_id)` runs BEFORE the body is generated, so
