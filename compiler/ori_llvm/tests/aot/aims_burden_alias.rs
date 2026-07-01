@@ -40,3 +40,44 @@ fn toggle_disables_sole_carrier_claim_inner_survives_crashes_again() {
          exit != 0)\nstderr:\n{stderr}"
     );
 }
+
+/// Negative pin: the positive pin ACTIVELY catches the over-elimination
+/// regression class (matrix-testing rule — every positive pin needs a negative
+/// pin proving it fails on broken behavior). `ORI_FORCE_OVERELIMINATE=1` drops
+/// every whole-var `BurdenDec*` release the DP-2 guard preserves — an inner
+/// field destructured out of a `Result` and kept alive past the container's
+/// own drop loses its release. Under the burden-sole probe env the forced
+/// shape drops `inner`'s release and the surviving map leaks (`ORI_CHECK_LEAKS`
+/// trips, exit != 0); the env-unset control keeps the guard and stays clean
+/// (exit 0). SPEC-63 path-exercising test for the `ORI_FORCE_OVERELIMINATE`
+/// env var.
+#[test]
+fn force_overeliminate_inner_survives_result_leaks_negative_pin() {
+    use crate::util::compile_and_run_with_build_env;
+    let src = include_str!("fixtures/aims_burden_alias/inner_survives_result_destructure.ori");
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: burden-sole probe, DP-2 guard intact — the positive pin holds.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with the DP-2 guard intact must run clean (no leak, \
+         no double-free)\nstderr:\n{control_stderr}"
+    );
+
+    // Forced over-elimination: DP-2 guard dropped — inner's RL-2 scope-exit
+    // release is elided and the surviving map leaks under ORI_CHECK_LEAKS.
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_FORCE_OVERELIMINATE", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "forcing burden over-elimination must drop inner's release and trip the \
+         leak/double-free checker (exit != 0) — proves the positive pin actively \
+         catches the over-elimination regression\nstderr:\n{forced_stderr}"
+    );
+}

@@ -2508,7 +2508,7 @@ fn resolve_loop_invariant_iter_survivor(
     // The iteration is a loop: a loop block lies ON the path between the `@iter` and
     // the paired `ori_iter_drop`. A straight-line single iter-consume is not the
     // back-edge over-emission this pass cures.
-    let from_iter = forward_reachable_from(func, &[u.block]);
+    let from_iter = crate::graph::forward_reachable(func, &[u.block]);
     let on_loop_path = loop_blocks.contains(&u.block)
         || loop_blocks.contains(&drop_block)
         || loop_blocks.iter().any(|lb| from_iter.contains(lb));
@@ -3815,7 +3815,7 @@ fn lineage_live_at_block_entry(
     _preds: &[Vec<usize>],
 ) -> bool {
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
-    let reachable = forward_reachable_local(func, &[block]);
+    let reachable = crate::graph::forward_reachable(func, &[block]);
     for &b in &reachable {
         let Some(blk) = func.blocks.get(b) else {
             continue;
@@ -3922,25 +3922,6 @@ fn lineage_iter_consumed_in_caller(
             )
         })
     })
-}
-
-/// Forward-reachable block set from `starts` (inclusive) via CFG successors.
-/// Local mirror of the burden-elim `forward_reachable` (private there).
-fn forward_reachable_local(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = starts.to_vec();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
-        }
-        let Some(block) = func.blocks.get(b) else {
-            continue;
-        };
-        for s in crate::graph::successor_block_ids(&block.terminator) {
-            stack.push(s.index());
-        }
-    }
-    visited
 }
 
 /// Blocks inside a natural loop (target of a back-edge `b -> h` where `h`
@@ -9502,7 +9483,7 @@ fn agreed_terminal_net_over(
     let alloc_blocks: Vec<usize> = (0..func.blocks.len())
         .filter(|&b| alloc_in_block[b])
         .collect();
-    let alloc_reachable = forward_reachable_from(func, &alloc_blocks);
+    let alloc_reachable = crate::graph::forward_reachable(func, &alloc_blocks);
     let mut terminal_net: Option<i64> = None;
     for (b, block) in func.blocks.iter().enumerate() {
         let Some(eb) = nets.entry_net[b] else {
@@ -10151,7 +10132,7 @@ fn compute_successor_reachable(func: &ArcFunction, start: usize) -> FxHashSet<us
                 .collect()
         })
         .unwrap_or_default();
-    forward_reachable_from(func, &starts)
+    crate::graph::forward_reachable(func, &starts)
 }
 
 /// Whether a `for_yield` `ori_list_take` RESULT (the lineage rep `result_rep`) is
@@ -10363,7 +10344,7 @@ fn for_yield_relocation_plan_for_rep(
     // distinct from `dec_block`). A "value-read" is any non-`BurdenDec`/
     // non-`BurdenInc`/non-`RcDec`/non-`RcInc` body use OR a terminator use of a
     // lineage member at a borrow/owned position.
-    let reachable_from_dec = forward_reachable_from(func, &[dec_block]);
+    let reachable_from_dec = crate::graph::forward_reachable(func, &[dec_block]);
     let mut read_sites: Vec<(usize, usize)> = Vec::new();
     for (b, block) in func.blocks.iter().enumerate() {
         if matches!(block.terminator, ArcTerminator::Resume) {
@@ -10442,13 +10423,13 @@ fn for_yield_relocation_plan_for_rep(
 /// Gate (e) helper: `block` is in a CFG cycle when a successor of it can reach
 /// it again.
 fn for_yield_block_in_cycle(func: &ArcFunction, block: usize) -> bool {
-    forward_reachable_from(func, &[block]).contains(&block)
+    crate::graph::forward_reachable(func, &[block]).contains(&block)
         && func.blocks.get(block).is_some_and(|blk| {
             crate::graph::successor_block_ids(&blk.terminator)
                 .iter()
                 .any(|s| {
                     let si = s.index();
-                    si != block && forward_reachable_from(func, &[si]).contains(&block)
+                    si != block && crate::graph::forward_reachable(func, &[si]).contains(&block)
                 })
         })
 }
@@ -10886,28 +10867,6 @@ fn compute_phi_threaded_alloc_reps(
         reps.insert(v, r);
     }
     reps
-}
-
-/// The set of block indices forward-reachable from any block in `starts`
-/// (inclusive of the starts), via `successor_block_ids` CFG edges. Used by
-/// [`compute_lineage_alloc_aware_net`] to restrict the terminal-net agreement to
-/// terminal blocks a lineage's allocation can actually reach — an unwind landing
-/// pad reached BEFORE the allocation is not a release path for that lineage.
-fn forward_reachable_from(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = starts.to_vec();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
-        }
-        let Some(block) = func.blocks.get(b) else {
-            continue;
-        };
-        for s in crate::graph::successor_block_ids(&block.terminator) {
-            stack.push(s.index());
-        }
-    }
-    visited
 }
 
 /// The interned `ori_list_take` finalizer name — the `for x in coll yield expr`

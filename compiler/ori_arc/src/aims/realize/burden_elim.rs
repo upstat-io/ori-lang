@@ -80,7 +80,7 @@ use crate::aims::lattice::AimsState;
 use crate::aims::transfer::is_rc_inc_elidable;
 use crate::aims::verify::burden_balance::{var_def_kind, var_repr_kind};
 use crate::aims::verify::burden_delta::{compute_burden_entry_nets, whole_var_dec_target};
-use crate::graph::{compute_predecessors, DominatorTree};
+use crate::graph::{compute_predecessors, forward_reachable, DominatorTree};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::lower::burden_lower::{
     collect_move_edges_and_store_consumes, genuine_dup_pair_coupling_disabled,
@@ -97,6 +97,17 @@ use super::rc_remark::{emit_rc_survivor_remark, rc_remarks_enabled, RcSurvivorSi
 /// re-balance runs on the burden-only path. Spec: Annex E §AIMS RL-2.
 static LINEAGE_REBALANCE_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_LINEAGE_REBALANCE").as_deref() == Ok("1"));
+
+/// `ORI_FORCE_OVERELIMINATE=1` forces the deliberately-over-eliminating shape:
+/// every whole-var + field-grain `BurdenDec*` release the DP-2 guard normally
+/// preserves is dropped, so a value that survives its container's drop (an
+/// inner field destructured out of a `Result` while the container's own
+/// release still runs) loses its RL-2 scope-exit release and leaks.
+/// Default (unset): the guard stays; the pass is byte-identical.
+/// Negative-pin harness only — never a production path.
+// Env: ORI_FORCE_OVERELIMINATE — forces burden-elim over-elimination for negative-pin testing, debug-only
+static FORCE_OVERELIMINATE: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("ORI_FORCE_OVERELIMINATE").as_deref() == Ok("1"));
 
 /// `ORI_DISABLE_SINGLE_RELEASE_AFTER_LAST_READ=1` reverts the single-release
 /// selection to terminal-net-only (the pre-cure behavior): a kept dec is
@@ -152,16 +163,16 @@ pub(crate) fn eliminate_burden_ops(
     // per-kind burden-op census before the pass; assert the post-pass census is
     // ≤ the pre-pass census for EVERY kind. Any future regression that appends a
     // `BurdenInc` / `BurdenDec*` inside Phase 6 trips this guard loudly rather
-    // than silently lowering to a spurious `RcInc`/`RcDec` downstream.
-    // Canonical RC-Emission Path: Phase 5 emits, Phase 6
-    // eliminates, Phase 7 mechanically lowers.
-    #[cfg(debug_assertions)]
+    // than silently lowering to a spurious `RcInc`/`RcDec` downstream and
+    // corrupting RC balance in a shipped binary. Checked in every build
+    // (never `debug_assert!`-gated): this is the sole structural proof that
+    // Phase 6 stayed removal-only on the canonical RC-emission path — Phase 5
+    // emits, Phase 6 eliminates, Phase 7 mechanically lowers.
     let before = burden_op_census(func);
 
     eliminate_whole_function(func, state_map, same_alloc_reps, contracts, interner);
 
-    #[cfg(debug_assertions)]
-    debug_assert_burden_removal_only(&before, &burden_op_census(func));
+    assert_burden_removal_only(&before, &burden_op_census(func));
 }
 
 /// Per-kind burden-op census across all blocks of a function.
@@ -169,7 +180,6 @@ pub(crate) fn eliminate_burden_ops(
 /// Five counts, one per burden-op variant, in the order `[BurdenInc,
 /// BurdenDec, BurdenDecPartial, BurdenDecField, BurdenDecVariant]`. Used by the
 /// removal-only structural guard in [`eliminate_burden_ops`].
-#[cfg(any(debug_assertions, test))]
 fn burden_op_census(func: &ArcFunction) -> [usize; 5] {
     let mut census = [0usize; 5];
     for block in &func.blocks {
@@ -192,8 +202,7 @@ fn burden_op_census(func: &ArcFunction) -> [usize; 5] {
 /// `true` iff the post-pass census of EVERY burden-op kind is `≤` its
 /// pre-pass census — i.e. Phase 6 removed or left-alone every kind and
 /// constructed none. This is the SSOT predicate behind the removal-only
-/// structural guard; both the debug-assert and the negative pin consult it.
-#[cfg(any(debug_assertions, test))]
+/// structural guard; both the always-on assert and the negative pin consult it.
 fn is_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) -> bool {
     (0..5).all(|kind| after[kind] <= before[kind])
 }
@@ -207,10 +216,11 @@ fn is_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) -> bool {
 /// therefore `≤` its pre-pass census. A violation is a Phase-6 construction
 /// regression: a `BurdenInc`/`BurdenDec*` was appended where only elimination
 /// is permitted, which would mechanically lower to a spurious `RcInc`/`RcDec`
-/// in Phase 7 and corrupt RC balance.
-#[cfg(debug_assertions)]
+/// in Phase 7 and corrupt RC balance. Uses `assert!` (never `debug_assert!`):
+/// a silently-corrupted RC balance in a release binary is a double-free or
+/// leak, not merely a debug-build diagnostic.
 #[track_caller]
-fn debug_assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
+fn assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
     const KIND_NAMES: [&str; 5] = [
         "BurdenInc",
         "BurdenDec",
@@ -218,7 +228,7 @@ fn debug_assert_burden_removal_only(before: &[usize; 5], after: &[usize; 5]) {
         "BurdenDecField",
         "BurdenDecVariant",
     ];
-    debug_assert!(
+    assert!(
         is_burden_removal_only(before, after),
         "AIMS Phase-6 invariant: eliminate_burden_ops constructed burden ops \
          where only elimination is permitted — Phase 6 MUST eliminate burden \
@@ -328,6 +338,9 @@ fn eliminate_whole_function(
     alias_dsts
         .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
     mark_whole_var_removals(&balances, &rebalanced_vars, &alias_dsts, &mut remove);
+    if *FORCE_OVERELIMINATE {
+        force_overeliminate_releases(func, &mut remove);
+    }
     // Observability-only (Spec: Annex E §AIMS): emit one `missed` remark per VAR
     // whose BurdenInc SURVIVED the final disposition (kept in `remove`). Per-VAR,
     // post-`mark_whole_var_removals` — the final keep/elide verdict after the
@@ -1221,24 +1234,6 @@ fn terminal_store_construct_roots(
     out
 }
 
-/// Forward-reachable block set from `starts` (inclusive), via CFG successors.
-fn forward_reachable(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = starts.to_vec();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
-        }
-        let Some(block) = func.blocks.get(b) else {
-            continue;
-        };
-        for s in crate::graph::successor_block_ids(&block.terminator) {
-            stack.push(s.index());
-        }
-    }
-    visited
-}
-
 /// Blocks that lie inside a natural loop: a block is in a loop iff it is the
 /// target of a back-edge `b → h` (an edge whose head `h` dominates its tail `b`)
 /// OR it can reach the back-edge tail while dominated by the head. Computed as
@@ -1343,6 +1338,27 @@ fn mark_whole_var_removals(
             }
             for &(b, i) in &balance.inc_sites {
                 remove[b][i] = true;
+            }
+        }
+    }
+}
+
+/// Force-drop EVERY `BurdenDec` / `BurdenDecPartial` / `BurdenDecField` /
+/// `BurdenDecVariant` release — the deliberately-over-eliminating shape gated by
+/// `ORI_FORCE_OVERELIMINATE=1`. Removal-only (the census guard still holds); a
+/// dropped release leaks its allocation on the burden-sole path, tripping the
+/// negative pin. Never reached with the flag unset.
+fn force_overeliminate_releases(func: &ArcFunction, remove: &mut [Vec<bool>]) {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if matches!(
+                instr,
+                ArcInstr::BurdenDec { .. }
+                    | ArcInstr::BurdenDecPartial { .. }
+                    | ArcInstr::BurdenDecField { .. }
+                    | ArcInstr::BurdenDecVariant { .. }
+            ) {
+                remove[block_idx][instr_idx] = true;
             }
         }
     }

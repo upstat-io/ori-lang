@@ -88,11 +88,10 @@ pub fn normalize_function(
     func: &mut ArcFunction,
     contract: Option<&MemoryContract>,
 ) -> NormalizationResult {
-    // Step 1: Verify A-normal form invariant (invariant I4: lifting
-    // precedes detection). No-op in ARC IR — type-enforced.
+    // INVARIANT (I4): lifting precedes detection. No-op in ARC IR —
+    // A-normal form is type-enforced.
     lift::lift_constructor_args(func);
 
-    // Step 2: Detect TRMC candidates.
     let context_regions = detect::detect_context_regions(func);
 
     if !context_regions.is_empty() {
@@ -103,12 +102,13 @@ pub fn normalize_function(
         );
     }
 
-    // Step 3: Rewrite + verify (when candidates exist and a converged contract
-    // is available). The sole enforced soundness condition is per-variable
-    // uniqueness, checked in detect_trmc_candidates() (post_convergence.rs).
-    // Effect purity gate (may_share): out of scope — Ori has no effect
-    // handlers, so non-linear resumption cannot occur. This gate activates
-    // when effect handlers are added (see normalize_function doc above).
+    // Rewrite + verify runs only when candidates exist and a converged
+    // contract is available. The sole enforced soundness condition is
+    // per-variable uniqueness, checked in detect_trmc_candidates()
+    // (post_convergence.rs). Effect purity gate (may_share): out of scope —
+    // Ori has no effect handlers, so non-linear resumption cannot occur.
+    // This gate activates when effect handlers are added (see
+    // normalize_function doc above).
     let mut was_transformed = false;
     if !context_regions.is_empty() {
         if contract.is_some() {

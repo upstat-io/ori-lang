@@ -2,9 +2,9 @@
 //!
 //! After the SCC fixpoint converges, tighten a callee parameter's uniqueness
 //! to `Unique` when every call site passes a fresh, single-use `Construct`
-//! argument. BUG-04-069: the forwarded-`Owned`-param heuristic was removed as
-//! the DP-10 / IC-8 fallacy; only fresh `Construct` + `count_var_uses == 1`
-//! qualifies.
+//! argument — only fresh `Construct` + `count_var_uses == 1` qualifies (the
+//! DP-10 / IC-8 fallacy: a forwarded `Owned` parameter proves no future
+//! duplication, not no existing alias).
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -30,8 +30,8 @@ use super::use_count::count_var_uses;
 /// # Soundness
 ///
 /// A fresh `Construct` used exactly once has RC == 1 with no existing
-/// aliases — the sole sound basis for `Unique`. The forwarded-`Owned`
-/// parameter heuristic (`Owned + Linear + Once`) was removed: it proves
+/// aliases — the sole sound basis for `Unique`. A forwarded-`Owned`
+/// parameter (`Owned + Linear + Once`) does NOT qualify: it proves
 /// no-future-duplication, NOT no-existing-alias (the DP-10 / IC-8 fallacy).
 /// A fresh `Construct` reaching the same (callee, `param_idx`) at two or
 /// more sites is RC > 1 at the non-first use, so the single-use guard in
@@ -49,8 +49,8 @@ pub(super) fn tighten_uniqueness_from_callers(
     classifier: &dyn ArcClassification,
     sigs: &mut FxHashMap<Name, MemoryContract>,
 ) {
-    // Phase 1: Re-analyze each function with final contracts and collect
-    // call-site argument states.
+    // Re-analyze each function with final contracts and collect call-site
+    // argument states.
     //
     // For each (callee, param_idx), track whether ALL callers satisfy the
     // fresh-Construct + single-use condition. Start optimistically at `true`
@@ -101,7 +101,7 @@ pub(super) fn tighten_uniqueness_from_callers(
         }
     }
 
-    // Phase 2: Tighten uniqueness for parameters where ALL callers satisfy.
+    // Tighten uniqueness for parameters where ALL callers satisfy.
     let mut tightened = 0u32;
     for ((callee, param_idx), satisfies) in &all_satisfy {
         if !satisfies {

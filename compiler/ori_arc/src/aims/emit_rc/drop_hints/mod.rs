@@ -1,8 +1,7 @@
 //! Drop hint helpers for AIMS.
 //!
 //! Contains helper functions used by `realize/` for drop hint decisions.
-//! The legacy `compute_aims_drop_hints()` entry point has been removed —
-//! drop hints are now computed by `realize_annotations()`.
+//! Drop hints are computed by `realize_annotations()`.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};

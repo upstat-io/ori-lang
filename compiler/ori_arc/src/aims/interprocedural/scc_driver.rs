@@ -70,7 +70,7 @@ pub fn analyze_program(
 
     // Post-fixpoint demand propagation. Tighten a callee
     // parameter's uniqueness to Unique when every caller passes a fresh,
-    // single-use Construct argument (BUG-04-069).
+    // single-use Construct argument.
     tighten_uniqueness_from_callers(functions, classifier, &mut all_sigs);
 
     // FIP coverage reporting.
@@ -260,11 +260,11 @@ fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> u32 {
     //                   in shipped struct); shipped reality is 5.
     //   context height:  4 boolean fields (PL-7/PL-11)
     //
-    // BUG-04-090: per-param height bumped 15 → 17 by adding
-    // return_alias: Option<ReturnAliasShape> (height 2; chain
-    // None < Some(Project) < Some(Direct)). transfers_through_return: bool
-    // (height 1) remains the callee-side gate; return_alias is the
-    // caller-side carrier, both join componentwise in IC-3.
+    // return_alias: Option<ReturnAliasShape> contributes height 2 (chain
+    // None < Some(Project) < Some(Direct)) to the per-param total.
+    // transfers_through_return: bool (height 1) remains the callee-side
+    // gate; return_alias is the caller-side carrier, both join
+    // componentwise in IC-3.
     //
     // Spec IC-7 lists per-param height 13 (omitting may_escape, slated for
     // removal) plus transfers_through_return (1) + return_alias (2) = 16.

@@ -76,9 +76,9 @@ pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool)
         return false;
     }
     // Destination (the projected payload) must be a unique-owned
-    // Box type — currently only iterators. `Tag::Channel` uses a
+    // Box type — only iterators. `Tag::Channel` uses a
     // different representation (`OpaquePtr`) and has its own drop
-    // model, so it is excluded for now.
+    // model, so it is excluded.
     let dst_ty = func.var_type(*dst);
     let dst_resolved = pool.resolve_fully(dst_ty);
     let dst_tag = pool.tag(dst_resolved);
@@ -168,7 +168,7 @@ pub(crate) fn collect_iter_element_defs(
     let iter_next_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
 
-    // Phase 1: find all Apply @__iter_next calls. Collect:
+    // Find all Apply @__iter_next calls. Collect:
     // - dst variables (the __iter_next result)
     // - args[1] (the elem_ty_marker phantom — a zero-valued type marker
     //   that must NOT be RC-decremented; its LLVM repr is `i64 0`, not a
@@ -192,8 +192,8 @@ pub(crate) fn collect_iter_element_defs(
         }
     }
 
-    // Phase 2: find Project at field index 1 from __iter_next results.
-    // This is the yielded element (field 0 is the Option tag).
+    // Find Project at field index 1 from __iter_next results. This is the
+    // yielded element (field 0 is the Option tag).
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project {
@@ -210,8 +210,8 @@ pub(crate) fn collect_iter_element_defs(
         }
     }
 
-    // Phase 2.5 + Phase 3 JOINT fixpoint: transitive Project chains INTERLEAVED
-    // with Let-alias / block-param propagation. A compound source element
+    // Joint fixpoint: transitive Project chains INTERLEAVED with Let-alias /
+    // block-param propagation. A compound source element
     // (`[Option<str>]` / `[Item]` / `[[int]]`) yields an iter-element-view whose
     // INTERIOR sub-value the body projects out (`match opt { Some(s) -> .. }` =>
     // `Project (variant payload).1`; `item.name` => `Project (struct).0`; the
@@ -265,12 +265,11 @@ pub(crate) fn collect_iter_element_defs(
 /// transfer ownership rather than borrow, so they must participate in
 /// normal RC decisions for the projected payload.
 ///
-/// take-project SOURCES are NOT added here. Adding the
-/// backward alias chain was a function-global suppression and leaked
-/// on paths that never executed the projection. Path-sensitive
-/// suppression of source drops is handled by the separate
-/// `take_project` must-analysis threaded through `BlockCtx` and
-/// consumed by dead/edge cleanup.
+/// take-project SOURCES are NOT added here — a backward alias chain here
+/// would be a function-global suppression, leaking on paths that never
+/// execute the projection. Path-sensitive suppression of source drops is
+/// handled by the separate `take_project` must-analysis threaded through
+/// `BlockCtx` and consumed by dead/edge cleanup.
 pub(crate) fn collect_project_borrowed_defs(
     func: &ArcFunction,
     pool: &Pool,
@@ -307,13 +306,12 @@ pub(crate) fn collect_project_borrowed_defs(
 /// take-projects (`is_take_project`) are excluded — they
 /// transfer ownership of a unique-owned payload rather than borrow it.
 ///
-/// take-project SOURCES are NOT added here. The backward
-/// alias chain propagation (earlier attempt) was a function-global
-/// suppression that leaked on paths that never executed the
-/// projection. Path-sensitive suppression of the source enum's
-/// scope-exit drop is handled by the separate `take_project`
-/// must-analysis, threaded through `BlockCtx` and consumed by the
-/// dead/edge cleanup sites.
+/// take-project SOURCES are NOT added here — a backward alias chain
+/// propagation here would be a function-global suppression that leaks on
+/// paths that never execute the projection. Path-sensitive suppression of
+/// the source enum's scope-exit drop is handled by the separate
+/// `take_project` must-analysis, threaded through `BlockCtx` and consumed
+/// by the dead/edge cleanup sites.
 pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction, pool: &Pool) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     // Function parameters with Borrowed ownership are genuinely borrowed.

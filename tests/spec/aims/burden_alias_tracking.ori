@@ -15,10 +15,10 @@
 // NOT over-eliminated; its allocation is freed exactly once at the
 // extended use point.
 //
-// Negative-pin: see header comment block at bottom of file. Verification
-// requires a deliberate over-elimination harness that is not yet wired
-// (env-var ORI_FORCE_OVERELIMINATE=1 would route eliminate_burden_ops
-// through an aggressive path).
+// Negative-pin: see header comment block at bottom of file. This spec
+// corpus has no env-var control surface, so the negative pin lives at
+// the AOT harness level (ori_llvm/tests/aot/aims_burden_alias.rs),
+// mirroring this same fixture under ORI_FORCE_OVERELIMINATE=1.
 
 use std.testing { assert_eq };
 
@@ -51,16 +51,13 @@ use std.testing { assert_eq };
     assert_eq(actual: sum, expected: 6)
 };
 
-// Negative-pin verification — requires a not-yet-wired harness:
+// Negative-pin verification — wired at the AOT harness level:
 //
-// The negative-pin would deliberately revert eliminate_burden_ops to an
-// over-eliminating shape (drop the DP-2 guard, allow BurdenDec elision on
-// `inner` despite its lifetime extending past the Result's destructure)
-// and confirm the assertion above trips with a double-free FATAL.
-//
-// This needs an env-var harness parallel to ORI_DISABLE_BURDEN_ELIM=1
-// (which TURNS OFF elimination) — e.g., ORI_FORCE_OVERELIMINATE=1 — that
-// deliberately makes eliminate_burden_ops aggressive. Wiring it lets the
-// negative-pin run without editing production source (modifying the
-// deliverable to satisfy a test pin is banned — the pin must prove the
-// deliverable's invariant, not be the deliverable).
+// ori_llvm/tests/aot/aims_burden_alias.rs::force_overeliminate_inner_survives_result_leaks_negative_pin
+// compiles + runs this exact fixture (inner_survives_result_destructure.ori)
+// under ORI_FORCE_OVERELIMINATE=1, which deliberately drops the DP-2 guard
+// eliminate_burden_ops otherwise preserves (see burden_elim.rs
+// FORCE_OVERELIMINATE) so `inner`'s BurdenDec is over-eliminated. The
+// negative pin asserts the run then trips ORI_CHECK_LEAKS (exit != 0),
+// proving this positive pin actively catches the over-elimination
+// regression class rather than trivially passing.

@@ -1,4 +1,4 @@
-//! Apply-result allocation-identity analysis (BUG-04-090).
+//! Apply-result allocation-identity analysis.
 //!
 //! Pre-walk pass that computes the `apply_result_aliases` side-table on
 //! [`AimsStateMap`] from converged callee `MemoryContract`s. The table records,
@@ -228,10 +228,9 @@ fn install_alias_entry(
     //   arm) stay in their own classes and keep their canonical decs.
     //
     // Multi-param Wrapped (e.g. `pair(a, b) = (a, b)` returning a tuple)
-    // is NOT currently producible by `find_payload_containment_params`
+    // is NOT producible by `find_payload_containment_params`
     // (which only marks EnumVariant Construct + PartialApply per
-    // `extract.rs`). When future shapes surface, extend Wrapped to
-    // `Wrapped { args: Vec<ArcVarId> }`. YAGNI for now.
+    // `extract.rs`).
     let aliasing_params: Vec<usize> = contract
         .params
         .iter()

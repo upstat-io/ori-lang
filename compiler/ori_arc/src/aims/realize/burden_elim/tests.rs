@@ -1205,20 +1205,18 @@ fn removal_only_predicate_rejects_construction_per_kind() {
     }
 }
 
-/// Debug-build structural guard pin — `debug_assert_burden_removal_only`
-/// panics when Phase 6 would construct a burden op. Debug builds only:
-/// `debug_assert!` is a no-op under `--release`, so the guard (and this pin)
-/// are scoped to `debug_assertions`. The companion release-safe enforcement
-/// is `removal_only_predicate_rejects_construction_per_kind` above.
+/// Structural guard pin — `assert_burden_removal_only` panics when Phase 6
+/// would construct a burden op. Always-on in every build (`assert!`, never
+/// `debug_assert!`): a Phase-6 construction regression corrupts RC balance in
+/// a shipped binary, so the guard must not disappear under `--release`.
 #[test]
-#[cfg(debug_assertions)]
 #[should_panic(expected = "AIMS Phase-6 invariant")]
-fn debug_guard_panics_on_phase6_construction() {
-    use super::debug_assert_burden_removal_only;
+fn guard_panics_on_phase6_construction() {
+    use super::assert_burden_removal_only;
     let before = [1usize, 0, 0, 0, 0];
     // after grows BurdenDec from 0 → 1: a construction in Phase 6.
     let after = [1usize, 1, 0, 0, 0];
-    debug_assert_burden_removal_only(&before, &after);
+    assert_burden_removal_only(&before, &after);
 }
 
 // Lineage re-balance pins (the `same_alloc_reps`-grouped alias-chain

@@ -281,12 +281,11 @@ impl AimsState {
     /// 1. `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
     /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
     /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
-    /// 4. REMOVED — was anti-monotone, broke join associativity
+    /// 4. `MaybeShared` is never auto-promoted to `Unique` (auto-promotion
+    ///    would break join associativity)
     /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
     ///    rule collapses shape here; documented for clarity)
-    /// 6. `HeapEscaping` or `Unknown` → uniqueness ceiling `MaybeShared`
-    ///    (widened from `== HeapEscaping` to `>= HeapEscaping`
-    ///    by Rule 6 widening fix)
+    /// 6. `HeapEscaping` or higher locality → uniqueness ceiling `MaybeShared`
     /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW
     ///    (enforced at query sites via `needs_cow_check()`)
     /// 8. `Borrowed` → locality ceiling `FunctionLocal`
@@ -362,17 +361,17 @@ impl AimsState {
             cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
-        // Rule 4: REMOVED.
+        // Rule 4: no rule promotes MaybeShared → Unique here.
         //
-        // The former Rule 4 promoted MaybeShared → Unique when
-        // BlockLocal+Owned+≤Once. This was anti-monotone: it injected
-        // optimistic information at join points, breaking associativity
-        // (join(join(a,b),c) ≠ join(a,join(b,c))) and transitivity of the
-        // join-based partial order. Fresh allocations already start as
-        // Unique via AimsState::FRESH; no transfer function requires
-        // canonicalize to synthesize Unique from MaybeShared. Uniqueness
-        // is now established only by transfer functions and preserved
-        // (or lost) through joins — never re-derived in canonicalize.
+        // INVARIANT: uniqueness is established only by transfer functions
+        // and preserved (or lost) through joins — never re-derived in
+        // canonicalize. A rule promoting MaybeShared → Unique at a join
+        // point (e.g. on BlockLocal+Owned+≤Once) is anti-monotone: it
+        // injects optimistic information into the join, breaking
+        // associativity (join(join(a,b),c) ≠ join(a,join(b,c))) and
+        // transitivity of the join-based partial order. Fresh allocations
+        // already start as Unique via AimsState::FRESH, so no transfer
+        // function needs canonicalize to synthesize it.
 
         // Rule 5: Unique + Dead → preserve ReusableCtor.
         // A unique dead value's memory IS reusable — don't collapse shape.
