@@ -53,27 +53,10 @@ use dataflow::{propagate_moved_out_fields, union_field_map_into};
 ///
 /// # Pass 3 (X.2 merge)
 ///
-/// Forward dataflow over the CFG. For each block `B` in reverse-postorder:
-///   - `entry(B) := INTERSECT over P in predecessors(B): exit(P)` (or
-///     empty map for entry block); only fields moved on ALL incoming
-///     paths are "definitely moved" at entry.
-///   - `exit(B) := entry(B) ∪ block_local(B)` (pointwise union: for
-///     each `(var, fields)` pair, merge field sets via set union).
-///
-/// Bounded fixpoint via worklist iteration to handle CFG back edges
-/// (loops) — the analysis is monotone-DESCENDING from the ⊤ (universe)
-/// seed, so the termination measure `Σ_b |exit[b]|` (bounded by
-/// `n_blocks * universe_pair_count`) strictly shrinks each non-fixpoint
-/// round, guaranteeing termination. DERIVED iteration cap
-/// `n_blocks * universe_pair_count + 2` per AIMS rule IA-MF1 (proven by
-/// `AimsProof.MovedFields::MF1_no_change_at_derived_cap`); non-convergence
-/// within the cap fires a RELEASE-ACTIVE fail-closed guard (IA-MF1 is
-/// implementer-internal; the compiled Lean is the authority, no Annex E anchor).
-///
-/// When E2043 typeck rejection guarantees equal predecessor exit sets the
-/// INTERSECT degenerates to pick-any; INTERSECT remains the correct merge —
-/// correct across both rejection states and structurally simpler than
-/// special-casing per typeck status.
+/// Delegates to [`dataflow::propagate_moved_out_fields`] — the
+/// INTERSECT-at-entry worklist fixpoint (entry/exit transfer functions,
+/// bounded convergence, AIMS rule IA-MF1) is documented there; not
+/// restated here to avoid a second copy drifting out of sync.
 ///
 /// # Union rebuild
 ///

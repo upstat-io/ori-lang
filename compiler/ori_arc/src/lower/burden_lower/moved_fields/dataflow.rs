@@ -225,6 +225,11 @@ fn compute_block_local_universe(
 /// intersection of field sets. Var-keys present in only a strict subset
 /// of predecessors are dropped (NOT definitely-moved at this entry).
 /// Empty predecessor list (entry block) returns an empty map.
+///
+/// When E2043 typeck rejection guarantees equal predecessor exit sets the
+/// INTERSECT degenerates to pick-any; INTERSECT remains the correct merge —
+/// correct across both rejection states and structurally simpler than
+/// special-casing per typeck status.
 fn intersect_predecessor_exits(
     preds: &[usize],
     block_exits: &[FxHashMap<ArcVarId, FxHashSet<u32>>],
