@@ -300,8 +300,7 @@ fn test_pre_used_as_identifier_elsewhere() {
 
 /// Regression: BUG-07-314. grammar.ebnf `params` is newline-silent, so a
 /// function whose params are stacked one-per-line (the formatter's multi-line
-/// shape) must parse. Before the fix `parse_params` used `.no_newlines()` and
-/// this failed with E1002.
+/// shape) must parse.
 #[test]
 fn test_multiline_params_function_parses_clean() {
     let output =
@@ -328,7 +327,7 @@ fn test_multiline_params_typed_lambda_parses_clean() {
     assert_eq!(output.module.functions.len(), 1);
 }
 
-/// Regression: BUG-07-314 (Plan-TPR codex-F1). A clause-based function with a
+/// Regression: BUG-07-314. A clause-based function with a
 /// literal-pattern param stacked one-per-line must parse — the literal-pattern
 /// path also flows through `parse_params`.
 #[test]
@@ -342,7 +341,7 @@ fn test_multiline_params_clause_literal_parses_clean() {
     assert_eq!(output.module.functions.len(), 1);
 }
 
-/// Regression: BUG-07-314 (Plan-TPR codex-F1). A default-valued param stacked
+/// Regression: BUG-07-314. A default-valued param stacked
 /// one-per-line must parse — the default-value path flows through `parse_params`.
 #[test]
 fn test_multiline_params_default_value_parses_clean() {
@@ -356,9 +355,9 @@ fn test_multiline_params_default_value_parses_clean() {
     assert_eq!(output.module.functions[0].params.len, 1);
 }
 
-/// Regression: BUG-07-314 (Plan-TPR-R2 codex-F2). A test declaration with
-/// params stacked one-per-line must parse — the test-body parse is the 5th
-/// shared `parse_params` call site (`function/mod.rs:192`).
+/// Regression: BUG-07-314. A test declaration with
+/// params stacked one-per-line must parse — the test-body parse is a
+/// shared `parse_params` call site (the `parse_test_body` path).
 #[test]
 fn test_multiline_params_test_declaration_parses_clean() {
     let output = parse_module("@t tests @f (\n    a: int,\n) -> void = ();");

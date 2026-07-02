@@ -64,10 +64,9 @@ impl Parser<'_> {
         };
 
         committed!(self.cursor.expect(&TokenKind::Eq));
-        // BUG-07-314: the type body is newline-silent per grammar.ebnf — a
-        // newline after `=` (the formatter's multi-line struct/sum/newtype
-        // shape) must parse. Without this skip `check_ident()` below is false
-        // and the body mis-dispatches to `parse_type_required()` -> E1001.
+        // Type body is newline-silent per grammar.ebnf: a newline after `=` (the
+        // formatter's multi-line shape) must parse — else `check_ident()` below is
+        // false and the body mis-dispatches to a newtype parse.
         self.cursor.skip_newlines();
 
         // Determine kind based on what follows
@@ -161,7 +160,7 @@ impl Parser<'_> {
     fn parse_sum_or_newtype(&mut self) -> Result<TypeDeclKind, ParseError> {
         let first_name = self.cursor.expect_ident()?;
         let first_span = self.cursor.previous_span();
-        // BUG-07-314: a bare first variant on its own line puts a newline
+        // a bare first variant on its own line puts a newline
         // between the variant name and its `|`/`(`; skip it so the sum-vs-newtype
         // disambiguation below still sees the continuation.
         self.cursor.skip_newlines();
@@ -200,8 +199,8 @@ impl Parser<'_> {
             let first_variant = self.make_variant(first_name, first_span)?;
             let mut variants = vec![first_variant];
 
-            // Continuation: `| variant` repeated. BUG-07-314: skip newlines
-            // before EACH pipe check so a variant on its own line is accepted.
+            // Continuation: `| variant` repeated — skip newlines before EACH
+            // pipe check so a variant on its own line is accepted.
             loop {
                 self.cursor.skip_newlines();
                 if !self.cursor.check(&TokenKind::Pipe) {

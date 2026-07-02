@@ -8,9 +8,9 @@ fn parse_module(source: &str) -> crate::ParseOutput {
     parser.parse_module()
 }
 
-/// Regression: BUG-07-314 (Plan-TPR codex-F1). A trait-method signature with
+/// Regression: BUG-07-314. A trait-method signature with
 /// params stacked one-per-line must parse — trait methods are one of
-/// `parse_params`' five shared call sites.
+/// `parse_params`' shared call sites.
 #[test]
 fn test_multiline_params_trait_method_parses_clean() {
     let output =

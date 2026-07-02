@@ -13,9 +13,7 @@ fn parse_module(source: &str) -> crate::ParseOutput {
 
 /// Regression: BUG-07-314. grammar.ebnf `sum_body = variant { "|" variant }`
 /// is newline-silent, so a sum type with a newline after `=` and each
-/// continuation variant on its own line (no leading pipe) must parse. Before
-/// the fix `parse_sum_or_newtype` called `expect_ident()` with no preceding
-/// `skip_newlines()` and this failed with E1001 at the `=` newline.
+/// continuation variant on its own line (no leading pipe) must parse.
 #[test]
 fn test_multiline_sum_no_leading_pipe_parses_clean() {
     let output = parse_module("type Event =\n    Click(x: int)\n    | KeyPress(key: char);");
@@ -32,8 +30,7 @@ fn test_multiline_sum_no_leading_pipe_parses_clean() {
 }
 
 /// Regression: BUG-07-314. A sum continuation variant on its own line puts a
-/// newline before the `|`; the `while check(Pipe)` loop must skip it. Before
-/// the fix the loop exited early and the trailing `| KeyPress` surfaced E1016.
+/// newline before the `|`; the `while check(Pipe)` loop must skip it.
 #[test]
 fn test_multiline_sum_continuation_on_own_line_parses_clean() {
     let output = parse_module("type Event = Click(x: int)\n    | KeyPress(key: char);");
@@ -49,7 +46,7 @@ fn test_multiline_sum_continuation_on_own_line_parses_clean() {
     }
 }
 
-/// Regression: BUG-07-314 (Plan-TPR agy-F1/opencode-F1). A BARE first variant
+/// Regression: BUG-07-314. A BARE first variant
 /// (no fields) on its own line before its continuation pipe forces the
 /// sum-vs-newtype disambiguation checks (`check(&Pipe)` / `check(&LParen)`) to
 /// run at a `Newline`; without a `skip_newlines()` there the type mis-parses as

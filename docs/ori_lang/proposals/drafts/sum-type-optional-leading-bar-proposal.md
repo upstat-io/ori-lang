@@ -1,7 +1,7 @@
 # Proposal: Optional Leading Bar in Sum Type Declarations
 
 **Status:** Draft
-**Author:** Eric (with AI assistance)
+**Author:** Eric
 **Created:** 2026-07-02
 **Affects:** grammar, Compiler (ori_parse, ori_fmt), spec (Clause 8 — Declarations)
 **Depends On:** none
@@ -10,17 +10,18 @@
 
 ## Summary
 
-Allow an optional leading `|` before the first variant of a sum type body, so
-`type E = | A | B | C` is accepted alongside today's `type E = A | B | C`. When a
-sum type is broken across multiple lines, `ori fmt` emits the leading `|` so every
-variant — including the first — sits in an aligned left gutter. Single-line sum
-types that fit within the width limit stay bare (`A | B | C`, no leading bar).
-This is a purely additive syntax relaxation: every program valid today stays valid
-and formats identically on one line.
+- Allow an optional leading `|` before the first variant of a sum type body, so
+  `type E = | A | B | C` is accepted alongside today's `type E = A | B | C`.
+- When a sum type is broken across multiple lines, `ori fmt` emits the leading `|`
+  so every variant — including the first — sits in an aligned left gutter.
+- Single-line sum types that fit within the width limit stay bare (`A | B | C`,
+  no leading bar).
+- Purely additive syntax relaxation: every program valid today stays valid and
+  formats identically on one line.
 
 ---
 
-## Motivation
+## Problem Statement
 
 Ori borrows the `|` variant separator from the ML family but its grammar currently
 treats `|` as a strict *separator* (`sum_body = variant { "|" variant }`), so the
@@ -38,11 +39,12 @@ type Event =
     | Resize(width: int, height: int);
 ```
 
-The first line breaks the visual rhythm — `Click` starts at the indent, the rest
-start after a `| `. Reordering variants, adding a variant at the top, or deleting the
-first variant all require editing TWO lines (the moved line AND the new-first line
-that must gain or lose its bar). With a leading gutter, every variant line is
-self-contained:
+- The first line breaks the visual rhythm — `Click` starts at the indent, the rest
+  start after a `| `.
+- Reordering variants, adding a variant at the top, or deleting the first variant
+  all require editing TWO lines (the moved line AND the new-first line that must
+  gain or lose its bar).
+- With a leading gutter, every variant line is self-contained:
 
 ```ori
 // Proposed: leading gutter — every variant line is identical in shape.
@@ -54,9 +56,9 @@ type Event =
 ```
 
 Now adding, removing, or reordering a variant is a single-line edit — the shape a
-formatter should optimize for, and the shape Ori's design principle #8 (dual
-optimization for humans and AI-generated code, "atomic line edits") explicitly
-targets (`missions.md §Ori` principle 8; `annex-d-formatting.md`).
+formatter should optimize for, and the shape Ori's design principle of dual
+optimization for humans and AI-generated code ("atomic line edits") explicitly
+targets (`annex-d-formatting.md`).
 
 ### When This Matters
 
@@ -83,7 +85,8 @@ targets (`missions.md §Ori` principle 8; `annex-d-formatting.md`).
 - No change to the single-line form: `type E = A | B | C` stays bare when it fits.
 - No leading bar for anything other than sum-type variant lists (not match
   or-patterns, not bitwise `|`, not `pre`/`post` contract message separators).
-- No configurability — `ori fmt` has one canonical shape (`missions.md §ori_fmt`).
+- No configurability — `ori fmt` has exactly one canonical output shape per
+  construct, with no user-facing formatting options.
   The leading gutter is the multi-line form, full stop.
 - No new semantics — the leading `|` is pure syntax; the produced sum type is
   identical to the bare form.
@@ -123,11 +126,12 @@ type E =                     // leading-gutter multi-line (canonical multi-line 
 
 ### Semantics
 
-The leading `|` is syntactic only. `[ "|" ] variant { "|" variant }` and
-`variant { "|" variant }` produce an identical `TypeDeclKind::Sum(variants)` — the
-leading bar consumes no variant and carries no meaning. There is no runtime, type,
-or ARC consequence; this proposal never reaches past the parser except through the
-formatter.
+- The leading `|` is syntactic only.
+- `[ "|" ] variant { "|" variant }` and `variant { "|" variant }` produce an
+  identical `TypeDeclKind::Sum(variants)` — the leading bar consumes no variant
+  and carries no meaning.
+- No runtime, type, or ARC consequence; this proposal never reaches past the
+  parser except through the formatter.
 
 ### Formatter rule (`ori_fmt`)
 
@@ -170,9 +174,9 @@ variant is a parse error (E1xxx), same class as a trailing/doubled separator.
   invites the exact bug TypeScript filed as
   [microsoft/TypeScript#30995](https://github.com/microsoft/TypeScript/issues/30995)
   — the leading `|` was initially excluded from the union AST node's span. Ori must
-  keep the sum-type declaration span covering the leading bar (per `impl-hygiene.md`
-  PHASE-19/PHASE-20 span propagation). This is a known, testable hazard, not an open
-  question.
+  keep the sum-type declaration span covering the leading bar — every lowering step
+  must propagate spans to its destination nodes, with no span-free IR nodes outside
+  compiler-generated code. This is a known, testable hazard, not an open question.
 - **Formatter behavior change on existing multi-line sum types.** Any committed
   `.ori` file with a multi-line sum type reformats (bare first variant → leading
   gutter) on the next `ori fmt`. This is a one-time formatting churn, not a semantic
@@ -207,12 +211,15 @@ keeps every variant line identical.
 
 ### Alternative 3: Make the leading bar mandatory multi-line, banned single-line
 
-Require the leading bar whenever multi-line and forbid it single-line. This is
-effectively the formatter rule already, but making the *grammar* mandate it (vs
-*accept* it optionally) would reject hand-written bare-first-variant multi-line
-input that `ori fmt` should simply normalize. Rejected: the grammar should be
-permissive (accept both), the formatter opinionated (emit one). Optional-in-grammar
-+ canonical-in-formatter is the same split Ori uses for trailing commas.
+- Require the leading bar whenever multi-line and forbid it single-line —
+  effectively the formatter rule already.
+- Making the *grammar* mandate it (vs *accept* it optionally) would reject
+  hand-written bare-first-variant multi-line input that `ori fmt` should simply
+  normalize.
+- Rejected: the grammar should be permissive (accept both), the formatter
+  opinionated (emit one).
+- Optional-in-grammar + canonical-in-formatter is the same split Ori uses for
+  trailing commas.
 
 ---
 
@@ -220,11 +227,14 @@ permissive (accept both), the formatter opinionated (emit one). Optional-in-gram
 
 **Can be pure Ori?** NO.
 
-**If not, why:** This is a syntax relaxation — it changes what the parser accepts
-(`grammar.ebnf` `sum_body`) and what the formatter emits (`ori_fmt`). New/relaxed
-syntax requires compiler support by definition (`proposals.md §Purity Principle`:
-"New syntax/keywords → requires compiler: YES"). No library construct can change the
-grammar.
+**If not, why:**
+
+- Syntax relaxation — it changes what the parser accepts (`grammar.ebnf`
+  `sum_body`) and what the formatter emits (`ori_fmt`).
+- New/relaxed syntax requires compiler support by definition — under Ori's
+  purity principle, new syntax or keywords always require compiler support,
+  never a pure-library implementation.
+- No library construct can change the grammar.
 
 **Missing features that would enable purity:** none applicable — grammar is not a
 library surface.
@@ -251,8 +261,7 @@ evaluator, ARC, codegen, or runtime surface is touched.
 
 ## Prior Art
 
-Verified against the intelligence graph's issue corpus (DISCOVERY, then confirmed
-against issue titles/state). Among languages that use `|` for sum/union types, the
+Surveyed across languages that use `|` for sum/union types, the
 leading-gutter form is the dominant formatter convention; several accept an optional
 leading bar in the grammar itself.
 

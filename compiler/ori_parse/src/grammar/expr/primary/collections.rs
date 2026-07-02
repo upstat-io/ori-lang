@@ -63,7 +63,7 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::Arrow) {
                 self.cursor.advance();
                 let ret_ty = self.try_parse_lambda_return_type();
-                self.cursor.skip_newlines(); // BUG-07-314: lambda body may follow `->`/`=` on the next line
+                self.cursor.skip_newlines(); // lambda body may follow `->`/`=` on the next line
                 let body = require!(self, self.parse_expr(), "lambda body");
                 let end_span = self.arena.get_expr(body).span;
                 return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
@@ -115,7 +115,7 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::Arrow) {
                 self.cursor.advance();
                 let params = committed!(self.exprs_to_params(&exprs));
-                self.cursor.skip_newlines(); // BUG-07-314: lambda body may follow `->` on the next line
+                self.cursor.skip_newlines(); // lambda body may follow `->` on the next line
                 let body = require!(self, self.parse_expr(), "lambda body");
                 let end_span = self.arena.get_expr(body).span;
                 return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
@@ -141,7 +141,7 @@ impl Parser<'_> {
         if self.cursor.check(&TokenKind::Arrow) {
             self.cursor.advance();
             let params = committed!(self.exprs_to_params(&[expr]));
-            self.cursor.skip_newlines(); // BUG-07-314: lambda body may follow `->` on the next line
+            self.cursor.skip_newlines(); // lambda body may follow `->` on the next line
             let body = require!(self, self.parse_expr(), "lambda body");
             let end_span = self.arena.get_expr(body).span;
             return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
@@ -192,7 +192,7 @@ impl Parser<'_> {
         // Spec: grammar.ebnf §lambda_tail.
         let ret_ty = self.try_parse_lambda_return_type();
 
-        self.cursor.skip_newlines(); // BUG-07-314: typed-lambda body may follow `=` on the next line
+        self.cursor.skip_newlines(); // typed-lambda body may follow `=` on the next line
         let body = require!(self, self.parse_expr(), "lambda body");
         let end_span = self.arena.get_expr(body).span;
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
