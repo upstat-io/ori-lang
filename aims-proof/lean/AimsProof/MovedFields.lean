@@ -5,15 +5,16 @@ burden-lowering moved-out-fields per-block lattice.
 
 Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
   rules: IA-MF1 (moved-out-fields INTERSECT-fixpoint bounded convergence) |
-  spec: arc.md §Fixpoint Convergence Obligations (IA-category — implementer-
-    internal, excluded from Annex E §AIMS per the sync-aims-spec label scope) |
+  spec: IA-category (implementer-internal analysis rule) — no Annex E §AIMS
+    clause; IA-MF1 is not part of the public algorithmic contract |
   .proof: aims-proof/proofs/04-transfers/IA-MF1-moved-fields-convergence.proof |
   map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
 
-Correspondence: `.claude/rules/arc.md §Fixpoint Convergence Obligations`
-(finite lattice height bounds the round count) + `.claude/rules/aims-rules.md`
-IA-MF1. IA-category (implementer-internal); no Annex E §AIMS anchor exists per
-the sync-aims-spec label scope.
+Correspondence: rule IA-MF1 governs the bounded MUST-move INTERSECT fixpoint
+convergence — a finite per-block lattice height bounds the round count.
+IA-category (implementer-internal); no Annex E §AIMS anchor. The governing
+source file, the `.proof` artifact, and the proof-lean map are cited in the
+evidence-tie above.
 
 Governs `compiler/ori_arc/src/lower/burden_lower/moved_fields/mod.rs`
 `propagate_moved_out_fields`: the forward INTERSECT-at-entry / union-with-local

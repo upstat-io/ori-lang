@@ -15,7 +15,7 @@ use rustc_hash::FxHashSet;
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 use crate::lower::burden_lower::BurdenLowerCtx;
 
-use super::{derived_convergence_cap, propagate_moved_out_fields};
+use super::dataflow::{derived_convergence_cap, propagate_moved_out_fields};
 
 /// The single owned aggregate var whose fields the tests move.
 fn var_a() -> ArcVarId {
@@ -105,18 +105,16 @@ fn move_field(ctx: &mut BurdenLowerCtx<'_>, block_idx: usize, field: u32) {
 fn propagate_moved_out_fields_nonconvergence_fires_release_active() {
     // A genuinely multi-round CFG (the loop needs >=2 rounds: block0 moves A.0,
     // block2 moves A.1) with the cap forced to 1 leaves `changed == true` at the
-    // cap. The release-active guard MUST fire (panic) — in a release build the
-    // former `debug_assert!` would be stripped and the non-converged state would
-    // proceed silently (the BUG-04-240 defect).
-    set_test_iteration_cap(Some(1));
+    // cap. The release-active guard MUST fire (panic). In a release build a
+    // release-stripped `debug_assert!` would let the non-converged state proceed
+    // silently, over-approximating the moved-set and suppressing an owed release.
     let func = loop_cfg();
     let mut ctx = BurdenLowerCtx::new(&func);
     move_field(&mut ctx, 0, 0);
     move_field(&mut ctx, 2, 1);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, Some(1));
     }));
-    set_test_iteration_cap(None);
     assert!(
         result.is_err(),
         "release-active convergence guard must fire (panic) when the moved-out-fields \
@@ -127,15 +125,13 @@ fn propagate_moved_out_fields_nonconvergence_fires_release_active() {
 // T3 — diagnostic quality: the guard names the cause + the cap (actionable).
 #[test]
 fn moved_out_fields_nonconvergence_diagnostic_actionable() {
-    set_test_iteration_cap(Some(1));
     let func = loop_cfg();
     let mut ctx = BurdenLowerCtx::new(&func);
     move_field(&mut ctx, 0, 0);
     move_field(&mut ctx, 2, 1);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, Some(1));
     }));
-    set_test_iteration_cap(None);
     let Err(payload) = result else {
         panic!("expected the convergence guard to fire");
     };
@@ -157,7 +153,6 @@ fn moved_out_fields_nonconvergence_diagnostic_actionable() {
 // T2 — positive convergence across {DAG, cyclic} × {single, multi}-field.
 #[test]
 fn propagate_moved_out_fields_normal_convergence_classifies() {
-    set_test_iteration_cap(None);
     let mut count = 0usize;
 
     // 1. DAG single-field.
@@ -165,7 +160,7 @@ fn propagate_moved_out_fields_normal_convergence_classifies() {
         let func = straight_line();
         let mut ctx = BurdenLowerCtx::new(&func);
         move_field(&mut ctx, 0, 0);
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, None);
         assert!(
             ctx.moved_fields_convergence
                 .is_some_and(|c| c.converged && c.rounds <= c.iteration_cap),
@@ -184,7 +179,7 @@ fn propagate_moved_out_fields_normal_convergence_classifies() {
         let mut ctx = BurdenLowerCtx::new(&func);
         move_field(&mut ctx, 0, 0);
         move_field(&mut ctx, 1, 1);
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, None);
         assert!(
             ctx.moved_fields_convergence.is_some_and(|c| c.converged),
             "DAG multi-field must converge",
@@ -196,29 +191,77 @@ fn propagate_moved_out_fields_normal_convergence_classifies() {
         );
         count += 1;
     }
-    // 3. cyclic single-field.
+    // 3. cyclic single-field. The moved field predates the loop header (moved
+    // in block0, which dominates every other block), so it stays
+    // definitely-moved across the back edge once the ⊤-seeded block2 exit is
+    // replaced by its real (round-1) value — pins that the back edge does not
+    // spuriously widen or narrow a field moved before the loop.
     {
         let func = loop_cfg();
         let mut ctx = BurdenLowerCtx::new(&func);
         move_field(&mut ctx, 0, 0);
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, None);
+        let convergence = ctx.moved_fields_convergence;
         assert!(
-            ctx.moved_fields_convergence.is_some_and(|c| c.converged),
+            convergence.is_some_and(|c| c.converged),
             "cyclic single-field must converge (no guard fire)",
         );
+        assert!(
+            convergence.is_some_and(|c| c.rounds >= 2),
+            "loop_cfg's back edge (block2 -> block1) requires >=2 rounds to \
+             stabilize the ⊤-seeded non-entry exits — a 1-round result would mean \
+             the back edge never actually re-fed block1's entry; got {convergence:?}",
+        );
+        for block_idx in 0..4 {
+            assert_eq!(
+                ctx.moved_out_fields_block_exit[block_idx].get(&var_a()),
+                Some(&fset(&[0])),
+                "field 0 (moved in block0, which dominates every block) must stay \
+                 definitely-moved at every block's exit, including across the \
+                 block2 -> block1 back edge; block {block_idx}",
+            );
+        }
         count += 1;
     }
-    // 4. cyclic multi-field.
+    // 4. cyclic multi-field. Field 0 moves before the loop header (block0);
+    // field 1 moves only INSIDE the loop body (block2), on the path that
+    // returns to the header via the back edge, never on the block0 -> block1
+    // forward edge. INTERSECT semantics (RL-2 MUST-move) require field 1 to
+    // stay OUT of the header's definitely-moved set even after the back edge
+    // stabilizes — pins that a loop-body-only move does not leak past the
+    // header via the back edge.
     {
         let func = loop_cfg();
         let mut ctx = BurdenLowerCtx::new(&func);
         move_field(&mut ctx, 0, 0);
         move_field(&mut ctx, 2, 1);
-        propagate_moved_out_fields(&mut ctx, &func);
+        propagate_moved_out_fields(&mut ctx, &func, None);
+        let convergence = ctx.moved_fields_convergence;
         assert!(
-            ctx.moved_fields_convergence.is_some_and(|c| c.converged),
+            convergence.is_some_and(|c| c.converged),
             "cyclic multi-field must converge (no guard fire)",
         );
+        assert!(
+            convergence.is_some_and(|c| c.rounds >= 2),
+            "loop_cfg's back edge (block2 -> block1) requires >=2 rounds to \
+             stabilize the ⊤-seeded non-entry exits; got {convergence:?}",
+        );
+        assert_eq!(
+            ctx.moved_out_fields_block_exit[2].get(&var_a()),
+            Some(&fset(&[0, 1])),
+            "block2 (the loop body, which locally moves field 1) accumulates \
+             both fields at its own exit",
+        );
+        for block_idx in [0, 1, 3] {
+            assert_eq!(
+                ctx.moved_out_fields_block_exit[block_idx].get(&var_a()),
+                Some(&fset(&[0])),
+                "field 1 (moved only inside the loop body, block2) must NOT be \
+                 definitely-moved at the header (block1), its forward predecessor \
+                 (block0), or the loop exit (block3) — INTERSECT drops a field \
+                 not moved on the block0 -> block1 forward edge; block {block_idx}",
+            );
+        }
         count += 1;
     }
 
@@ -232,15 +275,13 @@ fn propagate_moved_out_fields_normal_convergence_classifies() {
 // paths are definitely-moved at a merge.
 #[test]
 fn propagate_moved_out_fields_intersect_drops_one_sided_move() {
-    set_test_iteration_cap(None);
-
     // Disjoint fields: block1 moves A.0, block2 moves A.1. Neither field is
     // moved on BOTH paths, so A carries NO definitely-moved field at the merge.
     let func = diamond();
     let mut ctx = BurdenLowerCtx::new(&func);
     move_field(&mut ctx, 1, 0);
     move_field(&mut ctx, 2, 1);
-    propagate_moved_out_fields(&mut ctx, &func);
+    propagate_moved_out_fields(&mut ctx, &func, None);
     assert!(ctx.moved_fields_convergence.is_some_and(|c| c.converged));
     let merge = &ctx.moved_out_fields_block_exit[3];
     assert!(
@@ -254,7 +295,7 @@ fn propagate_moved_out_fields_intersect_drops_one_sided_move() {
     let mut ctx = BurdenLowerCtx::new(&func);
     move_field(&mut ctx, 1, 0);
     move_field(&mut ctx, 2, 0);
-    propagate_moved_out_fields(&mut ctx, &func);
+    propagate_moved_out_fields(&mut ctx, &func, None);
     assert_eq!(
         ctx.moved_out_fields_block_exit[3].get(&var_a()),
         Some(&fset(&[0])),
@@ -263,7 +304,7 @@ fn propagate_moved_out_fields_intersect_drops_one_sided_move() {
 }
 
 // Derived-cap regression: the cap is n_blocks * universe_pair_count + 2 (rule
-// IA-MF1), NOT the retired heuristic max(n*4, 64).
+// IA-MF1) — a derived lattice-height bound, not a heuristic.
 #[test]
 fn derived_convergence_cap_matches_lattice_height_plus_margin() {
     assert_eq!(derived_convergence_cap(4, 2), 4 * 2 + 2);

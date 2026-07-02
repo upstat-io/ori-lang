@@ -3,7 +3,7 @@ Theorem IA-MF1: Moved-out-fields INTERSECT-fixpoint bounded convergence
   Preconditions:
     - Function F with blocks B_0 .. B_{n-1}; n = |blocks|.
     - The Phase-5 burden-lowering moved-out-fields forward dataflow per
-      compiler/ori_arc/src/lower/burden_lower/moved_fields.rs
+      compiler/ori_arc/src/lower/burden_lower/moved_fields/mod.rs
       `propagate_moved_out_fields`: per-block maps
         block_entry[b] : ArcVarId -> set of moved field indices
         block_exit[b]  : ArcVarId -> set of moved field indices
@@ -57,8 +57,8 @@ Theorem IA-MF1: Moved-out-fields INTERSECT-fixpoint bounded convergence
       MF1_fixpoint_persists        (P3)
       MF1_no_change_at_derived_cap (P3 — the load-bearing theorem)
       MF1_lattice_height_realizable(P4)
-    The compiled Lean is the authoritative calculus (arc.md §CP-1); this .proof
-    is the human-readable companion (arc.md §Realization-semantics grounding).
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
 
     Engines dispatched:
       structural_induction (PRIMARY — induction on the remaining size budget)

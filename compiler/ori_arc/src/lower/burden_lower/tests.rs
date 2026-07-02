@@ -3385,6 +3385,117 @@ fn match_branches_with_symmetric_partial_move_intersect_emits_burden_dec_partial
     }
 }
 
+/// Unreachable-block negative pin for the moved-out-fields union step.
+///
+/// `moved_out_fields_union` MUST hold only fields moved on a forward-
+/// REACHABLE CFG path from `func.entry` (`moved_fields/mod.rs` Pass 3 union
+/// doc). A block no terminator anywhere targets is forward-UNREACHABLE —
+/// `compute_postorder` never visits it, so its `moved_out_fields_block_exit`
+/// entry stays stuck at the Pass-3 ⊤ (universe) seed: every `(var, field)`
+/// pair named ANYWHERE in the function's `block_local` universe, not just
+/// fields the block itself moves. Folding that stuck-⊤ exit into the union
+/// unfiltered would wrongly mark a field as "moved" purely because dead code
+/// projects it, narrowing `compute_partial_move_vars`'s `skip_fields` on the
+/// REAL execution path and leaking the field's release on every run.
+///
+/// # IR shape
+///
+/// Two blocks; block 1 has no predecessor (unreachable):
+/// - block 0 (entry, REACHABLE): borrows field 1 only (`Project`), then
+///   `Unreachable` — field 0 is NEVER moved on the only real execution path.
+/// - block 1 (dead code, nothing jumps here): `Project`s field 0 then
+///   `Construct`s a tuple from it — moves field 0, but only in code that
+///   never runs.
+///
+/// # Expected outcome
+///
+/// `moved_out_fields_union[var(0)]` is EMPTY, so `compute_partial_move_vars`
+/// excludes `var(0)` entirely and the conservative full
+/// `BurdenDec { var: var(0) }` fires at its real last use in block 0,
+/// releasing both fields. A `BurdenDecPartial` skipping field 0 here would
+/// leak the "data" str on every real execution.
+///
+/// Spec: Annex E §AIMS RL-2 ("moved on any reachable CFG path" — the
+/// documented contract this pin holds the union step to).
+#[test]
+fn unreachable_block_move_does_not_suppress_reachable_path_release() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let mut registry = TypeRegistry::new();
+    let struct_idx = Idx::from_raw(64);
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_idx,
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![struct_idx, Idx::STR, Idx::STR, Idx::STR],
+        blocks: vec![
+            // Block 0 (entry, REACHABLE): borrow field 1 only. var(0)'s
+            // moved_out_fields on the reachable path stays EMPTY.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Project {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::STR,
+                    value: ArcVarId::new(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+            // Block 1 (UNREACHABLE — no terminator anywhere targets id 1):
+            // moves field 0 out via Project + Construct in dead code.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![
+                    project_first(ArcVarId::new(2), Idx::STR, ArcVarId::new(0)),
+                    ArcInstr::Construct {
+                        dst: ArcVarId::new(3),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Tuple,
+                        args: vec![ArcVarId::new(2)],
+                    },
+                ],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+
+    let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+
+    let body = &func.blocks[0].body;
+    let full_decs: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDec { var } if *var == ArcVarId::new(0)))
+        .collect();
+    assert_eq!(
+        full_decs.len(),
+        1,
+        "var(0) MUST receive exactly one conservative BurdenDec at its real \
+         last use in block 0 — field 0 is only 'moved' in unreachable dead \
+         code (block 1), never on the real execution path; got {full_decs:?}; body={body:?}",
+    );
+
+    let partial_decs: Vec<&ArcInstr> = body
+        .iter()
+        .filter(|i| matches!(i, ArcInstr::BurdenDecPartial { var, .. } if *var == ArcVarId::new(0)))
+        .collect();
+    assert!(
+        partial_decs.is_empty(),
+        "var(0) MUST NOT receive a BurdenDecPartial skipping field 0 — that \
+         field is moved ONLY inside the unreachable block 1, which never \
+         executes; skipping its release on the reachable path would leak \
+         the 'data' str on every real run; got {partial_decs:?}; body={body:?}",
+    );
+}
+
 /// Loop-entry positive pin for the INTERSECT-merge fixpoint path.
 ///
 /// Exercises bounded fixpoint iteration over a CFG with a back edge. Pre-

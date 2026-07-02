@@ -11,7 +11,8 @@ use crate::lower::burden::BurdenRef;
 /// stable state (`changed == false`) within the cap. Test-observation only —
 /// the production guard reads the local `changed` flag directly; this record
 /// exists solely for convergence-guard tests. Governed by AIMS rule IA-MF1
-/// (Spec: Annex E §AIMS fail-closed convergence).
+/// (implementer-internal; the compiled Lean is the authority, no Annex E
+/// anchor).
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct MovedFieldsConvergence {
