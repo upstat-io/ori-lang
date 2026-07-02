@@ -5,6 +5,21 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::ir::{ArcFunction, ArcVarId};
 use crate::lower::burden::BurdenRef;
 
+/// Structured record of the moved-out-fields INTERSECT fixpoint's convergence
+/// outcome (`propagate_moved_out_fields`). Carries the observed round count and
+/// the DERIVED iteration cap. `converged` is `true` iff the fixpoint reached a
+/// stable state (`changed == false`) within the cap. Test-observation only —
+/// the production guard reads the local `changed` flag directly; this record
+/// exists solely for convergence-guard tests. Governed by AIMS rule IA-MF1
+/// (Spec: Annex E §AIMS fail-closed convergence).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct MovedFieldsConvergence {
+    pub(super) rounds: usize,
+    pub(super) iteration_cap: usize,
+    pub(super) converged: bool,
+}
+
 /// Per-instruction context accumulated by the emission walker.
 ///
 /// Two storage axes (per-var and per-instruction transfer-point lookups
@@ -48,17 +63,14 @@ pub(crate) struct BurdenLowerCtx<'a> {
     /// across all reachable CFG paths from definition to last use — exactly
     /// the exit-state union).
     pub(super) moved_out_fields_union: FxHashMap<ArcVarId, FxHashSet<u32>>,
+    /// Convergence outcome of the Pass-3 moved-out-fields INTERSECT fixpoint
+    /// (`propagate_moved_out_fields`), recorded for convergence-guard tests.
+    /// `None` until Pass 3 runs. Test-observation only. Per AIMS rule IA-MF1.
+    #[cfg(test)]
+    pub(super) moved_fields_convergence: Option<MovedFieldsConvergence>,
 }
 
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "accessors consumed by tests only; the production pipeline walk \
-                  reads the fields directly"
-    )
-)]
-impl<'a> BurdenLowerCtx<'a> {
+impl BurdenLowerCtx<'_> {
     /// Construct a fresh `BurdenLowerCtx` sized for `func`'s block count.
     /// All three per-block maps (`moved_out_fields_block_local`,
     /// `moved_out_fields_block_entry`, `moved_out_fields_block_exit`) are
@@ -77,9 +89,25 @@ impl<'a> BurdenLowerCtx<'a> {
             moved_out_fields_block_entry: vec![FxHashMap::default(); n],
             moved_out_fields_block_exit: vec![FxHashMap::default(); n],
             moved_out_fields_union: FxHashMap::default(),
+            #[cfg(test)]
+            moved_fields_convergence: None,
         }
     }
 
+    /// Read-only access to per-block last-use positions: `(var, block_idx,
+    /// instr_idx)`. `BurdenDec(v)` emits immediately following EVERY last-use
+    /// of `v` along every reachable CFG path; cross-block liveness flows via
+    /// block-param handoffs.
+    pub(crate) fn last_use_points(&self) -> &[(ArcVarId, usize, usize)] {
+        &self.last_use_points
+    }
+}
+
+/// Test-only read accessors. The production pipeline walk reads these fields
+/// directly (`ctx.collected` / `ctx.transfer_points` / `ctx.moved_out_fields_union`);
+/// these accessors serve only convergence + ownership-scan tests.
+#[cfg(test)]
+impl<'a> BurdenLowerCtx<'a> {
     /// Read-only access to the accumulated `(var, burden lookup)` pairs.
     pub(crate) fn collected_burdens(&self) -> &[(ArcVarId, Option<BurdenRef<'a>>)] {
         &self.collected
@@ -91,14 +119,6 @@ impl<'a> BurdenLowerCtx<'a> {
     /// positions.
     pub(crate) fn transfer_points(&self) -> &[(ArcVarId, Option<BurdenRef<'a>>)] {
         &self.transfer_points
-    }
-
-    /// Read-only access to per-block last-use positions: `(var, block_idx,
-    /// instr_idx)`. `BurdenDec(v)` emits immediately following EVERY last-use
-    /// of `v` along every reachable CFG path; cross-block liveness flows via
-    /// block-param handoffs.
-    pub(crate) fn last_use_points(&self) -> &[(ArcVarId, usize, usize)] {
-        &self.last_use_points
     }
 
     /// Read-only access to the moved-field bitset map (union-of-exit-states

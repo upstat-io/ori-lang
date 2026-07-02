@@ -591,6 +591,18 @@
       "note": ""
     },
     {
+      "proof_id": "IA-MF1",
+      "proof_path": "proofs/04-transfers/IA-MF1-moved-fields-convergence.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.MovedFields",
+      "lean_theorem": "MF1_no_change_at_derived_cap",
+      "parity_tokens": [
+        "iterate",
+        "bound"
+      ],
+      "note": ""
+    },
+    {
       "proof_id": "TF-1",
       "proof_path": "proofs/04-transfers/TF-1.proof",
       "kind": "doc_encoded",

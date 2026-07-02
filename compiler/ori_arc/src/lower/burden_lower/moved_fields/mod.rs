@@ -15,6 +15,8 @@ use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use crate::lower::burden::{Burden, TypeRef};
 use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
+#[cfg(test)]
+use super::ctx::MovedFieldsConvergence;
 use super::{instr_transfer_vars, BurdenLowerCtx};
 
 /// Populate `ctx.moved_out_fields_{block_local,block_entry,block_exit}` per the
@@ -50,11 +52,14 @@ use super::{instr_transfer_vars, BurdenLowerCtx};
 ///     each `(var, fields)` pair, merge field sets via set union).
 ///
 /// Bounded fixpoint via worklist iteration to handle CFG back edges
-/// (loops) — monotonicity of `∪` over a finite field-index set
-/// (`burden.owned_fields()` is bounded by the struct's declared field
-/// count, ≤ 256 in practice) guarantees termination in `O(N_BLOCKS *
-/// MAX_FIELDS)` steps. Defensive iteration cap: `max(N_BLOCKS, 64) * 4`
-/// rounds per `Spec: Annex E §AIMS IC-7` convergence-bound pattern.
+/// (loops) — the analysis is monotone-DESCENDING from the ⊤ (universe)
+/// seed, so the termination measure `Σ_b |exit[b]|` (bounded by
+/// `n_blocks * universe_pair_count`) strictly shrinks each non-fixpoint
+/// round, guaranteeing termination. DERIVED iteration cap
+/// `n_blocks * universe_pair_count + 2` per AIMS rule IA-MF1 (proven by
+/// `AimsProof.MovedFields::MF1_no_change_at_derived_cap`); non-convergence
+/// within the cap fires a RELEASE-ACTIVE fail-closed guard (Spec: Annex E
+/// §AIMS).
 ///
 /// When E2043 typeck rejection guarantees equal predecessor exit sets the
 /// INTERSECT degenerates to pick-any; INTERSECT remains the correct merge —
@@ -140,7 +145,7 @@ pub(super) fn populate_moved_out_fields(
     }
 
     // Pass 3: forward dataflow with INTERSECT-at-entry merge.
-    propagate_moved_out_fields(ctx, func);
+    propagate_moved_out_fields(ctx, func, None);
 
     // Union step: rebuild the flat view from block_exit storage. Each
     // var's union is the set of fields moved on ANY reachable CFG path
@@ -183,7 +188,17 @@ pub(super) fn populate_moved_out_fields(
 /// emitting `BurdenDecPartial` with a field skipped only because ONE
 /// of N predecessors moved it would be a use-after-free if the run-time
 /// execution took a different predecessor.
-fn propagate_moved_out_fields(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) {
+/// `cap_override` forces the convergence cap in place of the derived
+/// `derived_convergence_cap(n, universe_pair_count)`. Production always passes
+/// `None` (the derived cap). Convergence-guard tests pass `Some(forced)` to
+/// drive `changed == true` at the cap on a genuinely multi-round CFG so the
+/// release-active guard fires on the real path (DESIGN-08 seam; the guard is
+/// otherwise theorem-unreachable per IA-MF1).
+fn propagate_moved_out_fields(
+    ctx: &mut BurdenLowerCtx<'_>,
+    func: &ArcFunction,
+    cap_override: Option<usize>,
+) {
     let n = func.blocks.len();
     if n == 0 {
         return;
@@ -220,13 +235,19 @@ fn propagate_moved_out_fields(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) 
     let mut rpo = compute_postorder(func);
     rpo.reverse();
 
-    // Defensive iteration cap per `Spec: Annex E §AIMS IC-7`
-    // convergence-bound pattern. Each round MAY shrink (or grow once at
-    // most, on the first non-⊤ pass through a block) one (var, field)
-    // pair per block; lattice height is bounded by `n_blocks *
-    // max_fields_per_struct`. Practical cap is `max(N_BLOCKS, 64) * 4`
-    // — far above any realistic loop-fixpoint depth.
-    let iteration_cap = n.saturating_mul(4).max(64);
+    // DERIVED convergence cap per AIMS rule IA-MF1 (Spec: Annex E §AIMS
+    // fail-closed convergence). The termination measure `Σ_b |exit[b]|` is
+    // bounded by `n_blocks * universe_pair_count` (n exit slots, each a subset
+    // of the universe of size `universe_pair_count`) and strictly shrinks on
+    // every non-fixpoint round (INTERSECT + ∪ are monotone from the ⊤ seed, so
+    // every `changed` round removes ≥1 pair from some exit set), so the fixpoint
+    // is reached within `n_blocks * universe_pair_count + 1` rounds; the cap
+    // adds one round of margin. Proven bounded by
+    // `AimsProof.MovedFields::MF1_no_change_at_derived_cap`, which makes the
+    // release-active guard below unreachable on valid input. NOT a heuristic.
+    let universe_pair_count: usize = universe.values().map(FxHashSet::len).sum();
+    let iteration_cap =
+        cap_override.unwrap_or_else(|| derived_convergence_cap(n, universe_pair_count));
     let mut changed = true;
     let mut rounds = 0usize;
     while changed && rounds < iteration_cap {
@@ -253,11 +274,59 @@ fn propagate_moved_out_fields(ctx: &mut BurdenLowerCtx<'_>, func: &ArcFunction) 
         }
     }
 
-    debug_assert!(
+    // Record the structured convergence outcome (round count + derived cap) for
+    // convergence-guard tests before the guard fires (AIMS rule IA-MF1). The
+    // production guard reads the local `changed` flag directly; this record is
+    // test-observation only.
+    #[cfg(test)]
+    {
+        ctx.moved_fields_convergence = Some(MovedFieldsConvergence {
+            rounds,
+            iteration_cap,
+            converged: !changed,
+        });
+    }
+
+    // RELEASE-ACTIVE fail-closed convergence guard (a plain `assert!`, NOT a
+    // release-stripped `debug_assert!`). The moved-out-fields INTERSECT fixpoint
+    // is monotone-descending over a finite lattice, proven to converge within
+    // the derived cap by `AimsProof.MovedFields::MF1_no_change_at_derived_cap`
+    // (rule IA-MF1), so `changed == true` here is UNREACHABLE on valid input —
+    // it signals a compiler bug or a malformed `ArcFunction`, never user error.
+    // Firing it is correct fail-closed behavior: a non-converged over-
+    // approximated moved-set would suppress an owed `BurdenDec` / narrow a
+    // `BurdenDecPartial.skip_fields` (Spec: Annex E §AIMS RL-2) and silently
+    // leak. Deliberately NOT routed through the `verify`/`debug_assertions`-
+    // gated `run_verify` / `run_burden_balance` surfaces — this guard must fire
+    // on the real path in a release build. Spec: Annex E §AIMS.
+    assert!(
         !changed,
-        "moved_out_fields fixpoint failed to converge in {iteration_cap} rounds — lattice height should be O(n_blocks * max_fields_per_struct)",
+        "AIMS moved-out-fields INTERSECT fixpoint (rule IA-MF1) failed to converge in \
+         {iteration_cap} rounds (n_blocks={n}, universe_pairs={universe_pair_count}); the \
+         fixpoint is proven to converge within the derived cap \
+         (AimsProof.MovedFields::MF1_no_change_at_derived_cap), so this is a compiler bug \
+         or a malformed ArcFunction, not user error — please report it. \
+         Spec: Annex E §AIMS (fail-closed convergence).",
     );
 }
+
+/// Derived convergence cap for the moved-out-fields INTERSECT fixpoint per AIMS
+/// rule IA-MF1: `n_blocks * universe_pair_count + 2`. `universe_pair_count` =
+/// distinct `(project_src, field)` pairs in the block-local universe (the
+/// exit-lattice per-slot height). The termination measure `Σ_b |exit[b]|` is
+/// bounded by `n_blocks * universe_pair_count` and strictly shrinks each
+/// non-fixpoint round, so the fixpoint is reached within that bound + 1; the
+/// trailing +1 is round-margin. Proven by
+/// `AimsProof.MovedFields::MF1_no_change_at_derived_cap`. Saturating to avoid
+/// overflow on pathological inputs.
+fn derived_convergence_cap(n_blocks: usize, universe_pair_count: usize) -> usize {
+    n_blocks
+        .saturating_mul(universe_pair_count)
+        .saturating_add(2)
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Compute the universe of `(project_src, field)` pairs that appear in
 /// ANY block-local moved-field map. This is the lattice top ⊤ for the

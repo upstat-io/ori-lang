@@ -189,6 +189,9 @@ THEOREM_MAP.update({
     "CN-2": ("Canonicalization", "CN1_dead_absent", ["consumption", "cardinality"]),
     # CN-6 composition reconciliation lemma under the CN-6 body.
     "CN-6-Extraction-Reconciliation": ("Canonicalization", "CN6_wide_locality_uniqueness_ceiling", ["Locality", "Uniqueness"]),
+    # MF-1 moved-out-fields INTERSECT-fixpoint bounded convergence — the
+    # load-bearing no-change-at-derived-cap theorem (reuses IC7 abstract lemma).
+    "IA-MF1": ("MovedFields", "MF1_no_change_at_derived_cap", ["iterate", "bound"]),
 })
 
 COMPOSITION_FOLDED = {

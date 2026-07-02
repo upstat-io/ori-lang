@@ -7,6 +7,7 @@ import AimsProof.Canonicalization
 import AimsProof.Transfer
 import AimsProof.Decision
 import AimsProof.Interprocedural
+import AimsProof.MovedFields
 import AimsProof.Pipeline
 import AimsProof.Realization
 import AimsProof.Verification

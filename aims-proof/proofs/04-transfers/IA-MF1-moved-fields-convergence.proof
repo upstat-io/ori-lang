@@ -1,0 +1,70 @@
+Theorem IA-MF1: Moved-out-fields INTERSECT-fixpoint bounded convergence
+
+  Preconditions:
+    - Function F with blocks B_0 .. B_{n-1}; n = |blocks|.
+    - The Phase-5 burden-lowering moved-out-fields forward dataflow per
+      compiler/ori_arc/src/lower/burden_lower/moved_fields.rs
+      `propagate_moved_out_fields`: per-block maps
+        block_entry[b] : ArcVarId -> set of moved field indices
+        block_exit[b]  : ArcVarId -> set of moved field indices
+      with the transfer
+        entry(B) := INTERSECT over P in preds(B) of exit(P)   (empty for entry)
+        exit(B)  := entry(B) UNION block_local(B)             (block_local fixed)
+    - Non-entry blocks are seeded exit(B) := UNIVERSE (the lattice top), where
+      UNIVERSE = the set of all (project_src, field) pairs that appear in ANY
+      block_local. universe_pair_count = |UNIVERSE|.
+    - Standard MUST/INTERSECT dataflow seeding (Kildall 1973; Aho/Lam/Sethi/
+      Ullman ch. 9.3): the exit sets descend monotonically from UNIVERSE toward
+      the fixpoint; block_local is constant across rounds.
+
+  Soundness property:
+    The round-robin sweep converges to a fixpoint (the round's `changed` flag is
+    false) within a DERIVED iteration cap
+      derived_cap = n * universe_pair_count + 2
+    Termination measure = size(state) := sum over blocks of |exit[b]|, bounded
+    by n * universe_pair_count (n exit slots, each a subset of UNIVERSE of size
+    universe_pair_count). Every non-fixpoint round strictly shrinks size: a
+    `changed` round strictly removes at least one pair from some exit set
+    (INTERSECT + UNION are monotone from the top seed, and an entry-only change
+    is always caused by an exit shrink earlier in the same RPO sweep). Fixpoint
+    is reached within n * universe_pair_count + 1 rounds (the proven bound); the
+    trailing +1 is round-margin. Consequently a release-active guard aborting on
+    `changed == true` at derived_cap is UNREACHABLE on valid input — only a
+    compiler bug or synthetic non-converging input trips it (crash-safety Q3):
+    the derived cap is proven, not heuristic.
+
+  Proof obligation:
+    (P1) Monotone descent. Each non-fixpoint round strictly removes at least one
+         (var, field) pair from some block's exit set: INTERSECT and UNION are
+         monotone, exits are top-seeded, so any change is a strict shrink. The
+         global size measure size(state) := sum over blocks of |exit[b]| is
+         bounded by n * universe_pair_count and strictly decreases each
+         non-fixpoint round.
+    (P2) Bounded convergence. A step with a Nat size bounded by `bound` that at
+         each point is a fixpoint OR strictly shrinks size reaches a fixpoint
+         within bound + 1 iterations (complement-measure `bound - size` +
+         AimsProof.IC7_bounded_monotone_converges). derived_cap = bound + 2
+         dominates the proven bound + 1 by one round of margin.
+    (P3) Fixpoint persistence + no-change-at-cap. A reached fixpoint persists
+         under further iteration; at derived_cap the round observes no change.
+    (P4) Lattice-height realizability. bound = n * universe_pair_count is a real
+         fact of the per-block-subset model: the sum of n slot sizes each
+         <= universe_pair_count is <= n * universe_pair_count.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/MovedFields.lean:
+      MF1_descending_converges     (P1 + P2, via IC7_bounded_monotone_converges)
+      MF1_fixpoint_persists        (P3)
+      MF1_no_change_at_derived_cap (P3 — the load-bearing theorem)
+      MF1_lattice_height_realizable(P4)
+    The compiled Lean is the authoritative calculus (arc.md §CP-1); this .proof
+    is the human-readable companion (arc.md §Realization-semantics grounding).
+
+    Engines dispatched:
+      structural_induction (PRIMARY — induction on the remaining size budget)
+      fixpoint (bounded monotone descent to a fixpoint within the derived cap)
+      case_analysis (fixpoint-round vs strict-shrink dichotomy)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IA-category convergence shape; the bespoke Rust checker's IA engines (structural_induction / fixpoint) are scaffold stubs (coverage-manifest.json IA expected_outcome = unimplemented_engine_shape). The authoritative machine-check is the compiled Lean AimsProof.MovedFields (lake build clean): MF1_no_change_at_derived_cap discharges no-change-at-derived-cap via MF1_descending_converges (reusing IC7_bounded_monotone_converges) + MF1_fixpoint_persists, with MF1_lattice_height_realizable grounding bound = n_blocks * universe_pair_count.
