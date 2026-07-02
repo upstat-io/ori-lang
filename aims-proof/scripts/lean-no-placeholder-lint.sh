@@ -2,8 +2,12 @@
 #
 # lean-no-placeholder-lint.sh — Lean proof no-placeholder gate.
 #
-# Greps every .lean under aims-proof/ for banned proof-escape hatches that let
-# a non-proof masquerade as a discharged theorem:
+# Greps every committed .lean under aims-proof/ for banned proof-escape hatches
+# that let a non-proof masquerade as a discharged theorem. The scratch/
+# exploration zone is excluded: scratch Lean is throwaway experimentation, never
+# committed corpus, so its design-vocabulary prose ("no sorry/admit") is not a
+# placeholder-tactic hit.
+# Banned:
 #   - \bsorry\b
 #   - \badmit\b
 #   - ": True := by trivial"   (vacuous-True theorem body)
@@ -15,7 +19,7 @@
 #   1 — at least one banned hit (emits lean_placeholder_found), each cited file:line.
 #
 # Cwd contract: anchors to aims-proof/ (this script's parent dir's parent),
-# then scans every .lean under aims-proof/.
+# then scans every committed .lean under aims-proof/ (scratch/ excluded).
 
 set -u
 
@@ -43,7 +47,7 @@ while IFS= read -r lean_file; do
             hits+=("${rel}:${lineno}: ${text}")
         done < <(grep -nE "$pat" "$lean_file" 2>/dev/null || true)
     done
-done < <(find "$AIMS_PROOF_DIR" -name '*.lean' | sort)
+done < <(find "$AIMS_PROOF_DIR" -name '*.lean' -not -path '*/scratch/*' | sort)
 
 if [[ ${#hits[@]} -gt 0 ]]; then
     echo "lean-no-placeholder-lint: lean_placeholder_found — ${#hits[@]} banned hit(s):" >&2

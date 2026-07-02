@@ -1041,8 +1041,8 @@ fn value_heap_mixed_variant_emits_dec_only_for_heap_field() {
             id: ArcBlockId::new(0),
             params: Vec::new(),
             // Pure borrow of the heap field (Project = Borrowed per TF-4, NOT a
-            // move — moved_fields.rs only sets the moved-out bit when the
-            // project dst is transferred). var(1) is unused; this is the
+            // move — the moved_fields cluster only sets the moved-out bit when
+            // the project dst is transferred). var(1) is unused; this is the
             // last use of var(0), so its whole-var dec fires here. var(0) is
             // NOT moved out (nothing transfers field 1 onward).
             body: vec![ArcInstr::Project {
@@ -2439,6 +2439,48 @@ fn project_then_set_value_sets_moved_out_fields_bit_via_tf15_carve_out() {
     assert!(
         fields.contains(&0u32),
         "moved_out_fields[%0] MUST contain field 0 (TF-15 Set-value carve-out fires the two-stage rule despite is_owned_position _ => false); got {fields:?}",
+    );
+}
+
+#[test]
+fn project_then_return_sets_moved_out_fields_bit_via_terminator_transfer() {
+    // positive pin (terminator-transfer call site of the two-stage rule):
+    // `%1 = Project %0.0` followed directly by `Return { value: %1 }` (no
+    // intervening Construct/Set) MUST set bit `0` on `%0` in
+    // `moved_out_fields`. Pass 1 collects (%1 → (%0, 0)); Pass 2's
+    // terminator-transfer walk (`compute_terminator_transfer_per_block`'s
+    // `Return.value` arm) feeds %1 into `record_moved_field` via the
+    // `terminator_transfer_per_block` call site.
+    let registry = TypeRegistry::new();
+    let mut func = ArcFunction {
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR, // %0: owned aggregate (use str for non-scalar burden)
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![Idx::STR, Idx::STR],
+        blocks: vec![entry_block(
+            vec![project_first(ArcVarId::new(1), Idx::STR, ArcVarId::new(0))],
+            ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        )],
+        entry: ArcBlockId::new(0),
+        name: Name::from_raw(0),
+        ..ArcFunction::default()
+    };
+    let ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
+    let fields = ctx
+        .moved_out_fields()
+        .get(&ArcVarId::new(0))
+        .unwrap_or_else(|| {
+            panic!(
+                "moved_out_fields MUST contain entry for %0 after Project → Return terminator-transfer consumption"
+            )
+        });
+    assert!(
+        fields.contains(&0u32),
+        "moved_out_fields[%0] MUST contain field 0 (two-stage rule via the terminator-transfer call site: Project → Return.value, no intervening Construct/Set); got {fields:?}",
     );
 }
 

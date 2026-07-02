@@ -63,6 +63,60 @@ fn probe_move_alias_chain_str() {
     assert_burden_path_self_sufficient(src, "move_alias_chain_str");
 }
 
+/// Negative pin (the matrix-clamping counterpart of
+/// `probe_move_alias_chain_str`): `ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1`
+/// restores the RL-1 duplication classification for a `Let { Var(src) }` alias
+/// of a `transfers_through_return` param — a spurious last-use dec fires on an
+/// alias of the moved-through allocation before the final `Return`, double-
+/// freeing it. The move-alias chain must include a borrow-read (`a.length()`)
+/// so the base walk actually has a duplication classification to restore; a
+/// pure move-through chain with no read emits zero burden ops either way.
+/// Spec: Annex E §AIMS RL-1 + RL-34 + RL-2.
+#[test]
+fn probe_move_alias_chain_str_forwarder_dedup_disabled_double_frees_negative() {
+    use crate::util::compile_and_run_with_build_env;
+    let src = r#"
+@id_chain (s: str) -> str = {
+    let a = s;
+    let n = a.length();
+    let b = a;
+    let c = b;
+    c
+}
+
+@main () -> int = {
+    let r = id_chain(s: "this is a very long string well past the sso inline threshold");
+    print(msg: r);
+    0
+}
+"#;
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: burden-sole probe, forwarder-identity alias dedup intact.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with forwarder-identity alias dedup intact must run \
+         clean (no leak, no double-free)\nstderr:\n{control_stderr}"
+    );
+
+    // Forced: dedup disabled — the alias reverts to a duplication classification
+    // and emits a spurious pre-Return dec on the moved-through allocation.
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "disabling forwarder-identity alias dedup must double-free the moved-\
+         through allocation (exit != 0) — proves the positive pin actively \
+         catches the over-release regression\nstderr:\n{forced_stderr}"
+    );
+}
+
 #[test]
 fn probe_dup_alias_live_source_str() {
     // Duplication: a Let-Var alias whose SOURCE stays live afterward — RL-1
@@ -82,6 +136,65 @@ fn probe_dup_alias_live_source_str() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "dup_alias_live_source_str");
+}
+
+/// Negative pin (the matrix-clamping counterpart of
+/// `probe_dup_alias_live_source_str`): `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1`
+/// restores the decoupled per-var DP-2/DP-3 elision for a genuine RL-1
+/// duplication pair — the alias's store-site inc gets elided independently of
+/// its dec, releasing a reference the container's own drop still expects,
+/// double-freeing the shared allocation. The base positive pin's pure
+/// borrow-read shape (`a.length()` / `s.length()`) never emits a store-site
+/// inc/dec pair, so the negative pin uses a store-into-struct shape
+/// (`Holder { kept: a }`) — matching the pair-coupling gate's genuine-
+/// duplication trigger while the source (`s`) stays live past the store, per
+/// the same mechanism the positive pin's family exists to protect. Spec: Annex
+/// E §AIMS RL-1 + RL-2.
+#[test]
+fn probe_dup_alias_store_into_struct_pair_coupling_disabled_double_frees_negative() {
+    use crate::util::compile_and_run_with_build_env;
+    let src = r#"
+type Holder = { kept: str }
+
+@stash_and_return (s: str) -> int = {
+    let a = s;
+    let h = Holder { kept: a };
+    let n = s.length();
+    n + h.kept.length()
+}
+
+@main () -> int = {
+    let n = stash_and_return(s: "this is a very long string well past the sso inline threshold here now");
+    print(msg: `{n}`);
+    0
+}
+"#;
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: burden-sole probe, genuine-duplication pair coupling intact.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with genuine-duplication pair coupling intact must \
+         run clean (no leak, no double-free)\nstderr:\n{control_stderr}"
+    );
+
+    // Forced: pair coupling disabled — the store-site inc/dec split
+    // independently, over-releasing the shared allocation.
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "disabling genuine-duplication pair coupling must double-free the \
+         stored-then-returned-source allocation (exit != 0) — proves the \
+         positive pin actively catches the over-release regression\n\
+         stderr:\n{forced_stderr}"
+    );
 }
 
 // Burden-path self-sufficiency for collection types: the AOT + JIT compile
@@ -182,6 +295,57 @@ fn probe_closure_capture_last_use_str() {
     assert_burden_path_self_sufficient(src, "closure_capture_last_use_str");
 }
 
+/// Negative pin (the matrix-clamping counterpart of
+/// `probe_closure_capture_last_use_str`): `ORI_DISABLE_BURDEN_OPS=1` skips
+/// Phase-5 `emit_burden_ops` entirely, so the closure-env last-use release
+/// (`burden_dec` on the `PartialApply` result after the closure's single
+/// invocation) never lands. Under sole-emitter Phase-7 lowering there is then
+/// no release for the closure's captured string, leaking it. A heap-carrying
+/// captured string (>23 bytes, defeats SSO) makes the leak observable via
+/// `ORI_CHECK_LEAKS=1`. Spec: Annex E §AIMS RL-2.
+#[test]
+fn probe_closure_capture_last_use_str_burden_ops_disabled_leaks_negative() {
+    use crate::util::compile_and_run_with_build_env;
+    let src = r#"
+@make_greeter (name: str) -> () -> str = {
+    let greet = () -> `hello {name}`;
+    greet
+}
+
+@main () -> int = {
+    let g = make_greeter(name: "world this is a longer name exceeding sso threshold clearly");
+    let msg = g();
+    print(msg: msg);
+    0
+}
+"#;
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: burden-sole probe, Phase-5 emission intact.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with Phase-5 burden-op emission intact must run \
+         clean (no leak, no double-free)\nstderr:\n{control_stderr}"
+    );
+
+    // Forced: burden-op emission disabled — the closure-env last-use release
+    // never lands, leaking the captured heap string.
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_BURDEN_OPS", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "disabling Phase-5 burden-op emission must leak the closure's captured \
+         allocation (exit != 0) — proves the positive pin actively catches the \
+         under-emission regression\nstderr:\n{forced_stderr}"
+    );
+}
+
 #[test]
 fn probe_result_str_partial_move_via_try_codegen_clean() {
     // Enum partial-move codegen cure: `?` on a `Result<int, str>`
@@ -214,7 +378,7 @@ fn probe_result_str_partial_move_via_try_codegen_clean() {
 
 #[test]
 fn probe_result_scalar_only_no_partial_move_codegen_clean() {
-    // Negative companion (the `moved_fields.rs` scalar-projection filter):
+    // Negative companion (the moved_fields cluster's scalar-projection filter):
     // `??` on a `Result<int, str>` where the Ok payload is a SCALAR int and the
     // Err is taken projects only the scalar int slot. A scalar projection
     // transfers NO RC ownership (L-9 / TF-4), so it must NOT seed `skip_fields`

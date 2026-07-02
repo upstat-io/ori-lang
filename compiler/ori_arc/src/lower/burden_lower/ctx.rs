@@ -5,26 +5,15 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::ir::{ArcFunction, ArcVarId};
 use crate::lower::burden::BurdenRef;
 
-/// Structured record of the moved-out-fields INTERSECT fixpoint's convergence
-/// outcome (`propagate_moved_out_fields`). Carries the observed round count and
-/// the DERIVED iteration cap. `converged` is `true` iff the fixpoint reached a
-/// stable state (`changed == false`) within the cap. Test-observation only —
-/// the production guard reads the local `changed` flag directly; this record
-/// exists solely for convergence-guard tests. Governed by AIMS rule IA-MF1
-/// (implementer-internal; the compiled Lean is the authority, no Annex E
-/// anchor).
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct MovedFieldsConvergence {
-    pub(super) rounds: usize,
-    pub(super) iteration_cap: usize,
-    pub(super) converged: bool,
-}
+use super::moved_fields::dataflow::MovedFieldsConvergence;
 
 /// Per-instruction context accumulated by the emission walker.
 ///
-/// Two storage axes (per-var and per-instruction transfer-point lookups
-/// have distinct semantics):
+/// Two storage axes for the ownership-scan lookups (per-var and
+/// per-instruction transfer-point lookups have distinct semantics); a third,
+/// separate axis (`moved_out_fields_*` + `moved_out_fields_union`) carries the
+/// Phase-5 moved-out-fields dataflow state (see field docs below):
 /// - `collected` — per-`ArcVarId` `(var, BurdenSpec lookup)` from `var_types`
 ///   walk. Filtered by `ArcParam.ownership` for params.
 /// - `transfer_points` — per-instruction `(consumed var, BurdenSpec lookup)`

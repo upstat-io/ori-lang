@@ -11,7 +11,7 @@
 //! own logical phase; this module owns Pass 1/2 collection + the
 //! post-fixpoint union step + the full/partial-move post-processing.
 
-mod dataflow;
+pub(super) mod dataflow;
 
 use ori_types::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -118,24 +118,13 @@ pub(super) fn populate_moved_out_fields(
     // consumed by Pass 3's merge.
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for instr in &block.body {
-            let transfer_vars = instr_transfer_vars(instr, func);
-            for var in &transfer_vars {
-                if let Some(&(src, field)) = project_origins.get(var) {
-                    ctx.moved_out_fields_block_local[block_idx]
-                        .entry(src)
-                        .or_default()
-                        .insert(field);
-                }
+            for var in instr_transfer_vars(instr, func) {
+                record_moved_field(ctx, &project_origins, block_idx, var);
             }
         }
         if let Some(term_transfers) = terminator_transfer_per_block.get(block_idx) {
-            for var in term_transfers {
-                if let Some(&(src, field)) = project_origins.get(var) {
-                    ctx.moved_out_fields_block_local[block_idx]
-                        .entry(src)
-                        .or_default()
-                        .insert(field);
-                }
+            for &var in term_transfers {
+                record_moved_field(ctx, &project_origins, block_idx, var);
             }
         }
     }
@@ -166,6 +155,26 @@ pub(super) fn populate_moved_out_fields(
             continue;
         }
         union_field_map_into(&mut ctx.moved_out_fields_union, per_block);
+    }
+}
+
+/// Record `(project_src, field)` into `block_local[block_idx]` when
+/// `transferred_var` resolves to a Pass-1 projection origin. Shared by Pass
+/// 2's instruction-transfer and terminator-transfer walks — both insert into
+/// the same per-block map keyed off the same `project_origins` lookup; a
+/// var absent from `project_origins` (not a recorded RC-bearing projection
+/// destination) is a no-op.
+fn record_moved_field(
+    ctx: &mut BurdenLowerCtx<'_>,
+    project_origins: &FxHashMap<ArcVarId, (ArcVarId, u32)>,
+    block_idx: usize,
+    transferred_var: ArcVarId,
+) {
+    if let Some(&(src, field)) = project_origins.get(&transferred_var) {
+        ctx.moved_out_fields_block_local[block_idx]
+            .entry(src)
+            .or_default()
+            .insert(field);
     }
 }
 

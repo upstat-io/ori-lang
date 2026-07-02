@@ -16,7 +16,7 @@ IA-category (implementer-internal); no Annex E §AIMS anchor. The governing
 source file, the `.proof` artifact, and the proof-lean map are cited in the
 evidence-tie above.
 
-Governs `compiler/ori_arc/src/lower/burden_lower/moved_fields/mod.rs`
+Governs `compiler/ori_arc/src/lower/burden_lower/moved_fields/dataflow.rs`
 `propagate_moved_out_fields`: the forward INTERSECT-at-entry / union-with-local
 dataflow over per-block moved-field sets. The analysis is monotone-DESCENDING
 from the ⊤ (universe) seed at non-entry blocks; each non-fixpoint round strictly

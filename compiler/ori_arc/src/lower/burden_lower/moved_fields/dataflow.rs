@@ -13,9 +13,23 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::graph::{compute_postorder, compute_predecessors};
 use crate::ir::{ArcFunction, ArcVarId};
 
-#[cfg(test)]
-use super::super::ctx::MovedFieldsConvergence;
 use super::super::BurdenLowerCtx;
+
+/// Structured record of the moved-out-fields INTERSECT fixpoint's convergence
+/// outcome (`propagate_moved_out_fields`). Carries the observed round count and
+/// the DERIVED iteration cap. `converged` is `true` iff the fixpoint reached a
+/// stable state (`changed == false`) within the cap. Test-observation only —
+/// the production guard reads the local `changed` flag directly; this record
+/// exists solely for convergence-guard tests. Governed by AIMS rule IA-MF1
+/// (implementer-internal; the compiled Lean is the authority, no Annex E
+/// anchor).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::lower::burden_lower) struct MovedFieldsConvergence {
+    pub(in crate::lower::burden_lower) rounds: usize,
+    pub(in crate::lower::burden_lower) iteration_cap: usize,
+    pub(in crate::lower::burden_lower) converged: bool,
+}
 
 /// Pass 3 — forward CFG dataflow propagating moved-field sets via
 /// INTERSECT-at-entry merge.
