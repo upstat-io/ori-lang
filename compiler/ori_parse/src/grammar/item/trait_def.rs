@@ -163,3 +163,6 @@ impl Parser<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

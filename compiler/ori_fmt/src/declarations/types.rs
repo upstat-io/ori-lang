@@ -173,7 +173,13 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.indent();
             for (i, variant) in variants.iter().enumerate() {
                 self.ctx.emit_indent();
-                self.ctx.emit("| ");
+                // BUG-07-314: grammar.ebnf `sum_body = variant { "|" variant }`
+                // makes `|` a SEPARATOR only — the first variant is emitted bare,
+                // continuation variants get the `| ` prefix. Emitting a leading
+                // pipe on the first variant produces output the parser rejects.
+                if i > 0 {
+                    self.ctx.emit("| ");
+                }
                 self.format_variant(variant);
                 if i < variants.len() - 1 {
                     self.ctx.emit_newline();

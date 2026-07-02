@@ -535,3 +535,18 @@ fn test_parse_impl_never_void_subjects_reject() {
         assert_e1002(&output, &format!("impl {name}: (outside helper domain)"));
     }
 }
+
+/// Regression: BUG-07-314 (Plan-TPR codex-F1). An impl-method with params
+/// stacked one-per-line must parse — impl methods are one of `parse_params`'
+/// five shared call sites.
+#[test]
+fn test_multiline_params_impl_method_parses_clean() {
+    let output = parse_source(
+        "impl Foo {\n    @m (\n        a: int,\n        b: int,\n    ) -> int = a;\n}",
+    );
+    assert!(
+        output.errors.is_empty(),
+        "multi-line impl-method params should parse; errors: {:?}",
+        output.errors
+    );
+}

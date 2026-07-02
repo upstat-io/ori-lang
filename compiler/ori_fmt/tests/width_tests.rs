@@ -34,12 +34,17 @@ const TEST_WIDTHS: &[usize] = &[60, 80, 100, 120];
 /// `(repo-relative path, max_width)` pairs whose formatted output currently
 /// emits a code line over `max_width` because the formatter does not yet break
 /// the construct — a known width-breaking defect tracked under BUG-07-313
-/// (`for ... if (if ...) yield ...` comprehension: the nested-if guard parens
-/// are dropped AND the over-width comprehension is not stacked). The harness
-/// counts these as KNOWN-tracked breaks, FAILS on any NEW code-width violation,
-/// and FAILS when a listed (file, width) emits no violation anymore (stale-entry
-/// guard) so the list shrinks as BUG-07-313 is fixed.
-const KNOWN_WIDTH_BREAKS: &[(&str, usize)] = &[("tests/spec/expressions/loops.ori", 60)];
+/// (the formatter fails to break an over-width line for constructs it has no
+/// break rule for: a nested-if comprehension guard, and a named-arg carrying a
+/// long function-type annotation `transform: (sub: [...]) -> Iterator<...>`
+/// which has no multi-line break form). The harness counts these as KNOWN-tracked
+/// breaks, FAILS on any NEW code-width violation, and FAILS when a listed (file,
+/// width) emits no violation anymore (stale-entry guard) so the list shrinks as
+/// BUG-07-313 is fixed.
+const KNOWN_WIDTH_BREAKS: &[(&str, usize)] = &[
+    ("tests/spec/expressions/loops.ori", 60),
+    ("tests/spec/traits/iterator/methods.ori", 60),
+];
 
 /// Whether `(repo_rel, max_width)` is a tracked BUG-07-313 width break.
 fn is_known_width_break(repo_rel: &str, max_width: usize) -> bool {

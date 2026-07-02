@@ -405,6 +405,7 @@ impl Parser<'_> {
         param_name: ori_ir::Name,
         param_span: ori_ir::Span,
     ) -> Result<ExprId, ParseError> {
+        self.cursor.skip_newlines(); // BUG-07-314: `a ->\n body` shorthand-lambda body may follow on the next line
         let body = self.parse_expr().into_result()?;
         let end_span = self.arena.get_expr(body).span;
         let params = self.arena.alloc_params(vec![Param {

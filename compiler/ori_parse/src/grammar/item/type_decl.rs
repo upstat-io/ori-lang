@@ -64,6 +64,11 @@ impl Parser<'_> {
         };
 
         committed!(self.cursor.expect(&TokenKind::Eq));
+        // BUG-07-314: the type body is newline-silent per grammar.ebnf — a
+        // newline after `=` (the formatter's multi-line struct/sum/newtype
+        // shape) must parse. Without this skip `check_ident()` below is false
+        // and the body mis-dispatches to `parse_type_required()` -> E1001.
+        self.cursor.skip_newlines();
 
         // Determine kind based on what follows
         let kind = if self.cursor.check(&TokenKind::LBrace) {
@@ -156,6 +161,10 @@ impl Parser<'_> {
     fn parse_sum_or_newtype(&mut self) -> Result<TypeDeclKind, ParseError> {
         let first_name = self.cursor.expect_ident()?;
         let first_span = self.cursor.previous_span();
+        // BUG-07-314: a bare first variant on its own line puts a newline
+        // between the variant name and its `|`/`(`; skip it so the sum-vs-newtype
+        // disambiguation below still sees the continuation.
+        self.cursor.skip_newlines();
 
         // Check for generic args on newtype: MyType<T>
         if self.cursor.check(&TokenKind::Lt) {
@@ -184,39 +193,26 @@ impl Parser<'_> {
             }));
         }
 
-        // Check if this is a sum type (has | following)
-        if self.cursor.check(&TokenKind::Pipe) {
-            // Sum type - parse first variant and continue
+        // Sum type when a `|` (bare first variant) or `(` (first variant has
+        // fields) follows the first variant name. `make_variant` parses the
+        // optional `(fields)`, so both cases share one continuation loop.
+        if self.cursor.check(&TokenKind::Pipe) || self.cursor.check(&TokenKind::LParen) {
             let first_variant = self.make_variant(first_name, first_span)?;
             let mut variants = vec![first_variant];
 
-            while self.cursor.check(&TokenKind::Pipe) {
+            // Continuation: `| variant` repeated. BUG-07-314: skip newlines
+            // before EACH pipe check so a variant on its own line is accepted.
+            loop {
+                self.cursor.skip_newlines();
+                if !self.cursor.check(&TokenKind::Pipe) {
+                    break;
+                }
                 self.cursor.advance(); // |
                 self.cursor.skip_newlines();
 
                 let var_name = self.cursor.expect_ident()?;
                 let var_span = self.cursor.previous_span();
-                let variant = self.make_variant(var_name, var_span)?;
-                variants.push(variant);
-            }
-
-            return Ok(TypeDeclKind::Sum(variants));
-        }
-
-        // Check if first variant has fields (indicates sum type)
-        if self.cursor.check(&TokenKind::LParen) {
-            // Sum type with fields on first variant
-            let first_variant = self.make_variant(first_name, first_span)?;
-            let mut variants = vec![first_variant];
-
-            while self.cursor.check(&TokenKind::Pipe) {
-                self.cursor.advance(); // |
-                self.cursor.skip_newlines();
-
-                let var_name = self.cursor.expect_ident()?;
-                let var_span = self.cursor.previous_span();
-                let variant = self.make_variant(var_name, var_span)?;
-                variants.push(variant);
+                variants.push(self.make_variant(var_name, var_span)?);
             }
 
             return Ok(TypeDeclKind::Sum(variants));
@@ -253,3 +249,6 @@ impl Parser<'_> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

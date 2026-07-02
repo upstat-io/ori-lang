@@ -242,7 +242,10 @@ impl Parser<'_> {
         use crate::series::SeriesConfig;
 
         let start = self.arena.start_params();
-        self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+        // BUG-07-314: params are newline-silent per grammar.ebnf `params` — a
+        // multi-line param list (the formatter's stacked shape) must parse, so
+        // the series skips newlines like every other comma-series.
+        self.series_direct(&SeriesConfig::comma(TokenKind::RParen), |p| {
             if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
