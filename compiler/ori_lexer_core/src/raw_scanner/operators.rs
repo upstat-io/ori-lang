@@ -36,12 +36,39 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn plus(&mut self, start: u32) -> RawToken {
-        self.compound_eq(start, RawTag::Plus, RawTag::PlusEq)
+        self.cursor.advance(); // consume '+'
+        match self.cursor.current() {
+            b'+' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::InvalidByte,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::PlusEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
+                tag: RawTag::Plus,
+                len: self.cursor.pos() - start,
+            },
+        }
     }
 
     pub(super) fn minus_or_arrow(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume '-'
         match self.cursor.current() {
+            b'-' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::InvalidByte,
+                    len: self.cursor.pos() - start,
+                }
+            }
             b'>' => {
                 self.cursor.advance();
                 RawToken {
@@ -84,9 +111,17 @@ impl super::RawScanner<'_> {
         match self.cursor.current() {
             b'=' => {
                 self.cursor.advance();
-                RawToken {
-                    tag: RawTag::EqualEqual,
-                    len: self.cursor.pos() - start,
+                if self.cursor.current() == b'=' {
+                    self.cursor.advance();
+                    RawToken {
+                        tag: RawTag::InvalidByte,
+                        len: self.cursor.pos() - start,
+                    }
+                } else {
+                    RawToken {
+                        tag: RawTag::EqualEqual,
+                        len: self.cursor.pos() - start,
+                    }
                 }
             }
             b'>' => {
@@ -104,7 +139,27 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn bang(&mut self, start: u32) -> RawToken {
-        self.compound_eq(start, RawTag::Bang, RawTag::BangEqual)
+        self.cursor.advance(); // consume '!'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            if self.cursor.current() == b'=' {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::InvalidByte,
+                    len: self.cursor.pos() - start,
+                }
+            } else {
+                RawToken {
+                    tag: RawTag::BangEqual,
+                    len: self.cursor.pos() - start,
+                }
+            }
+        } else {
+            RawToken {
+                tag: RawTag::Bang,
+                len: self.cursor.pos() - start,
+            }
+        }
     }
 
     pub(super) fn less(&mut self, start: u32) -> RawToken {

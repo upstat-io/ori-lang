@@ -9,23 +9,50 @@ use crate::context::FormatContext;
 use crate::declarations::format_parsed_type;
 use crate::emitter::StringEmitter;
 
+/// The escaped form of `c` inside a double-quoted string literal, or `None`
+/// when `c` renders literally. SSOT for the string-escape set shared by
+/// [`emit_escaped_str`] (emission) and `width::literals::string_width`
+/// (width measurement) — the two must agree or line-fit decisions diverge
+/// from the emitted text.
+pub(crate) fn string_escape(c: char) -> Option<&'static str> {
+    match c {
+        '\\' => Some("\\\\"),
+        '"' => Some("\\\""),
+        '\n' => Some("\\n"),
+        '\t' => Some("\\t"),
+        '\r' => Some("\\r"),
+        '\0' => Some("\\0"),
+        _ => None,
+    }
+}
+
+/// The escaped form of `c` inside a single-quoted char literal, or `None`
+/// when `c` renders literally. Sibling of [`string_escape`] for char
+/// literals (escapes `'` instead of `"`); shared by [`Formatter::emit_char`]
+/// and `width::literals::char_width`.
+pub(crate) fn char_escape(c: char) -> Option<&'static str> {
+    match c {
+        '\\' => Some("\\\\"),
+        '\'' => Some("\\'"),
+        '\n' => Some("\\n"),
+        '\t' => Some("\\t"),
+        '\r' => Some("\\r"),
+        '\0' => Some("\\0"),
+        _ => None,
+    }
+}
+
 /// Emit a string literal with surrounding quotes and escaped control / quote
 /// characters. Free function so non-`Formatter` emitters share one escaping impl.
 pub(crate) fn emit_escaped_str(ctx: &mut FormatContext<StringEmitter>, s: impl AsRef<str>) {
     let s = s.as_ref();
     ctx.emit("\"");
     for c in s.chars() {
-        match c {
-            '\\' => ctx.emit("\\\\"),
-            '"' => ctx.emit("\\\""),
-            '\n' => ctx.emit("\\n"),
-            '\t' => ctx.emit("\\t"),
-            '\r' => ctx.emit("\\r"),
-            '\0' => ctx.emit("\\0"),
-            _ => {
-                let mut buf = [0; 4];
-                ctx.emit(c.encode_utf8(&mut buf));
-            }
+        if let Some(esc) = string_escape(c) {
+            ctx.emit(esc);
+        } else {
+            let mut buf = [0; 4];
+            ctx.emit(c.encode_utf8(&mut buf));
         }
     }
     ctx.emit("\"");
@@ -52,17 +79,11 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     pub(super) fn emit_char(&mut self, c: char) {
         self.ctx.emit("'");
-        match c {
-            '\\' => self.ctx.emit("\\\\"),
-            '\'' => self.ctx.emit("\\'"),
-            '\n' => self.ctx.emit("\\n"),
-            '\t' => self.ctx.emit("\\t"),
-            '\r' => self.ctx.emit("\\r"),
-            '\0' => self.ctx.emit("\\0"),
-            _ => {
-                let mut buf = [0; 4];
-                self.ctx.emit(c.encode_utf8(&mut buf));
-            }
+        if let Some(esc) = char_escape(c) {
+            self.ctx.emit(esc);
+        } else {
+            let mut buf = [0; 4];
+            self.ctx.emit(c.encode_utf8(&mut buf));
         }
         self.ctx.emit("'");
     }

@@ -164,6 +164,34 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             }
         }
 
+        LexErrorKind::StrictEqualityOperator { operator } => {
+            let replacement = match *operator {
+                "!==" => "!=",
+                _ => "==",
+            };
+            Diagnostic::error(ErrorCode::E0008)
+                .with_message(format!("`{operator}` is not an Ori equality operator"))
+                .with_label(span, "cross-language equality habit")
+                .with_note(
+                    "Ori uses structural equality operators, not JavaScript-style strict equality",
+                )
+                .with_suggestion(format!("use `{replacement}` instead"))
+        }
+
+        LexErrorKind::SingleQuoteString => Diagnostic::error(ErrorCode::E0009)
+            .with_message("single-quoted strings are not valid Ori syntax")
+            .with_label(span, "this looks like a string")
+            .with_note("Ori uses double quotes for strings and single quotes for one character")
+            .with_suggestion("use double quotes for string literals"),
+
+        LexErrorKind::IncrementDecrementOperator { operator } => {
+            Diagnostic::error(ErrorCode::E0010)
+                .with_message(format!("`{operator}` is not an Ori operator"))
+                .with_label(span, "increment/decrement operators are not supported")
+                .with_note("Ori uses explicit assignment for updates")
+                .with_suggestion("write the update explicitly, such as `x = x + 1`")
+        }
+
         LexErrorKind::StandaloneBackslash => Diagnostic::error(ErrorCode::E0013)
             .with_message("standalone `\\` is not a valid token")
             .with_label(span, "unexpected backslash"),

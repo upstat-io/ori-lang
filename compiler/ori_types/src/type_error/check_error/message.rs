@@ -379,9 +379,12 @@ impl TypeCheckError {
             TypeErrorKind::InfiniteType { .. } => ErrorCode::E2008,
 
             // E2010: Duplicate implementations
-            TypeErrorKind::DuplicateImpl { .. }
-            | TypeErrorKind::DuplicateField { .. }
-            | TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2010,
+            TypeErrorKind::DuplicateImpl { .. } | TypeErrorKind::DuplicateField { .. } => {
+                ErrorCode::E2010
+            }
+
+            // E2018: Missing associated type
+            TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2018,
 
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,

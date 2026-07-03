@@ -375,20 +375,6 @@ impl Diagnostic {
     pub fn is_error(&self) -> bool {
         matches!(self.severity, Severity::Error)
     }
-
-    /// Check if this diagnostic has any machine-applicable fixes.
-    pub fn has_machine_applicable_fix(&self) -> bool {
-        self.structured_suggestions
-            .iter()
-            .any(|s| s.applicability.is_machine_applicable())
-    }
-
-    /// Get all machine-applicable suggestions.
-    pub fn machine_applicable_fixes(&self) -> impl Iterator<Item = &Suggestion> {
-        self.structured_suggestions
-            .iter()
-            .filter(|s| s.applicability.is_machine_applicable())
-    }
 }
 
 impl fmt::Display for Diagnostic {

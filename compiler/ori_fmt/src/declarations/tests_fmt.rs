@@ -3,7 +3,7 @@
 //! Formatting for test function declarations.
 
 use crate::formatter::emit_escaped_str;
-use ori_ir::ast::items::{ExpectedError, TestDef};
+use ori_ir::ast::items::{ExpectedError, TestBackend, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
 use super::parsed_types::format_parsed_type;
@@ -16,6 +16,20 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         if let Some(reason) = test.skip_reason {
             self.ctx.emit("#skip(");
             let s = self.interner.lookup(reason);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
+            self.ctx.emit_newline();
+        }
+
+        // One #skip(backend: ..., reason: ...) attribute per backend-conditional skip.
+        for skip in &test.skip_backends {
+            self.ctx.emit("#skip(backend: \"");
+            self.ctx.emit(match skip.backend {
+                TestBackend::Interpreter => "interpreter",
+                TestBackend::Llvm => "llvm",
+            });
+            self.ctx.emit("\", reason: ");
+            let s = self.interner.lookup(skip.reason);
             emit_escaped_str(&mut self.ctx, s);
             self.ctx.emit(")");
             self.ctx.emit_newline();
@@ -78,31 +92,23 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
         let mut first = true;
         if let Some(code) = err.code {
+            self.emit_join_sep(&mut first);
             self.ctx.emit("code: ");
             let s = self.interner.lookup(code);
             emit_escaped_str(&mut self.ctx, s);
-            first = false;
         }
         if let Some(msg) = err.message {
-            if !first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(&mut first);
             self.ctx.emit("message: ");
             let s = self.interner.lookup(msg);
             emit_escaped_str(&mut self.ctx, s);
-            first = false;
         }
         if let Some(line) = err.line {
-            if !first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(&mut first);
             self.ctx.emit(format!("line: {line}"));
-            first = false;
         }
         if let Some(column) = err.column {
-            if !first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(&mut first);
             self.ctx.emit(format!("column: {column}"));
         }
         self.ctx.emit(")");

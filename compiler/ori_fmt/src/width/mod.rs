@@ -39,6 +39,7 @@ mod wrappers;
 #[cfg(test)]
 mod tests;
 
+use crate::rules::{needs_parens, ParenPosition};
 use calls::{call_named_width, call_width, method_call_named_width, method_call_width};
 use collections::{
     list_width, list_with_spread_width, map_width, map_with_spread_width, range_width,
@@ -51,7 +52,7 @@ use control::{
 };
 use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
-use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
+use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup, UnaryOp};
 use patterns::{binding_pattern_width, for_binding_pattern_width};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use wrappers::{
@@ -165,7 +166,17 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 if operand_w == ALWAYS_STACKED {
                     return ALWAYS_STACKED;
                 }
-                unary_op_width(*op) + operand_w
+                let position = if *op == UnaryOp::Neg {
+                    ParenPosition::UnaryNegOperand
+                } else {
+                    ParenPosition::UnaryOperand
+                };
+                let parens_w = if needs_parens(self.arena, *operand, position) {
+                    2 // "(" + ")"
+                } else {
+                    0
+                };
+                unary_op_width(*op) + parens_w + operand_w
             }
 
             // Calls - delegated to calls module

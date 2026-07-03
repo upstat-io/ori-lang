@@ -178,3 +178,93 @@ fn test_new_predicates() {
     assert!(ErrorCode::E9002.is_internal_error());
     assert!(!ErrorCode::E9001.is_eval_error());
 }
+
+#[test]
+fn lifecycle_classifies_reserved_and_tracked_codes() {
+    assert!(ErrorCode::E2045.lifecycle().is_reserved());
+    assert!(ErrorCode::E0911.lifecycle().is_tracked());
+    assert!(
+        ErrorCode::E4001.lifecycle().is_reserved() || ErrorCode::E4001.lifecycle().is_tracked()
+    );
+}
+
+#[test]
+fn lifecycle_marks_source_confirmed_graph_misses_as_emitted() {
+    for code in [
+        ErrorCode::E0932,
+        ErrorCode::E1013,
+        ErrorCode::E1016,
+        ErrorCode::E1018,
+        ErrorCode::E1019,
+        ErrorCode::E1020,
+        ErrorCode::E2004,
+    ] {
+        assert!(
+            code.lifecycle().is_emitted(),
+            "{code} has a live production emitter and must not be allowlisted as a graph miss"
+        );
+    }
+}
+
+#[test]
+fn emitted_lifecycle_codes_have_production_construction_sites() {
+    let production_source = production_error_code_source();
+    let mut missing = Vec::new();
+
+    for &code in ErrorCode::ALL {
+        if code.lifecycle().is_emitted()
+            && !production_source.contains(&format!("ErrorCode::{}", code.as_str()))
+        {
+            missing.push(code.as_str());
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "codes marked emitted lack production ErrorCode construction sites: {missing:?}"
+    );
+}
+
+#[allow(
+    clippy::expect_used,
+    reason = "test helper uses parent directory structure"
+)]
+fn production_error_code_source() -> String {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let compiler_dir = manifest_dir
+        .parent()
+        .expect("ori_diagnostic should live under compiler/");
+    let mut source = String::new();
+    collect_rust_source(compiler_dir, &mut source);
+    source
+}
+
+#[allow(clippy::expect_used, reason = "test helper reads files from disk")]
+fn collect_rust_source(dir: &std::path::Path, out: &mut String) {
+    for entry in std::fs::read_dir(dir).expect("read compiler source directory") {
+        let entry = entry.expect("read compiler source entry");
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_source(&path, out);
+            continue;
+        }
+
+        if path.extension().and_then(std::ffi::OsStr::to_str) != Some("rs")
+            || is_non_production_error_code_consumer(&path)
+        {
+            continue;
+        }
+
+        out.push_str(&std::fs::read_to_string(&path).expect("read Rust source file"));
+        out.push('\n');
+    }
+}
+
+fn is_non_production_error_code_consumer(path: &std::path::Path) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    normalized.contains("/ori_diagnostic/src/error_code/")
+        || normalized.contains("/ori_diagnostic/src/errors/")
+        || normalized.contains("/oric/src/commands/fmt/diagnostics.rs")
+        || normalized.contains("/tests.rs")
+        || normalized.contains("/tests/")
+}

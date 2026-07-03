@@ -85,6 +85,13 @@ fn code_for_unknown_ident() {
 }
 
 #[test]
+fn code_for_missing_assoc_type_uses_specific_code() {
+    let error =
+        TypeCheckError::missing_assoc_type(Span::new(0, 5), Name::from_raw(30), Name::from_raw(31));
+    assert_eq!(error.code(), ori_diagnostic::ErrorCode::E2018);
+}
+
+#[test]
 fn span_method_matches_field() {
     let error = TypeCheckError::mismatch(
         Span::new(10, 20),

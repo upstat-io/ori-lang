@@ -47,7 +47,7 @@ mod stacked;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use literals::emit_escaped_str;
+pub(crate) use literals::{char_escape, emit_escaped_str, string_escape};
 
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;

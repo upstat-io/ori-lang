@@ -13,7 +13,7 @@
 
 use ori_ir::{CommentKind, DurationUnit, SizeUnit, StringInterner, TokenFlags, TokenKind};
 use ori_lexer::lex_error::{LexErrorKind, LexSuggestion};
-use ori_lexer::{lex, lex_with_comments};
+use ori_lexer::{lex, lex_full, lex_with_comments};
 
 fn test_interner() -> StringInterner {
     StringInterner::new()
@@ -1016,6 +1016,42 @@ fn test_render_lex_error_invalid_escape() {
     assert!(diag.is_error());
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0005);
     assert!(diag.message.contains("\\z"));
+}
+
+#[test]
+fn test_cross_language_operator_habits_render_specific_codes() {
+    let cases = [
+        ("a === b", ori_diagnostic::ErrorCode::E0008),
+        ("a !== b", ori_diagnostic::ErrorCode::E0008),
+        ("i++", ori_diagnostic::ErrorCode::E0010),
+        ("i--", ori_diagnostic::ErrorCode::E0010),
+    ];
+
+    for (source, expected) in cases {
+        let output = lex_full(source, &test_interner());
+        let err = output
+            .errors
+            .first()
+            .unwrap_or_else(|| panic!("{source:?} should produce a lexer error"));
+        let diag = oric::problem::lex::render_lex_error(err);
+        assert_eq!(
+            diag.code, expected,
+            "{source:?} should render {expected}, got {}",
+            diag.code
+        );
+    }
+}
+
+#[test]
+fn test_single_quote_string_habit_renders_specific_code() {
+    let output = lex_full("'hello'", &test_interner());
+    let err = output
+        .errors
+        .first()
+        .expect("single-quoted multi-character literal should produce a lexer error");
+    let diag = oric::problem::lex::render_lex_error(err);
+
+    assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0009);
 }
 
 // ── Detached doc comment warnings ─────────────────────────────────────────

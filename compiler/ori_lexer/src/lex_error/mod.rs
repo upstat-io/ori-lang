@@ -83,6 +83,12 @@ pub enum LexErrorKind {
     // Character errors
     /// Non-printable or invalid byte in source.
     InvalidByte { byte: u8 },
+    /// JavaScript-style strict equality/inequality (`===` or `!==`) is not Ori syntax.
+    StrictEqualityOperator { operator: &'static str },
+    /// A multi-character single-quoted literal looks like a string written with `'`.
+    SingleQuoteString,
+    /// C-style increment/decrement (`++` or `--`) is not Ori syntax.
+    IncrementDecrementOperator { operator: &'static str },
     /// Standalone `\` outside of escape context.
     StandaloneBackslash,
     /// Unicode character visually similar to an ASCII character.
@@ -135,6 +141,9 @@ impl LexErrorKind {
             | Self::Utf8Bom
             | Self::Utf16LeBom
             | Self::Utf16BeBom => "E0002",
+            Self::StrictEqualityOperator { .. } => "E0008",
+            Self::SingleQuoteString => "E0009",
+            Self::IncrementDecrementOperator { .. } => "E0010",
             Self::StandaloneBackslash => "E0013",
             Self::UnicodeConfusable { .. } => "E0011",
             Self::DecimalNotRepresentable => "E0014",

@@ -45,12 +45,26 @@ fn assert_idempotent(source: &str) -> String {
     first
 }
 
-/// One floating test carrying `attr` as its sole attribute.
+/// One floating test carrying `attr` as its sole attribute. Substitutes into
+/// the parse-valid `.ori` template (`fixtures/attr_roundtrip_cell.ori`) rather
+/// than assembling the program via `format!` (Spec: Annex D — the fixture
+/// stays independently parseable/formattable Ori source).
 fn test_cell(attr: &str) -> String {
-    format!("{attr}\n@t tests _ () -> void = {{ 1 }}\n")
+    const TEMPLATE: &str = include_str!("fixtures/attr_roundtrip_cell.ori");
+    const PLACEHOLDER: &str = "#skip(\"PLACEHOLDER\")";
+    TEMPLATE.replacen(PLACEHOLDER, attr, 1)
 }
 
-// 03.1 — the exact failing case: code-only must keep its keyed arg, not
+/// Two floating-test attributes stacked on one test. Substitutes into the
+/// two-placeholder `.ori` template (`fixtures/attrs_multi_roundtrip_cell.ori`).
+fn test_cell_multi(attr_a: &str, attr_b: &str) -> String {
+    const TEMPLATE: &str = include_str!("fixtures/attrs_multi_roundtrip_cell.ori");
+    TEMPLATE
+        .replacen("#skip(\"PLACEHOLDER_1\")", attr_a, 1)
+        .replacen("#skip(\"PLACEHOLDER_2\")", attr_b, 1)
+}
+
+// The exact failing case: code-only must keep its keyed arg, not
 // collapse to a bare `#compile_fail` that no longer re-parses.
 #[test]
 fn compile_fail_code_only_keeps_keyed_arg() {
@@ -65,7 +79,7 @@ fn compile_fail_code_only_keeps_keyed_arg() {
     );
 }
 
-// 03.2 — keyed-field coverage.
+// Keyed-field coverage.
 #[test]
 fn compile_fail_message_only_is_shorthand() {
     let out = assert_reparses(&test_cell("#compile_fail(message: \"boom\")"));
@@ -160,12 +174,14 @@ fn compile_fail_line_only_and_column_only_keyed() {
     assert!(col_out.contains("#compile_fail(column: 7)"), "{col_out}");
 }
 
-// 03.3 — multi-error: both entries round-trip, one attr per entry.
+// Multi-error: both entries round-trip, one attr per entry.
 #[test]
 fn compile_fail_two_entries_both_round_trip() {
-    let src = "#compile_fail(code: \"E2001\")\n#compile_fail(code: \"E3002\")\n\
-               @t tests _ () -> void = { 1 }\n";
-    let out = assert_reparses(src);
+    let src = test_cell_multi(
+        "#compile_fail(code: \"E2001\")",
+        "#compile_fail(code: \"E3002\")",
+    );
+    let out = assert_reparses(&src);
     assert!(out.contains("#compile_fail(code: \"E2001\")"), "{out}");
     assert!(out.contains("#compile_fail(code: \"E3002\")"), "{out}");
 }
@@ -173,9 +189,11 @@ fn compile_fail_two_entries_both_round_trip() {
 #[test]
 fn compile_fail_mixed_shape_multi_error() {
     // One message-alone (shorthand) entry + one code entry (keyed).
-    let src = "#compile_fail(message: \"boom\")\n#compile_fail(code: \"E2001\")\n\
-               @t tests _ () -> void = { 1 }\n";
-    let out = assert_reparses(src);
+    let src = test_cell_multi(
+        "#compile_fail(message: \"boom\")",
+        "#compile_fail(code: \"E2001\")",
+    );
+    let out = assert_reparses(&src);
     assert!(
         out.contains("#compile_fail(\"boom\")"),
         "shorthand entry:\n{out}"
@@ -186,7 +204,7 @@ fn compile_fail_mixed_shape_multi_error() {
     );
 }
 
-// 03.4 — alias canonicalization: parser aliases fold to canonical names.
+// Alias canonicalization: parser aliases fold to canonical names.
 #[test]
 fn compile_fail_msg_alias_folds_to_message() {
     let out = assert_reparses(&test_cell("#compile_fail(msg: \"x\")"));
@@ -205,7 +223,7 @@ fn compile_fail_col_alias_folds_to_column() {
     );
 }
 
-// 03.5 — edge cases: escaping via the shared literal helper.
+// Edge cases: escaping via the shared literal helper.
 #[test]
 fn compile_fail_message_escapes_quote_and_newline() {
     // Source embeds a literal `"` and newline in a message-alone attr; the
@@ -260,6 +278,58 @@ fn fail_message_escapes_quote_and_newline() {
 }
 
 #[test]
+fn skip_backend_llvm_round_trips() {
+    // A per-backend skip must survive format->reparse (the backend + reason are
+    // load-bearing; dropping either re-parses to a different test disposition).
+    let out = assert_reparses(&test_cell("#skip(backend: \"llvm\", reason: \"flaky\")"));
+    assert!(
+        out.contains("#skip(backend: \"llvm\", reason: \"flaky\")"),
+        "llvm backend skip must round-trip faithfully:\n{out}"
+    );
+}
+
+#[test]
+fn skip_backend_interpreter_round_trips() {
+    let out = assert_reparses(&test_cell(
+        "#skip(backend: \"interpreter\", reason: \"slow\")",
+    ));
+    assert!(
+        out.contains("#skip(backend: \"interpreter\", reason: \"slow\")"),
+        "interpreter backend skip must round-trip faithfully:\n{out}"
+    );
+}
+
+#[test]
+fn skip_backend_reason_escapes_quote_and_newline() {
+    let out = assert_reparses(&test_cell(
+        "#skip(backend: \"llvm\", reason: \"a\\\"b\\nc\")",
+    ));
+    assert!(
+        out.contains("#skip(backend: \"llvm\", reason: \"a\\\"b\\nc\")"),
+        "backend-skip reason must be re-escaped:\n{out}"
+    );
+}
+
+#[test]
+fn skip_backend_both_backends_stack() {
+    // Two per-backend skips on one test must each emit their own
+    // #skip(backend: ...) line and both round-trip.
+    let src = test_cell_multi(
+        "#skip(backend: \"llvm\", reason: \"a\")",
+        "#skip(backend: \"interpreter\", reason: \"b\")",
+    );
+    let out = assert_reparses(&src);
+    assert!(
+        out.contains("#skip(backend: \"llvm\", reason: \"a\")"),
+        "{out}"
+    );
+    assert!(
+        out.contains("#skip(backend: \"interpreter\", reason: \"b\")"),
+        "{out}"
+    );
+}
+
+#[test]
 fn compile_fail_empty_string_preserved() {
     let out = assert_reparses(&test_cell("#compile_fail(message: \"\")"));
     assert!(
@@ -277,7 +347,7 @@ fn compile_fail_zero_line_column_emitted() {
     );
 }
 
-// 03.6 — pins: idempotency across every shape + parse-back.
+// Pins: idempotency across every shape + parse-back.
 #[test]
 fn compile_fail_idempotent_across_shapes() {
     for attr in [

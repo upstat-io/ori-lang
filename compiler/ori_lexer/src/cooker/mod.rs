@@ -201,8 +201,13 @@ impl<'src> TokenCooker<'src> {
                 CookResult::with_error(TokenKind::Error)
             }
             RawTag::UnterminatedChar => {
-                self.errors
-                    .push(LexError::unterminated_char(span(offset, len)));
+                let err_span = span(offset, len);
+                let text = slice_source(self.source, offset, len);
+                if looks_like_single_quote_string(text) {
+                    self.errors.push(LexError::single_quote_string(err_span));
+                } else {
+                    self.errors.push(LexError::unterminated_char(err_span));
+                }
                 CookResult::with_error(TokenKind::Error)
             }
             RawTag::UnterminatedTemplate => {
@@ -296,11 +301,24 @@ impl<'src> TokenCooker<'src> {
         // Use what_is_next to provide context-aware suggestions
         let ctx = what_is_next::what_is_next(self.source, offset);
         let mut err = LexError::invalid_byte(err_span, byte);
-        if let NextContext::Unicode(ch) = ctx {
-            err = err.with_suggestion(LexSuggestion::text(
-                format!("unexpected Unicode character `{ch}`"),
-                0,
-            ));
+        match ctx {
+            NextContext::Operator(op @ ("===" | "!==")) => {
+                self.errors
+                    .push(LexError::strict_equality_operator(err_span, op));
+                return CookResult::with_error(TokenKind::Error);
+            }
+            NextContext::Operator(op @ ("++" | "--")) => {
+                self.errors
+                    .push(LexError::increment_decrement_operator(err_span, op));
+                return CookResult::with_error(TokenKind::Error);
+            }
+            NextContext::Unicode(ch) => {
+                err = err.with_suggestion(LexSuggestion::text(
+                    format!("unexpected Unicode character `{ch}`"),
+                    0,
+                ));
+            }
+            _ => {}
         }
 
         self.errors.push(err);
@@ -398,6 +416,13 @@ pub(super) fn slice_source(source: &[u8], offset: u32, len: u32) -> &str {
     // SAFETY: source was a &str; scanner only produces token boundaries
     // at valid UTF-8 codepoint boundaries.
     unsafe { std::str::from_utf8_unchecked(&source[start..end]) }
+}
+
+fn looks_like_single_quote_string(text: &str) -> bool {
+    text.len() >= 4
+        && text.starts_with('\'')
+        && text.ends_with('\'')
+        && text[1..text.len() - 1].chars().count() > 1
 }
 
 /// Create a span from offset and length.

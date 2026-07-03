@@ -3,9 +3,9 @@
 //! Methods for emitting expressions inline (single line).
 //! Used when expressions fit within the line width.
 
-use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
+use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup, UnaryOp};
 
-use crate::rules::map_key_needs_brackets;
+use crate::rules::{map_key_needs_brackets, needs_parens, ParenPosition};
 
 use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
 
@@ -66,13 +66,15 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             ExprKind::Unary { op, operand } => {
                 self.ctx.emit(unary_op_str(*op));
-                // Unary operators bind tighter than binary - wrap binary operands
-                let operand_expr = self.arena.get_expr(*operand);
-                let needs_parens = matches!(
-                    &operand_expr.kind,
-                    ExprKind::Binary { .. } | ExprKind::If { .. } | ExprKind::Lambda { .. }
-                );
-                if needs_parens {
+                // Unary operators bind tighter than binary - wrap the operand
+                // per the shared Layer 4 paren rule (`Neg` additionally
+                // guards the nested-Neg token-adjacency hazard).
+                let position = if *op == UnaryOp::Neg {
+                    ParenPosition::UnaryNegOperand
+                } else {
+                    ParenPosition::UnaryOperand
+                };
+                if needs_parens(self.arena, *operand, position) {
                     self.ctx.emit("(");
                     self.emit_inline(*operand);
                     self.ctx.emit(")");

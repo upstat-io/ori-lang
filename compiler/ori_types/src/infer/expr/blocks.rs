@@ -1,11 +1,12 @@
 //! Block and let inference.
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
+use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind, Name, ParsedTypeId, Span};
 
 use super::super::InferEngine;
 use super::lambdas::maybe_generalize;
 use super::{
     bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
+    unwrap_result_or_option,
 };
 use crate::type_error::TypeCheckError;
 use crate::{Expected, ExpectedOrigin, Idx};
@@ -34,70 +35,8 @@ pub(crate) fn infer_block(
                 init,
                 mutable: _,
             } => {
-                let pat = arena.get_binding_pattern(*pattern);
-
-                // Track error count for closure self-capture detection
-                let binding_name = pattern_first_name(pat);
-                let errors_before = engine.error_count();
-
-                // Enter a rank-only scope for let-polymorphism. The surrounding
-                // block already pushed its env scope on `infer_block` entry and
-                // the let binding MUST stay visible to
-                // subsequent statements — pushing another env.child() here
-                // would hide later bindings from earlier `let`s. Rank-only is
-                // the right knob. All three let-generalization sites
-                // (`infer_block` block-stmt let, `infer_let` ExprKind::Let,
-                // `infer_try_stmt` try-block let) use `enter_rank_scope` for
-                // this reason.
-                engine.enter_rank_scope();
-
-                // Check/infer the initializer type based on presence of annotation
-                let final_ty = if ty.is_valid() {
-                    // With type annotation: use bidirectional checking
-                    let parsed_ty = arena.get_parsed_type(*ty);
-                    let expected_ty =
-                        resolve_and_check_parsed_type(engine, arena, parsed_ty, stmt.span);
-                    let expected = Expected {
-                        ty: expected_ty,
-                        origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
-                            span: stmt.span,
-                        },
-                    };
-                    let _init_ty = check_expr(engine, arena, *init, &expected, stmt.span);
-                    expected_ty
-                } else {
-                    // No annotation: infer and generalize for let-polymorphism
-                    let init_ty = infer_expr(engine, arena, *init);
-
-                    // Detect closure self-capture: if init is a lambda and any new
-                    // errors are UnknownIdent matching the binding name, rewrite them
-                    // to the more helpful "closure cannot capture itself" message.
-                    // Example: `{ let f = () -> f; f }` — f isn't yet in scope.
-                    if let Some(name) = binding_name {
-                        if matches!(arena.get_expr(*init).kind, ExprKind::Lambda { .. }) {
-                            engine.rewrite_self_capture_errors(name, errors_before);
-                        }
-                    }
-
-                    // Value Restriction: only non-capturing lambdas may be generalized.
-                    // All other initializers (list literals, map literals, struct constructions,
-                    // constants) are monomorphic — their Vars must stay Unbound so the
-                    // body-types validator can surface E2005 on empty containers.
-                    // Spec: Clause 14
-                    maybe_generalize(engine, arena, *init, init_ty)
-                };
-
-                // Exit rank scope (but stay in block's binding scope)
-                engine.exit_rank_scope();
-
-                // Bind pattern to the block's scope.
-                // The binding is visible to subsequent statements and the result.
-                if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
-                    let err = TypeCheckError::refutable_pattern(stmt.span, reason);
-                    engine.push_error(err);
-                }
-                bind_pattern(engine, arena, pat, final_ty);
+                let _ =
+                    infer_let_binding_core(engine, arena, *pattern, *ty, *init, false, stmt.span);
             }
         }
     }
@@ -119,74 +58,103 @@ pub(crate) fn infer_block(
 pub(crate) fn infer_let(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    pattern: &ori_ir::BindingPattern,
-    ty_annotation: Option<&ori_ir::ParsedType>,
+    pattern: BindingPatternId,
+    ty: ParsedTypeId,
     init: ExprId,
-    // Mutability is an effect, not a type property in Ori's HM inference system.
+    // Why: Mutability is an effect, not a type property in Ori's HM inference system.
     // Enforcement happens in the evaluator (`bind_can_pattern`) and codegen backends,
     // not here. Kept as a parameter for future "cannot assign to immutable binding"
     // diagnostics (like Rust's type checker emits).
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
-    // Enter a rank-only scope for let-polymorphism.
-    // Matches the two sibling let-generalization sites (`infer_block` block-stmt
-    // let and `infer_try_stmt` try-block let): we elevate the unification rank
-    // so variables introduced while inferring `init` can be generalized, but
-    // we do NOT push an env.child() — the binding is installed in the outer
-    // env via `bind_pattern` below (after exit), so a child env push here
-    // would be dead weight.
-    engine.enter_rank_scope();
+    let _ = infer_let_binding_core(engine, arena, pattern, ty, init, false, span);
+    Idx::UNIT
+}
 
-    let binding_name = pattern_first_name(pattern);
+/// Why: Core let-statement checking logic shared between `infer_block`, `infer_let`, and `infer_try_stmt` (sequences.rs).
+pub(crate) fn infer_let_binding_core(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    pattern_id: BindingPatternId,
+    ty_id: ParsedTypeId,
+    init: ExprId,
+    unwrap_try: bool,
+    span: Span,
+) -> Idx {
+    let pat = arena.get_binding_pattern(pattern_id);
+
+    // Track error count for closure self-capture detection
+    let binding_name = pattern_first_name(pat);
     let errors_before = engine.error_count();
 
+    // Why: Enter a rank-only scope for let-polymorphism. The surrounding
+    // block already pushed its env scope on `infer_block` entry and
+    // the let binding MUST stay visible to subsequent statements.
+    // Pushing another env.child() here would hide later bindings from
+    // earlier lets. All three let-generalization sites use `enter_rank_scope`.
+    engine.enter_rank_scope();
+
     // Check/infer the initializer type based on presence of annotation
-    let final_ty = if let Some(parsed_ty) = ty_annotation {
-        // With type annotation: use bidirectional checking (allows literal coercion)
+    let final_ty = if ty_id.is_valid() {
+        // With type annotation: use bidirectional checking
+        let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
         let expected = Expected {
             ty: expected_ty,
             origin: ExpectedOrigin::Annotation {
-                name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                name: binding_name.unwrap_or(Name::EMPTY),
                 span,
             },
         };
-        // Use check_expr for bidirectional type checking (literal coercion)
-        let _init_ty = check_expr(engine, arena, init, &expected, span);
+        if unwrap_try {
+            let init_ty = infer_expr(engine, arena, init);
+            let unwrapped = unwrap_result_or_option(engine, init_ty);
+            let _ = engine.check_type(unwrapped, &expected, span);
+        } else {
+            let _init_ty = check_expr(engine, arena, init, &expected, span);
+        }
         expected_ty
     } else {
-        // No annotation: infer the initializer type
+        // No annotation: infer and generalize for let-polymorphism
         let init_ty = infer_expr(engine, arena, init);
 
-        // Detect closure self-capture: if the init is a lambda and any new errors
-        // are UnknownIdent matching the binding name, it's a self-capture attempt.
-        // Example: `let f = () -> f` — the closure body references `f`, which isn't
-        // yet in scope. This would create a reference cycle under ARC.
+        // Why: Detect closure self-capture: if init is a lambda and any new
+        // errors are UnknownIdent matching the binding name, rewrite them
+        // to the more helpful "closure cannot capture itself" message.
+        // Example: `{ let f = () -> f; f }` — f isn't yet in scope.
         if let Some(name) = binding_name {
             if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
                 engine.rewrite_self_capture_errors(name, errors_before);
             }
         }
 
-        // Value Restriction: only non-capturing lambdas may be generalized.
+        let bound_ty = if unwrap_try {
+            unwrap_result_or_option(engine, init_ty)
+        } else {
+            init_ty
+        };
+
+        // Spec: Value Restriction: only non-capturing lambdas may be generalized.
+        // All other initializers (list literals, map literals, struct constructions,
+        // constants) are monomorphic — their Vars must stay Unbound so the
+        // body-types validator can surface E2005 on empty containers.
         // Spec: Clause 14
-        maybe_generalize(engine, arena, init, init_ty)
+        maybe_generalize(engine, arena, init, bound_ty)
     };
 
-    // Exit the rank scope (rank goes back down); see enter_rank_scope comment
-    // above for why this matches the block-stmt + try-stmt siblings.
+    // Exit rank scope
     engine.exit_rank_scope();
 
-    // Bind the pattern to the (possibly generalized) type in the outer env.
-    if let Err(reason) = pattern_is_irrefutable(engine, pattern, final_ty) {
+    // Bind pattern to the block's scope.
+    // The binding is visible to subsequent statements and the result.
+    if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
         let err = TypeCheckError::refutable_pattern(span, reason);
         engine.push_error(err);
     }
-    bind_pattern(engine, arena, pattern, final_ty);
+    bind_pattern(engine, arena, pat, final_ty);
 
-    // Let expression returns unit
-    Idx::UNIT
+    final_ty
 }
 
 /// Get the first name from a binding pattern (for error messages).

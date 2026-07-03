@@ -80,11 +80,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             ("not_debug", &cfg.not_debug),
         ] {
             if *set {
-                if !first {
-                    self.ctx.emit(", ");
-                }
+                self.emit_join_sep(&mut first);
                 self.ctx.emit(flag);
-                first = false;
             }
         }
         for (key, val) in [("feature", cfg.feature), ("not_feature", cfg.not_feature)] {
@@ -96,34 +93,27 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Emit a `key: "value"` attribute parameter if the value is present.
     fn emit_attr_string_param(&mut self, key: &str, val: Option<Name>, first: &mut bool) {
         if let Some(name) = val {
-            if !*first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(first);
             self.ctx.emit(key);
             self.ctx.emit(": ");
             let s = self.interner.lookup(name);
             emit_escaped_str(&mut self.ctx, s);
-            *first = false;
         }
     }
 
     /// Emit a `key: ["v1", "v2"]` attribute list parameter if non-empty.
     fn emit_attr_string_list(&mut self, key: &str, list: &[Name], first: &mut bool) {
         if !list.is_empty() {
-            if !*first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(first);
             self.ctx.emit(key);
             self.ctx.emit(": [");
-            for (i, name) in list.iter().enumerate() {
-                if i > 0 {
-                    self.ctx.emit(", ");
-                }
+            let mut first_elem = true;
+            for name in list {
+                self.emit_join_sep(&mut first_elem);
                 let s = self.interner.lookup(*name);
                 emit_escaped_str(&mut self.ctx, s);
             }
             self.ctx.emit("]");
-            *first = false;
         }
     }
 

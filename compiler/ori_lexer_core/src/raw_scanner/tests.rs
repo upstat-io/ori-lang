@@ -327,6 +327,28 @@ fn compound_operators() {
     assert_eq!(scan_tags("??"), vec![RawTag::QuestionQuestion]);
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "short operator symbols have length fitting in u32"
+)]
+#[test]
+fn cross_language_operator_habits_are_single_error_tokens() {
+    for source in ["===", "!==", "++", "--"] {
+        let tokens = scan(source);
+        assert_eq!(
+            tokens.len(),
+            1,
+            "{source:?} should recover as one raw error token"
+        );
+        assert_eq!(tokens[0].tag, RawTag::InvalidByte);
+        assert_eq!(
+            tokens[0].len,
+            source.len() as u32,
+            "{source:?} error token should cover the whole operator"
+        );
+    }
+}
+
 #[test]
 fn greater_is_always_single() {
     // `>` is always a single token — parser synthesizes >= and >>

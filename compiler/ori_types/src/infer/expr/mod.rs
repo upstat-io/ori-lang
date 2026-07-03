@@ -55,7 +55,7 @@ mod type_resolution;
 // Named re-exports for tests and sibling access. Kept alphabetical per
 // submodule so drift is easy to spot at review time.
 
-pub(super) use blocks::{infer_block, infer_let, pattern_first_name};
+pub(super) use blocks::{infer_block, infer_let, infer_let_binding_core};
 pub(crate) use calls::register_concrete_applied_resolutions;
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
@@ -79,9 +79,9 @@ pub(super) use format::infer_template_literal;
 pub(super) use identifiers::{
     find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
 };
+pub(super) use lambdas::infer_lambda;
 #[cfg(test)]
 pub(super) use lambdas::should_generalize;
-pub(super) use lambdas::{infer_lambda, maybe_generalize};
 pub(super) use methods::resolve_builtin_method;
 // `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
 // source visibility — re-exporting at the same level lets `calls/method_call.rs`
@@ -92,7 +92,9 @@ pub(super) use operators::{
 };
 #[cfg(test)]
 pub(super) use sequences::infer_try_stmt;
-pub(super) use sequences::{bind_pattern, infer_function_exp, infer_function_seq};
+pub(super) use sequences::{
+    bind_pattern, infer_function_exp, infer_function_seq, unwrap_result_or_option,
+};
 pub(super) use structs::{
     infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
 };
@@ -207,15 +209,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             ty,
             init,
             mutable,
-        } => {
-            let pat = arena.get_binding_pattern(*pattern);
-            let ty_ref = if ty.is_valid() {
-                Some(arena.get_parsed_type(*ty))
-            } else {
-                None
-            };
-            infer_let(engine, arena, pat, ty_ref, *init, *mutable, span)
-        }
+        } => infer_let(engine, arena, *pattern, *ty, *init, *mutable, span),
 
         // Lambdas
         ExprKind::Lambda {

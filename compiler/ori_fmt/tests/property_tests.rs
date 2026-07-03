@@ -1234,7 +1234,9 @@ fn test_unary_negate() {
 
 #[test]
 fn test_double_negation() {
-    let source = "@f (a: int) -> int = --a;";
+    // Ori has no `--` prefix operator (E0010: increment/decrement operators
+    // are not supported) — double negation requires explicit grouping.
+    let source = "@f (a: int) -> int = -(-a);";
     assert_fixed_idempotent(source, "double negation should be idempotent");
 }
 

@@ -8,6 +8,7 @@
 //! - Character literals (including escape sequences)
 
 use super::metrics::{char_display_width, decimal_digit_count};
+use crate::formatter::{char_escape, string_escape};
 
 /// Calculate width of an integer literal.
 ///
@@ -75,9 +76,9 @@ pub(super) fn string_width(s: impl AsRef<str>) -> usize {
     let s = s.as_ref();
     let mut width = 2; // Opening and closing quotes
     for c in s.chars() {
-        width += match c {
-            '\\' | '"' | '\n' | '\t' | '\r' | '\0' => 2, // Escaped
-            _ => char_display_width(c),
+        width += match string_escape(c) {
+            Some(esc) => esc.len(),
+            None => char_display_width(c),
         };
     }
     width
@@ -90,9 +91,9 @@ pub(super) fn string_width(s: impl AsRef<str>) -> usize {
 /// - Multi-byte characters (CJK, emoji) which take 2 + quotes = 4 columns
 /// - Regular characters require 3 characters: `'a'`
 pub(super) fn char_width(c: char) -> usize {
-    match c {
-        '\\' | '\'' | '\n' | '\t' | '\r' | '\0' => 4, // '\n' etc
-        _ => 2 + char_display_width(c),               // quotes + display width
+    match char_escape(c) {
+        Some(esc) => 2 + esc.len(),        // quotes + escaped form
+        None => 2 + char_display_width(c), // quotes + display width
     }
 }
 

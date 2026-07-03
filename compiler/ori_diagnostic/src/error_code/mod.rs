@@ -235,9 +235,112 @@ define_error_codes! {
     W2001, "Infinite iterator consumed without bound";
 }
 
+/// Lifecycle state for a registered diagnostic code.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum ErrorCodeLifecycle {
+    /// A production compiler path constructs this code.
+    Emitted,
+    /// The code is intentionally stable but unreachable today.
+    Reserved { rationale: &'static str },
+    /// The code is intentionally retained pending a named bug or design item.
+    Tracked {
+        issue: &'static str,
+        rationale: &'static str,
+    },
+    /// The code remains parseable for compatibility but should not be emitted.
+    Retired { rationale: &'static str },
+}
+
+impl ErrorCodeLifecycle {
+    /// Whether this lifecycle marks a source-emitted code.
+    pub const fn is_emitted(self) -> bool {
+        matches!(self, Self::Emitted)
+    }
+
+    /// Whether this lifecycle marks an intentionally reserved code.
+    pub const fn is_reserved(self) -> bool {
+        matches!(self, Self::Reserved { .. })
+    }
+
+    /// Whether this lifecycle marks a code tracked by a named issue.
+    pub const fn is_tracked(self) -> bool {
+        matches!(self, Self::Tracked { .. })
+    }
+
+    /// Whether this lifecycle marks a retired compatibility code.
+    pub const fn is_retired(self) -> bool {
+        matches!(self, Self::Retired { .. })
+    }
+}
+
 // Phase classification (derived from naming convention)
 
 impl ErrorCode {
+    /// Return the registry lifecycle state for this diagnostic code.
+    pub const fn lifecycle(self) -> ErrorCodeLifecycle {
+        match self {
+            ErrorCode::E0911 => ErrorCodeLifecycle::Tracked {
+                issue: "BUG-01-016",
+                rationale: "stale lexer proposal/code identity conflict is tracked separately",
+            },
+            ErrorCode::E1007 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable parser code reserved for missing function body recovery; formatter consumes it for suggestions",
+            },
+            ErrorCode::E1011 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable parser code reserved for multi-arg call recovery; formatter consumes it for suggestions",
+            },
+            ErrorCode::E1012 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable parser code reserved for function sequence syntax diagnostics",
+            },
+            ErrorCode::E1014 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable parser code reserved for built-in function name diagnostics",
+            },
+            ErrorCode::E1017 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable parser code reserved for typed-lambda missing-equals diagnostics",
+            },
+            ErrorCode::E2002 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable type-code slot retained for unknown-type diagnostics and associated fix metadata",
+            },
+            ErrorCode::E2007 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable type-code slot reserved for closure self-reference diagnostics",
+            },
+            ErrorCode::E2009 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable trait-bound diagnostic slot reserved by docs/spec; current type checker reports related failures through other paths",
+            },
+            ErrorCode::E2011 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable named-argument diagnostic slot reserved by call syntax proposals and docs",
+            },
+            ErrorCode::E2012 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable capability-diagnostic slot reserved for unknown capability reporting",
+            },
+            ErrorCode::E2013 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable capability-diagnostic slot reserved for provider/trait mismatch reporting",
+            },
+            ErrorCode::E2015 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable generic-parameter diagnostic slot reserved for ordering violations",
+            },
+            ErrorCode::E2016 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable generic-parameter diagnostic slot reserved for missing type arguments",
+            },
+            ErrorCode::E2017 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable generic-parameter diagnostic slot reserved for too many type arguments",
+            },
+            ErrorCode::E2042 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable FFI burden diagnostic slot reserved by extern-owned-value rules",
+            },
+            ErrorCode::E2045 => ErrorCodeLifecycle::Reserved {
+                rationale: "documented stable slot; parser rejects current non-lambda post-condition syntax with E1002 first",
+            },
+            ErrorCode::E3001 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable pattern diagnostic slot reserved by pattern docs; current parser emits E1xxx pattern diagnostics",
+            },
+            ErrorCode::E4001 => ErrorCodeLifecycle::Reserved {
+                rationale: "stable ARC fallback slot; active ARC diagnostics currently use E4002-E4005",
+            },
+            _ => ErrorCodeLifecycle::Emitted,
+        }
+    }
+
     /// Check if this is a lexer error (E0xxx range).
     pub fn is_lexer_error(&self) -> bool {
         self.as_str().starts_with("E0")

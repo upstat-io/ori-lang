@@ -223,6 +223,53 @@ impl LexError {
         }
     }
 
+    /// Create a strict equality/inequality operator error.
+    #[cold]
+    pub fn strict_equality_operator(span: Span, operator: &'static str) -> Self {
+        let replacement = match operator {
+            "!==" => "!=",
+            _ => "==",
+        };
+        Self {
+            span,
+            kind: LexErrorKind::StrictEqualityOperator { operator },
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::replace(
+                format!("use `{replacement}` for equality comparison"),
+                span,
+                replacement,
+            )],
+        }
+    }
+
+    /// Create a single-quote string habit error.
+    #[cold]
+    pub fn single_quote_string(span: Span) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::SingleQuoteString,
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::text(
+                "use double quotes for strings; single quotes are for one character",
+                0,
+            )],
+        }
+    }
+
+    /// Create an increment/decrement operator error.
+    #[cold]
+    pub fn increment_decrement_operator(span: Span, operator: &'static str) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::IncrementDecrementOperator { operator },
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::text(
+                "use an explicit assignment such as `x = x + 1` or `x = x - 1`",
+                0,
+            )],
+        }
+    }
+
     /// Create an interior null byte error (from `SourceBuffer` encoding detection).
     #[cold]
     pub fn interior_null(span: Span) -> Self {

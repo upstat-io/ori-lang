@@ -229,84 +229,40 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
-        // Type definitions
-        for type_decl in &module.types {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_type_decl(type_decl);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
+        // Type definitions, traits, impls, default implementations,
+        // extensions, extern blocks, functions, tests: each item preceded by
+        // a blank line (unless it's the module's first item) and followed by
+        // one — the shared skeleton lives in `format_items`.
+        self.format_items(&module.types, &mut first_item, Self::format_type_decl);
+        self.format_items(&module.traits, &mut first_item, Self::format_trait);
+        self.format_items(&module.impls, &mut first_item, Self::format_impl);
+        self.format_items(&module.def_impls, &mut first_item, Self::format_def_impl);
+        self.format_items(&module.extends, &mut first_item, Self::format_extend);
+        self.format_items(
+            &module.extern_blocks,
+            &mut first_item,
+            Self::format_extern_block,
+        );
+        self.format_items(&module.functions, &mut first_item, Self::format_function);
+        self.format_items(&module.tests, &mut first_item, Self::format_test);
+    }
 
-        // Traits
-        for trait_def in &module.traits {
-            if !first_item {
+    /// Emit each `item` via `format_one`, preceded by a blank line unless it's
+    /// the module's first item and followed by one — the skeleton shared by
+    /// every top-level declaration category in [`Self::format_module`].
+    fn format_items<T>(
+        &mut self,
+        items: &[T],
+        first_item: &mut bool,
+        format_one: fn(&mut Self, &T),
+    ) {
+        for item in items {
+            if !*first_item {
                 self.ctx.emit_newline();
             }
-            self.format_trait(trait_def);
+            format_one(self, item);
             self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Impls
-        for impl_def in &module.impls {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_impl(impl_def);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Default implementations
-        for def_impl in &module.def_impls {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_def_impl(def_impl);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Extensions
-        for extend in &module.extends {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_extend(extend);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Extern blocks
-        for extern_block in &module.extern_blocks {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_extern_block(extern_block);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Functions
-        for func in &module.functions {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_function(func);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Tests
-        for test in &module.tests {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.format_test(test);
-            self.ctx.emit_newline();
-            first_item = false;
+            *first_item = false;
         }
     }
 
@@ -440,5 +396,16 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
         // Emit any trailing comments
         self.emit_trailing_comments(comments, comment_index);
+    }
+
+    /// Emit the `, ` separator before a subsequent item in a comma-joined
+    /// list, then mark `first` false. Shared control-flow skeleton for every
+    /// keyed-attribute / optional-field emitter that joins present fields
+    /// with `, `.
+    fn emit_join_sep(&mut self, first: &mut bool) {
+        if !*first {
+            self.ctx.emit(", ");
+        }
+        *first = false;
     }
 }
