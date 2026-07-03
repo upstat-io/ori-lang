@@ -306,96 +306,74 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
-        // Type definitions
-        for type_decl in &module.types {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before_type(type_decl, comments, comment_index);
-            self.format_type_decl(type_decl);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Traits
-        for trait_def in &module.traits {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(trait_def.span.start, comments, comment_index);
-            self.format_trait_with_comments(trait_def, comments, comment_index);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Impls
-        for impl_def in &module.impls {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(impl_def.span.start, comments, comment_index);
-            self.format_impl_with_comments(impl_def, comments, comment_index);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Default implementations
-        for def_impl in &module.def_impls {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(def_impl.span.start, comments, comment_index);
-            self.format_def_impl_with_comments(def_impl, comments, comment_index);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Extensions
-        for extend in &module.extends {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(extend.span.start, comments, comment_index);
-            self.format_extend_with_comments(extend, comments, comment_index);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Extern blocks
-        for extern_block in &module.extern_blocks {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(extern_block.span.start, comments, comment_index);
-            self.format_extern_block(extern_block);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Functions
-        for func in &module.functions {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before_function(func, comments, comment_index);
-            self.format_function(func);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
-
-        // Tests
-        for test in &module.tests {
-            if !first_item {
-                self.ctx.emit_newline();
-            }
-            self.emit_comments_before(test.span.start, comments, comment_index);
-            self.format_test(test);
-            self.ctx.emit_newline();
-            first_item = false;
-        }
+        // Type definitions, traits, impls, default implementations,
+        // extensions, extern blocks, functions, tests: each item preceded by
+        // a blank line (unless it's the module's first item) and followed by
+        // one, with comments emitted immediately before it — the shared
+        // skeleton lives in `format_items_with_comments` (comment-aware twin
+        // of `format_items` above).
+        self.format_items_with_comments(&module.types, &mut first_item, |s, type_decl| {
+            s.emit_comments_before_type(type_decl, comments, comment_index);
+            s.format_type_decl(type_decl);
+        });
+        self.format_items_with_comments(&module.traits, &mut first_item, |s, trait_def| {
+            s.emit_comments_before(trait_def.span.start, comments, comment_index);
+            s.format_trait_with_comments(trait_def, comments, comment_index);
+        });
+        self.format_items_with_comments(&module.impls, &mut first_item, |s, impl_def| {
+            s.emit_comments_before(impl_def.span.start, comments, comment_index);
+            s.format_impl_with_comments(impl_def, comments, comment_index);
+        });
+        self.format_items_with_comments(&module.def_impls, &mut first_item, |s, def_impl| {
+            s.emit_comments_before(def_impl.span.start, comments, comment_index);
+            s.format_def_impl_with_comments(def_impl, comments, comment_index);
+        });
+        self.format_items_with_comments(&module.extends, &mut first_item, |s, extend| {
+            s.emit_comments_before(extend.span.start, comments, comment_index);
+            s.format_extend_with_comments(extend, comments, comment_index);
+        });
+        self.format_items_with_comments(
+            &module.extern_blocks,
+            &mut first_item,
+            |s, extern_block| {
+                s.emit_comments_before(extern_block.span.start, comments, comment_index);
+                s.format_extern_block(extern_block);
+            },
+        );
+        self.format_items_with_comments(&module.functions, &mut first_item, |s, func| {
+            s.emit_comments_before_function(func, comments, comment_index);
+            s.format_function(func);
+        });
+        self.format_items_with_comments(&module.tests, &mut first_item, |s, test| {
+            s.emit_comments_before(test.span.start, comments, comment_index);
+            s.format_test(test);
+        });
 
         // Emit any trailing comments
         self.emit_trailing_comments(comments, comment_index);
+    }
+
+    /// Emit each `item` via `format_one` (which itself threads comment
+    /// emission before the item), preceded by a blank line unless it's the
+    /// module's first item and followed by one — the comment-aware skeleton
+    /// shared by every top-level declaration category in
+    /// [`Self::format_module_with_comments`]. Twin of [`Self::format_items`];
+    /// takes a closure rather than a bare fn pointer because callers capture
+    /// `comments` + `comment_index` from the enclosing scope.
+    fn format_items_with_comments<T>(
+        &mut self,
+        items: &[T],
+        first_item: &mut bool,
+        mut format_one: impl FnMut(&mut Self, &T),
+    ) {
+        for item in items {
+            if !*first_item {
+                self.ctx.emit_newline();
+            }
+            format_one(self, item);
+            self.ctx.emit_newline();
+            *first_item = false;
+        }
     }
 
     /// Emit the `, ` separator before a subsequent item in a comma-joined

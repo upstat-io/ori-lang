@@ -124,10 +124,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// since it's produced by type-checking merge of `#repr("c")` + `#repr("aligned", N)`.
     pub(super) fn emit_repr_attr(&mut self, repr: &ReprAttrKind) {
         match repr {
-            ReprAttrKind::C => {
-                self.ctx.emit("#repr(\"c\")");
-                self.ctx.emit_newline_indent();
-            }
+            ReprAttrKind::C => self.emit_repr_c(),
             ReprAttrKind::Packed => {
                 self.ctx.emit("#repr(\"packed\")");
                 self.ctx.emit_newline_indent();
@@ -136,21 +133,29 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.ctx.emit("#repr(\"transparent\")");
                 self.ctx.emit_newline_indent();
             }
-            ReprAttrKind::Aligned(n) => {
-                self.ctx.emit("#repr(\"aligned\", ");
-                self.ctx.emit(n.to_string());
-                self.ctx.emit(")");
-                self.ctx.emit_newline_indent();
-            }
+            ReprAttrKind::Aligned(n) => self.emit_repr_aligned(*n),
             ReprAttrKind::CAligned(n) => {
-                // CAligned is the merged form — emit as two stacked attrs
-                self.ctx.emit("#repr(\"c\")");
-                self.ctx.emit_newline_indent();
-                self.ctx.emit("#repr(\"aligned\", ");
-                self.ctx.emit(n.to_string());
-                self.ctx.emit(")");
-                self.ctx.emit_newline_indent();
+                // CAligned is the merged form — emit as two stacked attrs,
+                // sharing the C and Aligned emitters below.
+                self.emit_repr_c();
+                self.emit_repr_aligned(*n);
             }
         }
+    }
+
+    /// Emit `#repr("c")` on its own line. Shared by the plain `C` variant
+    /// and the merged `CAligned` form.
+    fn emit_repr_c(&mut self) {
+        self.ctx.emit("#repr(\"c\")");
+        self.ctx.emit_newline_indent();
+    }
+
+    /// Emit `#repr("aligned", n)` on its own line. Shared by the plain
+    /// `Aligned` variant and the merged `CAligned` form.
+    fn emit_repr_aligned(&mut self, n: u64) {
+        self.ctx.emit("#repr(\"aligned\", ");
+        self.ctx.emit(n.to_string());
+        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
     }
 }
