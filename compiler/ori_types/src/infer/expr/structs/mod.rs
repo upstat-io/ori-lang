@@ -9,10 +9,11 @@ pub(crate) use field_access::{
 use ori_ir::{ExprArena, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::super::InferEngine;
-use super::{find_similar_type_names, infer_expr, infer_ident};
 use crate::pool::substitute::substitute_named_in_pool;
 use crate::{ContextKind, Expected, Idx, TypeCheckError, TypeKind};
+
+use super::super::InferEngine;
+use super::{find_similar_type_names, infer_expr, infer_ident};
 
 /// Infer the value expressions of a field-init range for error recovery.
 ///

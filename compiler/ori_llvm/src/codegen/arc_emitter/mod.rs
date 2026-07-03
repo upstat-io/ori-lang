@@ -72,6 +72,7 @@ pub use context::CodegenContext;
 use context::EmittedValue;
 pub(crate) use narrowing_codegen::narrowed_collection_element_width;
 
+use crate::aot::debug::DebugContext;
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_arc::MemoryContract;
@@ -221,6 +222,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     current_function: FunctionId,
     /// Shared function-resolution lookup tables.
     ctx: &'a CodegenContext,
+    /// Debug info context (None for JIT or when debug info is disabled).
+    debug_context: Option<&'a DebugContext<'ctx>>,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
     /// Counter for unique catch thunk function names (SEH `catch(expr:)`).
@@ -370,6 +373,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         classifier: &'a dyn ArcClassification,
         current_function: FunctionId,
         ctx: &'a CodegenContext,
+        debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
         Self {
             builder,
@@ -388,6 +392,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             hash_thunk_cache: FxHashMap::default(),
             current_function,
             ctx,
+            debug_context,
             partial_apply_counter: 0,
             catch_thunk_counter: 0,
             var_map: Vec::new(),

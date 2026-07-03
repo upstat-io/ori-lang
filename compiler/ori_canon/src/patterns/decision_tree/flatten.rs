@@ -7,9 +7,8 @@
 
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::ExprKind;
+use ori_ir::canon::tree::FlatPattern;
 use ori_ir::{ExprArena, ExprId, Name, StringInterner};
-
-use super::FlatPattern;
 
 /// Immutable context for pattern flattening.
 ///

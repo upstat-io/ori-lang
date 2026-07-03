@@ -10,8 +10,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// referenceable closure-ABI function so a first-class `Error` value
     /// (`let f = Error`) resolves to a real function pointer instead of an
     /// unresolvable `PartialApply @Error` (Spec: Annex E §Built-in Type
-    /// Representations). `Error` layout == `str` (24 bytes), so the body moves
-    /// the str param into the `Error` sret slot per-field (FastISel-safe).
+    /// Representations). `Error` layout is `{ message: str, trace: [TraceEntry] }`
+    /// (32 bytes, sret-returned): the body moves the `message` str param into the
+    /// sret slot per-field and zero-inits `trace` to `{ 0, 0, null }` (FastISel-safe).
     pub(super) fn declare_error_constructor(&mut self) {
         let Some(error_idx) = self.pool.error_struct_idx() else {
             return;
@@ -46,21 +47,67 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         let ret_ptr = self.builder.get_param(func_id, 0);
         let str_ptr = self.builder.get_param(func_id, 2);
-        // `Error` == `{ message: str }`; its 24 bytes ARE the `str` (message at
-        // offset 0). GEP both the str param and the Error sret slot as the
-        // `str` fat-pointer struct `{ i64 len, i64 cap, ptr data }`.
+
+        let error_llvm = self.resolve_type(error_idx);
+        let error_struct_ty = self.builder.register_type(error_llvm);
+
+        let remap_field = |decl_field: u32| -> u32 {
+            let Some(plan) = self.repr_plan() else {
+                return decl_field;
+            };
+            let resolved = self.pool.resolve_fully(error_idx);
+            let Some(repr) = plan.get_repr(resolved) else {
+                return decl_field;
+            };
+            match repr {
+                ori_repr::MachineRepr::Struct(s) => {
+                    s.memory_index(decl_field).map_or(decl_field, |i| i as u32)
+                }
+                _ => decl_field,
+            }
+        };
+
+        let mem_message_field = remap_field(0);
+        let mem_trace_field = remap_field(1);
+
+        // Copy message string (param 2) to field message of the Error struct
+        let dst_msg_ptr =
+            self.builder
+                .struct_gep(error_struct_ty, ret_ptr, mem_message_field, "dst_msg_ptr");
         let str_llvm = self.type_resolver.resolve(Idx::STR);
-        let struct_ty = self.builder.register_type(str_llvm);
-        // Copy each field of the resolved `str` fat-pointer struct (field types
-        // derived from the LLVM type, not hardcoded) into the Error sret slot.
+        let str_struct_ty = self.builder.register_type(str_llvm);
         let mut idx = 0u32;
-        while let Some(fty) = self.builder.struct_field_type(struct_ty, idx) {
-            let src = self.builder.struct_gep(struct_ty, str_ptr, idx, "src");
+        while let Some(fty) = self.builder.struct_field_type(str_struct_ty, idx) {
+            let src = self.builder.struct_gep(str_struct_ty, str_ptr, idx, "src");
             let val = self.builder.load(fty, src, "fld");
-            let dst = self.builder.struct_gep(struct_ty, ret_ptr, idx, "dst");
+            let dst = self
+                .builder
+                .struct_gep(str_struct_ty, dst_msg_ptr, idx, "dst");
             self.builder.store(val, dst);
             idx += 1;
         }
+
+        // Initialize field trace to an empty list { 0, 0, null }
+        let dst_trace_ptr =
+            self.builder
+                .struct_gep(error_struct_ty, ret_ptr, mem_trace_field, "dst_trace_ptr");
+        let list_struct_ty = str_struct_ty; // list shares the same structure layout as str
+        let len_ptr = self
+            .builder
+            .struct_gep(list_struct_ty, dst_trace_ptr, 0, "len");
+        let zero_len = self.builder.const_i64(0);
+        self.builder.store(zero_len, len_ptr);
+        let cap_ptr = self
+            .builder
+            .struct_gep(list_struct_ty, dst_trace_ptr, 1, "cap");
+        let zero_cap = self.builder.const_i64(0);
+        self.builder.store(zero_cap, cap_ptr);
+        let data_ptr = self
+            .builder
+            .struct_gep(list_struct_ty, dst_trace_ptr, 2, "data");
+        let null_val = self.builder.const_null_ptr();
+        self.builder.store(null_val, data_ptr);
+
         self.builder.ret_void();
 
         self.builder.restore_position(saved_pos);

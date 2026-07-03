@@ -57,7 +57,7 @@ pub(crate) fn infer_function_exp(
             infer_cache(engine, arena, props)
         }
 
-        // Post-2026 concurrency — rejected at type checking (E2040)
+        // Why: Unsupported concurrency features are rejected at type checking (E2040).
         FunctionExpKind::Parallel
         | FunctionExpKind::Spawn
         | FunctionExpKind::Timeout
@@ -102,9 +102,7 @@ fn infer_recurse(
     arena: &ExprArena,
     props: &[ori_ir::NamedExpr],
 ) -> Idx {
-    // The step expression needs access to `self` (the recursive function)
-    // For now, we'll infer base and use that as the result type
-    // Full implementation needs Section 07 (scoped bindings)
+    // Why: The step expression needs access to `self` (the recursive function); infer base type as the result.
 
     let mut condition_ty = None;
     let mut base_ty = None;

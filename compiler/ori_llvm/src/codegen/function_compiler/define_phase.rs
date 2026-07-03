@@ -245,6 +245,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.arc_classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.codegen_ctx,
+            self.debug_context,
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.set_func_contract(self.aims_contracts.get(&arc_func.name));
@@ -314,6 +315,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.arc_classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.codegen_ctx,
+            self.debug_context,
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(lambda, &abi);

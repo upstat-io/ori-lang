@@ -267,15 +267,15 @@ impl Parser<'_> {
         }
 
         // Parse first element (could be tuple or function param)
-        let mut element_ids = Vec::new();
-        if let Some(first) = self.parse_type() {
-            let id = self.arena.alloc_parsed_type(first);
-            element_ids.push(id);
-        }
+        let first = self.parse_type()?;
+        let first_id = self.arena.alloc_parsed_type(first.clone());
+        let mut element_ids = vec![first_id];
 
         // Collect remaining elements if tuple
+        let mut saw_comma = false;
         while self.cursor.check(&TokenKind::Comma) {
             self.cursor.advance();
+            saw_comma = true;
             if self.cursor.check(&TokenKind::RParen) {
                 break; // trailing comma
             }
@@ -298,8 +298,12 @@ impl Parser<'_> {
             return Some(ParsedType::function(params, ret_id));
         }
 
-        // If single element without arrow, it could be a parenthesized type or 1-tuple
-        // We treat it as a tuple for consistency
+        // If single element without arrow, check if trailing comma was consumed.
+        // If no comma was seen, it is a parenthesized type, not a tuple.
+        if element_ids.len() == 1 && !saw_comma {
+            return Some(first);
+        }
+
         let elems = self.arena.alloc_parsed_type_list(element_ids);
         Some(ParsedType::tuple(elems))
     }

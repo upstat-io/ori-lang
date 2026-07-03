@@ -23,6 +23,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};
 
+pub(crate) use crate::ir::ParamEdgeArg;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::super::lattice::{AccessClass, AimsState, Cardinality};
@@ -274,24 +275,6 @@ pub(crate) fn compute_genuine_same_alloc_reps(
         reps.insert(v, r);
     }
     reps
-}
-
-/// One predecessor edge feeding a block-param: the predecessor block index, the
-/// Jump-arg the edge passes for this param position, and whether the edge is a
-/// loop BACK-EDGE (the target reaches the predecessor — the edge closes a CFG
-/// cycle).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ParamEdgeArg {
-    /// The predecessor block jumping into the param's owning block.
-    pub(crate) pred_block: usize,
-    /// The Jump-arg passed at this param's position on THIS edge.
-    pub(crate) arg: ArcVarId,
-    /// True iff the edge closes a CFG cycle (the param's owning block reaches
-    /// `pred_block`). Back-edge unification DECLINES conservatively: the
-    /// back-edge arg is the NEXT iteration's value of the same lineage, never
-    /// this iteration's allocation. Spec: Annex E §AIMS — merge-point
-    /// filtering.
-    pub(crate) is_back_edge: bool,
 }
 
 /// Per-predecessor-edge attribution for every block-param (§1.9 merge-point

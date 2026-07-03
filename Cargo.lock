@@ -803,7 +803,6 @@ dependencies = [
 name = "ori_canon"
 version = "2026.4.26-alpha.1"
 dependencies = [
- "ori_arc",
  "ori_format",
  "ori_ir",
  "ori_types",

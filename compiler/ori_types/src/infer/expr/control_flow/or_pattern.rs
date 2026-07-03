@@ -3,10 +3,11 @@
 use ori_ir::{ExprArena, MatchPatternRange, Name, Span};
 use rustc_hash::FxHashMap;
 
-use super::super::super::InferEngine;
-use super::matches::check_match_pattern;
 use crate::type_error::OrBindingMismatchReason;
 use crate::{Idx, PatternKey, TypeCheckError};
+
+use super::super::super::InferEngine;
+use super::matches::check_match_pattern;
 
 /// Check an or-pattern: all alternatives match the same type AND bind identical
 /// name-sets + types (Spec: Clause 15 patterns). Each alternative's bindings are

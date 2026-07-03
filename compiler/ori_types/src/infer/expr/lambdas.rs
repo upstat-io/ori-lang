@@ -18,11 +18,6 @@ use super::{infer_expr, resolve_and_check_parsed_type};
 /// The result is exactly the set of names the user introduced via lexical
 /// binders (function params, enclosing `let`, `for`, `match` arm) between
 /// the function body's entry and the current inference point.
-///
-/// This is the SSOT path `should_generalize` uses to feed
-/// `body_captures_outer`'s `Ident` arm — keeping prelude refs like
-/// `len(collection: xs)` out of the capture set while still flagging real
-/// `let outer = 1; let f = x -> outer` captures.
 fn collect_outer_vars(engine: &InferEngine<'_>) -> FxHashSet<Name> {
     engine.collect_lexical_outer()
 }
@@ -36,10 +31,8 @@ pub(crate) fn infer_lambda(
     body: ExprId,
     span: Span,
 ) -> Idx {
-    // Enter a new scope for the lambda
     engine.enter_scope();
 
-    // Create types for parameters
     let mut param_types = Vec::new();
     for param in arena.get_params(params) {
         let param_ty = if let Some(ref parsed_ty) = param.ty {
@@ -51,7 +44,6 @@ pub(crate) fn infer_lambda(
         param_types.push(param_ty);
     }
 
-    // Infer body type, checking against return annotation if present
     let body_ty = if let Some(ret_parsed) = ret_ty {
         let expected_ty = resolve_and_check_parsed_type(engine, arena, ret_parsed, span);
         let inferred = infer_expr(engine, arena, body);
@@ -68,10 +60,8 @@ pub(crate) fn infer_lambda(
         infer_expr(engine, arena, body)
     };
 
-    // Exit scope
     engine.exit_scope();
 
-    // Create function type
     let closure_idx = engine.infer_function(&param_types, body_ty);
 
     // Register the closure's heap-env burden so the Phase-5 burden walker
@@ -103,8 +93,8 @@ pub(crate) fn infer_lambda(
 /// `$const`), which is NOT a capture.
 ///
 /// This is the SSOT for the Value Restriction policy. Every let-binding
-/// generalization site in the type checker MUST call this function rather
-/// than inlining equivalent logic.
+/// generalization site must call this function rather than inlining
+/// equivalent logic.
 pub(crate) fn should_generalize(
     arena: &ExprArena,
     init: ExprId,
@@ -120,20 +110,13 @@ pub(crate) fn should_generalize(
 }
 
 /// Apply the Value Restriction generalization decision to `ty` for an
-/// initializer `init`. Returns `engine.generalize(ty)` iff `init` satisfies
+/// initializer `init`. Returns `engine.generalize(ty)` if `init` satisfies
 /// [`should_generalize`] (a non-capturing lambda), otherwise returns `ty`
 /// unchanged.
 ///
-/// This is the SSOT for *applying* the decision, alongside
-/// [`should_generalize`] which is the SSOT for *making* it. Every
-/// let-binding generalization site in the type checker MUST call this
-/// function — inlining the `if should_generalize(...) { generalize } else
-/// { ty }` pattern at the call site would drift when the policy evolves.
-///
-/// The three live call sites are: `infer_block` (block-statement `let`),
-/// `infer_let` (`ExprKind::Let` dispatch), and `infer_try_stmt` (try-block
-/// `let`). Each calls this function; the policy check itself and the
-/// lexical-outer collection are handled here.
+/// This is the SSOT for applying the decision, alongside [`should_generalize`]
+/// which is the SSOT for making it. Generalization sites call this function
+/// to ensure policy consistency when the policy evolves.
 ///
 /// **Important**: `init` is the *original* initializer expression, NOT a
 /// derived type. In the try-block path, the caller unwraps the inferred
@@ -163,7 +146,7 @@ pub(crate) fn maybe_generalize(
 /// generalization.** Unknown or unhandled expression shapes are treated as
 /// capturing — a false positive costs one missed polymorphic generalization;
 /// a false negative silently generalizes a capturing lambda, whose bound
-/// type variables then include outer captures, and downstream instantiation
+/// type variables then include outer captures, and subsequent instantiation
 /// produces wrong types (a type-soundness violation, not a detectable
 /// codegen failure).
 ///
@@ -302,8 +285,6 @@ fn body_captures_outer(
                 || body_captures_outer(arena, *body, param_names, outer_vars)
         }
 
-        // Call: must walk BOTH func and args. The previous code checked only
-        // `func`, leaving captures inside `args` undetected (F1+F7 finding).
         ExprKind::Call { func, args } => {
             body_captures_outer(arena, *func, param_names, outer_vars)
                 || arena
@@ -312,8 +293,6 @@ fn body_captures_outer(
                     .any(|e| body_captures_outer(arena, *e, param_names, outer_vars))
         }
 
-        // MethodCall: must walk BOTH receiver and args (same F1+F7 finding
-        // applied to the method-dispatch path).
         ExprKind::MethodCall { receiver, args, .. } => {
             body_captures_outer(arena, *receiver, param_names, outer_vars)
                 || arena
@@ -340,11 +319,7 @@ fn body_captures_outer(
                 .is_some_and(|v| body_captures_outer(arena, v, param_names, outer_vars))
         }),
 
-        // Match: scrutinee + each arm's guard and body. Pattern bindings are
-        // not added to the visible set here — false positives (flagging an
-        // arm-body reference to a pattern-bound name as capture) are
-        // acceptable under the conservative-direction rule; false negatives
-        // are not.
+        // Why: Pattern bindings are not added to the visible set; conservative false positives are acceptable.
         ExprKind::Match { scrutinee, arms } => {
             if body_captures_outer(arena, *scrutinee, param_names, outer_vars) {
                 return true;

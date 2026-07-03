@@ -13,13 +13,8 @@
 //! # Architecture
 //!
 //! Type definitions live in `ori_ir::canon::tree` (shared across crates).
-//! The compilation algorithm and ARC IR emission logic live here in `ori_arc`.
-//!
-//! NOTE: `decision_tree::compile` and `flatten` are pattern-matching primitives
-//! temporarily housed in `ori_arc`. They are consumed by `ori_canon` (which
-//! imports `ori_arc`), creating an upward dependency from canonicalization into
-//! ARC optimization. These are a migration target: they belong in
-//! `ori_canon::patterns`.
+//! The compilation algorithm lives in `ori_canon::patterns::decision_tree`.
+//! The ARC IR emission logic lives here in `ori_arc`.
 //!
 //! # References
 //!
@@ -27,10 +22,8 @@
 //! - Decision-tree pattern compilation lowering each constructor test to a
 //!   tag/discriminant switch
 
-pub mod compile;
 pub(crate) mod emit;
 mod emit_switches;
-pub mod flatten;
 
 // Re-export decision tree types from ori_ir (the shared types crate).
 // These types were relocated to ori_ir::canon::tree so that both ori_canon

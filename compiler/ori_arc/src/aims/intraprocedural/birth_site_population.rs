@@ -40,7 +40,7 @@ pub(crate) fn compute_birth_site_partition(
                         continue;
                     }
                     let dst_node = whole_node(&mut partition, *dst);
-                    partition.set_site(dst_node, BirthSiteId::new(next_site));
+                    partition.set(dst_node, BirthSiteId::new(next_site));
                     next_site += 1;
                     // Field funding: constructor arg positions ARE the field
                     // indices `Project { field }` reads back.
@@ -368,12 +368,9 @@ mod tests {
         assert!(partition.same_rep(view, buffer));
         assert!(partition.same_rep(alias, view));
         assert!(!partition.same_rep(aggregate, buffer));
-        assert_eq!(partition.class_site(view), partition.class_site(buffer));
-        assert!(partition.class_site(view).is_some());
-        assert_ne!(
-            partition.class_site(aggregate),
-            partition.class_site(buffer)
-        );
+        assert_eq!(partition.site(view), partition.site(buffer));
+        assert!(partition.site(view).is_some());
+        assert_ne!(partition.site(aggregate), partition.site(buffer));
     }
 
     /// A two-predecessor block-param merge over DISTINCT Construct sites has
@@ -396,7 +393,7 @@ mod tests {
         assert!(!partition.same_rep(param, entry_alloc));
         assert!(!partition.same_rep(param, latch_alloc));
         assert!(!partition.same_rep(entry_alloc, latch_alloc));
-        assert_eq!(partition.class_site(param), None);
+        assert_eq!(partition.site(param), None);
     }
 
     /// The loop-invariant back-edge shape: a loop-header param fed the entry
@@ -416,8 +413,8 @@ mod tests {
         let alloc = whole(&mut partition, 0);
         let param = whole(&mut partition, 1);
         assert!(partition.same_rep(param, alloc));
-        assert_eq!(partition.class_site(param), partition.class_site(alloc));
-        assert!(partition.class_site(param).is_some());
+        assert_eq!(partition.site(param), partition.site(alloc));
+        assert!(partition.site(param).is_some());
     }
 
     /// The loop-VARYING back-edge shape: the latch feeds a per-iteration
@@ -438,7 +435,7 @@ mod tests {
         let param = whole(&mut partition, 1);
         assert!(!partition.same_rep(param, entry_alloc));
         assert!(!partition.same_rep(param, per_iter_alloc));
-        assert_eq!(partition.class_site(param), None);
+        assert_eq!(partition.site(param), None);
     }
 
     /// A single-predecessor param is a pure renaming: tier-1 union.
@@ -456,7 +453,7 @@ mod tests {
         let alloc = whole(&mut partition, 0);
         let param = whole(&mut partition, 1);
         assert!(partition.same_rep(param, alloc));
-        assert!(partition.class_site(param).is_some());
+        assert!(partition.site(param).is_some());
     }
 
     /// `Set` taints the base's whole-var class AND the touched field class
@@ -590,7 +587,7 @@ mod tests {
         let selected = whole(&mut partition, 2);
         assert!(!partition.same_rep(selected, site_a));
         assert!(!partition.same_rep(selected, site_b));
-        assert_eq!(partition.class_site(selected), None);
+        assert_eq!(partition.site(selected), None);
     }
 
     fn genuine_rep(reps: &FxHashMap<ArcVarId, ArcVarId>, var: u32) -> ArcVarId {

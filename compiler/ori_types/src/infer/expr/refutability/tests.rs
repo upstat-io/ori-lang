@@ -3,13 +3,7 @@
 //! Spec: Clause 15 (irrefutability context table + List Pattern Exhaustiveness table).
 //!
 //! Coverage scope: every `BindingPattern` variant + nested-path arms +
-//! `Idx::ERROR` poison degradation. The registry-backed struct walk
-//! (Axis 7 cell #13) is covered by the spec test
-//! `test_let_struct_field_with_refutable_list_inner_rejects` in
-//! `tests/spec/declarations/let-irrefutable/nested-patterns.ori` since
-//! exercising it from a Rust unit test would duplicate module-checker
-//! registration setup; the spec corpus runs the path through the full
-//! compiler pipeline.
+//! `Idx::ERROR` poison degradation.
 
 use super::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 use crate::infer::InferEngine;
@@ -179,9 +173,7 @@ fn test_pattern_is_irrefutable_tuple_with_refutable_inner() {
 
 #[test]
 fn test_pattern_is_irrefutable_struct_all_simple() {
-    // Synthetic struct: outer type is a non-Named tag, so the predicate
-    // recurses with Idx::ERROR sentinels per slot. Two simple Name field
-    // sub-patterns are both irrefutable, so the overall result is Ok.
+    // Why: Test irrefutability on synthetic struct with non-Named tag (recurses with Idx::ERROR).
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -204,19 +196,9 @@ fn test_pattern_is_irrefutable_struct_all_simple() {
     assert_eq!(pattern_is_irrefutable(&mut engine, &pat, Idx::INT), Ok(()));
 }
 
-// Note: there is deliberately no `test_pattern_is_irrefutable_struct_with_refutable_inner`
-// (concrete `Idx::INT` outer with refutable inner). Per the no-double-diagnostic
-// contract, the predicate returns `Ok(())` for concrete-non-struct
-// outer types so bind_pattern's E2001 type-mismatch fires alone (no doubling).
-// The recursion behavior for refutable inner sub-patterns is pinned by
-// `test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison`
-// below (uses `Tag::Var` outer, which DOES recurse with `Idx::ERROR` poison).
-
 #[test]
 fn test_pattern_is_irrefutable_struct_shorthand_field() {
-    // Shorthand `{ name }` — pattern: None, mutable: Mutable. The predicate
-    // synthesises a Name sub-pattern from the field's name + mutability and
-    // recurses; for a simple Name shape that yields Ok(()).
+    // Why: Shorthand `{ name }` synthesizes a Name sub-pattern and returns Ok.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -234,8 +216,7 @@ fn test_pattern_is_irrefutable_struct_shorthand_field() {
 
 #[test]
 fn test_pattern_is_irrefutable_non_tuple_against_tuple_pattern() {
-    // No-double-diagnostic contract: predicate returns Ok on non-tuple outer
-    // type so bind_pattern's existing E2001 type-mismatch fires alone.
+    // Why: Prevent double-diagnostic on type mismatch by returning Ok on non-tuple type.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -247,10 +228,7 @@ fn test_pattern_is_irrefutable_non_tuple_against_tuple_pattern() {
 
 #[test]
 fn test_pattern_is_irrefutable_outer_tag_var_recurses_with_poison() {
-    // Type-INDEPENDENT refutability (List shape) MUST fire even when the
-    // outer tuple type is unresolved (Tag::Var). The predicate falls back to
-    // Idx::ERROR sentinels per slot so the inner list shape is still
-    // structurally checked.
+    // Why: Check inner refutability even when outer type is unresolved Tag::Var.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -278,8 +256,7 @@ fn test_pattern_is_irrefutable_outer_tag_var_recurses_with_poison() {
 
 #[test]
 fn test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison() {
-    // Same poison-recursion contract for the struct branch: refutable List
-    // sub-pattern surfaces even when the outer struct type is Tag::Var.
+    // Why: Check struct inner refutability when outer type is unresolved Tag::Var.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -318,12 +295,7 @@ fn test_pattern_is_irrefutable_outer_tag_var_struct_recurses_with_poison() {
 
 #[test]
 fn test_pattern_is_irrefutable_struct_field_preserves_mutability() {
-    // Shorthand `{ $name }` MUST clone with Mutability::Immutable when the
-    // FieldBinding records Immutable. The predicate synthesises a Name
-    // sub-pattern from the field — it MUST NOT hardcode Mutability::Mutable.
-    // Result for the `Ok` shape doesn't reveal the mutability directly, so
-    // we exercise the path with a deliberately complex inner that would only
-    // succeed if recursion is correct.
+    // Why: Shorthand `{ $name }` must preserve Mutability::Immutable.
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
@@ -338,8 +310,6 @@ fn test_pattern_is_irrefutable_struct_field_preserves_mutability() {
     };
     assert_eq!(pattern_is_irrefutable(&mut engine, &pat, Idx::INT), Ok(()));
 
-    // Counter-shape: an explicit immutable name pattern at the same field
-    // also returns Ok, confirming the synthesised vs explicit paths agree.
     let explicit = BindingPattern::Struct {
         fields: vec![FieldBinding {
             name: n(5),
@@ -357,9 +327,7 @@ fn test_pattern_is_irrefutable_struct_field_preserves_mutability() {
 fn test_binding_pattern_refutability_matrix_count() {
     // Axis 8 — Self-verifying matrix completeness.
     //
-    // (a) Spec: Clause 15 enumerates 5 CANONICAL List shapes:
-    //     [], [$x], [$x, $y], [$x, ..rest], [..rest]. Each has a spec test
-    //     in tests/spec/declarations/let-irrefutable/list-shapes.ori.
+    // Spec: Clause 15 canonical List shapes.
     let canonical_spec_shape_tests = [
         "test_let_empty_list_pattern_rejects",
         "test_let_single_head_rejects",

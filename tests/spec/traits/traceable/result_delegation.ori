@@ -16,11 +16,9 @@ use std.testing { assert_eq, assert }
     Ok(x)
 }
 
-// Result.has_trace() delegates. The post-`?` trace-DATA (has_trace() == true)
-// is interpreter-only: the AOT backend has no `?`-hop trace-injection machinery
-// yet. The traceless delegation dispatch IS covered in AOT (the Ok-path +
-// fresh-Err tests below stay dual-exec).
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
+// Result.has_trace() delegates through Result.Err(Error).
+// Trace-bearing and traceless delegation are required on both interpreter and
+// LLVM backends; the Ok-path + fresh-Err controls stay dual-exec.
 @test_has tests @has () -> void = {
     let r = traced();
     assert(cond: r.has_trace())
@@ -31,8 +29,7 @@ use std.testing { assert_eq, assert }
     r.has_trace()
 }
 
-// Result.trace() delegates — post-`?` trace-DATA, interpreter-only.
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
+// Result.trace() delegates through Result.Err(Error).
 @test_trace tests @trace () -> void = {
     let r = traced();
     assert(cond: r.trace() != "")
@@ -43,8 +40,7 @@ use std.testing { assert_eq, assert }
     r.trace() != ""
 }
 
-// Result.trace_entries() delegates — post-`?` trace-DATA, interpreter-only.
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
+// Result.trace_entries() delegates through Result.Err(Error).
 @test_entries tests @entries () -> void = {
     let r = traced();
     assert_eq(

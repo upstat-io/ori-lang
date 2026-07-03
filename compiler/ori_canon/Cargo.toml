@@ -13,8 +13,6 @@ ori_ir.workspace = true
 ori_format.workspace = true
 # Type system (Pool, Idx, type checking results)
 ori_types.workspace = true
-# ARC analysis (type classification, decision tree compilation)
-ori_arc.workspace = true
 
 # Utilities
 rustc-hash.workspace = true

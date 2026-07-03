@@ -27,7 +27,6 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, Ctor
 pub(crate) fn detect_context_regions(func: &ArcFunction) -> Vec<ContextRegion> {
     let self_name = func.name;
 
-    // Collect variables defined by recursive calls, with their definition site.
     let recursive_defs = collect_recursive_call_sites(func);
     if recursive_defs.is_empty() {
         return Vec::new();
@@ -50,12 +49,10 @@ pub(crate) fn detect_context_regions(func: &ArcFunction) -> Vec<ContextRegion> {
                 continue;
             };
 
-            // Only struct/enum constructors are TRMC candidates.
             if !matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. }) {
                 continue;
             }
 
-            // Find the first field argument that was produced by a recursive call.
             for (field_idx, arg) in args.iter().enumerate() {
                 if let Some(call_site) = recursive_defs.get(arg) {
                     #[expect(
@@ -136,8 +133,7 @@ pub(crate) fn collect_recursive_call_sites(func: &ArcFunction) -> FxHashMap<ArcV
             }
         }
 
-        // Invoke terminators also define a dst from a call.
-        // Invoke instr index = block.body.len() (the terminator position).
+        // Why: Invoke terminators are treated as an instruction located at block.body.len().
         if let ArcTerminator::Invoke {
             dst, func: callee, ..
         } = &block.terminator

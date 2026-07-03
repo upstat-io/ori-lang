@@ -38,22 +38,35 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
 fn register_error_type(checker: &mut ModuleChecker<'_>) {
     let error_name = checker.interner().intern("Error");
     let message_name = checker.interner().intern("message");
+    let trace_name = checker.interner().intern("trace");
 
     let named_idx = checker.pool_mut().named(error_name);
 
-    let pool_fields = [(message_name, Idx::STR)];
+    let te_name = checker.interner().intern("TraceEntry");
+    let te_idx = checker.pool_mut().named(te_name);
+    let trace_list_ty = checker.pool_mut().list(te_idx);
+
+    let pool_fields = [(message_name, Idx::STR), (trace_name, trace_list_ty)];
     let struct_idx = checker.pool_mut().struct_type(error_name, &pool_fields);
     checker.pool_mut().set_resolution(named_idx, struct_idx);
     // SSOT: surface `Error` annotations + `str.into()` returns resolve to
     // `named_idx`; record it so engine-less bridges route it to TypeTag::Error.
     checker.pool_mut().set_error_struct_idx(named_idx);
 
-    let field_defs = vec![FieldDef {
-        name: message_name,
-        ty: Idx::STR,
-        span: Span::DUMMY,
-        visibility: Visibility::Public,
-    }];
+    let field_defs = vec![
+        FieldDef {
+            name: message_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: trace_name,
+            ty: trace_list_ty,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+    ];
 
     let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_struct(

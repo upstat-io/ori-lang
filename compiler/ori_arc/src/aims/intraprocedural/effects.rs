@@ -27,9 +27,7 @@ pub(super) fn accumulate_instr_effects(
     effects: &mut EffectSummary,
 ) {
     match instr {
-        // Construct (non-scalar): may_allocate. If destination demand has
-        // locality > BlockLocal and the construct has args, may_share too
-        // (HeapEscaping → may_share).
+        // Why: HeapEscaping locality propagates may_share to non-scalar constructor arguments.
         crate::ir::ArcInstr::Construct { dst, args, .. } => {
             if !state_map.is_excluded(*dst) {
                 effects.may_allocate = true;
@@ -43,14 +41,13 @@ pub(super) fn accumulate_instr_effects(
             }
         }
 
-        // PartialApply (non-scalar): may_allocate (closure env allocation).
+        // Why: Partial application allocates a closure environment on the heap.
         crate::ir::ArcInstr::PartialApply { dst, .. } => {
             if !state_map.is_excluded(*dst) {
                 effects.may_allocate = true;
             }
         }
 
-        // Apply with known contract: union callee's EffectSummary.
         crate::ir::ArcInstr::Apply { func: callee, .. } => {
             if let Some(contract) = sigs.get(callee) {
                 *effects = effects.join(&contract.effects);
@@ -61,10 +58,7 @@ pub(super) fn accumulate_instr_effects(
     }
 }
 
-/// Accumulate effects from a terminator into the block-level summary.
-///
-/// `Invoke`: `may_throw` (Invoke exists because the call may unwind).
-/// Also unions callee's [`EffectSummary`] if known.
+/// Accumulates callee contract and unwind effects for a terminator.
 pub(super) fn accumulate_terminator_effects(
     term: &ArcTerminator,
     sigs: &FxHashMap<Name, MemoryContract>,

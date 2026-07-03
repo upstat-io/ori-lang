@@ -56,6 +56,24 @@ pub enum ArgOwnership {
     Borrowed,
 }
 
+/// Jump-arg the edge passes for this param position, and whether the edge is a
+/// loop BACK-EDGE (the target reaches the predecessor — the edge closes a CFG
+/// cycle).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct ParamEdgeArg {
+    /// The predecessor block jumping into the param's owning block.
+    pub pred_block: usize,
+    /// The Jump-arg passed at this param's position on THIS edge.
+    pub arg: ArcVarId,
+    /// True iff the edge closes a CFG cycle (the param's owning block reaches
+    /// `pred_block`). Back-edge unification DECLINES conservatively: the
+    /// back-edge arg is the NEXT iteration's value of the same lineage, never
+    /// this iteration's allocation. Spec: Annex E §AIMS — merge-point
+    /// filtering.
+    pub is_back_edge: bool,
+}
+
 // ID newtypes
 
 /// Variable ID within an ARC IR function.

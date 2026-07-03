@@ -6141,46 +6141,87 @@ fn compute_comparison_operand_aliases(
     resolve_root: &impl Fn(ArcVarId) -> ArcVarId,
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
-    // FORWARDER-TRANSFER EXEMPTION to the same-root guard: a comparison whose two
-    // operands trace to one `same_alloc` rep is NORMALLY a balanced self-comparison
-    // (`a == a`), so the same-root guard declines the strip. But when the shared
-    // allocation arises because one operand is a `transfers_through_return ∧ Direct`
-    // forwarder RESULT (`let result = take_and_return(b)` where `result` aliases the
-    // arg `b`'s allocation), the two operands (`result` and the live source `a`) are
-    // GENUINELY DISTINCT owned co-references: the alloc was rc-INC'd (the `b = a`
-    // duplication funds the transfer) so it carries TWO live refs, each owing one
-    // release (RL-2 `RL2_release_exactly_once`). The forwarder-result lineage rep set
-    // identifies exactly this case; an operand whose lineage IS a forwarder result is
-    // exempted from the same-root exclusion so its spurious keep-alive inc is M3-
-    // stripped (leaving its dec as one of the two genuine releases). Empty when
-    // `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1` (the guard stays purely
-    // structural — the pre-cure behavior). Spec: Annex E §AIMS RL-1 + RL-2.
+    // Forwarder-result reps exempt genuine two-ref transfer comparisons from
+    // the same-root guard; disabled mode keeps the guard purely structural.
     let forwarder_result_reps = if comparison_forwarder_same_root_exempt_disabled() {
         FxHashSet::default()
     } else {
         let jt_reps = compute_jump_threaded_reps(func, Some(same_alloc_reps));
         compute_forwarder_result_reps(func, &jt_reps, same_alloc_reps)
     };
-    let sa_rep = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
-    let is_forwarder_transfer_pair = |a: ArcVarId, b: ArcVarId| -> bool {
-        // A genuine 2-ref forwarder-transfer comparison: the two operands share an
-        // allocation rep AND at least one operand's rep is a forwarder result.
-        forwarder_result_reps.contains(&sa_rep(a)) || forwarder_result_reps.contains(&sa_rep(b))
+    let (non_rc_use_count, all_uses_are_compare_operand, same_root_operands) =
+        collect_comparison_operand_uses(func, same_alloc_reps, &forwarder_result_reps);
+
+    let mut operand_alias_root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let mut process_def = |dst: ArcVarId, root_src: ArcVarId, func: &ArcFunction, pool: &Pool| {
+        // Widened from `Aggregate`-only to also cover heap-str / FatValue /
+        // RcPointer compared operands (str `==`, list/map/set `==`). A `==` /
+        // `!=` operand of any of these reprs is an RL-1 borrow-read
+        // (`incElidable`); the spurious keep-alive inc leaks the same way.
+        if !matches!(
+            func.var_repr(dst),
+            Some(ValueRepr::Aggregate | ValueRepr::FatValue | ValueRepr::RcPointer)
+        ) {
+            return;
+        }
+        // SAME-ROOT GUARD: skip an operand whose comparison's two operands
+        // share one allocation class (over-strip -> double-free otherwise).
+        if same_root_operands.contains(&dst) {
+            return;
+        }
+        let uses = non_rc_use_count.get(&dst).copied().unwrap_or(0);
+        let all_cmp = all_uses_are_compare_operand
+            .get(&dst)
+            .copied()
+            .unwrap_or(false);
+        if uses != 1 || !all_cmp {
+            return;
+        }
+        let root = resolve_root(root_src);
+        // RECURSION GATE: a self-allocating (recursive boxed) aggregate's
+        // multi-node allocation chain breaks the single-allocation net
+        // reasoning -> excluded; only inline non-recursive aggregates fire.
+        if is_self_allocating_aggregate(root, func, pool) {
+            return;
+        }
+        operand_alias_root.insert(dst, root);
     };
 
-    // Per-var non-RC use tally + whether EVERY non-RC use is a `Binary(Eq|NotEq)`
-    // operand. An RC op is NOT a use; a `Let { Var }` reference IS a use of its
-    // source (counted when that source's occurrences are walked).
+    for block in &func.blocks {
+        for instr in &block.body {
+            let Some(dst) = instr.defined_var() else {
+                continue;
+            };
+            let root_src = match instr {
+                ArcInstr::Let {
+                    value: ArcValue::Var(src),
+                    ..
+                } => *src,
+                _ => dst,
+            };
+            process_def(dst, root_src, func, pool);
+        }
+        if let ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } =
+            &block.terminator
+        {
+            process_def(*dst, *dst, func, pool);
+        }
+    }
+    operand_alias_root
+}
+
+fn collect_comparison_operand_uses(
+    func: &ArcFunction,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+    forwarder_result_reps: &FxHashSet<ArcVarId>,
+) -> (
+    FxHashMap<ArcVarId, u32>,
+    FxHashMap<ArcVarId, bool>,
+    FxHashSet<ArcVarId>,
+) {
+    // An RC op is NOT a use; a `Let { Var }` reference IS a use of its source.
     let mut non_rc_use_count: FxHashMap<ArcVarId, u32> = FxHashMap::default();
     let mut all_uses_are_compare_operand: FxHashMap<ArcVarId, bool> = FxHashMap::default();
-    // SAME-ROOT GUARD: operand vars of a `Binary(Eq|NotEq)` whose TWO operands
-    // trace to the SAME `same_alloc` rep. M3/M4's net reasoning assumes the two
-    // operands are DISTINCT allocations (two operand decs release two distinct
-    // refs); when both alias ONE allocation, the two operand decs release the SAME
-    // ref, so an added M4 whole-var strip over-releases (-1 double-free). Such
-    // operands are EXCLUDED -> the same-root comparison's incs/decs stay at the
-    // balanced baseline. RL-2 `RL2_release_exactly_once`: one allocation released
-    // exactly once per path.
     let mut same_root_operands: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut note_use = |var: ArcVarId, is_compare_operand: bool| {
         *non_rc_use_count.entry(var).or_default() += 1;
@@ -6202,16 +6243,15 @@ fn compute_comparison_operand_aliases(
                 for &arg in args {
                     note_use(arg, is_cmp);
                 }
-                // A binary compare with both operands in ONE allocation class is a
-                // same-root comparison; exclude its operands from the strip — UNLESS
-                // the shared allocation arises from a forwarder transfer (the two
-                // operands are then genuinely distinct co-references owing two
-                // releases, so the strip MUST fire — see the forwarder-transfer
-                // exemption above).
                 if is_cmp
                     && args.len() == 2
                     && crate::aims::emit_rc::same_alloc(same_alloc_reps, args[0], args[1])
-                    && !is_forwarder_transfer_pair(args[0], args[1])
+                    && !is_forwarder_transfer_pair(
+                        args[0],
+                        args[1],
+                        forwarder_result_reps,
+                        same_alloc_reps,
+                    )
                 {
                     for &arg in args {
                         same_root_operands.insert(arg);
@@ -6230,61 +6270,23 @@ fn compute_comparison_operand_aliases(
             note_use(uv, false);
         }
     }
+    (
+        non_rc_use_count,
+        all_uses_are_compare_operand,
+        same_root_operands,
+    )
+}
 
-    let mut operand_alias_root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            // A `Let { dst, Var(src) }` aliasing a compared lineage, OR a `Let {
-            // dst, Literal(String) }` defining a fresh heap-str compared directly
-            // (`a == "lit"`). The Literal case is its OWN allocation root; its
-            // spurious operand keep-alive inc leaks the fresh literal buffer.
-            let (dst, root_src): (&ArcVarId, ArcVarId) = match instr {
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } => (dst, *src),
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Literal(crate::ir::LitValue::String(_)),
-                    ..
-                } => (dst, *dst),
-                _ => continue,
-            };
-            // Widened from `Aggregate`-only to also cover heap-str / FatValue /
-            // RcPointer compared operands (str `==`, list/map/set `==`). A `==` /
-            // `!=` operand of any of these reprs is an RL-1 borrow-read
-            // (`incElidable`); the spurious keep-alive inc leaks the same way.
-            if !matches!(
-                func.var_repr(*dst),
-                Some(ValueRepr::Aggregate | ValueRepr::FatValue | ValueRepr::RcPointer)
-            ) {
-                continue;
-            }
-            // SAME-ROOT GUARD: skip an operand whose comparison's two operands
-            // share one allocation class (over-strip -> double-free otherwise).
-            if same_root_operands.contains(dst) {
-                continue;
-            }
-            let uses = non_rc_use_count.get(dst).copied().unwrap_or(0);
-            let all_cmp = all_uses_are_compare_operand
-                .get(dst)
-                .copied()
-                .unwrap_or(false);
-            if uses != 1 || !all_cmp {
-                continue;
-            }
-            let root = resolve_root(root_src);
-            // RECURSION GATE: a self-allocating (recursive boxed) aggregate's
-            // multi-node allocation chain breaks the single-allocation net
-            // reasoning -> excluded; only inline non-recursive aggregates fire.
-            if is_self_allocating_aggregate(root, func, pool) {
-                continue;
-            }
-            operand_alias_root.insert(*dst, root);
-        }
-    }
-    operand_alias_root
+fn is_forwarder_transfer_pair(
+    a: ArcVarId,
+    b: ArcVarId,
+    forwarder_result_reps: &FxHashSet<ArcVarId>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) -> bool {
+    // At least one operand's allocation rep being a forwarder result identifies
+    // the case where same-alloc operands are distinct owned co-references.
+    let sa_rep = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    forwarder_result_reps.contains(&sa_rep(a)) || forwarder_result_reps.contains(&sa_rep(b))
 }
 
 /// Whether `instr` is a whole-var or field-grain burden RC op (not a value use).

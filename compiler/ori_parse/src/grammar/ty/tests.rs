@@ -146,6 +146,27 @@ fn test_parse_tuple_type() {
 }
 
 #[test]
+fn test_parse_parenthesized_type_vs_one_tuple() {
+    // Parenthesized type: (int) should be int
+    let (ty, _) = parse_type_with_arena("(int)");
+    assert_eq!(ty, Some(ParsedType::primitive(TypeId::INT)));
+
+    // One-element tuple: (int,) should be a tuple containing int
+    let (ty, arena) = parse_type_with_arena("(int,)");
+    match ty {
+        Some(ParsedType::Tuple(elems)) => {
+            assert_eq!(elems.len(), 1);
+            let ids = arena.get_parsed_type_list(elems);
+            assert_eq!(
+                *arena.get_parsed_type(ids[0]),
+                ParsedType::primitive(TypeId::INT)
+            );
+        }
+        _ => panic!("expected one-element Tuple"),
+    }
+}
+
+#[test]
 fn test_parse_function_type() {
     let (ty, arena) = parse_type_with_arena("() -> int");
     match ty {

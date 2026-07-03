@@ -7,7 +7,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcTerminator, ArcVarId, ParamEdgeArg};
 
 use super::forwarder::compute_alt_consumer_reps;
 use super::function_used_vars;
@@ -175,10 +175,7 @@ pub(in crate::lower::burden_lower) fn compute_rebuild_lineage_dead_param_release
     func: &ArcFunction,
     fired_rebuild_roots: &FxHashSet<ArcVarId>,
     genuine_same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
-    param_edge_args: &FxHashMap<
-        ArcVarId,
-        smallvec::SmallVec<[crate::aims::intraprocedural::project_aliases::ParamEdgeArg; 2]>,
-    >,
+    param_edge_args: &FxHashMap<ArcVarId, smallvec::SmallVec<[ParamEdgeArg; 2]>>,
 ) -> FxHashMap<usize, Vec<ArcVarId>> {
     let mut out: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
     if rebuild_lineage_dead_param_release_disabled() || fired_rebuild_roots.is_empty() {

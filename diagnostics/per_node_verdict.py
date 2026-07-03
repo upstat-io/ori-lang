@@ -14,9 +14,8 @@ Consumes the assembled `failures[]` (each carrying `source_path` +
     }
   }
 
-The CONSUMER is `scripts/plan_orchestrator/review_phase.py:verify_and_complete_v7`,
-which engine-reads this block fail-closed on red-parity OR leak-positive OR
-either-leg-unattributed. The shape below matches that reader.
+The completion gate reader fail-closes on red parity, leak-positive failures,
+or either-leg-unattributed failures. The shape below matches that reader.
 
 Semantics:
   - `llvm_pass` is False when ANY `ori_llvm`-suite failure attributes to the

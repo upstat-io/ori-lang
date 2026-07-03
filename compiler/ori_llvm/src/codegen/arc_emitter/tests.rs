@@ -80,6 +80,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let info = DropInfo {
@@ -133,6 +134,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let info = DropInfo {
@@ -181,6 +183,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
@@ -230,6 +233,7 @@ fn drop_fn_collection_generates_loop() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let list_ty = Idx::from_raw(100);
@@ -283,6 +287,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let map_ty = Idx::from_raw(101);
@@ -339,6 +344,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let clos_ty = Idx::from_raw(102);
@@ -390,6 +396,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
@@ -434,6 +441,7 @@ fn get_or_generate_caches_across_calls() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // First call generates, second returns from cache
@@ -486,6 +494,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // Scalar types (like int) don't need drop — should return null pointer
@@ -530,6 +539,7 @@ fn drop_fn_uses_c_calling_convention() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let info = DropInfo {
@@ -582,6 +592,7 @@ fn multiple_drop_fns_for_different_types() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let ty_a = Idx::from_raw(100);
@@ -664,6 +675,7 @@ fn is_shared_emits_gep_load_icmp() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
@@ -780,6 +792,7 @@ fn set_emits_struct_gep_and_store() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
@@ -939,6 +952,7 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // v0 = base node (RcPointer); v1 = replacement child node (also a Node).
@@ -1068,6 +1082,7 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1197,6 +1212,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1335,6 +1351,7 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1514,6 +1531,7 @@ fn burden_dec_variant_explicit_tag_enum_emits_switch_and_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1630,6 +1648,7 @@ fn burden_dec_variant_option_str_emits_typed_payload_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1753,6 +1772,7 @@ fn burden_dec_variant_scalar_enum_emits_no_codegen_via_re_2_short_circuit() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -1883,6 +1903,7 @@ fn set_tag_emits_gep_and_store() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
@@ -2108,6 +2129,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -2206,6 +2228,7 @@ fn rc_dec_closure_null_checks_env() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -2316,6 +2339,7 @@ fn rc_inc_inline_enum_emits_tag_switch() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -2418,6 +2442,7 @@ fn rc_dec_inline_enum_tag_switches() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let arc_func = ArcFunction {
@@ -2527,6 +2552,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.
@@ -2620,6 +2646,7 @@ fn idx_to_type_tag_maps_all_primitive_constants() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // All 11 well-known Idx constants (excluding ERROR) must map correctly.
@@ -2680,6 +2707,7 @@ fn idx_to_type_tag_returns_error_tag_for_error_idx() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // ERROR idx (8) falls through to dynamic path → TypeInfo::Error → TypeTag::Error.
@@ -2732,6 +2760,7 @@ fn idx_to_type_tag_maps_dynamic_list_type() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // Dynamic list type should map to TypeTag::List via TypeInfoStore
@@ -2793,6 +2822,7 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let info = DropInfo {
@@ -2897,6 +2927,7 @@ fn drop_augment_self_param_emits_no_default_dec_in_arc_ir() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // `DropKind::Fields.fields` is the RC-dec worklist — the scalar `int` field
@@ -2978,6 +3009,7 @@ fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let tree_info = DropInfo {
@@ -3074,6 +3106,7 @@ fn drop_fn_cache_prevents_infinite_generation() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     let info = DropInfo {
@@ -3188,6 +3221,7 @@ fn augment_drop_body_emits_zero_self_dec() {
         &cl as &dyn ArcClassification,
         host,
         &codegen_ctx,
+        None,
     );
 
     // Guard { s: str } with a user @drop — the AUGMENT shape. `user_drop` on

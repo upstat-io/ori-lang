@@ -21,7 +21,7 @@ cargo_race_retry() {
             return 0
         fi
         if [[ $attempt -eq 1 ]] && grep -qE "$BUILD_RACE_RE" "$out"; then
-            echo "  ⚠ build-artifact race (os error 2) — concurrent cargo on shared target/; retrying once after 5s" >&2
+            echo "  [warn] build-artifact race (os error 2) - concurrent cargo on shared target/; retrying once after 5s" >&2
             sleep 5
             continue
         fi
@@ -54,10 +54,10 @@ rust_test_leg() {
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
     if rust_test_leg "$RUST_OUTPUT" --workspace --exclude ori_llvm --lib --bins --tests; then
-        echo "  ✓ Rust workspace tests passed"
+        echo "  [ok] Rust workspace tests passed"
         return 0
     else
-        echo "  ✗ Rust workspace tests FAILED"
+        echo "  [fail] Rust workspace tests FAILED"
         return 1
     fi
 }
@@ -65,10 +65,10 @@ run_rust_workspace() {
 run_rust_doctests() {
     echo "=== Running Rust doctests (workspace + ori_llvm) ==="
     if cargo test --workspace --doc > "$DOCTEST_OUTPUT" 2>&1; then
-        echo "  ✓ Rust doctests passed"
+        echo "  [ok] Rust doctests passed"
         return 0
     else
-        echo "  ✗ Rust doctests FAILED"
+        echo "  [fail] Rust doctests FAILED"
         return 1
     fi
 }
@@ -76,10 +76,10 @@ run_rust_doctests() {
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
     if rust_test_leg "$RUST_RT_OUTPUT" -p ori_rt; then
-        echo "  ✓ Runtime library tests passed"
+        echo "  [ok] Runtime library tests passed"
         return 0
     else
-        echo "  ✗ Runtime library tests FAILED"
+        echo "  [fail] Runtime library tests FAILED"
         return 1
     fi
 }
@@ -87,10 +87,10 @@ run_rust_rt() {
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
     if rust_test_leg "$RUST_LLVM_OUTPUT" -p ori_llvm --lib; then
-        echo "  ✓ Rust LLVM tests passed"
+        echo "  [ok] Rust LLVM tests passed"
         return 0
     else
-        echo "  ✗ Rust LLVM tests FAILED"
+        echo "  [fail] Rust LLVM tests FAILED"
         return 1
     fi
 }
@@ -101,10 +101,10 @@ run_aot() {
         export ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1
         rust_test_leg "$AOT_OUTPUT" -p ori_llvm --test aot
     ); then
-        echo "  ✓ AOT integration tests passed"
+        echo "  [ok] AOT integration tests passed"
         return 0
     else
-        echo "  ✗ AOT integration tests FAILED"
+        echo "  [fail] AOT integration tests FAILED"
         return 1
     fi
 }
@@ -123,10 +123,10 @@ run_wasm_build() {
         return 0
     fi
     if cargo build --manifest-path "$wasm_manifest" --target wasm32-unknown-unknown --release > "$WASM_OUTPUT" 2>&1; then
-        echo "  ✓ External playground WASM build passed"
+        echo "  [ok] External playground WASM build passed"
         return 0
     else
-        echo "  ✗ External playground WASM build FAILED"
+        echo "  [fail] External playground WASM build FAILED"
         return 1
     fi
 }
@@ -140,7 +140,7 @@ run_ori_interpreter() {
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_INTERP_JSON" | sed 's/^/  /'
         return 0
     else
-        echo "  ✗ Ori interpreter tests FAILED"
+        echo "  [fail] Ori interpreter tests FAILED"
         return 1
     fi
 }
@@ -149,7 +149,7 @@ run_ori_llvm() {
     echo "=== Running Ori language tests (LLVM backend) ==="
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*|*NT*)
-            echo "  (skipped on Windows — JIT recovery not supported; AOT tests cover LLVM codegen)"
+            echo "  (skipped on Windows - JIT recovery not supported; AOT tests cover LLVM codegen)"
             echo "skipped" > "$ORI_LLVM_OUTPUT"
             mkdir -p "$(dirname "$ORI_LLVM_JSON")"
             printf '%s\n' '{"files":[],"passed":0,"failed":0,"skipped":0,"skipped_unchanged":0,"llvm_compile_fail":0,"error_files":0,"llvm_compile_fail_files":0,"duration_ns":0}' > "$ORI_LLVM_JSON"
@@ -166,13 +166,13 @@ run_ori_llvm() {
         local signal=$((exit_code - 128))
         local error_msg=$(grep -i "error\|panic" "$ORI_LLVM_OUTPUT" | head -1)
         if [ -n "$error_msg" ]; then
-            echo "  ✗ Ori LLVM backend CRASHED: $error_msg"
+            echo "  [fail] Ori LLVM backend CRASHED: $error_msg"
         else
-            echo "  ✗ Ori LLVM backend CRASHED (signal $signal)"
+            echo "  [fail] Ori LLVM backend CRASHED (signal $signal)"
         fi
         return 1
     else
-        echo "  ✗ Ori LLVM tests FAILED"
+        echo "  [fail] Ori LLVM tests FAILED"
         return 1
     fi
 }

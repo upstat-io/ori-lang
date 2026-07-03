@@ -3,13 +3,12 @@
 use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind, Name, ParsedTypeId, Span};
 
 use crate::type_error::TypeCheckError;
-use crate::{Expected, ExpectedOrigin, Idx};
+use crate::{Expected, Idx};
 
 use super::super::InferEngine;
 use super::lambdas::maybe_generalize;
 use super::{
     bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
-    unwrap_result_or_option,
 };
 
 /// Infer the type of a block expression.
@@ -27,6 +26,7 @@ pub(crate) fn infer_block(
             ori_ir::StmtKind::Expr(expr_id) => {
                 let _ = infer_expr(engine, arena, *expr_id);
             }
+
             ori_ir::StmtKind::Let {
                 pattern,
                 ty,
@@ -78,37 +78,26 @@ pub(crate) fn infer_let_binding(
     let binding_name = find_first_name(pat);
     let errors_before = engine.error_count();
 
-    // Why: Enter a rank scope for let-polymorphism. Pushing an env scope
-    // here would hide subsequent block statements from this let binding,
-    // which must stay visible to the remainder of the block.
+    // Why: env scope would hide subsequent block statements from this let-binding.
     engine.enter_rank_scope();
 
     let final_ty = if ty_id.is_valid() {
         let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
-        let expected = Expected {
-            ty: expected_ty,
-            origin: ExpectedOrigin::Annotation {
-                name: binding_name.unwrap_or(Name::EMPTY),
-                span,
-            },
-        };
+        let expected =
+            Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span);
         let _init_ty = check_expr(engine, arena, init, &expected, span);
         expected_ty
     } else {
         let init_ty = infer_expr(engine, arena, init);
 
-        // Why: Rewrite UnknownIdent errors matching the binding name to a
-        // "closure cannot capture itself" message for lambda self-captures.
         if let Some(name) = binding_name {
             if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
                 engine.rewrite_self_capture_errors(name, errors_before);
             }
         }
 
-        // Spec: Value Restriction: only non-capturing lambdas are generalized.
-        // Other initializers are monomorphic so E2005 surfaces on empty containers.
-        // Spec: Clause 14
+        // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
         maybe_generalize(engine, arena, init, init_ty)
     };
 
@@ -124,7 +113,7 @@ pub(crate) fn infer_let_binding(
 }
 
 /// Infer and check a let-binding inside a try block, which auto-unwraps
-/// Result or Option types.
+/// [`Result`] or [`Option`] types.
 pub(crate) fn infer_try_let_binding(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -138,41 +127,30 @@ pub(crate) fn infer_try_let_binding(
     let binding_name = find_first_name(pat);
     let errors_before = engine.error_count();
 
-    // Why: Enter a rank scope for let-polymorphism. Pushing an env scope
-    // here would hide subsequent block statements from this let binding,
-    // which must stay visible to the remainder of the block.
+    // Why: env scope would hide subsequent block statements from this let-binding.
     engine.enter_rank_scope();
 
     let final_ty = if ty_id.is_valid() {
         let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
-        let expected = Expected {
-            ty: expected_ty,
-            origin: ExpectedOrigin::Annotation {
-                name: binding_name.unwrap_or(Name::EMPTY),
-                span,
-            },
-        };
+        let expected =
+            Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span);
         let init_ty = infer_expr(engine, arena, init);
-        let unwrapped = unwrap_result_or_option(engine, init_ty);
+        let unwrapped = engine.unwrap_result_or_option(init_ty);
         let _ = engine.check_type(unwrapped, &expected, span);
         expected_ty
     } else {
         let init_ty = infer_expr(engine, arena, init);
 
-        // Why: Rewrite UnknownIdent errors matching the binding name to a
-        // "closure cannot capture itself" message for lambda self-captures.
         if let Some(name) = binding_name {
             if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
                 engine.rewrite_self_capture_errors(name, errors_before);
             }
         }
 
-        let bound_ty = unwrap_result_or_option(engine, init_ty);
+        let bound_ty = engine.unwrap_result_or_option(init_ty);
 
-        // Spec: Value Restriction: only non-capturing lambdas are generalized.
-        // Other initializers are monomorphic so E2005 surfaces on empty containers.
-        // Spec: Clause 14
+        // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
         maybe_generalize(engine, arena, init, bound_ty)
     };
 

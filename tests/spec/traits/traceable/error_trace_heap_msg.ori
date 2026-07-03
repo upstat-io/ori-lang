@@ -1,0 +1,87 @@
+// Spec: 07-properties-of-types.md § Traceable
+// ?-hop trace injection with a HEAP (>23 char, non-SSO) Error message.
+// Pins the message-fat-ptr transfer that SSO messages ("fail"/"boom") hide:
+// the receiver Error is consumed by __ori_inject_trace and its message ref
+// transfers through the by-value return; a mis-modeled ownership double-frees
+// the heap message. Requires ORI_CHECK_LEAKS=1 + the gated burden probe.
+
+use std.testing { assert_eq, assert }
+
+// 32-char message -> heap-allocated (non-SSO).
+@fail_heap () -> Result<int, Error> =
+    Err(Error("a heap error message over 23 chars"));
+
+// M6 — single ?-hop, heap message.
+@one_hop_heap () -> Result<int, Error> = {
+    let x = fail_heap()?;
+    Ok(x)
+}
+
+@test_heap_has tests @heap_has () -> void = {
+    let r = one_hop_heap();
+    assert(cond: r.has_trace())
+}
+
+@heap_has () -> bool = {
+    let r = one_hop_heap();
+    r.has_trace()
+}
+
+@test_heap_count tests @heap_count () -> void = {
+    let r = one_hop_heap();
+    assert_eq(actual: r.trace_entries().len(), expected: 1)
+}
+
+@heap_count () -> int = {
+    let r = one_hop_heap();
+    r.trace_entries().len()
+}
+
+// M7 — chained 2-hop, heap message: two ? sites = two entries, no double-free.
+@inner_heap () -> Result<int, Error> = {
+    let x = fail_heap()?;
+    Ok(x)
+}
+
+@outer_heap () -> Result<int, Error> = {
+    let x = inner_heap()?;
+    Ok(x)
+}
+
+@test_heap_chain tests @heap_chain () -> void = {
+    let r = outer_heap();
+    assert_eq(actual: r.trace_entries().len(), expected: 2)
+}
+
+@heap_chain () -> int = {
+    let r = outer_heap();
+    r.trace_entries().len()
+}
+
+// M8 — message survives: the transferred heap message buffer is still readable
+// after a ?-hop (a mis-modeled ownership frees it -> garbage / UAF). Reads the
+// Err payload's message directly, NOT trace_entries (M6) — distinct assertion.
+@test_heap_msg_survives tests @heap_msg_survives () -> void = {
+    let r = one_hop_heap();
+    assert_eq(actual: heap_msg_of(r: r), expected: "a heap error message over 23 chars")
+}
+
+@heap_msg_of (r: Result<int, Error>) -> str =
+    match r {
+        Err(e) -> e.message,
+        Ok(_) -> "",
+    };
+
+// M10 — delegation-receiver (Result) + heap message through the trace() string
+// formatter (_ori_format_error_trace): niche-selects the Err payload, reads the
+// transferred heap message + trace. Exercises the accessor + heap-message path
+// M6-M9 (has_trace/trace_entries) leave uncovered.
+@test_heap_trace_str tests @heap_trace_str () -> void = {
+    let r = one_hop_heap();
+    assert(cond: r.trace() != "")
+}
+
+@heap_trace_str () -> bool = {
+    let r = one_hop_heap();
+    r.trace() != ""
+}

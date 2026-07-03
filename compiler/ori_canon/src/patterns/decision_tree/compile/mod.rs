@@ -21,7 +21,9 @@ mod specialize;
 
 use rustc_hash::FxHashSet;
 
-use super::{DecisionTree, FlatPattern, PatternMatrix, PatternRow, ScrutineePath, TestValue};
+use ori_ir::canon::tree::{
+    DecisionTree, FlatPattern, PatternMatrix, PatternRow, ScrutineePath, TestValue,
+};
 
 use self::single_ctor::{decompose_single_constructor, is_single_constructor_column};
 use self::specialize::{collect_test_values, default_matrix, infer_test_kind, specialize_matrix};
@@ -301,14 +303,11 @@ pub(super) fn collect_consumed_bindings(
                 clippy::cast_possible_truncation,
                 reason = "List patterns have << u32::MAX elements"
             )]
-            rest_path.push(super::PathInstruction::ListRest(elements.len() as u32));
+            rest_path.push(ori_ir::canon::tree::PathInstruction::ListRest(
+                elements.len() as u32,
+            ));
             vec![(*name, rest_path)]
         }
         _ => vec![],
     }
 }
-
-// Tests
-
-#[cfg(test)]
-mod tests;

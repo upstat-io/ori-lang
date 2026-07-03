@@ -6,7 +6,7 @@ parse_rust_results() {
     local passed failed ignored
 
     if [ -n "$NEXTEST_ACTIVE" ] && grep -qE "$BUILD_RACE_RE" "$output_file" 2>/dev/null; then
-        echo "  ⚠ ${prefix}: build-artifact race (os error 2) in nextest output — classifying leg ERRORED (non-verdict), not parsing the contaminated Summary" >&2
+        echo "  [warn] ${prefix}: build-artifact race (os error 2) in nextest output - classifying leg ERRORED (non-verdict), not parsing the contaminated Summary" >&2
         passed=0; failed=0; ignored=0
     elif grep -qE "Summary \[" "$output_file" 2>/dev/null; then
         local summary
@@ -16,7 +16,7 @@ parse_rust_results() {
         ignored=$(echo "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '^[0-9]+' | head -1)
         passed=${passed:-0}; failed=${failed:-0}; ignored=${ignored:-0}
     elif [ -n "$NEXTEST_ACTIVE" ] && ! grep -qE "^test result:" "$output_file" 2>/dev/null; then
-        echo "  ✗ ${prefix}: nextest produced no parseable summary (parse-error) — failing the suite" >&2
+        echo "  [fail] ${prefix}: nextest produced no parseable summary (parse-error) - failing the suite" >&2
         passed=0; failed=1; ignored=0
     else
         passed=$(grep -E "^test result:" "$output_file" 2>/dev/null | grep -oE '[0-9]+ passed' | awk '{sum += $1} END {print sum+0}')
@@ -45,7 +45,7 @@ parse_ori_results() {
 
     local counts
     if ! counts=$(python3 "$PARSE_TEST_JSON" --counts "$json_file" 2>/dev/null); then
-        echo "  ✗ ${prefix}: runner emitted invalid JSON (parse-error) — failing the suite" >&2
+        echo "  [fail] ${prefix}: runner emitted invalid JSON (parse-error) - failing the suite" >&2
         eval "${prefix}_PASSED=0"
         eval "${prefix}_FAILED=1"
         eval "${prefix}_SKIPPED=0"

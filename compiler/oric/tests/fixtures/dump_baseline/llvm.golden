@@ -2,7 +2,7 @@
 ; ModuleID = 'wrap_nested'
 source_filename = "wrap_nested"
 
-%ori.Error = type { { i64, i64, ptr } }
+%ori.Error = type { { i64, i64, ptr }, { i64, i64, ptr } }
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
@@ -16,18 +16,26 @@ bb0:
 ; --- @Error_ctor ---
 define void @_ori_Error_ctor(ptr noalias sret(%ori.Error) %0, ptr noundef %1, ptr noundef nonnull dereferenceable(24) %2) #0 {
 entry:
+  %dst_msg_ptr = getelementptr inbounds nuw %ori.Error, ptr %0, i32 0, i32 0
   %src = getelementptr inbounds nuw { i64, i64, ptr }, ptr %2, i32 0, i32 0
   %fld = load i64, ptr %src, align 8
-  %dst = getelementptr inbounds nuw { i64, i64, ptr }, ptr %0, i32 0, i32 0
+  %dst = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_msg_ptr, i32 0, i32 0
   store i64 %fld, ptr %dst, align 8
   %src1 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %2, i32 0, i32 1
   %fld2 = load i64, ptr %src1, align 8
-  %dst3 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %0, i32 0, i32 1
+  %dst3 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_msg_ptr, i32 0, i32 1
   store i64 %fld2, ptr %dst3, align 8
   %src4 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %2, i32 0, i32 2
   %fld5 = load ptr, ptr %src4, align 8
-  %dst6 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %0, i32 0, i32 2
+  %dst6 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_msg_ptr, i32 0, i32 2
   store ptr %fld5, ptr %dst6, align 8
+  %dst_trace_ptr = getelementptr inbounds nuw %ori.Error, ptr %0, i32 0, i32 1
+  %len = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 0
+  store i64 0, ptr %len, align 8
+  %cap = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 1
+  store i64 0, ptr %cap, align 8
+  %data = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 2
+  store ptr null, ptr %data, align 8
   ret void
 }
 

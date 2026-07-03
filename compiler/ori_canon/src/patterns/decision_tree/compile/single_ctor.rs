@@ -4,8 +4,9 @@
 //! just decomposition into sub-patterns. This module handles detecting
 //! single-constructor columns and expanding them into sub-pattern columns.
 
-use super::super::{FlatPattern, PatternMatrix, PatternRow, ScrutineePath};
-use super::{collect_consumed_bindings, Specialized};
+use super::collect_consumed_bindings;
+use super::Specialized;
+use ori_ir::canon::tree::{FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath};
 
 /// Check if a column contains only single-constructor patterns (Tuple/Struct)
 /// plus wildcards. These types don't need a runtime test — they're always
@@ -104,8 +105,7 @@ fn find_single_ctor_path_instruction(
     matrix: &PatternMatrix,
     col: usize,
     index: usize,
-) -> super::super::PathInstruction {
-    use super::super::PathInstruction;
+) -> PathInstruction {
     for row in matrix {
         let pat = unwrap_at_or(&row.patterns[col]);
         match pat {

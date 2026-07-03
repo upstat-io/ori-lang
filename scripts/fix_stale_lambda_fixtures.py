@@ -5,9 +5,9 @@ Stale shape: `let X = (p: T) -> body` (no return type + `=` after `->`)
 Current shape (per spec/grammar.ebnf typed_lambda + ori-syntax.md Lambdas):
     `let X = (p: T) -> R = body`
 
-The parser change that enforced this landed in completed BUG-07-017; the
-fixture corpus was never updated, producing E1017 / E1005 at every test
-run that compiles a stale fixture.
+A prior parser change enforced this shape; the fixture corpus was never
+updated, producing E1017 / E1005 at every test run that compiles a stale
+fixture.
 
 Heuristic for return type R:
   - top-level comparison/logical op (==, !=, <, >, <=, >=, &&, ||, !) → bool

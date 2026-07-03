@@ -25,6 +25,8 @@ pub struct DebugContext<'ctx> {
     pub builder: DebugInfoBuilder<'ctx>,
     /// Line map for span-to-location conversion.
     pub line_map: LineMap,
+    /// Absolute or relative path to the source file.
+    pub source_path: String,
 }
 
 impl<'ctx> DebugContext<'ctx> {
@@ -51,7 +53,11 @@ impl<'ctx> DebugContext<'ctx> {
     ) -> Option<Self> {
         let builder = DebugInfoBuilder::from_path(module, context, config, source_path)?;
         let line_map = LineMap::new(source_text);
-        Some(Self { builder, line_map })
+        Some(Self {
+            builder,
+            line_map,
+            source_path: source_path.to_string_lossy().into_owned(),
+        })
     }
 
     /// Set debug location from a span's start offset.

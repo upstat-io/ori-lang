@@ -278,6 +278,10 @@ fn lookup_jit_address(name: &str) -> usize {
         // Catch recovery (Itanium EH)
         "ori_catch_cleanup" => runtime::ori_catch_cleanup as *const () as usize,
         "ori_catch_recover" => runtime::ori_catch_recover as *const () as usize,
+        // Error Traceable runtime functions
+        "_ori_inject_trace_entry" => runtime::_ori_inject_trace_entry as *const () as usize,
+        "_ori_format_error_trace" => runtime::_ori_format_error_trace as *const () as usize,
+        "_ori_error_with_trace" => runtime::_ori_error_with_trace as *const () as usize,
         // Exception handling personality (ori_rt/src/eh_personality.c)
         "ori_eh_personality" => runtime::ori_eh_personality_addr(),
         // Catch-all: panics immediately to surface drift between

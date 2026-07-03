@@ -288,7 +288,20 @@ impl ArcLowerer<'_> {
             Tag::Result => {
                 // Result<T, E>: extract Err payload, re-wrap, early return.
                 let err_ty = self.pool.resolve_fully(self.pool.result_err(resolved));
-                let err_payload = self.builder.emit_project(err_ty, scrut, 1, Some(span));
+                let mut err_payload = self.builder.emit_project(err_ty, scrut, 1, Some(span));
+                let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
+                    err_ty == e || self.pool.resolve_fully(err_ty) == self.pool.resolve_fully(e)
+                });
+                if is_error_struct {
+                    let inject_fn = self.interner.intern("__ori_inject_trace");
+                    err_payload = self.builder.emit_apply(
+                        err_ty,
+                        inject_fn,
+                        vec![err_payload],
+                        Some(span),
+                        None,
+                    );
+                }
                 let result_name = self.interner.intern("Result");
                 let wrapped_err = self.builder.emit_construct(
                     inner_ty,

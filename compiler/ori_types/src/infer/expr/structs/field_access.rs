@@ -6,10 +6,11 @@
 use ori_ir::{ExprArena, ExprId, Name, Span};
 use rustc_hash::FxHashMap;
 
-use super::super::infer_expr;
 use crate::infer::InferEngine;
 use crate::pool::substitute::substitute_named_in_pool;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError, TypeKind};
+
+use super::super::infer_expr;
 
 /// Infer the type of a field access expression: `receiver.field`.
 ///

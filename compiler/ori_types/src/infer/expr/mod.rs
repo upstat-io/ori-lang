@@ -8,6 +8,7 @@
 //! - **Synthesis (infer)**: Bottom-up type derivation from expression structure
 //! - **Checking (check)**: Top-down verification against expected type
 
+mod bindings;
 mod blocks;
 mod calls;
 mod collections;
@@ -25,6 +26,16 @@ mod sequences;
 mod structs;
 mod type_resolution;
 
+use ori_ir::{ExprArena, ExprId, ExprKind, Span};
+use ori_stack::ensure_sufficient_stack;
+
+use crate::{Expected, Idx, Tag};
+
+use super::InferEngine;
+
+#[cfg(test)]
+use ori_ir::{BinaryOp, ParsedType, UnaryOp};
+
 pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use type_resolution::resolve_parsed_type;
 
@@ -32,6 +43,7 @@ pub(crate) use calls::register_concrete_applied_resolutions;
 pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 
+pub(super) use bindings::bind_pattern;
 pub(super) use blocks::{infer_block, infer_let, infer_try_let_binding};
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
@@ -59,7 +71,7 @@ pub(super) use methods::resolve_builtin_method;
 pub(super) use operators::{
     infer_assign, infer_assign_target, infer_binary, infer_cast, infer_unary,
 };
-pub(super) use sequences::{bind_pattern, infer_function_seq, unwrap_result_or_option};
+pub(super) use sequences::infer_function_seq;
 pub(super) use structs::{
     infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
 };
@@ -68,23 +80,10 @@ pub(super) use type_resolution::resolve_and_check_parsed_type;
 #[cfg(test)]
 pub(super) use lambdas::should_generalize;
 
-// `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
-// source visibility — re-exporting at the same level lets `calls/method_call.rs`
-// reach it via `super::super::range_method_requires_iteration`.
 pub(in crate::infer::expr) use methods::range_method_requires_iteration;
 
 #[cfg(test)]
 pub(super) use sequences::infer_try_stmt;
-
-use ori_ir::{ExprArena, ExprId, ExprKind, Span};
-use ori_stack::ensure_sufficient_stack;
-
-#[cfg(test)]
-use ori_ir::{BinaryOp, ParsedType, UnaryOp};
-
-use crate::{Expected, Idx, Tag};
-
-use super::InferEngine;
 
 /// Infer the type of an expression.
 ///
@@ -175,6 +174,7 @@ fn infer_control_block_lambda(
             init,
             mutable,
         } => infer_let(engine, arena, *pattern, *ty, *init, *mutable, span),
+
         ExprKind::Lambda {
             params,
             ret_ty,
@@ -187,6 +187,7 @@ fn infer_control_block_lambda(
             };
             infer_lambda(engine, arena, *params, ret_ty_ref, *body, span)
         }
+
         _ => Idx::ERROR,
     }
 }
@@ -347,18 +348,21 @@ fn check_sum_constructors(
             let _ = engine.check_type(ty, expected, span);
             Some(ty)
         }
+
         ExprKind::Err(inner) => {
             let ty = check_err(engine, arena, *inner, span, expected);
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
             Some(ty)
         }
+
         ExprKind::Some(inner) => {
             let ty = check_some(engine, arena, *inner, span, expected);
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
             Some(ty)
         }
+
         _ => None,
     }
 }
@@ -391,6 +395,7 @@ fn check_method_calls(
             let _ = engine.check_type(ty, expected, span);
             Some(ty)
         }
+
         ExprKind::MethodCallNamed {
             receiver,
             method,
@@ -410,6 +415,7 @@ fn check_method_calls(
             let _ = engine.check_type(ty, expected, span);
             Some(ty)
         }
+
         _ => None,
     }
 }
@@ -435,8 +441,7 @@ pub fn check_expr(
         return ty;
     }
 
-    // Why: bidirectional inference for `iter.collect()` with expected `Set<T>`
-    // resolves to `Set<T>` rather than default `[T]`.
+    // Why: Bidirectional inference for iter.collect() with expected Set<T> resolves to Set<T> instead of [T].
     if let Some(ty) = check_collect_method_call(
         engine,
         arena,
@@ -449,8 +454,7 @@ pub fn check_expr(
         return ty;
     }
 
-    // Why: Thread expected type through `infer_try_seq` to check `x` against `T`
-    // and avoid double-wrapping. Non-Result falls through to synthesis.
+    // Why: Thread expected type through infer_try_seq to check against T and avoid double-wrapping.
     if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
         if let ori_ir::FunctionSeq::Try { stmts, result, .. } = arena.get_function_seq(*seq_id) {
             let ty = sequences::infer_try_seq(engine, arena, *stmts, *result, span, expected);
@@ -474,6 +478,12 @@ pub fn check_expr(
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#[expect(clippy::expect_used, reason = "Tests use expect for clarity")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Test assertions and helper setups are expected to panic on unexpected failure"
+)]
+#[expect(
+    clippy::expect_used,
+    reason = "Test assertions and helper setups are expected to panic on unexpected failure"
+)]
 mod tests;

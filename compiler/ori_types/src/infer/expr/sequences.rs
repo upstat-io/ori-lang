@@ -1,20 +1,20 @@
-//! Sequence pattern inference — `function_seq`, try, for-pattern, and bindings.
+//! Sequence pattern inference — `function_seq`, try, and for-pattern.
 
-use ori_ir::{ExprArena, ExprId, FieldBinding, Name, Span};
+use ori_ir::{ExprArena, ExprId, Span};
 
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
+use crate::{ContextKind, Expected, Idx, PatternKey, Tag};
 
 use super::super::InferEngine;
 use super::{
     check_expr, check_match_pattern, for_loop_elem_ty, infer_expr, infer_match,
-    infer_try_let_binding, lookup_struct_field_types,
+    infer_try_let_binding,
 };
 
 /// Infer type for a `function_seq` expression (try, match, for).
 ///
 /// `FunctionSeq` represents sequential expressions where order matters:
-/// - **Try**: `try(let x = fallible()?, result)` - auto-unwrap `Result`/`Option`
-/// - **Match**: `match(scrutinee, Pattern -> expr, ...)` - pattern matching
+/// - **Try**: `try { stmts; result }` - auto-unwrap `Result`/`Option`
+/// - **Match**: `match scrutinee { Pattern -> expr, ... }` - pattern matching
 /// - **`ForPattern`**: `for(over: items, match: Pattern -> expr, default: fallback)`
 pub(crate) fn infer_function_seq(
     engine: &mut InferEngine<'_>,
@@ -38,10 +38,7 @@ pub(crate) fn infer_function_seq(
             scrutinee,
             arms,
             span: match_span,
-        } => {
-            // Delegate to existing match inference
-            infer_match(engine, arena, *scrutinee, *arms, *match_span)
-        }
+        } => infer_match(engine, arena, *scrutinee, *arms, *match_span),
 
         FunctionSeq::ForPattern {
             over,
@@ -53,17 +50,19 @@ pub(crate) fn infer_function_seq(
     }
 }
 
-/// Infer type for `try(let x = fallible()?, result)`.
+/// Infer type for `try { let x = fallible()?; result }`.
 ///
-/// Like run, but auto-unwraps Result/Option types in let bindings.
-/// The entire expression returns a Result or Option wrapping the result.
+/// Like a block, but auto-unwraps [`Result`]/[`Option`] types in let bindings.
+/// The entire expression returns a [`Result`] or [`Option`] wrapping the result.
+///
+/// ### Propagation
 ///
 /// Bidirectional propagation: when `expected` resolves to a
 /// concrete `Result<T, E>`, the result expression is checked against
 /// `Check(T)` and the propagating let-binding error type is reconciled
 /// against `E`. For non-Result expectations (`NoExpectation`, fresh Var,
 /// or any other tag), the function falls back to bottom-up synthesis
-/// so unification downstream catches mismatches.
+/// so unification later catches mismatches.
 ///
 /// # Returns
 ///
@@ -110,26 +109,16 @@ pub(crate) fn infer_try_seq(
     }
 
     let final_ty = if let Some((outer_result, inner_ok_ty, inner_err_ty)) = propagation {
-        // Spec: Reconcile void block value against expected Ok payload for tail-less try blocks,
-        // avoiding indexing the INVALID sentinel into the arena.
-        // Spec: Clause 16 (try), Clause 11 (block value).
+        // Spec: Clause 16 (try), Clause 11 (block value): reconcile void block against expected Ok payload.
         let result_expected = Expected::from_context(inner_ok_ty, span, ContextKind::TryExpression);
         if result.is_present() {
             let _ = check_expr(engine, arena, result, &result_expected, span);
         } else {
-            // No tail expr: reconcile the block's `void` value against the expected
-            // `Ok` payload (accumulates E2001 on mismatch) instead of indexing the
-            // INVALID sentinel. `check_type` reports; `unify_types` would be silent.
+            // Why: Reconcile void block against expected Ok payload so check_type reports mismatch (unify_types would be silent).
             let _ = engine.check_type(Idx::UNIT, &result_expected, span);
         }
         if let Some(et) = error_ty {
-            let expected = Expected {
-                ty: inner_err_ty,
-                origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::TryExpression,
-                },
-            };
+            let expected = Expected::from_context(inner_err_ty, span, ContextKind::TryExpression);
             let _ = engine.check_type(et, &expected, span);
         }
         outer_result
@@ -143,23 +132,17 @@ pub(crate) fn infer_try_seq(
         let resolved = engine.resolve(result_ty);
         let tag = engine.pool().tag(resolved);
         match (tag, error_ty) {
-            // Why: Result wraps; unify inner Err with let-binding error type
-            // to yield `Result<T, E>` instead of `Result<Result<T, _>, E>`
-            // double-wrap.
+            // Why: Unify inner Err with let-binding error type to yield Result<T, E> instead of double-wrapping.
             (Tag::Result, Some(et)) => {
                 let inner_err = engine.pool().result_err(resolved);
-                let expected = Expected {
-                    ty: et,
-                    origin: ExpectedOrigin::Context {
-                        span,
-                        kind: ContextKind::TryExpression,
-                    },
-                };
+                let expected = Expected::from_context(et, span, ContextKind::TryExpression);
                 let _ = engine.check_type(inner_err, &expected, span);
                 result_ty
             }
+
             (Tag::Result, None) | (Tag::Option, _) => result_ty,
             (_, Some(et)) => engine.pool_mut().result(result_ty, et),
+
             (_, None) => {
                 let err_var = engine.fresh_var();
                 engine.pool_mut().result(result_ty, err_var)
@@ -214,13 +197,11 @@ fn infer_for_pattern(
     if let Some(guard_id) = arm.guard {
         engine.push_context(ContextKind::MatchArmGuard { arm_index: 0 });
         let guard_ty = infer_expr(engine, arena, guard_id);
-        let expected = Expected {
-            ty: Idx::BOOL,
-            origin: ExpectedOrigin::Context {
-                span: arena.get_expr(guard_id).span,
-                kind: ContextKind::MatchArmGuard { arm_index: 0 },
-            },
-        };
+        let expected = Expected::from_context(
+            Idx::BOOL,
+            arena.get_expr(guard_id).span,
+            ContextKind::MatchArmGuard { arm_index: 0 },
+        );
         let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard_id).span);
         engine.pop_context();
     }
@@ -231,13 +212,11 @@ fn infer_for_pattern(
 
     let default_ty = infer_expr(engine, arena, default);
 
-    let expected = Expected {
-        ty: arm_ty,
-        origin: ExpectedOrigin::Context {
-            span: arena.get_expr(default).span,
-            kind: ContextKind::MatchArm { arm_index: 0 },
-        },
-    };
+    let expected = Expected::from_context(
+        arm_ty,
+        arena.get_expr(default).span,
+        ContextKind::MatchArm { arm_index: 0 },
+    );
     let _ = engine.check_type(default_ty, &expected, arena.get_expr(default).span);
 
     arm_ty
@@ -256,142 +235,6 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
 
         ori_ir::StmtKind::Expr(expr) => {
             infer_expr(engine, arena, *expr);
-        }
-    }
-}
-
-/// Unwrap Result<T, E> -> T or Option<T> -> T.
-pub(crate) fn unwrap_result_or_option(engine: &mut InferEngine<'_>, ty: Idx) -> Idx {
-    let resolved = engine.resolve(ty);
-    let tag = engine.pool().tag(resolved);
-
-    match tag {
-        Tag::Result => engine.pool().result_ok(resolved),
-        Tag::Option => engine.pool().option_inner(resolved),
-        _ => ty, // Not wrapped, return as-is
-    }
-}
-
-/// Bind a binding pattern to a type, introducing variables into scope.
-pub(crate) fn bind_pattern(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    pattern: &ori_ir::BindingPattern,
-    ty: Idx,
-) {
-    use ori_ir::BindingPattern;
-
-    match pattern {
-        BindingPattern::Name { name, mutable } => {
-            engine.env_mut().bind_with_mutability(*name, ty, *mutable);
-        }
-
-        BindingPattern::Tuple(patterns) => {
-            bind_tuple_pattern(engine, arena, patterns, ty);
-        }
-
-        BindingPattern::Struct { fields } => {
-            bind_struct_pattern(engine, arena, fields, ty);
-        }
-
-        BindingPattern::List { elements, rest } => {
-            bind_list_pattern(engine, arena, elements, *rest, ty);
-        }
-
-        BindingPattern::Wildcard => {}
-    }
-}
-
-/// Binds tuple pattern variables against tuple element types, falling back
-/// to fresh variables on type mismatch.
-fn bind_tuple_pattern(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    patterns: &[ori_ir::BindingPattern],
-    ty: Idx,
-) {
-    let resolved = engine.resolve(ty);
-    if engine.pool().tag(resolved) == Tag::Tuple {
-        let elem_types = engine.pool().tuple_elems(resolved);
-        for (pat, elem_ty) in patterns.iter().zip(elem_types.iter()) {
-            bind_pattern(engine, arena, pat, *elem_ty);
-        }
-    } else {
-        // Why: Type mismatch - bind each to fresh var
-        for pat in patterns {
-            let var = engine.fresh_var();
-            bind_pattern(engine, arena, pat, var);
-        }
-    }
-}
-
-/// Extracts struct field types from Named/Applied structures and binds field patterns.
-fn bind_struct_pattern(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    fields: &[FieldBinding],
-    ty: Idx,
-) {
-    let resolved = engine.resolve(ty);
-    let field_type_map = match engine.pool().tag(resolved) {
-        Tag::Named => {
-            let type_name = engine.pool().named_name(resolved);
-            lookup_struct_field_types(engine, type_name, None)
-        }
-        Tag::Applied => {
-            let type_name = engine.pool().applied_name(resolved);
-            let type_args = engine.pool().applied_args(resolved);
-            lookup_struct_field_types(engine, type_name, Some(&type_args))
-        }
-        _ => None,
-    };
-
-    for field in fields {
-        let field_ty = field_type_map
-            .as_ref()
-            .and_then(|m| m.get(&field.name).copied())
-            .unwrap_or_else(|| engine.fresh_var());
-        if let Some(sub_pat) = &field.pattern {
-            bind_pattern(engine, arena, sub_pat, field_ty);
-        } else {
-            // Why: Shorthand: { x } or { $x } — use field's own mutability
-            engine
-                .env_mut()
-                .bind_with_mutability(field.name, field_ty, field.mutable);
-        }
-    }
-}
-
-/// Recursively binds list pattern elements to the collection element type.
-fn bind_list_pattern(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    elements: &[ori_ir::BindingPattern],
-    rest: Option<(Name, ori_ir::Mutability)>,
-    ty: Idx,
-) {
-    let resolved = engine.resolve(ty);
-    if engine.pool().tag(resolved) == Tag::List {
-        let elem_ty = engine.pool().list_elem(resolved);
-        for pat in elements {
-            bind_pattern(engine, arena, pat, elem_ty);
-        }
-        if let Some((rest_name, rest_mut)) = rest {
-            // Why: Rest binding gets the full list type, respecting $ mutability
-            engine
-                .env_mut()
-                .bind_with_mutability(rest_name, ty, rest_mut);
-        }
-    } else {
-        // Why: Type mismatch - bind each to fresh var
-        for pat in elements {
-            let var = engine.fresh_var();
-            bind_pattern(engine, arena, pat, var);
-        }
-        if let Some((rest_name, rest_mut)) = rest {
-            engine
-                .env_mut()
-                .bind_with_mutability(rest_name, ty, rest_mut);
         }
     }
 }

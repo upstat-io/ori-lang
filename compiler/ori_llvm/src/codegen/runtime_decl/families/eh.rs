@@ -53,4 +53,26 @@ pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
+    // Traceable trace injection and formatting
+    RtFn {
+        name: "_ori_inject_trace_entry",
+        params: &[Ty::Ptr, Ty::Str, Ty::Str, Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "_ori_format_error_trace",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "_ori_error_with_trace",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
 ];

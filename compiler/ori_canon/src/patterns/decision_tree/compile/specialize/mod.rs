@@ -10,8 +10,10 @@ mod test_values;
 
 pub(super) use test_values::{collect_test_values, infer_test_kind};
 
-use super::super::{FlatPattern, PatternMatrix, PatternRow, ScrutineePath, TestValue};
 use super::{collect_consumed_bindings, Specialized};
+use ori_ir::canon::tree::{
+    FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestValue,
+};
 
 /// Specialize the matrix for a specific test value at a given column.
 ///
@@ -117,8 +119,7 @@ fn variant_field_count(pat: &FlatPattern, target_index: u32) -> Option<usize> {
     clippy::cast_possible_truncation,
     reason = "field/element indices are always < u32::MAX"
 )]
-fn sub_path_instruction(tv: &TestValue, index: usize) -> super::super::PathInstruction {
-    use super::super::PathInstruction;
+fn sub_path_instruction(tv: &TestValue, index: usize) -> PathInstruction {
     match tv {
         TestValue::Tag { .. } => PathInstruction::TagPayload(index as u32),
         TestValue::ListLen { .. } => PathInstruction::ListElement(index as u32),

@@ -212,9 +212,18 @@ impl ArcLowerer<'_> {
             ctor = self.name_str(name),
             "call: Error builtin struct constructor"
         );
+        let resolved = self.pool.resolve_fully(ty);
+        let fields = self.pool.struct_fields(resolved);
+        let trace_list_ty = fields[1].1;
+        let trace_var =
+            self.builder
+                .emit_construct(trace_list_ty, CtorKind::ListLiteral, vec![], Some(span));
+        let mut full_args = arg_vars;
+        full_args.push(trace_var);
+
         Some(
             self.builder
-                .emit_construct(ty, CtorKind::Struct(name), arg_vars, Some(span)),
+                .emit_construct(ty, CtorKind::Struct(name), full_args, Some(span)),
         )
     }
 

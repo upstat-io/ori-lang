@@ -10,16 +10,15 @@
 //!
 //! # Strategy
 //!
-//! This module delegates to existing infrastructure in `ori_arc::decision_tree`:
+//! This module delegates to decision tree compilation:
 //! - `flatten::flatten_pattern()` — arena `MatchPattern` → self-contained `FlatPattern`
 //! - `compile::compile()` — `PatternMatrix` → `DecisionTree`
-//!
-//! No algorithm duplication; the core primitives are housed in
-//! `ori_arc::decision_tree`.
 //!
 //! # Prior Art
 //!
 //! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
+
+mod decision_tree;
 
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow, ScrutineePath};
@@ -75,7 +74,7 @@ pub(crate) fn compile_patterns(
     // Initial paths: one column = root scrutinee at empty path.
     let paths: Vec<ScrutineePath> = vec![Vec::new()];
 
-    ori_arc::decision_tree::compile::compile(matrix, paths)
+    decision_tree::compile::compile(matrix, paths)
 }
 
 /// Flatten a single arm pattern, handling `PatternResolution::UnitVariant`.
@@ -121,11 +120,7 @@ fn flatten_arm_pattern(
         }
     }
 
-    let ctx = ori_arc::decision_tree::flatten::FlattenCtx::new(
-        lowerer.src,
-        lowerer.pool,
-        lowerer.interner,
-    );
+    let ctx = decision_tree::flatten::FlattenCtx::new(lowerer.src, lowerer.pool, lowerer.interner);
     ctx.flatten(pattern, scrutinee_ty)
 }
 
@@ -179,7 +174,7 @@ pub(crate) fn compile_multi_clause_patterns(
             .collect()
     };
 
-    ori_arc::decision_tree::compile::compile(matrix, paths)
+    decision_tree::compile::compile(matrix, paths)
 }
 
 /// Flatten a function parameter pattern into a `FlatPattern`.

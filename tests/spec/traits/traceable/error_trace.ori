@@ -13,11 +13,11 @@ use std.testing { assert_eq, assert }
     Ok(x)
 }
 
-// The `?`-injected trace DATA (has_trace/trace_entries/trace after a `?`-hop) is
-// interpreter-only: the AOT backend has no `?`-hop trace-injection machinery yet.
-// Each post-`?` trace-DATA assertion below is LLVM-skipped; the Ok-pass-through
-// control (test_ok_clean) stays dual-exec.
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
+// The `?`-injected trace DATA (has_trace/trace_entries/trace after a `?`-hop)
+// is now required on both interpreter and LLVM backends.
+// Each post-`?` trace-DATA assertion below stays dual-exec.
+// The Ok-pass-through control (test_ok_clean) also stays dual-exec and
+// verifies clean results remain traceless.
 @test_has tests @has () -> void = {
     let r = one_hop();
     assert(cond: r.has_trace())
@@ -28,7 +28,6 @@ use std.testing { assert_eq, assert }
     r.has_trace()
 }
 
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_count tests @count () -> void = {
     let r = one_hop();
     assert_eq(
@@ -42,7 +41,6 @@ use std.testing { assert_eq, assert }
     r.trace_entries().len()
 }
 
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_tr tests @tr () -> void = {
     let r = one_hop();
     assert(cond: r.trace() != "")
@@ -64,7 +62,6 @@ use std.testing { assert_eq, assert }
     Ok(x)
 }
 
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_chain tests @chain () -> void = {
     let r = outer();
     assert_eq(
@@ -78,7 +75,6 @@ use std.testing { assert_eq, assert }
     r.trace_entries().len()
 }
 
-#skip(backend: "llvm", reason: "AOT has no ?-hop trace injection yet")
 @test_chain_has tests @chain_has () -> void = {
     let r = outer();
     assert(cond: r.has_trace())

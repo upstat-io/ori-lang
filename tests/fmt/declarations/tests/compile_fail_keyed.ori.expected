@@ -17,7 +17,7 @@
 #compile_fail(code: "E2001", message: "expected \"quote\" then\ttab")
 @t_escaping tests _ () -> void = 42;
 
-#skip("reason with \"quote\"")
+#skip("BUG-02-005: reason with \"quote\"")
 @t_skip_escape tests _ () -> void = 42;
 
 #fail("panic with \"quote\"")

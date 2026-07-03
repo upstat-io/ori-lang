@@ -2,8 +2,8 @@
 """Generate release notes for Ori releases.
 
 Gathers commit log and PR descriptions, then generates structured release
-notes using AI (Copilot SDK with Claude Sonnet 4.6) when available, falling
-back to conventional-commit categorization.
+notes using an automated drafting service when available, falling back to
+conventional-commit categorization.
 
 Usage:
     # From git tag range (CI or local):
@@ -16,7 +16,7 @@ Usage:
     ./scripts/generate-release-notes.py --tag v2026.03.23.1-Alpha -o /tmp/notes.md
 
 Environment:
-    COPILOT_GITHUB_TOKEN  — enables AI generation (CI only)
+    COPILOT_GITHUB_TOKEN  — enables automated drafting (CI only)
     GH_TOKEN / GITHUB_TOKEN — needed for PR body fetching via `gh`
 """
 
@@ -72,7 +72,7 @@ def gather_pr_bodies(prev_tag):
 
 
 def generate_ai_notes(tag, prev_tag, commit_log, pr_bodies):
-    """Try AI generation via Copilot SDK. Returns notes or None on failure."""
+    """Try automated drafting. Returns notes or None on failure."""
     if not os.environ.get("COPILOT_GITHUB_TOKEN"):
         return None
 
@@ -225,7 +225,7 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
                     return None
                 text = reply.data.content
                 if not text or len(text) < 50:
-                    print(f"AI returned suspiciously short response ({text!r}), using fallback", file=sys.stderr)
+                    print(f"drafting service returned suspiciously short response ({text!r}), using fallback", file=sys.stderr)
                     return None
                 return text
             finally:
@@ -233,7 +233,7 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
 
         return asyncio.run(_generate())
     except Exception as e:
-        print(f"AI generation failed ({e}), using fallback", file=sys.stderr)
+        print(f"automated drafting failed ({e}), using fallback", file=sys.stderr)
         return None
 
 
@@ -268,7 +268,7 @@ _META_PREFIXES = (
 
 
 def _looks_like_meta(paragraph):
-    """Return True if a paragraph looks like AI 'thinking aloud' preamble."""
+    """Return True if a paragraph looks like drafting-service 'thinking aloud' preamble."""
     lower = paragraph.strip().lower()
     if not lower:
         return False
@@ -278,14 +278,14 @@ def _looks_like_meta(paragraph):
 
 
 def strip_preamble(text):
-    """Strip AI meta-commentary and bare leading separators from release notes.
+    """Strip drafting-service meta-commentary and bare leading separators from release notes.
 
-    The Copilot SDK + Claude pipeline occasionally emits preamble like
+    The drafting pipeline occasionally emits preamble like
     "Now I have enough context to write the release notes..." or a bare
     leading horizontal rule (`---`) before the real content. Both patterns
     have shipped to GitHub releases in the wild (v2026.04.08.1-alpha and
     v2026.04.07.1-alpha respectively). This function is a defensive
-    post-processor that runs on every AI-generated notes string.
+    post-processor that runs on every drafted notes string.
 
     Strategy:
     1. Drop a leading bare `---` separator if present.
@@ -485,11 +485,11 @@ def main():
     commit_log = gather_commit_log(prev_tag, args.tag)
     pr_bodies = gather_pr_bodies(prev_tag)
 
-    # Try AI, fall back to structured categorization
+    # Try automated drafting, fall back to structured categorization
     notes = generate_ai_notes(args.tag, prev_tag, commit_log, pr_bodies)
     if notes:
-        # Defense-in-depth: strip any AI meta-commentary/preamble that
-        # slipped past the prompt-level instructions. See strip_preamble().
+        # Defense-in-depth: strip any drafting-service meta-commentary/preamble
+        # that slipped past the prompt-level instructions. See strip_preamble().
         notes = strip_preamble(notes)
     if not notes:
         notes = generate_fallback_notes(args.tag, commit_log)

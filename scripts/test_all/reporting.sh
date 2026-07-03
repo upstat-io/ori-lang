@@ -47,21 +47,21 @@ print_test_summary() {
 
     printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
     if [ "$INCOMPLETE_SUITES" -gt 0 ]; then
-        echo -e "${RED}${BOLD}TOTAL IS INCOMPLETE: $INCOMPLETE_SUITES suite(s) errored before producing counts — the real failure count is higher.${NC}"
+        echo -e "${RED}${BOLD}TOTAL IS INCOMPLETE: $INCOMPLETE_SUITES suite(s) errored before producing counts - the real failure count is higher.${NC}"
     fi
     echo ""
 
     if [ "$AOT_LEAKS" -gt 0 ]; then
-        echo -e "${YELLOW}${BOLD}⚠  $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
+        echo -e "${YELLOW}${BOLD}[warn] $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
         echo ""
     fi
 
     if [[ $EMIT_JSON -eq 0 ]] && [[ $RUST_LLVM_EXIT -ne 0 || $AOT_EXIT -ne 0 || $ORI_LLVM_EXIT -ne 0 ]]; then
         echo "  Diagnostic hints:"
-        echo "    diagnose-aot.sh <file.ori>      — all-in-one AOT diagnostic"
-        echo "    dual-exec-debug.sh <file.ori>   — compare interpreter vs AOT"
-        echo "    bisect-passes.sh <file.ori>     — identify failing AIMS phase"
-        echo "    codegen-audit.sh <file.ori>     — static RC/COW/ABI check"
+        echo "    diagnose-aot.sh <file.ori>      - all-in-one AOT diagnostic"
+        echo "    dual-exec-debug.sh <file.ori>   - compare interpreter vs AOT"
+        echo "    bisect-passes.sh <file.ori>     - identify failing AIMS phase"
+        echo "    codegen-audit.sh <file.ori>     - static RC/COW/ABI check"
         echo ""
     fi
 }
@@ -79,7 +79,7 @@ finalize_test_all() {
     ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
 
     if [ -n "$ERRORED_SUITES" ]; then
-        echo -e "${RED}${BOLD}Errored suites — built/ran with no parseable results (counted as FAILED):${NC}"
+        echo -e "${RED}${BOLD}Errored suites - built/ran with no parseable results (counted as FAILED):${NC}"
         echo -e "$ERRORED_SUITES"
         echo "  A suite errors when it cannot build or crashes before printing results."
         echo "  This is the case CI surfaces as failures; it is no longer hidden as 0/0 passed."
@@ -104,7 +104,7 @@ finalize_test_all() {
             DISP_TOTAL=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_total // 0')
             DISP_UNTRACKED=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_untracked // 0')
             if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
-                echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED — DRIFT${NC}"
+                echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED - DRIFT${NC}"
                 echo "  Every #[ignore]/#skip needs a tracking-bug ID in its reason text."
                 echo "  List the offenders:"
                 echo "    diagnostics/state.sh dispositions --untracked-only"
