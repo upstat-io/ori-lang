@@ -87,13 +87,14 @@ pub fn seed_builtin_contracts(
     }
 
     // Sharing methods: return MaybeShared (shares receiver's backing) and
-    // carry the typed sharing-view CREDIT (`returns_sharing_view`). `take` /
-    // `drop` are seamless-slice views too (matching
-    // `sharing_view_self_inc_names` / `sharing_view_relocation_names`); they
-    // belong to no other ownership set, so the seed here is authoritative.
-    let mut sharing = crate::borrow::sharing_builtin_names(interner);
-    sharing.insert(interner.intern("take"));
-    sharing.insert(interner.intern("drop"));
+    // carry the typed sharing-view CREDIT (`returns_sharing_view`).
+    // The bare surface names `take` / `drop` are NEVER seeded here: the
+    // name-keyed contract map cannot discriminate the seamless-slice
+    // methods from same-named callees with different ownership (a user
+    // `Drop::drop`, iterator adapters), so their CREDIT rides the
+    // unambiguous runtime names (`ori_list_slice_take` /
+    // `ori_list_slice_drop`) seeded below.
+    let sharing = crate::borrow::sharing_builtin_names(interner);
     for name in sharing {
         sigs.entry(name).or_insert_with(sharing_return_contract);
     }

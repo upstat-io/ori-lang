@@ -415,8 +415,6 @@ fn sharing_view_builtins_carry_returns_sharing_view_credit() {
     for name in [
         "slice",
         "substring",
-        "take",
-        "drop",
         "ori_list_slice_take",
         "ori_list_slice_drop",
     ] {
@@ -443,14 +441,15 @@ fn sharing_view_builtins_carry_returns_sharing_view_credit() {
 }
 
 /// Negative pin: non-view builtins mint no sharing-view CREDIT — a COW
-/// producer (`concat`) and a retaining accessor (`first`) both return
-/// non-view results.
+/// producer (`concat`), a retaining accessor (`first`), and the
+/// collision-prone bare surface names `take` / `drop` (a user
+/// `Drop::drop` shares the name; never seeded) all stay CREDIT-free.
 #[test]
 fn non_sharing_builtins_carry_no_sharing_view_credit() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
-    for name in ["concat", "first", "iter", "ori_list_take"] {
+    for name in ["concat", "first", "iter", "ori_list_take", "take", "drop"] {
         if let Some(contract) = sigs.get(&interner.intern(name)) {
             assert!(
                 !contract.return_info.returns_sharing_view,
