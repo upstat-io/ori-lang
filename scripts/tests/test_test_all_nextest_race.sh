@@ -57,7 +57,7 @@ eval "$(sed -n '/^suite_status()/,/^}/p' "$PARSING_HELPERS")"
 
 RACE_LINE='error: [double-spawn] failed to exec "deps/aot-x": No such file or directory (os error 2)'
 
-# --- (a) BEHAVIORAL — generalized wrapper retries an arbitrary runner ----------
+# (a) BEHAVIORAL — generalized wrapper retries an arbitrary runner
 attempt_a="$(mktemp)"; printf '0' > "$attempt_a"
 race_then_pass() {
     local n; n=$(( $(cat "$attempt_a") + 1 )); printf '%s' "$n" > "$attempt_a"
@@ -74,7 +74,7 @@ if [ "$a_rc" != "0" ] || [ "$a_attempts" != "2" ]; then
 fi
 echo "OK: (a) generalized wrapper retries an arbitrary runner once on the race signature (2 attempts -> success)"
 
-# --- (b) BEHAVIORAL — persistent race => non-zero return -----------------------
+# (b) BEHAVIORAL — persistent race => non-zero return
 race_always() { printf '%s\n' "$RACE_LINE"; return 1; }
 out_b="$(mktemp)"
 if cargo_race_retry "$out_b" race_always; then b_rc=0; else b_rc=$?; fi
@@ -85,7 +85,7 @@ if [ "$b_rc" = "0" ]; then
 fi
 echo "OK: (b) persistent race returns non-zero (leg exit will drive errored)"
 
-# --- (c) POSITIVE PIN — race signature => FAILED=0 (no phantom count) ----------
+# (c) POSITIVE PIN — race signature => FAILED=0 (no phantom count)
 race_fix="$(mktemp)"
 cat > "$race_fix" <<EOF
     PASS [   0.020s] (1/3) ori_llvm::aot collections_ext::test_a
@@ -100,7 +100,7 @@ if [ "${RACE_FAILED:-unset}" != "0" ]; then
 fi
 echo "OK: (c) race-signature output yields FAILED=0 (phantom count not serialized)"
 
-# --- (d) NEGATIVE PIN — clean output with real failures stays reported ---------
+# (d) NEGATIVE PIN — clean output with real failures stays reported
 clean_fix="$(mktemp)"
 cat > "$clean_fix" <<'EOF'
     PASS [   0.020s] (1/5) ori_llvm::aot collections_ext::test_a
@@ -115,7 +115,7 @@ if [ "${CLEAN_FAILED:-unset}" != "2" ]; then
 fi
 echo "OK: (d) clean output with real failures still reports FAILED=2 (no masking)"
 
-# --- (e) SQUEEZE PIN — mixed real FAIL + race exec-failure => FAILED=0 ---------
+# (e) SQUEEZE PIN — mixed real FAIL + race exec-failure => FAILED=0
 mixed_fix="$(mktemp)"
 cat > "$mixed_fix" <<EOF
     PASS [   0.020s] (1/5) ori_llvm::aot collections_ext::test_a
@@ -131,7 +131,7 @@ if [ "${MIXED_FAILED:-unset}" != "0" ]; then
 fi
 echo "OK: (e) mixed real+exec output yields FAILED=0 (whole-leg errored; aggregate Summary not trusted)"
 
-# --- (f) suite_status integration ---------------------------------------------
+# (f) suite_status integration
 race_status="$(suite_status 1 0)"
 if [ "$race_status" != "errored" ]; then
     echo "FAIL: (f) suite_status(exit=1, failed=0) returned '$race_status' (expected 'errored' — race leg must be a non-verdict)"
