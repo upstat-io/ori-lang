@@ -61,10 +61,9 @@ pub(crate) fn infer_let(
     pattern: BindingPatternId,
     ty: ParsedTypeId,
     init: ExprId,
-    // Why: Mutability is an effect, not a type property in Ori's HM inference system.
-    // Enforcement happens in the evaluator (`bind_can_pattern`) and codegen backends,
-    // not here. Kept as a parameter for future "cannot assign to immutable binding"
-    // diagnostics (like Rust's type checker emits).
+    // Why: Mutability is an effect, not a type property in Ori's HM inference.
+    // Enforcement happens in evaluator and codegen; the parameter is kept
+    // for future "cannot assign to immutable binding" diagnostics.
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
@@ -117,10 +116,8 @@ pub(crate) fn infer_let_binding_core(
         // No annotation: infer and generalize for let-polymorphism
         let init_ty = infer_expr(engine, arena, init);
 
-        // Why: Detect closure self-capture: if init is a lambda and any new
-        // errors are UnknownIdent matching the binding name, rewrite them
-        // to the more helpful "closure cannot capture itself" message.
-        // Example: `{ let f = () -> f; f }` — f isn't yet in scope.
+        // Why: Rewrite UnknownIdent errors matching the binding name to a
+        // "closure cannot capture itself" message for lambda self-captures.
         if let Some(name) = binding_name {
             if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
                 engine.rewrite_self_capture_errors(name, errors_before);

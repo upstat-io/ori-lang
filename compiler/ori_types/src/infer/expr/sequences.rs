@@ -108,10 +108,9 @@ pub(crate) fn infer_try_seq(
     }
 
     let final_ty = if let Some((outer_result, inner_ok_ty, inner_err_ty)) = propagation {
-        // Spec: Tail-less try block: `result == ExprId::INVALID` (the `collect_block_stmts`
-        // contract); the block value type is `void`. Guard like `infer_block` —
-        // reconcile UNIT against the expected `Ok` payload, never index the INVALID
-        // sentinel into the arena. Spec: Clause 16 (try), Clause 11 (block value).
+        // Spec: Reconcile void block value against expected Ok payload for tail-less try blocks,
+        // avoiding indexing the INVALID sentinel into the arena.
+        // Spec: Clause 16 (try), Clause 11 (block value).
         let result_expected = Expected::from_context(inner_ok_ty, span, ContextKind::TryExpression);
         if result.is_present() {
             let _ = check_expr(engine, arena, result, &result_expected, span);
@@ -137,7 +136,7 @@ pub(crate) fn infer_try_seq(
         match (tag, error_ty) {
             // Why: Result wraps; unify inner Err with let-binding error type
             // to yield `Result<T, E>` instead of `Result<Result<T, _>, E>`
-            // double-wrap. Reverts wrap-anything bug (control_flow.ori).
+            // double-wrap.
             (Tag::Result, Some(et)) => {
                 let inner_err = engine.pool().result_err(resolved);
                 let _ = engine.unify_types(inner_err, et);
@@ -181,7 +180,6 @@ pub(crate) fn infer_for_pattern(
         _ => engine.fresh_var(), // Unknown iterable, create type var
     };
 
-    // Apply optional map function
     let scrutinee_ty = if let Some(map_fn) = map {
         let map_fn_ty = infer_expr(engine, arena, map_fn);
         let resolved_map = engine.resolve(map_fn_ty);
