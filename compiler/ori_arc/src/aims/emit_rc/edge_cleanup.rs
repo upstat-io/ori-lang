@@ -39,16 +39,14 @@ pub(crate) use invoke_unwind::emit_invoke_unwind_pair_net_releases;
 /// Whether the successor block at `succ_idx` is an unwind block (terminator
 /// = Resume).
 ///
-/// For Branch/Switch successors (no explicit unwind/normal distinction in
-/// the terminator shape), this is the available signal. For Invoke
-/// successors, prefer the explicit `normal`/`unwind` field distinction —
-/// `is_unwind_succ_block` is a fallback when the explicit flag is unknown.
+/// For Branch/Switch successors this is the available signal; for Invoke
+/// successors, prefer the explicit `normal`/`unwind` field — this is a
+/// fallback when that flag is unknown.
 ///
-/// Intermediate blocks reachable via the Invoke unwind-successor cluster may
-/// not have Resume terminators themselves, so this shallow check under-detects
-/// unwind blocks for the cluster case. It is sound for non-unwind control flow;
-/// the unwind-edge (try-block) case requires the deeper authoritative
-/// `ArcFunction::unwind_blocks` accessor.
+/// Intermediate blocks in the Invoke unwind-successor cluster may lack a
+/// Resume terminator, so this shallow check under-detects there; sound for
+/// non-unwind control flow, but the unwind-edge (try-block) case needs the
+/// deeper `ArcFunction::unwind_blocks` accessor.
 #[inline]
 fn is_unwind_succ_block(func: &ArcFunction, succ_idx: usize) -> bool {
     matches!(func.blocks[succ_idx].terminator, ArcTerminator::Resume)
@@ -81,27 +79,20 @@ fn is_owned_for_rc(
     false
 }
 
-/// Emit `RcDec` on edges where a variable is live in the predecessor but
-/// dead in a particular successor.
-///
-/// Also handles deferred `RcDec` operations from two sources:
-/// - **Phase B deferred parents** (`target: None`): parent aggregates whose
-///   `RcDec` was deferred because a borrowed child (from Project) is used in
-///   the block terminator. Emitted on ALL successor edges.
-/// - **Merge-edge decs** (`target: Some(succ)`): branch-local variables at
-///   merge blocks. Emitted ONLY on the edge to the specific merge successor.
-///
 /// Union-find representative over the SAME-ALLOCATION subset of the SSA-alias
 /// graph: every union edge `compute_ssa_alias_classes` uses EXCEPT edge type 2
-/// (Jump-arg → successor block-param). The Jump-phi edge merges DIFFERENT
-/// runtime allocations into one class when a block param has predecessors
-/// passing distinct values (e.g. `if c then x else y` unions x and y via the
-/// merge param), so it is NOT a same-allocation relation. Edges retained:
-/// Let{Var} aliases, apply-result Direct + Conditional (Project/Wrapped already
-/// excluded by PIN-2). Used by the PIN-4 class-liveness suppression in
-/// `collect_branch_edge_decs` so only a TRUE same-allocation alias being live
-/// at a successor suppresses `var`'s edge dec — phi-merged alternatives must
-/// not (RL-4 P1 + §10 under-elimination-leaks per-path-net-0 invariant).
+/// (Jump-arg → successor block-param) — that edge merges DIFFERENT runtime
+/// allocations into one class (e.g. `if c then x else y` unions x and y via
+/// the merge param), so it is NOT a same-allocation relation. Edges retained:
+/// Let{Var} aliases, apply-result Direct + Conditional (Project/Wrapped
+/// already excluded by PIN-2).
+///
+/// # Consumer
+///
+/// Used by the PIN-4 class-liveness suppression in `collect_branch_edge_decs`
+/// so only a TRUE same-allocation alias being live at a successor suppresses
+/// `var`'s edge dec — phi-merged alternatives must not (RL-4 P1 + §10
+/// under-elimination-leaks per-path-net-0 invariant).
 ///
 /// Thin projection over the §1.9 unified alias-table construction
 /// (`project_aliases::compute_genuine_same_alloc_reps`) — ONE builder behind
@@ -139,6 +130,15 @@ pub(crate) struct EdgeCleanupEnv<'a> {
     same_alloc_reps: &'a FxHashMap<ArcVarId, ArcVarId>,
 }
 
+/// Emit `RcDec` on edges where a variable is live in the predecessor but
+/// dead in a particular successor.
+///
+/// Also handles deferred `RcDec` operations from two sources:
+/// - **Phase B deferred parents** (`target: None`): parent aggregates whose
+///   `RcDec` was deferred because a borrowed child (from Project) is used in
+///   the block terminator. Emitted on ALL successor edges.
+/// - **Merge-edge decs** (`target: Some(succ)`): branch-local variables at
+///   merge blocks. Emitted ONLY on the edge to the specific merge successor.
 pub(crate) fn emit_edge_cleanup(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -146,11 +146,9 @@ pub(crate) fn emit_edge_cleanup(
     all_borrowed_defs: &FxHashSet<ArcVarId>,
     take_move_facts: &super::take_project::TakeMoveFacts,
     deferred_parent_decs: &FxHashMap<usize, Vec<DeferredDec>>,
-    // Probe path (`ORI_DISABLE_PREDICATE_STACK_RC=1`): emit dying-edge releases
-    // as `BurdenDec` only (no predicate-stack `RcDec`) so the burden path is the
-    // sole RC emitter; Phase 7 lowers the `BurdenDec` to a real `RcDec`. Default
-    // (`false`): emit the predicate-stack `RcDec` + adjacent `BurdenDec` ledger
-    // marker as before. Spec: Annex E §AIMS RL-4.
+    // Probe path (`ORI_DISABLE_PREDICATE_STACK_RC=1`): `burden_only=true`
+    // emits `BurdenDec` only (lowered to `RcDec` in Phase 7); default emits
+    // predicate-stack `RcDec` plus an adjacent `BurdenDec` marker. Spec: RL-4.
     burden_only: bool,
 ) {
     let predecessors = compute_predecessors(func);
@@ -170,7 +168,6 @@ pub(crate) fn emit_edge_cleanup(
             same_alloc_reps: &same_alloc_reps,
         };
 
-        // Handle Invoke/InvokeIndirect separately — use InvokeEdgeState.
         if matches!(
             block.terminator,
             ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
@@ -284,11 +281,9 @@ fn apply_edge_decs(
 
     for ((pred, succ), decs) in &edge_groups {
         if predecessors[*succ].len() == 1 {
-            // Faithful release: `BurdenDec` paired adjacent to each edge
-            // `RcDec` whose var carries burden ops — per-value burden ledger
-            // nets 0 across this CFG edge (RL-4). The edge variant suppresses
-            // the burden dec for an owned-transfer arg of `pred`'s terminator
-            // (already balanced at the transfer point).
+            // Faithful release: `BurdenDec` paired per edge `RcDec` nets 0
+            // across this CFG edge (RL-4); suppressed for an owned-transfer
+            // arg of `pred`'s terminator (already balanced at the transfer).
             let dec_instrs: Vec<ArcInstr> = decs
                 .iter()
                 .flat_map(|&(var, strategy)| {

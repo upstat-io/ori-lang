@@ -80,13 +80,9 @@ pub(crate) fn compute_branch_edge_dead_set(
         ) {
             continue;
         }
-        // skip vars that participate in a
-        // take-project alias class. Their scope-exit drops are
-        // emitted by `dead_cleanup` source 1's in-class branch on
-        // bypass-safe blocks (per-class), with class-deduped
-        // semantics. Letting edge cleanup also emit a dec for an
-        // alias sibling (e.g., `%19 = %5` Let alias) would
-        // double-free the shared underlying value.
+        // Skip take-project alias-class members: `dead_cleanup` source 1's
+        // in-class branch already emits their scope-exit drop (class-deduped,
+        // per-class); a duplicate edge dec here would double-free the alias.
         if take_move_facts.is_in_class(var) {
             tracing::debug!(
                 target: "ori_arc::aims::realize::edge_cleanup",
@@ -133,31 +129,14 @@ pub(crate) fn compute_branch_edge_dead_set(
                     );
                     continue;
                 }
-                // PIN-4 + PIN-5: class-aware skip + per-edge
-                // batching. Skip when any class member is live at the
-                // successor's entry (PIN-4), or when the same class
-                // already emitted a dec for this (pred, succ) edge in
-                // this collection pass (PIN-5).
+                // PIN-4 + PIN-5: skip when any class member is live at the
+                // successor (PIN-4), or the same class already emitted a
+                // dec on this (pred, succ) edge this pass (PIN-5).
                 if let Some(class_id) = state_map.ssa_alias_class_of(var) {
                     if let Some(members) = state_map.class_members(class_id) {
-                        // Only a TRUE same-allocation alias being live at the
-                        // successor may suppress var's edge dec. Phi-merged
-                        // alternatives (distinct allocations unioned via a
-                        // Jump-arg→block-param merge param, e.g. `if c then x
-                        // else y`) must NOT suppress — each alternative needs
-                        // its own edge dec on the branch where it dies
-                        // (RL-4 P1 + §10 under-elimination per-path-net-0).
-                        // Project-merge guard: a same-alloc member `m` may
-                        // only carry `var`'s drop across the THIS-block→succ
-                        // edge if it actually EXISTS at this block
-                        // (defined-at-or-before `block_idx`, mirroring the
-                        // `var` guard above). A member defined only on a
-                        // SIBLING branch (e.g. `%15 = %p2` in the else arm)
-                        // is reported `Once`-live at the then-successor entry
-                        // by `var_state_at_block_entry` (backward alias-demand
-                        // bleed) but is NOT reachable on this edge — counting
-                        // it phantom-suppresses the not-taken parent's edge
-                        // dec → leak. Spec: Annex E §AIMS RL-4.
+                        // Only a TRUE same-alloc member (defined-at-or-before,
+                        // ghost-exclusive) may suppress `var`'s dec — a
+                        // sibling-branch-only member would phantom-suppress. RL-4.
                         if let Some(&m_live) = members.iter().find(|&&m| {
                             defined_at_or_before.contains(&m)
                                 && same_alloc(same_alloc_reps, m, var)

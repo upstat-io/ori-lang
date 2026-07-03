@@ -150,12 +150,9 @@ pub(super) fn build_lineage_model(
         return None;
     }
 
-    // Same-allocation VIEW chain (TF-4 — a niche-payload borrow-view shares
-    // the member's allocation). SAME-ALLOC-proven view RC ops join the
-    // unified ledger at `±1` (counted in `model_body_uses`); OPAQUE view RC
-    // ops MUST be per-block balanced pairs (validated here, then excluded as
-    // net-0) — a lone opaque half means the allocation's accounting extends
-    // beyond this model, so decline.
+    // Same-allocation VIEW chain (TF-4): SAME-ALLOC views join the unified
+    // ledger at `±1` (in `model_body_uses`); OPAQUE views must be per-block
+    // balanced pairs (validated here) — a lone opaque half declines.
     let views = compute_view_chain(func, pool, &is_member);
     if !view_ops_balanced(func, &views.opaque) {
         return None;
@@ -329,9 +326,8 @@ fn model_member_def(
             Some(())
         }
         // Wrapped reps: a non-scalar Project of a member re-names the SAME
-        // allocation (the extract-union admitted it) — the destructure
-        // re-transfer, TF-4. The projection's READ of the source member is
-        // modeled by `model_body_uses`.
+        // allocation (TF-4 destructure re-transfer); the projection's READ
+        // of the origin member is modeled by `model_body_uses`.
         ArcInstr::Project { value, .. } if wrapped && is_member(*value) => {
             def_kind.insert(dst, DefKind::Neutral);
             Some(())

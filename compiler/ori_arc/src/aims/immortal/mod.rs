@@ -66,8 +66,8 @@ pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bo
 fn is_immortal_literal(lit: &LitValue, interner: &StringInterner) -> bool {
     match lit {
         LitValue::String(name) => is_empty_string(*name, interner),
-        // Int, Float, Bool, Char, Duration, Size, Unit are all Scalar —
-        // already handled by the scalar fast path, no benefit from immortal.
+        // Why: Int, Float, Bool, Char, Duration, Size, Unit are all Scalar, which
+        // bypass RC insertion via the scalar path rather than immortal optimization.
         _ => false,
     }
 }

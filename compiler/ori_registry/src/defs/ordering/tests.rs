@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn ordering_method_count() {
-    assert_eq!(ORDERING.methods.len(), 14);
+    assert_eq!(ORDERING.methods.len(), 15);
 }
 
 #[test]
@@ -44,10 +44,10 @@ fn ordering_all_methods_are_instance() {
 }
 
 #[test]
-fn ordering_to_int_not_in_methods() {
+fn ordering_to_int_is_in_methods() {
     assert!(
-        ORDERING.methods.iter().all(|m| m.name != "to_int"),
-        "to_int is LLVM-only — should not be in ORDERING_METHODS"
+        ORDERING.methods.iter().any(|m| m.name == "to_int"),
+        "to_int should be in ORDERING_METHODS"
     );
 }
 

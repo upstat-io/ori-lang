@@ -1,4 +1,4 @@
-//! Phase-6.99 per-instruction USE classification for the lineage model —
+//! Per-instruction USE classification for the lineage model —
 //! RC-class op accounting, member/view value-reads, `[own]` hand-offs, and
 //! the unmodeled-use decline boundary.
 //!
@@ -123,7 +123,6 @@ pub(super) fn model_body_uses(
             }
         }
         ArcInstr::Project { value, .. } => {
-            // Reading a member OR a view reads the shared allocation.
             if is_member(*value) {
                 model.events[b].body.push(READ_EVENT);
                 record_body_read(&mut model.read_blocks, b, *value);
@@ -136,7 +135,7 @@ pub(super) fn model_body_uses(
         ArcInstr::Apply {
             args, func: callee, ..
         } => {
-            // Reads check aliveness before the own-arg hand-offs apply.
+            // Why: Reads check aliveness before the own-arg hand-offs apply.
             let mut own_args = 0usize;
             for (pos, &arg) in args.iter().enumerate() {
                 let member = is_member(arg);
@@ -145,7 +144,7 @@ pub(super) fn model_body_uses(
                     continue;
                 }
                 if instr.is_owned_position(pos) {
-                    // An owned VIEW hand-off escapes the model.
+                    // Why: An owned VIEW hand-off escapes the model.
                     if view {
                         return None;
                     }
@@ -167,9 +166,8 @@ pub(super) fn model_body_uses(
             }
             Some(())
         }
-        // Member moved INTO another aggregate (store family) — unmodeled.
-        // Every other member/view-touching shape (closures, reuse, COW
-        // mutation, shared-check, reset) is likewise outside the vocabulary.
+        // Why: Member moves, closures, reuse, COW mutations, resets,
+        // and shared-checks are outside the modeled vocabulary.
         _ => {
             if instr
                 .used_vars()
@@ -195,8 +193,7 @@ pub(super) fn model_terminator_uses(
     model: &mut LineageModel,
 ) -> Option<()> {
     match terminator {
-        // A returned member/view is an RL-2 transfer to the caller — out of
-        // scope.
+        // Why: A returned member/view is an RL-2 transfer to the caller.
         ArcTerminator::Return { value } => {
             if is_member(*value) || views.contains(*value) {
                 None
@@ -237,9 +234,7 @@ pub(super) fn model_terminator_uses(
             }
             Some(())
         }
-        // Jump args are positional renames (jt-threaded members), not
-        // value-reads; Resume/Unreachable carry no member operands. A VIEW
-        // threaded through a Jump escapes the single-block view model.
+        // Why: Jump args are positional renames, not value-reads; a threaded VIEW escapes.
         ArcTerminator::Jump { args, .. } => {
             if args.iter().any(|&a| views.contains(a)) {
                 None
@@ -248,8 +243,7 @@ pub(super) fn model_terminator_uses(
             }
         }
         ArcTerminator::Resume | ArcTerminator::Unreachable => Some(()),
-        // Branch/Switch operands are scalars; a member there is unmodeled.
-        // An InvokeIndirect member/view use (closure dispatch) is unmodeled.
+        // Why: Branch/Switch operands are scalars, and InvokeIndirect uses are unmodeled.
         _ => {
             if terminator
                 .used_vars()

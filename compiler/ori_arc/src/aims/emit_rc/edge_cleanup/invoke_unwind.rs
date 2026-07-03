@@ -27,24 +27,26 @@ static INVOKE_UNWIND_PAIR_RELEASE_DISABLED: LazyLock<bool> =
 /// pair (net 0 — the Phase-5 walk's bookkeeping for a value whose last use
 /// is the predecessor's own terminator).
 ///
+/// # Why
+///
 /// The pair does not release the lineage, and the presence-based
 /// suppression in `release_burden_only_edge` (Phase 6.5) skips such edges,
 /// so a panic landing in a LIVE unwind successor — `catch(expr:
 /// opt.expect(msg:))` with the armed intercepted-unwind route — leaks the
-/// value on the caught path (the normal-path repair passes place releases
-/// on normal successors only).
+/// value on the caught path (normal-path repair passes place releases on
+/// normal successors only).
 ///
-/// Runs AFTER every normal-path repair pass (6.6 .. 6.97) so their
-/// verdicts are computed against the unchanged baseline; this pass touches
-/// ONLY unwind-successor block fronts. Consumes the same
-/// [`compute_invoke_edge_dead_set`] SSOT as Phase 6.5. Owned-transfer args
-/// of the predecessor terminator are excluded (balanced at the transfer
-/// point, per the Phase-6.5 gate); a predecessor whose in-body ops NET a
-/// release (dec-only) is excluded (the walk's dead-out release covers both
-/// paths); an unwind successor already carrying a whole-var `BurdenDec`
-/// for the var is excluded (another pass placed the release). Emitted
-/// whole-var `BurdenDec`s lower to `RcDec` in Phase 7. Spec: Annex E §AIMS
-/// RL-4.
+/// # Ordering and exclusions
+///
+/// Runs AFTER every normal-path repair pass (6.6 .. 6.97) so their verdicts
+/// are computed against the unchanged baseline; touches ONLY unwind-successor
+/// block fronts. Consumes the same [`compute_invoke_edge_dead_set`] SSOT as
+/// Phase 6.5. Excludes: owned-transfer args of the predecessor terminator
+/// (balanced at the transfer point per the Phase-6.5 gate); a predecessor
+/// whose in-body ops NET a release (the walk's dead-out release covers both
+/// paths); an unwind successor already carrying a whole-var `BurdenDec` for
+/// the var (another pass placed it). Emitted `BurdenDec`s lower to `RcDec`
+/// in Phase 7. Spec: Annex E §AIMS RL-4.
 pub(crate) fn emit_invoke_unwind_pair_net_releases(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -56,8 +58,6 @@ pub(crate) fn emit_invoke_unwind_pair_net_releases(
         return;
     }
     let same_alloc_reps = compute_same_alloc_reps(func, state_map.apply_result_aliases());
-    // (unwind succ block, var) releases. Gather first (immutable borrows),
-    // then mutate.
     let mut releases: Vec<(usize, ArcVarId)> = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let (ArcTerminator::Invoke { normal, unwind, .. }

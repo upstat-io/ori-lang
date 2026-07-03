@@ -85,7 +85,7 @@ pub(crate) fn compute_block_exit_state(
 
     if successors.is_empty() {
         // Terminal block (Return, Resume, Unreachable) — no successor demand.
-        // For Return, the return value's demand is added by the terminator
+        // On Return, the return value's demand is added by the terminator
         // transfer function during entry state computation.
         return FxHashMap::default();
     }
@@ -106,10 +106,9 @@ pub(crate) fn compute_block_exit_state(
         }
     }
 
-    // Cross-block locality widening (effect computation): variables demanded by
-    // successor blocks have crossed a block boundary, so their locality
-    // must be at least `FunctionLocal`. This converts `BlockLocal` values
-    // that flow to other blocks into `FunctionLocal`.
+    // Cross-block locality widening: variables demanded by successor blocks
+    // have crossed a block boundary, so locality widens to at least
+    // `FunctionLocal` (converts `BlockLocal` to `FunctionLocal`).
     for state in exit_state.values_mut() {
         if state.locality < Locality::FunctionLocal {
             state.locality = Locality::FunctionLocal;
@@ -121,18 +120,13 @@ pub(crate) fn compute_block_exit_state(
 
 /// Compute the ENTRY state of a block by walking backward through its body.
 ///
-/// Starts from the block's exit state (demand from successors), applies
-/// terminator transfer, then walks instructions in reverse order applying
-/// transfer functions. Each instruction:
-/// 1. Adds backward demand on operands via `seq_add`
-/// 2. Sets forward state for defined variables via `transfer_def`
+/// Starts from the block's exit state, applies terminator transfer, then
+/// walks instructions in reverse: each instruction adds backward demand via
+/// `seq_add` and sets forward state via `transfer_def`. Also accumulates a
+/// block-level [`EffectSummary`] from instruction types.
 ///
-/// Also accumulates a block-level [`EffectSummary`] from instruction types
-/// (Effect computation: precise effect computation during analysis, not post-hoc).
-///
-/// `invoke_defs` maps block IDs to variables defined by Invoke terminators
-/// in predecessor blocks. These are defined at this block's entry (normal
-/// successor only) and are removed from the entry state, like block params.
+/// `invoke_defs` maps block IDs to variables defined by predecessor Invoke
+/// terminators; they are removed from the entry state, like block params.
 pub(crate) fn compute_block_entry_state(
     func: &ArcFunction,
     block_id: ArcBlockId,
@@ -154,10 +148,9 @@ pub(crate) fn compute_block_entry_state(
             unreachable!("block {block_id:?} out of range for pre-sized AimsStateMap")
         });
 
-    // Block-level effect accumulator (Effect computation: precise effect computation).
-    // Effects are forward-aggregated during the backward walk — monotonically
-    // accumulated (OR) from instruction types and callee contracts. There is no
-    // "backward direction" for effects.
+    // Block-level effect accumulator: effects are forward-aggregated during
+    // the backward walk, monotonically accumulated (OR) from instruction
+    // types and callee contracts — there is no "backward direction" for effects.
     let mut block_effects = EffectSummary::default();
 
     // Apply terminator backward demands.
@@ -203,10 +196,8 @@ pub(crate) fn compute_block_entry_state(
 
         if def_transfer.is_some() {
             // Capture the converged demand on the defined var BEFORE
-            // `apply_instr_forward_transfer` strips it. This is the
-            // `seqAdd`-accumulated cardinality (TF-11) from all uses below the
-            // def — `Once`/`Linear` for a single-use fresh value, `Many` for a
-            // multi-use one — exactly DP-3's proven input.
+            // `apply_instr_forward_transfer` strips it — the `seqAdd`-accumulated
+            // cardinality (TF-11) that is DP-3's proven input.
             if let Some(dst) = instr.defined_var() {
                 if !state_map.is_excluded(dst) {
                     if let Some(state) = current.get(&dst).copied() {
@@ -227,7 +218,7 @@ pub(crate) fn compute_block_entry_state(
         }
     }
 
-    // Block params are definitions (like phi nodes) — remove from entry state.
+    // Exclude block params (which are definitions like phi nodes) from entry state.
     propagate_project_source_demand(
         &mut current,
         state_map,
@@ -240,16 +231,9 @@ pub(crate) fn compute_block_entry_state(
         current.remove(&param_var);
     }
 
-    // Invoke defs: Invoke { dst, normal, .. } defines `dst` at the entry
-    // of the `normal` successor only. These act like block params and must
-    // be removed from the entry state so demand doesn't propagate backward
-    // past the definition point.
-    //
-    // BUT: the predecessor (the Invoke block) needs the post-def demand on
-    // `dst` for `var_state_at_block_exit(invoke_block, dst)` queries from
-    // FIP balance + LocalAllocCandidate emission. Without capture, those
-    // queries return BOTTOM and miss Return-widened locality / consumed
-    // demand from the normal successor's body. Capture here BEFORE removing.
+    // INVARIANT: Invoke-defined dsts act like block params (removed from
+    // entry state so demand stops at the def point), but captured FIRST —
+    // predecessor FIP queries need the post-def demand this removal erases.
     let mut invoke_def_demand: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
     if let Some(vars) = invoke_defs.get(&block_id) {
         for &var in vars {
@@ -297,11 +281,8 @@ fn apply_instr_forward_transfer(
     accumulate_instr_effects(instr, dst_demand, state_map, sigs, block_effects);
 
     // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
-    // demand transfers to v via seq_add (cardinality + consumption)
-    // and max (locality) BEFORE dst's state is consumed by the remove
-    // below. Without this, accumulated Many cardinality on the alias
-    // vanishes when dst is removed, leaving the source under-demanded
-    // and a missing RcDec at the alias chain's natural-death site.
+    // demand transfers to v via seq_add/max BEFORE the remove below —
+    // else Many cardinality vanishes, leaving the alias-chain dec missing.
     if let crate::ir::ArcInstr::Let {
         value: crate::ir::ArcValue::Var(v),
         ..
@@ -541,10 +522,9 @@ fn apply_callee_contract(
         // Includes locality_bound (effect computation): if the callee may store
         // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
-            // Contract-aware: uniqueness demand based on callee effects.
-            // If effective may_share AND this param is borrowed,
-            // the callee might RcInc the argument → widen to MaybeShared.
-            // If pure / FIP Conditional met, borrowed args preserve uniqueness.
+            // Contract-aware: uniqueness demand from callee effects — if
+            // effective may_share AND borrowed, the callee might RcInc the
+            // arg (widen to MaybeShared); else borrowed args preserve uniqueness.
             let uniqueness_demand =
                 if effective_may_share && param_contract.access == AccessClass::Borrowed {
                     Uniqueness::MaybeShared
@@ -562,7 +542,5 @@ fn apply_callee_contract(
             merge_demand(current, *arg, demand);
         }
     }
-    // If no contract found, backward_demands (called after this) already
-    // adds Once demand per arg. The conservative Apply transfer function
-    // handles the dst state.
+    // If no contract is found, backward_demands will add Once demand per arg.
 }

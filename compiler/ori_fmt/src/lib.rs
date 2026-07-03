@@ -77,8 +77,7 @@ pub use packing::{
 };
 pub use rules::{
     needs_parens, BooleanBreakRule, BreakPoint, ChainedElseIfRule, ElseIfBranch, ForChain,
-    ForLevel, IfChain, MethodChainRule, NestedForRule, ParenPosition, ParenthesesRule,
-    ShortBodyRule,
+    ForLevel, IfChain, MethodChainRule, NestedForRule, ParenPosition, ShortBodyRule,
 };
 pub use shape::Shape;
 pub use spacing::{lookup_spacing, SpaceAction, TokenCategory, TokenMatcher, SPACE_RULES};
@@ -86,5 +85,7 @@ pub use template_escape::escape_template_text;
 pub use whitespace::tabs_to_spaces;
 pub use width::{WidthCalculator, ALWAYS_STACKED};
 
+#[cfg(test)]
+mod test_util;
 #[cfg(test)]
 mod tests;

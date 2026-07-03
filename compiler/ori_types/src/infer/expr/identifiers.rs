@@ -2,9 +2,10 @@
 
 use ori_ir::{Name, Span};
 
+use crate::{Idx, TypeCheckError, TypeKind, TypeRegistry, VariantFields};
+
 use super::super::InferEngine;
 use super::substitute_type_params_with_map;
-use crate::{Idx, TypeCheckError, TypeKind, TypeRegistry, VariantFields};
 
 /// Infer the type of an identifier reference.
 #[expect(

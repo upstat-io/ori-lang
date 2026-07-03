@@ -316,6 +316,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_ty, out, "slice.val"))
     }
 
+    /// Shared body for `emit_list_take_slice` / `emit_list_drop_slice` — both
+    /// are a zero-copy N-element slice differing only in the runtime entry
+    /// point and the emitted-value label.
+    fn emit_list_take_or_drop_slice(
+        &mut self,
+        runtime_fn_name: &'static str,
+        label: &str,
+        receiver: ValueId,
+        n: ValueId,
+        elem_ty: Idx,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn(runtime_fn_name);
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        // Use narrowed element size if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
+        let elem_size_val = self
+            .builder
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
+
+        let list_ty = self.list_struct_type();
+        let out = self.builder.create_entry_alloca(
+            self.current_function,
+            &format!("{label}.out"),
+            list_ty,
+        );
+
+        self.emit_rt_call(func_id, &[data_ptr, len, cap, n, elem_size_val, out], label);
+
+        Some(self.builder.load(list_ty, out, &format!("{label}.val")))
+    }
+
     /// Emit `list.take(n)` — zero-copy first-N elements slice.
     ///
     /// Equivalent to `list.slice(0, n)`. No elements are copied.
@@ -326,27 +359,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_slice_take");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // Use narrowed element size if available.
-        let collection_idx = self.pool.resolve_fully(list_ty);
-        let elem_size_val = self
-            .builder
-            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
-
-        let list_ty = self.list_struct_type();
-        let out = self
-            .builder
-            .create_entry_alloca(self.current_function, "take.out", list_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[data_ptr, len, cap, n, elem_size_val, out],
+        self.emit_list_take_or_drop_slice(
+            "ori_list_slice_take",
             "take",
-        );
-
-        Some(self.builder.load(list_ty, out, "take.val"))
+            receiver,
+            n,
+            elem_ty,
+            list_ty,
+        )
     }
 
     /// Emit `list.drop(n)` — zero-copy skip-first-N elements slice.
@@ -359,26 +379,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_slice_drop");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // Use narrowed element size if available.
-        let collection_idx = self.pool.resolve_fully(list_ty);
-        let elem_size_val = self
-            .builder
-            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
-
-        let list_ty = self.list_struct_type();
-        let out = self
-            .builder
-            .create_entry_alloca(self.current_function, "drop.out", list_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[data_ptr, len, cap, n, elem_size_val, out],
+        self.emit_list_take_or_drop_slice(
+            "ori_list_slice_drop",
             "drop",
-        );
-
-        Some(self.builder.load(list_ty, out, "drop.val"))
+            receiver,
+            n,
+            elem_ty,
+            list_ty,
+        )
     }
 }

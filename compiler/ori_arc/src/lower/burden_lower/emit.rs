@@ -347,15 +347,18 @@ pub(super) fn emit_burden_ops_for_blocks(
 
 /// Vars used at a BORROWED (non-owned) arg position of an `Invoke` /
 /// `InvokeIndirect` terminator. A borrowed Invoke arg is NOT consumed by the
-/// callee — the value survives to the `normal` / `unwind` successors, where the
-/// predicate-stack edge cleanup (`emit_rc::release_with_burden`) releases it and
-/// co-emits the paired scope-exit `BurdenDec`. Emitting the burden-walk's own
-/// terminator-last-use `BurdenDec` for such an arg double-counts the release
-/// (VF-1 net=-1 per terminal path). Used by `emit_terminator_burden_decs` to
-/// suppress the redundant terminator dec. Non-Invoke terminators (Return /
-/// Jump / Branch) return empty — their owned transfers are handled by
-/// `terminator_transfer_vars` and their non-arg last-uses are genuine
-/// scope-exit releases the burden walk owns.
+/// callee — it survives to the `normal`/`unwind` successors, where edge
+/// cleanup (`emit_rc::release_with_burden_edge`) releases it and co-emits
+/// the paired scope-exit `BurdenDec`.
+///
+/// # Why
+///
+/// Emitting the burden-walk's own terminator-last-use `BurdenDec` for such an
+/// arg double-counts the release (VF-1 net=-1 per terminal path). Used by
+/// `emit_terminator_burden_decs` to suppress the redundant terminator dec.
+/// Non-Invoke terminators (Return/Jump/Branch) return empty — their owned
+/// transfers are handled by `terminator_transfer_vars`, and their non-arg
+/// last-uses are genuine scope-exit releases the burden walk owns.
 fn invoke_terminator_borrowed_args(term: &ArcTerminator) -> FxHashSet<ArcVarId> {
     let mut borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
     if matches!(

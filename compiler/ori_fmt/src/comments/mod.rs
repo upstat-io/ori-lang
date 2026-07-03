@@ -79,8 +79,8 @@ impl CommentIndex {
     ///
     /// Note: This only takes comments that are directly associated with `pos`, not all
     /// comments before it. This is important because the formatter may process items
-    /// out of source order (e.g., all functions before all tests), and we don't want
-    /// to steal comments that belong to items that appear earlier in source.
+    /// out of source order (e.g., all functions before all tests); comments belonging
+    /// to items appearing earlier in source must not be stolen.
     pub fn take_comments_before(&mut self, pos: u32) -> Vec<usize> {
         let mut result = Vec::new();
 

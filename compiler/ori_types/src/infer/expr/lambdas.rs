@@ -3,10 +3,11 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use rustc_hash::FxHashSet;
 
-use super::super::InferEngine;
-use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::registry::burden_compose::closure::compose_closure_burden_spec;
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
+
+use super::super::InferEngine;
+use super::{infer_expr, resolve_and_check_parsed_type};
 
 /// Collect the set of lexically-bound outer-scope names visible to the
 /// current inference frame.
@@ -22,7 +23,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 /// `body_captures_outer`'s `Ident` arm — keeping prelude refs like
 /// `len(collection: xs)` out of the capture set while still flagging real
 /// `let outer = 1; let f = x -> outer` captures.
-pub(crate) fn collect_outer_vars(engine: &InferEngine<'_>) -> FxHashSet<Name> {
+fn collect_outer_vars(engine: &InferEngine<'_>) -> FxHashSet<Name> {
     engine.collect_lexical_outer()
 }
 

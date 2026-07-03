@@ -201,7 +201,7 @@ impl Shape {
     /// Add visual offset without consuming width (for alignment).
     ///
     /// Used when content is placed at a specific column for alignment
-    /// but we haven't emitted characters to get there.
+    /// without emitting characters to reach it.
     #[inline]
     #[must_use = "with_offset returns a new Shape with the given offset"]
     pub fn with_offset(self, offset: usize) -> Self {

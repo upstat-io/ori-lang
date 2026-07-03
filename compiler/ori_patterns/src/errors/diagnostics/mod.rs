@@ -138,24 +138,20 @@ impl EvalError {
         let code = self.kind.error_code();
         let mut diag = Diagnostic::error(code).with_message(&self.message);
 
-        // Add primary label at the error span
         if let Some(span) = self.span {
             diag = diag.with_label(span, self.kind.primary_label());
         }
 
-        // Add context notes from the error
         for note in &self.notes {
             diag = diag.with_note(&note.message);
         }
 
-        // Add backtrace as a note (if present)
         if let Some(ref bt) = self.backtrace {
             if !bt.is_empty() {
                 diag = diag.with_note(format!("call stack:\n{bt}"));
             }
         }
 
-        // Add suggestions for common fixable errors
         if let Some(suggestion) = self.kind.suggestion() {
             diag = diag.with_suggestion(suggestion);
         }

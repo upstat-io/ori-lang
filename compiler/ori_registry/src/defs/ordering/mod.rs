@@ -90,6 +90,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         true,
     ),
+    MethodDef::compound("to_int", &[], INT, None, Ownership::Borrow, true),
     MethodDef::compound(
         "to_str",
         &[],

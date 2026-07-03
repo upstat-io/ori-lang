@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, ExprId, Name, Span};
 
+use crate::{ContextKind, Expected, Idx, Tag, TypeCheckError};
+
 use super::super::InferEngine;
 use super::{check_expr, infer_expr};
-use crate::{ContextKind, Expected, Idx, Tag, TypeCheckError};
 
 /// Infer the type of `Ok(value)`.
 pub(crate) fn infer_ok(

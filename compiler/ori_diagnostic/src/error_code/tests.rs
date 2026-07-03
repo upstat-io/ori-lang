@@ -208,13 +208,11 @@ fn lifecycle_marks_source_confirmed_graph_misses_as_emitted() {
 
 #[test]
 fn emitted_lifecycle_codes_have_production_construction_sites() {
-    let production_source = production_error_code_source();
+    let production_constructors = production_error_code_constructors();
     let mut missing = Vec::new();
 
     for &code in ErrorCode::ALL {
-        if code.lifecycle().is_emitted()
-            && !production_source.contains(&format!("ErrorCode::{}", code.as_str()))
-        {
+        if code.lifecycle().is_emitted() && !production_constructors.contains(code.as_str()) {
             missing.push(code.as_str());
         }
     }
@@ -229,23 +227,26 @@ fn emitted_lifecycle_codes_have_production_construction_sites() {
     clippy::expect_used,
     reason = "test helper uses parent directory structure"
 )]
-fn production_error_code_source() -> String {
+fn production_error_code_constructors() -> std::collections::BTreeSet<String> {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let compiler_dir = manifest_dir
         .parent()
         .expect("ori_diagnostic should live under compiler/");
-    let mut source = String::new();
-    collect_rust_source(compiler_dir, &mut source);
-    source
+    let mut constructors = std::collections::BTreeSet::new();
+    collect_error_code_constructors(compiler_dir, &mut constructors);
+    constructors
 }
 
 #[allow(clippy::expect_used, reason = "test helper reads files from disk")]
-fn collect_rust_source(dir: &std::path::Path, out: &mut String) {
+fn collect_error_code_constructors(
+    dir: &std::path::Path,
+    out: &mut std::collections::BTreeSet<String>,
+) {
     for entry in std::fs::read_dir(dir).expect("read compiler source directory") {
         let entry = entry.expect("read compiler source entry");
         let path = entry.path();
         if path.is_dir() {
-            collect_rust_source(&path, out);
+            collect_error_code_constructors(&path, out);
             continue;
         }
 
@@ -255,8 +256,8 @@ fn collect_rust_source(dir: &std::path::Path, out: &mut String) {
             continue;
         }
 
-        out.push_str(&std::fs::read_to_string(&path).expect("read Rust source file"));
-        out.push('\n');
+        let source = std::fs::read_to_string(&path).expect("read Rust source file");
+        collect_error_code_constructors_from_source(&source, out);
     }
 }
 
@@ -264,7 +265,167 @@ fn is_non_production_error_code_consumer(path: &std::path::Path) -> bool {
     let normalized = path.to_string_lossy().replace('\\', "/");
     normalized.contains("/ori_diagnostic/src/error_code/")
         || normalized.contains("/ori_diagnostic/src/errors/")
+        || normalized.contains("/ori_diagnostic/src/fixes/")
         || normalized.contains("/oric/src/commands/fmt/diagnostics.rs")
         || normalized.contains("/tests.rs")
         || normalized.contains("/tests/")
+}
+
+fn collect_error_code_constructors_from_source(
+    source: &str,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    let bytes = source.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if starts_with(bytes, i, b"//") {
+            i = skip_line_comment(bytes, i + 2);
+        } else if starts_with(bytes, i, b"/*") {
+            i = skip_block_comment(bytes, i + 2);
+        } else if let Some(next) = skip_raw_string(bytes, i) {
+            i = next;
+        } else if bytes[i] == b'"' {
+            i = skip_regular_string(bytes, i + 1);
+        } else if bytes[i] == b'\'' && looks_like_char_literal(bytes, i) {
+            i = skip_char_literal(bytes, i + 1);
+        } else if starts_with(bytes, i, b"ErrorCode::E") || starts_with(bytes, i, b"ErrorCode::W") {
+            if let Some(code) = error_code_constructor_at(source, i) {
+                out.insert(code.to_owned());
+            }
+            i += b"ErrorCode::E".len();
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn error_code_constructor_at(source: &str, start: usize) -> Option<&str> {
+    let prefix = "ErrorCode::";
+    let code_start = start + prefix.len();
+    let code_end = code_start + 5;
+    let bytes = source.as_bytes();
+    if code_end > bytes.len() {
+        return None;
+    }
+    let code = &source[code_start..code_end];
+    let mut chars = code.chars();
+    if !matches!(chars.next(), Some('E' | 'W')) || !chars.all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    if bytes
+        .get(code_end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        return None;
+    }
+    Some(code)
+}
+
+fn starts_with(bytes: &[u8], index: usize, needle: &[u8]) -> bool {
+    bytes
+        .get(index..)
+        .is_some_and(|tail| tail.starts_with(needle))
+}
+
+fn skip_line_comment(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() && bytes[index] != b'\n' {
+        index += 1;
+    }
+    index
+}
+
+fn skip_block_comment(bytes: &[u8], mut index: usize) -> usize {
+    let mut depth = 1;
+    while index < bytes.len() && depth > 0 {
+        if starts_with(bytes, index, b"/*") {
+            depth += 1;
+            index += 2;
+        } else if starts_with(bytes, index, b"*/") {
+            depth -= 1;
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    index
+}
+
+fn skip_raw_string(bytes: &[u8], index: usize) -> Option<usize> {
+    let prefix_len = if bytes.get(index) == Some(&b'r') {
+        1
+    } else if starts_with(bytes, index, b"br") {
+        2
+    } else {
+        return None;
+    };
+    let mut cursor = index + prefix_len;
+    let mut hashes = 0;
+    while bytes.get(cursor) == Some(&b'#') {
+        hashes += 1;
+        cursor += 1;
+    }
+    if bytes.get(cursor) != Some(&b'"') {
+        return None;
+    }
+    cursor += 1;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'"'
+            && bytes
+                .get(cursor + 1..cursor + 1 + hashes)
+                .is_some_and(|tail| tail.iter().all(|byte| *byte == b'#'))
+        {
+            return Some(cursor + 1 + hashes);
+        }
+        cursor += 1;
+    }
+    Some(bytes.len())
+}
+
+fn skip_regular_string(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+        } else if bytes[index] == b'"' {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    index
+}
+
+fn looks_like_char_literal(bytes: &[u8], index: usize) -> bool {
+    let Some(next) = bytes.get(index + 1) else {
+        return false;
+    };
+    if next.is_ascii_alphabetic() || *next == b'_' {
+        return false;
+    }
+    let mut cursor = index + 1;
+    let mut saw_content = false;
+    while cursor < bytes.len() && bytes[cursor] != b'\n' {
+        if bytes[cursor] == b'\\' {
+            saw_content = true;
+            cursor = (cursor + 2).min(bytes.len());
+        } else if bytes[cursor] == b'\'' {
+            return saw_content;
+        } else {
+            saw_content = true;
+            cursor += 1;
+        }
+    }
+    false
+}
+
+fn skip_char_literal(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+        } else if bytes[index] == b'\'' {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    index
 }

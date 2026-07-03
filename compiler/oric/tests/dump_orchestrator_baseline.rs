@@ -29,6 +29,18 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const ISOLATED_ORI_ENV: &[&str] = &[
+    "ORI_DUMP_AFTER_PARSE",
+    "ORI_DUMP_AFTER_TYPECK",
+    "ORI_DUMP_AFTER_ARC",
+    "ORI_DUMP_AFTER_LLVM",
+    "ORI_DUMP_TYPE_IDX",
+    "ORI_DEBUG_LLVM",
+    "ORI_DISABLE_PREDICATE_STACK_RC",
+    "ORI_VERIFY_ARC",
+    "ORI_VERIFY_EACH",
+];
+
 fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provenance/wrap_nested.ori")
 }
@@ -55,6 +67,9 @@ fn run_with_envs(subcommand: &str, envs: &[(&str, &str)], out_dir: Option<&Path>
     cmd.arg(subcommand).arg(&fixture);
     if let Some(dir) = out_dir {
         cmd.arg("-o").arg(dir.join("out"));
+    }
+    for key in ISOLATED_ORI_ENV {
+        cmd.env_remove(key);
     }
     for (k, v) in envs {
         cmd.env(k, v);

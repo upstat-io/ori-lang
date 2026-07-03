@@ -12,9 +12,10 @@
 
 use ori_ir::{ExprArena, Name, Span, TemplatePartRange};
 
+use crate::{Idx, Tag, TypeCheckError};
+
 use super::super::InferEngine;
 use super::infer_expr;
-use crate::{Idx, Tag, TypeCheckError};
 
 /// Infer the type of a template literal expression.
 ///

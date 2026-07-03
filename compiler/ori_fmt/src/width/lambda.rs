@@ -95,8 +95,8 @@ pub(crate) fn type_width<I: StringLookup>(
 /// param list per Annex D: when `ret_ty` is present (`typed_lambda` grammar
 /// requires parens), when there are zero or multiple params, or when
 /// ANY param carries a type annotation. Both width measurement (this
-/// module) and inline / broken render (`formatter/inline.rs`,
-/// `formatter/broken.rs`) call this predicate so the parens decision
+/// module) and inline / broken render (`formatter/inline/mod.rs`,
+/// `formatter/broken/mod.rs`) call this predicate so the parens decision
 /// has exactly one home.
 pub(crate) fn needs_parens_for_lambda(params: &[Param], ret_ty: ParsedTypeId) -> bool {
     let typed = ret_ty.is_valid();

@@ -123,6 +123,12 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
     }
 
     /// Calculate width without caching (internal).
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new
+    /// variant causes a compile error here, in `emit_broken()`, and in
+    /// `emit_inline()`. The `calculate_width_dispatch_has_no_wildcard` test
+    /// enforces this at the source level.
     #[expect(
         clippy::match_same_arms,
         reason = "Separate arms document each variant's width calculation for maintainability"
@@ -352,7 +358,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             }
 
             // Template literals — width is the re-escaped rendered length
-            // (matches emit in formatter/inline.rs), plus two backticks.
+            // (matches emit in formatter/inline/mod.rs), plus two backticks.
             ExprKind::TemplateFull(name) => {
                 crate::escape_template_text(self.interner.lookup(*name)).len() + 2
             }

@@ -18,7 +18,7 @@
 //! 3. **`BooleanBreakRule`**: 3+ `||` clauses break with leading `||`
 //! 4. **`ChainedElseIfRule`**: first `if` carries the assignment
 //! 5. **`NestedForRule`**: each nested `for` increases indentation
-//! 6. **`ParenthesesRule`**: Preserve user parens, add when needed
+//! 6. **`needs_parens`**: add parens where semantically required, per position
 //! 7. **`FunctionSeq helpers`**: Query functions for try, match, generic `FunctionSeq`
 //! 8. **`map_key_needs_brackets`**: Computed map keys re-emit `[ ]`
 //!
@@ -43,7 +43,7 @@ pub use method_chain::{
     collect_method_chain, is_method_chain, ChainedCall, MethodChain, MethodChainRule,
 };
 pub use nested_for::{collect_for_chain, is_for_expression, ForChain, ForLevel, NestedForRule};
-pub use parentheses::{is_simple_expr, needs_parens, ParenPosition, ParenthesesRule};
+pub use parentheses::{needs_parens, ParenPosition};
 pub use seq_helpers::{get_function_seq, is_function_seq, is_match_seq, is_try};
 pub use short_body::{
     is_always_short, is_short_body, suggest_break_point, BreakPoint, ShortBodyRule,

@@ -5,7 +5,8 @@ use std::path::Path;
 use inkwell::basic_block::BasicBlock;
 use inkwell::context::Context;
 use inkwell::debug_info::{
-    AsDIScope, DILexicalBlock, DIScope, DISubprogram, DISubroutineType, DIType,
+    AsDIScope, DILexicalBlock, DILocalVariable, DILocation, DIScope, DISubprogram,
+    DISubroutineType, DIType,
 };
 use inkwell::module::Module;
 use inkwell::values::{BasicValueEnum, InstructionValue, PointerValue};
@@ -150,6 +151,22 @@ impl<'ctx> DebugContext<'ctx> {
 
     // Variable Debug Info Convenience
 
+    /// Create the `DILocalVariable` + `DILocation` pair shared by every
+    /// binding-debug-info emitter below (auto variable at the current scope,
+    /// location derived from `span_start`).
+    fn create_var_and_loc(
+        &self,
+        name: &str,
+        ty: DIType<'ctx>,
+        span_start: u32,
+    ) -> (DILocalVariable<'ctx>, DILocation<'ctx>) {
+        let (line, col) = self.line_map.offset_to_line_col(span_start);
+        let scope = self.builder.current_scope();
+        let var = self.builder.create_auto_variable(scope, name, line, ty);
+        let loc = self.builder.create_debug_location(line, col, scope);
+        (var, loc)
+    }
+
     /// Emit `llvm.dbg.declare` for a mutable binding (alloca).
     ///
     /// Creates the auto variable and declare intrinsic in one call.
@@ -162,10 +179,7 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         block: BasicBlock<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_declare(alloca, var, loc, block);
     }
 
@@ -183,10 +197,7 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         insert_before: InstructionValue<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_value(value, var, loc, insert_before);
     }
 
@@ -203,10 +214,7 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         block: BasicBlock<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_value_at_end(value, var, loc, block);
     }
 

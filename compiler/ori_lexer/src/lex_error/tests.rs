@@ -319,47 +319,69 @@ fn lex_suggestion_text_removal_replace_set_expected_fields() {
 
 #[test]
 fn every_lex_error_kind_has_error_code() {
-    // Construct one of every LexErrorKind variant and verify it returns a non-empty code
-    let variants: Vec<LexErrorKind> = vec![
-        LexErrorKind::UnterminatedString,
-        LexErrorKind::UnterminatedChar,
-        LexErrorKind::UnterminatedTemplate,
-        LexErrorKind::InvalidStringEscape { escape_char: 'q' },
-        LexErrorKind::InvalidCharEscape { escape_char: 'q' },
-        LexErrorKind::InvalidTemplateEscape { escape_char: 'q' },
-        LexErrorKind::InvalidUnicodeEscape {
-            detail: UnicodeEscapeDetail::EmptyDigits,
-        },
-        LexErrorKind::SingleQuoteEscapeInString,
-        LexErrorKind::DoubleQuoteEscapeInChar,
-        LexErrorKind::IntOverflow,
-        LexErrorKind::HexIntOverflow,
-        LexErrorKind::BinIntOverflow,
-        LexErrorKind::FloatParseError,
-        LexErrorKind::InvalidByte { byte: 0xFF },
-        LexErrorKind::StandaloneBackslash,
-        LexErrorKind::UnicodeConfusable {
-            found: '\u{201C}',
-            suggested: '"',
-            name: "test",
-        },
-        LexErrorKind::InvalidNullByte,
-        LexErrorKind::Utf8Bom,
-        LexErrorKind::Utf16LeBom,
-        LexErrorKind::Utf16BeBom,
-        LexErrorKind::DecimalNotRepresentable,
-        LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+    let variants: Vec<(LexErrorKind, &str)> = vec![
+        (LexErrorKind::UnterminatedString, "E0001"),
+        (LexErrorKind::UnterminatedChar, "E0004"),
+        (LexErrorKind::UnterminatedTemplate, "E0006"),
+        (
+            LexErrorKind::InvalidStringEscape { escape_char: 'q' },
+            "E0005",
+        ),
+        (
+            LexErrorKind::InvalidCharEscape { escape_char: 'q' },
+            "E0005",
+        ),
+        (
+            LexErrorKind::InvalidTemplateEscape { escape_char: 'q' },
+            "E0005",
+        ),
+        (
+            LexErrorKind::InvalidUnicodeEscape {
+                detail: UnicodeEscapeDetail::EmptyDigits,
+            },
+            "E0005",
+        ),
+        (LexErrorKind::SingleQuoteEscapeInString, "E0005"),
+        (LexErrorKind::DoubleQuoteEscapeInChar, "E0005"),
+        (LexErrorKind::IntOverflow, "E0003"),
+        (LexErrorKind::HexIntOverflow, "E0003"),
+        (LexErrorKind::BinIntOverflow, "E0003"),
+        (LexErrorKind::FloatParseError, "E0003"),
+        (LexErrorKind::InvalidByte { byte: 0xFF }, "E0002"),
+        (
+            LexErrorKind::StrictEqualityOperator { operator: "===" },
+            "E0008",
+        ),
+        (LexErrorKind::SingleQuoteString, "E0009"),
+        (
+            LexErrorKind::IncrementDecrementOperator { operator: "++" },
+            "E0010",
+        ),
+        (LexErrorKind::StandaloneBackslash, "E0013"),
+        (
+            LexErrorKind::UnicodeConfusable {
+                found: '\u{201C}',
+                suggested: '"',
+                name: "test",
+            },
+            "E0011",
+        ),
+        (LexErrorKind::InvalidNullByte, "E0002"),
+        (LexErrorKind::Utf8Bom, "E0002"),
+        (LexErrorKind::Utf16LeBom, "E0002"),
+        (LexErrorKind::Utf16BeBom, "E0002"),
+        (LexErrorKind::DecimalNotRepresentable, "E0014"),
+        (
+            LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+            "E0015",
+        ),
     ];
 
-    for kind in &variants {
+    for (kind, expected_code) in &variants {
         let code = kind.error_code();
-        assert!(
-            !code.is_empty(),
-            "LexErrorKind::{kind:?} returned empty error code"
-        );
-        assert!(
-            code.starts_with('E'),
-            "LexErrorKind::{kind:?} error code {code:?} doesn't start with 'E'"
+        assert_eq!(
+            code, *expected_code,
+            "LexErrorKind::{kind:?} returned wrong error code"
         );
     }
 }

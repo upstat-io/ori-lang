@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
+
 use super::super::InferEngine;
 use super::infer_expr;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
 
 /// Check-direction dispatch for `iter.collect()` when the expected type is `Set<T>`.
 ///

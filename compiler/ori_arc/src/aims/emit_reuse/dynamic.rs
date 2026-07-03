@@ -173,7 +173,6 @@ pub(super) fn apply_dynamic_reuse(func: &mut ArcFunction, opp: &ReuseOpportunity
 
     rewrite_original_block(func, opp, &ctx);
 
-    // Substitute dst → merge_param in existing blocks (before push).
     if let Some(mb) = &merge_block {
         let merge_param = mb.params[0].0;
         for block in &mut func.blocks {
@@ -308,7 +307,6 @@ fn rewrite_original_block(
         else_block: fast_id,
     };
 
-    // Update spans.
     if block_idx < func.spans.len() {
         let old_spans = &func.spans[block_idx];
         let prefix_end = opp.source_instr.min(old_spans.len());

@@ -1,4 +1,4 @@
-//! `ParenthesesRule`: Preserve user parens, add when semantically needed.
+//! Parentheses rules: preserve user parens, add when semantically needed.
 //!
 //! # Decision
 //!
@@ -6,45 +6,15 @@
 //!
 //! # Current Limitation
 //!
-//! **User parentheses are NOT currently preserved.** The AST does not track whether
-//! parentheses were explicitly written by the user, so [`ParenthesesRule::has_user_parens()`]
-//! always returns `false`. This means user-added parentheses for clarity may be removed
-//! if they are not semantically required.
-//!
-//! Future work: Track user parentheses in `ori_ir::Expr` to preserve user intent.
+//! **User parentheses are NOT currently preserved.** The AST does not track
+//! whether parentheses were explicitly written by the user, so user-added
+//! parentheses for clarity may be removed if they are not semantically
+//! required. Preserving them requires a `has_explicit_parens` field set
+//! during parsing.
 //!
 //! Spec: Annex D §Method-Style Match, §Method Chains.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, UnaryOp};
-
-/// Rule for parentheses handling.
-///
-/// # Principle
-///
-/// "Preserve all user parens. Add when semantically needed, never remove."
-///
-/// Parentheses are required in certain positions to maintain correct
-/// parsing/precedence. User parentheses are always preserved even if
-/// not strictly required - they represent user intent for clarity.
-///
-/// # Required Parentheses
-///
-/// - Method receiver: `(for x in items yield x).fold(...)`
-/// - Call target: `(x -> x * 2)(5)`
-/// - Iterator source: `for x in (inner) yield x`
-pub struct ParenthesesRule;
-
-impl ParenthesesRule {
-    /// Whether the user wrote explicit parentheses around this expression.
-    ///
-    /// Always returns `false`: `ori_ir::Expr` does not track explicit
-    /// parentheses, so user parens that are not semantically required are
-    /// dropped. Preserving them requires a `has_explicit_parens` field set
-    /// during parsing.
-    pub fn has_user_parens(_arena: &ExprArena, _expr_id: ExprId) -> bool {
-        false
-    }
-}
 
 /// Position where parentheses may be required.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -167,33 +137,4 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
             ) || matches!(&expr.kind, ExprKind::Int(n) if *n < 0)
         }
     }
-}
-
-/// Check if expression is "simple" (doesn't need parens in most contexts).
-///
-/// Simple expressions: identifiers, literals, calls, field access.
-pub fn is_simple_expr(arena: &ExprArena, expr_id: ExprId) -> bool {
-    let expr = arena.get_expr(expr_id);
-
-    matches!(
-        &expr.kind,
-        ExprKind::Ident(_)
-            | ExprKind::Int(_)
-            | ExprKind::Float(_)
-            | ExprKind::String(_)
-            | ExprKind::Char(_)
-            | ExprKind::Bool(_)
-            | ExprKind::Duration { .. }
-            | ExprKind::Size { .. }
-            | ExprKind::Unit
-            | ExprKind::None
-            | ExprKind::SelfRef
-            | ExprKind::Const(_)
-            | ExprKind::Call { .. }
-            | ExprKind::CallNamed { .. }
-            | ExprKind::MethodCall { .. }
-            | ExprKind::MethodCallNamed { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Index { .. }
-    )
 }

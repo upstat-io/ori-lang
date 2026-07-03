@@ -52,46 +52,11 @@ pub(crate) use literals::{char_escape, emit_escaped_str, string_escape};
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup, UnaryOp};
+use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup};
 
-/// Get string representation of a binary operator.
-fn binary_op_str(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Add => "+",
-        BinaryOp::Sub => "-",
-        BinaryOp::Mul => "*",
-        BinaryOp::Div => "/",
-        BinaryOp::Mod => "%",
-        BinaryOp::FloorDiv => "div",
-        BinaryOp::Eq => "==",
-        BinaryOp::NotEq => "!=",
-        BinaryOp::Lt => "<",
-        BinaryOp::LtEq => "<=",
-        BinaryOp::Gt => ">",
-        BinaryOp::GtEq => ">=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-        BinaryOp::BitAnd => "&",
-        BinaryOp::BitOr => "|",
-        BinaryOp::BitXor => "^",
-        BinaryOp::Shl => "<<",
-        BinaryOp::Shr => ">>",
-        BinaryOp::Range => "..",
-        BinaryOp::RangeInclusive => "..=",
-        BinaryOp::Coalesce => "??",
-        BinaryOp::MatMul => "@",
-    }
-}
-
-/// Get string representation of a unary operator.
-fn unary_op_str(op: UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Neg => "-",
-        UnaryOp::Not => "!",
-        UnaryOp::BitNot => "~",
-        UnaryOp::Try => "?",
-    }
-}
+// Operator source-text tokens: `BinaryOp::as_symbol()` / `UnaryOp::as_symbol()`
+// in `ori_ir::ast::operators` are the canonical home; callers use those
+// directly rather than re-deriving the mapping here.
 
 // Delimiter decisions: see rules::needs_parens() + rules::ParenPosition +
 // rules::map_key_needs_brackets() (Layer 4).
@@ -205,7 +170,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     /// Format an expression in broken mode (force multi-line).
     ///
     /// Use this when the caller has already decided the expression needs to break,
-    /// and we don't want the formatter to re-evaluate fit at the current position.
+    /// to avoid re-evaluating fit at the current position.
     pub fn format_broken(&mut self, expr_id: ExprId) {
         let width = self.width_calc.width(expr_id);
 

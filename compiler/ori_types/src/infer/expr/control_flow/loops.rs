@@ -14,7 +14,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 /// unknown iterator tag falls back to a fresh type variable so downstream
 /// unification can still catch concrete mismatches. `Range<float>` is rejected
 /// as non-iterable (spec 8.13).
-fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> Idx {
+pub(crate) fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> Idx {
     let resolved_iter = engine.resolve(iter_ty);
     match engine.pool().tag(resolved_iter) {
         Tag::List => engine.pool().list_elem(resolved_iter),

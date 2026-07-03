@@ -7,10 +7,6 @@ use ori_ir::{BindingPattern, MatchPattern, StringLookup};
 use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive MatchPattern formatting dispatch"
-    )]
     pub(super) fn emit_match_pattern(&mut self, pattern: &MatchPattern) {
         match pattern {
             MatchPattern::Wildcard => self.ctx.emit("_"),
@@ -25,29 +21,23 @@ impl<I: StringLookup> Formatter<'_, I> {
                 let inner_list = self.arena.get_match_pattern_list(*inner);
                 if !inner_list.is_empty() {
                     self.ctx.emit("(");
-                    for (i, pat_id) in inner_list.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        let pat = self.arena.get_match_pattern(*pat_id);
-                        self.emit_match_pattern(pat);
-                    }
+                    self.emit_inline_items(inner_list, |s, &pat_id| {
+                        let pat = s.arena.get_match_pattern(pat_id);
+                        s.emit_match_pattern(pat);
+                    });
                     self.ctx.emit(")");
                 }
             }
             MatchPattern::Struct { fields, rest } => {
                 self.ctx.emit("{ ");
-                for (i, (field_name, pat_opt)) in fields.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit(self.interner.lookup(*field_name));
+                self.emit_inline_items(fields, |s, (field_name, pat_opt)| {
+                    s.ctx.emit(s.interner.lookup(*field_name));
                     if let Some(pat_id) = pat_opt {
-                        self.ctx.emit(": ");
-                        let pat = self.arena.get_match_pattern(*pat_id);
-                        self.emit_match_pattern(pat);
+                        s.ctx.emit(": ");
+                        let pat = s.arena.get_match_pattern(*pat_id);
+                        s.emit_match_pattern(pat);
                     }
-                }
+                });
                 if *rest {
                     if !fields.is_empty() {
                         self.ctx.emit(", ");
@@ -59,13 +49,10 @@ impl<I: StringLookup> Formatter<'_, I> {
             MatchPattern::Tuple(items) => {
                 let items_list = self.arena.get_match_pattern_list(*items);
                 self.ctx.emit("(");
-                for (i, pat_id) in items_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    let pat = self.arena.get_match_pattern(*pat_id);
-                    self.emit_match_pattern(pat);
-                }
+                self.emit_inline_items(items_list, |s, &pat_id| {
+                    let pat = s.arena.get_match_pattern(pat_id);
+                    s.emit_match_pattern(pat);
+                });
                 // Single-element tuples need trailing comma: (x,) vs (x)
                 if items_list.len() == 1 {
                     self.ctx.emit(",");
@@ -75,13 +62,10 @@ impl<I: StringLookup> Formatter<'_, I> {
             MatchPattern::List { elements, rest } => {
                 let elements_list = self.arena.get_match_pattern_list(*elements);
                 self.ctx.emit("[");
-                for (i, pat_id) in elements_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    let pat = self.arena.get_match_pattern(*pat_id);
-                    self.emit_match_pattern(pat);
-                }
+                self.emit_inline_items(elements_list, |s, &pat_id| {
+                    let pat = s.arena.get_match_pattern(pat_id);
+                    s.emit_match_pattern(pat);
+                });
                 if let Some(rest_name) = rest {
                     if !elements_list.is_empty() {
                         self.ctx.emit(", ");
@@ -156,12 +140,9 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             BindingPattern::Tuple(items) => {
                 self.ctx.emit("(");
-                for (i, item) in items.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.emit_binding_pattern_inner(item, suppress_dollar);
-                }
+                self.emit_inline_items(items, |s, item| {
+                    s.emit_binding_pattern_inner(item, suppress_dollar);
+                });
                 // Single-element tuples need trailing comma: (x,) vs (x)
                 if items.len() == 1 {
                     self.ctx.emit(",");
@@ -170,30 +151,24 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             BindingPattern::Struct { fields } => {
                 self.ctx.emit("{ ");
-                for (i, field) in fields.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
+                self.emit_inline_items(fields, |s, field| {
                     // Shorthand with $ prefix: { $x }
                     if !suppress_dollar && field.mutable.is_immutable() && field.pattern.is_none() {
-                        self.ctx.emit("$");
+                        s.ctx.emit("$");
                     }
-                    self.ctx.emit(self.interner.lookup(field.name));
+                    s.ctx.emit(s.interner.lookup(field.name));
                     if let Some(pat) = &field.pattern {
-                        self.ctx.emit(": ");
-                        self.emit_binding_pattern_inner(pat, suppress_dollar);
+                        s.ctx.emit(": ");
+                        s.emit_binding_pattern_inner(pat, suppress_dollar);
                     }
-                }
+                });
                 self.ctx.emit(" }");
             }
             BindingPattern::List { elements, rest } => {
                 self.ctx.emit("[");
-                for (i, item) in elements.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.emit_binding_pattern_inner(item, suppress_dollar);
-                }
+                self.emit_inline_items(elements, |s, item| {
+                    s.emit_binding_pattern_inner(item, suppress_dollar);
+                });
                 if let Some((rest_name, rest_mut)) = rest {
                     if !elements.is_empty() {
                         self.ctx.emit(", ");

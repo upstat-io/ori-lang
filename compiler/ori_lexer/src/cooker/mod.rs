@@ -419,10 +419,12 @@ pub(super) fn slice_source(source: &[u8], offset: u32, len: u32) -> &str {
 }
 
 fn looks_like_single_quote_string(text: &str) -> bool {
-    text.len() >= 4
-        && text.starts_with('\'')
-        && text.ends_with('\'')
-        && text[1..text.len() - 1].chars().count() > 1
+    if text.len() < 4 || !text.starts_with('\'') || !text.ends_with('\'') {
+        return false;
+    }
+
+    let inner = &text[1..text.len() - 1];
+    !inner.contains('\\') && inner.chars().count() > 1
 }
 
 /// Create a span from offset and length.

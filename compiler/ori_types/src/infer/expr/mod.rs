@@ -21,7 +21,6 @@ mod methods;
 mod operators;
 mod refutability;
 mod registry_bridge;
-pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 mod sequences;
 mod structs;
 mod type_resolution;
@@ -29,7 +28,7 @@ mod type_resolution;
 // Named re-exports for tests and sibling access. Kept alphabetical per
 // submodule so drift is easy to spot at review time.
 
-pub(super) use blocks::{infer_block, infer_let, infer_let_binding_core};
+pub(super) use blocks::{infer_block, infer_let, infer_try_let_binding};
 pub(crate) use calls::register_concrete_applied_resolutions;
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
@@ -46,8 +45,8 @@ pub(super) use constructors::{
     infer_try, infer_with_capability,
 };
 pub(super) use control_flow::{
-    check_match_pattern, infer_break, infer_continue, infer_for, infer_if, infer_loop, infer_match,
-    infer_while, substitute_type_params_with_map,
+    check_match_pattern, for_loop_elem_ty, infer_break, infer_continue, infer_for, infer_if,
+    infer_loop, infer_match, infer_while, substitute_type_params_with_map,
 };
 pub(super) use format::infer_template_literal;
 pub(super) use identifiers::{
@@ -64,6 +63,8 @@ pub(in crate::infer::expr) use methods::range_method_requires_iteration;
 pub(super) use operators::{
     infer_assign, infer_assign_target, infer_binary, infer_cast, infer_unary,
 };
+pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
+pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 #[cfg(test)]
 pub(super) use sequences::infer_try_stmt;
 pub(super) use sequences::{
@@ -72,17 +73,15 @@ pub(super) use sequences::{
 pub(super) use structs::{
     infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
 };
-// Public re-exports for the crate's public API
-// (re-exported through infer/mod.rs)
-pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Span};
 use ori_stack::ensure_sufficient_stack;
 
-use super::InferEngine;
 use crate::{Expected, Idx, Tag};
+
+use super::InferEngine;
 
 #[cfg(test)]
 use ori_ir::{BinaryOp, ParsedType, UnaryOp};

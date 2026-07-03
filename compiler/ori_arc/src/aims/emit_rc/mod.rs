@@ -1,8 +1,7 @@
 //! RC emission helpers for the unified realization pipeline.
 //!
 //! Contains helper functions, submodules, and re-exports used by `realize/`
-//! for RC operations. The legacy `emit_rc_ops()` entry point
-//! has been removed — RC emission is now driven by `realize_rc_reuse()`.
+//! for RC operations. RC emission is driven by `realize_rc_reuse()`.
 //!
 //! # Submodules
 //!
@@ -102,19 +101,18 @@ pub(crate) fn carries_burden(func: &ArcFunction, var: ArcVarId) -> bool {
 }
 
 /// True iff `var` is consumed at an OWNED `Invoke`/`InvokeIndirect` arg
-/// position in `pred_block`'s terminator. The value's ownership transfers to
-/// the callee on the normal path; the unwind/normal edge `RcDec` (RL-4) is the
-/// predicate-stack release of that owned arg when the callee unwinds before
-/// consuming it.
+/// position in `pred_block`'s terminator: ownership transfers to the callee
+/// on the normal path, so the edge `RcDec` (RL-4) is the predicate-stack
+/// release of that owned arg only when the callee unwinds before consuming it.
 ///
-/// The burden walk already balanced such a var with its terminator-block
-/// `BurdenInc`/`BurdenDec` pair at the transfer point (`emit_terminator_burden_*`),
-/// so pairing a second `BurdenDec` onto the edge cleanup would net the per-value
-/// burden ledger to -1 (VF-1 imbalance). This is the edge-cleanup inverse of the
-/// terminator-position `invoke_terminator_borrowed_args` suppression: that one
-/// suppresses the burden dec for BORROWED args (released at the successor); this
-/// one suppresses the EDGE burden dec for OWNED args (already balanced at the
-/// transfer point).
+/// # Why
+///
+/// `emit_terminator_burden_*` already balanced such a var with its
+/// terminator-block `BurdenInc`/`BurdenDec` pair at the transfer point, so a
+/// second edge `BurdenDec` would net the per-value burden ledger to -1 (VF-1
+/// imbalance). Inverse of `invoke_terminator_borrowed_args`: that suppresses
+/// the burden dec for BORROWED args (released at the successor); this
+/// suppresses the EDGE burden dec for OWNED args (already balanced).
 #[inline]
 fn is_owned_transfer_arg_at_terminator(
     func: &ArcFunction,
@@ -132,9 +130,9 @@ fn is_owned_transfer_arg_at_terminator(
         .any(|(pos, &arg)| arg == var && block.terminator.is_owned_position(pos))
 }
 
-/// Edge-cleanup release: like [`release_with_burden`] but suppresses the paired
-/// `BurdenDec` when `var` is an owned-transfer arg of `pred_block`'s terminator
-/// (per [`is_owned_transfer_arg_at_terminator`] — the burden ledger is already
+/// Edge-cleanup release: suppresses the paired `BurdenDec` when `var` is an
+/// owned-transfer arg of `pred_block`'s terminator (per
+/// [`is_owned_transfer_arg_at_terminator`] — the burden ledger is already
 /// balanced at the transfer point). The `RcDec` is always emitted (RL-4 holds
 /// regardless of the burden-ledger accounting).
 #[inline]
@@ -176,17 +174,18 @@ fn has_whole_var_burden_dec_in_block(func: &ArcFunction, pred_block: usize, var:
 /// WITHOUT the predicate-stack `RcDec`. Used by the probe path
 /// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) where the burden path is the sole RC
 /// emitter — Phase 7 (`lower_burden_ops_to_rc`) lowers this whole-var
-/// `BurdenDec` to a real `RcDec`. Emits ONLY for a var the Phase-5 burden walk
-/// DEFERRED (live-out of `pred_block`, so no in-body `BurdenDec` exists):
-/// suppresses when `var` carries no burden, is an owned-transfer arg of
-/// `pred_block`'s terminator (already balanced at the transfer point), the
-/// PREDECESSOR already has an in-body whole-var `BurdenDec` (the walk's own
-/// dead-out release), OR the SUCCESSOR block (`succ_block`) already has a
-/// block-entry whole-var `BurdenDec` for `var`. The successor check covers the
-/// Phase-5 RL-4/RL-5 dead-at-entry releases (`compute_dead_owned_param_branch_releases`
-/// / `compute_dead_forwarder_block_param_releases`) emitted at the SUCCESSOR's
-/// entry — `emit_edge_cleanup`'s edge dec lands at the SAME successor entry, so a
-/// second dec on the same `pred -> succ` edge double-frees. Spec: Annex E §AIMS RL-4.
+/// `BurdenDec` to a real `RcDec`.
+///
+/// # Suppression
+///
+/// Emits ONLY for a var the Phase-5 burden walk DEFERRED (live-out of
+/// `pred_block`, so no in-body `BurdenDec` exists). Suppresses when `var`
+/// carries no burden, is an owned-transfer arg of `pred_block`'s terminator
+/// (already balanced at the transfer point), the predecessor already has an
+/// in-body whole-var `BurdenDec` (the walk's own dead-out release), OR the
+/// successor block already has a block-entry whole-var `BurdenDec` for `var`
+/// (the Phase-5 RL-4/RL-5 dead-at-entry releases land at the successor entry
+/// too — a second dec on the same edge double-frees). Spec: Annex E §AIMS RL-4.
 #[inline]
 pub(crate) fn release_burden_only_edge(
     func: &ArcFunction,

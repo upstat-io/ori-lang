@@ -2,13 +2,18 @@
 //!
 //! Methods for emitting expressions in broken (multi-line) format.
 //! Used when expressions don't fit on a single line.
+//!
+//! `if`/`let`/lambda/`with`/`for`/`while` rendering lives in
+//! [`control_flow`] — split out to keep this dispatch file under the
+//! workspace file-size limit.
 
-use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
+mod control_flow;
+
+use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
 
 use crate::rules::map_key_needs_brackets;
-use crate::width::ALWAYS_STACKED;
 
-use super::{binary_op_str, needs_binary_parens, Formatter};
+use super::{needs_binary_parens, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a map-literal key in broken format, wrapping a computed key in `[ ]`
@@ -31,14 +36,13 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// causes a compile error here, in `emit_inline()`, and in `calculate_width()`.
     /// The `broken_dispatch_has_no_wildcard` test enforces this at the source level.
     ///
-    /// Variant groups:
+    /// #### Variant groups
     /// - **Custom broken**: Compound expressions with multi-line rendering logic
     /// - **Always-stacked**: Block, Match, `FunctionSeq`, `FunctionExp` → `emit_stacked()`
     /// - **Leaf/atom**: Irreducible expressions → `emit_inline()` (parent breaks around them)
     /// - **Simple compound**: Subexpressions that don't benefit from breaking → `emit_inline()`
     #[expect(
         clippy::too_many_lines,
-        clippy::cognitive_complexity,
         reason = "exhaustive ExprKind broken formatting dispatch"
     )]
     pub(super) fn emit_broken(&mut self, expr_id: ExprId) {
@@ -49,7 +53,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::Binary { op, left, right } => {
                 self.emit_binary_operand_broken(*left, *op, true);
                 self.ctx.emit_newline_indent();
-                self.ctx.emit(binary_op_str(*op));
+                self.ctx.emit(op.as_symbol());
                 self.ctx.emit_space();
                 self.emit_binary_operand_broken(*right, *op, false);
             }
@@ -112,20 +116,11 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("{}");
                 } else {
                     self.ctx.emit("{");
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, entry) in entries_list.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        self.format_map_key(entry.key);
-                        self.ctx.emit(": ");
-                        self.format(entry.value);
-                        self.ctx.emit(",");
-                        if i < entries_list.len() - 1 {
-                            self.ctx.emit_newline();
-                        }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    self.emit_broken_items(entries_list, |s, entry| {
+                        s.format_map_key(entry.key);
+                        s.ctx.emit(": ");
+                        s.format(entry.value);
+                    });
                     self.ctx.emit("}");
                 }
             }
@@ -135,28 +130,17 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("{}");
                 } else {
                     self.ctx.emit("{");
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, element) in elements_list.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        match element {
-                            ori_ir::MapElement::Entry(entry) => {
-                                self.format_map_key(entry.key);
-                                self.ctx.emit(": ");
-                                self.format(entry.value);
-                            }
-                            ori_ir::MapElement::Spread { expr, .. } => {
-                                self.ctx.emit("...");
-                                self.format(*expr);
-                            }
+                    self.emit_broken_items(elements_list, |s, element| match element {
+                        ori_ir::MapElement::Entry(entry) => {
+                            s.format_map_key(entry.key);
+                            s.ctx.emit(": ");
+                            s.format(entry.value);
                         }
-                        self.ctx.emit(",");
-                        if i < elements_list.len() - 1 {
-                            self.ctx.emit_newline();
+                        ori_ir::MapElement::Spread { expr, .. } => {
+                            s.ctx.emit("...");
+                            s.format(*expr);
                         }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    });
                     self.ctx.emit("}");
                 }
             }
@@ -166,26 +150,15 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("[]");
                 } else {
                     self.ctx.emit("[");
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, element) in elements_list.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        match element {
-                            ori_ir::ListElement::Expr { expr, .. } => {
-                                self.format(*expr);
-                            }
-                            ori_ir::ListElement::Spread { expr, .. } => {
-                                self.ctx.emit("...");
-                                self.format(*expr);
-                            }
+                    self.emit_broken_items(elements_list, |s, element| match element {
+                        ori_ir::ListElement::Expr { expr, .. } => {
+                            s.format(*expr);
                         }
-                        self.ctx.emit(",");
-                        if i < elements_list.len() - 1 {
-                            self.ctx.emit_newline();
+                        ori_ir::ListElement::Spread { expr, .. } => {
+                            s.ctx.emit("...");
+                            s.format(*expr);
                         }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    });
                     self.ctx.emit("]");
                 }
             }
@@ -196,22 +169,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                 if fields_list.is_empty() {
                     self.ctx.emit("}");
                 } else {
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, field) in fields_list.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        self.ctx.emit(self.interner.lookup(field.name));
+                    self.emit_broken_items(fields_list, |s, field| {
+                        s.ctx.emit(s.interner.lookup(field.name));
                         if let Some(value) = field.value {
-                            self.ctx.emit(": ");
-                            self.format(value);
+                            s.ctx.emit(": ");
+                            s.format(value);
                         }
-                        self.ctx.emit(",");
-                        if i < fields_list.len() - 1 {
-                            self.ctx.emit_newline();
-                        }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    });
                     self.ctx.emit("}");
                 }
             }
@@ -222,30 +186,19 @@ impl<I: StringLookup> Formatter<'_, I> {
                 if fields_list.is_empty() {
                     self.ctx.emit("}");
                 } else {
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, field) in fields_list.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        match field {
-                            ori_ir::StructLitField::Field(init) => {
-                                self.ctx.emit(self.interner.lookup(init.name));
-                                if let Some(value) = init.value {
-                                    self.ctx.emit(": ");
-                                    self.format(value);
-                                }
-                            }
-                            ori_ir::StructLitField::Spread { expr, .. } => {
-                                self.ctx.emit("...");
-                                self.format(*expr);
+                    self.emit_broken_items(fields_list, |s, field| match field {
+                        ori_ir::StructLitField::Field(init) => {
+                            s.ctx.emit(s.interner.lookup(init.name));
+                            if let Some(value) = init.value {
+                                s.ctx.emit(": ");
+                                s.format(value);
                             }
                         }
-                        self.ctx.emit(",");
-                        if i < fields_list.len() - 1 {
-                            self.ctx.emit_newline();
+                        ori_ir::StructLitField::Spread { expr, .. } => {
+                            s.ctx.emit("...");
+                            s.format(*expr);
                         }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    });
                     self.ctx.emit("}");
                 }
             }
@@ -254,149 +207,42 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("()");
                 } else {
                     let items_slice = self.arena.get_expr_list(*items);
-                    let items_len = items_slice.len();
                     self.ctx.emit("(");
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, &item) in items_slice.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        self.format(item);
-                        self.ctx.emit(",");
-                        if i < items_len - 1 {
-                            self.ctx.emit_newline();
-                        }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
+                    self.emit_broken_items(items_slice, |s, &item| s.format(item));
                     self.ctx.emit(")");
                 }
             }
 
-            // If - break at else, keeping "else if" chains flat
-            // Check if the initial "if cond then branch" segment fits on current line
+            // If - break at else, keeping "else if" chains flat.
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                // Calculate width of initial segment: "if " + cond + " then " + branch
-                let cond_width = self.width_calc.width(*cond);
-                let then_width = self.width_calc.width(*then_branch);
-
-                // Check if the initial segment fits
-                // 3 = "if ", 6 = " then "
-                let initial_fits = cond_width != ALWAYS_STACKED
-                    && then_width != ALWAYS_STACKED
-                    && self.ctx.fits(3 + cond_width + 6 + then_width);
-
-                if initial_fits {
-                    // Emit "if cond then branch" inline, then break for else
-                    self.ctx.emit("if ");
-                    self.emit_inline(*cond);
-                    self.ctx.emit(" then ");
-                    self.emit_inline(*then_branch);
-                } else {
-                    // Initial segment is too long, break the then_branch to new line
-                    self.ctx.emit("if ");
-                    self.format(*cond);
-                    self.ctx.emit(" then");
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    self.ctx.emit_indent();
-                    self.format(*then_branch);
-                    self.ctx.dedent();
-                }
-
-                if else_branch.is_present() {
-                    self.emit_else_branch(*else_branch);
-                }
-            }
+            } => self.emit_broken_if(*cond, *then_branch, *else_branch),
 
             // Let binding — preserve type annotation per Annex D.
-            // Per spec: mutable is default, $ prefix for immutable.
-            // The $ prefix is emitted by emit_binding_pattern(), not here.
             ExprKind::Let {
                 pattern,
                 ty,
                 init,
                 mutable: _,
-            } => {
-                self.ctx.emit("let ");
-                let pat = self.arena.get_binding_pattern(*pattern);
-                self.emit_binding_pattern(pat);
-                if ty.is_valid() {
-                    self.ctx.emit(": ");
-                    self.emit_type(self.arena.get_parsed_type(*ty));
-                }
-                self.ctx.emit(" =");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                self.format(*init);
-                self.ctx.dedent();
-            }
+            } => self.emit_broken_let(*pattern, *ty, *init),
 
-            // Lambda with body on new line — render through the lambda
-            // emit-shape SSOT `width::lambda::needs_parens_for_lambda`.
-            // Param/ret_ty type annotations preserved per Annex D typed_lambda.
+            // Lambda with body on new line.
             ExprKind::Lambda {
                 params,
                 ret_ty,
                 body,
-            } => {
-                let params_list = self.arena.get_params(*params);
-                let needs_parens =
-                    crate::width::lambda::needs_parens_for_lambda(params_list, *ret_ty);
+            } => self.emit_broken_lambda(*params, *ret_ty, *body),
 
-                if needs_parens {
-                    self.ctx.emit("(");
-                }
-                for (i, param) in params_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit(self.interner.lookup(param.name));
-                    if let Some(ref ty) = param.ty {
-                        self.ctx.emit(": ");
-                        self.emit_type(ty);
-                    }
-                }
-                if needs_parens {
-                    self.ctx.emit(")");
-                }
-
-                self.ctx.emit(" ->");
-                if ret_ty.is_valid() {
-                    self.ctx.emit(" ");
-                    self.emit_type(self.arena.get_parsed_type(*ret_ty));
-                    self.ctx.emit(" =");
-                }
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                self.format(*body);
-                self.ctx.dedent();
-            }
-
-            // With capability - body on new line
+            // With capability - body on new line.
             ExprKind::WithCapability {
                 capability,
                 provider,
                 body,
-            } => {
-                self.ctx.emit("with ");
-                self.ctx.emit(self.interner.lookup(*capability));
-                self.ctx.emit(" = ");
-                self.format(*provider);
-                self.ctx.emit(" in");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                self.format(*body);
-                self.ctx.dedent();
-            }
+            } => self.emit_broken_with_capability(*capability, *provider, *body),
 
-            // For - body on new line if needed
+            // For - body on new line if needed.
             ExprKind::For {
                 label,
                 pattern,
@@ -404,55 +250,12 @@ impl<I: StringLookup> Formatter<'_, I> {
                 guard,
                 body,
                 is_yield,
-            } => {
-                self.ctx.emit("for");
-                if *label != Name::EMPTY {
-                    self.ctx.emit(":");
-                    self.ctx.emit(self.interner.lookup(*label));
-                }
-                self.ctx.emit(" ");
-                self.emit_for_binding_pattern_id(*pattern);
-                self.ctx.emit(" in ");
-                self.format_iter(*iter);
-                if guard.is_present() {
-                    self.ctx.emit(" if ");
-                    self.format(*guard);
-                }
-                if *is_yield {
-                    self.ctx.emit(" yield");
-                } else {
-                    self.ctx.emit(" do");
-                }
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                self.format(*body);
-                self.ctx.dedent();
-            }
+            } => self.emit_broken_for(*label, *pattern, *iter, *guard, *body, *is_yield),
 
-            // While - block body opens inline after `do`; non-block body on a new line.
+            // While - block body opens inline after `do`; non-block body on
+            // a new line.
             ExprKind::While { label, cond, body } => {
-                self.ctx.emit("while");
-                if *label != Name::EMPTY {
-                    self.ctx.emit(":");
-                    self.ctx.emit(self.interner.lookup(*label));
-                }
-                self.ctx.emit(" ");
-                self.format(*cond);
-                self.ctx.emit(" do");
-                if matches!(self.arena.get_expr(*body).kind, ExprKind::Block { .. }) {
-                    // `do { ... }` — block renders its own brace inline + single indent,
-                    // matching the canonical `while c do { ... }` source form. Avoids the
-                    // double-indent that a forced newline + indent would introduce.
-                    self.ctx.emit(" ");
-                    self.format(*body);
-                } else {
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    self.ctx.emit_indent();
-                    self.format(*body);
-                    self.ctx.dedent();
-                }
+                self.emit_broken_while(*label, *cond, *body);
             }
 
             // Always-stacked constructs: delegate to stacked rendering
@@ -503,71 +306,9 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Emit an else branch, handling else-if chains with proper line breaking.
-    ///
-    /// For chained else-if, each else clause goes on a new line, with the
-    /// `else if cond then branch` together on that line:
-    /// ```text
-    /// if cond1 then branch1
-    /// else if cond2 then branch2
-    /// else if cond3 then branch3
-    /// else branch4
-    /// ```
-    pub(super) fn emit_else_branch(&mut self, else_id: ExprId) {
-        self.ctx.emit_newline_indent();
-        self.ctx.emit("else ");
-
-        let else_expr = self.arena.get_expr(else_id);
-        if let ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } = &else_expr.kind
-        {
-            // else-if chain: check if "if cond then branch" fits on this line
-            let cond_width = self.width_calc.width(*cond);
-            let then_width = self.width_calc.width(*then_branch);
-
-            // Check if the segment fits: "if " + cond + " then " + branch
-            let segment_fits = cond_width != ALWAYS_STACKED
-                && then_width != ALWAYS_STACKED
-                && self.ctx.fits(3 + cond_width + 6 + then_width);
-
-            if segment_fits {
-                // Emit "if cond then branch" inline
-                self.ctx.emit("if ");
-                self.emit_inline(*cond);
-                self.ctx.emit(" then ");
-                self.emit_inline(*then_branch);
-            } else {
-                // Segment too long, break the then_branch to new line
-                self.ctx.emit("if ");
-                self.format(*cond);
-                self.ctx.emit(" then");
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                self.ctx.emit_indent();
-                self.format(*then_branch);
-                self.ctx.dedent();
-            }
-
-            if else_branch.is_present() {
-                self.emit_else_branch(*else_branch);
-            }
-        } else {
-            // Final else branch
-            self.format(else_id);
-        }
-    }
-
     /// Emit a binary operand in broken format, wrapping in parentheses if needed.
     fn emit_binary_operand_broken(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        if needs_binary_parens(self.arena, operand, parent_op, is_left) {
-            self.ctx.emit("(");
-            self.format(operand);
-            self.ctx.emit(")");
-        } else {
-            self.format(operand);
-        }
+        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, is_left);
+        self.emit_parenthesized_if(needs_parens, operand, Self::format);
     }
 }

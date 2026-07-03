@@ -2,12 +2,18 @@
 //!
 //! Methods for emitting expressions inline (single line).
 //! Used when expressions fit within the line width.
+//!
+//! `if`/`let`/lambda/`with`/`for`/`loop`/`while` rendering lives in
+//! [`control_flow`] — split out to keep this dispatch file under the
+//! workspace file-size limit.
+
+mod control_flow;
 
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup, UnaryOp};
 
 use crate::rules::{map_key_needs_brackets, needs_parens, ParenPosition};
 
-use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
+use super::{needs_binary_parens, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a map-literal key inline, wrapping a computed key in `[ ]` per
@@ -24,9 +30,14 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     /// Emit an expression inline (single line).
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new
+    /// variant causes a compile error here, in `emit_broken()`, and in
+    /// `calculate_width()`. The `inline_dispatch_has_no_wildcard` test
+    /// enforces this at the source level.
     #[expect(
         clippy::too_many_lines,
-        clippy::cognitive_complexity,
         reason = "exhaustive ExprKind formatting dispatch"
     )]
     pub(super) fn emit_inline(&mut self, expr_id: ExprId) {
@@ -60,12 +71,12 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::Binary { op, left, right } => {
                 self.emit_binary_operand_inline(*left, *op, true);
                 self.ctx.emit_space();
-                self.ctx.emit(binary_op_str(*op));
+                self.ctx.emit(op.as_symbol());
                 self.ctx.emit_space();
                 self.emit_binary_operand_inline(*right, *op, false);
             }
             ExprKind::Unary { op, operand } => {
-                self.ctx.emit(unary_op_str(*op));
+                self.ctx.emit(op.as_symbol());
                 // Unary operators bind tighter than binary - wrap the operand
                 // per the shared Layer 4 paren rule (`Neg` additionally
                 // guards the nested-Neg token-adjacency hazard).
@@ -134,139 +145,72 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit("]");
             }
 
-            // Control flow
+            // Control flow.
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                self.ctx.emit("if ");
-                self.emit_inline(*cond);
-                self.ctx.emit(" then ");
-                self.emit_inline(*then_branch);
-                if else_branch.is_present() {
-                    self.ctx.emit(" else ");
-                    self.emit_inline(*else_branch);
-                }
-            }
+            } => self.emit_inline_if(*cond, *then_branch, *else_branch),
 
-            // Let binding — preserve type annotation per Annex D.
-            // Per spec: mutable is default, $ prefix for immutable.
-            // The $ prefix is emitted by emit_binding_pattern(), not here.
+            // Let binding.
             ExprKind::Let {
                 pattern,
                 ty,
                 init,
                 mutable: _,
-            } => {
-                self.ctx.emit("let ");
-                let pat = self.arena.get_binding_pattern(*pattern);
-                self.emit_binding_pattern(pat);
-                if ty.is_valid() {
-                    self.ctx.emit(": ");
-                    self.emit_type(self.arena.get_parsed_type(*ty));
-                }
-                self.ctx.emit(" = ");
-                self.emit_inline(*init);
-            }
+            } => self.emit_inline_let(*pattern, *ty, *init),
 
-            // Lambda — render through the lambda emit-shape SSOT
-            // `width::lambda::needs_parens_for_lambda`. Param/ret_ty type
-            // annotations preserved per Annex D typed_lambda.
+            // Lambda.
             ExprKind::Lambda {
                 params,
                 ret_ty,
                 body,
-            } => {
-                let params_list = self.arena.get_params(*params);
-                let needs_parens =
-                    crate::width::lambda::needs_parens_for_lambda(params_list, *ret_ty);
-
-                if needs_parens {
-                    self.ctx.emit("(");
-                }
-                for (i, param) in params_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit(self.interner.lookup(param.name));
-                    if let Some(ref ty) = param.ty {
-                        self.ctx.emit(": ");
-                        self.emit_type(ty);
-                    }
-                }
-                if needs_parens {
-                    self.ctx.emit(")");
-                }
-
-                self.ctx.emit(" -> ");
-                if ret_ty.is_valid() {
-                    self.emit_type(self.arena.get_parsed_type(*ret_ty));
-                    self.ctx.emit(" = ");
-                }
-                self.emit_inline(*body);
-            }
+            } => self.emit_inline_lambda(*params, *ret_ty, *body),
 
             // Collections
             ExprKind::List(items) => {
                 self.ctx.emit("[");
-                for (i, item) in self.arena.get_expr_list(*items).iter().copied().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.emit_inline(item);
-                }
+                self.emit_inline_expr_list(*items);
                 self.ctx.emit("]");
             }
             ExprKind::ListWithSpread(elements) => {
+                let elements_list = self.arena.get_list_elements(*elements);
                 self.ctx.emit("[");
-                for (i, element) in self.arena.get_list_elements(*elements).iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
+                self.emit_inline_items(elements_list, |s, element| match element {
+                    ori_ir::ListElement::Expr { expr, .. } => {
+                        s.emit_inline(*expr);
                     }
-                    match element {
-                        ori_ir::ListElement::Expr { expr, .. } => {
-                            self.emit_inline(*expr);
-                        }
-                        ori_ir::ListElement::Spread { expr, .. } => {
-                            self.ctx.emit("...");
-                            self.emit_inline(*expr);
-                        }
+                    ori_ir::ListElement::Spread { expr, .. } => {
+                        s.ctx.emit("...");
+                        s.emit_inline(*expr);
                     }
-                }
+                });
                 self.ctx.emit("]");
             }
             ExprKind::Map(entries) => {
                 let entries_list = self.arena.get_map_entries(*entries);
                 self.ctx.emit("{");
-                for (i, entry) in entries_list.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.emit_inline_map_key(entry.key);
-                    self.ctx.emit(": ");
-                    self.emit_inline(entry.value);
-                }
+                self.emit_inline_items(entries_list, |s, entry| {
+                    s.emit_inline_map_key(entry.key);
+                    s.ctx.emit(": ");
+                    s.emit_inline(entry.value);
+                });
                 self.ctx.emit("}");
             }
             ExprKind::MapWithSpread(elements) => {
+                let elements_list = self.arena.get_map_elements(*elements);
                 self.ctx.emit("{");
-                for (i, element) in self.arena.get_map_elements(*elements).iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
+                self.emit_inline_items(elements_list, |s, element| match element {
+                    ori_ir::MapElement::Entry(entry) => {
+                        s.emit_inline_map_key(entry.key);
+                        s.ctx.emit(": ");
+                        s.emit_inline(entry.value);
                     }
-                    match element {
-                        ori_ir::MapElement::Entry(entry) => {
-                            self.emit_inline_map_key(entry.key);
-                            self.ctx.emit(": ");
-                            self.emit_inline(entry.value);
-                        }
-                        ori_ir::MapElement::Spread { expr, .. } => {
-                            self.ctx.emit("...");
-                            self.emit_inline(*expr);
-                        }
+                    ori_ir::MapElement::Spread { expr, .. } => {
+                        s.ctx.emit("...");
+                        s.emit_inline(*expr);
                     }
-                }
+                });
                 self.ctx.emit("}");
             }
             ExprKind::Struct { name, fields } => {
@@ -276,16 +220,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(" {}");
                 } else {
                     self.ctx.emit(" { ");
-                    for (i, field) in fields_list.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit(self.interner.lookup(field.name));
+                    self.emit_inline_items(fields_list, |s, field| {
+                        s.ctx.emit(s.interner.lookup(field.name));
                         if let Some(value) = field.value {
-                            self.ctx.emit(": ");
-                            self.emit_inline(value);
+                            s.ctx.emit(": ");
+                            s.emit_inline(value);
                         }
-                    }
+                    });
                     self.ctx.emit(" }");
                 }
             }
@@ -296,24 +237,19 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(" {}");
                 } else {
                     self.ctx.emit(" { ");
-                    for (i, field) in fields_list.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        match field {
-                            ori_ir::StructLitField::Field(init) => {
-                                self.ctx.emit(self.interner.lookup(init.name));
-                                if let Some(value) = init.value {
-                                    self.ctx.emit(": ");
-                                    self.emit_inline(value);
-                                }
-                            }
-                            ori_ir::StructLitField::Spread { expr, .. } => {
-                                self.ctx.emit("...");
-                                self.emit_inline(*expr);
+                    self.emit_inline_items(fields_list, |s, field| match field {
+                        ori_ir::StructLitField::Field(init) => {
+                            s.ctx.emit(s.interner.lookup(init.name));
+                            if let Some(value) = init.value {
+                                s.ctx.emit(": ");
+                                s.emit_inline(value);
                             }
                         }
-                    }
+                        ori_ir::StructLitField::Spread { expr, .. } => {
+                            s.ctx.emit("...");
+                            s.emit_inline(*expr);
+                        }
+                    });
                     self.ctx.emit(" }");
                 }
             }
@@ -321,12 +257,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 let items_slice = self.arena.get_expr_list(*items);
                 let items_len = items_slice.len();
                 self.ctx.emit("(");
-                for (i, &item) in items_slice.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.emit_inline(item);
-                }
+                self.emit_inline_items(items_slice, |s, &item| s.emit_inline(item));
                 // Single-element tuples need trailing comma: (42,) vs (42)
                 if items_len == 1 {
                     self.ctx.emit(",");
@@ -432,21 +363,14 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
             }
 
-            // Capability
+            // Capability.
             ExprKind::WithCapability {
                 capability,
                 provider,
                 body,
-            } => {
-                self.ctx.emit("with ");
-                self.ctx.emit(self.interner.lookup(*capability));
-                self.ctx.emit(" = ");
-                self.emit_inline(*provider);
-                self.ctx.emit(" in ");
-                self.emit_inline(*body);
-            }
+            } => self.emit_inline_with_capability(*capability, *provider, *body),
 
-            // For loop
+            // For loop.
             ExprKind::For {
                 label,
                 pattern,
@@ -454,51 +378,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                 guard,
                 body,
                 is_yield,
-            } => {
-                self.ctx.emit("for");
-                if *label != Name::EMPTY {
-                    self.ctx.emit(":");
-                    self.ctx.emit(self.interner.lookup(*label));
-                }
-                self.ctx.emit(" ");
-                self.emit_for_binding_pattern_id(*pattern);
-                self.ctx.emit(" in ");
-                self.emit_iter_inline(*iter);
-                if guard.is_present() {
-                    self.ctx.emit(" if ");
-                    self.emit_inline(*guard);
-                }
-                if *is_yield {
-                    self.ctx.emit(" yield ");
-                } else {
-                    self.ctx.emit(" do ");
-                }
-                self.emit_inline(*body);
-            }
+            } => self.emit_inline_for(*label, *pattern, *iter, *guard, *body, *is_yield),
 
-            // Loop
-            ExprKind::Loop { label, body } => {
-                self.ctx.emit("loop");
-                if *label != Name::EMPTY {
-                    self.ctx.emit(":");
-                    self.ctx.emit(self.interner.lookup(*label));
-                }
-                self.ctx.emit(" ");
-                self.emit_inline(*body);
-            }
+            // Loop.
+            ExprKind::Loop { label, body } => self.emit_inline_loop(*label, *body),
 
-            // While
-            ExprKind::While { label, cond, body } => {
-                self.ctx.emit("while");
-                if *label != Name::EMPTY {
-                    self.ctx.emit(":");
-                    self.ctx.emit(self.interner.lookup(*label));
-                }
-                self.ctx.emit(" ");
-                self.emit_inline(*cond);
-                self.ctx.emit(" do ");
-                self.emit_inline(*body);
-            }
+            // While.
+            ExprKind::While { label, cond, body } => self.emit_inline_while(*label, *cond, *body),
 
             // Block
             ExprKind::Block { stmts, result } => {
@@ -533,14 +419,11 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(exp.kind.name());
                 self.ctx.emit("(");
                 let props = self.arena.get_named_exprs(exp.props);
-                for (i, prop) in props.iter().enumerate() {
-                    if i > 0 {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit(self.interner.lookup(prop.name));
-                    self.ctx.emit(": ");
-                    self.emit_inline(prop.value);
-                }
+                self.emit_inline_items(props, |s, prop| {
+                    s.ctx.emit(s.interner.lookup(prop.name));
+                    s.ctx.emit(": ");
+                    s.emit_inline(prop.value);
+                });
                 self.ctx.emit(")");
             }
 
@@ -579,12 +462,7 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     /// Emit a binary operand inline, wrapping in parentheses if needed for precedence.
     fn emit_binary_operand_inline(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        if needs_binary_parens(self.arena, operand, parent_op, is_left) {
-            self.ctx.emit("(");
-            self.emit_inline(operand);
-            self.ctx.emit(")");
-        } else {
-            self.emit_inline(operand);
-        }
+        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, is_left);
+        self.emit_parenthesized_if(needs_parens, operand, Self::emit_inline);
     }
 }

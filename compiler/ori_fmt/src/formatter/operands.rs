@@ -8,7 +8,7 @@
 //!
 //! This module integrates with:
 //! - Layer 2 (Packing): Uses `is_simple_item()` for list packing decisions
-//! - Layer 4 (Rules): Uses `ParenthesesRule` for parentheses decisions
+//! - Layer 4 (Rules): Uses `needs_parens` for parentheses decisions
 
 use crate::packing;
 use crate::rules::ParenPosition;
@@ -38,26 +38,55 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit(")");
     }
 
-    pub(super) fn emit_inline_expr_list(&mut self, list: ExprRange) {
-        for (i, item) in self.arena.get_expr_list(list).iter().copied().enumerate() {
+    /// Emit `items` comma-separated on one line, each rendered via
+    /// `emit_item` — the inline-mode counterpart of [`Self::emit_broken_items`];
+    /// the SSOT loop skeleton shared by every comma-joined inline
+    /// collection / call-argument / struct-literal emitter.
+    pub(super) fn emit_inline_items<T>(
+        &mut self,
+        items: &[T],
+        mut emit_item: impl FnMut(&mut Self, &T),
+    ) {
+        for (i, item) in items.iter().enumerate() {
             if i > 0 {
                 self.ctx.emit(", ");
             }
-            self.emit_inline(item);
+            emit_item(self, item);
         }
+    }
+
+    pub(super) fn emit_inline_expr_list(&mut self, list: ExprRange) {
+        let items = self.arena.get_expr_list(list);
+        self.emit_inline_items(items, |s, &item| s.emit_inline(item));
     }
 
     pub(super) fn emit_inline_call_args(&mut self, range: CallArgRange) {
         let args = self.arena.get_call_args(range);
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                self.ctx.emit(", ");
-            }
+        self.emit_inline_items(args, |s, arg| {
             if let Some(name) = arg.name {
-                self.ctx.emit(self.interner.lookup(name));
-                self.ctx.emit(": ");
+                s.ctx.emit(s.interner.lookup(name));
+                s.ctx.emit(": ");
             }
-            self.emit_inline(arg.value);
+            s.emit_inline(arg.value);
+        });
+    }
+
+    /// Emit `expr` via `emit`, wrapping it in parentheses first when
+    /// `needs_parens` is true — the SSOT paren-wrap skeleton shared by every
+    /// operand position needing conditional parenthesization (receiver, call
+    /// target, iterator source, binary operand).
+    pub(super) fn emit_parenthesized_if(
+        &mut self,
+        needs_parens: bool,
+        expr: ExprId,
+        emit: impl FnOnce(&mut Self, ExprId),
+    ) {
+        if needs_parens {
+            self.ctx.emit("(");
+            emit(self, expr);
+            self.ctx.emit(")");
+        } else {
+            emit(self, expr);
         }
     }
 
@@ -65,44 +94,33 @@ impl<I: StringLookup> Formatter<'_, I> {
     ///
     /// # Layer Integration
     ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
+    /// Uses `needs_parens` from Layer 4 (Breaking Rules) for parentheses decisions.
     pub(super) fn emit_receiver_inline(&mut self, receiver: ExprId) {
-        if crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver) {
-            self.ctx.emit("(");
-            self.emit_inline(receiver);
-            self.ctx.emit(")");
-        } else {
-            self.emit_inline(receiver);
-        }
+        let needs_parens =
+            crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver);
+        self.emit_parenthesized_if(needs_parens, receiver, Self::emit_inline);
     }
 
-    /// Format a receiver in broken-mode chain context: forces broken rendering
-    /// when the receiver is itself part of a method chain, so all chain
-    /// elements break together (`MethodChainRule::ALL_METHODS_BREAK`).
+    /// Force broken rendering when `receiver` is itself a method chain, so
+    /// all chain elements break together (`MethodChainRule::ALL_METHODS_BREAK`).
     ///
-    /// Without this, an outer broken `.method(args)` rendering would call
-    /// `format()` on its chain receiver, which would re-evaluate fit at the
-    /// current position and may pick inline rendering — producing partial
-    /// chain breaks that violate idempotence (formatting a partially-broken
-    /// chain decides to keep more inline, then the chain re-breaks differently
-    /// next pass).
+    /// INVARIANT: an outer broken call must not re-`format()` (fit-check) its
+    /// chain receiver — doing so could pick inline rendering and produce
+    /// partial chain breaks that violate idempotence across passes.
     pub(super) fn format_receiver_broken(&mut self, receiver: ExprId) {
         let is_chain = matches!(
             self.arena.get_expr(receiver).kind,
             ori_ir::ExprKind::MethodCall { .. } | ori_ir::ExprKind::MethodCallNamed { .. }
         );
-        let needs_p = crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver);
-        if needs_p {
-            self.ctx.emit("(");
-        }
-        if is_chain {
-            self.format_broken(receiver);
-        } else {
-            self.format(receiver);
-        }
-        if needs_p {
-            self.ctx.emit(")");
-        }
+        let needs_parens =
+            crate::rules::needs_parens(self.arena, receiver, ParenPosition::Receiver);
+        self.emit_parenthesized_if(needs_parens, receiver, |s, r| {
+            if is_chain {
+                s.format_broken(r);
+            } else {
+                s.format(r);
+            }
+        });
     }
 
     /// Emit a call target expression inline, wrapping in parentheses if needed for precedence.
@@ -112,30 +130,20 @@ impl<I: StringLookup> Formatter<'_, I> {
     ///
     /// # Layer Integration
     ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
+    /// Uses `needs_parens` from Layer 4 (Breaking Rules) for parentheses decisions.
     pub(super) fn emit_call_target_inline(&mut self, func: ExprId) {
-        if crate::rules::needs_parens(self.arena, func, ParenPosition::CallTarget) {
-            self.ctx.emit("(");
-            self.emit_inline(func);
-            self.ctx.emit(")");
-        } else {
-            self.emit_inline(func);
-        }
+        let needs_parens = crate::rules::needs_parens(self.arena, func, ParenPosition::CallTarget);
+        self.emit_parenthesized_if(needs_parens, func, Self::emit_inline);
     }
 
     /// Format a call target expression, wrapping in parentheses if needed for precedence.
     ///
     /// # Layer Integration
     ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
+    /// Uses `needs_parens` from Layer 4 (Breaking Rules) for parentheses decisions.
     pub(super) fn format_call_target(&mut self, func: ExprId) {
-        if crate::rules::needs_parens(self.arena, func, ParenPosition::CallTarget) {
-            self.ctx.emit("(");
-            self.format(func);
-            self.ctx.emit(")");
-        } else {
-            self.format(func);
-        }
+        let needs_parens = crate::rules::needs_parens(self.arena, func, ParenPosition::CallTarget);
+        self.emit_parenthesized_if(needs_parens, func, Self::format);
     }
 
     /// Emit a for-loop iterator expression inline, wrapping in parentheses if needed.
@@ -145,30 +153,48 @@ impl<I: StringLookup> Formatter<'_, I> {
     ///
     /// # Layer Integration
     ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
+    /// Uses `needs_parens` from Layer 4 (Breaking Rules) for parentheses decisions.
     pub(super) fn emit_iter_inline(&mut self, iter: ExprId) {
-        if crate::rules::needs_parens(self.arena, iter, ParenPosition::IteratorSource) {
-            self.ctx.emit("(");
-            self.emit_inline(iter);
-            self.ctx.emit(")");
-        } else {
-            self.emit_inline(iter);
-        }
+        let needs_parens =
+            crate::rules::needs_parens(self.arena, iter, ParenPosition::IteratorSource);
+        self.emit_parenthesized_if(needs_parens, iter, Self::emit_inline);
     }
 
     /// Format a for-loop iterator expression, wrapping in parentheses if needed.
     ///
     /// # Layer Integration
     ///
-    /// Uses `ParenthesesRule` from Layer 4 (Breaking Rules) for parentheses decisions.
+    /// Uses `needs_parens` from Layer 4 (Breaking Rules) for parentheses decisions.
     pub(super) fn format_iter(&mut self, iter: ExprId) {
-        if crate::rules::needs_parens(self.arena, iter, ParenPosition::IteratorSource) {
-            self.ctx.emit("(");
-            self.format(iter);
-            self.ctx.emit(")");
-        } else {
-            self.format(iter);
+        let needs_parens =
+            crate::rules::needs_parens(self.arena, iter, ParenPosition::IteratorSource);
+        self.emit_parenthesized_if(needs_parens, iter, Self::format);
+    }
+
+    /// Emit `items` one per line, each rendered via `emit_item`, comma-separated,
+    /// wrapped in `emit_newline`/`indent` before the first item and
+    /// `dedent`/`emit_newline_indent` after the last. Caller opens/closes the
+    /// surrounding delimiter and handles the empty-collection case — the SSOT
+    /// loop skeleton shared by every broken (multi-line) collection,
+    /// call-argument, and struct-literal emitter.
+    pub(super) fn emit_broken_items<T>(
+        &mut self,
+        items: &[T],
+        mut emit_item: impl FnMut(&mut Self, &T),
+    ) {
+        let len = items.len();
+        self.ctx.emit_newline();
+        self.ctx.indent();
+        for (i, item) in items.iter().enumerate() {
+            self.ctx.emit_indent();
+            emit_item(self, item);
+            self.ctx.emit(",");
+            if i < len - 1 {
+                self.ctx.emit_newline();
+            }
         }
+        self.ctx.dedent();
+        self.ctx.emit_newline_indent();
     }
 
     pub(super) fn emit_broken_expr_list(&mut self, list: ExprRange) {
@@ -177,19 +203,7 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
 
         let items = self.arena.get_expr_list(list);
-        let items_len = items.len();
-        self.ctx.emit_newline();
-        self.ctx.indent();
-        for (i, &item) in items.iter().enumerate() {
-            self.ctx.emit_indent();
-            self.format(item);
-            self.ctx.emit(",");
-            if i < items_len - 1 {
-                self.ctx.emit_newline();
-            }
-        }
-        self.ctx.dedent();
-        self.ctx.emit_newline_indent();
+        self.emit_broken_items(items, |s, &item| s.format(item));
     }
 
     pub(super) fn emit_broken_call_args(&mut self, range: CallArgRange) {
@@ -198,22 +212,13 @@ impl<I: StringLookup> Formatter<'_, I> {
             return;
         }
 
-        self.ctx.emit_newline();
-        self.ctx.indent();
-        for (i, arg) in args.iter().enumerate() {
-            self.ctx.emit_indent();
+        self.emit_broken_items(args, |s, arg| {
             if let Some(name) = arg.name {
-                self.ctx.emit(self.interner.lookup(name));
-                self.ctx.emit(": ");
+                s.ctx.emit(s.interner.lookup(name));
+                s.ctx.emit(": ");
             }
-            self.format(arg.value);
-            self.ctx.emit(",");
-            if i < args.len() - 1 {
-                self.ctx.emit_newline();
-            }
-        }
-        self.ctx.dedent();
-        self.ctx.emit_newline_indent();
+            s.format(arg.value);
+        });
     }
 
     /// Check if an expression is "simple" (literal or identifier).
@@ -270,17 +275,6 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     /// Emit broken list with one complex item per line.
     pub(super) fn emit_broken_list_one_per_line(&mut self, items: &[ExprId]) {
-        self.ctx.emit_newline();
-        self.ctx.indent();
-        for (i, item) in items.iter().enumerate() {
-            self.ctx.emit_indent();
-            self.format(*item);
-            self.ctx.emit(",");
-            if i < items.len() - 1 {
-                self.ctx.emit_newline();
-            }
-        }
-        self.ctx.dedent();
-        self.ctx.emit_newline_indent();
+        self.emit_broken_items(items, |s, &item| s.format(item));
     }
 }

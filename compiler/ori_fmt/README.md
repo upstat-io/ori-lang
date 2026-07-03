@@ -74,8 +74,9 @@ Eight Ori-specific breaking rules for special constructs:
 | `BooleanBreakRule` | 3+ `\|\|` clauses break with leading `\|\|` |
 | `ChainedElseIfRule` | Kotlin style (first `if` with assignment) |
 | `NestedForRule` | Rust-style indentation for nested `for` |
-| `ParenthesesRule` | Preserve user parens, add when needed |
-| `RunRule` | Top-level stacked, nested width-based |
+| `needs_parens` | Add parens where semantically required, per position |
+| `FunctionSeq` helpers | Query functions for try, match, generic `FunctionSeq` |
+| `map_key_needs_brackets` | Computed map keys re-emit `[ ]` |
 
 ### Layer 5: Orchestration (`formatter/`)
 

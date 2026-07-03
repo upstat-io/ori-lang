@@ -5,14 +5,6 @@
 //! Delegates to the existing
 //! [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 //! after converting contracts to [`AnnotatedSig`]s.
-//!
-//! # Current implementation
-//!
-//! Currently a thin wrapper: converts `MemoryContract` → `AnnotatedSig`
-//! via contract fields, then calls the existing annotation function.
-//! This avoids duplicating the type-qualified builtin dispatch logic
-//! (250+ lines). Future versions should replace this with direct
-//! `MemoryContract` consumption.
 
 use rustc_hash::FxHashMap;
 

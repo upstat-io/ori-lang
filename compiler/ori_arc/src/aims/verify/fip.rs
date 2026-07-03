@@ -113,8 +113,7 @@ pub fn verify_fip_contract(
             verify_bounded(func_name, *n, evidence, &mut errors);
         }
         FipContract::Conditional { .. } | FipContract::Never => {
-            // Conditional: params are checked at call sites, not here.
-            // Never: no FIP claim to verify.
+            // Why: Conditional params are checked at call sites; Never carries no FIP claim.
         }
     }
 

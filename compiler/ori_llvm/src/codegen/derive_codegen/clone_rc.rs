@@ -38,6 +38,36 @@ pub(super) fn emit_clone_field_rc_inc<'a>(
     }
 }
 
+/// Shared body for the slice-aware `(data, cap)` RC-inc emitters — extracts
+/// the data pointer (field 2) and cap (field 1, defaulting to 0), then calls
+/// the given runtime function with both. `str` and `list`/`set` fields share
+/// this shape; only the runtime entry point and the label differ.
+fn emit_clone_rc_inc_data_and_cap<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    runtime_fn_name: &'static str,
+    label: &str,
+    field_val: ValueId,
+    field_idx: usize,
+) {
+    let Some(data_ptr) =
+        fc.builder_mut()
+            .extract_value(field_val, 2, &format!("clone.{label}.data.{field_idx}"))
+    else {
+        return;
+    };
+    let cap = fc
+        .builder_mut()
+        .extract_value(field_val, 1, &format!("clone.{label}.cap.{field_idx}"))
+        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
+
+    let rc_inc_fn = fc.builder_mut().runtime_fn(runtime_fn_name);
+    fc.builder_mut().call(
+        rc_inc_fn,
+        &[data_ptr, cap],
+        &format!("clone.{label}.inc.{field_idx}"),
+    );
+}
+
 /// Emit slice-aware `ori_str_rc_inc(data, cap)` on a str field.
 ///
 /// Delegates SSO, null, and seamless-slice handling to the runtime function
@@ -49,23 +79,7 @@ fn emit_clone_rc_inc_str<'a>(
     field_val: ValueId,
     field_idx: usize,
 ) {
-    let Some(data_ptr) =
-        fc.builder_mut()
-            .extract_value(field_val, 2, &format!("clone.str.data.{field_idx}"))
-    else {
-        return;
-    };
-    let cap = fc
-        .builder_mut()
-        .extract_value(field_val, 1, &format!("clone.str.cap.{field_idx}"))
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
-
-    let str_rc_inc_fn = fc.builder_mut().runtime_fn("ori_str_rc_inc");
-    fc.builder_mut().call(
-        str_rc_inc_fn,
-        &[data_ptr, cap],
-        &format!("clone.str.inc.{field_idx}"),
-    );
+    emit_clone_rc_inc_data_and_cap(fc, "ori_str_rc_inc", "str", field_val, field_idx);
 }
 
 /// Emit `ori_list_rc_inc(data, cap)` for a list/set field.
@@ -74,22 +88,7 @@ fn emit_clone_rc_inc_list<'a>(
     field_val: ValueId,
     field_idx: usize,
 ) {
-    let Some(data_ptr) =
-        fc.builder_mut()
-            .extract_value(field_val, 2, &format!("clone.list.data.{field_idx}"))
-    else {
-        return;
-    };
-    let cap = fc
-        .builder_mut()
-        .extract_value(field_val, 1, &format!("clone.list.cap.{field_idx}"))
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
-    let rc_inc_fn = fc.builder_mut().runtime_fn("ori_list_rc_inc");
-    fc.builder_mut().call(
-        rc_inc_fn,
-        &[data_ptr, cap],
-        &format!("clone.list.inc.{field_idx}"),
-    );
+    emit_clone_rc_inc_data_and_cap(fc, "ori_list_rc_inc", "list", field_val, field_idx);
 }
 
 /// Emit `ori_rc_inc` on a data pointer at field 2 (map or similar).

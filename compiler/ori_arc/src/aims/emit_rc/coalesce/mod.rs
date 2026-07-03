@@ -181,28 +181,18 @@ fn flush_entry(out: &mut Vec<ArcInstr>, var: ArcVarId, entry: &PendingRc) {
 
 /// Flush all pending RC operations (call barrier or block end).
 ///
-/// Emits all net-Inc entries before all net-Dec entries. Within each phase,
-/// variables are sorted by index for deterministic output ordering.
+/// Emits all net-Inc entries before all net-Dec entries; within each phase,
+/// variables sort by index for deterministic output ordering.
 ///
-/// **Inc-before-Dec invariant** (BUG-04-090 F-prj + E-mat fix): when the
-/// pending map carries both a net-Inc on var `Y` and a net-Dec on var `X`
-/// where `Dec(X)` walks `X`'s fields and `Y`'s allocation lives in one of
-/// those fields (e.g., `RcDec b [AggFields]` walking `b.value` whose
-/// allocation has just been projected as `Y`), the field-walk would free
-/// `Y`'s allocation BEFORE `Inc(Y)` fires — use-after-free at any subsequent
-/// use of `Y` (Return, Apply, etc.).
+/// # Inc-before-Dec invariant
 ///
-/// Emitting all Incs before all Decs preserves the parent-with-RC-children
-/// invariant. Sound because:
-/// 1. `flush_all` fires only at end-of-block OR call-barriers — no body
-///    instructions between the flushed ops and the block boundary.
-/// 2. For unrelated variables: phase-ordering between Inc(Y) and Dec(X)
-///    is RC-neutral (no uses, just RC bookkeeping).
-/// 3. For aliased variables: Inc-then-Dec preserves the allocation through
-///    the dec; Dec-then-Inc would free first then UAF on the inc.
-///
-/// Within each phase, the var-index sort preserves the existing deterministic
-/// output convention.
+/// BUG-04-090 F-prj + E-mat: a net-Inc on `Y` and a net-Dec on `X` where
+/// `Dec(X)`'s field-walk owns `Y`'s allocation (e.g. `RcDec b [AggFields]`
+/// walking `b.value` just projected as `Y`) would free `Y` before `Inc(Y)`
+/// fires — a use-after-free at `Y`'s next use. Sound because: (1) `flush_all`
+/// only fires at end-of-block/call-barriers, no intervening body instructions;
+/// (2) unrelated variables are RC-neutral under either ordering; (3) aliased
+/// variables need Inc-then-Dec to keep the allocation alive through the dec.
 fn flush_all(pending: &mut FxHashMap<ArcVarId, PendingRc>, out: &mut Vec<ArcInstr>) {
     let mut inc_vars: Vec<ArcVarId> = Vec::new();
     let mut dec_vars: Vec<ArcVarId> = Vec::new();

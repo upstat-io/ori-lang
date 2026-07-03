@@ -117,7 +117,7 @@ impl BirthSitePartition {
     /// Class-level fact: stored at the class root, visible through every
     /// member. Re-recording the same site is a no-op; a DISTINCT site on a
     /// class with a known one is an admission bug (debug-asserted).
-    pub(crate) fn set_birth_site(&mut self, node: NodeIdx, site: BirthSiteId) {
+    pub(crate) fn set_site(&mut self, node: NodeIdx, site: BirthSiteId) {
         let root = self.find(node.0);
         let slot = &mut self.birth_site[root as usize];
         debug_assert!(
@@ -150,15 +150,15 @@ impl BirthSitePartition {
         let Some((&first_pred, rest)) = preds.split_first() else {
             return false;
         };
-        let Some(witness) = self.class_birth_site(first_pred) else {
+        let Some(witness) = self.class_site(first_pred) else {
             return false;
         };
         for &pred in rest {
-            if self.class_birth_site(pred) != Some(witness) {
+            if self.class_site(pred) != Some(witness) {
                 return false;
             }
         }
-        if let Some(existing) = self.class_birth_site(merge_node) {
+        if let Some(existing) = self.class_site(merge_node) {
             if existing != witness {
                 return false;
             }
@@ -206,7 +206,7 @@ impl BirthSitePartition {
     }
 
     /// The known allocation birth site of `node`'s class, when recorded.
-    pub(crate) fn class_birth_site(&mut self, node: NodeIdx) -> Option<BirthSiteId> {
+    pub(crate) fn class_site(&mut self, node: NodeIdx) -> Option<BirthSiteId> {
         let root = self.find(node.0);
         self.birth_site[root as usize]
     }
@@ -290,8 +290,8 @@ mod tests {
         let extra_view = whole(&mut partition, 13);
         let agg_root = whole(&mut partition, 30);
         let agg_alias = whole(&mut partition, 31);
-        partition.set_birth_site(items_ctor, BirthSiteId::new(100));
-        partition.set_birth_site(agg_root, BirthSiteId::new(300));
+        partition.set_site(items_ctor, BirthSiteId::new(100));
+        partition.set_site(agg_root, BirthSiteId::new(300));
 
         partition.union_tier1(items_view, items_ctor);
         partition.union_tier1(agg_alias, agg_root);
@@ -302,17 +302,14 @@ mod tests {
         assert!(partition.same_rep(extra_view, items_view));
         assert!(partition.same_rep(agg_alias, agg_root));
         assert_eq!(
-            partition.class_birth_site(items_view),
+            partition.class_site(items_view),
             Some(BirthSiteId::new(100))
         );
         assert_eq!(
-            partition.class_birth_site(extra_view),
+            partition.class_site(extra_view),
             Some(BirthSiteId::new(100))
         );
-        assert_eq!(
-            partition.class_birth_site(agg_alias),
-            Some(BirthSiteId::new(300))
-        );
+        assert_eq!(partition.class_site(agg_alias), Some(BirthSiteId::new(300)));
         assert!(!partition.same_rep(agg_root, items_ctor));
     }
 
@@ -326,17 +323,14 @@ mod tests {
         let items_ctor = whole(&mut partition, 10);
         let items_view = whole(&mut partition, 11);
         let items_hdr = whole(&mut partition, 12);
-        partition.set_birth_site(items_ctor, BirthSiteId::new(100));
+        partition.set_site(items_ctor, BirthSiteId::new(100));
         partition.union_tier1(items_view, items_ctor);
 
         // Entry and latch predecessors both resolve to the items class.
         assert!(partition.union_phi_witnessed(items_hdr, &[items_view, items_view]));
 
         assert!(partition.same_rep(items_hdr, items_ctor));
-        assert_eq!(
-            partition.class_birth_site(items_hdr),
-            Some(BirthSiteId::new(100))
-        );
+        assert_eq!(partition.class_site(items_hdr), Some(BirthSiteId::new(100)));
     }
 
     /// Mirrors `T1_backedge_keeps_distinct_from_entry` / `_latch` +
@@ -350,8 +344,8 @@ mod tests {
         let label_b0 = whole(&mut partition, 20);
         let label_b1 = whole(&mut partition, 21);
         let label_hdr = whole(&mut partition, 22);
-        partition.set_birth_site(label_b0, BirthSiteId::new(200));
-        partition.set_birth_site(label_b1, BirthSiteId::new(201));
+        partition.set_site(label_b0, BirthSiteId::new(200));
+        partition.set_site(label_b1, BirthSiteId::new(201));
 
         assert!(!partition.union_phi_witnessed(label_hdr, &[label_b0, label_b1]));
 
@@ -359,7 +353,7 @@ mod tests {
         assert!(!partition.same_rep(label_hdr, label_b1));
         assert!(!partition.same_rep(label_b0, label_b1));
         assert_eq!(partition.rep_of(label_hdr), label_hdr);
-        assert_eq!(partition.class_birth_site(label_hdr), None);
+        assert_eq!(partition.class_site(label_hdr), None);
     }
 
     /// Distinct field paths of ONE variable intern to distinct nodes and stay
@@ -387,7 +381,7 @@ mod tests {
         let known = whole(&mut partition, 20);
         let unknown = whole(&mut partition, 21);
         let merge = whole(&mut partition, 22);
-        partition.set_birth_site(known, BirthSiteId::new(200));
+        partition.set_site(known, BirthSiteId::new(200));
 
         assert!(!partition.union_phi_witnessed(merge, &[known, unknown]));
         assert!(!partition.union_phi_witnessed(merge, &[unknown, known]));
@@ -396,7 +390,7 @@ mod tests {
 
         assert!(!partition.same_rep(merge, known));
         assert!(!partition.same_rep(merge, unknown));
-        assert_eq!(partition.class_birth_site(merge), None);
+        assert_eq!(partition.class_site(merge), None);
     }
 
     /// A COW boundary taints the CLASS: the taint survives a later tier-1

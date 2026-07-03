@@ -1,6 +1,7 @@
 //! Tests for width calculation.
 
 use super::*;
+use crate::test_util::has_wildcard_match_arm;
 use ori_ir::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
     BinaryOp, ExprArena, Name, Span, StmtRange, StringInterner, UnaryOp,
@@ -874,4 +875,21 @@ fn test_width_for_labeled() {
 
     // "for:row x in items do x" = 3 + 1 + 3 + 1 + 1 + 4 + 5 + 4 + 1 = 23
     assert_eq!(calc.width(for_expr), 23);
+}
+
+// Structural enforcement: no wildcard arms in the dispatch table
+
+/// Verify that `calculate_width()` has no wildcard match arm — the third of
+/// the three parallel `ExprKind` dispatch tables the `formatter/broken/mod.rs`
+/// doc-comment invariant names (`emit_broken` / `emit_inline` /
+/// `calculate_width`); mirrors `broken_dispatch_has_no_wildcard` /
+/// `inline_dispatch_has_no_wildcard` for this sibling table.
+#[test]
+fn calculate_width_dispatch_has_no_wildcard() {
+    let source = include_str!("mod.rs");
+    assert!(
+        !has_wildcard_match_arm(source),
+        "calculate_width() must not have a wildcard `_ =>` arm — \
+         every ExprKind variant must be handled explicitly"
+    );
 }

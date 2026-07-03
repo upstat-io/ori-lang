@@ -60,17 +60,25 @@ for arg in "$@"; do
 done
 
 # Per-run build isolation. Concurrent runs that share target/ rebuild each
-# other's artifacts mid-suite and mass-fail the AOT leg with bogus failures, and
-# a run sharing target/ with another cargo invocation can stall on cargo's build
-# lock while holding the whole-run lock. A caller can set ORI_TESTALL_BUILD_ID
-# to isolate its target/<build-id>; absent that, runs share the "shared" build id
-# and serialize on the shared lock. flock --close drops the lock fd before
-# exec'ing children so subprocesses never inherit it; the kernel releases it if
-# the holder dies.
+# other's artifacts mid-suite and mass-fail the AOT leg with bogus failures. A
+# caller can set ORI_TESTALL_BUILD_ID to isolate its target/<build-id>; absent
+# that, runs use "shared". Full-suite verdicts are still serialized globally:
+# running two complete suites at once makes the compiler-state verdict
+# ambiguous and can race shared cargo/cache resources. flock --close drops each
+# lock fd before exec'ing children so subprocesses never inherit it; the kernel
+# releases each lock if the holder dies.
 TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-shared}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target/test-all-${TESTALL_BUILD_ID}}"
 TARGET_DIR="$CARGO_TARGET_DIR"
 mkdir -p "$TARGET_DIR" target
+TESTALL_GLOBAL_LOCK="target/.test-all-global.lock"
+if [ -z "${ORI_TESTALL_GLOBAL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
+    if ! flock --nonblock "$TESTALL_GLOBAL_LOCK" true 2>/dev/null; then
+        echo "waiting for another test-all run to finish..."
+    fi
+    export ORI_TESTALL_GLOBAL_FLOCKED=1
+    exec flock --close "$TESTALL_GLOBAL_LOCK" "$0" "$@"
+fi
 TESTALL_LOCK="target/.test-all-${TESTALL_BUILD_ID}.lock"
 if [ -z "${ORI_TESTALL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
     if ! flock --nonblock "$TESTALL_LOCK" true 2>/dev/null; then

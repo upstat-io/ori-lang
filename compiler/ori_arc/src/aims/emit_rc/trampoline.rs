@@ -24,12 +24,9 @@ pub(super) fn insert_trampoline(
     let trampoline_id = block_id(func.blocks.len());
     let succ_id = block_id(succ_idx);
 
-    // Faithful release: `BurdenDec` paired adjacent to each edge `RcDec`
-    // whose var carries burden ops, so the per-value burden ledger nets 0
-    // across this CFG edge (RL-4). The edge variant suppresses the burden dec
-    // for an owned-transfer arg of `pred`'s terminator (already balanced at the
-    // transfer point). Under the probe (`burden_only`) only the `BurdenDec` is
-    // emitted; Phase 7 lowers it to the real `RcDec`.
+    // Faithful release: `BurdenDec` paired per edge `RcDec` nets 0 across
+    // this CFG edge (RL-4), suppressed for an owned-transfer arg already
+    // balanced at the transfer; under the probe, only `BurdenDec` emits.
     let body: Vec<ArcInstr> = decs
         .iter()
         .flat_map(|&(var, strategy)| {

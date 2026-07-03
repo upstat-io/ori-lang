@@ -149,12 +149,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             ) {
                 continue;
             }
-            // take-project alias-class
-            // members are dec'd by `dead_cleanup` source 1's
-            // in-class branch on per-class bypass-safe blocks.
-            // Skipping here prevents an alias-sibling double-free
-            // (e.g., `%5` and its Let alias `%19` resolve to the
-            // same memory).
+            // Take-project alias-class members are dec'd by `dead_cleanup`
+            // source 1's in-class branch; skip here to avoid an
+            // alias-sibling double-free (e.g. `%5` and Let-alias `%19`).
             if take_move_facts.is_in_class(var) {
                 continue;
             }
@@ -191,10 +188,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
                 }
             }
 
-            // Check normal path.
-            // Gate the normal edge dec via `apply_result_aliases`. The unwind
-            // edge above is unaffected per RL-4 (unwind paths always emit
-            // cleanup decs); the gate cannot match a Let-alias var.
+            // Check normal path: gate via `apply_result_aliases`. The unwind
+            // edge above is unaffected per RL-4 (always emits cleanup decs);
+            // the gate cannot match a Let-alias var.
             let normal_state = edge_state
                 .normal
                 .get(&var)
@@ -203,21 +199,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             if normal_state.cardinality == Cardinality::Absent {
                 if let Some(strategy) = rc_strategy(func, var, pool) {
                     if !should_suppress_apply_aliased_dec(state_map, var, false) {
-                        // PIN-4 + PIN-5: class-aware skip + batch via the shared
-                        // `same_alloc_member_live_at` SSOT.
-                        // GHOST-INCLUSIVE same-allocation suppression (RL-4 P1:
-                        // phi-merged alternatives must not suppress). The Invoke
-                        // normal-edge MERGES arms, so a same-alloc member live on
-                        // a sibling arm at the merge successor is genuine
-                        // cross-path liveness — that sibling path owns the
-                        // release, so `require_defined_at_or_before = false`
-                        // (ghost-inclusive). `include_var_self = false`: the
-                        // caller has already established via `edge_state.normal`
-                        // that `var` is `Absent` on THIS edge, so a self
-                        // short-circuit keyed on the merge-level
-                        // `var_state_at_block_entry` reading would over-suppress.
-                        // Suppression is class-gated by the helper: a var with NO
-                        // alias class returns `false` (never suppressed here).
+                        // PIN-4 + PIN-5 class-aware skip via the shared
+                        // `same_alloc_member_live_at` SSOT, ghost-inclusive +
+                        // no self-short-circuit mode — see that fn's doc.
                         let suppressed = same_alloc_member_live_at(
                             env,
                             var,
@@ -272,27 +256,9 @@ pub(crate) fn compute_invoke_edge_dead_set(
             continue;
         }
         if let Some(strategy) = rc_strategy(func, arg, pool) {
-            // RL-4 `deadAtSucc` same-alloc conjunct (mechanical port of the
-            // Category-1 normal-edge gate via `same_alloc_member_live_at`): a
-            // borrowed-arg edge dec is a genuine release ONLY when the arg AND
-            // every same-allocation alias-class member is DEAD (`Cardinality =
-            // Absent`) at that successor's entry. A live-across receiver
-            // (`catch(expr: xs[9]); xs.len()` — the `[str]` lineage
-            // `%2`/`%5`/`%13` aliasing one buffer, read again past the catch) is
-            // non-Absent at the successor, so the per-edge dec would release a
-            // still-live allocation → double-free. The conjunct is a pure
-            // narrowing of an over-release; per-edge (normal + unwind), each
-            // checked against its own successor entry. The normal edge
-            // additionally gates via `apply_result_aliases`; the unwind edge
-            // does not.
-            // No per-edge class-id batching here (unlike Cat 1 / Cat 3): Cat 2
-            // iterates the Invoke's ARG positions, which are DISTINCT
-            // allocations even when they share one SSA-alias class via a
-            // Jump-phi merge (edge type 2 unions distinct allocations into one
-            // class — see `compute_same_alloc_reps`). Class-batching here would
-            // collapse two genuinely-distinct live allocations to one dec and
-            // leak the other. True same-allocation aliasing is already narrowed
-            // by the `same_alloc_member_live_at` suppression conjunct below.
+            // Why: RL-4 deadAtSucc conjunct (axes true, true — see that fn's
+            // doc). No per-edge class batching: Cat 2's ARG positions are
+            // distinct allocations even under one Jump-phi-merged alias class.
             if !same_alloc_member_live_at(env, arg, normal, &defined_at_or_before, true, true)
                 && !should_suppress_apply_aliased_dec(state_map, arg, false)
             {
@@ -318,31 +284,26 @@ pub(crate) fn compute_invoke_edge_dead_set(
 /// unioned via a Jump-arg block-param merge) are NOT same-alloc and must not
 /// suppress (RL-4 P1 plus per-path-net-0).
 ///
-/// Two axes select per-call-site discipline:
+/// # `include_var_self`
 ///
-/// `include_var_self` selects whether `var` being live at `succ` itself
-/// suppresses:
-///  - `true` (Category 2 borrowed-arg): the receiver-survives-the-catch case —
-///    `var` still live at `succ` means the allocation is read past the call, so
-///    the per-edge dec would free a still-live value → double-free.
-///  - `false` (Category 1 Invoke normal-edge): the caller has already established
-///    via the edge-specific `InvokeEdgeState.normal` that `var` is `Absent` on
-///    THIS edge; a self short-circuit keyed on `var_state_at_block_entry` (a
-///    merge-level reading, not the edge reading) would over-suppress a genuine
-///    release.
+/// Whether `var` itself being live at `succ` suppresses:
+/// - `true` (Category 2 borrowed-arg): `var` live past the call means the
+///   per-edge dec would free a still-live value → double-free.
+/// - `false` (Category 1 Invoke normal-edge): `InvokeEdgeState.normal` already
+///   proved `var` `Absent` on THIS edge; a merge-level self short-circuit
+///   would over-suppress a genuine release.
 ///
-/// `require_defined_at_or_before` selects the ghost-member discipline:
-///  - `true` (Category 2 borrowed-arg): a same-alloc member only suppresses when
-///    it actually EXISTS at this block (`defined_at_or_before`). A member defined
-///    ONLY on a sibling branch (a ghost member) is reported `Once`-live at
-///    `succ`'s entry by `var_state_at_block_entry` (backward alias-demand bleed)
-///    but is NOT reachable on the borrowed-arg edge — counting it
-///    phantom-suppresses a genuine release → leak.
-///  - `false` (Category 1 Invoke normal-edge): a member live on a sibling arm at
-///    the merge successor DOES keep the allocation reachable on that path, which
-///    owns the release — suppressing here is correct, and a ghost-exclusive guard
-///    would double-free. The normal-edge merges arms, so ghost liveness is
-///    genuine cross-path liveness.
+/// # `require_defined_at_or_before`
+///
+/// Selects the ghost-member discipline:
+/// - `true` (Category 2 borrowed-arg): a same-alloc member suppresses only
+///   when it actually EXISTS at this block. A member defined only on a
+///   sibling branch (a ghost member) reads live via backward alias-demand
+///   bleed but is unreachable on the borrowed-arg edge — counting it would
+///   phantom-suppress a genuine release → leak.
+/// - `false` (Category 1 Invoke normal-edge): a member live on a sibling arm
+///   at the merge successor genuinely keeps the allocation reachable, so
+///   counting it is correct; a ghost-exclusive guard would double-free.
 ///
 /// Spec: Annex E §AIMS RL-4.
 pub(crate) fn same_alloc_member_live_at(

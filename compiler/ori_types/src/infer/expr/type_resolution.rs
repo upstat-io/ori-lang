@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
-use super::super::InferEngine;
 use crate::check::ObjectSafetyChecker;
 use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
+
+use super::super::InferEngine;
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`.
 ///
@@ -231,7 +232,7 @@ pub fn resolve_parsed_type(
 }
 
 /// Resolve a list of parsed types into a vector of pool indices.
-pub(crate) fn resolve_parsed_type_list(
+pub(super) fn resolve_parsed_type_list(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     range: ParsedTypeRange,
@@ -254,7 +255,7 @@ pub(crate) fn resolve_parsed_type_list(
 /// `TypeId` and `Idx` now share the same index layout for primitives (0-11),
 /// so this is an identity mapping. INFER (12) and `SELF_TYPE` (13) are markers
 /// that become fresh inference variables.
-pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
+fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
     let raw = type_id.raw();
     if raw < TypeId::PRIMITIVE_COUNT {
         // Primitives 0-11 map by identity (TypeId and Idx share the same layout)

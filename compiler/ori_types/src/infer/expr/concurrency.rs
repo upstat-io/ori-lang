@@ -2,9 +2,10 @@
 
 use ori_ir::ExprArena;
 
+use crate::Idx;
+
 use super::super::InferEngine;
 use super::infer_expr;
-use crate::Idx;
 
 /// Infer type for `catch(expr: expression)`.
 ///

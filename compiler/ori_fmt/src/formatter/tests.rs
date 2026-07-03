@@ -15,6 +15,7 @@
 
 use crate::context::{FormatContext, MAX_LINE_WIDTH};
 use crate::formatter::format_expr;
+use crate::test_util::has_wildcard_match_arm;
 use ori_ir::{
     ast::{Expr, ExprKind},
     BinaryOp, ExprArena, ExprId, Name, Span, StringInterner, UnaryOp,
@@ -557,21 +558,12 @@ fn format_context_newline_indent_combined() {
 
 // Structural enforcement: no wildcard arms in dispatch tables
 
-/// Check that a source file has no wildcard match arms in non-comment lines.
-fn has_wildcard_match_arm(source: &str) -> bool {
-    source.lines().any(|line| {
-        let trimmed = line.trim();
-        // Skip comments and doc comments
-        !trimmed.starts_with("//") && !trimmed.starts_with("///") && trimmed.contains("_ =>")
-    })
-}
-
 /// Verify that `emit_broken()` has no wildcard match arm.
 /// All `ExprKind` variants must be handled explicitly so that adding
 /// a new variant causes a compile error in all three dispatch tables.
 #[test]
 fn broken_dispatch_has_no_wildcard() {
-    let source = include_str!("broken.rs");
+    let source = include_str!("broken/mod.rs");
     assert!(
         !has_wildcard_match_arm(source),
         "emit_broken() must not have a wildcard `_ =>` arm — \
@@ -586,6 +578,21 @@ fn stacked_dispatch_has_no_wildcard() {
     assert!(
         !has_wildcard_match_arm(source),
         "emit_stacked() must not have a wildcard `_ =>` arm — \
+         every ExprKind variant must be handled explicitly"
+    );
+}
+
+/// Verify that `emit_inline()` has no wildcard match arm — the third of the
+/// three parallel `ExprKind` dispatch tables the `broken/mod.rs` doc-comment
+/// invariant names (`emit_broken` / `emit_inline` / `calculate_width`); this
+/// mirrors `broken_dispatch_has_no_wildcard` for the sibling table that was
+/// missing its own guard.
+#[test]
+fn inline_dispatch_has_no_wildcard() {
+    let source = include_str!("inline/mod.rs");
+    assert!(
+        !has_wildcard_match_arm(source),
+        "emit_inline() must not have a wildcard `_ =>` arm — \
          every ExprKind variant must be handled explicitly"
     );
 }

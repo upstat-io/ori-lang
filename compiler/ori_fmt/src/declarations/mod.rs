@@ -229,10 +229,9 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
-        // Type definitions, traits, impls, default implementations,
-        // extensions, extern blocks, functions, tests: each item preceded by
-        // a blank line (unless it's the module's first item) and followed by
-        // one — the shared skeleton lives in `format_items`.
+        // Type decls, traits, impls, def-impls, extensions, extern blocks,
+        // functions, tests: each item gets a blank line before (except the
+        // module's first) and after — shared skeleton in `format_items`.
         self.format_items(&module.types, &mut first_item, Self::format_type_decl);
         self.format_items(&module.traits, &mut first_item, Self::format_trait);
         self.format_items(&module.impls, &mut first_item, Self::format_impl);
@@ -250,20 +249,15 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
     /// Emit each `item` via `format_one`, preceded by a blank line unless it's
     /// the module's first item and followed by one — the skeleton shared by
     /// every top-level declaration category in [`Self::format_module`].
+    /// Delegates to [`Self::format_items_with_comments`] (a bare `fn` pointer
+    /// coerces to `impl FnMut`).
     fn format_items<T>(
         &mut self,
         items: &[T],
         first_item: &mut bool,
         format_one: fn(&mut Self, &T),
     ) {
-        for item in items {
-            if !*first_item {
-                self.ctx.emit_newline();
-            }
-            format_one(self, item);
-            self.ctx.emit_newline();
-            *first_item = false;
-        }
+        self.format_items_with_comments(items, first_item, format_one);
     }
 
     /// Format a complete module with comment preservation.
@@ -306,12 +300,9 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
-        // Type definitions, traits, impls, default implementations,
-        // extensions, extern blocks, functions, tests: each item preceded by
-        // a blank line (unless it's the module's first item) and followed by
-        // one, with comments emitted immediately before it — the shared
-        // skeleton lives in `format_items_with_comments` (comment-aware twin
-        // of `format_items` above).
+        // Type decls, traits, impls, def-impls, extensions, extern blocks,
+        // functions, tests: blank line before (except module's first) +
+        // after; comments emitted first — skeleton in `format_items_with_comments`.
         self.format_items_with_comments(&module.types, &mut first_item, |s, type_decl| {
             s.emit_comments_before_type(type_decl, comments, comment_index);
             s.format_type_decl(type_decl);
@@ -355,11 +346,12 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
     /// Emit each `item` via `format_one` (which itself threads comment
     /// emission before the item), preceded by a blank line unless it's the
-    /// module's first item and followed by one — the comment-aware skeleton
+    /// module's first item and followed by one — the SSOT loop skeleton
     /// shared by every top-level declaration category in
-    /// [`Self::format_module_with_comments`]. Twin of [`Self::format_items`];
-    /// takes a closure rather than a bare fn pointer because callers capture
-    /// `comments` + `comment_index` from the enclosing scope.
+    /// [`Self::format_module_with_comments`] AND, via [`Self::format_items`],
+    /// [`Self::format_module`]. Takes a closure rather than a bare fn pointer
+    /// because comment-aware callers capture `comments` + `comment_index`
+    /// from the enclosing scope.
     fn format_items_with_comments<T>(
         &mut self,
         items: &[T],
