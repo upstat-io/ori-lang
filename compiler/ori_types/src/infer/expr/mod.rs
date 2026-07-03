@@ -325,11 +325,9 @@ fn check_int_literal_coercion(
     expected_tag: Tag,
 ) -> Option<Idx> {
     if let ExprKind::Int(value) = kind {
-        if expected_tag == Tag::Byte {
-            if *value >= 0 && *value <= 255 {
-                engine.store_type(expr_id.raw() as usize, Idx::BYTE);
-                return Some(Idx::BYTE);
-            }
+        if expected_tag == Tag::Byte && *value >= 0 && *value <= 255 {
+            engine.store_type(expr_id.raw() as usize, Idx::BYTE);
+            return Some(Idx::BYTE);
         }
     }
     None
