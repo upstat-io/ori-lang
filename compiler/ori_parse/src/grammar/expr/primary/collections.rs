@@ -12,13 +12,10 @@ use ori_ir::{Expr, ExprId, ExprKind, ExprRange, ParamRange, ParsedTypeId, Span, 
 impl Parser<'_> {
     /// Speculatively try to parse a return type annotation (`TYPE =`) in a lambda.
     ///
-    /// After `->` in a lambda, the grammar allows an optional `TYPE =` before the
-    /// body expression. This method tries to parse a type; if followed by `=`, it
-    /// consumes both and returns the allocated type ID. Otherwise, it restores the
-    /// cursor position and returns `INVALID`.
-    ///
-    /// This handles all type forms: primitives (`int`), function types (`(int) -> int`),
-    /// list types (`[int]`), named types (`MyType`), etc.
+    /// After `->`, the grammar allows an optional `TYPE =` before the body
+    /// expression. Parses any type form; if followed by `=`, consumes both and
+    /// returns the allocated type ID. Otherwise restores the cursor and returns
+    /// `INVALID`.
     fn try_parse_lambda_return_type(&mut self) -> ParsedTypeId {
         let snapshot = self.snapshot();
         if let Some(ty) = self.parse_type() {
@@ -83,14 +80,8 @@ impl Parser<'_> {
             )));
         }
 
-        // Case 2: Typed lambda params
-        //
-        // Spec: grammar.ebnf §lambda — `(` typed_param { `,` typed_param } `)`
-        // `->` lambda_tail, where lambda_tail is `type "=" expression` (explicit
-        // return) or `expression` (inferred return). parse_typed_lambda_body
-        // disambiguates via the `=` delimiter. is_typed_lambda_params() only
-        // matches on the first param's `:` shape; mixed forms like `(a: int, b)`
-        // reach this branch and are rejected by the helper.
+        // Case 2: typed lambda params — see parse_typed_lambda_body's doc for the
+        // explicit-vs-inferred-return disambiguation.
         if self.is_typed_lambda_params() {
             return self.parse_typed_lambda_body(span);
         }
@@ -227,10 +218,8 @@ impl Parser<'_> {
         let span = self.cursor.current_span();
         self.cursor.advance(); // [
 
-        // List elements use a Vec because nested lists share the same
-        // `list_elements` buffer, causing same-buffer nesting conflicts
-        // with direct arena push. The Vec overhead is acceptable since
-        // list literals are less frequent than params/arms/generics.
+        // Why: a Vec avoids same-buffer nesting conflicts when list literals
+        // nest, since nested lists share the `list_elements` arena buffer.
         let mut has_spread = false;
         let mut elements: Vec<ListElement> = Vec::new();
 

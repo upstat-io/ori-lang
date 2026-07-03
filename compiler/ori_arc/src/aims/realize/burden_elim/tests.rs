@@ -11,6 +11,7 @@
 //!   (s.consumption = Linear ∨ Affine)`.
 
 use super::{burden_op_census, eliminate_burden_ops, is_burden_removal_only};
+use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::aims::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
@@ -96,7 +97,11 @@ fn seed_exit_state(
 /// and a fresh interner — the per-var DP-2/DP-3 path these unit tests pin. The
 /// empty rep map gives every var a singleton rep (`op_vars.len() < 2`), so the
 /// lineage re-balance is inert and the per-var path is the sole active pass.
-fn run_elim(func: &mut ArcFunction, state_map: &AimsStateMap) {
+fn run_elim(func: &mut ArcFunction, state_map: &mut AimsStateMap) {
+    // Mirror the pipeline contract: the birth-site partition side table is
+    // installed on the state map before Phase 6 runs.
+    let partition = compute_birth_site_partition(func, state_map);
+    state_map.set_birth_site_partition(partition);
     let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
     let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
@@ -126,7 +131,7 @@ fn dp2_false_preserves_burden_dec_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -155,7 +160,7 @@ fn dp3_false_preserves_burden_inc_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -191,7 +196,7 @@ fn elide_inc_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert!(
@@ -217,7 +222,7 @@ fn dec_kept_on_dead_absent_sole_emitter() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -244,7 +249,7 @@ fn dec_partial_kept_on_dead_absent_sole_emitter() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     assert_eq!(
         func.blocks[0].body.len(),
@@ -267,7 +272,7 @@ fn dec_variant_kept_on_dead_absent_sole_emitter() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     assert_eq!(
         func.blocks[0].body.len(),
@@ -294,7 +299,7 @@ fn dec_field_kept_on_dead_absent_base_sole_emitter() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     assert_eq!(
         func.blocks[0].body.len(),
@@ -324,7 +329,7 @@ fn preserve_dec_partial_on_many_unrestricted() {
         )],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -380,7 +385,7 @@ fn preserve_dec_partial_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -407,7 +412,7 @@ fn preserve_dec_variant_on_linear_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -438,7 +443,7 @@ fn preserve_dec_field_on_linear_once_base() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -467,7 +472,7 @@ fn preserve_dec_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -497,7 +502,7 @@ fn preserve_dec_partial_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -524,7 +529,7 @@ fn preserve_dec_variant_on_linear_many() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -555,7 +560,7 @@ fn preserve_dec_field_on_linear_many_base() {
         &[(v(0), owned_state(Cardinality::Many, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -585,7 +590,7 @@ fn elide_inc_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert!(
@@ -607,7 +612,7 @@ fn preserve_dec_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -637,7 +642,7 @@ fn preserve_dec_partial_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -664,7 +669,7 @@ fn preserve_dec_variant_on_affine_once() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -695,7 +700,7 @@ fn preserve_dec_field_on_affine_once_base() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Affine))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -728,7 +733,7 @@ fn preserve_inc_on_unrestricted_many() {
         )],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -758,7 +763,7 @@ fn preserve_dec_on_unrestricted_many() {
         )],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -788,7 +793,7 @@ fn preserve_dec_variant_on_unrestricted_many() {
         )],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -822,7 +827,7 @@ fn preserve_dec_field_on_unrestricted_many_base() {
         )],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -854,7 +859,7 @@ fn preserve_inc_on_dead_absent() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -976,7 +981,7 @@ fn mixed_body_preserves_non_burden_and_relative_order() {
         ],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     assert_eq!(
@@ -1018,7 +1023,7 @@ fn paired_elim_unmatched_inc_retains_both() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let body = &func.blocks[0].body;
     // (Absent, Dead): DP-2 fires on Dec but DP-3 FAILS on Inc (needs
@@ -1049,7 +1054,7 @@ fn paired_elim_solo_inc_elidable_state_elides() {
         &[(v(0), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     assert!(
         func.blocks[0].body.is_empty(),
@@ -1075,7 +1080,7 @@ fn paired_elim_solo_dec_kept_sole_emitter() {
         &[(v(0), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     assert_eq!(
         func.blocks[0].body.len(),
@@ -1120,7 +1125,7 @@ fn phase6_is_elimination_census_strictly_shrinks() {
     );
 
     let before = burden_op_census(&func);
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
     let after = burden_op_census(&func);
 
     // BurdenInc census (index 0) strictly shrinks: the elidable op is removed.
@@ -1162,7 +1167,7 @@ fn phase6_preserves_census_when_nothing_elidable() {
     );
 
     let before = burden_op_census(&func);
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
     let after = burden_op_census(&func);
 
     assert_eq!(
@@ -1277,7 +1282,9 @@ fn run_elim_rebalance(func: &mut ArcFunction) {
     let same_alloc_reps = alias_chain_reps();
     let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
-    let state_map = AimsStateMap::new(func);
+    let mut state_map = AimsStateMap::new(func);
+    let partition = compute_birth_site_partition(func, &state_map);
+    state_map.set_birth_site_partition(partition);
     eliminate_burden_ops(func, &state_map, &same_alloc_reps, &contracts, &interner);
 }
 
@@ -1354,6 +1361,8 @@ fn lineage_rebalance_excludes_forwarder_tainted_rep() {
     // pass owns it. An EMPTY contracts map is the right fixture — the exclusion
     // must hold whenever the transfer fact is unproven.
     let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
+    let partition = compute_birth_site_partition(&func, &state_map);
+    state_map.set_birth_site_partition(partition);
     eliminate_burden_ops(
         &mut func,
         &state_map,
@@ -1492,6 +1501,8 @@ fn lineage_rebalance_defers_on_cow_mutated_shared_survivor() {
             ),
         ],
     );
+    let partition = compute_birth_site_partition(&func, &state_map);
+    state_map.set_birth_site_partition(partition);
     eliminate_burden_ops(
         &mut func,
         &state_map,
@@ -1637,7 +1648,7 @@ fn param_rooted_alias_pair_kept_whole_when_dp2_fails() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1660,7 +1671,7 @@ fn param_rooted_alias_inc_only_never_elided() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1687,7 +1698,7 @@ fn param_rooted_alias_pair_coupling_is_transitive() {
         &[(v(2), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1720,7 +1731,7 @@ fn non_param_rooted_alias_keeps_decoupled_split() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1762,7 +1773,7 @@ fn param_rooted_alias_pair_kept_whole_sole_emitter() {
         &[(v(1), owned_state(Cardinality::Absent, Consumption::Dead))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1822,7 +1833,7 @@ fn construct_rooted_terminal_store_alias_pair_kept_whole() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1868,7 +1879,7 @@ fn construct_rooted_alias_used_after_store_keeps_split() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1905,7 +1916,7 @@ fn construct_rooted_no_store_keeps_split() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(
@@ -1973,7 +1984,7 @@ fn construct_rooted_store_in_loop_with_reread_keeps_split() {
         &[(v(1), owned_state(Cardinality::Once, Consumption::Linear))],
     );
 
-    run_elim(&mut func, &state_map);
+    run_elim(&mut func, &mut state_map);
 
     let c = census(&func);
     assert_eq!(

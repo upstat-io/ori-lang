@@ -33,6 +33,8 @@
 mod tests;
 
 pub(crate) mod apply_aliases;
+pub(crate) mod birth_site_partition;
+pub(crate) mod birth_site_population;
 pub mod block;
 pub(crate) mod effects;
 pub(crate) mod fip_balance;

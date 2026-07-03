@@ -1892,6 +1892,78 @@
       "lean_theorem": null,
       "parity_tokens": [],
       "note": "definition_only SSOT; check-proofs.sh skips; no Lean theorem"
+    },
+    {
+      "proof_id": "T1",
+      "proof_path": "proofs/12-provenance/T1-partition-soundness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Partition",
+      "lean_theorem": "samerep_birthsite_sound",
+      "parity_tokens": [
+        "birthsite",
+        "samerep"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T2",
+      "proof_path": "proofs/12-provenance/T2-compositional-placement.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Ledger",
+      "lean_theorem": "compositional_placement_sound",
+      "parity_tokens": [
+        "threeclauses",
+        "ledgersafe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T3",
+      "proof_path": "proofs/12-provenance/T3-keepalive-running-refcount.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.RunningCount",
+      "lean_theorem": "keep_alive_redundancy_sound_iff_whole_pair",
+      "parity_tokens": [
+        "runningrc",
+        "neverbelow"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T4",
+      "proof_path": "proofs/12-provenance/T4-contract-boundary-composition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T4_contract_boundary_composition_sound",
+      "parity_tokens": [
+        "boundaryinstrs",
+        "calleeconforms"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T5",
+      "proof_path": "proofs/12-provenance/T5-frame-limited-robustness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T5_frame_untouched_class_ledger_verbatim",
+      "parity_tokens": [
+        "mergeclasses",
+        "deriveledger"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-comp-PV",
+      "proof_path": "proofs/12-provenance/comp-partition-side-table.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ProvenanceComposition",
+      "lean_theorem": "CHcomp_partition_side_table",
+      "parity_tokens": [
+        "eliminateatclass",
+        "handshakeaccepts"
+      ],
+      "note": ""
     }
   ]
 }

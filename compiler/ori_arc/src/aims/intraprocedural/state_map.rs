@@ -20,6 +20,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
 use super::super::contract::EffectSummary;
 use super::super::lattice::{AimsState, BorrowSource, Locality, ShapeClass, Uniqueness};
+use super::birth_site_partition::BirthSitePartition;
 use super::project_aliases::ProjectSources;
 
 // Per-invoke edge state
@@ -285,6 +286,15 @@ pub struct AimsStateMap {
     /// Indexed by `ArcVarId::index()`. True = immortal.
     immortals: Vec<bool>,
 
+    /// Per-`(variable, field-path)` birth-site same-allocation partition.
+    /// Admission per the T1 partition calculus (`AimsProof.Partition`).
+    ///
+    /// `None` until [`set_birth_site_partition`](Self::set_birth_site_partition)
+    /// installs it — the pipeline populates it once on the converged state
+    /// map, after Step 4a and before Step 4b burden emission. Read-only
+    /// thereafter (PL-5 no-stale-summary invariant).
+    birth_site_partition: Option<BirthSitePartition>,
+
     /// Function-level effect summary, accumulated during analysis.
     ///
     /// Accumulated per-block in the convergence loop via `accumulate_effect()`.
@@ -438,6 +448,7 @@ impl AimsStateMap {
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
+            birth_site_partition: None,
             effect_summary: EffectSummary::default(),
             fip_construct_count: 0,
             fip_consumed_count: 0,
@@ -493,6 +504,21 @@ impl AimsStateMap {
     #[inline]
     pub fn is_excluded(&self, var: ArcVarId) -> bool {
         self.is_scalar(var) || self.is_immortal(var)
+    }
+
+    // Birth-site partition management
+
+    /// Install the birth-site partition side table.
+    ///
+    /// Called once by the pipeline on the converged state map, after Step 4a
+    /// and before Step 4b burden emission. Read-only thereafter (PL-5).
+    pub(crate) fn set_birth_site_partition(&mut self, partition: BirthSitePartition) {
+        self.birth_site_partition = Some(partition);
+    }
+
+    /// The birth-site partition side table; `None` until populated.
+    pub(crate) fn birth_site_partition(&self) -> Option<&BirthSitePartition> {
+        self.birth_site_partition.as_ref()
     }
 
     // Block state accessors

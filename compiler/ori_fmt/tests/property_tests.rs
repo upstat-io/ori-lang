@@ -400,9 +400,9 @@ enum PropIdemOutcome {
     /// program may be type/grammar-invalid), not a formatter defect.
     GeneratedSourceInvalid,
     /// The formatted output failed to re-parse — a `format -> parse` round-trip
-    /// break. Tracked under BUG-07-314 (multi-line params / sum-variants /
-    /// lambda bodies); on synthetic input it cannot be path-allowlisted, so it
-    /// is an explicit tracked outcome, never silently swallowed.
+    /// break (Spec: Annex D — formatting must preserve observable semantics).
+    /// On synthetic input it cannot be path-allowlisted, so it is an explicit
+    /// tracked outcome, never silently swallowed.
     ReparseBreakTracked,
     /// `format(format(x)) != format(x)` — a non-idempotent format. The property
     /// this suite exists to pin; always a hard failure.
@@ -416,7 +416,7 @@ fn test_idempotence(source: &str) -> PropIdemOutcome {
         return PropIdemOutcome::GeneratedSourceInvalid;
     };
 
-    // Output of the formatter must re-parse; failure here is a round-trip break (BUG-07-314).
+    // Output of the formatter must re-parse; failure here is a round-trip break.
     let Ok(second) = parse_and_format_with_comments(&first).or_else(|_| parse_and_format(&first))
     else {
         return PropIdemOutcome::ReparseBreakTracked;
@@ -437,8 +437,8 @@ fn test_idempotence(source: &str) -> PropIdemOutcome {
 
 /// Shared proptest body decision: fail the case ONLY on a real idempotence
 /// mismatch (the property under test). `GeneratedSourceInvalid` is strategy
-/// noise; `ReparseBreakTracked` is the BUG-07-314 round-trip defect on synthetic
-/// input (tracked, not this suite's regression surface). Returns `Err` to fail.
+/// noise; `ReparseBreakTracked` is a round-trip defect on synthetic input
+/// (tracked, not this suite's regression surface). Returns `Err` to fail.
 fn idempotence_case_result(source: &str) -> Result<(), TestCaseError> {
     match test_idempotence(source) {
         PropIdemOutcome::Pass

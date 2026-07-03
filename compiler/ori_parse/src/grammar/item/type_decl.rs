@@ -7,21 +7,10 @@ use ori_ir::{
     StructField, TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
 
-/// Convert parser-level `ReprAttr` to IR-level `ReprAttrKind`.
-fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
-    match *attr {
-        ReprAttr::C => ReprAttrKind::C,
-        ReprAttr::Packed => ReprAttrKind::Packed,
-        ReprAttr::Transparent => ReprAttrKind::Transparent,
-        // CAligned is never produced by the parser — it's merged in type checking
-        ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
-    }
-}
-
 impl Parser<'_> {
     /// Parse a type declaration.
     ///
-    /// Syntax:
+    /// # Syntax
     /// - Struct: `type Name = { field: Type, ... }`
     /// - Sum type: `type Name = Variant1 | Variant2(field: Type) | ...`
     /// - Newtype: `type Name = ExistingType`
@@ -63,6 +52,15 @@ impl Parser<'_> {
             GenericParamRange::EMPTY
         };
 
+        // Optional where clause. grammar.ebnf `type_def` places `where_clause`
+        // before `=`, and the formatter emits it there; parse it here so a
+        // formatted `type Foo<T> where T: Bound = Body` re-parses.
+        let where_clauses = if self.cursor.check(&TokenKind::Where) {
+            committed!(self.parse_where_clauses().into_result())
+        } else {
+            Vec::new()
+        };
+
         committed!(self.cursor.expect(&TokenKind::Eq));
         // Type body is newline-silent per grammar.ebnf: a newline after `=` (the
         // formatter's multi-line shape) must parse — else `check_ident()` below is
@@ -80,13 +78,6 @@ impl Parser<'_> {
             // Try to parse as a newtype with a primitive type
             let ty = committed!(self.parse_type_required().into_result());
             TypeDeclKind::Newtype(ty)
-        };
-
-        // Optional where clause (not common for type decls but supported)
-        let where_clauses = if self.cursor.check(&TokenKind::Where) {
-            committed!(self.parse_where_clauses().into_result())
-        } else {
-            Vec::new()
         };
 
         let end_span = self.cursor.previous_span();
@@ -246,6 +237,17 @@ impl Parser<'_> {
             fields,
             span: start_span.merge(self.cursor.previous_span()),
         })
+    }
+}
+
+/// Convert parser-level `ReprAttr` to IR-level `ReprAttrKind`.
+fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
+    match *attr {
+        ReprAttr::C => ReprAttrKind::C,
+        ReprAttr::Packed => ReprAttrKind::Packed,
+        ReprAttr::Transparent => ReprAttrKind::Transparent,
+        // CAligned is never produced by the parser — it's merged in type checking
+        ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
     }
 }
 

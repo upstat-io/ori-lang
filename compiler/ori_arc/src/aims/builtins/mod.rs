@@ -86,8 +86,14 @@ pub fn seed_builtin_contracts(
         sigs.entry(name).or_insert_with(|| borrowing_contract(1));
     }
 
-    // Sharing methods: return MaybeShared (shares receiver's backing).
-    let sharing = crate::borrow::sharing_builtin_names(interner);
+    // Sharing methods: return MaybeShared (shares receiver's backing) and
+    // carry the typed sharing-view CREDIT (`returns_sharing_view`). `take` /
+    // `drop` are seamless-slice views too (matching
+    // `sharing_view_self_inc_names` / `sharing_view_relocation_names`); they
+    // belong to no other ownership set, so the seed here is authoritative.
+    let mut sharing = crate::borrow::sharing_builtin_names(interner);
+    sharing.insert(interner.intern("take"));
+    sharing.insert(interner.intern("drop"));
     for name in sharing {
         sigs.entry(name).or_insert_with(sharing_return_contract);
     }
@@ -185,6 +191,11 @@ fn seed_internal_runtime_contracts(
     // contract routes drops through the slice-aware ori_buffer_rc_dec.
     let ori_list_slice_drop = interner.intern("ori_list_slice_drop");
     sigs.entry(ori_list_slice_drop)
+        .or_insert_with(sharing_return_contract);
+    // ori_list_slice_take is the make_slice_cap twin of ori_list_slice_drop
+    // (both delegate to ori_list_slice); same sharing-view contract.
+    let ori_list_slice_take = interner.intern("ori_list_slice_take");
+    sigs.entry(ori_list_slice_take)
         .or_insert_with(sharing_return_contract);
 
     // Iterator adapter and consumer runtime functions.
@@ -344,6 +355,10 @@ fn sharing_return_contract() -> MemoryContract {
         return_info: ReturnContract {
             uniqueness: Uniqueness::MaybeShared,
             preserves_freshness: false,
+            // Typed buffer-provenance CREDIT: the view result mints its own
+            // +1 on the receiver's backing allocation.
+            // Spec: Annex E §AIMS §12 (sharing-view producer = CREDIT).
+            returns_sharing_view: true,
             ..ReturnContract::CONSERVATIVE
         },
         effects: EffectSummary::default(),
@@ -443,4 +458,5 @@ const RETURN_UNIQUE: ReturnContract = ReturnContract {
     // is scoped to USER for-yield finalizers (`@ori_list_take`) extracted from
     // the body; builtins keep `false` to preserve the status-quo store-dup path.
     returns_fresh_self_alloc: false,
+    returns_sharing_view: false,
 };

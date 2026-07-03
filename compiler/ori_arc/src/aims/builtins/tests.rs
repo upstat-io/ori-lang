@@ -401,3 +401,61 @@ fn seed_ori_panic_message_param_owned_transfer() {
         "ori_panic releases the message — may_deallocate must stay true"
     );
 }
+
+// Sharing-view CREDIT seeds (returns_sharing_view; Spec: Annex E §AIMS §12).
+
+/// Positive pin: every seamless-slice view producer carries the typed
+/// sharing-view CREDIT on its return contract, with a borrowed (non-consuming)
+/// receiver — the READ + CREDIT boundary pair.
+#[test]
+fn sharing_view_builtins_carry_returns_sharing_view_credit() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    for name in [
+        "slice",
+        "substring",
+        "take",
+        "drop",
+        "ori_list_slice_take",
+        "ori_list_slice_drop",
+    ] {
+        let contract = &sigs[&interner.intern(name)];
+        assert!(
+            contract.return_info.returns_sharing_view,
+            "{name} must carry the sharing-view CREDIT"
+        );
+        assert_eq!(
+            contract.return_info.uniqueness,
+            Uniqueness::MaybeShared,
+            "{name} view result shares the receiver's backing"
+        );
+        assert!(
+            !contract.return_info.returns_fresh_self_alloc,
+            "{name} view is never a fresh self-alloc"
+        );
+        assert_eq!(
+            contract.params[0].access,
+            AccessClass::Borrowed,
+            "{name} receiver is borrowed (READ), the CREDIT rides the return"
+        );
+    }
+}
+
+/// Negative pin: non-view builtins mint no sharing-view CREDIT — a COW
+/// producer (`concat`) and a retaining accessor (`first`) both return
+/// non-view results.
+#[test]
+fn non_sharing_builtins_carry_no_sharing_view_credit() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    for name in ["concat", "first", "iter", "ori_list_take"] {
+        if let Some(contract) = sigs.get(&interner.intern(name)) {
+            assert!(
+                !contract.return_info.returns_sharing_view,
+                "{name} is not a sharing-view producer"
+            );
+        }
+    }
+}

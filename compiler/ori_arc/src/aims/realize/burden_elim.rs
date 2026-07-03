@@ -176,6 +176,14 @@ pub(crate) fn eliminate_burden_ops(
     // emits, Phase 6 eliminates, Phase 7 mechanically lowers.
     let before = burden_op_census(func);
 
+    // The birth-site partition side table is installed on the converged
+    // state map before Phase 6 whenever burden ops exist (the Step-4a-to-4b
+    // population contract); zero release cost.
+    debug_assert!(
+        before.iter().sum::<usize>() == 0 || state_map.birth_site_partition().is_some(),
+        "eliminate_burden_ops entered with burden ops but no birth-site partition side table"
+    );
+
     eliminate_whole_function(func, state_map, same_alloc_reps, contracts, interner);
 
     assert_burden_removal_only(&before, &burden_op_census(func));

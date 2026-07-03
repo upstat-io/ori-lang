@@ -8,7 +8,7 @@ fn parse_module(source: &str) -> crate::ParseOutput {
     parser.parse_module()
 }
 
-/// Regression: BUG-07-314. A trait-method signature with
+/// A trait-method signature with
 /// params stacked one-per-line must parse — trait methods are one of
 /// `parse_params`' shared call sites.
 #[test]

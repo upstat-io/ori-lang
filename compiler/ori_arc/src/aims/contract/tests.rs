@@ -335,6 +335,7 @@ fn to_uniqueness_summary_basic() {
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
@@ -481,4 +482,37 @@ fn test_get_mut_required_panics_on_missing_with_site_tag() {
 fn test_get_mut_required_panics_message_includes_invariant_label() {
     let mut map: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     let _ = map.get_mut_required(&Name::from_raw(6), "any_mut_site");
+}
+
+// IC-4 join rules for the sharing-view CREDIT (returns_sharing_view;
+// Spec: Annex E §AIMS §12 — sharing-view producer = CREDIT).
+
+/// The CREDIT joins by AND: a return is a sharing view only when EVERY
+/// joined path returns one (monotone toward conservative), commutatively.
+#[test]
+fn return_contract_join_ands_returns_sharing_view() {
+    let view = ReturnContract {
+        returns_sharing_view: true,
+        ..ReturnContract::CONSERVATIVE
+    };
+    let non_view = ReturnContract::CONSERVATIVE;
+    assert!(view.join(&view).returns_sharing_view);
+    assert!(!view.join(&non_view).returns_sharing_view);
+    assert!(!non_view.join(&view).returns_sharing_view);
+    assert!(!non_view.join(&non_view).returns_sharing_view);
+}
+
+/// CONSERVATIVE claims no CREDIT; OPTIMISTIC starts true so the monotone
+/// SCC fixpoint AND-join only ever clears it (`true ∧ extractor-false`
+/// converges false for a non-view return).
+#[test]
+fn returns_sharing_view_optimistic_init_clears_via_join() {
+    const { assert!(!ReturnContract::CONSERVATIVE.returns_sharing_view) };
+    const { assert!(ReturnContract::OPTIMISTIC.returns_sharing_view) };
+    let extracted_non_view = ReturnContract::CONSERVATIVE;
+    assert!(
+        !ReturnContract::OPTIMISTIC
+            .join(&extracted_non_view)
+            .returns_sharing_view
+    );
 }

@@ -4,9 +4,6 @@
 
 mod struct_lit;
 
-#[cfg(test)]
-mod tests;
-
 use crate::context::ParseContext;
 use crate::error::ErrorContext;
 use crate::{chain, committed, ParseError, ParseOutcome, Parser};
@@ -268,13 +265,8 @@ impl Parser<'_> {
 
         let field = self.cursor.expect_member_name()?;
 
-        // Call-site type arguments: `receiver.method<T>(args)`. Speculative — snapshot,
-        // attempt a `<type_args>` list in IN_TYPE context, and COMMIT only when it is
-        // immediately followed by `(` (a method call). Otherwise restore and let `<`
-        // fall through to the comparison path. The trailing-`(` gate is the parse-time
-        // half; the resolve-time comparison fallback (for `a.b < c > (d)`-shaped
-        // ambiguity) is not yet wired. Never the unsound deterministic commit
-        // (per the call-site-method-generics proposal).
+        // Speculative call-site type args (`receiver.method<T>(args)`); see
+        // parse_call_site_type_args's doc for the commit-on-`(` disambiguation.
         let call_type_args = self.parse_call_site_type_args();
 
         if self.cursor.check(&TokenKind::LParen) {
@@ -436,3 +428,6 @@ impl Parser<'_> {
             .into_result()
     }
 }
+
+#[cfg(test)]
+mod tests;

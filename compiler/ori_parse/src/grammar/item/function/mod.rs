@@ -46,10 +46,7 @@ impl Parser<'_> {
         // name
         let name = committed!(self.cursor.expect_ident());
 
-        // Check if this is a test (has `tests` keyword)
-        // Grammar: test = "@" identifier "tests" test_targets "()" "->" "void" "=" expression
-        //          test_targets = "_" | test_target { "tests" test_target }
-        //          test_target  = "@" identifier
+        // Spec: grammar.ebnf `test`/`test_targets`/`test_target` productions.
         if self.cursor.check(&TokenKind::Tests) {
             self.cursor.advance(); // consume initial `tests`
 
@@ -76,9 +73,8 @@ impl Parser<'_> {
             self.parse_test_body(name, targets, attrs, start_span)
                 .with_error_context(crate::ErrorContext::TestDef)
         } else {
-            // Test-only attributes (#compile_fail/#fail/#skip) require a
-            // `tests`-marked declaration; a plain function has no field to hold
-            // them, so reject here rather than silently drop them.
+            // Why: a plain function has no field to hold test-only attributes
+            // (#compile_fail/#fail/#skip); reject rather than silently drop them.
             // Spec: Clause 19.8.
             if attrs.has_test_only_attrs() {
                 return ParseOutcome::consumed_err(
@@ -228,16 +224,12 @@ impl Parser<'_> {
     ///
     /// Grammar: `clause_param = match_pattern [ ":" type ] [ "=" expression ]`
     ///
-    /// Supports:
+    /// # Supports
     /// - Simple names: `(x: int)`
     /// - `self` for methods: `(self)`
     /// - Literal patterns: `(0: int)` — clause-based functions
     /// - List patterns: `([]: [T])`, `([_, ..tail]: [T])` — clause-based functions
     /// - Default values: `(x: int = 42)`
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive parameter parsing covering patterns, self, literals, defaults, and type annotations"
-    )]
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         use crate::series::SeriesConfig;
 
@@ -289,44 +281,12 @@ impl Parser<'_> {
                     (gen_name, Some(pat))
                 }
 
-                // Simple identifier (most common case)
-                TokenKind::Ident(name) => {
-                    p.cursor.advance();
+                // Why: delegates to `expect_ident()` (the canonical soft-keyword
+                // classification, `cursor::identifiers::soft_keyword_str`) so every
+                // soft keyword usable as an identifier elsewhere is a valid param name too.
+                _ if p.cursor.check_ident() || p.cursor.soft_keyword_to_name().is_some() => {
+                    let name = p.cursor.expect_ident()?;
                     (name, None)
-                }
-
-                // Context-sensitive keywords usable as parameter names
-                TokenKind::Timeout => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("timeout"), None)
-                }
-                TokenKind::Parallel => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("parallel"), None)
-                }
-                TokenKind::Cache => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("cache"), None)
-                }
-                TokenKind::Catch => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("catch"), None)
-                }
-                TokenKind::Spawn => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("spawn"), None)
-                }
-                TokenKind::Recurse => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("recurse"), None)
-                }
-                TokenKind::Run => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("run"), None)
-                }
-                TokenKind::Try => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("try"), None)
                 }
 
                 _ => {

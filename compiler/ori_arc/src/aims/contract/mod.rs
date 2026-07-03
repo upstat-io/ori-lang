@@ -680,6 +680,17 @@ pub struct ReturnContract {
     /// uniqueness/freshness-driven store-dup accounting.
     /// Spec: Annex E §AIMS RL-1 + RL-29 (fresh + Unique non-aliasing).
     pub returns_fresh_self_alloc: bool,
+    /// Whether the return value is a SHARING VIEW of a borrowed input's
+    /// backing buffer on every path — a seamless-slice co-reference
+    /// (`slice`/`substring`/`take`/`drop`) whose runtime self-inc mints the
+    /// view's own `+1` on the SHARED allocation. The typed buffer-provenance
+    /// CREDIT fact: the call boundary classifies the result as a CREDIT on
+    /// the source's allocation class (on top of the borrow-read of the
+    /// source), never a fresh birth. Orthogonal to `uniqueness` /
+    /// `returns_fresh_self_alloc` (a view is NEVER a fresh self-alloc);
+    /// carried for the provenance-ledger emitter, consumed by no emission
+    /// path here. Spec: Annex E §AIMS §12 (sharing-view producer = CREDIT).
+    pub returns_sharing_view: bool,
 }
 
 impl ReturnContract {
@@ -690,6 +701,7 @@ impl ReturnContract {
         locality: Locality::Unknown,
         shape: ShapeClass::NonReusable,
         returns_fresh_self_alloc: false,
+        returns_sharing_view: false,
     };
 
     /// Most-optimistic: unique return, freshness preserved.
@@ -705,6 +717,9 @@ impl ReturnContract {
         // value from the body each pass; `true ∧ extractor` lets a consistently
         // fresh-self-alloc return survive, `true ∧ false` clears a non-fresh one.
         returns_fresh_self_alloc: true,
+        // Same monotone AND-join shape as `returns_fresh_self_alloc`: the
+        // extractor's per-pass value is authoritative; `true ∧ false` clears.
+        returns_sharing_view: true,
     };
 
     /// Componentwise join toward conservative.
@@ -717,6 +732,7 @@ impl ReturnContract {
             shape: self.shape.join(other.shape),
             returns_fresh_self_alloc: self.returns_fresh_self_alloc
                 && other.returns_fresh_self_alloc,
+            returns_sharing_view: self.returns_sharing_view && other.returns_sharing_view,
         }
     }
 }

@@ -29,14 +29,15 @@ use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 
 /// Repo-relative paths whose formatted output fails to re-parse on the golden
-/// idempotency path — a `format -> parse` round-trip defect tracked under
-/// BUG-07-314. A re-parse failure on a file NOT listed here is a hard failure
+/// idempotency path — a `format -> parse` round-trip defect (Spec: Annex D —
+/// formatting must preserve observable semantics, so the output must
+/// re-parse). A re-parse failure on a file NOT listed here is a hard failure
 /// (never a silent skip); a listed file that re-parses clean again is a stale
 /// entry to remove. Empty today (the golden corpus exercises no tracked break);
 /// the guard pins the invariant so a regression cannot slip in silently.
 const GOLDEN_KNOWN_REPARSE_BREAKS: &[&str] = &[];
 
-/// Whether `repo_rel` is a tracked BUG-07-314 golden re-parse break.
+/// Whether `repo_rel` is a tracked golden re-parse break.
 fn is_golden_known_reparse_break(repo_rel: &str) -> bool {
     GOLDEN_KNOWN_REPARSE_BREAKS.contains(&repo_rel)
 }
@@ -207,8 +208,8 @@ fn run_golden_test(path: &Path) -> Result<(), String> {
 /// Test that formatting is idempotent: format(format(x)) == format(x)
 ///
 /// Note: This test is skipped for files with .expected files, since those
-/// may contain formatter output that the parser can't parse back (e.g.,
-/// multi-line parameters which the parser doesn't support yet).
+/// pin a specific format shape (e.g. a multi-line layout the golden test
+/// intentionally preserves) rather than exercising round-trip idempotence.
 fn test_idempotency(path: &Path) -> Result<(), String> {
     // Skip idempotency for files with .expected (known format differences)
     let expected_path = path.with_extension("ori.expected");
@@ -230,16 +231,16 @@ fn test_idempotency(path: &Path) -> Result<(), String> {
         Err(e) => {
             let repo_rel = repo_relative(path);
             if is_golden_known_reparse_break(&repo_rel) {
-                // Tracked BUG-07-314 round-trip break — counted, not failed.
+                // Tracked round-trip break — counted, not failed.
                 eprintln!(
-                    "Note: known BUG-07-314 re-parse break for {} (tracked): {}",
+                    "Note: known re-parse break for {} (tracked): {}",
                     path.display(),
                     e
                 );
                 return Ok(());
             }
             return Err(format!(
-                "Re-parse break for {} (formatter output rejected by parser; NOT in BUG-07-314 allowlist): {}",
+                "Re-parse break for {} (formatter output rejected by parser; NOT in the known-break allowlist): {}",
                 path.display(),
                 e
             ));

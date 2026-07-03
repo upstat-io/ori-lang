@@ -4286,6 +4286,7 @@ fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4317,6 +4318,7 @@ fn populate_call_result_states_apply_unique_contract_filtered() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4418,6 +4420,7 @@ fn propagate_alias_forward_state_let_alias_inherits_maybe_shared() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4464,6 +4467,7 @@ fn propagate_alias_forward_state_unique_source_alias_stays_unset() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4527,6 +4531,7 @@ fn propagate_alias_forward_state_project_view_inherits_maybe_shared() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
     let classifier = TestClassifier::all_ref(3);
@@ -4601,6 +4606,7 @@ fn propagate_alias_forward_state_select_joins_to_maybe_shared() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
     sigs.insert(
@@ -4611,6 +4617,7 @@ fn propagate_alias_forward_state_select_joins_to_maybe_shared() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
     let classifier = TestClassifier::all_ref(4);
@@ -4756,6 +4763,7 @@ fn populate_call_result_states_invoke_with_contract_inserts_dst() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4795,6 +4803,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4833,6 +4842,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4869,6 +4879,7 @@ fn populate_call_result_states_skips_scalar_dst() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4903,6 +4914,7 @@ fn populate_sparse_events_sees_function_local_contract_locality() {
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4941,6 +4953,7 @@ fn populate_call_result_states_block_local_filtered_no_event() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -5025,6 +5038,7 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -5113,6 +5127,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -5159,6 +5174,7 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -5192,6 +5208,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 

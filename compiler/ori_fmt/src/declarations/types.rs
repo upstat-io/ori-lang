@@ -3,7 +3,7 @@
 //! Formatting for type declarations: structs, sum types, and newtypes.
 
 use ori_ir::ast::items::{StructField, TypeDecl, TypeDeclKind, Variant};
-use ori_ir::{Name, StringLookup, Visibility};
+use ori_ir::{ExprId, Name, ParsedType, StringLookup, Visibility};
 
 use super::parsed_types::{calculate_type_width, const_expr_render_width, format_parsed_type};
 use super::ModuleFormatter;
@@ -145,11 +145,22 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             if i > 0 {
                 width += 2; // ", "
             }
-            width += self.interner.lookup(field.name).len();
-            width += 2; // ": "
-            width += calculate_type_width(&field.ty, self.arena, self.interner, &mut width_of_expr);
+            width += self.typed_field_width(field.name, &field.ty, &mut width_of_expr);
         }
         width
+    }
+
+    /// Width of `name: Type` — the shared skeleton between struct-field and
+    /// variant-field width calculation.
+    fn typed_field_width(
+        &self,
+        name: Name,
+        ty: &ParsedType,
+        width_of_expr: &mut dyn FnMut(ExprId) -> usize,
+    ) -> usize {
+        self.interner.lookup(name).len()
+            + 2 // ": "
+            + calculate_type_width(ty, self.arena, self.interner, width_of_expr)
     }
 
     fn format_sum_variants(&mut self, variants: &[Variant]) {
@@ -217,14 +228,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                     if j > 0 {
                         width += 2; // ", "
                     }
-                    width += self.interner.lookup(field.name).len();
-                    width += 2; // ": "
-                    width += calculate_type_width(
-                        &field.ty,
-                        self.arena,
-                        self.interner,
-                        &mut width_of_expr,
-                    );
+                    width += self.typed_field_width(field.name, &field.ty, &mut width_of_expr);
                 }
             }
         }

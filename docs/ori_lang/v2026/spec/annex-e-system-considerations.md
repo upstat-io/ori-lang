@@ -594,3 +594,21 @@ The following AIMS subsystems are designed but not yet shipped. Annex E's inform
 - Reference-count header compression (RL-17, RL-18)
 - Non-atomic reference count for thread-local programs (RL-19, RL-21)
 - AIMS-to-LLVM fact export: `noalias`, `memory(...)`, alias-scope metadata (RL-29, RL-30, RL-31)
+- Provenance-partition ledger emission (§12)
+
+### §12 Provenance-Partition Ledger
+
+The provenance-partition ledger is the machine-checked foundation for reference-count placement over value provenance. The emission pass that consumes it is a target subsystem (§11); the underlying calculus — five theorem families and their composition extensions — is proven. Two objects define the model:
+
+- **Partition** — per-(variable, field-path) classes keyed by allocation birth site, built as a union-find over semantic alias edges.
+- **Ledger** — per-class event sequences (birth, credit, consume, read, mutate) derived over the CFG — normal, back-edge, and unwind edges, plus TRMC regions — from a fixed terminal-use classification table, never re-classified per emission site.
+
+The proven theorem families:
+
+1. **Partition soundness.** Two nodes shall share a partition class only when they share an allocation birth site. Phi / select merges shall be admitted only under a singleton-birth-site witness; a merge over distinct birth sites is inadmissible.
+2. **Compositional placement.** A placement satisfying three clauses shall be safe on every CFG walk, including unwind-fed merges and TRMC back-edge loops of any iteration count: per-path net zero (no leak); running count at least one at every read (no use-after-free); running count at least one plus the live same-class sibling count at every mutation (no copy-on-write corruption). The three clauses are equivalent to ledger safety. Relocating a release past an unwind-fed merge is rejected.
+3. **Keep-alive whole-pair elision.** A keep-alive increment / decrement pair shall be elided only as a whole, and only when a live same-class sibling keeps the interior running count balanced and never below one; eliding the increment alone provably frees early or nets negative. Same-class sibling liveness is the dominating-increment evidence that KnownSafe pair elimination (§8.8) consumes.
+4. **Contract-boundary composition.** Boundary events at a call shall be classified through the callee's parameter contract (§7) via the fixed terminal-use table: an owned parameter is a birth on the callee side; an owned argument is a consume; an argument to an iterator-consuming parameter is a consume; a borrowed argument is a read; a transfer-through-return pairs a consume at the call with a credit at the return (net zero); a sharing-view producer is a credit. Given caller-clause satisfaction, callee conformance, and liveness at the call, the composed ledger satisfies the placement clauses without re-deriving the callee body. Classifying an owned argument as borrowed produces a double release and is rejected.
+5. **Frame-limited robustness.** Introducing an alias edge that merges two partition classes shall leave every other class's derived ledger verbatim. The merged class's net is unconditionally additive; the merged class preserves all three placement clauses only when both prior classes are count-nonnegative and mutation-free. Unconditional preservation of the read and mutation clauses under merges does not hold.
+
+The composition extensions integrate the partition as a side table without weakening the elimination calculus. Class-grain refinement gated to a subset of the lattice's elimination verdict preserves single elimination and analysis-state immutability; an eliminator outside the lattice's verdict set provably breaks that guarantee — the machine-checked form of invariant 5 (§2). The partition pre-pass sits between analysis and realization (§6) and flows without stale summaries; an appended partition verification layer (§9) only rejects more, and the class assignment remains a complete, distinct partition.

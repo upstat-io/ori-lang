@@ -154,6 +154,17 @@ THEOREM_MAP: dict[str, tuple[str, str, list[str]]] = {
     "VF-6": ("Verification", "VF6_certified_requires_both", ["certified"]),
     "VF-7": ("Verification", "VF7_three_tier_conjunction", ["tier"]),
     "VF-8": ("Verification", "VF8_covered_iff_not_gap", ["gap"]),
+    # RL-DROP — Realization.lean (drop-glue-gated scope-exit user @drop).
+    "RL-DROP": ("Realization", "RLDROP_scalar_lifecycle_sound", ["userDrop", "scalar"]),
+    # 12-provenance T-theorems — Partition / Ledger / RunningCount /
+    # ContractBoundary. Keyed by the .proof header id (family prefix + T-n);
+    # the checked-in rows carry the bare T-n proof_id.
+    "IA-T1": ("Partition", "samerep_birthsite_sound", ["birthsite", "samerep"]),
+    "RL-T2": ("Ledger", "compositional_placement_sound", ["threeclauses", "ledgersafe"]),
+    "RL-T3": ("RunningCount", "keep_alive_redundancy_sound_iff_whole_pair", ["runningrc", "neverbelow"]),
+    "IC-T4": ("ContractBoundary", "T4_contract_boundary_composition_sound", ["boundaryinstrs", "calleeconforms"]),
+    "IA-T5": ("ContractBoundary", "T5_frame_untouched_class_ledger_verbatim", ["mergeclasses", "deriveledger"]),
+    "CH-comp-PV": ("ProvenanceComposition", "CHcomp_partition_side_table", ["eliminateatclass", "handshakeaccepts"]),
     # CH — Coexistence.lean
     "CH-1": ("Coexistence", "CH1_lattice_bridge", ["burden", "bridge"]),
     "CH-2": ("Coexistence", "CH2_single_elimination", ["elimination"]),

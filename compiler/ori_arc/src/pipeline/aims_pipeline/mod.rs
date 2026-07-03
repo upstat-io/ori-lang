@@ -227,7 +227,7 @@ pub(crate) fn run_aims_pipeline(
     trace_pipeline_checkpoint(func, "analyze_function", config.interner, config.observer);
 
     // Step 4a: TRMC semantic soundness verification.
-    let (state_map, trmc_rewrite_survived) =
+    let (mut state_map, trmc_rewrite_survived) =
         trmc::verify_trmc_soundness(func, state_map, did_trmc_transform, pre_trmc_func, config);
     trace_pipeline_checkpoint(
         func,
@@ -235,6 +235,16 @@ pub(crate) fn run_aims_pipeline(
         config.interner,
         config.observer,
     );
+
+    // Populate the birth-site partition side table on the converged state map
+    // (after Step 4a: IR + state map are final; before Step 4b burden
+    // emission). Read-only downstream per PL-5; admission per the T1
+    // partition calculus (AimsProof.Partition).
+    let birth_site_partition =
+        crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition(
+            func, &state_map,
+        );
+    state_map.set_birth_site_partition(birth_site_partition);
 
     // Step 4b-prelude — populate arg_ownership AFTER analyze_function (so
     // post-convergence's payload-edge analysis sees empty arg_ownership,
