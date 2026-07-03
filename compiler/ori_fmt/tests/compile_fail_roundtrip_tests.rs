@@ -218,6 +218,17 @@ fn compile_fail_message_escapes_quote_and_newline() {
 }
 
 #[test]
+fn compile_fail_message_escapes_standalone_backslash() {
+    // Source embeds a literal `\` in a message-alone attr; the formatter must
+    // re-emit it as `\\` in the shorthand form and re-parse identically.
+    let out = assert_reparses(&test_cell("#compile_fail(message: \"a\\\\b\")"));
+    assert!(
+        out.contains("#compile_fail(\"a\\\\b\")"),
+        "standalone backslash must be re-escaped as \\\\ in shorthand:\n{out}"
+    );
+}
+
+#[test]
 fn compile_fail_keyed_message_escapes_quote_and_newline() {
     // With a second field the attr stays keyed, exercising the keyed message
     // emit site's escaping (not the shorthand branch).

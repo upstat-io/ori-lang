@@ -10,8 +10,7 @@ use crate::declarations::format_parsed_type;
 use crate::emitter::StringEmitter;
 
 /// Emit a string literal with surrounding quotes and escaped control / quote
-/// characters. Free function so non-`Formatter` emitters (the `ModuleFormatter`
-/// attribute sites in `declarations/`) share one escaping implementation.
+/// characters. Free function so non-`Formatter` emitters share one escaping impl.
 pub(crate) fn emit_escaped_str(ctx: &mut FormatContext<StringEmitter>, s: impl AsRef<str>) {
     let s = s.as_ref();
     ctx.emit("\"");

@@ -21,8 +21,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.emit_newline();
         }
 
-        // Compile-fail attributes — one per ExpectedError, faithfully
-        // round-tripping the keyed fields (each entry parsed one attribute).
+        // One #compile_fail attribute per ExpectedError (each entry parsed one).
         for err in &test.expected_errors {
             self.emit_compile_fail_attr(err);
             self.ctx.emit_newline();
@@ -70,16 +69,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// only when `message` is the sole set field; otherwise the keyed form in the
     /// canonical order `code, message, line, column` (only set fields emitted).
     fn emit_compile_fail_attr(&mut self, err: &ExpectedError) {
-        let message_only = err.message.is_some()
-            && err.code.is_none()
-            && err.line.is_none()
-            && err.column.is_none();
         self.ctx.emit("#compile_fail(");
-        if message_only {
-            if let Some(msg) = err.message {
-                let s = self.interner.lookup(msg);
-                emit_escaped_str(&mut self.ctx, s);
-            }
+        if let (Some(msg), None, None, None) = (err.message, err.code, err.line, err.column) {
+            let s = self.interner.lookup(msg);
+            emit_escaped_str(&mut self.ctx, s);
             self.ctx.emit(")");
             return;
         }
