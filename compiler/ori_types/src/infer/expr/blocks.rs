@@ -19,11 +19,8 @@ pub(crate) fn infer_block(
     result: ExprId,
     _span: Span,
 ) -> Idx {
-    // Enter binding scope for the block.
-    // All let bindings within this block will be isolated from parent scope.
     engine.enter_scope();
 
-    // Process statements
     for stmt in arena.get_stmt_range(stmts) {
         match &stmt.kind {
             ori_ir::StmtKind::Expr(expr_id) => {
@@ -41,14 +38,12 @@ pub(crate) fn infer_block(
         }
     }
 
-    // Block type is the result expression type, or unit
     let block_ty = if result.is_present() {
         infer_expr(engine, arena, result)
     } else {
         Idx::UNIT
     };
 
-    // Exit block scope - bindings are no longer visible
     engine.exit_scope();
 
     block_ty
@@ -61,9 +56,7 @@ pub(crate) fn infer_let(
     pattern: BindingPatternId,
     ty: ParsedTypeId,
     init: ExprId,
-    // Why: Mutability is an effect, not a type property in Ori's HM inference.
-    // Enforcement happens in evaluator and codegen; the parameter is kept
-    // for future "cannot assign to immutable binding" diagnostics.
+    // Why: Mutability is not a type property in Ori's HM inference.
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
@@ -83,7 +76,6 @@ pub(crate) fn infer_let_binding_core(
 ) -> Idx {
     let pat = arena.get_binding_pattern(pattern_id);
 
-    // Track error count for closure self-capture detection
     let binding_name = pattern_first_name(pat);
     let errors_before = engine.error_count();
 
@@ -92,9 +84,7 @@ pub(crate) fn infer_let_binding_core(
     // which must stay visible to the remainder of the block.
     engine.enter_rank_scope();
 
-    // Check/infer the initializer type based on presence of annotation
     let final_ty = if ty_id.is_valid() {
-        // With type annotation: use bidirectional checking
         let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
         let expected = Expected {
@@ -113,7 +103,6 @@ pub(crate) fn infer_let_binding_core(
         }
         expected_ty
     } else {
-        // No annotation: infer and generalize for let-polymorphism
         let init_ty = infer_expr(engine, arena, init);
 
         // Why: Rewrite UnknownIdent errors matching the binding name to a
@@ -136,11 +125,8 @@ pub(crate) fn infer_let_binding_core(
         maybe_generalize(engine, arena, init, bound_ty)
     };
 
-    // Exit rank scope
     engine.exit_rank_scope();
 
-    // Bind pattern to the block's scope.
-    // The binding is visible to subsequent statements and the result.
     if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
         let err = TypeCheckError::refutable_pattern(span, reason);
         engine.push_error(err);

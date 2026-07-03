@@ -185,21 +185,16 @@ pub(crate) fn infer_for_pattern(
         let resolved_map = engine.resolve(map_fn_ty);
 
         if engine.pool().tag(resolved_map) == Tag::Function {
-            // Map function return type becomes the new element type
             engine.pool().function_return(resolved_map)
         } else {
-            // Not a function, just use elem_ty
             elem_ty
         }
     } else {
         elem_ty
     };
 
-    // Enter scope for pattern bindings
     engine.enter_scope();
 
-    // Check pattern against scrutinee type.
-    // for-pattern arms don't have an ArmRange, use a sentinel key.
     check_match_pattern(
         engine,
         arena,
@@ -209,7 +204,6 @@ pub(crate) fn infer_for_pattern(
         arm.span,
     );
 
-    // Check guard if present
     if let Some(guard_id) = arm.guard {
         engine.push_context(ContextKind::MatchArmGuard { arm_index: 0 });
         let guard_ty = infer_expr(engine, arena, guard_id);
@@ -413,8 +407,6 @@ pub(crate) fn infer_function_exp(
     match func_exp.kind {
         // Simple built-ins
         FunctionExpKind::Print => {
-            // print(value: expr) -> unit
-            // Evaluate the value (if present) for type checking
             for prop in props {
                 infer_expr(engine, arena, prop.value);
             }
@@ -422,8 +414,6 @@ pub(crate) fn infer_function_exp(
         }
 
         FunctionExpKind::Panic => {
-            // panic(message: expr) -> never
-            // Evaluate message for type checking
             for prop in props {
                 infer_expr(engine, arena, prop.value);
             }
