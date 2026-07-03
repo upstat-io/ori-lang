@@ -135,10 +135,9 @@ pub(crate) fn infer_try_seq(
         let resolved = engine.resolve(result_ty);
         let tag = engine.pool().tag(resolved);
         match (tag, error_ty) {
-            // Why: Result already wraps; unify inner Err with the let-binding
-            // propagating error type so we get `Result<T, E>` instead of
-            // the spurious `Result<Result<T, _>, E>` double-wrap. Reverts
-            // the existing wrap-anything bug surfaced by control_flow.ori.
+            // Why: Result wraps; unify inner Err with let-binding error type
+            // to yield `Result<T, E>` instead of `Result<Result<T, _>, E>`
+            // double-wrap. Reverts wrap-anything bug (control_flow.ori).
             (Tag::Result, Some(et)) => {
                 let inner_err = engine.pool().result_err(resolved);
                 let _ = engine.unify_types(inner_err, et);
@@ -171,11 +170,9 @@ pub(crate) fn infer_for_pattern(
     default: ExprId,
     _span: Span,
 ) -> Idx {
-    // Infer the iterable type
     let over_ty = infer_expr(engine, arena, over);
     let resolved_over = engine.resolve(over_ty);
 
-    // Extract element type from collection
     let elem_ty = match engine.pool().tag(resolved_over) {
         Tag::List => engine.pool().list_elem(resolved_over),
         Tag::Set => engine.pool().set_elem(resolved_over),
@@ -299,7 +296,8 @@ pub(crate) fn bind_pattern(
     }
 }
 
-/// Why: Sub-pattern binder helper for tuple patterns.
+/// Binds tuple pattern variables against tuple element types, falling back
+/// to fresh variables on type mismatch.
 fn bind_tuple_pattern(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -321,7 +319,7 @@ fn bind_tuple_pattern(
     }
 }
 
-/// Why: Sub-pattern binder helper for struct patterns.
+/// Extracts struct field types from Named/Applied structures and binds field patterns.
 fn bind_struct_pattern(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -358,7 +356,7 @@ fn bind_struct_pattern(
     }
 }
 
-/// Why: Sub-pattern binder helper for list patterns.
+/// Recursively binds list pattern elements to the collection element type.
 fn bind_list_pattern(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

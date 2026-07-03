@@ -4,35 +4,9 @@
 //! `InferEngine` infrastructure. It dispatches on `ExprKind` to
 //! specialized inference functions.
 //!
-//! # Architecture
-//!
 //! Expression inference follows Hindley-Milner with bidirectional checking:
-//!
 //! - **Synthesis (infer)**: Bottom-up type derivation from expression structure
 //! - **Checking (check)**: Top-down verification against expected type
-//!
-//! The dispatch is structured to match `ori_ir::ExprKind` variants,
-//! with each category delegating to specialized modules:
-//!
-//! - Literals -> direct primitive type
-//! - Identifiers -> environment lookup + instantiation
-//! - Operators -> operator inference (binary, unary)
-//! - Calls -> function/method call inference
-//! - Control flow -> if/match/loop inference
-//! - Lambdas -> lambda inference with scope management
-//! - Collections -> list/map/tuple inference
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use ori_types::infer::{InferEngine, infer_expr};
-//!
-//! let mut pool = Pool::new();
-//! let mut engine = InferEngine::new(&mut pool);
-//!
-//! // Infer type of expression
-//! let ty = infer_expr(&mut engine, &arena, expr_id);
-//! ```
 
 mod blocks;
 mod calls;
@@ -129,7 +103,8 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
     clippy::too_many_lines,
     reason = "exhaustive ExprKind → inference handler router"
 )]
-fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
+fn
+infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
     let expr = arena.get_expr(expr_id);
     let span = expr.span;
 
@@ -268,10 +243,8 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
         ExprKind::AssignTarget { root, steps } => {
-            // An assign-target chain is an lvalue; as a standalone expression it
-            // carries no value type. `infer_assign_target` records the desugar
-            // plan and returns the value-position element type (consumed by
-            // `infer_assign`); here it is discarded — the node types as unit.
+            // Why: `infer_assign_target` is run for side-effect desugar planning;
+            // standalone assign-target chain discards the type and returns UNIT.
             let _ = infer_assign_target(engine, arena, expr_id, *root, *steps);
             Idx::UNIT
         }
@@ -307,109 +280,64 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
     ty
 }
 
-/// Check an expression against an expected type.
-///
-/// This is the "check" direction of bidirectional type checking.
-/// It handles cases where the expected type can guide literal typing:
-///
-/// - Integer literals in range 0-255 are coerced to `byte` when expected type is `byte`
-/// - `iter.collect()` resolves to `Set<T>` when expected type is `Set<T>` (Collect trait)
-///
-/// For all other expressions, this infers the type and then checks against expected.
-#[tracing::instrument(level = "trace", skip(engine, arena, expected))]
-pub fn check_expr(
+/// Coerces integer literals in range 0-255 to byte when expected type is byte.
+fn check_int_literal_coercion(
+    engine: &mut InferEngine<'_>,
+    expr_id: ExprId,
+    kind: &ExprKind,
+    expected_tag: Tag,
+) -> Option<Idx> {
+    if let ExprKind::Int(value) = kind {
+        if expected_tag == Tag::Byte {
+            if *value >= 0 && *value <= 255 {
+                engine.store_type(expr_id.raw() as usize, Idx::BYTE);
+                return Some(Idx::BYTE);
+            }
+        }
+    }
+    None
+}
+
+fn check_sum_constructors(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     expr_id: ExprId,
+    kind: &ExprKind,
     expected: &Expected,
     span: Span,
-) -> Idx {
-    let expr = arena.get_expr(expr_id);
-
-    // Resolve the expected type to see what we're checking against
-    let expected_ty = engine.resolve(expected.ty);
-    let expected_tag = engine.pool().tag(expected_ty);
-
-    // Special case: integer literals can coerce to byte when in range
-    if let ExprKind::Int(value) = &expr.kind {
-        if expected_tag == Tag::Byte {
-            // Check if the literal is in the valid byte range (0-255)
-            if *value >= 0 && *value <= 255 {
-                // Coerce the literal to byte
-                engine.store_type(expr_id.raw() as usize, Idx::BYTE);
-                return Idx::BYTE;
-            }
-            // Out of range - infer as int and let check_type report the mismatch
-        }
-    }
-
-    // Type-directed collect dispatch: `iter.collect()` with expected `Set<T>`
-    // resolves to `Set<T>` instead of the default `[T]` (Collect trait
-    // bidirectional inference). Policy lives in `collections.rs` so this
-    // function stays routing-only per.
-    if let Some(ty) = check_collect_method_call(
-        engine,
-        arena,
-        expr_id,
-        &expr.kind,
-        expected,
-        expected_tag,
-        span,
-    ) {
-        return ty;
-    }
-
-    // BD-2 try-block: thread the expected type through `infer_try_seq` so
-    // `let r: Result<T, E> = try { ... Ok(x) }` checks `x` against `T`
-    // instead of double-wrapping. Non-Result expectations (NoExpectation,
-    // unresolved Var, mismatched tag) fall through to synthesis inside
-    // `infer_try_seq`; the post-call `check_type` below subsumes the
-    // synthesized result against `expected` and emits E2001 on mismatch.
-    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
-        if let ori_ir::FunctionSeq::Try { stmts, result, .. } = arena.get_function_seq(*seq_id) {
-            let ty = sequences::infer_try_seq(engine, arena, *stmts, *result, span, expected);
-            engine.store_type(expr_id.raw() as usize, ty);
-            let _ = engine.check_type(ty, expected, span);
-            return ty;
-        }
-    }
-
-    // BD-2 sum constructors: when an outer `Result<T, E>` / `Option<T>`
-    // annotation is in scope, propagate the inner-slot type into the
-    // constructor's argument so `let r: Result<int, MyErr> = Ok(42)`
-    // checks `42` against `int` and returns `Result<int, MyErr>` rather
-    // than the synth-default `Result<int, fresh_var>` that would leak
-    // an unresolvable Err type. Non-matching expectations fall through
-    // to the constructor's existing synth path.
-    match &expr.kind {
+) -> Option<Idx> {
+    match kind {
         ExprKind::Ok(inner) => {
             let ty = check_ok(engine, arena, *inner, span, expected);
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
-            return ty;
+            Some(ty)
         }
         ExprKind::Err(inner) => {
             let ty = check_err(engine, arena, *inner, span, expected);
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
-            return ty;
+            Some(ty)
         }
         ExprKind::Some(inner) => {
             let ty = check_some(engine, arena, *inner, span, expected);
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
-            return ty;
+            Some(ty)
         }
-        _ => {}
+        _ => None,
     }
+}
 
-    // BD-2 method-call return: propagate outer `Check(T)` into the method's
-    // generic-return slot via `Some(expected)` — closes the LHS-propagation
-    // gap for methods like `Error::into` / `Iterator::collect` whose return
-    // is a generic `T` instantiated as a fresh var by `resolve_impl_signature`.
-    // Runs AFTER `check_collect_method_call` so the Set-specific gate keeps
-    // priority for `iter.collect()` with expected `Set<T>`.
-    match &expr.kind {
+fn check_method_calls(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    kind: &ExprKind,
+    expected: &Expected,
+    span: Span,
+) -> Option<Idx> {
+    match kind {
         ExprKind::MethodCall {
             receiver,
             method,
@@ -427,7 +355,7 @@ pub fn check_expr(
             );
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
-            return ty;
+            Some(ty)
         }
         ExprKind::MethodCallNamed {
             receiver,
@@ -446,9 +374,65 @@ pub fn check_expr(
             );
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
+            Some(ty)
+        }
+        _ => None,
+    }
+}
+
+/// Check an expression against an expected type.
+///
+/// This implements the check direction of bidirectional type checking,
+/// letting the type checker guide literal and method-call typing.
+#[tracing::instrument(level = "trace", skip(engine, arena, expected))]
+pub fn check_expr(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    expected: &Expected,
+    span: Span,
+) -> Idx {
+    let expr = arena.get_expr(expr_id);
+
+    // Resolve the expected type to see what we're checking against
+    let expected_ty = engine.resolve(expected.ty);
+    let expected_tag = engine.pool().tag(expected_ty);
+
+    if let Some(ty) = check_int_literal_coercion(engine, expr_id, &expr.kind, expected_tag) {
+        return ty;
+    }
+
+    // Why: bidirectional inference for `iter.collect()` with expected `Set<T>`
+    // resolves to `Set<T>` rather than default `[T]`.
+    if let Some(ty) = check_collect_method_call(
+        engine,
+        arena,
+        expr_id,
+        &expr.kind,
+        expected,
+        expected_tag,
+        span,
+    ) {
+        return ty;
+    }
+
+    // Why: Thread expected type through `infer_try_seq` to check `x` against `T`
+    // and avoid double-wrapping. Non-Result falls through to synthesis.
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        if let ori_ir::FunctionSeq::Try { stmts, result, .. } = arena.get_function_seq(*seq_id) {
+            let ty = sequences::infer_try_seq(engine, arena, *stmts, *result, span, expected);
+            engine.store_type(expr_id.raw() as usize, ty);
+            let _ = engine.check_type(ty, expected, span);
             return ty;
         }
-        _ => {}
+    }
+
+    if let Some(ty) = check_sum_constructors(engine, arena, expr_id, &expr.kind, expected, span) {
+        return ty;
+    }
+
+    if let Some(ty) = check_method_calls(engine, arena, expr_id, &expr.kind, expected, span) {
+        return ty;
     }
 
     // Default: infer the type and check against expected

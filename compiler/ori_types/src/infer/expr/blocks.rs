@@ -72,7 +72,7 @@ pub(crate) fn infer_let(
     Idx::UNIT
 }
 
-/// Why: Core let-statement checking logic shared between `infer_block`, `infer_let`, and `infer_try_stmt` (sequences.rs).
+/// Core let-statement checking logic shared between block and sequence let-bindings.
 pub(crate) fn infer_let_binding_core(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -88,11 +88,9 @@ pub(crate) fn infer_let_binding_core(
     let binding_name = pattern_first_name(pat);
     let errors_before = engine.error_count();
 
-    // Why: Enter a rank-only scope for let-polymorphism. The surrounding
-    // block already pushed its env scope on `infer_block` entry and
-    // the let binding MUST stay visible to subsequent statements.
-    // Pushing another env.child() here would hide later bindings from
-    // earlier lets. All three let-generalization sites use `enter_rank_scope`.
+    // Why: Enter a rank scope for let-polymorphism. Pushing an env scope
+    // here would hide subsequent block statements from this let binding,
+    // which must stay visible to the remainder of the block.
     engine.enter_rank_scope();
 
     // Check/infer the initializer type based on presence of annotation
@@ -135,10 +133,8 @@ pub(crate) fn infer_let_binding_core(
             init_ty
         };
 
-        // Spec: Value Restriction: only non-capturing lambdas may be generalized.
-        // All other initializers (list literals, map literals, struct constructions,
-        // constants) are monomorphic — their Vars must stay Unbound so the
-        // body-types validator can surface E2005 on empty containers.
+        // Spec: Value Restriction: only non-capturing lambdas are generalized.
+        // Other initializers are monomorphic so E2005 surfaces on empty containers.
         // Spec: Clause 14
         maybe_generalize(engine, arena, init, bound_ty)
     };
