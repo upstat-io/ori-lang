@@ -29,22 +29,31 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTALL="$HERE/../../test-all.sh"
+LEG_HELPERS="$HERE/../test_all/legs.sh"
+PARSING_HELPERS="$HERE/../test_all/parsing.sh"
 
 if [ ! -f "$TESTALL" ]; then
     echo "FAIL: test-all.sh not found at $TESTALL"
     exit 1
 fi
-
-# Extract globals + functions under test (test-all.sh has no BASH_SOURCE
-# main-guard; functions are sed-extracted + eval'd in isolation).
-eval "$(sed -n '/^BUILD_RACE_RE=/p' "$TESTALL")"
-if [ -z "${BUILD_RACE_RE:-}" ]; then
-    echo "FAIL: BUILD_RACE_RE not defined in test-all.sh"
+if [ ! -f "$LEG_HELPERS" ]; then
+    echo "FAIL: leg helper file not found at $LEG_HELPERS"
     exit 1
 fi
-eval "$(sed -n '/^cargo_race_retry()/,/^}/p' "$TESTALL")"
-eval "$(sed -n '/^parse_rust_results()/,/^}/p' "$TESTALL")"
-eval "$(sed -n '/^suite_status()/,/^}/p' "$TESTALL")"
+if [ ! -f "$PARSING_HELPERS" ]; then
+    echo "FAIL: parsing helper file not found at $PARSING_HELPERS"
+    exit 1
+fi
+
+# Extract globals + functions under test from the sourced helper files.
+eval "$(sed -n '/^BUILD_RACE_RE=/p' "$LEG_HELPERS")"
+if [ -z "${BUILD_RACE_RE:-}" ]; then
+    echo "FAIL: BUILD_RACE_RE not defined in $LEG_HELPERS"
+    exit 1
+fi
+eval "$(sed -n '/^cargo_race_retry()/,/^}/p' "$LEG_HELPERS")"
+eval "$(sed -n '/^parse_rust_results()/,/^}/p' "$PARSING_HELPERS")"
+eval "$(sed -n '/^suite_status()/,/^}/p' "$PARSING_HELPERS")"
 
 RACE_LINE='error: [double-spawn] failed to exec "deps/aot-x": No such file or directory (os error 2)'
 

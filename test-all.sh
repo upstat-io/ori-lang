@@ -164,6 +164,8 @@ source "$TEST_ALL_DIR/scripts/test_all/legs.sh"
 source "$TEST_ALL_DIR/scripts/test_all/parsing.sh"
 # shellcheck source=scripts/test_all/json_report.sh
 source "$TEST_ALL_DIR/scripts/test_all/json_report.sh"
+# shellcheck source=scripts/test_all/post_run.sh
+source "$TEST_ALL_DIR/scripts/test_all/post_run.sh"
 # shellcheck source=scripts/test_all/reporting.sh
 source "$TEST_ALL_DIR/scripts/test_all/reporting.sh"
 

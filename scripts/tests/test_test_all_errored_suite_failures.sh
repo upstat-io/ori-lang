@@ -22,15 +22,19 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTALL="$HERE/../../test-all.sh"
+JSON_HELPERS="$HERE/../test_all/json_report.sh"
 
 if [ ! -f "$TESTALL" ]; then
     echo "FAIL: test-all.sh not found at $TESTALL"
     exit 1
 fi
+if [ ! -f "$JSON_HELPERS" ]; then
+    echo "FAIL: JSON helper file not found at $JSON_HELPERS"
+    exit 1
+fi
 
-# (a) The status-guarded helper must exist (test-all.sh has no BASH_SOURCE
-# main-guard, so individual functions are extracted by sed + eval'd).
-fn="$(sed -n '/^scrape_failures_unless_errored()/,/^}/p' "$TESTALL")"
+# (a) The status-guarded helper must exist in the sourced JSON helper file.
+fn="$(sed -n '/^scrape_failures_unless_errored()/,/^}/p' "$JSON_HELPERS")"
 if [ -z "$fn" ]; then
     echo "FAIL: scrape_failures_unless_errored() is not defined in test-all.sh (cure unshipped)"
     exit 1
@@ -68,7 +72,7 @@ PY
 # (e) SSOT wiring: every rust leg's scrape in emit_json MUST route through the
 # status-guarded helper, never bare rust_failures_json. Extract emit_json and
 # assert each leg id appears on a scrape_failures_unless_errored call line.
-emit_body="$(sed -n '/^emit_json()/,/^}/p' "$TESTALL")"
+emit_body="$(sed -n '/^emit_json()/,/^}/p' "$JSON_HELPERS")"
 if [ -z "$emit_body" ]; then
     echo "FAIL: emit_json() is not defined in test-all.sh"
     exit 1
@@ -106,7 +110,7 @@ fi
 # rust_failures_json for the gate-isolation cells); scrape_failures_unless_errored
 # resolves them at call time, so it now drives the production scraper.
 unset -f rust_failures_json
-eval "$(sed -n '/^rust_failures_json()/,/^}/p; /^json_array_inner()/,/^}/p' "$TESTALL")"
+eval "$(sed -n '/^rust_failures_json()/,/^}/p; /^json_array_inner()/,/^}/p' "$JSON_HELPERS")"
 nextest_log="$(mktemp)"
 printf '    FAIL [   0.038s] (1/1) ori_llvm::aot t_phantom::real_case\n' > "$nextest_log"
 real_errored="$(json_array_inner "$(scrape_failures_unless_errored "$nextest_log" "aot" "errored")")"

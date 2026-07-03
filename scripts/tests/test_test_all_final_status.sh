@@ -6,13 +6,18 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTALL="$HERE/../../test-all.sh"
+REPORTING_HELPERS="$HERE/../test_all/reporting.sh"
 
 if [ ! -f "$TESTALL" ]; then
     echo "FAIL: test-all.sh not found at $TESTALL"
     exit 1
 fi
+if [ ! -f "$REPORTING_HELPERS" ]; then
+    echo "FAIL: reporting helper file not found at $REPORTING_HELPERS"
+    exit 1
+fi
 
-fn="$(sed -n '/^test_all_final_exit_code()/,/^}/p' "$TESTALL")"
+fn="$(sed -n '/^test_all_final_exit_code()/,/^}/p' "$REPORTING_HELPERS")"
 if [ -z "$fn" ]; then
     echo "FAIL: test_all_final_exit_code() is not defined in test-all.sh"
     exit 1

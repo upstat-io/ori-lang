@@ -7,6 +7,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTALL="$HERE/../../test-all.sh"
+JSON_HELPERS="$HERE/../test_all/json_report.sh"
 PARSE_TEST_JSON="$HERE/../../diagnostics/parse_test_json.py"
 
 if [ ! -f "$TESTALL" ]; then
@@ -15,6 +16,10 @@ if [ ! -f "$TESTALL" ]; then
 fi
 if [ ! -f "$PARSE_TEST_JSON" ]; then
     echo "FAIL: parse_test_json.py not found at $PARSE_TEST_JSON"
+    exit 1
+fi
+if [ ! -f "$JSON_HELPERS" ]; then
+    echo "FAIL: JSON helper file not found at $JSON_HELPERS"
     exit 1
 fi
 
@@ -99,8 +104,8 @@ if grep -qE '^(json_escape_string|parse_rust_failures|parse_ori_failures)\(\)' "
     exit 1
 fi
 
-rust_body="$(sed -n '/^rust_failures_json()/,/^}/p' "$TESTALL")"
-ori_body="$(sed -n '/^ori_failures_json()/,/^}/p' "$TESTALL")"
+rust_body="$(sed -n '/^rust_failures_json()/,/^}/p' "$JSON_HELPERS")"
+ori_body="$(sed -n '/^ori_failures_json()/,/^}/p' "$JSON_HELPERS")"
 if [ -z "$rust_body" ] || ! printf '%s' "$rust_body" | grep -q -- 'PARSE_TEST_JSON.*--rust-failures'; then
     echo "FAIL: rust_failures_json() is not wired to parse_test_json.py --rust-failures"
     exit 1
