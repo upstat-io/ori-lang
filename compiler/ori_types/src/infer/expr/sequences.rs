@@ -2,7 +2,7 @@
 
 use ori_ir::{ExprArena, ExprId, FieldBinding, Name, Span};
 
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
 
 use super::super::InferEngine;
 use super::{
@@ -392,76 +392,6 @@ fn bind_list_pattern(
             engine
                 .env_mut()
                 .bind_with_mutability(rest_name, ty, rest_mut);
-        }
-    }
-}
-
-/// Infer type for a `function_exp` expression (recurse, parallel, print, etc.).
-///
-/// `FunctionExp` represents named property expressions:
-/// - **Print**: `print(value: expr)` -> unit
-/// - **Panic**: `panic(message: expr)` -> never
-/// - **Todo/Unreachable**: `todo(message?: expr)` -> never
-/// - **Catch**: `catch(try: expr, catch: expr)` -> T
-/// - **Recurse**: `recurse(condition: expr, base: expr, step: expr)` -> T
-/// - **Parallel/Spawn/Timeout/Cache/With**: Concurrency patterns
-///
-/// # Returns
-///
-/// The inferred type.
-pub(crate) fn infer_function_exp(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    func_exp: &ori_ir::FunctionExp,
-) -> Idx {
-    use ori_ir::FunctionExpKind;
-
-    let props = arena.get_named_exprs(func_exp.props);
-
-    match func_exp.kind {
-        // Simple built-ins
-        FunctionExpKind::Print => {
-            for prop in props {
-                infer_expr(engine, arena, prop.value);
-            }
-            Idx::UNIT
-        }
-
-        FunctionExpKind::Panic | FunctionExpKind::Todo | FunctionExpKind::Unreachable => {
-            for prop in props {
-                infer_expr(engine, arena, prop.value);
-            }
-            Idx::NEVER
-        }
-
-        // Error handling
-        FunctionExpKind::Catch => super::infer_catch(engine, arena, props),
-
-        // Recursion
-        FunctionExpKind::Recurse => {
-            // Complex: step can reference `self` (the recursive function)
-            super::infer_recurse(engine, arena, props)
-        }
-
-        FunctionExpKind::Cache => {
-            // cache(key: expr, op: expr, ttl: Duration) -> T
-            super::infer_cache(engine, arena, props)
-        }
-
-        // Post-2026 concurrency — rejected at type checking (E2040)
-        FunctionExpKind::Parallel
-        | FunctionExpKind::Spawn
-        | FunctionExpKind::Timeout
-        | FunctionExpKind::With
-        | FunctionExpKind::Channel
-        | FunctionExpKind::ChannelIn
-        | FunctionExpKind::ChannelOut
-        | FunctionExpKind::ChannelAll => {
-            engine.push_error(TypeCheckError::unsupported_feature(
-                func_exp.span,
-                func_exp.kind.name(),
-            ));
-            Idx::ERROR
         }
     }
 }

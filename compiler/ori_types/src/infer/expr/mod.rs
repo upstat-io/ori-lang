@@ -25,21 +25,23 @@ mod sequences;
 mod structs;
 mod type_resolution;
 
-// Named re-exports for tests and sibling access. Kept alphabetical per
-// submodule so drift is easy to spot at review time.
+pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
+pub use type_resolution::resolve_parsed_type;
+
+pub(crate) use calls::register_concrete_applied_resolutions;
+pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
+pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 
 pub(super) use blocks::{infer_block, infer_let, infer_try_let_binding};
-pub(crate) use calls::register_concrete_applied_resolutions;
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
     infer_method_call, infer_method_call_named,
 };
-pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
     infer_range, infer_tuple,
 };
-pub(super) use concurrency::{infer_cache, infer_catch, infer_recurse};
+pub(super) use concurrency::infer_function_exp;
 pub(super) use constructors::{
     check_err, check_ok, check_some, infer_await, infer_err, infer_none, infer_ok, infer_some,
     infer_try, infer_with_capability,
@@ -53,38 +55,36 @@ pub(super) use identifiers::{
     find_similar_type_names, infer_const, infer_function_ref, infer_ident, infer_self_ref,
 };
 pub(super) use lambdas::infer_lambda;
-#[cfg(test)]
-pub(super) use lambdas::should_generalize;
 pub(super) use methods::resolve_builtin_method;
-// `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
-// source visibility — re-exporting at the same level lets `calls/method_call.rs`
-// reach it via `super::super::range_method_requires_iteration`.
-pub(in crate::infer::expr) use methods::range_method_requires_iteration;
 pub(super) use operators::{
     infer_assign, infer_assign_target, infer_binary, infer_cast, infer_unary,
 };
-pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
-pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
-#[cfg(test)]
-pub(super) use sequences::infer_try_stmt;
-pub(super) use sequences::{
-    bind_pattern, infer_function_exp, infer_function_seq, unwrap_result_or_option,
-};
+pub(super) use sequences::{bind_pattern, infer_function_seq, unwrap_result_or_option};
 pub(super) use structs::{
     infer_field, infer_index, infer_struct, infer_struct_spread, lookup_struct_field_types,
 };
 pub(super) use type_resolution::resolve_and_check_parsed_type;
-pub use type_resolution::resolve_parsed_type;
+
+#[cfg(test)]
+pub(super) use lambdas::should_generalize;
+
+// `range_method_requires_iteration` keeps its narrower `pub(in crate::infer::expr)`
+// source visibility — re-exporting at the same level lets `calls/method_call.rs`
+// reach it via `super::super::range_method_requires_iteration`.
+pub(in crate::infer::expr) use methods::range_method_requires_iteration;
+
+#[cfg(test)]
+pub(super) use sequences::infer_try_stmt;
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Span};
 use ori_stack::ensure_sufficient_stack;
 
+#[cfg(test)]
+use ori_ir::{BinaryOp, ParsedType, UnaryOp};
+
 use crate::{Expected, Idx, Tag};
 
 use super::InferEngine;
-
-#[cfg(test)]
-use ori_ir::{BinaryOp, ParsedType, UnaryOp};
 
 /// Infer the type of an expression.
 ///

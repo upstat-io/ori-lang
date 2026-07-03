@@ -1,98 +1,112 @@
 #!/usr/bin/env bash
-# TDD pin: test-all.sh must JSON-escape control characters in failure-message /
-# test_id strings so build/test-all-summary.json is valid JSON (RFC 8259 §7 —
-# every U+0000..U+001F escaped or stripped). A literal tab in a failure message
-# (the compile-fail escaping test t_escaping) otherwise writes a raw 0x09 into a
-# JSON string value, making the summary unparseable.
-#
-# Pins: (a) the shared json_escape_string() helper exists; (b) it escapes
-# tab/newline/CR faithfully as \t/\n/\r and preserves backslash + double-quote;
-# (c) it strips rare invisible C0 controls so EVERY input yields valid JSON;
-# (d) BOTH parse_rust_failures + parse_ori_failures route their non-hardcoded
-# string slots through the helper (the SSOT wiring).
+# TDD pin: test-all.sh summary failure entries must stay valid JSON when
+# failure names/messages contain control chars, quotes, or backslashes. The
+# current production path delegates JSON emission to diagnostics/parse_test_json.py
+# (json.dumps), not a hand-rolled bash escaper.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTALL="$HERE/../../test-all.sh"
+PARSE_TEST_JSON="$HERE/../../diagnostics/parse_test_json.py"
 
 if [ ! -f "$TESTALL" ]; then
     echo "FAIL: test-all.sh not found at $TESTALL"
     exit 1
 fi
-
-# Extract just the json_escape_string() definition (test-all.sh has no
-# BASH_SOURCE main-guard, so it cannot be sourced wholesale).
-fn="$(sed -n '/^json_escape_string()/,/^}/p' "$TESTALL")"
-if [ -z "$fn" ]; then
-    echo "FAIL: json_escape_string() is not defined in test-all.sh (cure unshipped)"
+if [ ! -f "$PARSE_TEST_JSON" ]; then
+    echo "FAIL: parse_test_json.py not found at $PARSE_TEST_JSON"
     exit 1
 fi
-eval "$fn"
 
-# (b) Faithful case: tab + LF + CR + backslash + double-quote MUST round-trip
-# exactly (each control escaped, not lost). LF/CR exercise the line-oriented-sed
-# hazard — a naive `s/\n/\\n/` in a basic sed chain will not match a newline in
-# pattern space, so this case fails a broken newline-escaper.
-faithful="$(printf 'a\tb\nc\rd\\e"f')"
-escaped_faithful="$(json_escape_string "$faithful")"
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
 
-# (c) Strip case: a rare invisible C0 control (0x01) MUST be removed so the
-# output is valid JSON (the cure strips the rare-C0 range rather than \u-escaping).
-rare="$(printf 'a\001b')"
-escaped_rare="$(json_escape_string "$rare")"
+ori_json="$tmpdir/ori-runner.json"
+ori_out="$tmpdir/ori-failures.json"
+python3 - "$ori_json" <<'PY'
+import json
+import sys
 
-python3 - "$escaped_faithful" "$escaped_rare" <<'PY'
-import json, sys
-escaped_faithful, escaped_rare = sys.argv[1], sys.argv[2]
-# Faithful: parses + round-trips to the original bytes (controls preserved).
-parsed = json.loads('"' + escaped_faithful + '"')
-assert parsed == 'a\tb\nc\rd\\e"f', f"faithful round-trip mismatch: {parsed!r}"
-for ch in ('\t', '\n', '\r'):
-    assert ch in parsed, f"{ch!r} must be preserved (escaped), not stripped"
-# Strip: parses + the rare 0x01 control is gone (valid JSON for every input).
-parsed_rare = json.loads('"' + escaped_rare + '"')
-assert parsed_rare == 'ab', f"rare C0 control must be stripped: {parsed_rare!r}"
-print("OK: json_escape_string escapes tab/LF/CR faithfully + strips rare C0 + valid JSON")
+name = 'spec\tname\nwith "quote" and \\backslash'
+message = 'a\tb\nc\rd\\e"f\x01g'
+obj = {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "skipped_unchanged": 0,
+    "llvm_compile_fail": 0,
+    "error_files": 0,
+    "llvm_compile_fail_files": 0,
+    "duration_ns": 0,
+    "files": [{
+        "path": "tests/control_chars.ori",
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "skipped_unchanged": 0,
+        "llvm_compile_fail": 0,
+        "duration_ns": 0,
+        "errors": [],
+        "llvm_compile_error": None,
+        "results": [{
+            "name": name,
+            "targets": ["llvm"],
+            "outcome": {"Failed": message},
+            "duration_ns": 0,
+        }],
+    }],
+}
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    json.dump(obj, fh, ensure_ascii=False)
+PY
+python3 "$PARSE_TEST_JSON" --failures-json --suite ori_llvm "$ori_json" > "$ori_out"
+python3 - "$ori_out" <<'PY'
+import json
+import sys
+
+raw = open(sys.argv[1], "rb").read().rstrip(b"\n")
+for forbidden in (b"\t", b"\r", b"\n", b"\x01"):
+    assert forbidden not in raw, f"raw control byte leaked into JSON: {forbidden!r}"
+arr = json.loads(raw.decode("utf-8"))
+assert len(arr) == 1, f"expected one Ori failure, got {len(arr)}"
+entry = arr[0]
+assert entry["test_id"] == 'spec\tname\nwith "quote" and \\backslash'
+assert entry["error_message"] == 'a\tb\nc\rd\\e"f\x01g'
+assert entry["suite"] == "ori_llvm"
+assert entry["source_path"] == "tests/control_chars.ori"
+print("OK: parse_test_json --failures-json escapes controls and round-trips Ori failure strings")
 PY
 
-# (d) SSOT wiring: BOTH parse_rust_failures + parse_ori_failures MUST route
-# their failure strings through the shared helper. Extract each body and assert
-# it references json_escape_string — a regression leaving either site on the old
-# inline sed escaping would slip past the helper-only test above.
-for parser in parse_rust_failures parse_ori_failures; do
-    body="$(sed -n "/^${parser}()/,/^}/p" "$TESTALL")"
-    if ! printf '%s' "$body" | grep -q 'json_escape_string'; then
-        echo "FAIL: ${parser}() does not route through json_escape_string (SSOT wiring missing)"
-        exit 1
-    fi
-done
-echo "OK: parse_rust_failures + parse_ori_failures both route through json_escape_string"
+rust_log="$tmpdir/rust.log"
+rust_out="$tmpdir/rust-failures.json"
+printf 'test module::case_with_"quote"_and_\\backslash ... FAILED\n' > "$rust_log"
+python3 "$PARSE_TEST_JSON" --rust-failures --suite rust_workspace "$rust_log" > "$rust_out"
+python3 - "$rust_out" <<'PY'
+import json
+import sys
 
-# (e) Integration pin: exercise the REAL parse_ori_failures `while IFS= read -r`
-# loop end-to-end, not just json_escape_string with literal args. A helper that
-# escapes literal args but corrupts output inside the read loop would pass
-# (b)/(c)/(d) yet break the live summary. Extract parse_ori_failures (it calls
-# json_escape_string, eval'd above), feed a tab+quote+backslash FAIL line, and
-# assert json.load parses the emitted array.
-parse_fn="$(sed -n '/^parse_ori_failures()/,/^}/p' "$TESTALL")"
-if [ -z "$parse_fn" ]; then
-    echo "FAIL: parse_ori_failures() is not defined in test-all.sh"
+arr = json.load(open(sys.argv[1], encoding="utf-8"))
+assert len(arr) == 1, f"expected one Rust failure, got {len(arr)}"
+entry = arr[0]
+assert entry["test_id"] == 'module::case_with_"quote"_and_\\backslash'
+assert entry["suite"] == "rust_workspace"
+assert entry["test_id_kind"] == "rust"
+print("OK: parse_test_json --rust-failures emits parseable JSON for Rust failure strings")
+PY
+
+if grep -qE '^(json_escape_string|parse_rust_failures|parse_ori_failures)\(\)' "$TESTALL"; then
+    echo "FAIL: retired bash JSON/text-scrape helpers reappeared in test-all.sh"
     exit 1
 fi
-eval "$parse_fn"
-in_file="$(mktemp)"
-out_file="$(mktemp)"
-printf '[FAIL] t_escaping then\ttab and a "quote" and a \\backslash end\n' > "$in_file"
-parse_ori_failures "$in_file" "ori_llvm" > "$out_file"
-rm -f "$in_file"
-python3 - "$out_file" <<'PY'
-import json, sys
-arr = json.loads(open(sys.argv[1]).read())  # raises on unfixed raw-tab corruption
-assert len(arr) == 1, f"expected 1 failure, got {len(arr)}"
-# The faithfully-escaped \t round-trips back to a real tab after JSON decode
-# (escape, not strip — rejects the strip-all variant on the live path too).
-assert '\t' in arr[0]["error_message"], "tab must survive (escaped then decoded) in error_message"
-assert '\t' in arr[0]["test_id"], "tab must survive (escaped then decoded) in test_id"
-print("OK: parse_ori_failures read-loop path emits parseable JSON with faithful tab")
-PY
-rm -f "$out_file"
+
+rust_body="$(sed -n '/^rust_failures_json()/,/^}/p' "$TESTALL")"
+ori_body="$(sed -n '/^ori_failures_json()/,/^}/p' "$TESTALL")"
+if [ -z "$rust_body" ] || ! printf '%s' "$rust_body" | grep -q -- 'PARSE_TEST_JSON.*--rust-failures'; then
+    echo "FAIL: rust_failures_json() is not wired to parse_test_json.py --rust-failures"
+    exit 1
+fi
+if [ -z "$ori_body" ] || ! printf '%s' "$ori_body" | grep -q -- 'PARSE_TEST_JSON.*--failures-json'; then
+    echo "FAIL: ori_failures_json() is not wired to parse_test_json.py --failures-json"
+    exit 1
+fi
+echo "OK: test-all.sh failure-summary helpers route through parse_test_json.py"
