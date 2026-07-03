@@ -1,0 +1,158 @@
+Theorem RL-T2: Compositional placement soundness over the CFG ledger
+
+  Preconditions:
+    - The CFG-ledger model: blocks carry instruction lists; directed edges
+      carry a kind (normal, back-edge, unwind); a TRMC-rewritten tail-call
+      region marker names the loop blocks a self-recursive tail call became.
+      A walk is an entry-anchored, edge-connected, exit-terminated block
+      sequence; the declarative walk predicate covers EVERY walk, including
+      one crossing a back-edge arbitrarily many times, and the fuel-bounded
+      enumeration (fuel-bounded recursion, no termination measure) is proven
+      sound against it - every enumerated walk is a genuine CFG walk.
+    - Partition classes are the T1 union-find representatives (the
+      buildPartitionUF / find executable from the partition module); the
+      engine takes the partition AS GIVEN input and admits no phi edge of
+      its own. Class equality is provably the T1 sameRep verdict.
+    - Events are DERIVED per class by a computed classification over
+      instruction-shaped input, never free input: BIRTH (fresh allocation,
+      +1), CREDIT (RL-1 duplication inc or cross-class jump-arg handoff in,
+      +1), CONSUME (a PLACED release, an RL-2 ownership-transferring
+      terminal use per the committed twelve-kind table, or a cross-class
+      jump-arg handoff out, -1), READ (Project borrow-view read or an RL-2
+      non-transferring terminal read; requires a live count), MUTATE (RL-7
+      dynamic-COW mutation carrying its live-sibling floor, computed from
+      the path suffix as the number of distinct same-class sibling values
+      still read later). A jump arg whose receiving block-param is in the
+      SAME class is the RL-4 exemption - no ledger event; the reference
+      persists in the class across the edge.
+    - The placement under verification is the set of placed releases
+      (burden decs) in the instruction stream; the three-clause invariant
+      is checked per class per path: (1) the class's ledger nets zero;
+      (2) the running count is at least 1 at every READ; (3) the running
+      count is at least 1 + live-siblings at every dynamic-COW MUTATE.
+    - The compiled Lean model is the calculus authority for the placement
+      invariant; conformance of the shipped emitter to the model is
+      established empirically on the compiler's ARC-verified test surface,
+      not discharged here.
+
+  Soundness property:
+    Forall CFG (back-edges, unwind edges, TRMC regions included), forall
+    partition-class map, forall walk, forall class: a placement whose
+    derived per-class ledger satisfies the three clauses on every walk is
+    balanced-and-safe on EVERY walk - no leak (net 0), no use-after-free
+    (the count floor holds at every READ), no COW corruption (the sibling
+    floor holds at every MUTATE). The declarative three-clause check is
+    EXACTLY the operational guarantee (both directions), so a placement
+    violating any clause on any path is provably rejected: a release
+    relocated past a multi-predecessor merge double-frees the predecessor
+    path on which the class is already dead; a release placed before a
+    later READ frees early; an early sibling release before a dynamic-COW
+    mutate corrupts the live sibling; a release placed after the TRMC
+    tail-call transfer double-frees the transferred accumulator.
+
+  Proof obligation:
+    (P1) Classification grounding. The derived terminal-use event matches
+         the committed RL-2 twelve-kind table verdict for every kind:
+         CONSUME exactly on the 9 ownership-transfer kinds, READ on the 3
+         non-transfer kinds. Jump-arg routing consumes the partition: a
+         same-class receiving param is the RL-4 exemption (no event); a
+         cross-class param is a handoff (consume from the source class,
+         credit into the param class). Class equality is the T1 union-find
+         sameRep verdict - the classes ARE the T1 representatives.
+    (P2) Clauses-safety equivalence. A class's per-path ledger satisfies
+         the three clauses EXACTLY when its operational run is
+         balanced-and-safe: the running count is the start plus the net
+         ledger (fold lemma); the hazard flags are sticky; the floor
+         clauses hold from a start count exactly when the run from that
+         count raises neither flag (induction on the event list); clause 1
+         is the no-leak surface, clause 2 the use-after-free surface,
+         clause 3 the COW-corruption surface.
+    (P3) THE compositional placement theorem. For every CFG, every
+         partition-class map, and every walk of the declarative predicate,
+         the three-clause hypothesis yields balanced-and-safe - plus the
+         fuel-bounded enumeration corollary, and enumeration soundness
+         (every enumerated walk is a genuine walk: head at the entry,
+         edge-connected suffix, exit-terminated).
+    (P4) Kill-criterion K1 - unwind-fed multi-predecessor merge. On the CFG
+         whose merge block has two predecessors, one arriving via an UNWIND
+         edge, with the class member DEAD on the unwind path (the cleanup
+         released it) and LIVE through the normal path: the cured
+         path-local placement satisfies all three clauses on BOTH
+         enumerated walks and is balanced-and-safe for EVERY class (the
+         touched class by computation over the real union-find, every
+         untouched class by the empty-ledger lemma). The past-merge
+         relocation is REJECTED: the unwind path nets -1 (double free)
+         while the normal path alone still balances - only the per-class
+         PER-PATH invariant catches it. Releases are path-local, never
+         past a merge.
+    (P5) Kill-criterion K2 - TRMC-marked back-edge loop, every iteration
+         count. On the loop CFG (back-edge latch to header, TRMC region
+         marker on header + body) with a loop-invariant collection class
+         (T1 tier-1 view edge, singleton-witness-admitted) and a
+         loop-carried accumulator whose header block-param is its OWN class
+         (distinct birth-sites - the T1 kill-criterion refuses the phi):
+         the n-iteration walk is a genuine CFG walk crossing the back-edge
+         exactly n times, and EVERY touched class satisfies all three
+         clauses for EVERY n, by the prefix / n-fold net-zero cycle /
+         suffix decomposition (the running count re-enters each iteration
+         at the loop invariant) - no termination hand-waving, no unrolled
+         approximation. A release placed AFTER the tail-call ownership
+         transfer inside the TRMC region is REJECTED (nets -1) - the RL-34
+         no-post-tail-call-dec law at the ledger level.
+    (P6) Negative witnesses. The PRE-READ RELEASE (a release placed before
+         a later READ on the same class/path) is REJECTED: the ledger nets
+         zero - clause 1 alone would pass - but the READ fires at count 0
+         (clause 2 false; the operational machine observes the
+         use-after-free). The EARLY SIBLING RELEASE before a dynamic-COW
+         MUTATE is REJECTED, and clause 3 is the ONLY clause that sees it:
+         net zero passes clause 1, the sibling's later read still sees
+         count 1 so clause 2 passes, but the mutate fires at count 1
+         against a floor of 2 (the COW-corruption surface); the cured
+         placement holding the sibling credit live across the mutate
+         satisfies all three clauses.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/Ledger.lean:
+      terminal_event_matches_rl2, transfer_use_consumes,
+        borrow_read_use_reads, jump_arg_same_class_exempt,
+        jump_arg_cross_class_handoff, class_eq_iff_sameRep (P1)
+      foldl_ledgerStep_count, foldl_ledgerStep_uaf_sticky,
+        foldl_ledgerStep_cow_sticky, clauseFloors_iff_flags_clean,
+        three_clauses_iff_ledger_safe (P2)
+      compositional_placement_sound (P3 - the load-bearing theorem),
+        compositional_placement_sound_enumerated, cfgSuccessor_hasEdge,
+        walksFrom_sound, cfgWalks_isWalk (P3)
+      T2_K1_shape, T2_K1_cured_clauses, T2_K1_cured_placement_clauses,
+        T2_K1_cured_safe_every_class,
+        T2_K1_past_merge_relocation_rejected (P4)
+      T2_K2_shape, T2_K2_walk_valid, T2_K2_backedge_crossings,
+        T2_K2_ledger_I, T2_K2_ledger_Hdr, T2_K2_ledger_Acc0,
+        T2_K2_ledger_Acc1, T2_K2_loop_invariant_all_iterations,
+        T2_K2_loop_safe_all_iterations,
+        T2_K2_trmc_post_call_dec_rejected (P5)
+      T2_pre_read_release_rejected, T2_cow_sibling_floor_enforced,
+        T2_cow_early_sibling_release_rejected (P6)
+      T2_compositional_placement_bundle (conclusion bundle)
+    Supporting decomposition lemmas: deriveLedger_untouched,
+      threeClauses_untouched, all_flatMap, deriveLedger_append_mutate_free,
+      ledgerNet_append, clauseFloors_append, segRepeat_nil, all_segRepeat,
+      ledgerNet_segRepeat, clauseFloors_segRepeat, deriveLedger_segRepeat,
+      threeClauses_prefix_cycle_suffix.
+    Bridged committed theorems and carriers consumed: TerminalUse,
+      rl2_use_transfers_ownership (AimsProof.Realization); PartitionUF,
+      buildPartitionUF, partitionFuel, PartitionUF.sameRep
+      (AimsProof.Partition).
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      rc_counting (PRIMARY - running-count fold over the derived per-class
+        event ledger; net-zero, read-floor, and sibling-floor obligations)
+      case_analysis (twelve-kind terminal-use dichotomy; same-class vs
+        cross-class jump-arg routing; cured vs relocated placements)
+      refinement (the declarative three-clause check refines the
+        operational balanced-and-safe machine - both directions)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: RL compositional-placement shape outside the rule-numbered RL verifier inventory (the RL dischargers serve numbered RL-1..RL-34 suffixes only). The authoritative machine-check is the compiled Lean AimsProof.Ledger (lake build clean): compositional_placement_sound discharges the three-clause placement invariant (per-class per-path net zero, read floor, dynamic-COW sibling floor) into balanced-and-safe on every CFG walk, with the K1 unwind-merge and K2 TRMC back-edge kill-criterion instantiations and the pre-read-release / past-merge-relocation / early-sibling-release / post-tail-call-dec rejections, over events derived from the committed RL-2 twelve-kind table and the T1 partition representatives.

@@ -1,0 +1,82 @@
+Theorem RL-T3: Keep-alive whole-pair running-refcount soundness
+
+  Preconditions:
+    - One shared allocation R; two reference lineages touch it: a same-class
+      sibling S (same allocation representative) births R (+1) and releases it
+      exactly once at the end (-1); an alias V carries a matched burden pair
+      V.inc (+1) followed by V.dec (-1), bracketed INSIDE S's live span. A
+      noop span of length n models the body work between V.inc and V.dec
+      where S stays live.
+    - The committed ledger (AimsProof.Realization rcBalance over RcOp) proves
+      NET balance only; the premature-free hazard lives on the running
+      refcount (prefix sum): an INTERIOR count reaching 0 between the
+      allocation and the single legitimate release frees R early.
+    - The committed KnownSafe family (annex-e AIMS section 8): RL-22
+      eliminates an inner inc/dec pair iff KnownSafe (a dominating RcInc with
+      no intervening RcDec); RL-23 AND-joins KnownSafe across CFG merges;
+      RL-25 eliminates a matched pair iff KnownSafe or both-paths-safe with no
+      CFG hazard.
+
+  Soundness property:
+    Forall span length n: whole-PAIR elision of V's matched (inc, dec) under a
+    live same-class sibling bracket is SOUND - the elided lifecycle preserves
+    the net balance AND its running refcount never drops below 1 before the
+    final release (the sibling's live +1 brackets the whole span). The
+    inc-ONLY split (V's inc elided, V's dec kept) is UNSOUND - it drives the
+    running count to 0 before the sibling's release (premature free) and nets
+    -1 (double release) - so refusing the per-var inc-only elision is correct.
+    Bridge: same-class sibling liveness IS the RL-22 dominating-inc evidence -
+    KnownSafe holds, the RL-22 decision fires on the matched pair, RL-23
+    carries the evidence across a merge exactly when every predecessor holds
+    it, and RL-25's eliminability disjunction fires on the KnownSafe flag.
+
+  Proof obligation:
+    (P1) Kept baseline balanced. The kept lifecycle S.inc, V.inc, span, V.dec,
+         S.dec nets 0, decomposed via the committed rcBalance_append ledger
+         lemma plus the zero-balance noop span.
+    (P2) Whole-pair elision balance-preserving. Removing the matched V pair
+         (net 0) leaves the lifecycle's net balance unchanged.
+    (P3) Whole-pair elision never frees early. Forall n: every interior
+         running count of the elided lifecycle stays at least 1 - the sibling
+         bracket holds the shared count at 1 across the whole span (closed
+         form: prefix counts 0, then 1 across the span, then the final release
+         to 0; the interior is all 1s).
+    (P4) Inc-only split unsound. Forall n: the inc-only lifecycle's interior
+         running count reaches 0 before the sibling's release (neverBelow 1 is
+         false) AND its net balance is -1 - the premature-free plus
+         double-release shape. The in-corpus negative witness: the buggy split
+         is provably rejected on both surfaces.
+    (P5) KnownSafe bridge. Sibling liveness supplies knownSafe true false =
+         true; rl22_eliminates fires on the matched pair; rl23_join preds =
+         true exactly when every predecessor is true (consumes
+         RL23_join_all_preds); rl25_eliminable true _ _ = true (the KnownSafe
+         disjunct). The negative direction stays with the committed family:
+         RL22_no_eliminate_without_dominating_inc keeps the pair absent the
+         sibling evidence.
+    (P6) The keep-alive redundancy theorem. Forall n: (whole-pair elided is
+         balanced AND never freed early) AND NOT (inc-only split is balanced
+         AND never freed early) - the cure is sound exactly when it is
+         whole-pair, never inc-only.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/RunningCount.lean:
+      T3_kept_balanced                                (P1)
+      T3_whole_pair_balance_preserved                 (P2)
+      whole_pair_never_freed_early                    (P3)
+      inc_only_freed_early, T3_inc_only_net_negative  (P4)
+      T3_sibling_liveness_is_dominating_inc_evidence  (P5 - bridges RL-22/RL-23/RL-25)
+      keep_alive_redundancy_sound_iff_whole_pair      (P6 - the load-bearing theorem)
+    Bridged committed theorems and carriers consumed (AimsProof.Realization):
+      RcOp, rcBalance, rcBalance_append, knownSafe, rl22_eliminates, rl23_join,
+      rl25_eliminable, RL23_join_all_preds.
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      rc_counting (PRIMARY - running-refcount prefix arithmetic over the RcOp ledger)
+      case_analysis (whole-pair vs inc-only elision dichotomy)
+      refinement (running-count surface refines the net-balance ledger)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: RL keep-alive running-refcount shape outside the rule-numbered RL verifier inventory (the RL dischargers serve numbered RL-1..RL-34 suffixes only). The authoritative machine-check is the compiled Lean AimsProof.RunningCount (lake build clean): keep_alive_redundancy_sound_iff_whole_pair discharges whole-pair-sound / inc-only-unsound over the running refcount, bridged to RL-22/RL-23/RL-25 via T3_sibling_liveness_is_dominating_inc_evidence.

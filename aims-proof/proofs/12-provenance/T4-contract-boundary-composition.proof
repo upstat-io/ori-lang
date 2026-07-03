@@ -1,0 +1,157 @@
+Theorem IC-T4: Contract-boundary composition over the CFG ledger
+
+  Preconditions:
+    - The T2 CFG-ledger model is the substrate: per-partition-class event
+      ledgers (BIRTH/CREDIT +1, CONSUME -1, READ floor 1, MUTATE floor
+      1 + live-siblings) derived from instruction-shaped input by the
+      computed classification through the committed RL-2 twelve-kind
+      terminal-use table; the three-clause per-class per-path invariant;
+      the clauses-safety equivalence.
+    - The boundary carrier: a per-param contract whose access field is the
+      COMMITTED AccessClass (the RL-32/RL-34 Owned/Borrowed verdict) plus
+      three fields the committed corpus lacks, defined as the T4 carrier -
+      iter-consumes (grounds the RL-2 ApplyToIterConsumingParam transfer
+      kind), transfers-through-return (grounds the RL-34 transferOwnership
+      tail-call action and the RL-2 iter-consume-Return overlap), and
+      sharing-view-producer (a read-only co-owner view result). A grounding
+      constructor reads the access dimension straight off the IC-2/IC-3
+      ParamContract.
+    - The call-site expansion is COMPUTED from the contract, never free
+      input: the argument's terminal-use kind is selected by the contract
+      fields into the committed RL-2 vocabulary (Owned -> ApplyToOwnedParam;
+      Borrowed + iter-consumes && !transfers-through-return ->
+      ApplyToIterConsumingParam; Borrowed otherwise ->
+      ApplyToBorrowedParam), and a transfers-through-return or sharing-view
+      contract appends the result-binding dup that credits the source class
+      (the returned/view reference re-entering the caller's scope; ret is
+      tier-1-unified with arg - the same allocation flows back / the view
+      shares it).
+    - The callee side consumes the SAME committed table lookup: the callee's
+      per-param-class ledger opens with the transferred-in reference (a
+      construct of the param - BIRTH) exactly when the boundary use kind
+      transfers ownership in; a borrowed contract opens nothing and is
+      checked under the borrow assumption (entry count 1 - the caller's
+      retained live reference) with net zero.
+    - The compiled Lean model is the calculus authority; conformance of the
+      shipped emitter to the model is established empirically on the
+      compiler's ARC-verified test surface, not discharged here.
+
+  Soundness property:
+    The contract classifies the boundary event for each argument's
+    partition class per the fixed table - owned param (callee side) =
+    BIRTH; owned arg (caller side) = CONSUME; iter_consumes &&
+    !transfers_through_return = CONSUME; borrowed = READ;
+    transfers_through_return = PASSTHROUGH, modeled explicitly as
+    CONSUME-at-call + CREDIT-at-return netting zero; sharing-view producer
+    = CREDIT on the source class - and composing per-function three-clause-
+    satisfying ledgers through those contract-classified boundary events
+    preserves ledger safety end-to-end: a caller whose ledger satisfies the
+    three clauses WITH the summary in place, and a callee whose OWN ledger
+    conforms under the contract-mandated opening, yield a three-clause-
+    satisfying (hence balanced-and-safe) inlined ledger - caller prefix,
+    callee body events, result binding, caller suffix. The contract IS the
+    interface: the callee is consumed only through its conformance, never
+    re-derived. A MISCLASSIFIED boundary is provably rejected: an owned arg
+    classified borrowed leaves the caller a release obligation the callee's
+    real free doubles - the composed ledger nets -1 (clause 1 false, the
+    double-release shape). The live-at-call side condition (running count
+    >= 1 at a transfer-in handoff) is honest and NECESSARY: a CONSUME
+    summary carries no floor, and dropping the condition admits a composed
+    use-after-free.
+
+  Proof obligation:
+    (P1) Classification grounding. Each table row is a COMPUTED fact: the
+         Owned contract selects ApplyToOwnedParam and derives [consume];
+         the iter-consume-no-return contract selects
+         ApplyToIterConsumingParam and derives [consume] (the committed
+         RL-2 iter-consume transfer - the callee's iterator machinery is
+         the release); the plain Borrowed contract selects
+         ApplyToBorrowedParam and derives [read]; the Owned
+         transfers-through-return contract derives [consume, credit]
+         netting zero (the explicitly-chosen passthrough form); the
+         sharing-view contract's result binding derives [credit] on the
+         source class (the view result minting the credit fact); the
+         boundary expansion never places a release (the RL-34
+         no-post-tail-call-dec law at the boundary level), and the Owned
+         boundary computes transfer-in through the SAME committed RL-2
+         verdict that RL-34's transferOwnership action reflects. The
+         callee-side owned-param row: the callee ledger opens with BIRTH
+         exactly when the boundary use kind transfers ownership in.
+    (P2) The interface-complement extraction. A conforming callee's body
+         ledger nets EXACTLY what the caller-side summary event nets
+         (transfer-in: -1, the handed-off obligation discharged inside;
+         borrowed: 0, nothing released) and its floor clauses hold from
+         entry count 1 - pinned by the callee's OWN three clauses under the
+         contract-mandated opening (threeClauses (birth :: B) forces
+         net B = -1 and floors of B from 1; the borrow-assumption form
+         forces net B = 0 and floors from 1). Floor monotonicity carries
+         the entry-count-1 floors to the caller's actual call-site count.
+    (P3) THE composition theorem. The caller's summary-composed ledger
+         splits at the call site (the committed mutate-free derivation
+         split + the committed RL-2 bridge); substituting the callee's body
+         events for the summary event preserves clause 1 by net additivity
+         (net B = net S) and clauses 2/3 by the floor decomposition (B's
+         floors from the call-site count via monotonicity + the live-at-
+         call side condition; the suffix re-enters at the SAME count since
+         the nets agree). The operational corollary converts through the
+         committed clauses-safety equivalence: the composed inlined ledger
+         is balanced-and-safe - no leak, no use-after-free, no COW
+         corruption. Per class, per path; the callee never re-derived.
+    (P4) Negative witnesses. The MISCLASSIFIED BOUNDARY is rejected on the
+         computed witness (identity classes over the real empty-edge
+         union-find): the callee conforms to its TRUE Owned contract and
+         provably does NOT conform to the Borrowed misclassification; the
+         caller's summary-composed ledger under the misclassification
+         passes in isolation, yet the inlined composition nets -1 (clause 1
+         false; operational count -1 - the double release); the correct
+         classification composes safely end-to-end. The LIVE-AT-CALL
+         necessity witness: a caller stream handing off at count 0 passes
+         its own clauses (CONSUME has no floor) and the callee conforms,
+         yet the inlined composition reads at count 0 - the operational
+         machine observes the use-after-free; the side condition cannot be
+         dropped.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/ContractBoundary.lean:
+      boundaryUseKind, boundaryTransfersIn, boundaryInstrs,
+        boundaryResultInstrs, boundaryArgEvent (the computed carrier),
+        BoundaryContract.ofParamContract (IC-2/IC-3 grounding),
+        boundary_arg_event_derived, boundaryArgEvent_net,
+        T4_owned_arg_consumes, T4_iter_consume_arg_consumes,
+        T4_borrowed_arg_reads, T4_passthrough_consume_credit_nets_zero,
+        T4_sharing_view_credits_source, T4_boundary_places_no_release,
+        T4_owned_boundary_matches_rl34,
+        T4_owned_param_births_callee_ledger (P1)
+      calleeOpening, calleeLedger, calleeConforms, calleeLedger_borrowed,
+        calleeConforms_interface, clauseFloors_mono (P2)
+      boundaryInstrs_mutate_free, caller_summary_split,
+        threeClauses_substitute_segment,
+        T4_contract_boundary_composition_sound (P3 - the load-bearing
+        theorem), T4_contract_boundary_composition_safe (P3)
+      t4UF, t4ClassOf, t4BcOwned, t4BcMis, t4CalleeBody, t4PreI, t4PostMis,
+        T4_owned_arg_misclassified_borrowed_rejected,
+        T4_live_at_call_side_condition_necessary (P4)
+      T4_contract_boundary_bundle (conclusion bundle)
+    Bridged committed theorems and carriers consumed: TerminalUse,
+      rl2_use_transfers_ownership, rl34_action, TailCallAction
+      (AimsProof.Realization); AccessClass (AimsProof.Model); ParamContract
+      (AimsProof.Interprocedural); LedgerInstr, LedgerEvent, deriveLedger,
+      threeClauses, ledgerSafe, ledgerNet, clauseFloors, runLedger,
+      terminal_event_matches_rl2, deriveLedger_append_mutate_free,
+      ledgerNet_append, clauseFloors_append, three_clauses_iff_ledger_safe
+      (AimsProof.Ledger); PartitionUF, buildPartitionUF, partitionFuel
+      (AimsProof.Partition).
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      interprocedural_summary (PRIMARY - the per-param contract as the
+        composition interface; caller summary vs callee conformance)
+      rc_counting (running-count fold over the composed per-class ledger;
+        net-equal substitution + floor decomposition obligations)
+      case_analysis (contract-field dichotomies: transfer-in vs borrow;
+        the five classification-table rows; conforming vs misclassified)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IC contract-boundary-composition shape outside the rule-numbered IC verifier inventory (the IC dischargers serve the numbered IC-1..IC-8a suffixes only). The authoritative machine-check is the compiled Lean AimsProof.ContractBoundary (lake build clean): T4_contract_boundary_composition_sound discharges the contract-classified boundary composition - caller three-clause ledger with the computed summary plus callee conformance under the contract-mandated BIRTH/borrow opening compose into a three-clause inlined ledger without callee re-derivation - over the committed RL-2 twelve-kind table and the T1 partition representatives, with the owned-arg-misclassified-borrowed double-release and the dead-call-site use-after-free rejections.

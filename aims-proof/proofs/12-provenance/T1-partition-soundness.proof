@@ -1,0 +1,80 @@
+Theorem IA-T1: Per-field birth-site partition soundness
+
+  Preconditions:
+    - Phase-5 burden lowering keys per-(ArcVarId, FieldIdx) lineage nodes by
+      birth-site: every node carries the birth-site (allocation) its field
+      genuinely holds; distinct allocations carry distinct birth-site ids.
+    - The same-allocation partition is a union-find built by folding an
+      ADMITTED edge list. Two admission forms only: a Tier-1 unconditional
+      same-allocation edge (fund / view / alias, whose meaning is
+      birthSite(u) = birthSite(v)), and a phi-merge edge admitted ONLY under
+      the singleton birth-site witness (exists B such that every phi
+      predecessor argument x has birthSite(x) = B, and the merge node itself
+      holds that B).
+    - The union-find (functional parent map, fuelled find, link-by-root union,
+      edge-list fold) computes exactly the reflexive-symmetric-transitive
+      closure of the admitted edges.
+
+  Soundness property:
+    Forall node universe and forall birth-site map: SameRep(u, v) implies
+    birthSite(u) = birthSite(v). Contrapositive: nodes with distinct
+    birth-sites are NEVER placed in one representative class, so one balanced
+    release per class cannot cross-free a different allocation. Kill-criterion:
+    a phi merge whose predecessors carry distinct birth-sites has NO singleton
+    witness, so no phi edge for it is admissible - a loop back-edge re-feeding
+    a field from a different iteration's allocation cannot be falsely unified
+    (the over-unification that would double-free is unrepresentable).
+
+  Proof obligation:
+    (P1) Per-edge admission soundness. Every admitted edge is birth-site-sound:
+         a Tier-1 edge carries the equality by its meaning; a phi edge under
+         the singleton witness carries birthSite(p) = B = birthSite(a) for the
+         member predecessor a.
+    (P2) Closure soundness (the partition-soundness theorem). By induction on
+         the reflexive-symmetric-transitive closure of the admitted edges:
+         refl is trivial, edge is (P1), symm and trans lift equality symmetry
+         and transitivity. Parametric over the node universe and the
+         birth-site map; the union-find computes exactly this closure, so the
+         built partition only ever unions same-birth-site nodes.
+    (P3) Kill-criterion. If two predecessors of one phi merge carry distinct
+         birth-sites, no singleton witness B exists for that merge, so no phi
+         edge is admissible: the over-unification is unrepresentable in the
+         admission rule.
+    (P4) Computed concrete witness. On the back-edge loop CFG (loop-invariant
+         items field, loop-varying label field, aggregate move-alias class)
+         the REAL executable union-find - the edge-list fold through
+         link-by-root union and fuelled find, nothing hardcoded - computes:
+         the singleton-admitted items header merge IS unified across the
+         back-edge; the non-singleton label header merge keeps representatives
+         distinct from both the entry and the latch allocations; the two
+         distinct label allocations are never unified; the aggregate class
+         holds no field allocation.
+    (P5) Per-field release accounting over the loop. The cured per-field
+         emission is safe across two iterations (no read-after-free flag, both
+         field allocations net 0: items released once at exit, each
+         per-iteration label released within its iteration); the whole-var
+         single-dec emission leaks both fields (the negative witness).
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/Partition.lean:
+      partitionAdm_birthsite_sound        (P1)
+      samerep_birthsite_sound             (P2 - the load-bearing theorem)
+      distinct_birthsite_distinct_rep     (P2 contrapositive)
+      distinct_birthsite_no_phi_admission (P3 - the kill-criterion guard)
+      T1_items_header_unified_across_backedge, T1_backedge_keeps_distinct_from_entry,
+        T1_backedge_keeps_distinct_from_latch, T1_distinct_label_allocs_not_unified,
+        T1_agg_class_holds_no_field, T1_label_merge_no_singleton_witness (P4)
+      T1_cured_loop_safe, T1_per_field_release_exactly_once_over_loop,
+        T1_buggy_loop_leaks (P5)
+      T1_per_field_birthsite_union_find_sound (conclusion bundle)
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      structural_induction (PRIMARY - induction on the RST closure of admitted edges)
+      case_analysis (per-edge admission dichotomy: tier1 vs phi)
+      fixpoint (union-find edge-list fold to its connected components)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IA-category partition shape; the bespoke Rust checker's IA engines (structural_induction / fixpoint) are scaffold stubs (coverage-manifest.json IA expected_outcome = unimplemented_engine_shape). The authoritative machine-check is the compiled Lean AimsProof.Partition (lake build clean): samerep_birthsite_sound discharges the RST-closure partition soundness, distinct_birthsite_no_phi_admission is the kill-criterion guard, over the real edge-fold union-find witness.

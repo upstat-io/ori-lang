@@ -1,0 +1,159 @@
+Theorem IA-T5: Frame-limited class-ledger robustness under tier-1 edge introduction
+
+  Preconditions:
+    - The T2 CFG-ledger model is the substrate: per-partition-class event
+      ledgers derived from instruction-shaped input by the computed
+      classification; the three-clause per-class per-path invariant; the
+      partition taken AS GIVEN input (the T1 union-find representatives).
+    - A NEW tier-1 same-allocation edge enters the T1 partition only
+      through the admission rule: equal birth-sites admit it
+      (PartitionAdm.tier1), so samerep_birthsite_sound keeps every merge
+      birth-site-sound. At the class-map level the T1 PartitionUF.union is
+      a ROOT REDIRECT (point the retired representative at the absorbing
+      one); mergeClasses is that redirect - members of the retired class
+      re-map to the absorbing class, every other value keeps its class -
+      witnessed computationally on a concrete union-find over the touched
+      value universe (the T1 Part-C discipline: representatives COMPUTED
+      through the real fuelled find/union, never hardcoded).
+    - The derived ledger depends on the classifier ONLY through the
+      membership test (derivation congruence, the jump-arg partition
+      routing and the suffix-computed dynamic-COW sibling floor included).
+    - The compiled Lean model is the calculus authority; conformance of the
+      shipped emitter to the model is established empirically on the
+      compiler's ARC-verified test surface, not discharged here.
+
+  Soundness property:
+    Introducing a new tier-1 partition edge is FRAME-LIMITED. (frame) Every
+    class whose membership is untouched - any class distinct from both
+    merge participants - derives a VERBATIM-identical ledger on every
+    instruction stream: same event list, same three-clause verdict, same
+    balanced-and-safe status; the retired class derives the empty ledger.
+    (bounded impact) The merged class's ledger is exactly the positional
+    interleaving of the two prior classes' events - at every instruction,
+    the event that instruction contributed to whichever prior class it
+    touched - on the mutate-free non-bridging fragment; the one folding
+    shape is stated honestly: a jump-arg handoff bridging the two merge
+    participants was a cross-class consume/credit pair and collapses into
+    the RL-4 same-class exemption, net-preservingly. (robustness) Clause 1
+    composes UNCONDITIONALLY: the merged net is the sum of the prior nets
+    on EVERY stream, so two zero-net classes merge to a zero-net class.
+    Clauses 2/3 compose under two honest side conditions, EACH proven
+    necessary by a negative witness: (a) running-nonnegativity - each
+    prior class's running count stays >= 0 at every prefix; without it two
+    individually-clause-satisfying ledgers interleave into a READ-at-0
+    use-after-free (the three clauses are silent on an interior negative
+    dip absent reads); (b) mutate-freeness - the dynamic-COW sibling floor
+    is computed from the path suffix and the merge can RAISE it (a
+    formerly-cross-class suffix reader becomes a live sibling) past a
+    running count that satisfied the pre-merge floor; clause-3 preservation
+    genuinely requires re-deriving sibling floors at the merged partition.
+    An unconditional clause-2/3 preservation claim is FALSE and provably
+    rejected. This grounds why incremental tier-1-edge introduction cannot
+    silently break distant classes: every perturbation is confined to the
+    merged classes, and there it is exactly characterized.
+
+  Proof obligation:
+    (P1) The redirect and its T1 grounding. Untouched-class membership is
+         verbatim under mergeClasses; merged-class membership is the
+         disjunction of the two prior memberships; the retired class is
+         empty. The introduced semantic edge is a PartitionAdm.tier1
+         admission (equal birth-sites). On the concrete witness union-find
+         (a tier-1 view pair {900, 901}; singletons 902-904) the REAL
+         PartitionUF.union folding the new edge (902, 900) computes exactly
+         the mergeClasses redirect on every touched value; the merge is
+         genuine (distinct representatives before, one after) and the
+         distant class 903 keeps its representative verbatim.
+    (P2) THE frame theorem. Derivation congruence (pointwise-equal
+         membership tests derive verbatim-identical ledgers, by induction
+         over the computed classification - the sibling-count congruence
+         included) instantiated at the redirect: for every class distinct
+         from both merge participants and EVERY instruction stream, the
+         post-merge derived ledger IS the pre-merge derived ledger, hence
+         the three-clause verdict and the balanced-and-safe status are
+         unchanged verbatim. The retired class derives the empty ledger.
+         Instantiated at the concrete witness for the distant class.
+    (P3) Net additivity - clause 1 unconditional. The per-instruction net
+         contribution to the merged class equals the SUM of the two prior
+         contributions (every instruction, the bridging jump-arg rows
+         summing -1 + 1 = 0), so the merged class's net ledger is the sum
+         of the prior nets on every stream, and two zero-net prior classes
+         merge to a zero-net class.
+    (P4) Bounded impact - the positional interleave. On a mutate-free
+         stream with no jump-arg bridging the two merge participants, the
+         merged class's derived ledger equals the filterMap of the
+         per-instruction pair image: at every instruction, the event it
+         contributed to whichever prior class it touched (at most one, by
+         disjointness). The bridging-collapse lemma states the one folding
+         shape: source in the retired class, receiver in the absorbing
+         class - a cross-class handoff (consume/credit, the committed
+         jump_arg_cross_class_handoff) before the merge, the RL-4
+         exemption (no event) after it, net-preserving.
+    (P5) Robustness - clauses 2/3 under the honest side conditions. The
+         floors-composition lemma threads both prior running counts: the
+         merged count at every prefix is their sum; a firing event's floor
+         is met by its own class's floor plus the OTHER class's
+         nonnegativity; a bridging handoff moves one unit between the
+         counts leaving the sum and the merged ledger untouched. Corollary:
+         both prior classes three-clause-satisfying + both running counts
+         never negative + mutate-free stream => the merged class satisfies
+         all three clauses.
+    (P6) Negative witnesses - the side conditions are necessary. READ-at-0:
+         on the computed identity-class witness, both prior classes satisfy
+         the three clauses (one carries an interior consume-before-birth
+         dip - net zero, floors silent), the running-nonnegativity check
+         pinpoints the violated guard, and the merged class reads at count
+         0 - three clauses false, the operational use-after-free flag set,
+         while the merged net STILL zeroes (the clause-1 slice really is
+         unconditional). Merge-raised sibling floor: both prior classes
+         satisfy the clauses AND both counts stay nonnegative, yet the
+         merged dynamic-COW mutate faces floor 2 at count 1 (the
+         formerly-cross-class suffix reader became a live sibling) - three
+         clauses false, the operational COW-hazard flag set; mutate-freeness
+         cannot be dropped.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/ContractBoundary.lean:
+      mergeClasses, mergeClasses_untouched_membership,
+        mergeClasses_merged_membership, mergeClasses_retired_membership,
+        T5_new_edge_is_tier1_admission, t5UF, t5ClassOfU, t5UFMerged,
+        T5_union_is_mergeClasses_on_witness, T5_witness_merge_shape (P1)
+      sibReadCount_congr, deriveLedger_congr,
+        T5_frame_untouched_class_ledger_verbatim (P2 - the load-bearing
+        theorem), T5_frame_verdict_verbatim, T5_retired_class_ledger_empty,
+        T5_distant_class_untouched_on_witness (P2)
+      ledgerNet_cons, beq_second_false_of_first, instrNetAt,
+        ledgerNet_deriveLedger_cons, instrNetAt_merged_additive,
+        T5_merged_net_additive, T5_merged_clause1_net_zero (P3)
+      instrEventAt, pairEventAt, isBridgingJump, deriveLedger_eq_filterMap,
+        filterMap_congr_local, instrEventAt_merged_cases,
+        T5_merged_ledger_is_positional_interleave,
+        T5_bridging_jump_collapses (P4)
+      countNeverNegative, clauseFloors_cons_split,
+        countNeverNegative_cons_split, clauseFloors_cons_build,
+        deriveLedger_cons_eventAt, T5_merged_floors_of_prior,
+        T5_merged_class_clauses_robust (P5)
+      t5wUF, t5wClassOf, t5wReadAt0Instrs,
+        T5_unconditional_floor_preservation_false, t5wMutInstrs,
+        T5_mutate_floor_rises_under_merge_rejected (P6)
+      T5_frame_limited_robustness_bundle (conclusion bundle)
+    Bridged committed theorems and carriers consumed: PartitionAdm,
+      PartitionUF, PartitionUF.union, PartitionUF.sameRep, buildPartitionUF,
+      partitionFuel (AimsProof.Partition); LedgerInstr, LedgerEvent,
+      deriveLedger, sibReadCount, threeClauses, clauseNetZero, clauseFloors,
+      eventFloor, eventDelta, ledgerNet, runLedger, ledgerSafe,
+      deriveLedger_untouched, jump_arg_cross_class_handoff,
+      jump_arg_same_class_exempt (AimsProof.Ledger);
+      rl2_use_transfers_ownership (AimsProof.Realization).
+    The compiled Lean (verified by `lake build` under the trusted kernel) is the
+    authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      structural_induction (PRIMARY - induction over the instruction stream
+        for the congruence, additivity, interleave, and floors lemmas)
+      case_analysis (per-instruction membership dichotomies; bridging vs
+        non-bridging jump-args; the necessity witnesses)
+      fixpoint (the concrete union-find edge-fold computing the redirect)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IA frame-limited-robustness shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.ContractBoundary (lake build clean): T5_frame_untouched_class_ledger_verbatim discharges the verbatim frame for every class untouched by a tier-1 merge, T5_merged_net_additive the unconditional clause-1 composition, T5_merged_ledger_is_positional_interleave the exact bounded impact on the mutate-free non-bridging fragment, and T5_merged_class_clauses_robust the clauses-2/3 composition under the honestly-stated running-nonnegativity + mutate-freeness side conditions, each proven necessary by a rejected witness (READ-at-0 interleave; merge-raised dynamic-COW sibling floor), over the T1 union-find redirect.
