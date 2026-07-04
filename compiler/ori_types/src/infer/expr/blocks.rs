@@ -8,7 +8,8 @@ use crate::{Expected, Idx};
 use super::super::InferEngine;
 use super::lambdas::maybe_generalize;
 use super::{
-    bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
+    bind_pattern, check_expr, infer_expr, infer_optional_or_unit, pattern_is_irrefutable,
+    resolve_and_check_parsed_type,
 };
 
 /// Distinguishes a plain let-binding from a try-block let-binding.
@@ -38,11 +39,7 @@ pub(crate) fn infer_block(
         infer_stmt(engine, arena, stmt, LetInitUnwrap::Direct);
     }
 
-    let block_ty = if result.is_present() {
-        infer_expr(engine, arena, result)
-    } else {
-        Idx::UNIT
-    };
+    let block_ty = infer_optional_or_unit(engine, arena, result);
 
     engine.exit_scope();
 

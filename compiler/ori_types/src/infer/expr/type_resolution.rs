@@ -7,28 +7,13 @@ use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
 
 use super::super::InferEngine;
 
-/// Resolve a `ParsedType` from the AST into a pool `Idx`.
-///
-/// This converts parsed type annotations into the pool representation.
-/// The conversion is recursive for compound types (functions, containers, etc.).
-///
-/// # Type Mapping
-///
-/// | `ParsedType` | `Idx` |
-/// |--------------|-------|
-/// | `Primitive(TypeId::INT)` | `Idx::INT` |
-/// | `Primitive(TypeId::UNIT)` | `Idx::UNIT` |
-/// | `List(elem)` | `pool.list(resolve(elem))` |
-/// | `Function { params, ret }` | `pool.function(...)` |
-/// | `Named { name, args }` | lookup or fresh var |
-/// | `Infer` | fresh variable |
-/// | `SelfType` | fresh variable (TODO: context lookup) |
-///
-/// # Future Work
-///
-/// - Named type lookup requires `TypeRegistry` integration (section 07)
-/// - `SelfType` requires trait/impl context
-/// - `AssociatedType` requires projection support
+/// Resolve a `ParsedType` from the AST into a pool `Idx`, recursing for
+/// compound types (functions, containers, etc.). `Named` resolves via
+/// well-known generics, the `TypeRegistry`, the environment, then FFI
+/// carrier inference, falling back to a fresh named var; `SelfType`
+/// resolves via the current impl's `Self` binding, falling back to a
+/// fresh var; `AssociatedType` resolves via the base type's trait impls,
+/// falling back to a fresh var.
 #[expect(
     clippy::too_many_lines,
     reason = "exhaustive ParsedType variant resolution covering all primitive, container, and user-defined types"
@@ -50,8 +35,8 @@ pub fn resolve_parsed_type(
         }
 
         ParsedType::FixedList { elem, capacity: _ } => {
-            // Fixed lists are treated as regular lists for now
-            // TODO: Add fixed list support when needed
+            // Spec: Clause 8.2.2 - capacity-aware subtyping is target-only;
+            // erased to a plain list until capacity tracking ships.
             let elem_parsed = arena.get_parsed_type(*elem);
             let elem_ty = resolve_parsed_type(engine, arena, elem_parsed);
             engine.pool_mut().list(elem_ty)
@@ -218,8 +203,8 @@ pub fn resolve_parsed_type(
 
         ParsedType::TraitBounds(bounds) => {
             // Bounded trait object: Printable + Hashable
-            // Resolve the first bound as the primary type for now;
-            // full trait object dispatch will refine this later.
+            // Spec: Clause 8.8 - dedicated trait-object encoding is
+            // target-only; the first bound stands in as the placeholder Idx.
             let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
                 let first = arena.get_parsed_type(first_id);

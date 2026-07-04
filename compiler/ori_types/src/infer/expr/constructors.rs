@@ -5,7 +5,7 @@ use ori_ir::{ExprArena, ExprId, Name, Span};
 use crate::{ContextKind, Expected, Idx, Tag, TypeCheckError};
 
 use super::super::InferEngine;
-use super::{check_expr, infer_expr};
+use super::{check_expr, infer_expr, infer_optional_or_unit};
 
 /// Infer the type of `Ok(value)`.
 pub(crate) fn infer_ok(
@@ -14,11 +14,7 @@ pub(crate) fn infer_ok(
     inner: ExprId,
     _span: Span,
 ) -> Idx {
-    let ok_ty = if inner.is_present() {
-        infer_expr(engine, arena, inner)
-    } else {
-        Idx::UNIT
-    };
+    let ok_ty = infer_optional_or_unit(engine, arena, inner);
     let err_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
 }
@@ -30,11 +26,7 @@ pub(crate) fn infer_err(
     inner: ExprId,
     _span: Span,
 ) -> Idx {
-    let err_ty = if inner.is_present() {
-        infer_expr(engine, arena, inner)
-    } else {
-        Idx::UNIT
-    };
+    let err_ty = infer_optional_or_unit(engine, arena, inner);
     let ok_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
 }
@@ -59,10 +51,10 @@ pub(crate) fn infer_none(engine: &mut InferEngine<'_>) -> Idx {
 /// BD-2 check `Ok(value)` against an outer `Result<T, E>` expectation.
 ///
 /// When `expected` resolves to a concrete `Result<T, E>`, the inner
-/// expression is checked against `Check(T)` and the constructor returns
-/// the outer `Result<T, E>` type — closing the LHS-propagation gap that
-/// previously left the `Err` slot as a fresh unification variable. For
-/// non-Result expectations, falls through to bottom-up synthesis so
+/// expression is checked against `Check(T)`, propagating the annotation
+/// into `inner` instead of leaving the `Err` slot a fresh unification
+/// variable, and the constructor returns the outer `Result<T, E>` type.
+/// For non-Result expectations, falls through to bottom-up synthesis so
 /// unification downstream catches mismatches.
 pub(crate) fn check_ok(
     engine: &mut InferEngine<'_>,
@@ -171,7 +163,7 @@ pub(crate) fn infer_await(
     _inner: ExprId,
     _span: Span,
 ) -> Idx {
-    // TODO: Implement await inference
+    // TODO(typeck): Implement await inference.
     Idx::ERROR
 }
 

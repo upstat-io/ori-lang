@@ -94,6 +94,19 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
     ensure_sufficient_stack(|| infer_expr_inner(engine, arena, expr_id))
 }
 
+/// Infer the type of `expr_id`, or `()` when absent.
+pub(super) fn infer_optional_or_unit(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+) -> Idx {
+    if expr_id.is_present() {
+        infer_expr(engine, arena, expr_id)
+    } else {
+        Idx::UNIT
+    }
+}
+
 fn infer_lit_ident_op_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

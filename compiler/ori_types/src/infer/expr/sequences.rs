@@ -6,8 +6,8 @@ use crate::{ContextKind, Expected, Idx, PatternKey, Tag};
 
 use super::super::InferEngine;
 use super::{
-    check_expr, check_match_pattern, for_loop_elem_ty, infer_expr, infer_match, infer_stmt,
-    LetInitUnwrap,
+    check_expr, check_match_pattern, for_loop_elem_ty, infer_expr, infer_match,
+    infer_optional_or_unit, infer_stmt, LetInitUnwrap,
 };
 
 /// Infer type for a `function_seq` expression (try, match, for).
@@ -114,11 +114,7 @@ pub(crate) fn infer_try_seq(
         }
         outer_result
     } else {
-        let result_ty = if result.is_present() {
-            infer_expr(engine, arena, result)
-        } else {
-            Idx::UNIT
-        };
+        let result_ty = infer_optional_or_unit(engine, arena, result);
         let resolved = engine.resolve(result_ty);
         let tag = engine.pool().tag(resolved);
         match (tag, error_ty) {

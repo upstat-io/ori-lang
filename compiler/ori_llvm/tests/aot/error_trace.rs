@@ -45,7 +45,7 @@ fn error_trace_heap_message_repeated_one_hop_no_leak() {
 ///
 /// One accessor call per binding: mixing `.trace_entries()` and `.trace()`
 /// on sibling two-hop bindings reproduces a leak tracked separately; this
-/// cell stays on the confirmed-clean shape instead.
+/// cell stays on the confirmed-clean same-accessor shape instead.
 #[test]
 fn error_trace_heap_message_repeated_two_hop_no_leak() {
     let source = r#"

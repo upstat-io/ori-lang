@@ -18,35 +18,43 @@
 #   fallback; the ABSENCE of any such line IS the fix. This check is fully
 #   deterministic and environment-independent.
 #
-#   Static-only was NOT the original design — a prior version of this
-#   script drove `cargo check -p oric` as a real subprocess twice (warm
-#   build, untracked touch, rebuild) and asserted the build script visibly
-#   reran. That dynamic probe was abandoned after direct empirical
-#   evidence showed it produces FALSE PASSES on the pre-fix code: build.rs
-#   itself calls `git status --porcelain` every time it runs, and git can
-#   rewrite `.git/index`'s mtime as a stat-cache-refresh side effect of
-#   that call alone — the very same file the pre-fix code's
-#   `rerun-if-changed` gate watches. That self-touch was observed to
-#   trigger a "genuine" rerun on the OLD narrowly-gated build.rs in 3 of 5
-#   consecutive single-shot trials (and worse with retries), independent
-#   of whether the test's own untracked source touch mattered at all — a
-#   live probe cannot reliably discriminate this specific regression in
-#   this environment. See `content/decisions/02-static-vs-dynamic-freshness-check.md`
-#   for the full investigation.
+#   A prior live-subprocess-only design was replaced by this static check
+#   because the live probe produced a false PASS on the pre-fix build.rs:
+#   build.rs's own `git status --porcelain` call can rewrite `.git/index`'s
+#   mtime as a stat-cache-refresh side effect, and a narrowly-gated
+#   `rerun-if-changed=<.git/index>` line then treats that self-inflicted
+#   change as a genuine rerun trigger, independent of the untracked source
+#   edit the probe means to test. The static check has no such self-trigger
+#   path, so it is the PRIMARY gate; the live probe below stays informational.
+#
+#   Coverage boundary: the static check catches re-introduction of a
+#   narrowing `rerun-if-changed` / `rerun-if-env-changed` line. It does NOT
+#   catch a future regression in `build.rs`'s OWN logic (e.g. the `git()`
+#   helper or the `ORI_GIT_DIRTY` computation silently breaking) that
+#   leaves the stamp stale without ever emitting such a line — that class
+#   of defect needs its own dedicated check if it materializes.
 #
 #   INFORMATIONAL (non-gating): a single warm build + untracked touch +
 #   rebuild, reporting whether the build script visibly reran and whether
 #   the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain`
 #   reading. Builds in an isolated `CARGO_TARGET_DIR` (never the shared
 #   `target/`, avoiding interference from a background `rust-analyzer`).
+#   Runs `git status` with `GIT_OPTIONAL_LOCKS=0` (matching build.rs's own
+#   `git()` helper) so this comparison never rewrites `.git/index`'s mtime.
 #   Never asserts on `ORI_BUILD_DATE` — it is HEAD's commit date and does
-#   not change on an uncommitted edit. Failure here does NOT fail the
-#   script; it is printed as a secondary data point only.
+#   not change on an uncommitted edit. A miss here does NOT fail the
+#   PRIMARY verdict (exit 0 stands when the static check passed) but is
+#   surfaced via a distinct exit code so it stays observable rather than
+#   silently swallowed. Stays non-gating even with the mtime fix above:
+#   background build-lock contention (a concurrent `rust-analyzer` racing
+#   the isolated `CARGO_TARGET_DIR`) remains a residual source of a live
+#   rebuild not visibly rerunning.
 #
 # Exit codes:
-#   0 = build.rs emits no rerun-if-changed / rerun-if-env-changed line (fix present)
+#   0 = static check passed AND the informational demonstration also succeeded (or was skipped)
 #   1 = regression: a narrowing rerun-if-changed / rerun-if-env-changed line is present
 #   2 = environment error (compiler_repo not found, cargo missing, etc.)
+#   3 = static check passed but the informational demonstration observed a miss — not gating, but worth a look
 
 set -uo pipefail
 
@@ -114,7 +122,7 @@ find_stamp_output() {
 }
 
 current_git_dirty() {
-    if [[ -n "$(git status --porcelain)" ]]; then
+    if [[ -n "$(GIT_OPTIONAL_LOCKS=0 git status --porcelain)" ]]; then
         echo "1"
     else
         echo "0"
@@ -150,4 +158,9 @@ STAMPED_DIRTY=$(grep '^cargo:rustc-env=ORI_GIT_DIRTY=' "$STAMP_FILE" | tail -n1 
 ACTUAL_DIRTY=$(current_git_dirty)
 
 echo "rerun observed: $RERAN | stamped ORI_GIT_DIRTY=$STAMPED_DIRTY | live git-dirty=$ACTUAL_DIRTY"
-exit 0
+if [[ "$RERAN" == "true" ]] && [[ "$STAMPED_DIRTY" == "$ACTUAL_DIRTY" ]]; then
+    exit 0
+else
+    echo -e "${YELLOW}Note${NC}: informational demonstration missed (non-gating) — this can be a transient environmental race (see decision doc); re-run to confirm before investigating further."
+    exit 3
+fi

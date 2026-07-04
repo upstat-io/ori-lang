@@ -1708,6 +1708,88 @@ fn test_infer_block_let_annotation_type_mismatch() {
     assert!(engine.has_errors(), "Type mismatch should produce an error");
 }
 
+/// Matrix cell for `infer_stmt`'s `StmtKind::Expr` arm (shared by
+/// `infer_block` and `infer_try_stmt`), previously untested: a leading
+/// expression-statement's value is discarded (evaluated for side effects),
+/// so the block's type comes from the trailing result, unaffected by the
+/// statement's own type.
+#[test]
+fn test_infer_block_expr_statement_type_discarded() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // { 1; "result" }
+    let stmt_expr = alloc(&mut arena, ExprKind::Int(1));
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Expr(stmt_expr),
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::String(name(1)));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+
+    assert_eq!(
+        ty,
+        Idx::STR,
+        "block type comes from the trailing result, not the discarded expression statement"
+    );
+    assert!(!engine.has_errors());
+}
+
+/// Negative pin clamping the cell above: `infer_stmt`'s `StmtKind::Expr` arm
+/// discards the synthesized type (`let _ = infer_expr(...)`) but MUST still
+/// run inference — a type error inside a side-effect-only statement is not
+/// silently swallowed just because its value is unused.
+#[test]
+fn test_infer_block_expr_statement_error_not_swallowed() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // { 1 + "oops"; 42 } — the leading statement's binary-op mismatch must
+    // still report an error even though its value is discarded.
+    let left = alloc(&mut arena, ExprKind::Int(1));
+    let right = alloc(&mut arena, ExprKind::String(name(1)));
+    let bad_add = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        },
+    );
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Expr(bad_add),
+        span: span(),
+    });
+
+    let result_expr = alloc(&mut arena, ExprKind::Int(42));
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: result_expr,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, block);
+
+    assert_eq!(ty, Idx::INT, "block type is still the trailing result type");
+    assert!(
+        engine.has_errors(),
+        "type error inside a discarded expression statement must not be swallowed"
+    );
+}
+
 // Option/Result Constructor Tests
 
 #[test]

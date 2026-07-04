@@ -22,6 +22,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
+| `verify-build-stamp-freshness.sh` | Verify `oric`'s `build.rs` re-executes and refreshes its git-identity stamp on an ordinary rebuild | After touching `compiler/oric/build.rs` or its `git()`-based stamping logic |
 | `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating reviewer failures and capacity errors |
 | `tpr-liveness.sh` | Classify a TPR reviewer process as alive/quiet/dead | Retry decision support before deciding a silent reviewer is hung |
 | `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene, **test dispositions**) at `build/state/known-state.json` (schema v2) | First query in a new workspace — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `dispositions`, `refresh --sha-only`/`--full`/`--hygiene-only`/`--dispositions-only`) |
@@ -207,6 +208,15 @@ diagnostics/repo-hygiene.sh --gitignore            # Suggest .gitignore patterns
 ```
 
 Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into close-out and completion checks.
+
+### verify-build-stamp-freshness.sh — Build-Stamp Regression Check
+
+```bash
+diagnostics/verify-build-stamp-freshness.sh                # Static gate + informational live-rebuild demo
+diagnostics/verify-build-stamp-freshness.sh --no-color      # Disable color output
+```
+
+Static check (gating): `compiler/oric/build.rs` must emit no `cargo:rerun-if-changed=` / `cargo:rerun-if-env-changed=` line — the absence of any such line is what makes Cargo's default whole-package rebuild fallback govern. Informational check (non-gating): a warm build, an untracked source touch, and a rebuild, reporting whether the build script visibly reran and whether the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain` reading; a miss reports exit 3 without failing the script. Exit 1 (the static regression) is the only failure.
 
 ### self-test.sh — Script Self-Test
 

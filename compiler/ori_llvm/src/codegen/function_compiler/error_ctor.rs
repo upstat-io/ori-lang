@@ -87,26 +87,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             idx += 1;
         }
 
-        // Initialize field trace to an empty list { 0, 0, null }
+        // Initialize field trace to an empty list `{ 0, 0, null }` via the
+        // canonical `const_zero_ty` empty-value primitive, so this site and
+        // `emit_str_into_error` share one empty-trace-init path.
         let dst_trace_ptr =
             self.builder
                 .struct_gep(error_struct_ty, ret_ptr, mem_trace_field, "dst_trace_ptr");
         let list_struct_ty = str_struct_ty; // list shares the same structure layout as str
-        let len_ptr = self
-            .builder
-            .struct_gep(list_struct_ty, dst_trace_ptr, 0, "len");
-        let zero_len = self.builder.const_i64(0);
-        self.builder.store(zero_len, len_ptr);
-        let cap_ptr = self
-            .builder
-            .struct_gep(list_struct_ty, dst_trace_ptr, 1, "cap");
-        let zero_cap = self.builder.const_i64(0);
-        self.builder.store(zero_cap, cap_ptr);
-        let data_ptr = self
-            .builder
-            .struct_gep(list_struct_ty, dst_trace_ptr, 2, "data");
-        let null_val = self.builder.const_null_ptr();
-        self.builder.store(null_val, data_ptr);
+        let empty_trace = self.builder.const_zero_ty(list_struct_ty);
+        self.builder.store(empty_trace, dst_trace_ptr);
 
         self.builder.ret_void();
 

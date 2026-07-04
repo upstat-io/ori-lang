@@ -54,7 +54,6 @@ pub(crate) fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span:
 ///
 /// The iterator must be iterable (list, range, etc.), and the binding
 /// receives each element type.
-// TODO(typeck): Refactor with a ForLoopParams struct when implementing
 #[expect(clippy::too_many_arguments, reason = "matches ExprKind::For structure")]
 pub(crate) fn infer_for(
     engine: &mut InferEngine<'_>,

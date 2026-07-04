@@ -208,9 +208,8 @@ mod map_receiver_lambda_param {
 // fold/rfold receiver-tag parity via the shared `receiver_element_type`
 // SSOT. The `fold`/`rfold` arm binds the closure's SECOND param (the element)
 // to the receiver element. These cells pin the `Tag::Map` ((K, V) tuple) +
-// `Tag::Str` (char) coverage that previously diverged from
-// `unify_closure_param_with_iterator_elem`, plus a `Tag::List` regression cell
-// and a non-element negative pin.
+// `Tag::Str` (char) coverage of `unify_closure_param_with_iterator_elem`,
+// plus a `Tag::List` regression cell and a non-element negative pin.
 mod fold_rfold_receiver_lambda_param {
     use super::super::closure_unify::unify_higher_order_constraints;
     use crate::{Idx, Pool, Tag};

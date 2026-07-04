@@ -10,6 +10,8 @@
 //! A file changed only in a sibling crate (`ori_ir`, `ori_types`, etc.) does
 //! NOT trigger a rerun, so `ORI_GIT_DIRTY` can lag true whole-workspace
 //! dirtiness until a file inside `oric`'s own package also changes.
+//! Regression: removing any `rerun-if-changed` line above reintroduces a
+//! stale-stamp regression; see `diagnostics/verify-build-stamp-freshness.sh`.
 
 use std::process::Command;
 
@@ -37,8 +39,16 @@ fn main() {
 
 /// Runs `git <args>` and returns trimmed stdout, or `None` when git is absent
 /// or exits non-zero.
+///
+/// `GIT_OPTIONAL_LOCKS=0` disables git's opportunistic index-refresh
+/// writeback, so a `status`/`diff`-family call here never rewrites
+/// `.git/index`'s mtime as a side effect.
 fn git(args: &[&str]) -> Option<String> {
-    let output = Command::new("git").args(args).output().ok()?;
+    let output = Command::new("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

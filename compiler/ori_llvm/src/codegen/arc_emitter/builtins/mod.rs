@@ -165,11 +165,10 @@ pub(super) struct BuiltinCtx<'a> {
 /// Used for:
 /// - Early rejection in `try_emit_builtin_method` (skip dispatch for non-builtins)
 /// - Enumeration in sync tests vs `ori_registry::BUILTIN_TYPES`
-// NOTE: BuiltinTable and friends are test-only (called from tests.rs and
+// BuiltinTable and friends are test-only (called from tests.rs and
 // #[cfg(test)] helpers). Uses #[allow(dead_code)] (not #[expect]) because the
 // items are dead in non-test mode but alive in test mode — #[expect] would
 // trigger unfulfilled-lint-expectation errors under `clippy --tests`.
-// A future cleanup could move them under #[cfg(test)] instead.
 #[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 pub(crate) struct BuiltinTable {
     /// Two-level map: `type_name` → (`method_name` → registration).
@@ -252,9 +251,6 @@ static BUILTIN_TABLE: LazyLock<BuiltinTable> = LazyLock::new(BuiltinTable::build
 pub(crate) fn builtin_table() -> &'static BuiltinTable {
     &BUILTIN_TABLE
 }
-
-// Dispatch entry point — see `dispatch.rs` (split out per WASTE-12, keeps
-// this file under the 500-line cap).
 
 #[cfg(test)]
 mod tests;

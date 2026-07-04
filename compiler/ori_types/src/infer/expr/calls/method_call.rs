@@ -103,8 +103,8 @@ pub(crate) fn infer_method_call(
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
         // BD-2: propagate outer expected into sig.ret BEFORE arg-checking
         // so the generic return slot is constrained by the LHS annotation.
-        // Closes the `let e: Error = msg.into()` gap where the generic T in
-        // `into<T>(self) -> T` previously stayed an unresolved fresh var.
+        // Closes the `let e: Error = msg.into()` gap: without this, the
+        // generic `T` in `into<T>(self) -> T` stays an unresolved fresh var.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }

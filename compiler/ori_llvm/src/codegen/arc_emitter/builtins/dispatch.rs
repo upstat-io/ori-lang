@@ -326,17 +326,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         self.emit_slice_aware_rc_inc(receiver_str, str_ty);
         let llvm_ty = self.resolve_type(error_ty);
-        // Build the FULL 2-field Error `{ message, trace }` — `trace` zero-inited
-        // to an empty list `{ 0, 0, null }` (the `[TraceEntry]` fat pointer shares
-        // the str/list layout). A 1-field build left `trace` undef, so a later
-        // `trace_entries()` read a garbage fat pointer. Mirrors the empty-trace
-        // init in `declare_error_constructor`.
+        // Build the full 2-field Error `{ message, trace }`; zero-init `trace`
+        // to an empty list via the canonical `const_zero_ty` empty-value
+        // primitive so every Error-construction site shares one init path.
         let list_llvm = self.resolve_type(ori_types::Idx::STR);
-        let zero = self.builder.const_i64(0);
-        let null_data = self.builder.const_null_ptr();
-        let empty_trace =
-            self.builder
-                .build_struct(list_llvm, &[zero, zero, null_data], "empty.trace");
+        let empty_trace = self.builder.const_zero_ty(list_llvm);
         Some(
             self.builder
                 .build_struct(llvm_ty, &[receiver_str, empty_trace], "error.into"),

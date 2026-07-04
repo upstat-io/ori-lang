@@ -329,11 +329,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let entry_arg = *args.get(1)?;
         let entry_val = self.var(entry_arg);
-        // `_ori_error_with_trace`'s 3rd param is a `ptr` to the `TraceEntry`
-        // (2 strs + 2 ints, > 16 bytes) — the SysV ABI passes it indirectly.
-        // The ARC arg arrives by value; spill it to an alloca and hand over
-        // the slot pointer, mirroring `emit_trace_injection`'s func/file
-        // `OriStr` spill for the same by-value->pointer FFI-boundary reason.
+        // `_ori_error_with_trace`'s 3rd param is `ptr` to `TraceEntry`
+        // (>16 bytes, SysV indirect); the ARC arg arrives by value, so spill
+        // it to an alloca and hand over the slot pointer.
         let entry_ty = arc_func.var_type(entry_arg);
         let entry_llvm_ty = self.resolve_type(entry_ty);
         let entry_ptr = self.builder.alloca(entry_llvm_ty, "with_trace.entry.ptr");
