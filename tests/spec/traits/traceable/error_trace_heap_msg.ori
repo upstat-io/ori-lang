@@ -11,7 +11,7 @@ use std.testing { assert_eq, assert }
 @fail_heap () -> Result<int, Error> =
     Err(Error("a heap error message over 23 chars"));
 
-// M6 — single ?-hop, heap message.
+// Single ?-hop, heap message.
 @one_hop_heap () -> Result<int, Error> = {
     let x = fail_heap()?;
     Ok(x)
@@ -37,7 +37,7 @@ use std.testing { assert_eq, assert }
     r.trace_entries().len()
 }
 
-// M7 — chained 2-hop, heap message: two ? sites = two entries, no double-free.
+// Chained 2-hop, heap message: two ? sites = two entries, no double-free.
 @inner_heap () -> Result<int, Error> = {
     let x = fail_heap()?;
     Ok(x)
@@ -58,9 +58,9 @@ use std.testing { assert_eq, assert }
     r.trace_entries().len()
 }
 
-// M8 — message survives: the transferred heap message buffer is still readable
+// Message survives: the transferred heap message buffer is still readable
 // after a ?-hop (a mis-modeled ownership frees it -> garbage / UAF). Reads the
-// Err payload's message directly, NOT trace_entries (M6) — distinct assertion.
+// Err payload's message directly, NOT trace_entries — distinct assertion.
 // Skipped: the `match { Err(e) -> e.message }` extract is a {str, list} sum-variant
 // partial move (extract message, drop trace list); AOT double-frees the extracted
 // str while interp is correct. General AIMS burden-path partial-move defect,
@@ -77,10 +77,10 @@ use std.testing { assert_eq, assert }
         Ok(_) -> "",
     };
 
-// M10 — delegation-receiver (Result) + heap message through the trace() string
+// Delegation-receiver (Result) + heap message through the trace() string
 // formatter (_ori_format_error_trace): niche-selects the Err payload, reads the
 // transferred heap message + trace. Exercises the accessor + heap-message path
-// M6-M9 (has_trace/trace_entries) leave uncovered.
+// the has_trace/trace_entries tests above leave uncovered.
 @test_heap_trace_str tests @heap_trace_str () -> void = {
     let r = one_hop_heap();
     assert(cond: r.trace() != "")

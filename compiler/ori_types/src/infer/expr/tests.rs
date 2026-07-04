@@ -1063,9 +1063,9 @@ fn test_infer_for_guard_not_bool() {
     assert!(engine.has_errors(), "Non-bool guard should report error");
 }
 
-// FunctionSeq::ForPattern tests — `for(over:, [map:,] match:, default:)`. This
-// path (`infer_for_pattern` in sequences.rs) had zero direct coverage: prior
-// tests exercised only the ExprKind::For loop forms (for/do, for/yield) above.
+// FunctionSeq::ForPattern tests — `for(over:, [map:,] match:, default:)`.
+// Exercises `infer_for_pattern` in sequences.rs, distinct from the
+// ExprKind::For loop forms (for/do, for/yield) tested above.
 
 /// Basic `for(over:, match:, default:)`: a Binding pattern arm returns the
 /// list's element type; `default` of the same type unifies cleanly.
@@ -4032,12 +4032,11 @@ fn test_try_block_let_lambda_generalizes() {
     );
 }
 
-/// Matrix gap: every existing try-block-let test above uses `ParsedTypeId::INVALID`
-/// (non-annotated), so `infer_let_binding_impl`'s `ty_id.is_valid()` branch combined
-/// with `LetInitUnwrap::ResultOrOption` was untested. `try { let x: int = Ok(42); ... }`
-/// exercises the annotated + auto-unwrap combination (Spec Clause 17): the
-/// initializer's `Result<int, _>` is unwrapped to `int` before checking against the
-/// `int` annotation, and `x` binds to the unwrapped `int`, not `Result<int, _>`.
+/// `try { let x: int = Ok(42); ... }` exercises `infer_let_binding_impl`'s
+/// annotated (`ty_id.is_valid()`) branch combined with
+/// `LetInitUnwrap::ResultOrOption` (Spec Clause 17): the initializer's
+/// `Result<int, _>` is unwrapped to `int` before checking against the `int`
+/// annotation, and `x` binds to the unwrapped `int`, not `Result<int, _>`.
 #[test]
 fn test_try_block_annotated_let_unwraps_result_type() {
     test_engine!(pool, engine);
@@ -4121,10 +4120,9 @@ fn test_try_block_annotated_let_result_mismatch_reports_error() {
 /// Diagnostic-UX pin: an ANNOTATED let-binding whose initializer is a
 /// self-referencing lambda (`let f: (int) -> int = x -> f(x)`) must report
 /// the friendly `ClosureSelfCapture` diagnostic ("closure cannot capture
-/// itself"), not a bare "unknown identifier" — matching the behavior the
-/// unannotated `let f = x -> f(x)` path already had via
-/// `rewrite_self_capture_errors`. `infer_let_binding_impl`'s annotated branch
-/// previously skipped that rewrite entirely.
+/// itself"), not a bare "unknown identifier" — matching the unannotated
+/// `let f = x -> f(x)` path's behavior via `rewrite_self_capture_errors`,
+/// which `infer_let_binding_impl`'s annotated branch also invokes.
 #[test]
 fn test_annotated_let_binding_self_capturing_lambda_reports_closure_self_capture() {
     test_engine!(interner, pool, engine);
@@ -4218,11 +4216,9 @@ fn test_annotated_let_binding_self_capturing_lambda_reports_closure_self_capture
 // These tests pin the Value Restriction's conservative-direction soundness:
 // every capturing lambda MUST be rejected by `should_generalize`, regardless
 // of which compound expression node transitively hosts the captured outer
-// reference. The prior `_ => false` match wildcard in `body_captures_outer`
-// silently returned "no capture" for every ExprKind variant it didn't
-// explicitly walk — permitting unsound generalization of lambdas that
-// captured via call args, method args, block bodies, list / map / struct
-// literals, and match arm bodies.
+// reference — call args, method args, block bodies, list / map / struct
+// literals, and match arm bodies all count as capture sites `body_captures_outer`
+// must walk into, per its documented conservative-default contract.
 
 /// Helper for the capture-via-compound-node tests: wrap a single-statement
 /// capturing body in a `(x) -> <body>` lambda and assert `should_generalize`
@@ -4421,10 +4417,9 @@ fn test_try_block_propagates_expected_result_type() {
 
 /// Propagation-branch `error_ty` check: a single Result-typed try-block let
 /// (`let $a = Ok(1)`, auto-unwrapped) leaves a fresh error-type variable that
-/// MUST be checked against the outer annotation's declared Err slot — the
-/// `if let Some(et) = error_ty` branch inside `infer_try_seq`'s propagation
-/// arm. Every other propagation test above uses an empty `stmts` range, so
-/// `error_ty` was always `None` and this branch never ran; this pins it.
+/// MUST be checked against the outer annotation's declared Err slot — pins
+/// the `if let Some(et) = error_ty` branch inside `infer_try_seq`'s
+/// propagation arm, which requires a non-empty `stmts` range to reach.
 #[test]
 fn test_try_block_propagation_checks_let_error_type_against_outer_annotation() {
     test_engine!(pool, engine);
@@ -4588,6 +4583,90 @@ fn test_try_block_with_wrong_outer_type_reports_mismatch_not_double_wrap() {
         engine.has_errors(),
         "expected an E2001 mismatch when the outer annotation is not a Result"
     );
+}
+
+/// Fallback `(_, None)` match arm: no outer annotation, no fallible
+/// let-bindings (`error_ty` stays `None`), and a tail whose synthesized type
+/// is NOT itself `Result`/`Option` (a bare `int`) — `infer_try_seq` must wrap
+/// the tail in a fresh-error `Result<T, _>` rather than leaving it bare.
+/// Distinct from `test_try_block_without_outer_annotation_falls_back_to_synthesis`,
+/// whose `Ok(..)`-wrapped tail instead hits the `(Tag::Result, None)` arm.
+#[test]
+fn test_try_block_bare_non_result_tail_wraps_in_fresh_error_result() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { 42 } — no let statements, tail is a bare int (tag != Result,
+    // tag != Option) — hits the `(_, None)` match arm.
+    let int_tail = alloc(&mut arena, ExprKind::Int(42));
+    let stmts = arena.alloc_stmt_range(0, 0);
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: int_tail,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    let err_ty = engine.pool().result_err(resolved);
+    assert_eq!(engine.pool().tag(err_ty), Tag::Var);
+    assert!(!engine.has_errors());
+}
+
+/// Fallback `(_, Some(et))` match arm: no outer annotation, a fallible
+/// let-binding leaves `error_ty = Some(et)`, and a tail whose synthesized
+/// type is NOT itself `Result`/`Option` (a bare `int` unrelated to the
+/// let-bound name) — `infer_try_seq` must wrap the bare tail in
+/// `Result<T, et>` using the let-binding's concrete error type, instead of
+/// allocating a fresh (disconnected) error variable.
+#[test]
+fn test_try_block_bare_tail_with_fallible_let_wraps_using_let_error_type() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { let $a = pre_bound; 100 } — `pre_bound: Result<int, bool>`, tail
+    // is the bare literal `100` (unrelated to `a`) — hits the `(_, Some(et))`
+    // match arm with `et = bool`.
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    engine.env_mut().bind(name(60), result_int_bool);
+    let init = alloc(&mut arena, ExprKind::Ident(name(60)));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(2),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let tail = alloc(&mut arena, ExprKind::Int(100));
+
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(engine.pool().result_err(resolved), Idx::BOOL);
+    assert!(!engine.has_errors());
 }
 
 // Sum-Constructor BD-2 Tests (Ok / Err / Some)

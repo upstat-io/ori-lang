@@ -490,3 +490,29 @@ fn cow_entries_declare_noalias_last_param_in_table() {
         }
     }
 }
+
+/// `Ty::needs_sret()` gates the x86-64 `SysV` ABI's 16-byte direct-passing
+/// threshold on RETURN types (`Str`/`List`/`Map` at 24 bytes get sret + a
+/// prepended out-pointer). No analogous gate exists for PARAMS: a
+/// `Str`/`List`/`Map` param declared by value silently mis-classifies the
+/// `SysV` eightbytes and shifts every following argument.
+///
+/// Regression: a runtime function declaring a >16-byte type (`Str`/`List`/
+/// `Map`) by value in a params slot instead of `Ty::Ptr` corrupts the calling
+/// convention (SIGABRT on a heap-message trace injection). Pin every table
+/// entry's params against the same `needs_sret()` predicate the return side
+/// already enforces.
+#[test]
+fn no_rtfn_param_uses_a_needs_sret_type_directly() {
+    let offenders: Vec<&str> = RT_FUNCTIONS
+        .iter()
+        .filter(|spec| spec.params.iter().any(|ty| ty.needs_sret()))
+        .map(|spec| spec.name)
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "runtime fns passing a >16-byte type (Str/List/Map) by value in params \
+         (declare as Ty::Ptr instead): {offenders:?}"
+    );
+}

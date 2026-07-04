@@ -1,18 +1,16 @@
 //! AOT RC-balance pin for `?`-hop trace injection on a HEAP (non-SSO) `Error`
-//! message (TDD matrix M9, `error_trace_heap_msg.ori`'s Rust-level sibling).
+//! message (`error_trace_heap_msg.ori`'s Rust-level sibling).
 //!
 //! SSO messages (<=23 chars) never allocate a heap buffer, so they cannot
-//! exercise the transferred `message` fat-pointer path Gap D's ABI fix
-//! corrected (`_ori_inject_trace_entry`'s `function`/`file` args must pass by
-//! pointer, not by value, per `codegen-rules.md` AB-1). `assert_aot_success`'s
-//! built-in `ORI_CHECK_LEAKS=1` oracle is the RC-balance check: a leaked or
-//! double-freed message/trace buffer surfaces as a non-zero exit.
+//! exercise the transferred `message` fat-pointer path (`_ori_inject_trace_entry`
+//! passes `function`/`file` by pointer since a 24-byte `OriStr` exceeds the
+//! `SysV` ABI's 16-byte direct-passing threshold); `assert_aot_success`'s
+//! `ORI_CHECK_LEAKS=1` oracle flags a leaked/double-freed buffer as a non-zero exit.
 //!
-//! Accessor calls here read directly off the `Result` delegation receiver
-//! (never a `match`-extracted `Err(e)`, and never mixing a one-hop binding
-//! with a two-hop binding in one function) — see BUG-04-246 (RC leak) and
-//! BUG-04-247 (LLVM verification failure) for the two orthogonal defects
-//! those shapes trip, discovered authoring this cell and tracked separately.
+//! Reads the `Result` delegation receiver directly (never `match`-extracted,
+//! never mixing one-hop/two-hop bindings in one fn) — a `match`-extracted
+//! receiver and mixed one-hop/two-hop bindings each trip their own orthogonal
+//! RC defect on this path, tracked separately.
 
 use crate::util::assert_aot_success;
 
@@ -41,17 +39,13 @@ fn error_trace_heap_message_repeated_one_hop_no_leak() {
 }
 
 /// Two independent chained 2-hop trace injections on heap-allocated
-/// (>23 char) `Error` messages, read back through `.trace_entries().len()`.
-/// Each `two_hop()` call exercises `_ori_inject_trace_entry`'s COW-push
-/// twice on the same `Error` (growing an already-populated trace list), in
-/// addition to the first-push allocation `one_hop()` covers.
+/// (>23 char) `Error` messages, read back via `.trace_entries().len()`.
+/// Each `two_hop()` call COW-pushes twice on the same `Error`, atop the
+/// first-push allocation `one_hop()` covers.
 ///
-/// Deliberately narrow to a single accessor call per binding: combining
-/// `.trace_entries()` and `.trace()` reads on sibling two-hop bindings in
-/// one function reproduces a leak tracked separately under BUG-04-246 — the
-/// isolation matrix there documents the wider accessor-combination family;
-/// this cell stays on the confirmed-clean shape to pin Gap D's own RC
-/// concern without re-encoding that unrelated defect as a passing test.
+/// One accessor call per binding: mixing `.trace_entries()` and `.trace()`
+/// on sibling two-hop bindings reproduces a leak tracked separately; this
+/// cell stays on the confirmed-clean shape instead.
 #[test]
 fn error_trace_heap_message_repeated_two_hop_no_leak() {
     let source = r#"

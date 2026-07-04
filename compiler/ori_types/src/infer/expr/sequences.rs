@@ -52,21 +52,12 @@ pub(crate) fn infer_function_seq(
 
 /// Infer type for `try { let x = fallible()?; result }`.
 ///
-/// Like a block, but auto-unwraps [`Result`]/[`Option`] types in let bindings.
-/// The entire expression returns a [`Result`] or [`Option`] wrapping the result.
-///
-/// ### Propagation
-///
-/// Bidirectional propagation: when `expected` resolves to a
-/// concrete `Result<T, E>`, the result expression is checked against
-/// `Check(T)` and the propagating let-binding error type is reconciled
-/// against `E`. For non-Result expectations (`NoExpectation`, fresh Var,
-/// or any other tag), the function falls back to bottom-up synthesis
-/// so unification later catches mismatches.
-///
-/// # Returns
-///
-/// The wrapped `Result` or `Option` type.
+/// Like a block, but auto-unwraps [`Result`]/[`Option`] types in let bindings;
+/// the whole expression returns a [`Result`] or [`Option`] wrapping the result.
+/// When `expected` resolves to a concrete `Result<T, E>`, the result expression
+/// checks against `Check(T)` and the propagated error type reconciles against
+/// `E`; otherwise inference falls back to bottom-up synthesis. Returns the
+/// wrapped `Result` or `Option` type.
 pub(crate) fn infer_try_seq(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -184,7 +175,7 @@ fn infer_for_pattern(
 
     engine.enter_scope();
 
-    // Why: a for-pattern carries one inline MatchArm, not an ArmRange, so no
+    // Why: A for-pattern carries one inline MatchArm, not an ArmRange, so no
     // real arm_index exists per the PatternKey::Arm contract; u32::MAX is an
     // out-of-range placeholder key ori_canon never reads via resolve_pattern.
     check_match_pattern(

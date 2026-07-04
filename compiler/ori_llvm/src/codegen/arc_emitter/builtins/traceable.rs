@@ -13,15 +13,12 @@ use crate::codegen::value_id::ValueId;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit the Traceable read accessors (`trace` / `has_trace` / `trace_entries`,
     /// `with_trace`) on an `Error` struct or a Result/Option delegation receiver,
-    /// and intercept `__ori_inject_trace` (the `?`-hop trace-injection protocol
-    /// call). Returns `None` for any other method/receiver.
+    /// and intercept `__ori_inject_trace` (the `?`-hop protocol call). Returns
+    /// `None` for any other method/receiver.
     ///
-    /// The `Error` struct carries a `trace: [TraceEntry]` field: the accessors GEP
-    /// into it and `__ori_inject_trace` calls the runtime `_ori_inject_trace_entry`
-    /// to COW-push a `?`-hop entry. Invoked as an early intercept in `emit_apply` /
-    /// `emit_invoke` ahead of `resolve_callee` — a `backend_required: false`
-    /// Traceable method otherwise resolves to an unbacked `_ori_trace` mono decl
-    /// with a mismatched ABI.
+    /// Invoked as an early intercept in `emit_apply` / `emit_invoke` ahead of
+    /// `resolve_callee`: a `backend_required: false` Traceable method otherwise
+    /// resolves to an unbacked `_ori_trace` mono decl with a mismatched ABI.
     pub(in crate::codegen::arc_emitter) fn try_emit_traceless_traceable(
         &mut self,
         callee: Name,

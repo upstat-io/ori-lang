@@ -60,28 +60,16 @@ pub(crate) fn infer_let(
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
-    let _ = infer_let_binding(engine, arena, pattern, ty, init, span);
-    Idx::UNIT
-}
-
-/// Infer and check a standard let-binding.
-fn infer_let_binding(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    pattern_id: BindingPatternId,
-    ty_id: ParsedTypeId,
-    init: ExprId,
-    span: Span,
-) -> Idx {
-    infer_let_binding_impl(
+    let _ = infer_let_binding_impl(
         engine,
         arena,
-        pattern_id,
-        ty_id,
+        pattern,
+        ty,
         init,
         span,
         LetInitUnwrap::Direct,
-    )
+    );
+    Idx::UNIT
 }
 
 /// Process one statement — infer an expression statement for its side
@@ -110,7 +98,7 @@ pub(crate) fn infer_stmt(
     }
 }
 
-/// Shared skeleton for [`infer_let_binding`] and the try-block let path
+/// Shared skeleton for [`infer_let`] and the try-block let path
 /// (invoked by [`infer_stmt`] with `unwrap: LetInitUnwrap::ResultOrOption`) —
 /// the two binding shapes differ only in whether the initializer's type is
 /// unwrapped from `Result`/`Option` before checking (`unwrap`).
@@ -128,7 +116,7 @@ fn infer_let_binding_impl(
     let binding_name = find_first_name(pat);
     let errors_before = engine.error_count();
 
-    // Why: env scope would hide subsequent block statements from this let-binding.
+    // Why: Env scope would hide subsequent block statements from this let-binding.
     engine.enter_rank_scope();
 
     let final_ty = if ty_id.is_valid() {
@@ -212,8 +200,8 @@ fn find_first_name(pattern: &ori_ir::BindingPattern) -> Option<Name> {
                 .map_or(Some(field.name), find_first_name)
         }),
         // `let` only accepts rest-only list patterns (irrefutable per
-        // ori-syntax.md), so `elements` is always empty in practice — `rest`
-        // is the sole source of a bound name (`let [..tail] = ...`).
+        // Spec: Clause 15.4), so `elements` is always empty in practice —
+        // `rest` is the sole source of a bound name (`let [..tail] = ...`).
         ori_ir::BindingPattern::List { elements, rest } => elements
             .first()
             .and_then(find_first_name)

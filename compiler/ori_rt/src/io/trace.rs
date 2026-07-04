@@ -81,7 +81,8 @@ pub extern "C" fn _ori_inject_trace_entry(
     // SAFETY: error_ptr is verified non-null. Caller guarantees it points to a valid OriError.
     let error = unsafe { &mut *error_ptr };
     // SAFETY: function/file are verified non-null; the caller spills each OriStr
-    // to an alloca and passes its pointer per the by-pointer ABI above.
+    // to an alloca and passes its pointer (a 24-byte OriStr exceeds the 16-byte
+    // direct-pass threshold, so it crosses this FFI boundary by pointer only).
     let entry = OriTraceEntry {
         function: unsafe { *function },
         file: unsafe { *file },
@@ -112,6 +113,9 @@ pub extern "C" fn _ori_inject_trace_entry(
     );
 
     if !out_list.data.is_null() {
+        // SAFETY: `out_list.data` is non-null, freshly returned by
+        // `ori_list_push_cow` as a valid RC-header-backed buffer pointer;
+        // `store_elem_dec_fn` writes into that header's `elem_dec_fn` slot.
         unsafe {
             crate::rc::store_elem_dec_fn(out_list.data, Some(trace_entry_dec_fn));
         }
@@ -133,6 +137,10 @@ pub extern "C" fn _ori_format_error_trace(error_ptr: *const OriError) -> crate::
     }
 
     let mut parts = Vec::new();
+    // SAFETY: `error.trace.data` is non-null (checked above) and `trace_len`
+    // is the buffer's own recorded element count, so the slice covers
+    // exactly the initialized `OriTraceEntry` elements the COW-push
+    // machinery wrote.
     let entries = unsafe {
         std::slice::from_raw_parts(error.trace.data.cast::<OriTraceEntry>(), trace_len as usize)
     };
@@ -158,6 +166,9 @@ pub extern "C" fn _ori_error_with_trace(
         return;
     }
     if error_ptr.is_null() || entry_ptr.is_null() {
+        // SAFETY: `out_ptr` is verified non-null above and the caller
+        // guarantees it points to caller-allocated `OriError` (sret) storage;
+        // `write` overwrites it without dropping any prior contents.
         unsafe {
             std::ptr::write(
                 out_ptr,
@@ -188,6 +199,10 @@ pub extern "C" fn _ori_error_with_trace(
     crate::rc::ori_list_rc_inc(error.trace.data, error.trace.cap);
 
     let entry_copy = *entry;
+    // SAFETY: `entry_copy` is a bitwise copy of `*entry_ptr` (verified
+    // non-null above); `function`/`file` are heap-variant `OriStr`s written
+    // by `_ori_inject_trace_entry`, so their `heap` union fields are valid
+    // RC buffer handles for `ori_str_rc_inc`.
     unsafe {
         let func_data = entry_copy.function.heap.data;
         let func_cap = entry_copy.function.heap.cap;
@@ -220,11 +235,16 @@ pub extern "C" fn _ori_error_with_trace(
     );
 
     if !trace.data.is_null() {
+        // SAFETY: `trace.data` is non-null, freshly returned by
+        // `ori_list_push_cow` as a valid RC-header-backed buffer pointer;
+        // `store_elem_dec_fn` writes into that header's `elem_dec_fn` slot.
         unsafe {
             crate::rc::store_elem_dec_fn(trace.data, Some(trace_entry_dec_fn));
         }
     }
 
+    // SAFETY: `out_ptr` is verified non-null above and the caller guarantees
+    // it points to caller-allocated `OriError` (sret) storage.
     unsafe {
         std::ptr::write(out_ptr, OriError { message, trace });
     }
