@@ -185,6 +185,12 @@ fn infer_for_pattern(
 
     engine.enter_scope();
 
+    // Why: this arm has no `ArmRange` (a for-pattern carries exactly one
+    // inline `MatchArm`, not an indexed range of arms), so there is no real
+    // `ArmRange.start + arm_index` value per the `PatternKey::Arm` contract.
+    // `u32::MAX` is an out-of-range placeholder key; `ori_canon`'s for-pattern
+    // lowering does not consult `resolve_pattern()` for this arm, so no
+    // downstream reader keys off this value today.
     check_match_pattern(
         engine,
         arena,

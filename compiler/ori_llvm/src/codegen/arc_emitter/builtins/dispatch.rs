@@ -113,8 +113,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let error_struct_idx = self.pool.error_struct_idx().unwrap();
         let error_struct_ty = self.resolve_type(error_struct_idx);
-        let alloca = self.builder.alloca(error_struct_ty, "error.alloca");
-        self.builder.store(receiver_val, alloca);
+        let alloca = self.error_receiver_ptr(receiver_val, error_struct_idx);
 
         let func_id = self.builder.runtime_fn("_ori_inject_trace_entry");
         self.emit_rt_call(
@@ -126,6 +125,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(updated_val)
     }
 
+    /// Materialize an `Error` struct VALUE to a pointer the accessors + runtime
+    /// calls (`_ori_format_error_trace` / `_ori_error_with_trace`) can GEP into.
+    /// `Error` is 32 bytes (sret-returned by value), so the receiver arrives as
+    /// an SSA struct value, not a pointer; spill it to a fresh alloca. SSOT for
+    /// the by-value->pointer materialization shared by trace injection, the
+    /// error-struct accessor path, and `with_trace`.
+    fn error_receiver_ptr(&mut self, receiver_val: ValueId, error_ty: Idx) -> ValueId {
+        let error_struct_ty = self.resolve_type(error_ty);
+        let alloca = self.builder.alloca(error_struct_ty, "error.recv.ptr");
+        self.builder.store(receiver_val, alloca);
+        alloca
+    }
+
     fn traceable_error_ptr(
         &mut self,
         receiver_val: ValueId,
@@ -133,7 +145,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         is_error_struct: bool,
     ) -> Option<ValueId> {
         if is_error_struct {
-            return Some(receiver_val);
+            return Some(self.error_receiver_ptr(receiver_val, receiver_ty));
         }
 
         let tag = self.builder.extract_value(receiver_val, 0, "tag")?;
@@ -314,13 +326,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         dst_ty: Idx,
     ) -> Option<ValueId> {
         let entry_ptr = self.var(*args.get(1)?);
+        // `_ori_error_with_trace`'s 2nd param is a `ptr` to the Error; the
+        // receiver arrives by value (32-byte sret Error), so spill it.
+        let error_struct_idx = self.pool.error_struct_idx()?;
+        let error_ptr = self.error_receiver_ptr(receiver_val, error_struct_idx);
         let func_id = self.builder.runtime_fn("_ori_error_with_trace");
         let llvm_dst_ty = self.resolve_type(dst_ty);
 
         let out_alloca = self.builder.alloca(llvm_dst_ty, "with_trace_out");
         self.emit_rt_call(
             func_id,
-            &[out_alloca, receiver_val, entry_ptr],
+            &[out_alloca, error_ptr, entry_ptr],
             "_ori_error_with_trace",
         );
         Some(
@@ -639,9 +655,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         self.emit_slice_aware_rc_inc(receiver_str, str_ty);
         let llvm_ty = self.resolve_type(error_ty);
+        // Build the FULL 2-field Error `{ message, trace }` — `trace` zero-inited
+        // to an empty list `{ 0, 0, null }` (the `[TraceEntry]` fat pointer shares
+        // the str/list layout). A 1-field build left `trace` undef, so a later
+        // `trace_entries()` read a garbage fat pointer. Mirrors the empty-trace
+        // init in `declare_error_constructor`.
+        let list_llvm = self.resolve_type(ori_types::Idx::STR);
+        let zero = self.builder.const_i64(0);
+        let null_data = self.builder.const_null_ptr();
+        let empty_trace =
+            self.builder
+                .build_struct(list_llvm, &[zero, zero, null_data], "empty.trace");
         Some(
             self.builder
-                .build_struct(llvm_ty, &[receiver_str], "error.into"),
+                .build_struct(llvm_ty, &[receiver_str, empty_trace], "error.into"),
         )
     }
 

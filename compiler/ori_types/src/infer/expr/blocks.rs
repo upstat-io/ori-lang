@@ -64,6 +64,19 @@ pub(crate) fn infer_let(
     Idx::UNIT
 }
 
+/// Distinguishes a plain let-binding from a try-block let-binding.
+///
+/// A try-block binding auto-unwraps `Result`/`Option` initializers (Spec
+/// Clause 17); a plain binding checks the initializer against the annotation
+/// directly. The two binding shapes share every other step, so this enum
+/// is the sole parameter separating [`infer_let_binding`] from
+/// [`infer_try_let_binding`] (both delegate to `infer_let_binding_impl`).
+#[derive(Clone, Copy)]
+enum LetInitUnwrap {
+    Direct,
+    ResultOrOption,
+}
+
 /// Infer and check a standard let-binding.
 pub(crate) fn infer_let_binding(
     engine: &mut InferEngine<'_>,
@@ -73,43 +86,15 @@ pub(crate) fn infer_let_binding(
     init: ExprId,
     span: Span,
 ) -> Idx {
-    let pat = arena.get_binding_pattern(pattern_id);
-
-    let binding_name = find_first_name(pat);
-    let errors_before = engine.error_count();
-
-    // Why: env scope would hide subsequent block statements from this let-binding.
-    engine.enter_rank_scope();
-
-    let final_ty = if ty_id.is_valid() {
-        let parsed_ty = arena.get_parsed_type(ty_id);
-        let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
-        let expected =
-            Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span);
-        let _init_ty = check_expr(engine, arena, init, &expected, span);
-        expected_ty
-    } else {
-        let init_ty = infer_expr(engine, arena, init);
-
-        if let Some(name) = binding_name {
-            if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
-                engine.rewrite_self_capture_errors(name, errors_before);
-            }
-        }
-
-        // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
-        maybe_generalize(engine, arena, init, init_ty)
-    };
-
-    engine.exit_rank_scope();
-
-    if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
-        let err = TypeCheckError::refutable_pattern(span, reason);
-        engine.push_error(err);
-    }
-    bind_pattern(engine, arena, pat, final_ty);
-
-    final_ty
+    infer_let_binding_impl(
+        engine,
+        arena,
+        pattern_id,
+        ty_id,
+        init,
+        span,
+        LetInitUnwrap::Direct,
+    )
 }
 
 /// Infer and check a let-binding inside a try block, which auto-unwraps
@@ -122,6 +107,29 @@ pub(crate) fn infer_try_let_binding(
     init: ExprId,
     span: Span,
 ) -> Idx {
+    infer_let_binding_impl(
+        engine,
+        arena,
+        pattern_id,
+        ty_id,
+        init,
+        span,
+        LetInitUnwrap::ResultOrOption,
+    )
+}
+
+/// Shared skeleton for [`infer_let_binding`] and [`infer_try_let_binding`] —
+/// the two binding shapes differ only in whether the initializer's type is
+/// unwrapped from `Result`/`Option` before checking (`unwrap`).
+fn infer_let_binding_impl(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    pattern_id: BindingPatternId,
+    ty_id: ParsedTypeId,
+    init: ExprId,
+    span: Span,
+    unwrap: LetInitUnwrap,
+) -> Idx {
     let pat = arena.get_binding_pattern(pattern_id);
 
     let binding_name = find_first_name(pat);
@@ -135,9 +143,19 @@ pub(crate) fn infer_try_let_binding(
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
         let expected =
             Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span);
-        let init_ty = infer_expr(engine, arena, init);
-        let unwrapped = engine.unwrap_result_or_option(init_ty);
-        let _ = engine.check_type(unwrapped, &expected, span);
+        match unwrap {
+            // Direct bidirectional Check(T) propagates the annotation into `init`.
+            LetInitUnwrap::Direct => {
+                let _init_ty = check_expr(engine, arena, init, &expected, span);
+            }
+            // The raw initializer type is Result<T, E>/Option<T>, not T, so it
+            // must be inferred bottom-up and unwrapped before unifying with T.
+            LetInitUnwrap::ResultOrOption => {
+                let init_ty = infer_expr(engine, arena, init);
+                let unwrapped = engine.unwrap_result_or_option(init_ty);
+                let _ = engine.check_type(unwrapped, &expected, span);
+            }
+        }
         expected_ty
     } else {
         let init_ty = infer_expr(engine, arena, init);
@@ -148,7 +166,10 @@ pub(crate) fn infer_try_let_binding(
             }
         }
 
-        let bound_ty = engine.unwrap_result_or_option(init_ty);
+        let bound_ty = match unwrap {
+            LetInitUnwrap::Direct => init_ty,
+            LetInitUnwrap::ResultOrOption => engine.unwrap_result_or_option(init_ty),
+        };
 
         // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
         maybe_generalize(engine, arena, init, bound_ty)

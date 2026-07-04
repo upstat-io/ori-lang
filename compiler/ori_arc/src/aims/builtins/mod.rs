@@ -18,7 +18,8 @@ use rustc_hash::FxHashMap;
 use crate::borrow::BuiltinOwnershipSets;
 
 use super::contract::{
-    ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
+    ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnAliasShape,
+    ReturnContract,
 };
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 
@@ -166,6 +167,34 @@ fn seed_internal_runtime_contracts(
             is_fbip: false,
         });
     }
+
+    // __ori_inject_trace(err: Owned) — the compiler-injected `?`-hop trace call
+    // (ori_llvm intercepts it at codegen; never a real callee). RL-34
+    // forwarder-identity: the receiver Error is consumed and transfers through
+    // the by-value return (returns the receiver type directly), so the caller
+    // emits NO dec on the arg and exactly one release on the result. The
+    // EffectSummary sets may_allocate + may_deallocate because the runtime
+    // `_ori_inject_trace_entry` COW-pushes onto `error.trace` (may realloc a new
+    // buffer + free the old); a default EffectSummary would under-approximate.
+    // Spec: Annex E §AIMS RL-2 (ApplyToOwnedParam transfer) + RL-34.
+    let ori_inject_trace = interner.intern("__ori_inject_trace");
+    sigs.entry(ori_inject_trace)
+        .or_insert_with(|| MemoryContract {
+            params: vec![ParamContract {
+                transfers_through_return: true,
+                return_alias: Some(ReturnAliasShape::Direct),
+                ..PARAM_OWNED_LINEAR
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary {
+                may_allocate: true,
+                may_deallocate: true,
+                ..EffectSummary::default()
+            },
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+            is_fbip: false,
+        });
 
     // ori_print(s: Borrowed READ-ONLY) — a pure stdout read of the string's
     // bytes (`ori_rt::io::ori_print`): never touches the RC header, never
