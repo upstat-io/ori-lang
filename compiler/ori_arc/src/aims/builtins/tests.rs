@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use crate::borrow::BuiltinOwnershipSets;
 
-use super::super::contract::MemoryContract;
+use super::super::contract::{MemoryContract, ReturnAliasShape};
 use super::super::lattice::{AccessClass, Cardinality, Consumption, Uniqueness};
 use super::*;
 
@@ -399,6 +399,56 @@ fn seed_ori_panic_message_param_owned_transfer() {
     assert!(
         contract.effects.may_deallocate,
         "ori_panic releases the message — may_deallocate must stay true"
+    );
+}
+
+/// Semantic pin: `__ori_inject_trace`'s Error-receiver param is an RL-34
+/// forwarder-identity TRANSFER — the by-value return carries the same
+/// allocation the arg transferred in, so the caller emits no dec on the arg
+/// and exactly one release on the result. Would FAIL if the seed is removed
+/// (the arg reverts to the all-borrowed external default and the heap
+/// message double-frees under the rejected `[Borrowed]` treatment) or if
+/// `transfers_through_return` / `return_alias` regress.
+#[test]
+fn seed_ori_inject_trace_forwarder_identity_transfer() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let ori_inject_trace = interner.intern("__ori_inject_trace");
+    let contract = sigs
+        .get(&ori_inject_trace)
+        .unwrap_or_else(|| panic!("__ori_inject_trace must carry a seeded contract"));
+    assert_eq!(
+        contract.params.len(),
+        1,
+        "__ori_inject_trace takes one Error receiver param"
+    );
+    assert_eq!(
+        contract.params[0].access,
+        AccessClass::Owned,
+        "the receiver Error is consumed"
+    );
+    assert_eq!(contract.params[0].consumption, Consumption::Linear);
+    assert!(
+        contract.params[0].transfers_through_return,
+        "the receiver's refs transfer through the by-value return (RL-34)"
+    );
+    assert_eq!(
+        contract.params[0].return_alias,
+        Some(ReturnAliasShape::Direct),
+        "the returned Error carries the transferred refs directly, not wrapped"
+    );
+    // Effects stay narrowed to allocate+deallocate only — the runtime
+    // COW-pushes onto error.trace (may realloc a new buffer + free the old);
+    // a default EffectSummary would under-approximate the callee's effects.
+    assert!(
+        contract.effects.may_allocate,
+        "the COW-push may allocate a new trace buffer"
+    );
+    assert!(
+        contract.effects.may_deallocate,
+        "the COW-push may free the old trace buffer"
     );
 }
 

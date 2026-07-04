@@ -216,7 +216,7 @@ diagnostics/verify-build-stamp-freshness.sh                # Static gate + infor
 diagnostics/verify-build-stamp-freshness.sh --no-color      # Disable color output
 ```
 
-Static check (gating): `compiler/oric/build.rs` must emit no `cargo:rerun-if-changed=` / `cargo:rerun-if-env-changed=` line — the absence of any such line is what makes Cargo's default whole-package rebuild fallback govern. Informational check (non-gating): a warm build, an untracked source touch, and a rebuild, reporting whether the build script visibly reran and whether the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain` reading; a miss reports exit 3 without failing the script. Exit 1 (the static regression) is the only failure.
+Static check (gating): `compiler/oric/build.rs` must emit no `cargo:rerun-if-changed=` / `cargo:rerun-if-env-changed=` line — the absence of any such line is what makes Cargo's default whole-package rebuild fallback govern. Informational check (non-gating): a warm build, an unstaged mtime touch on a tracked file, and a rebuild, reporting whether the build script visibly reran and whether the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain` reading; a miss reports exit 3 without failing the script. Exit 1 (the static regression) is the only failure.
 
 ### self-test.sh — Script Self-Test
 

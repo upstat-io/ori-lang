@@ -10,8 +10,9 @@
 //! A file changed only in a sibling crate (`ori_ir`, `ori_types`, etc.) does
 //! NOT trigger a rerun, so `ORI_GIT_DIRTY` can lag true whole-workspace
 //! dirtiness until a file inside `oric`'s own package also changes.
-//! Regression: removing any `rerun-if-changed` line above reintroduces a
-//! stale-stamp regression; see `diagnostics/verify-build-stamp-freshness.sh`.
+//! Regression: adding any `rerun-if-changed` / `rerun-if-env-changed` line
+//! above reintroduces a stale-stamp regression; see
+//! `diagnostics/verify-build-stamp-freshness.sh`.
 
 use std::process::Command;
 

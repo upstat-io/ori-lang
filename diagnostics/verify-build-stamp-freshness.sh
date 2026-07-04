@@ -23,7 +23,7 @@
 #   build.rs's own `git status --porcelain` call can rewrite `.git/index`'s
 #   mtime as a stat-cache-refresh side effect, and a narrowly-gated
 #   `rerun-if-changed=<.git/index>` line then treats that self-inflicted
-#   change as a genuine rerun trigger, independent of the untracked source
+#   change as a genuine rerun trigger, independent of the unstaged source
 #   edit the probe means to test. The static check has no such self-trigger
 #   path, so it is the PRIMARY gate; the live probe below stays informational.
 #
@@ -34,9 +34,10 @@
 #   leaves the stamp stale without ever emitting such a line — that class
 #   of defect needs its own dedicated check if it materializes.
 #
-#   INFORMATIONAL (non-gating): a single warm build + untracked touch +
-#   rebuild, reporting whether the build script visibly reran and whether
-#   the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain`
+#   INFORMATIONAL (non-gating): a single warm build + an unstaged mtime
+#   touch on a tracked file + rebuild, reporting whether the build script
+#   visibly reran and whether the stamped `ORI_GIT_DIRTY` matches a live
+#   `git status --porcelain`
 #   reading. Builds in an isolated `CARGO_TARGET_DIR` (never the shared
 #   `target/`, avoiding interference from a background `rust-analyzer`).
 #   Runs `git status` with `GIT_OPTIONAL_LOCKS=0` (matching build.rs's own
@@ -66,7 +67,7 @@ for arg in "$@"; do
     case "$arg" in
         --no-color) NO_COLOR=true ;;
         -h|--help)
-            sed -n '2,42p' "$0" | sed 's/^# \?//'
+            awk 'NR>1 && /^#/{sub(/^# ?/,""); print; next} NR>1{exit}' "$0"
             exit 0
             ;;
         *)
@@ -93,7 +94,7 @@ fi
 echo "Checking $BUILD_RS for rerun-if-changed / rerun-if-env-changed emissions..."
 if grep -qE 'cargo:rerun-if-(changed|env-changed)=' "$BUILD_RS"; then
     echo -e "${RED}FAIL${NC}: $BUILD_RS emits a rerun-if-changed/rerun-if-env-changed line, narrowing Cargo's rebuild trigger below the whole package."
-    echo "This reproduces BUG-07-357: an untracked, unstaged edit inside compiler/oric/src/ will not trigger a rebuild, so ORI_GIT_SHA/ORI_GIT_DIRTY/ORI_BUILD_DATE can freeze at a stale build's values." >&2
+    echo "This reproduces a stale-stamp regression: an untracked, unstaged edit inside compiler/oric/src/ will not trigger a rebuild, so ORI_GIT_SHA/ORI_GIT_DIRTY/ORI_BUILD_DATE can freeze at a stale build's values." >&2
     exit 1
 fi
 echo -e "${GREEN}PASS${NC}: $BUILD_RS emits no rerun-if-changed / rerun-if-env-changed line — Cargo's default whole-package rebuild fallback governs."
