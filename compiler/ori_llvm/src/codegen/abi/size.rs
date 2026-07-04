@@ -186,7 +186,7 @@ fn abi_size_inner(
 
 /// Aggregate (struct/tuple) size with inter-field alignment padding plus
 /// trailing padding to the max field alignment — matches LLVM's struct
-/// layout so Direct/Indirect classification (AB-1) agrees with the size
+/// layout so the Direct/Indirect ABI classification agrees with the size
 /// LLVM lays out.
 fn aggregate_size_with_padding(
     fields: impl Iterator<Item = Idx>,

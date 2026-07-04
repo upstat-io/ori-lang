@@ -684,7 +684,7 @@ fn abi_with_ownership_none_falls_through() {
 // layouts. These tests enforce the mirror mechanically: for a representative
 // type corpus, the abi-side size/alignment MUST equal the store size /
 // alignment of the LLVM type the resolver actually produces. A divergence
-// flips AB-1 Direct/Indirect classification (register-misalignment SIGSEGV
+// flips the Direct/Indirect ABI classification (register-misalignment SIGSEGV
 // class).
 
 use inkwell::context::Context;

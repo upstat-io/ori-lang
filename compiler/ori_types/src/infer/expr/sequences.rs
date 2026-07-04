@@ -227,9 +227,9 @@ fn infer_for_pattern(
 /// Process a try-block statement (let or expression).
 ///
 /// Auto-unwraps `Result`/`Option` types in let bindings. Delegates to the
-/// shared [`infer_stmt`] dispatcher — this is the try-block's statement
-/// loop, the [`LetInitUnwrap::ResultOrOption`] twin of `infer_block`'s
-/// [`LetInitUnwrap::Direct`] statement loop in `blocks.rs`.
+/// shared [`infer_stmt`] dispatcher — the [`LetInitUnwrap::ResultOrOption`]
+/// twin of [`super::blocks::infer_block`]'s [`LetInitUnwrap::Direct`]
+/// statement loop.
 pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, stmt: &ori_ir::Stmt) {
     infer_stmt(engine, arena, stmt, LetInitUnwrap::ResultOrOption);
 }

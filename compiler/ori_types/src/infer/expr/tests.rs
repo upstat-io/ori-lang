@@ -3876,10 +3876,10 @@ fn test_let_expr_non_lambda_does_not_generalize() {
 }
 
 /// Semantic pin: a let statement inside a try block with a non-lambda initializer
-/// must NOT generalize. The try-block let path in `sequences.rs` (`infer_try_stmt`)
-/// is a third generalization site distinct from `infer_block` and `infer_let`.
-/// We call `infer_try_stmt` directly to exercise the code path without the
-/// try-block scope enter/exit that would hide the binding.
+/// must NOT generalize. The try-block let path (`infer_try_stmt`) is a third
+/// generalization site distinct from `infer_block` and `infer_let`. We call
+/// `infer_try_stmt` directly to exercise the code path without the try-block
+/// scope enter/exit that would hide the binding.
 #[test]
 fn test_try_block_let_non_lambda_does_not_generalize() {
     test_engine!(pool, engine);

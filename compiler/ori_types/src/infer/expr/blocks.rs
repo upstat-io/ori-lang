@@ -14,12 +14,10 @@ use super::{
 /// Distinguishes a plain let-binding from a try-block let-binding.
 ///
 /// A try-block binding auto-unwraps `Result`/`Option` initializers (Spec
-/// Clause 17); a plain binding checks the initializer against the annotation
-/// directly. The two binding shapes share every other step, so this enum is
-/// the sole parameter separating [`infer_let_binding`] from the try-block let
-/// path in `infer_let_binding_impl`, and — one level up — the sole parameter
-/// separating a block's statement loop from a try-block's statement loop in
-/// [`infer_stmt`].
+/// Clause 17); a plain binding checks the initializer directly. Selects
+/// between the two paths in [`infer_let_binding_impl`] and, one level up,
+/// between [`infer_block`]'s and [`super::sequences::infer_try_stmt`]'s
+/// statement-loop dispatch in [`infer_stmt`].
 #[derive(Clone, Copy)]
 pub(crate) enum LetInitUnwrap {
     Direct,
@@ -89,10 +87,10 @@ pub(crate) fn infer_let_binding(
 /// Process one statement — infer an expression statement for its side
 /// effects, or run a let-binding under `unwrap`'s mode.
 ///
-/// Shared skeleton for [`infer_block`]'s statement loop and the try-block
-/// statement loop in `sequences::infer_try_stmt` — both dispatch on the
-/// same `StmtKind` shape, differing only in which [`LetInitUnwrap`] mode
-/// the let-binding checks against.
+/// Shared skeleton for [`infer_block`]'s statement loop and
+/// [`super::sequences::infer_try_stmt`]'s try-block statement loop — both
+/// dispatch on the same `StmtKind` shape, differing only in which
+/// [`LetInitUnwrap`] mode the let-binding checks against.
 pub(crate) fn infer_stmt(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
