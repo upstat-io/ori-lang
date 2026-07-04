@@ -11,6 +11,19 @@ use super::{
     bind_pattern, check_expr, infer_expr, pattern_is_irrefutable, resolve_and_check_parsed_type,
 };
 
+/// Distinguishes a plain let-binding from a try-block let-binding.
+///
+/// A try-block binding auto-unwraps `Result`/`Option` initializers (Spec
+/// Clause 17); a plain binding checks the initializer against the annotation
+/// directly. The two binding shapes share every other step, so this enum
+/// is the sole parameter separating [`infer_let_binding`] from
+/// [`infer_try_let_binding`] (both delegate to `infer_let_binding_impl`).
+#[derive(Clone, Copy)]
+enum LetInitUnwrap {
+    Direct,
+    ResultOrOption,
+}
+
 /// Infer the type of a block expression.
 pub(crate) fn infer_block(
     engine: &mut InferEngine<'_>,
@@ -62,19 +75,6 @@ pub(crate) fn infer_let(
 ) -> Idx {
     let _ = infer_let_binding(engine, arena, pattern, ty, init, span);
     Idx::UNIT
-}
-
-/// Distinguishes a plain let-binding from a try-block let-binding.
-///
-/// A try-block binding auto-unwraps `Result`/`Option` initializers (Spec
-/// Clause 17); a plain binding checks the initializer against the annotation
-/// directly. The two binding shapes share every other step, so this enum
-/// is the sole parameter separating [`infer_let_binding`] from
-/// [`infer_try_let_binding`] (both delegate to `infer_let_binding_impl`).
-#[derive(Clone, Copy)]
-enum LetInitUnwrap {
-    Direct,
-    ResultOrOption,
 }
 
 /// Infer and check a standard let-binding.

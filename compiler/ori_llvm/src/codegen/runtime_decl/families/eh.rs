@@ -54,9 +54,14 @@ pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
         jit_allowed: false,
     },
     // Traceable trace injection and formatting
+    // `function` and `file` are passed by pointer: `OriStr` is 24 bytes, so a
+    // by-value C-ABI struct is `Indirect` per codegen-rules.md AB-1; passing it
+    // as a raw `{i64,i64,ptr}` value shifts the SysV eightbytes and corrupts the
+    // caller frame. Mirrors `_ori_error_with_trace`, which passes struct operands
+    // by pointer for the same reason.
     RtFn {
         name: "_ori_inject_trace_entry",
-        params: &[Ty::Ptr, Ty::Str, Ty::Str, Ty::I64, Ty::I64],
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::I64],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

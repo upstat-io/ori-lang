@@ -111,6 +111,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let line_const = self.builder.const_i64(line);
         let col_const = self.builder.const_i64(col);
 
+        // `_ori_inject_trace_entry` takes `function`/`file` by pointer (AB-1:
+        // 24-byte OriStr is Indirect); spill each value to an alloca.
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        let func_ptr = self.builder.alloca(str_ty, "trace.fn.ptr");
+        self.builder.store(func_const, func_ptr);
+        let file_ptr = self.builder.alloca(str_ty, "trace.file.ptr");
+        self.builder.store(file_const, file_ptr);
+
         let error_struct_idx = self.pool.error_struct_idx().unwrap();
         let error_struct_ty = self.resolve_type(error_struct_idx);
         let alloca = self.error_receiver_ptr(receiver_val, error_struct_idx);
@@ -118,7 +126,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("_ori_inject_trace_entry");
         self.emit_rt_call(
             func_id,
-            &[alloca, func_const, file_const, line_const, col_const],
+            &[alloca, func_ptr, file_ptr, line_const, col_const],
             "_ori_inject_trace_entry",
         );
         let updated_val = self.builder.load(error_struct_ty, alloca, "error.updated");

@@ -123,7 +123,6 @@ pub(crate) fn infer_try_seq(
         }
         outer_result
     } else {
-        // Tail-less try block: no result expr to infer; the block value is `void`.
         let result_ty = if result.is_present() {
             infer_expr(engine, arena, result)
         } else {
@@ -185,12 +184,9 @@ fn infer_for_pattern(
 
     engine.enter_scope();
 
-    // Why: this arm has no `ArmRange` (a for-pattern carries exactly one
-    // inline `MatchArm`, not an indexed range of arms), so there is no real
-    // `ArmRange.start + arm_index` value per the `PatternKey::Arm` contract.
-    // `u32::MAX` is an out-of-range placeholder key; `ori_canon`'s for-pattern
-    // lowering does not consult `resolve_pattern()` for this arm, so no
-    // downstream reader keys off this value today.
+    // Why: a for-pattern carries one inline MatchArm, not an ArmRange, so no
+    // real arm_index exists per the PatternKey::Arm contract; u32::MAX is an
+    // out-of-range placeholder key ori_canon never reads via resolve_pattern.
     check_match_pattern(
         engine,
         arena,

@@ -7,6 +7,31 @@ use crate::{Idx, TypeCheckError, TypeKind, TypeRegistry, VariantFields};
 use super::super::InferEngine;
 use super::substitute_type_params_with_map;
 
+/// Constructor info extracted from `TypeRegistry` (avoids borrow conflicts).
+pub(crate) enum ConstructorInfo {
+    Newtype {
+        underlying: Idx,
+        type_idx: Idx,
+    },
+    /// Unit variant (no fields).
+    /// For generic enums (e.g., `MyNone` from `MyOption<T>`), we need the type params
+    /// to instantiate fresh variables so that `MyNone` becomes `MyOption<$fresh>`.
+    UnitVariant {
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+    /// Tuple variant constructor with field types, base enum idx/name, and type parameter names.
+    /// For generic enums (e.g., `MyOk(value: T)` from `MyResult<T, E>`), the field types
+    /// may contain `Named(param_name)` indices that need substitution with fresh variables.
+    TupleVariant {
+        field_types: Vec<Idx>,
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+}
+
 /// Infer the type of an identifier reference.
 #[expect(
     clippy::too_many_lines,
@@ -154,31 +179,6 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         .find_similar(name, 3, |n| engine.lookup_name(n));
     engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
     Idx::ERROR
-}
-
-/// Constructor info extracted from `TypeRegistry` (avoids borrow conflicts).
-pub(crate) enum ConstructorInfo {
-    Newtype {
-        underlying: Idx,
-        type_idx: Idx,
-    },
-    /// Unit variant (no fields).
-    /// For generic enums (e.g., `MyNone` from `MyOption<T>`), we need the type params
-    /// to instantiate fresh variables so that `MyNone` becomes `MyOption<$fresh>`.
-    UnitVariant {
-        enum_idx: Idx,
-        enum_name: Name,
-        type_params: Vec<Name>,
-    },
-    /// Tuple variant constructor with field types, base enum idx/name, and type parameter names.
-    /// For generic enums (e.g., `MyOk(value: T)` from `MyResult<T, E>`), the field types
-    /// may contain `Named(param_name)` indices that need substitution with fresh variables.
-    TupleVariant {
-        field_types: Vec<Idx>,
-        enum_idx: Idx,
-        enum_name: Name,
-        type_params: Vec<Name>,
-    },
 }
 
 /// Look up a name in the `TypeRegistry` to find constructor info.

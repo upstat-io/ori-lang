@@ -365,22 +365,31 @@ pub struct OriError {
 }
 
 /// Inject a trace entry into an Error struct.
+///
+/// `function` and `file` are passed by pointer, not by value: `OriStr` is a
+/// 24-byte struct, so a by-value C-ABI parameter is `Indirect` per
+/// codegen-rules.md AB-1. Passing it as a raw `{i64,i64,ptr}` value across the
+/// LLVM->Rust FFI boundary mis-classifies the `SysV` eightbytes and shifts every
+/// following argument. Mirrors `_ori_error_with_trace`, which passes its struct
+/// operands by pointer for the same reason.
 #[no_mangle]
 pub extern "C" fn _ori_inject_trace_entry(
     error_ptr: *mut OriError,
-    function: crate::OriStr,
-    file: crate::OriStr,
+    function: *const crate::OriStr,
+    file: *const crate::OriStr,
     line: i64,
     column: i64,
 ) {
-    if error_ptr.is_null() {
+    if error_ptr.is_null() || function.is_null() || file.is_null() {
         return;
     }
     // SAFETY: error_ptr is verified non-null. Caller guarantees it points to a valid OriError.
     let error = unsafe { &mut *error_ptr };
+    // SAFETY: function/file are verified non-null; the caller spills each OriStr
+    // to an alloca and passes its pointer per the by-pointer ABI above.
     let entry = OriTraceEntry {
-        function,
-        file,
+        function: unsafe { *function },
+        file: unsafe { *file },
         line,
         column,
     };
