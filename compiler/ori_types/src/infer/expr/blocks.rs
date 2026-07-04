@@ -129,6 +129,7 @@ fn infer_let_binding_impl(
             LetInitUnwrap::Direct => {
                 let _init_ty = check_expr(engine, arena, init, &expected, span);
             }
+
             // The raw initializer type is Result<T, E>/Option<T>, not T, so it
             // must be inferred bottom-up and unwrapped before unifying with T.
             LetInitUnwrap::ResultOrOption => {

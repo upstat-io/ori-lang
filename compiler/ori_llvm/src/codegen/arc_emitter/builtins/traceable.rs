@@ -71,6 +71,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             args,
             is_error_struct,
             dst_ty,
+            arc_func,
         )
     }
 
@@ -192,6 +193,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         args: &[ArcVarId],
         is_error_struct: bool,
         dst_ty: Idx,
+        arc_func: &ArcFunction,
     ) -> Option<ValueId> {
         let error_struct_idx = self.pool.error_struct_idx()?;
         let mem_trace_field = self.remap_struct_field(error_struct_idx, 1);
@@ -208,7 +210,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ),
             "trace" => self.emit_trace_string_accessor(error_ptr, dst_ty),
             "with_trace" if is_error_struct => {
-                self.emit_with_trace_accessor(receiver_val, args, dst_ty)
+                self.emit_with_trace_accessor(receiver_val, args, dst_ty, arc_func)
             }
             _ => None,
         }
@@ -323,8 +325,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_val: ValueId,
         args: &[ArcVarId],
         dst_ty: Idx,
+        arc_func: &ArcFunction,
     ) -> Option<ValueId> {
-        let entry_ptr = self.var(*args.get(1)?);
+        let entry_arg = *args.get(1)?;
+        let entry_val = self.var(entry_arg);
+        // `_ori_error_with_trace`'s 3rd param is a `ptr` to the `TraceEntry`
+        // (2 strs + 2 ints, > 16 bytes) — the SysV ABI passes it indirectly.
+        // The ARC arg arrives by value; spill it to an alloca and hand over
+        // the slot pointer, mirroring `emit_trace_injection`'s func/file
+        // `OriStr` spill for the same by-value->pointer FFI-boundary reason.
+        let entry_ty = arc_func.var_type(entry_arg);
+        let entry_llvm_ty = self.resolve_type(entry_ty);
+        let entry_ptr = self.builder.alloca(entry_llvm_ty, "with_trace.entry.ptr");
+        self.builder.store(entry_val, entry_ptr);
+
         // `_ori_error_with_trace`'s 2nd param is a `ptr` to the Error; the
         // receiver arrives by value (48-byte sret Error), so spill it.
         let error_struct_idx = self.pool.error_struct_idx()?;

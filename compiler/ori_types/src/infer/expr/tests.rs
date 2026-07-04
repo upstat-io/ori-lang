@@ -4669,6 +4669,101 @@ fn test_try_block_bare_tail_with_fallible_let_wraps_using_let_error_type() {
     assert!(!engine.has_errors());
 }
 
+/// Fallback `(Tag::Option, _)` match arm: no outer annotation, tail
+/// synthesizes to `Option<T>` on its own (`Some(42)`) — `infer_try_seq` must
+/// return the tail's own Option type unchanged rather than wrapping it in a
+/// fresh-error `Result`. Distinct from the `(_, None)` / `(_, Some(et))` arms
+/// pinned above, which apply only when the tail's OWN type is not itself
+/// Result/Option.
+#[test]
+fn test_try_block_bare_option_tail_returns_option_unchanged() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { Some(42) } — no let statements, tail is Some(42) (Tag::Option) —
+    // hits the `(Tag::Option, _)` match arm.
+    let inner = alloc(&mut arena, ExprKind::Int(42));
+    let some_tail = alloc(&mut arena, ExprKind::Some(inner));
+    let stmts = arena.alloc_stmt_range(0, 0);
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: some_tail,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(
+        engine.pool().tag(resolved),
+        Tag::Option,
+        "try-block with a bare Option tail must return Option unchanged, not wrap it in Result"
+    );
+    assert_eq!(engine.pool().option_inner(resolved), Idx::INT);
+    assert!(!engine.has_errors());
+}
+
+/// Synthesis-path `(Tag::Result, Some(et))` match arm: no outer annotation,
+/// a fallible let-binding leaves `error_ty = Some(et)`, and the tail ITSELF
+/// synthesizes to `Result<T, _>` (`Ok(a)`) — `infer_try_seq` must unify the
+/// tail's own Err slot against the let-derived error type `et`, not silently
+/// carry two disconnected error types. Distinct from
+/// `test_try_block_propagation_checks_let_error_type_against_outer_annotation`,
+/// which exercises the analogous unification inside the propagation branch
+/// (an outer `Result` annotation present); this test has NO outer annotation,
+/// reaching the same-shaped check in the fallback match instead.
+#[test]
+fn test_try_block_result_tail_with_fallible_let_unifies_err_without_outer_annotation() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { let $a = pre_bound; Ok(a) } — `pre_bound: Result<int, bool>`
+    // leaves `error_ty = Some(bool)`; the tail `Ok(a)` synthesizes to
+    // `Result<int, fresh_var>` — the fresh Err var must unify with `bool`.
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    engine.env_mut().bind(name(80), result_int_bool);
+    let init = alloc(&mut arena, ExprKind::Ident(name(80)));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let a_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let ok_tail = alloc(&mut arena, ExprKind::Ok(a_ref));
+
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: ok_tail,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Result);
+    assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
+    assert_eq!(
+        engine.resolve(engine.pool().result_err(resolved)),
+        Idx::BOOL,
+        "tail's own fresh Err var must unify with the let-derived error type, not diverge"
+    );
+    assert!(!engine.has_errors());
+}
+
 // Sum-Constructor BD-2 Tests (Ok / Err / Some)
 
 /// `let r: Result<int, str> = Ok(42)` — Ok BD-2 propagates the outer

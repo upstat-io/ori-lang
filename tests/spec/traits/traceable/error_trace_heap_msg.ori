@@ -90,3 +90,30 @@ use std.testing { assert_eq, assert }
     let r = one_hop_heap();
     r.trace() != ""
 }
+
+// str.into() -> Error construction (Gap C, emit_str_into_error) with a HEAP
+// message: pins the empty-trace-init fix — a 1-field build left `trace`
+// uninitialized (garbage fat pointer); the 2-field build zero-inits it to a
+// valid empty list. M11 matrix cell (tdd-matrix--s-b1f5ea8e.md). The Error
+// is wrapped in a Result so the delegation-receiver accessor path is
+// exercised: calling `has_trace`/`trace_entries` on an Error receiver
+// directly (unwrapped) corrupts subsequent LLVM dispatch (open bug). Split
+// into two single-accessor tests on separate receivers: calling BOTH
+// has_trace() and trace_entries() on the SAME receiver in one function
+// leaks under the gated burden probe (open mixed-accessor-call bug); each
+// accessor is pinned independently to stay leak-clean.
+@heap_into_error_a () -> Result<int, Error> =
+    Err("a heap error message over 23 chars".into());
+
+@test_heap_into_has_trace_false tests @heap_into_error_a () -> void = {
+    let r = heap_into_error_a();
+    assert_eq(actual: r.has_trace(), expected: false)
+}
+
+@heap_into_error_b () -> Result<int, Error> =
+    Err("a heap error message over 23 chars".into());
+
+@test_heap_into_trace_entries_empty tests @heap_into_error_b () -> void = {
+    let r = heap_into_error_b();
+    assert_eq(actual: r.trace_entries().len(), expected: 0)
+}

@@ -243,10 +243,10 @@ pub(crate) fn abi_alignment(
         }
         // Niche-encoded Result lowers to the larger payload arm; use that
         // arm's alignment (ok wins ties, matching the layout resolver).
-        // BUG-05-010: the size-picked arm can be under-aligned vs the
-        // repr plan's max(ok, err) — this mirror follows the RESOLVER
-        // (actual storage) so attributes never over-claim alignment;
-        // the cure lands at the resolver first.
+        // The size-picked arm can be under-aligned vs the repr plan's
+        // max(ok, err) — this mirror follows the RESOLVER (actual storage)
+        // so attributes never over-claim alignment; the cure lands at the
+        // resolver first.
         TypeInfo::Result { ok, err } if is_niche_encoded(ty, store, repr_plan) => {
             let mut visiting = FxHashSet::default();
             let ok_size = abi_size_inner(*ok, store, repr_plan, &mut visiting);

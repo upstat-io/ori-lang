@@ -34,7 +34,7 @@ use std.testing { assert_ok }
 // Ok(void) — canon lowers Try -> Block and drops the spec-mandated Ok-wrap of the
 // tail value. The typeck/canon panic fix lands here; the runtime Ok-wrap is the
 // separate, broader defect this pin guards (re-enable when it lands).
-#skip("BUG-03-009: try block does not Ok-wrap its non-Result tail value at runtime")
+#skip("BUG-04-207: try block does not Ok-wrap its non-Result tail value at runtime")
 @try_tailless_synthesizes_ok_void tests _ () -> void = {
     assert_ok(result: try_tailless_irrefutable_propagation());
     assert_ok(result: try_tailless_irrefutable_nonpropagation());

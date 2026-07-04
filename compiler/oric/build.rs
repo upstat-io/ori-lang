@@ -4,6 +4,12 @@
 //! Emits: `ORI_GIT_SHA` (short commit hash, or `unknown`), `ORI_GIT_DIRTY`
 //! (`1` when the worktree had uncommitted changes, else `0`), `ORI_BUILD_DATE`
 //! (HEAD commit date `YYYY-MM-DD`, or empty when git is unavailable).
+//!
+//! Emits no `rerun-if-changed` lines, so Cargo falls back to its default:
+//! rerun this script whenever any file inside the `oric` package changes.
+//! A file changed only in a sibling crate (`ori_ir`, `ori_types`, etc.) does
+//! NOT trigger a rerun, so `ORI_GIT_DIRTY` can lag true whole-workspace
+//! dirtiness until a file inside `oric`'s own package also changes.
 
 use std::process::Command;
 
@@ -27,14 +33,6 @@ fn main() {
     println!("cargo:rustc-env=ORI_GIT_SHA={sha}");
     println!("cargo:rustc-env=ORI_GIT_DIRTY={dirty}");
     println!("cargo:rustc-env=ORI_BUILD_DATE={date}");
-
-    // Refresh the stamp when HEAD moves or the index changes. `--git-path`
-    // resolves the real locations (correct under worktrees / separate git dirs).
-    for ref_name in ["HEAD", "index"] {
-        if let Some(path) = git(&["rev-parse", "--git-path", ref_name]) {
-            println!("cargo:rerun-if-changed={path}");
-        }
-    }
 }
 
 /// Runs `git <args>` and returns trimmed stdout, or `None` when git is absent
