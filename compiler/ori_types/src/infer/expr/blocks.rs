@@ -151,12 +151,9 @@ fn infer_let_binding_impl(
                 let _ = engine.check_type(unwrapped, &expected, span);
             }
         }
-        rewrite_lambda_self_capture(engine, arena, init, binding_name, errors_before);
         expected_ty
     } else {
         let init_ty = infer_expr(engine, arena, init);
-
-        rewrite_lambda_self_capture(engine, arena, init, binding_name, errors_before);
 
         let bound_ty = match unwrap {
             LetInitUnwrap::Direct => init_ty,
@@ -166,6 +163,8 @@ fn infer_let_binding_impl(
         // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
         maybe_generalize(engine, arena, init, bound_ty)
     };
+
+    rewrite_lambda_self_capture(engine, arena, init, binding_name, errors_before);
 
     engine.exit_rank_scope();
 
@@ -182,9 +181,9 @@ fn infer_let_binding_impl(
 /// its own not-yet-bound binding name) into the friendlier `ClosureSelfCapture`
 /// diagnostic, e.g. `let f = () -> f`.
 ///
-/// Applies uniformly to both `infer_let_binding_impl` branches (annotated and
-/// unannotated) so an annotated self-capturing closure gets the same
-/// actionable message as an unannotated one, instead of a bare "unknown
+/// Called once after `infer_let_binding_impl`'s annotated/unannotated branches
+/// both resolve `init`'s type, so an annotated self-capturing closure gets the
+/// same actionable message as an unannotated one, instead of a bare "unknown
 /// identifier".
 fn rewrite_lambda_self_capture(
     engine: &mut InferEngine<'_>,

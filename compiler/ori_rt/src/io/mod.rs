@@ -367,11 +367,11 @@ pub struct OriError {
 /// Inject a trace entry into an Error struct.
 ///
 /// `function` and `file` are passed by pointer, not by value: `OriStr` is a
-/// 24-byte struct, so a by-value C-ABI parameter is `Indirect` per
-/// codegen-rules.md AB-1. Passing it as a raw `{i64,i64,ptr}` value across the
-/// LLVM->Rust FFI boundary mis-classifies the `SysV` eightbytes and shifts every
-/// following argument. Mirrors `_ori_error_with_trace`, which passes its struct
-/// operands by pointer for the same reason.
+/// 24-byte struct, and the `SysV` AMD64 C ABI classifies a struct larger than
+/// 16 bytes as MEMORY, passed indirectly. Passing it as a raw `{i64,i64,ptr}`
+/// value across the LLVM->Rust FFI boundary mis-classifies the eightbytes and
+/// shifts every following argument. Mirrors `_ori_error_with_trace`, which
+/// passes its struct operands by pointer for the same reason.
 #[no_mangle]
 pub extern "C" fn _ori_inject_trace_entry(
     error_ptr: *mut OriError,

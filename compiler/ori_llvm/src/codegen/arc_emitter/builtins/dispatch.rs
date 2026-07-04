@@ -111,8 +111,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let line_const = self.builder.const_i64(line);
         let col_const = self.builder.const_i64(col);
 
-        // `_ori_inject_trace_entry` takes `function`/`file` by pointer (AB-1:
-        // 24-byte OriStr is Indirect); spill each value to an alloca.
+        // `_ori_inject_trace_entry` takes `function`/`file` by pointer (a 24-byte
+        // OriStr is > 16 bytes, so the SysV ABI passes it indirectly); spill each
+        // value to an alloca and hand over the slot pointer.
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let func_ptr = self.builder.alloca(str_ty, "trace.fn.ptr");
         self.builder.store(func_const, func_ptr);
