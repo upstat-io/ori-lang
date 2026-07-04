@@ -97,9 +97,11 @@ use std.testing { assert_eq, assert }
 // valid empty list. The Error is wrapped in a Result so the
 // delegation-receiver accessor path is exercised: calling `has_trace`/
 // `trace_entries` on an unwrapped Error receiver corrupts subsequent LLVM
-// dispatch (BUG-04-247). Each accessor is pinned on its own receiver —
-// calling BOTH has_trace() and trace_entries() on the SAME receiver in one
-// function leaks under the gated burden probe (BUG-04-249).
+// dispatch (tracked separately). Each accessor is pinned on its own
+// receiver — calling BOTH has_trace() and trace_entries() on the SAME
+// receiver in one function leaks under the gated burden probe (also
+// tracked separately); each accessor stays pinned independently to stay
+// leak-clean.
 @heap_into_error_a () -> Result<int, Error> =
     Err("a heap error message over 23 chars".into());
 
