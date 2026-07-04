@@ -6,8 +6,8 @@ use crate::{ContextKind, Expected, Idx, PatternKey, Tag};
 
 use super::super::InferEngine;
 use super::{
-    check_expr, check_match_pattern, for_loop_elem_ty, infer_expr, infer_match,
-    infer_try_let_binding,
+    check_expr, check_match_pattern, for_loop_elem_ty, infer_expr, infer_match, infer_stmt,
+    LetInitUnwrap,
 };
 
 /// Infer type for a `function_seq` expression (try, match, for).
@@ -226,17 +226,10 @@ fn infer_for_pattern(
 
 /// Process a try-block statement (let or expression).
 ///
-/// Auto-unwraps `Result`/`Option` types in let bindings.
+/// Auto-unwraps `Result`/`Option` types in let bindings. Delegates to the
+/// shared [`infer_stmt`] dispatcher — this is the try-block's statement
+/// loop, the [`LetInitUnwrap::ResultOrOption`] twin of `infer_block`'s
+/// [`LetInitUnwrap::Direct`] statement loop in `blocks.rs`.
 pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, stmt: &ori_ir::Stmt) {
-    match &stmt.kind {
-        ori_ir::StmtKind::Let {
-            pattern, ty, init, ..
-        } => {
-            let _ = infer_try_let_binding(engine, arena, *pattern, *ty, *init, stmt.span);
-        }
-
-        ori_ir::StmtKind::Expr(expr) => {
-            infer_expr(engine, arena, *expr);
-        }
-    }
+    infer_stmt(engine, arena, stmt, LetInitUnwrap::ResultOrOption);
 }

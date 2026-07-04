@@ -4118,6 +4118,101 @@ fn test_try_block_annotated_let_result_mismatch_reports_error() {
     );
 }
 
+/// Diagnostic-UX pin: an ANNOTATED let-binding whose initializer is a
+/// self-referencing lambda (`let f: (int) -> int = x -> f(x)`) must report
+/// the friendly `ClosureSelfCapture` diagnostic ("closure cannot capture
+/// itself"), not a bare "unknown identifier" — matching the behavior the
+/// unannotated `let f = x -> f(x)` path already had via
+/// `rewrite_self_capture_errors`. `infer_let_binding_impl`'s annotated branch
+/// previously skipped that rewrite entirely.
+#[test]
+fn test_annotated_let_binding_self_capturing_lambda_reports_closure_self_capture() {
+    test_engine!(interner, pool, engine);
+    let mut arena = ExprArena::new();
+
+    let f_name = interner.intern("f");
+    let x_name = interner.intern("x");
+
+    // x -> f(x)  (lambda body calls the not-yet-bound outer binding `f`)
+    let f_ref = alloc(&mut arena, ExprKind::Ident(f_name));
+    let x_ref = alloc(&mut arena, ExprKind::Ident(x_name));
+    let call_args = arena.alloc_expr_list_inline(&[x_ref]);
+    let body = alloc(
+        &mut arena,
+        ExprKind::Call {
+            func: f_ref,
+            args: call_args,
+        },
+    );
+    let params = arena.alloc_params([Param {
+        name: x_name,
+        pattern: None,
+        ty: None,
+        default: None,
+        is_variadic: false,
+        span: span(),
+    }]);
+    let lambda = alloc(
+        &mut arena,
+        ExprKind::Lambda {
+            params,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
+            body,
+        },
+    );
+
+    // let f: (int) -> int = x -> f(x)
+    let int_param_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    let int_ret_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    let fn_params = arena.alloc_parsed_type_list([int_param_ty]);
+    let fn_ty = arena.alloc_parsed_type(ParsedType::Function {
+        params: fn_params,
+        ret: int_ret_ty,
+    });
+
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: f_name,
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: fn_ty,
+            init: lambda,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+    let block = alloc(
+        &mut arena,
+        ExprKind::Block {
+            stmts,
+            result: ExprId::INVALID,
+        },
+    );
+
+    let _ = infer_expr(&mut engine, &arena, block);
+
+    assert!(
+        engine.has_errors(),
+        "self-referencing lambda body should report an error (f is not yet bound)"
+    );
+    assert!(
+        engine
+            .errors()
+            .iter()
+            .any(|e| e.message().contains("closure cannot capture itself")),
+        "annotated let-binding with a self-capturing lambda initializer must report \
+         ClosureSelfCapture, not a bare unknown-identifier error — got: {:?}",
+        engine
+            .errors()
+            .iter()
+            .map(crate::TypeCheckError::message)
+            .collect::<Vec<_>>()
+    );
+}
+
 // body_captures_outer soundness
 //
 // These tests pin the Value Restriction's conservative-direction soundness:

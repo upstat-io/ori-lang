@@ -44,7 +44,7 @@ pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableR
 pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 
 pub(super) use bindings::bind_pattern;
-pub(super) use blocks::{infer_block, infer_let, infer_try_let_binding};
+pub(super) use blocks::{infer_block, infer_let, infer_stmt, LetInitUnwrap};
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
     infer_method_call, infer_method_call_named,
