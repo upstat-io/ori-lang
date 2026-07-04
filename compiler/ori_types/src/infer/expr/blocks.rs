@@ -65,7 +65,7 @@ pub(crate) fn infer_let(
 }
 
 /// Infer and check a standard let-binding.
-pub(crate) fn infer_let_binding(
+fn infer_let_binding(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     pattern_id: BindingPatternId,
@@ -202,8 +202,22 @@ fn find_first_name(pattern: &ori_ir::BindingPattern) -> Option<Name> {
     match pattern {
         ori_ir::BindingPattern::Name { name, .. } => Some(*name),
         ori_ir::BindingPattern::Tuple(pats) => pats.first().and_then(find_first_name),
-        ori_ir::BindingPattern::Struct { fields } => fields.first().map(|field| field.name),
-        ori_ir::BindingPattern::List { elements, .. } => elements.first().and_then(find_first_name),
+        // A renamed field (`{ x: px }`) binds `px`, not the field name `x` —
+        // recurse into the sub-pattern when present; shorthand (`{ x }`) has
+        // no sub-pattern, so the field name IS the bound variable.
+        ori_ir::BindingPattern::Struct { fields } => fields.first().and_then(|field| {
+            field
+                .pattern
+                .as_ref()
+                .map_or(Some(field.name), find_first_name)
+        }),
+        // `let` only accepts rest-only list patterns (irrefutable per
+        // ori-syntax.md), so `elements` is always empty in practice — `rest`
+        // is the sole source of a bound name (`let [..tail] = ...`).
+        ori_ir::BindingPattern::List { elements, rest } => elements
+            .first()
+            .and_then(find_first_name)
+            .or_else(|| rest.map(|(name, _)| name)),
         ori_ir::BindingPattern::Wildcard => None,
     }
 }

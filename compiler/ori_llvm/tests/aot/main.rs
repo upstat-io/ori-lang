@@ -43,6 +43,7 @@ pub mod enum_tagged_ptr;
 pub mod enum_zero_payload;
 pub mod error_constructor;
 pub mod error_handling;
+pub mod error_trace;
 pub mod fat_matrix;
 pub mod fat_ptr_iter;
 pub mod ffi_types;

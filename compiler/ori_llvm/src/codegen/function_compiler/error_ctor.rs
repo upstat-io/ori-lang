@@ -11,7 +11,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// (`let f = Error`) resolves to a real function pointer instead of an
     /// unresolvable `PartialApply @Error` (Spec: Annex E §Built-in Type
     /// Representations). `Error` layout is `{ message: str, trace: [TraceEntry] }`
-    /// (32 bytes, sret-returned): the body moves the `message` str param into the
+    /// (48 bytes, sret-returned): the body moves the `message` str param into the
     /// sret slot per-field and zero-inits `trace` to `{ 0, 0, null }` (FastISel-safe).
     pub(super) fn declare_error_constructor(&mut self) {
         let Some(error_idx) = self.pool.error_struct_idx() else {

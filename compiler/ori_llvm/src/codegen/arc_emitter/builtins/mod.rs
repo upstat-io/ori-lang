@@ -90,6 +90,7 @@ pub(crate) mod prelude;
 mod primitives;
 mod result_monadic;
 mod structural_eq;
+mod traceable;
 mod traits;
 mod trampolines;
 

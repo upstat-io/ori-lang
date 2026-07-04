@@ -3903,7 +3903,7 @@ fn test_try_block_let_non_lambda_does_not_generalize() {
         span: span(),
     });
 
-    // Call infer_try_stmt directly — this is the try-block let path in sequences.rs
+    // Call infer_try_stmt directly — this is the try-block let path
     let stmt_ref = arena.get_stmt(stmt);
     infer_try_stmt(&mut engine, &arena, stmt_ref);
 
@@ -3977,7 +3977,7 @@ fn test_let_expr_lambda_generalizes() {
 
 /// Positive pin: `let id = x -> x` inside a try block via `infer_try_stmt` must still
 /// produce a `Tag::Scheme` binding. This verifies generalization is preserved for
-/// non-capturing lambdas through the try-block let path in sequences.rs.
+/// non-capturing lambdas through the try-block let path.
 #[test]
 fn test_try_block_let_lambda_generalizes() {
     test_engine!(pool, engine);
@@ -4017,7 +4017,7 @@ fn test_try_block_let_lambda_generalizes() {
         span: span(),
     });
 
-    // Call infer_try_stmt directly — exercises the try-block let path in sequences.rs
+    // Call infer_try_stmt directly — exercises the try-block let path
     let stmt_ref = arena.get_stmt(stmt);
     infer_try_stmt(&mut engine, &arena, stmt_ref);
 
@@ -4063,7 +4063,7 @@ fn test_try_block_annotated_let_unwraps_result_type() {
     });
 
     // Call infer_try_stmt directly — exercises the annotated + ResultOrOption
-    // branch of infer_let_binding_impl via the try-block let path in sequences.rs.
+    // branch of infer_let_binding_impl via the try-block let path.
     let stmt_ref = arena.get_stmt(stmt);
     infer_try_stmt(&mut engine, &arena, stmt_ref);
 
@@ -4417,6 +4417,118 @@ fn test_try_block_propagates_expected_result_type() {
     assert_eq!(engine.pool().result_ok(resolved), Idx::INT);
     assert_eq!(engine.pool().result_err(resolved), Idx::STR);
     assert!(!engine.has_errors());
+}
+
+/// Propagation-branch `error_ty` check: a single Result-typed try-block let
+/// (`let $a = Ok(1)`, auto-unwrapped) leaves a fresh error-type variable that
+/// MUST be checked against the outer annotation's declared Err slot — the
+/// `if let Some(et) = error_ty` branch inside `infer_try_seq`'s propagation
+/// arm. Every other propagation test above uses an empty `stmts` range, so
+/// `error_ty` was always `None` and this branch never ran; this pins it.
+#[test]
+fn test_try_block_propagation_checks_let_error_type_against_outer_annotation() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { let $a = Ok(1); a } checked against Result<int, str> — the tail
+    // is the bare payload (no explicit Ok wrap; per
+    // `test_try_block_propagates_expected_result_type` the propagation
+    // branch implicitly wraps a bare tail in the outer Result).
+    let one = alloc(&mut arena, ExprKind::Int(1));
+    let ok_init = alloc(&mut arena, ExprKind::Ok(one));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: ok_init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let a_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: a_ref,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(result_int_str, name(1), span());
+
+    let ty = check_expr(&mut engine, &arena, try_expr, &expected, span());
+
+    assert_eq!(
+        ty, result_int_str,
+        "try-block result must be the outer Result<int, str>"
+    );
+    assert!(
+        !engine.has_errors(),
+        "the let-binding's fresh error type must unify with the outer Err slot, not error"
+    );
+}
+
+/// Negative pin clamping the test above: when the try-block let's Result
+/// error type is already bound to a CONCRETE type incompatible with the
+/// outer annotation's declared Err slot, `infer_try_seq`'s propagation-branch
+/// `error_ty` check MUST report a mismatch instead of silently accepting it.
+#[test]
+fn test_try_block_propagation_let_error_type_mismatch_reports_error() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // try { let $a = pre_bound; a } checked against Result<int, str>, where
+    // `pre_bound` already has type Result<int, bool> — the let's Err slot
+    // (bool) conflicts with the outer annotation's Err slot (str). The tail
+    // is the bare payload (see the positive test above for why an explicit
+    // `Ok(a)` tail is the wrong construction here).
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    engine.env_mut().bind(name(50), result_int_bool);
+    let ok_init = alloc(&mut arena, ExprKind::Ident(name(50)));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: ok_init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let a_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
+
+    let try_seq = ori_ir::FunctionSeq::Try {
+        stmts,
+        result: a_ref,
+        span: span(),
+    };
+    let seq_id = arena.alloc_function_seq(try_seq);
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(result_int_str, name(1), span());
+
+    let _ty = check_expr(&mut engine, &arena, try_expr, &expected, span());
+
+    assert_eq!(
+        engine.errors().len(),
+        1,
+        "exactly one mismatch expected — the bool/str Err-slot conflict, \
+         not a spurious tail-expression mismatch"
+    );
 }
 
 /// Synth fallback: with no expected type, `try { Ok(42) }` infers
