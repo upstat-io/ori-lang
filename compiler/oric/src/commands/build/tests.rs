@@ -7,11 +7,13 @@ use std::path::PathBuf;
 use ori_ir::ReprAttrKind;
 use ori_llvm::aot::incremental::deps::DependencyGraph;
 use ori_llvm::aot::incremental::ContentHash;
+use ori_llvm::aot::WasmOptLevel;
 use ori_types::ExportedTypeMetadata;
 
 use super::multi::{
     collect_imported_collection_surfaces, collect_imported_type_metadata, CompiledModuleInfo,
 };
+use super::{wasm_opt_runner, BuildOptions, OptLevel};
 
 /// Helper to create a `CompiledModuleInfo` with specified metadata.
 fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModuleInfo {
@@ -235,10 +237,6 @@ fn collect_collection_surfaces_dependency_with_none() {
 }
 
 // wasm-opt post-processor wiring
-
-use ori_llvm::aot::WasmOptLevel;
-
-use super::{wasm_opt_runner, BuildOptions, OptLevel};
 
 /// Semantic pin: `--wasm-opt` on a wasm target constructs the post-processor
 /// with the level mapped from `--opt`.

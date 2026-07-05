@@ -47,7 +47,7 @@ These are not competing approaches — they serve different use cases. The compi
 
 ### Structured Configuration
 
-Rather than exposing WASM options as loose CLI flags, Ori bundles WebAssembly configuration into a structured hierarchy. `WasmConfig` is the top-level type, composing four subordinate configurations: `WasmMemoryConfig` (page sizes, import/export, shared memory), `WasmStackConfig` (stack size as a linker argument), `WasmFeatures` (target feature flags), and `WasmOutputOptions` (post-processing and binding generation). When WASI support is enabled, a `WasiConfig` provides fine-grained control over which system capabilities the module may access.
+Rather than exposing WASM options as loose CLI flags, Ori bundles WebAssembly configuration into a structured hierarchy. `WasmConfig` is the top-level type, composing four subordinate configurations: `WasmMemoryConfig` (page sizes, import/export, shared memory), `WasmStackConfig` (stack size as a linker argument), `WasmFeatures` (target feature flags), and `WasmOutputOptions` (JavaScript/TypeScript binding generation). When WASI support is enabled, a `WasiConfig` provides fine-grained control over which system capabilities the module may access. The `wasm-opt` post-processing step sits outside this hierarchy — it is a top-level `--wasm-opt` CLI flag applied after linking, not a `WasmConfig` field.
 
 This structure means configuration is validated at construction time, not at link time. A `WasmConfig::browser()` factory produces a configuration with JavaScript bindings and TypeScript declarations enabled. A `WasmConfig::wasi_cli()` factory produces a configuration with full WASI access. Each factory is a self-consistent set of options, eliminating the combinatorial explosion of flag interactions that plagues flat configuration models.
 
@@ -135,13 +135,13 @@ At link time, `WasiConfig::undefined_symbols()` generates the list of WASI impor
 
 ### Output Options and Post-Processing
 
-`WasmOutputOptions` controls three post-compilation steps:
+`WasmOutputOptions` controls two post-compilation steps:
 
 **JavaScript bindings** (`generate_js_bindings`): The `JsBindingGenerator` produces a `.js` file that handles WASM module loading, string marshalling (via `TextEncoder`/`TextDecoder`), memory management helpers, and clean wrapper functions for each exported Ori function. The generated code uses `WebAssembly.instantiateStreaming` when available and falls back to `WebAssembly.instantiate` for `ArrayBuffer` sources.
 
 **TypeScript declarations** (`generate_dts`): A `.d.ts` file with typed function signatures for every export, enabling type-safe WASM module consumption from TypeScript. The `WasmType` enum maps Ori types to TypeScript equivalents: `int` and `float` become `number`, `str` becomes `string`, `void` stays `void`.
 
-**wasm-opt post-processing** (`run_wasm_opt`): The [Binaryen](https://github.com/WebAssembly/binaryen) `wasm-opt` tool applies WASM-specific optimizations that LLVM's general-purpose passes miss. Optimization levels range from `O0` (no optimization) through `O4` (super-aggressive), plus `Os` and `Oz` for size optimization. The `WasmOptRunner` manages tool discovery, argument construction, and in-place optimization with atomic file replacement. When `wasm-opt` is not installed, the compiler produces a clear error message with installation instructions rather than silently skipping the step.
+A third post-compilation step, **wasm-opt post-processing**, runs outside `WasmOutputOptions`: the `--wasm-opt` CLI flag maps to `BuildOptions.wasm_opt`, and `wasm_opt_runner()` builds a `WasmOptRunner` from it (level mirrors `--opt`) whenever the target is WASM. The [Binaryen](https://github.com/WebAssembly/binaryen) `wasm-opt` tool applies WASM-specific optimizations that LLVM's general-purpose passes miss. Optimization levels range from `O0` (no optimization) through `O4` (super-aggressive), plus `Os` and `Oz` for size optimization. `WasmOptRunner` manages tool discovery, argument construction, and in-place optimization with atomic file replacement. When `wasm-opt` is not installed, the compiler produces a clear error message with installation instructions rather than silently skipping the step.
 
 ## Interpreter in WebAssembly
 
@@ -307,4 +307,4 @@ On native platforms, `ori_stack` uses the `stacker` crate to detect stack exhaus
 
 ### wasm-opt Post-Processing vs. Direct Emit
 
-LLVM produces good general-purpose WASM code, but [Binaryen](https://github.com/WebAssembly/binaryen)'s `wasm-opt` applies WASM-specific optimizations that LLVM's target-independent passes miss: stack machine optimization, dead code elimination tuned for WASM's structured control flow, and binary size reduction through instruction rewriting. The tradeoff is build complexity — `wasm-opt` is an external tool that must be installed separately, and running it adds a post-processing step to the build. Ori makes this opt-in (`run_wasm_opt: true` in `WasmOutputOptions`) with sensible defaults (O2 when enabled), providing the optimization opportunity without mandating the dependency.
+LLVM produces good general-purpose WASM code, but [Binaryen](https://github.com/WebAssembly/binaryen)'s `wasm-opt` applies WASM-specific optimizations that LLVM's target-independent passes miss: stack machine optimization, dead code elimination tuned for WASM's structured control flow, and binary size reduction through instruction rewriting. The tradeoff is build complexity — `wasm-opt` is an external tool that must be installed separately, and running it adds a post-processing step to the build. Ori makes this opt-in (the `--wasm-opt` CLI flag) with sensible defaults (the level mirrors `--opt`), providing the optimization opportunity without mandating the dependency.
