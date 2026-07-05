@@ -233,3 +233,59 @@ fn collect_collection_surfaces_dependency_with_none() {
 
     assert!(result.is_empty());
 }
+
+// wasm-opt post-processor wiring
+
+use ori_llvm::aot::WasmOptLevel;
+
+use super::{wasm_opt_runner, BuildOptions, OptLevel};
+
+/// Semantic pin: `--wasm-opt` on a wasm target constructs the post-processor
+/// with the level mapped from `--opt`.
+#[test]
+fn wasm_opt_flag_on_wasm_target_builds_runner_with_mapped_level() {
+    let cases = [
+        (OptLevel::O0, WasmOptLevel::O0),
+        (OptLevel::O1, WasmOptLevel::O1),
+        (OptLevel::O2, WasmOptLevel::O2),
+        (OptLevel::O3, WasmOptLevel::O3),
+        (OptLevel::Os, WasmOptLevel::Os),
+        (OptLevel::Oz, WasmOptLevel::Oz),
+    ];
+
+    let mut covered = 0;
+    for (opt_level, expected) in cases {
+        let options = BuildOptions {
+            wasm_opt: true,
+            opt_level,
+            ..BuildOptions::default()
+        };
+
+        let Some(runner) = wasm_opt_runner(&options, true) else {
+            panic!("--wasm-opt on a wasm target must build a runner ({opt_level:?})")
+        };
+        assert_eq!(runner.level, expected, "level mismatch for {opt_level:?}");
+        covered += 1;
+    }
+    assert_eq!(covered, cases.len());
+}
+
+/// Negative pin: without `--wasm-opt`, no post-processor runs even on wasm.
+#[test]
+fn wasm_opt_flag_absent_skips_post_processor() {
+    let options = BuildOptions::default();
+
+    assert!(wasm_opt_runner(&options, true).is_none());
+}
+
+/// Negative pin: `--wasm-opt` on a non-wasm target never runs the
+/// post-processor (wasm-opt only understands WebAssembly binaries).
+#[test]
+fn wasm_opt_flag_on_native_target_skips_post_processor() {
+    let options = BuildOptions {
+        wasm_opt: true,
+        ..BuildOptions::default()
+    };
+
+    assert!(wasm_opt_runner(&options, false).is_none());
+}

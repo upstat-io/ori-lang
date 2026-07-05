@@ -71,6 +71,9 @@ fn real_main() {
                 eprintln!("  --lib               Build static library");
                 eprintln!("  --dylib             Build shared library");
                 eprintln!("  --wasm              Build for WebAssembly");
+                eprintln!(
+                    "  --wasm-opt          Run the wasm-opt post-processor (requires Binaryen)"
+                );
                 eprintln!("  -v, --verbose       Verbose output");
                 std::process::exit(1);
             }
@@ -473,6 +476,7 @@ fn print_usage() {
     println!("  --lib               Build static library");
     println!("  --dylib             Build shared library");
     println!("  --wasm              Build for WebAssembly");
+    println!("  --wasm-opt          Run the wasm-opt post-processor (requires Binaryen)");
     println!("  --lto=<mode>        Link-time optimization: off, thin, full");
     println!();
     println!("Check/Watch options:");

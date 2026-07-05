@@ -94,12 +94,6 @@ impl SizeClass {
     pub fn from_bytes(bytes: u32) -> Self {
         Self(bytes)
     }
-
-    /// The byte count for this size class.
-    #[must_use]
-    pub fn bytes(self) -> u32 {
-        self.0
-    }
 }
 
 // AimsState — the product lattice

@@ -4,7 +4,6 @@
 //! memory layout, stack size, feature flags, output options, and the
 //! top-level `WasmConfig` that bundles them together.
 
-use super::optimize::WasmOptLevel;
 use super::wasi::WasiConfig;
 
 /// WebAssembly memory configuration.
@@ -237,10 +236,6 @@ pub struct WasmOutputOptions {
     pub generate_js_bindings: bool,
     /// Generate TypeScript declarations.
     pub generate_dts: bool,
-    /// Run wasm-opt post-processor.
-    pub run_wasm_opt: bool,
-    /// wasm-opt optimization level (0-4, or "s"/"z" for size).
-    pub wasm_opt_level: WasmOptLevel,
 }
 
 /// Comprehensive WebAssembly build configuration.
@@ -271,18 +266,6 @@ impl WasmConfig {
     #[must_use]
     pub fn generate_dts(&self) -> bool {
         self.output.generate_dts
-    }
-
-    /// Check if wasm-opt should run.
-    #[must_use]
-    pub fn run_wasm_opt(&self) -> bool {
-        self.output.run_wasm_opt
-    }
-
-    /// Get wasm-opt optimization level.
-    #[must_use]
-    pub fn wasm_opt_level(&self) -> WasmOptLevel {
-        self.output.wasm_opt_level
     }
 
     /// Check if bulk memory is enabled.
@@ -373,7 +356,6 @@ impl WasmConfig {
             output: WasmOutputOptions {
                 generate_js_bindings: true,
                 generate_dts: true,
-                ..WasmOutputOptions::default()
             },
             features: WasmFeatures {
                 bulk_memory: true,
@@ -426,14 +408,6 @@ impl WasmConfig {
     pub fn with_wasi_config(mut self, config: WasiConfig) -> Self {
         self.wasi = true;
         self.wasi_config = Some(config);
-        self
-    }
-
-    /// Enable wasm-opt post-processing.
-    #[must_use]
-    pub fn with_wasm_opt(mut self, level: WasmOptLevel) -> Self {
-        self.output.run_wasm_opt = true;
-        self.output.wasm_opt_level = level;
         self
     }
 

@@ -21,7 +21,7 @@ use tempfile::TempDir;
 
 use crate::util::{
     assert_no_signal_crash, compile_and_capture_ir, compile_and_run_valgrind_with_args,
-    compile_and_run_with_args, ori_binary, stdlib_path,
+    compile_and_run_with_args, ori_binary, stdlib_path, wasm_ld_available, wasm_opt_available,
 };
 
 /// Create a simple Ori source file for testing.
@@ -669,6 +669,87 @@ fn test_build_wasm_flag() {
     );
 
     assert!(output.exists(), "WASM object file was not created");
+}
+
+/// Production-path test: `ori build --wasm --wasm-opt` links a real WASM
+/// binary then runs the wasm-opt post-processor on it in place.
+///
+/// Requires `wasm-ld` (to link) and `wasm-opt` (Binaryen); skips gracefully
+/// when either is unavailable, matching the valgrind-gated tests above.
+#[test]
+fn test_build_wasm_opt_runs_post_processor_on_linked_binary() {
+    if !wasm_ld_available() {
+        eprintln!("skipping: wasm-ld not available");
+        return;
+    }
+    if !wasm_opt_available() {
+        eprintln!("skipping: wasm-opt not available");
+        return;
+    }
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "test.ori", SIMPLE_PROGRAM);
+    let output = temp_dir.path().join("test.wasm");
+
+    let result = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "--wasm",
+            "--wasm-opt",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "ori build --wasm --wasm-opt failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    assert!(output.exists(), "wasm-opt-processed binary was not created");
+
+    let content = fs::read(&output).expect("Failed to read wasm-opt output");
+    assert!(
+        content.starts_with(&[0x00, 0x61, 0x73, 0x6d]),
+        "wasm-opt output doesn't appear to be a valid WASM module (missing magic bytes)"
+    );
+}
+
+/// Negative pin: `ori build --wasm` without `--wasm-opt` still links a valid
+/// WASM binary — the post-processor is opt-in, never required for a plain
+/// wasm build.
+#[test]
+fn test_build_wasm_without_wasm_opt_flag_still_links() {
+    if !wasm_ld_available() {
+        eprintln!("skipping: wasm-ld not available");
+        return;
+    }
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "test.ori", SIMPLE_PROGRAM);
+    let output = temp_dir.path().join("test.wasm");
+
+    let result = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "--wasm",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "ori build --wasm failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    assert!(output.exists(), "WASM binary was not created");
 }
 
 /// Test: `ori build --target=` with unsupported target fails gracefully.

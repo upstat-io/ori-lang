@@ -224,6 +224,33 @@ pub(crate) fn build_optimization_config(
         .with_sanitizer(sanitizer)
 }
 
+/// Build the wasm-opt post-processor requested via `--wasm-opt`.
+///
+/// Returns `Some` only when the build targets WebAssembly AND the user
+/// passed `--wasm-opt`; the runner's level mirrors `--opt`.
+#[cfg(feature = "llvm")]
+fn wasm_opt_runner(
+    options: &BuildOptions,
+    target_is_wasm: bool,
+) -> Option<ori_llvm::aot::WasmOptRunner> {
+    use ori_llvm::aot::{WasmOptLevel, WasmOptRunner};
+
+    if !(target_is_wasm && options.wasm_opt) {
+        return None;
+    }
+
+    let level = match options.opt_level {
+        OptLevel::O0 => WasmOptLevel::O0,
+        OptLevel::O1 => WasmOptLevel::O1,
+        OptLevel::O2 => WasmOptLevel::O2,
+        OptLevel::O3 => WasmOptLevel::O3,
+        OptLevel::Os => WasmOptLevel::Os,
+        OptLevel::Oz => WasmOptLevel::Oz,
+    };
+
+    Some(WasmOptRunner::with_level(level))
+}
+
 /// Determine the output path for the build.
 #[cfg(feature = "llvm")]
 fn determine_output_path(source_path: &str, options: &BuildOptions) -> PathBuf {
@@ -344,6 +371,15 @@ fn link_and_finish(
 
     if let Err(e) = driver.link(&link_input) {
         crate::problem::codegen::report_codegen_error(e);
+    }
+
+    if let Some(runner) = wasm_opt_runner(options, target.is_wasm()) {
+        if options.verbose {
+            eprintln!("  Running wasm-opt on {}", output_path.display());
+        }
+        if let Err(e) = runner.run_in_place(output_path) {
+            crate::problem::codegen::report_codegen_error(e);
+        }
     }
 
     let elapsed = start.elapsed();

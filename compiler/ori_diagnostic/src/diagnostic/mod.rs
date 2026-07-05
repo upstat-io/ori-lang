@@ -63,13 +63,6 @@ pub enum Applicability {
     Unspecified,
 }
 
-impl Applicability {
-    /// Check if this suggestion can be safely auto-applied.
-    pub fn is_machine_applicable(&self) -> bool {
-        matches!(self, Applicability::MachineApplicable)
-    }
-}
-
 /// A text substitution for a code fix.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Substitution {

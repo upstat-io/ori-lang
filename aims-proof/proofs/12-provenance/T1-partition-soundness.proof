@@ -12,8 +12,12 @@ Theorem IA-T1: Per-field birth-site partition soundness
       predecessor argument x has birthSite(x) = B, and the merge node itself
       holds that B).
     - The union-find (functional parent map, fuelled find, link-by-root union,
-      edge-list fold) computes exactly the reflexive-symmetric-transitive
-      closure of the admitted edges.
+      edge-list fold) is taken to compute exactly the reflexive-symmetric-
+      transitive closure of the admitted edges. This correspondence is a
+      STATED MODEL OBLIGATION: discharged concretely on the Part D witness
+      instances (P4), with the general executable-to-closure theorem pending
+      in the compiled Lean (see the Partition.lean Part B scope note); it is
+      NOT itself a kernel-checked theorem of this artifact.
 
   Soundness property:
     Forall node universe and forall birth-site map: SameRep(u, v) implies
@@ -34,8 +38,9 @@ Theorem IA-T1: Per-field birth-site partition soundness
          the reflexive-symmetric-transitive closure of the admitted edges:
          refl is trivial, edge is (P1), symm and trans lift equality symmetry
          and transitivity. Parametric over the node universe and the
-         birth-site map; the union-find computes exactly this closure, so the
-         built partition only ever unions same-birth-site nodes.
+         birth-site map; under the stated executable-to-closure model
+         obligation (Preconditions), the built partition only ever unions
+         same-birth-site nodes.
     (P3) Kill-criterion. If two predecessors of one phi merge carry distinct
          birth-sites, no singleton witness B exists for that merge, so no phi
          edge is admissible: the over-unification is unrepresentable in the

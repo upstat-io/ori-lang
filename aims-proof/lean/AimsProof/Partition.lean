@@ -95,8 +95,15 @@ def PartitionUF.sameRep (uf : PartitionUF) (a b : Nat) : Bool :=
       that `B` (phi semantics: the merge holds whichever predecessor's value
       flowed, and they all hold `B`).
 
-    The union-find computes exactly the reflexive-symmetric-transitive closure
-    of its admitted edges; `SameRep` is that closure. -/
+    `SameRep` is the reflexive-symmetric-transitive closure of the admitted
+    edges — the object the soundness theorems below govern. The executable
+    `buildPartitionUF` fold is INTENDED to compute exactly that closure; the
+    general executable↔closure correspondence is a stated model obligation
+    discharged concretely on the T1 witness instances (Part D), not yet a
+    kernel-checked theorem. `class_eq_iff_sameRep` (Ledger.lean) bridges only
+    the executable's find-equality to its own `sameRep` Boolean. The pending
+    obligation MUST be discharged before any consumer relies on the executable
+    partition as a proof surface. -/
 
 /-- §T1 an admitted same-allocation edge over node universe `ν` with birth-site
     map `birthSite : ν → β`. -/
