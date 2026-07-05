@@ -21,6 +21,18 @@ output:
 
 pre-commit:
   commands:
+    version-bump:
+      # BUILD_NUMBER auto-refresh at a day boundary — see
+      # `./scripts/auto-bump-if-stale.sh --help` equivalent (header comment).
+      # BUILD_NUMBER is otherwise a manually-bumped CalVer marker with no
+      # freshness check of its own, so it silently drifts stale for months
+      # if nobody runs bump-build.sh before a release. Runs on every commit
+      # (no glob restriction — it is a date check, not a file-content check);
+      # no-ops same-day, self-heals + self-stages BUILD_NUMBER and its synced
+      # mirrors (Cargo.toml etc.) the instant the commit crosses into a new
+      # UTC day. Mirrors build.rs's git-identity stamp: both recompute from
+      # live state instead of trusting a static file.
+      run: ./scripts/auto-bump-if-stale.sh
     fmt:
       # fmt-all.sh formats the whole workspace and stages exactly the files it
       # reformats (whole-tree, not just already-staged). Do NOT add stage_fixed
