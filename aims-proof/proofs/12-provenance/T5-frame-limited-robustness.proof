@@ -138,7 +138,7 @@ Theorem IA-T5: Frame-limited class-ledger robustness under tier-1 edge introduct
       T5_frame_limited_robustness_bundle (conclusion bundle)
     Bridged committed theorems and carriers consumed: PartitionAdm,
       PartitionUF, PartitionUF.union, PartitionUF.sameRep, buildPartitionUF,
-      partitionFuel (AimsProof.Partition); LedgerInstr, LedgerEvent,
+      PartitionUF.find (AimsProof.Partition); LedgerInstr, LedgerEvent,
       deriveLedger, sibReadCount, threeClauses, clauseNetZero, clauseFloors,
       eventFloor, eventDelta, ledgerNet, runLedger, ledgerSafe,
       deriveLedger_untouched, jump_arg_cross_class_handoff,

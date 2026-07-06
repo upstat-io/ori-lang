@@ -89,7 +89,7 @@ abbrev PartitionTable := Nat → Nat
 /-- §PV the side table OF a built T1 union-find: value ↦ its COMPUTED
     representative through the executable fuelled `find`. -/
 def partitionTableOf (uf : PartitionUF) : PartitionTable :=
-  fun v => uf.find partitionFuel v
+  fun v => uf.find v
 
 /-- §PV table-class equality IS the computed T1 `sameRep` verdict — the side
     table carries no partition notion of its own (directly the committed

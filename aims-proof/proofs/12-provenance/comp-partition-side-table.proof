@@ -159,7 +159,7 @@ Theorem CH-comp-PV: Provenance-partition side-table extension of the composition
       (AimsProof.Verification); deriveLedger, clauseNetZero, threeClauses,
       walkInstrs, k1ClassOf, k1Class, k1Cured, k1PastMerge, k1NormalWalk,
       k1UnwindWalk, T2_K1_cured_clauses, class_eq_iff_sameRep, LedgerInstr
-      (AimsProof.Ledger); PartitionUF, partitionFuel, pfUF,
+      (AimsProof.Ledger); PartitionUF, PartitionUF.find, pfUF,
       PartitionUF.sameRep (AimsProof.Partition); AimsState, freshState
       (AimsProof.Model); is_rc_dec_unnecessary, is_rc_inc_elidable
       (AimsProof.Decision).

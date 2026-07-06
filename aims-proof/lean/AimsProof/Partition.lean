@@ -20,7 +20,8 @@ class). Admission is edge-based — an unconditional Tier-1 same-allocation edge
 birth-site witness (every phi predecessor argument resolves to ONE birth-site).
 
 Structure:
-  Part A — a REAL executable union-find (parent map, fuelled find, link-by-root
+  Part A — a REAL executable union-find (functional parent map, fuelled find
+    with the fuel carried on the structure and grown by one per link-by-root
     union, an edge-list fold). Every concrete representative in Part C is
     COMPUTED through it; nothing is a hardcoded representative table.
   Part B — the parametric core, over the node universe and the birth-site map:
@@ -29,6 +30,11 @@ Structure:
     `samerep_birthsite_sound` (RST-closure induction) and
     `distinct_birthsite_no_phi_admission` (the kill-criterion guard —
     over-unification of distinct birth-sites is unrepresentable).
+  Part B′ — the kernel-checked executable ↔ closure correspondence:
+    `buildPartitionUF_sameRep_iff_edgeConn` (the general theorem — the
+    computed `sameRep` verdict holds EXACTLY on the RST closure of the folded
+    edge list) and `buildPartitionUF_birthsite_sound` (its composition with
+    `samerep_birthsite_sound` through the admitted-edge lift).
   Part C — the concrete loop-CFG instantiation witness: a back-edge loop whose
     loop-invariant field merge IS admitted (singleton witness holds) and whose
     loop-varying field merge is NOT (two birth-sites across the back-edge),
@@ -47,31 +53,39 @@ namespace AimsProof
 
 /-! ## §T1 Part A — executable union-find over an admitted edge list
 
-    Nodes are `Nat` ids; the union-find is a functional parent map. `find`
-    follows parents to a root under a fuel bound; `union` links root-to-root;
+    Nodes are `Nat` ids; the union-find is a functional parent map paired with
+    a fuel bound carried on the structure. `find` follows parents to a root
+    within `fuel` steps; `union` links root-to-root and grows the fuel by one
+    (link-by-root adds at most one non-trivial parent edge per union, so every
+    parent chain stays within bound — the fact Part B′ proves);
     `buildPartitionUF` FOLDS an admitted edge list. Every representative claim
     in Part C is computed through these definitions. -/
 
-/-- Functional parent map; `empty` makes every node its own parent. -/
+/-- Functional parent map + fuel bound; `empty` makes every node its own
+    parent under fuel 1. -/
 structure PartitionUF where
   parent : Nat → Nat
+  fuel : Nat
 
-def PartitionUF.empty : PartitionUF := ⟨id⟩
+def PartitionUF.empty : PartitionUF := ⟨id, 1⟩
 
-/-- Fuelled `find`: follow `parent` to a root (a node that is its own parent).
-    Fuel bounds the chain length; the concrete instances stay far below it. -/
-def PartitionUF.find (uf : PartitionUF) : Nat → Nat → Nat
+/-- Fuelled parent walk: follow `parent` to a fixpoint within `fuel` steps. -/
+def findAux (parent : Nat → Nat) : Nat → Nat → Nat
   | 0,      x => x
-  | fuel+1, x => let px := uf.parent x; if px == x then x else uf.find fuel px
+  | fuel+1, x => if parent x = x then x else findAux parent fuel (parent x)
 
-/-- Fuel bound above any parent-chain length in the concrete CFG instances. -/
-def partitionFuel : Nat := 16
+/-- `find`: the fuelled walk under the structure's own fuel bound. -/
+def PartitionUF.find (uf : PartitionUF) (x : Nat) : Nat :=
+  findAux uf.parent uf.fuel x
 
-/-- `union a b`: point `find a`'s root at `find b`'s root (link-by-root). -/
+/-- The link-by-root redirect map: `ra ↦ rb`, every other node unchanged. -/
+def redirect (parent : Nat → Nat) (ra rb : Nat) (y : Nat) : Nat :=
+  if y = ra then rb else parent y
+
+/-- `union a b`: point `find a`'s root at `find b`'s root (link-by-root) and
+    grow the fuel by one (at most one new parent edge per union). -/
 def PartitionUF.union (uf : PartitionUF) (a b : Nat) : PartitionUF :=
-  let ra := uf.find partitionFuel a
-  let rb := uf.find partitionFuel b
-  ⟨fun x => if x == ra then rb else uf.parent x⟩
+  ⟨redirect uf.parent (uf.find a) (uf.find b), uf.fuel + 1⟩
 
 /-- Fold an admitted edge list into the union-find (consume the edges). -/
 def buildPartitionUF (edges : List (Nat × Nat)) : PartitionUF :=
@@ -79,7 +93,7 @@ def buildPartitionUF (edges : List (Nat × Nat)) : PartitionUF :=
 
 /-- The COMPUTED representatives coincide. -/
 def PartitionUF.sameRep (uf : PartitionUF) (a b : Nat) : Bool :=
-  uf.find partitionFuel a == uf.find partitionFuel b
+  uf.find a == uf.find b
 
 /-! ## §T1 Part B — parametric partition soundness (the load-bearing core)
 
@@ -97,13 +111,16 @@ def PartitionUF.sameRep (uf : PartitionUF) (a b : Nat) : Bool :=
 
     `SameRep` is the reflexive-symmetric-transitive closure of the admitted
     edges — the object the soundness theorems below govern. The executable
-    `buildPartitionUF` fold is INTENDED to compute exactly that closure; the
-    general executable↔closure correspondence is a stated model obligation
-    discharged concretely on the T1 witness instances (Part D), not yet a
-    kernel-checked theorem. `class_eq_iff_sameRep` (Ledger.lean) bridges only
-    the executable's find-equality to its own `sameRep` Boolean. The pending
-    obligation MUST be discharged before any consumer relies on the executable
-    partition as a proof surface. -/
+    `buildPartitionUF` fold computes EXACTLY that closure, and the
+    correspondence IS kernel-checked (Part B′):
+    `buildPartitionUF_sameRep_iff_edgeConn` proves — as a general theorem over
+    every edge list, by induction, never by instance `decide` — that the
+    computed `sameRep` verdict holds iff the RST closure of the folded edge
+    list connects the nodes, and `buildPartitionUF_birthsite_sound` composes
+    it end-to-end with `samerep_birthsite_sound`. Consumers may rely on the
+    executable partition as a proof surface. `class_eq_iff_sameRep`
+    (Ledger.lean) bridges the executable's find-equality to its own `sameRep`
+    Boolean. -/
 
 /-- §T1 an admitted same-allocation edge over node universe `ν` with birth-site
     map `birthSite : ν → β`. -/
@@ -163,6 +180,294 @@ theorem distinct_birthsite_no_phi_admission {ν β : Type} {birthSite : ν → �
     ¬ ∃ B, ∀ x ∈ preds, birthSite x = B := by
   rintro ⟨B, hall⟩
   exact hne ((hall a1 h1).trans (hall a2 h2).symm)
+
+/-! ## §T1 Part B′ — executable ↔ closure correspondence (kernel-checked)
+
+    The bridge discharging the executable-to-closure obligation as a GENERAL
+    theorem. The fuelled walk is characterized by an inductive root-walk
+    certificate (`WalksTo`: every intermediate node is a non-fixpoint, so a
+    walk never passes THROUGH a root mid-walk); the certificate transports
+    across a link-by-root `redirect` with AT MOST one extra step — matching
+    the one-fuel growth per `union` — and an invariant threaded through the
+    edge-list fold yields BOTH directions of
+    `buildPartitionUF_sameRep_iff_edgeConn`. -/
+
+/-- The reflexive-symmetric-transitive closure of a concrete edge list. -/
+inductive EdgeConn (edges : List (Nat × Nat)) : Nat → Nat → Prop
+  | refl (x : Nat) : EdgeConn edges x x
+  | edge {u v : Nat} (h : (u, v) ∈ edges) : EdgeConn edges u v
+  | symm {u v : Nat} (h : EdgeConn edges u v) : EdgeConn edges v u
+  | trans {u v w : Nat} (h1 : EdgeConn edges u v) (h2 : EdgeConn edges v w) :
+      EdgeConn edges u w
+
+/-- Closure monotonicity in the edge list. -/
+theorem edgeConn_mono {edges edges' : List (Nat × Nat)}
+    (hsub : ∀ e ∈ edges, e ∈ edges') {u v : Nat}
+    (h : EdgeConn edges u v) : EdgeConn edges' u v := by
+  induction h with
+  | refl x => exact .refl x
+  | edge h => exact .edge (hsub _ h)
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih1 ih2 => exact .trans ih1 ih2
+
+/-- Root-walk certificate: `x` reaches fixpoint `r` in exactly `n` proper
+    steps, every intermediate node a non-fixpoint. -/
+inductive WalksTo (parent : Nat → Nat) : Nat → Nat → Nat → Prop
+  | root {x : Nat} (h : parent x = x) : WalksTo parent 0 x x
+  | step {n x r : Nat} (hne : parent x ≠ x)
+      (h : WalksTo parent n (parent x) r) : WalksTo parent (n+1) x r
+
+/-- A certified walk ends at a fixpoint. -/
+theorem WalksTo.root_fix {parent : Nat → Nat} {n x r : Nat}
+    (h : WalksTo parent n x r) : parent r = r := by
+  induction h with
+  | root h => exact h
+  | step _ _ ih => exact ih
+
+/-- The fuelled walk realizes any certificate within its fuel. -/
+theorem findAux_eq_of_walksTo {parent : Nat → Nat} {n x r : Nat}
+    (h : WalksTo parent n x r) : ∀ f, n ≤ f → findAux parent f x = r := by
+  induction h with
+  | @root x hfix =>
+    intro f _
+    cases f with
+    | zero => rfl
+    | succ f =>
+      simp only [findAux]
+      rw [if_pos hfix]
+  | @step n x r hne hwalk ih =>
+    intro f hf
+    cases f with
+    | zero => exact absurd hf (Nat.not_succ_le_zero n)
+    | succ f =>
+      simp only [findAux]
+      rw [if_neg hne]
+      exact ih f (Nat.le_of_succ_le_succ hf)
+
+theorem redirect_eq (parent : Nat → Nat) (ra rb : Nat) :
+    redirect parent ra rb ra = rb := if_pos rfl
+
+theorem redirect_ne {parent : Nat → Nat} {ra rb y : Nat} (h : y ≠ ra) :
+    redirect parent ra rb y = parent y := if_neg h
+
+/-- Certificate transport across a link-by-root redirect `ra ↦ rb` (both old
+    fixpoints): the walk survives with AT MOST one extra step, landing on the
+    redirect of its old root. Intermediate nodes are non-fixpoints, hence
+    never `ra`, so only the endpoint case extends the walk. -/
+theorem WalksTo.redirect_transport {parent : Nat → Nat} {ra rb : Nat}
+    (hra : parent ra = ra) (hrb : parent rb = rb) {n x r : Nat}
+    (h : WalksTo parent n x r) :
+    ∃ m, m ≤ n + 1 ∧
+      WalksTo (redirect parent ra rb) m x (if r = ra then rb else r) := by
+  induction h with
+  | @root x hfix =>
+    by_cases hxa : x = ra
+    · rw [hxa, if_pos rfl]
+      by_cases hba : rb = ra
+      · refine ⟨0, Nat.zero_le _, ?_⟩
+        rw [hba]
+        exact WalksTo.root (redirect_eq parent ra ra)
+      · refine ⟨1, Nat.le_refl _, ?_⟩
+        have h1 : redirect parent ra rb ra = rb := redirect_eq parent ra rb
+        have h2 : redirect parent ra rb rb = rb := by
+          rw [redirect_ne hba]; exact hrb
+        exact WalksTo.step (by rw [h1]; exact hba)
+          (by rw [h1]; exact WalksTo.root h2)
+    · rw [if_neg hxa]
+      exact ⟨0, Nat.zero_le _,
+        WalksTo.root (by rw [redirect_ne hxa]; exact hfix)⟩
+  | @step n x r hne hwalk ih =>
+    have hxa : x ≠ ra := fun hcontra => hne (by rw [hcontra]; exact hra)
+    obtain ⟨m, hm, hw'⟩ := ih
+    have hpx : redirect parent ra rb x = parent x := redirect_ne hxa
+    exact ⟨m + 1, Nat.succ_le_succ hm,
+      WalksTo.step (by rw [hpx]; exact hne) (by rw [hpx]; exact hw')⟩
+
+/-- Well-fuelled: every node's parent chain reaches its root within fuel. -/
+def PartitionUF.Wf (uf : PartitionUF) : Prop :=
+  ∀ x, ∃ n r, n ≤ uf.fuel ∧ WalksTo uf.parent n x r
+
+theorem PartitionUF.find_eq_of_walksTo {uf : PartitionUF} {n x r : Nat}
+    (hn : n ≤ uf.fuel) (h : WalksTo uf.parent n x r) : uf.find x = r :=
+  findAux_eq_of_walksTo h uf.fuel hn
+
+/-- Under `Wf`, every node holds a certificate ending at its `find`. -/
+theorem PartitionUF.walksTo_find {uf : PartitionUF} (hwf : uf.Wf) (x : Nat) :
+    ∃ n, n ≤ uf.fuel ∧ WalksTo uf.parent n x (uf.find x) := by
+  obtain ⟨n, r, hn, hw⟩ := hwf x
+  rw [uf.find_eq_of_walksTo hn hw]
+  exact ⟨n, hn, hw⟩
+
+/-- Under `Wf`, every computed representative is a parent fixpoint. -/
+theorem PartitionUF.parent_find_fix {uf : PartitionUF} (hwf : uf.Wf)
+    (x : Nat) : uf.parent (uf.find x) = uf.find x := by
+  obtain ⟨n, hn, hw⟩ := uf.walksTo_find hwf x
+  exact hw.root_fix
+
+/-- Fuel growth keeps the union well-fuelled: the transported certificate's
+    one extra step rides the union's one extra fuel. -/
+theorem PartitionUF.union_wf {uf : PartitionUF} (hwf : uf.Wf) (a b : Nat) :
+    (uf.union a b).Wf := by
+  intro x
+  obtain ⟨n, hn, hw⟩ := uf.walksTo_find hwf x
+  obtain ⟨m, hm, hw'⟩ := hw.redirect_transport
+    (uf.parent_find_fix hwf a) (uf.parent_find_fix hwf b)
+  exact ⟨m, _, Nat.le_trans hm (Nat.succ_le_succ hn), hw'⟩
+
+/-- THE central lemma: a link-by-root union redirects exactly the old root
+    class of `a` onto the old root of `b` and leaves every other computed
+    representative unchanged. -/
+theorem PartitionUF.find_union {uf : PartitionUF} (hwf : uf.Wf)
+    (a b x : Nat) :
+    (uf.union a b).find x =
+      if uf.find x = uf.find a then uf.find b else uf.find x := by
+  obtain ⟨n, hn, hw⟩ := uf.walksTo_find hwf x
+  obtain ⟨m, hm, hw'⟩ := hw.redirect_transport
+    (uf.parent_find_fix hwf a) (uf.parent_find_fix hwf b)
+  exact PartitionUF.find_eq_of_walksTo (uf := uf.union a b)
+    (Nat.le_trans hm (Nat.succ_le_succ hn)) hw'
+
+/-- The fold invariant over the processed edge prefix: well-fuelled; every
+    parent step is edge-connected; every processed edge's endpoints share a
+    computed representative. -/
+structure UFInv (edges : List (Nat × Nat)) (uf : PartitionUF) : Prop where
+  wf : uf.Wf
+  parent_conn : ∀ x, EdgeConn edges x (uf.parent x)
+  edges_merged : ∀ e ∈ edges, uf.find e.1 = uf.find e.2
+
+/-- A certified walk is edge-connected end-to-end. -/
+theorem walksTo_conn {edges : List (Nat × Nat)} {parent : Nat → Nat}
+    (hconn : ∀ y, EdgeConn edges y (parent y)) {n x r : Nat}
+    (h : WalksTo parent n x r) : EdgeConn edges x r := by
+  induction h with
+  | root _ => exact .refl _
+  | step _ _ ih => exact .trans (hconn _) ih
+
+/-- Under the invariant, every node is edge-connected to its representative. -/
+theorem UFInv.find_conn {edges : List (Nat × Nat)} {uf : PartitionUF}
+    (hinv : UFInv edges uf) (x : Nat) : EdgeConn edges x (uf.find x) := by
+  obtain ⟨n, _, hw⟩ := uf.walksTo_find hinv.wf x
+  exact walksTo_conn hinv.parent_conn hw
+
+/-- One union step: processing edge `(a, b)` extends the invariant by it. -/
+theorem UFInv.union_step {edges : List (Nat × Nat)} {uf : PartitionUF}
+    (hinv : UFInv edges uf) (a b : Nat) :
+    UFInv (edges ++ [(a, b)]) (uf.union a b) := by
+  have hmono : ∀ e ∈ edges, e ∈ edges ++ [(a, b)] :=
+    fun e he => List.mem_append.mpr (Or.inl he)
+  refine ⟨PartitionUF.union_wf hinv.wf a b, ?_, ?_⟩
+  · intro x
+    show EdgeConn (edges ++ [(a, b)]) x
+      (redirect uf.parent (uf.find a) (uf.find b) x)
+    by_cases hxa : x = uf.find a
+    · rw [hxa, redirect_eq]
+      have hab : EdgeConn (edges ++ [(a, b)]) a b :=
+        .edge (List.mem_append.mpr (Or.inr (List.Mem.head _)))
+      have ha : EdgeConn (edges ++ [(a, b)]) a (uf.find a) :=
+        edgeConn_mono hmono (hinv.find_conn a)
+      have hb : EdgeConn (edges ++ [(a, b)]) b (uf.find b) :=
+        edgeConn_mono hmono (hinv.find_conn b)
+      exact .trans (.symm ha) (.trans hab hb)
+    · rw [redirect_ne hxa]
+      exact edgeConn_mono hmono (hinv.parent_conn x)
+  · intro e he
+    obtain ⟨u, v⟩ := e
+    show (uf.union a b).find u = (uf.union a b).find v
+    rw [PartitionUF.find_union hinv.wf, PartitionUF.find_union hinv.wf]
+    rcases List.mem_append.mp he with hmem | hmem
+    · rw [show uf.find u = uf.find v from hinv.edges_merged (u, v) hmem]
+    · cases hmem with
+      | head =>
+        rw [if_pos rfl]
+        by_cases hb : uf.find b = uf.find a
+        · rw [if_pos hb]
+        · rw [if_neg hb]
+      | tail _ h => cases h
+
+/-- The fold preserves and extends the invariant across a suffix of edges. -/
+theorem foldl_union_inv (rest : List (Nat × Nat)) :
+    ∀ (processed : List (Nat × Nat)) (uf : PartitionUF), UFInv processed uf →
+      UFInv (processed ++ rest)
+        (rest.foldl (fun uf e => uf.union e.1 e.2) uf) := by
+  induction rest with
+  | nil =>
+    intro processed uf hinv
+    simpa using hinv
+  | cons e rest ih =>
+    intro processed uf hinv
+    obtain ⟨a, b⟩ := e
+    have := ih (processed ++ [(a, b)]) (uf.union a b) (hinv.union_step a b)
+    simpa [List.foldl_cons, List.append_assoc] using this
+
+/-- The built union-find satisfies the invariant over the FULL edge list. -/
+theorem buildPartitionUF_inv (edges : List (Nat × Nat)) :
+    UFInv edges (buildPartitionUF edges) := by
+  have h0 : UFInv [] PartitionUF.empty :=
+    ⟨fun x => ⟨0, x, Nat.zero_le _, WalksTo.root rfl⟩,
+     fun x => EdgeConn.refl x,
+     fun _ he => by cases he⟩
+  simpa [buildPartitionUF] using foldl_union_inv edges [] PartitionUF.empty h0
+
+/-- Soundness half: a shared computed representative yields closure
+    membership (walk down to the shared root, back up the other side). -/
+theorem edgeConn_of_sameRep {edges : List (Nat × Nat)} {a b : Nat}
+    (h : (buildPartitionUF edges).sameRep a b = true) : EdgeConn edges a b := by
+  have hinv := buildPartitionUF_inv edges
+  have hfind : (buildPartitionUF edges).find a = (buildPartitionUF edges).find b := by
+    simpa [PartitionUF.sameRep, beq_iff_eq] using h
+  have ha := hinv.find_conn a
+  have hb := hinv.find_conn b
+  rw [hfind] at ha
+  exact ha.trans hb.symm
+
+/-- Completeness half: closure membership yields a shared computed
+    representative (RST-closure induction over the merged-edges invariant). -/
+theorem find_eq_of_edgeConn {edges : List (Nat × Nat)} {a b : Nat}
+    (h : EdgeConn edges a b) :
+    (buildPartitionUF edges).find a = (buildPartitionUF edges).find b := by
+  have hinv := buildPartitionUF_inv edges
+  induction h with
+  | refl x => rfl
+  | edge h => exact hinv.edges_merged _ h
+  | symm _ ih => exact ih.symm
+  | trans _ _ ih1 ih2 => exact ih1.trans ih2
+
+/-- §T1 (P2′) THE executable ↔ closure correspondence, kernel-checked as a
+    GENERAL theorem: for EVERY edge list and EVERY node pair, the executable
+    fold's computed `sameRep` verdict holds EXACTLY on the reflexive-
+    symmetric-transitive closure of the admitted edge list. -/
+theorem buildPartitionUF_sameRep_iff_edgeConn (edges : List (Nat × Nat))
+    (a b : Nat) :
+    (buildPartitionUF edges).sameRep a b = true ↔ EdgeConn edges a b := by
+  constructor
+  · exact edgeConn_of_sameRep
+  · intro h
+    simpa [PartitionUF.sameRep, beq_iff_eq] using find_eq_of_edgeConn h
+
+/-- Lift each concrete admitted edge through the parametric admission: the
+    closure of an admitted edge list lands inside `SameRep`. -/
+theorem sameRep_of_edgeConn {β : Type} {birthSite : Nat → β}
+    {edges : List (Nat × Nat)}
+    (hadm : ∀ e ∈ edges, PartitionAdm birthSite e.1 e.2)
+    {u v : Nat} (h : EdgeConn edges u v) : SameRep birthSite u v := by
+  induction h with
+  | refl x => exact .refl x
+  | edge h => exact .edge (hadm _ h)
+  | symm _ ih => exact .symm ih
+  | trans _ _ ih1 ih2 => exact .trans ih1 ih2
+
+/-- §T1 (P2″) the executable partition is birth-site-sound END-TO-END: fold
+    ANY admitted edge list; a shared COMPUTED representative implies a shared
+    birth-site (`buildPartitionUF_sameRep_iff_edgeConn` composed with the
+    admitted-edge lift and `samerep_birthsite_sound`). -/
+theorem buildPartitionUF_birthsite_sound {β : Type} (birthSite : Nat → β)
+    (edges : List (Nat × Nat))
+    (hadm : ∀ e ∈ edges, PartitionAdm birthSite e.1 e.2)
+    {a b : Nat} (h : (buildPartitionUF edges).sameRep a b = true) :
+    birthSite a = birthSite b :=
+  samerep_birthsite_sound
+    (sameRep_of_edgeConn hadm
+      ((buildPartitionUF_sameRep_iff_edgeConn edges a b).mp h))
 
 /-! ## §T1 Part C — concrete loop-CFG instantiation witness (computed reps)
 

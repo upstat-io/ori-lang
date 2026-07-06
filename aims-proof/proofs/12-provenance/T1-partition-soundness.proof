@@ -11,13 +11,18 @@ Theorem IA-T1: Per-field birth-site partition soundness
       the singleton birth-site witness (exists B such that every phi
       predecessor argument x has birthSite(x) = B, and the merge node itself
       holds that B).
-    - The union-find (functional parent map, fuelled find, link-by-root union,
-      edge-list fold) is taken to compute exactly the reflexive-symmetric-
-      transitive closure of the admitted edges. This correspondence is a
-      STATED MODEL OBLIGATION: discharged concretely on the Part D witness
-      instances (P4), with the general executable-to-closure theorem pending
-      in the compiled Lean (see the Partition.lean Part B scope note); it is
-      NOT itself a kernel-checked theorem of this artifact.
+    - The union-find (functional parent map, fuelled find with the fuel
+      carried on the structure, link-by-root union, edge-list fold) computes
+      exactly the reflexive-symmetric-transitive closure of the admitted
+      edges. This correspondence is DISCHARGED as a general kernel-checked
+      theorem (not only on the Part D witness instances):
+      buildPartitionUF_sameRep_iff_edgeConn proves both directions for every
+      edge list, and buildPartitionUF_birthsite_sound composes it end-to-end
+      with the closure soundness theorem. The fuel parameterization is the
+      correctness-carrying design: fuel grows by one per union (link-by-root
+      adds at most one non-trivial parent edge per union), so every parent
+      chain stays within bound and the fuelled find always reaches its root.
+      Consumers may rely on the executable partition as a proof surface.
 
   Soundness property:
     Forall node universe and forall birth-site map: SameRep(u, v) implies
@@ -38,9 +43,10 @@ Theorem IA-T1: Per-field birth-site partition soundness
          the reflexive-symmetric-transitive closure of the admitted edges:
          refl is trivial, edge is (P1), symm and trans lift equality symmetry
          and transitivity. Parametric over the node universe and the
-         birth-site map; under the stated executable-to-closure model
-         obligation (Preconditions), the built partition only ever unions
-         same-birth-site nodes.
+         birth-site map; through the kernel-checked executable-to-closure
+         correspondence (buildPartitionUF_sameRep_iff_edgeConn, Preconditions)
+         and its composition buildPartitionUF_birthsite_sound, the built
+         partition only ever unions same-birth-site nodes.
     (P3) Kill-criterion. If two predecessors of one phi merge carry distinct
          birth-sites, no singleton witness B exists for that merge, so no phi
          edge is admissible: the over-unification is unrepresentable in the
@@ -65,6 +71,10 @@ Theorem IA-T1: Per-field birth-site partition soundness
       partitionAdm_birthsite_sound        (P1)
       samerep_birthsite_sound             (P2 - the load-bearing theorem)
       distinct_birthsite_distinct_rep     (P2 contrapositive)
+      buildPartitionUF_sameRep_iff_edgeConn (P2 - the general kernel-checked
+        executable-to-closure correspondence, both directions)
+      buildPartitionUF_birthsite_sound    (P2 - end-to-end composition:
+        computed sameRep over any admitted edge list implies birth-site equality)
       distinct_birthsite_no_phi_admission (P3 - the kill-criterion guard)
       T1_items_header_unified_across_backedge, T1_backedge_keeps_distinct_from_entry,
         T1_backedge_keeps_distinct_from_latch, T1_distinct_label_allocs_not_unified,

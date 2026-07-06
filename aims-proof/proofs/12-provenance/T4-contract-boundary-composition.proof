@@ -139,7 +139,7 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
       threeClauses, ledgerSafe, ledgerNet, clauseFloors, runLedger,
       terminal_event_matches_rl2, deriveLedger_append_mutate_free,
       ledgerNet_append, clauseFloors_append, three_clauses_iff_ledger_safe
-      (AimsProof.Ledger); PartitionUF, buildPartitionUF, partitionFuel
+      (AimsProof.Ledger); PartitionUF, buildPartitionUF, PartitionUF.find
       (AimsProof.Partition).
     The compiled Lean (verified by `lake build` under the trusted kernel) is the
     authoritative calculus; this .proof is the human-readable companion.

@@ -19,7 +19,7 @@ emission + compiler/ori_arc/src/aims/realize/ Phase-6/7 placement): where a
 release may land relative to reads, mutations, merges, back-edges, unwind
 cleanups, and TRMC-rewritten tail calls. The partition classes are the T1
 union-find representatives (AimsProof.Partition `PartitionUF` /
-`buildPartitionUF` / `partitionFuel`) — the engine takes the partition AS GIVEN
+`buildPartitionUF` / `PartitionUF.find`) — the engine takes the partition AS GIVEN
 input and admits no phi edge of its own. Events are DERIVED, never free input:
 the classification function maps each instruction to its per-class ledger
 event through the committed RL-2 ownership-transfer table
@@ -928,7 +928,7 @@ theorem jump_arg_cross_class_handoff (classOf : Nat → Nat) (c c' v p : Nat)
     when the T1 union-find computes one representative — the classes ARE the
     T1 `PartitionUF` representatives, never a parallel partition notion. -/
 theorem class_eq_iff_sameRep (uf : PartitionUF) (u v : Nat) :
-    uf.find partitionFuel u = uf.find partitionFuel v ↔ uf.sameRep u v = true := by
+    uf.find u = uf.find v ↔ uf.sameRep u v = true := by
   unfold PartitionUF.sameRep
   exact beq_iff_eq.symm
 
@@ -969,7 +969,7 @@ def k1PartitionEdges : List (Nat × Nat) := [(101, 100)]
 /-- §T2 K1's partition — the REAL T1 union-find over the tier-1 view edge. -/
 def k1UF : PartitionUF := buildPartitionUF k1PartitionEdges
 
-def k1ClassOf : Nat → Nat := fun v => k1UF.find partitionFuel v
+def k1ClassOf : Nat → Nat := fun v => k1UF.find v
 
 /-- §T2 K1's single allocation class (the computed representative). -/
 def k1Class : Nat := k1ClassOf 100
@@ -1123,7 +1123,7 @@ def k2PartitionEdges : List (Nat × Nat) := [(11, 10)]
     keep their own representatives (distinct birth-sites — no phi edge). -/
 def k2UF : PartitionUF := buildPartitionUF k2PartitionEdges
 
-def k2ClassOf : Nat → Nat := fun v => k2UF.find partitionFuel v
+def k2ClassOf : Nat → Nat := fun v => k2UF.find v
 
 def k2ClassI : Nat := k2ClassOf 10     -- invariant collection class {10, 11}
 def k2ClassHdr : Nat := k2ClassOf 21   -- loop-header accumulator block-param
@@ -1382,7 +1382,7 @@ theorem T2_K2_trmc_post_call_dec_rejected :
     then reads through the T1-unified view — the release placed BEFORE a
     later READ on the same class/path. -/
 def preReadUF : PartitionUF := buildPartitionUF [(301, 300)]
-def preReadClassOf : Nat → Nat := fun v => preReadUF.find partitionFuel v
+def preReadClassOf : Nat → Nat := fun v => preReadUF.find v
 def preReadClass : Nat := preReadClassOf 300
 
 def preReadInstrs : Nat → List LedgerInstr
@@ -1415,7 +1415,7 @@ theorem T2_pre_read_release_rejected :
     BEFORE the mutate — the runtime uniqueness check would see count 1,
     mutate in place, and corrupt the sibling's later read. -/
 def cowUF : PartitionUF := buildPartitionUF [(401, 400)]
-def cowClassOf : Nat → Nat := fun v => cowUF.find partitionFuel v
+def cowClassOf : Nat → Nat := fun v => cowUF.find v
 def cowClass : Nat := cowClassOf 400
 
 def cowCuredInstrs : Nat → List LedgerInstr

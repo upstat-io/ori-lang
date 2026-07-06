@@ -617,7 +617,7 @@ theorem T4_contract_boundary_composition_safe
 
 def t4UF : PartitionUF := buildPartitionUF []
 
-def t4ClassOf : Nat → Nat := fun v => t4UF.find partitionFuel v
+def t4ClassOf : Nat → Nat := fun v => t4UF.find v
 
 /-- §T4 the TRUE contract of the witness callee: an Owned param. -/
 def t4BcOwned : BoundaryContract := ⟨.Owned, false, false, false⟩
@@ -1568,7 +1568,7 @@ theorem T5_merged_class_clauses_robust (classOf : Nat → Nat) (c1 c2 : Nat)
 
 def t5wUF : PartitionUF := buildPartitionUF []
 
-def t5wClassOf : Nat → Nat := fun v => t5wUF.find partitionFuel v
+def t5wClassOf : Nat → Nat := fun v => t5wUF.find v
 
 /-- §T5 the READ-at-0 stream: class 601's release is path-ordered BEFORE its
     funding birth (net still zero — the three clauses are silent on the dip
@@ -1653,7 +1653,7 @@ theorem T5_new_edge_is_tier1_admission {ν β : Type} {birthSite : ν → β}
     view edge), 902 / 903 / 904 singletons. -/
 def t5UF : PartitionUF := buildPartitionUF [(901, 900)]
 
-def t5ClassOfU : Nat → Nat := fun v => t5UF.find partitionFuel v
+def t5ClassOfU : Nat → Nat := fun v => t5UF.find v
 
 /-- §T5 the post-merge union-find: the NEW tier-1 edge (902, 900) folded in
     through the REAL `PartitionUF.union`. -/
@@ -1665,7 +1665,7 @@ def t5UFMerged : PartitionUF := t5UF.union 902 900
     the computed class of 902; absorbing rep = the computed class of 900). -/
 theorem T5_union_is_mergeClasses_on_witness :
     ([900, 901, 902, 903, 904].all (fun v =>
-      t5UFMerged.find partitionFuel v
+      t5UFMerged.find v
         == mergeClasses t5ClassOfU (t5ClassOfU 902) (t5ClassOfU 900) v)) = true := by
   decide
 
@@ -1675,7 +1675,7 @@ theorem T5_union_is_mergeClasses_on_witness :
 theorem T5_witness_merge_shape :
     t5UF.sameRep 902 900 = false
     ∧ t5UFMerged.sameRep 902 900 = true
-    ∧ t5UFMerged.find partitionFuel 903 = t5UF.find partitionFuel 903 := by
+    ∧ t5UFMerged.find 903 = t5UF.find 903 := by
   decide
 
 /-- §T5 (P2 instantiated) the frame theorem applied at the concrete witness:

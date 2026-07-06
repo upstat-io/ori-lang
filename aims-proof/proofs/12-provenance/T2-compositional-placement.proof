@@ -140,7 +140,7 @@ Theorem RL-T2: Compositional placement soundness over the CFG ledger
       threeClauses_prefix_cycle_suffix.
     Bridged committed theorems and carriers consumed: TerminalUse,
       rl2_use_transfers_ownership (AimsProof.Realization); PartitionUF,
-      buildPartitionUF, partitionFuel, PartitionUF.sameRep
+      buildPartitionUF, PartitionUF.find, PartitionUF.sameRep
       (AimsProof.Partition).
     The compiled Lean (verified by `lake build` under the trusted kernel) is the
     authoritative calculus; this .proof is the human-readable companion.
