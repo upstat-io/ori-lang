@@ -1,7 +1,7 @@
 //! Test execution and result collection helpers.
 //!
 //! Handles running individual test functions, capturing output,
-//! managing timeouts, and collecting pass/fail results.
+//! and collecting pass/fail results.
 
 use std::time::Instant;
 
@@ -168,7 +168,8 @@ impl TestRunner {
     /// - If inner test failed with expected message: wrapper passes
     /// - If inner test failed with different message: wrapper fails
     /// - If inner test passed: wrapper fails (expected failure didn't happen)
-    /// - If inner test was skipped: remains skipped
+    /// - If inner test was skipped, unchanged-skipped, or blocked by an LLVM
+    ///   compile failure: it never ran, so the result passes through unchanged
     pub(super) fn apply_fail_wrapper(
         inner_result: TestResult,
         expected_failure: crate::ir::Name,
@@ -180,7 +181,9 @@ impl TestRunner {
             TestOutcome::Skipped(_)
             | TestOutcome::SkippedUnchanged
             | TestOutcome::LlvmCompileFail(_) => {
-                // Skipped and expected-failure tests pass through unchanged
+                // The inner test never ran (skipped, unchanged, or blocked by
+                // an LLVM compile failure): pass the result through unchanged
+                // rather than judging it against #[fail].
                 inner_result
             }
             TestOutcome::Passed => {
@@ -257,7 +260,8 @@ impl TestRunner {
                     max_effect = effect;
                 }
                 if max_effect == EffectClass::HasEffects {
-                    return max_effect; // Short-circuit: can't get higher
+                    // Short-circuit: can't get higher.
+                    return max_effect;
                 }
             }
         }
@@ -302,6 +306,13 @@ impl TestRunner {
         // never a dead runner — catch it and continue with the next test.
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| evaluator.eval_can(can_id)));
+        // Drain buffered print() output to stderr on every exit path (pass,
+        // fail, or caught panic) before the caller drops/rebuilds the
+        // evaluator; no-op for the non-capturing stdout handler (Text mode).
+        if let Some(block) = stderr_drain_block(evaluator.print_output()) {
+            eprint!("{block}");
+            evaluator.clear_print_output();
+        }
         match result {
             Ok(Ok(_)) => SingleTestRun {
                 result: TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
@@ -331,3 +342,21 @@ impl TestRunner {
         }
     }
 }
+
+/// Render captured per-test print output for the stderr drain.
+///
+/// Returns `None` for empty capture; otherwise the output with a trailing
+/// newline normalized so consecutive tests' fragments never concatenate on
+/// the shared stderr stream.
+pub(super) fn stderr_drain_block(mut captured: String) -> Option<String> {
+    if captured.is_empty() {
+        return None;
+    }
+    if !captured.ends_with('\n') {
+        captured.push('\n');
+    }
+    Some(captured)
+}
+
+#[cfg(test)]
+mod tests;

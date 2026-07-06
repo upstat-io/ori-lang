@@ -11,7 +11,7 @@ use crate::query::{parsed, typed, typed_pool};
 
 use super::super::change_detection::{compute_skippable_and_update, TestRunCache};
 use super::super::result::{FileSummary, TestOutcome, TestResult};
-use super::{Backend, TestRunner, TestRunnerConfig};
+use super::{Backend, OutputFormat, TestRunner, TestRunnerConfig};
 
 impl TestRunner {
     /// Run all tests in a single file with a shared interner.
@@ -75,17 +75,15 @@ impl TestRunner {
             return summary;
         };
 
-        // Canonicalize once for all tests (compile_fail and regular).
-        // Runs even with type errors — pattern problems are independent.
-        // Skip only if parse errors exist (AST may be malformed).
-        // Store in CanonCache so downstream consumers (evaluator, LLVM) can reuse.
+        // Canonicalize once for all tests (compile_fail and regular); runs
+        // even with type errors since pattern problems are independent, and
+        // skips only on parse errors. Cached for downstream reuse (eval, LLVM).
         let shared_canon =
             crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
 
-        // Incremental change detection. In worker mode the PARENT owns the
-        // incremental cache and passes its skip decisions via config — the
-        // worker never consults its own (always-fresh) cache. In-process runs
-        // compute skip decisions against the runner-owned cache.
+        // Incremental change detection. In worker mode the parent owns the
+        // cache and passes skip decisions via config (the worker's own cache
+        // is always-fresh and unused); in-process runs compute skips locally.
         let skippable: rustc_hash::FxHashSet<crate::ir::Name> = if config.worker_protocol {
             config
                 .skip_unchanged
@@ -99,7 +97,8 @@ impl TestRunner {
         };
 
         // Separate compile_fail tests from regular tests
-        // compile_fail tests don't need evaluation - they just check for type errors
+        // compile_fail tests don't need evaluation - they check type errors
+        // and pattern problems (exhaustiveness/redundancy) instead
         let (compile_fail_tests, mut regular_tests): (Vec<_>, Vec<_>) = parse_result
             .module
             .tests
@@ -126,9 +125,9 @@ impl TestRunner {
             if !Self::test_passes_filter(test, config, interner) {
                 continue;
             }
-            // Honor `#skip(backend: "<name>")` for compile_fail tests too, in
-            // parity with the regular-test partition below: a compile_fail test
-            // naming the current backend emits a Skipped result instead of running.
+            // Honor `#skip(backend: "<name>")` for compile_fail tests too: a
+            // test naming the current backend emits a Skipped result instead
+            // of running, same as the backend-skip check applied to regular tests.
             if let Some(reason) = Self::backend_skip_reason(test, config.backend) {
                 let result = TestResult::skipped_for(test, reason, interner);
                 Self::protocol_result(&result, config, interner);
@@ -168,16 +167,14 @@ impl TestRunner {
             non_compile_fail_type_errors(&type_result, &compile_fail_tests);
 
         if !non_compile_fail_errors.is_empty() {
-            // Type errors outside compile_fail tests block all regular tests.
-            // For interpreter: these are real failures.
-            // For LLVM: these are LLVM compile failures (type errors the interpreter
-            // handles but LLVM can't codegen yet).
+            // Type errors outside compile_fail tests block regular tests on
+            // both backends (interpreter and LLVM alike never execute past
+            // unresolved type errors); only the TestOutcome variant differs.
             let is_llvm = matches!(config.backend, Backend::LLVM);
 
             // Honor the name filter: blocked results are emitted only for
-            // tests that would have run (and, in worker mode, only for tests
-            // the plan records announced — an unfiltered emission here would
-            // surface as unplanned-result protocol anomalies at the parent).
+            // tests that would have run (in worker mode, only tests the plan
+            // announced) — an unfiltered emission reads as a protocol anomaly.
             for test in regular_tests
                 .iter()
                 .filter(|test| Self::test_passes_filter(test, config, interner))
@@ -211,10 +208,9 @@ impl TestRunner {
             return summary;
         }
 
-        // Honor `#skip(backend: "<name>", reason: ...)` for the current backend:
-        // emit a Skipped result for each test naming this backend (keeping the
-        // plan/result accounting consistent for worker mode) and run only the
-        // remainder. A test naming the OTHER backend still runs here.
+        // Honor `#skip(backend: "<name>")` for the current backend: emit
+        // Skipped for each matching test (keeps worker-mode accounting
+        // consistent) and run the remainder; other-backend tests still run.
         let backend_run_tests: Vec<&TestDef> = regular_tests
             .iter()
             .copied()
@@ -252,7 +248,7 @@ impl TestRunner {
             #[cfg(feature = "llvm")]
             Backend::LLVM => {
                 // Use LLVM JIT backend — only pass regular_tests since
-                // compile_fail tests are already handled in the common path above.
+                // compile_fail tests are backend-independent and already handled.
                 Self::run_file_llvm(
                     &mut summary,
                     &db,
@@ -302,12 +298,18 @@ impl TestRunner {
         // Create evaluator in TestRun mode with type information.
         // TestRun mode: 500-depth recursion limit, test result collection.
         let build_evaluator = || -> Result<Evaluator, Vec<String>> {
-            let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+            let mut builder = Evaluator::builder(interner, &parse_result.arena, db)
                 .mode(ori_eval::EvalMode::TestRun {
                     only_attached: false,
                 })
-                .canon(shared_canon.clone())
-                .build();
+                .canon(shared_canon.clone());
+            // In json mode stdout is the machine-readable summary channel:
+            // buffer print() output instead of contaminating it (drained to
+            // stderr after each test runs); text mode keeps output inline.
+            if config.format == OutputFormat::Json {
+                builder = builder.print_handler(ori_eval::buffer_handler());
+            }
+            let mut evaluator = builder.build();
             evaluator.register_prelude();
             match evaluator.load_module(parse_result, path, Some(shared_canon)) {
                 Ok(()) => Ok(evaluator),

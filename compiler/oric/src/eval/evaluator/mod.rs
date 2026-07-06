@@ -149,6 +149,16 @@ impl<'a> Evaluator<'a> {
         self.interpreter.register_prelude();
     }
 
+    /// Get captured print output (empty for non-capturing handlers).
+    pub fn print_output(&self) -> String {
+        self.interpreter.print_output()
+    }
+
+    /// Clear captured print output.
+    pub fn clear_print_output(&self) {
+        self.interpreter.clear_print_output();
+    }
+
     /// Evaluate a method call.
     pub fn eval_method_call(
         &mut self,

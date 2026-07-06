@@ -6,7 +6,8 @@ use super::Evaluator;
 use crate::db::Db;
 use crate::ir::{ExprArena, SharedArena, StringInterner};
 use ori_eval::{
-    Environment, EvalMode, InterpreterBuilder, SharedMutableRegistry, UserMethodRegistry,
+    Environment, EvalMode, InterpreterBuilder, SharedMutableRegistry, SharedPrintHandler,
+    UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
 
@@ -27,6 +28,8 @@ pub struct EvaluatorBuilder<'a> {
     source_text: Option<Arc<String>>,
     /// Canonical IR for canonical evaluation dispatch.
     canon: Option<SharedCanonResult>,
+    /// Print handler override (buffered capture for json-mode test runs).
+    print_handler: Option<SharedPrintHandler>,
 }
 
 impl<'a> EvaluatorBuilder<'a> {
@@ -43,6 +46,7 @@ impl<'a> EvaluatorBuilder<'a> {
             source_file_path: None,
             source_text: None,
             canon: None,
+            print_handler: None,
         }
     }
 
@@ -100,6 +104,13 @@ impl<'a> EvaluatorBuilder<'a> {
         self
     }
 
+    /// Set the print handler (overrides the stdout default).
+    #[must_use]
+    pub fn print_handler(mut self, handler: SharedPrintHandler) -> Self {
+        self.print_handler = Some(handler);
+        self
+    }
+
     /// Build the evaluator.
     pub fn build(self) -> Evaluator<'a> {
         // Build the underlying interpreter with the configured mode
@@ -129,6 +140,10 @@ impl<'a> EvaluatorBuilder<'a> {
         // Pass canonical IR for eval_can dispatch
         if let Some(canon) = self.canon {
             interpreter_builder = interpreter_builder.canon(canon);
+        }
+
+        if let Some(handler) = self.print_handler {
+            interpreter_builder = interpreter_builder.print_handler(handler);
         }
 
         Evaluator {

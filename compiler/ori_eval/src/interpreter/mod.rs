@@ -101,7 +101,8 @@ pub(crate) enum ScopeOwnership {
 /// The interpreter's behavior is parameterized by `EvalMode`:
 /// - `Interpret` — full I/O for `ori run`
 /// - `ConstEval` — budget-limited, no I/O, deterministic
-/// - `TestRun` — captures output, collects test results
+/// - `TestRun` — collects test results (output capture is the caller's
+///   print-handler choice, not the mode's)
 #[expect(
     clippy::disallowed_types,
     reason = "Arc<String> for source metadata shared across children"
@@ -162,10 +163,9 @@ pub struct Interpreter<'a> {
     pub(crate) imported_arena: SharedArena,
     /// Print handler for the Print capability.
     ///
-    /// Determined by evaluation mode:
-    /// - `Interpret`: stdout (default)
-    /// - `TestRun`: buffer for capture
-    /// - `ConstEval`: silent (discards output)
+    /// Defaults to stdout; callers override via
+    /// `InterpreterBuilder::print_handler` (buffer for capture, silent to
+    /// discard).
     pub(crate) print_handler: SharedPrintHandler,
     /// Scope ownership for RAII-style panic-safe scope cleanup.
     ///
@@ -257,12 +257,11 @@ impl<'a> Interpreter<'a> {
     /// Check if the current call depth exceeds the recursion limit.
     ///
     /// Depth is tracked via `call_stack.depth()`. Frame names for backtraces
-    /// are populated by `create_function_interpreter()` (placeholder names
-    /// for now; proper function names in Section 07 with `CanExpr` context).
+    /// come from `create_function_interpreter()`'s `call_name` argument — the
+    /// real method name, or `self` as a placeholder for a direct `eval_call`.
     ///
     /// The limit is determined by `EvalMode::max_recursion_depth()`:
-    /// - `Interpret` (native): `None` — stacker grows the stack dynamically
-    /// - `Interpret` (WASM): `Some(200)` — fixed stack
+    /// - `Interpret`: `None` on native (stacker grows the stack), `Some(200)` on WASM
     /// - `ConstEval`: `Some(64)` — tight budget
     /// - `TestRun`: `Some(500)` — generous but bounded
     #[inline]

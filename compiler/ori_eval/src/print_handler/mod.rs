@@ -95,7 +95,7 @@ pub enum PrintHandlerImpl {
     Stdout(StdoutPrintHandler),
     /// Captures to buffer (WASM/testing).
     Buffer(BufferPrintHandler),
-    /// Discards all output silently (const-eval mode).
+    /// Discards all output silently (opt-in, e.g. purity-sensitive evaluation).
     Silent,
 }
 
@@ -166,7 +166,8 @@ pub fn buffer_handler() -> SharedPrintHandler {
 
 /// Create a silent print handler that discards all output.
 ///
-/// Used for `ConstEval` mode where print is forbidden (must be pure).
+/// For callers that must suppress print entirely (e.g. purity-sensitive
+/// evaluation); the builder default stays stdout — callers opt in.
 #[expect(
     clippy::disallowed_types,
     reason = "Arc required for SharedPrintHandler"
