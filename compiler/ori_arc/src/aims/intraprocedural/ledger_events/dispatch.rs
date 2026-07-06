@@ -32,11 +32,14 @@ impl Classifier<'_> {
             ArcInstr::Let { dst, value, .. } => match value {
                 // A whole-var alias is a partition edge, not an event.
                 ArcValue::Var(_) => {}
-                // A non-excluded heap literal (a non-empty string; scalars
-                // and immortals are state-map-excluded) is a fresh
-                // allocation — the TF-3 analog with zero funded args.
-                ArcValue::Literal(_) => {
-                    if !self.excluded(*dst) {
+                // A non-excluded STRING literal (a non-empty string; the
+                // empty string is immortal-excluded) is a fresh allocation —
+                // the TF-3 analog with zero funded args. Every other literal
+                // kind allocates nothing at runtime even under a heap-repr
+                // variable (the iterator-protocol placeholder `%n: str = 0`
+                // shape), so it stays event-less.
+                ArcValue::Literal(lit) => {
+                    if matches!(lit, crate::ir::LitValue::String(_)) && !self.excluded(*dst) {
                         self.birth(stream, *dst, ClassOrigin::Fresh);
                     }
                 }

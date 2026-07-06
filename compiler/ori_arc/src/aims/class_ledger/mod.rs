@@ -92,6 +92,11 @@ pub(crate) struct ClassLedgerPlan {
 pub(crate) struct ClassLedgerAnalysis {
     pub(crate) plan: ClassLedgerPlan,
     pub(crate) readiness: ReadinessSummary,
+    /// A locally-released container class (a planned dec or a consume event)
+    /// has a SIBLING field-path view class with events of its own: the
+    /// container's recursive release and the view's cross-class liveness are
+    /// not modeled together — the replacement gate declines.
+    pub(crate) field_view_hazard: bool,
 }
 
 /// Run classification, planning, and per-class verification from the
@@ -126,6 +131,7 @@ pub(crate) fn analyze_class_ledger(
     let mut classes = Vec::new();
     let mut verdicts = Vec::new();
     let mut declined = Vec::new();
+    let mut class_facts: Vec<(NodeIdx, bool, bool)> = Vec::new();
     for class in events::collect_classes(classification) {
         let class_events = events::extract_class_events(func, classification, partition, class);
         let outcome = emit::plan_class(func, &preds, &class_events);
@@ -148,8 +154,18 @@ pub(crate) fn analyze_class_ledger(
             );
         }
         verdicts.push((class, verdict));
+        let released = matches!(&outcome, ClassOutcome::Planned(ops)
+                if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec))
+            || class_events
+                .per_block
+                .iter()
+                .flatten()
+                .any(|ev| ev.kind == events::EventKind::Consume);
+        let eventful = class_events.per_block.iter().any(|evs| !evs.is_empty());
+        class_facts.push((class, released, eventful));
         classes.push(ClassPlan { class, outcome });
     }
+    let field_view_hazard = compute_field_view_hazard(partition, &class_facts);
     let all_classes_clean = declined.is_empty()
         && verdicts
             .iter()
@@ -161,7 +177,53 @@ pub(crate) fn analyze_class_ledger(
             verdicts,
             declined,
         },
+        field_view_hazard,
     }
+}
+
+/// Whether any locally-released container class has a SIBLING field-path
+/// view class (rooted at one of the container's member vars) that carries
+/// events of its own — the container's recursive release would free the
+/// view's allocation while the view still uses it.
+fn compute_field_view_hazard(
+    partition: &mut BirthSitePartition,
+    class_facts: &[(NodeIdx, bool, bool)],
+) -> bool {
+    let released: Vec<NodeIdx> = class_facts
+        .iter()
+        .filter(|&&(_, released, _)| released)
+        .map(|&(class, _, _)| class)
+        .collect();
+    if released.is_empty() {
+        return false;
+    }
+    let nodes = partition.nodes_snapshot();
+    for &container in &released {
+        let container_rep = partition.rep_of(container);
+        // Member vars of the container class (whole-var nodes).
+        let member_vars: Vec<_> = nodes
+            .iter()
+            .filter(|(_, path, _)| path.is_whole_var())
+            .filter(|&&(_, _, node)| partition.rep_of(node) == container_rep)
+            .map(|&(var, _, _)| var)
+            .collect();
+        for (var, path, node) in &nodes {
+            if path.is_whole_var() || !member_vars.contains(var) {
+                continue;
+            }
+            let view_rep = partition.rep_of(*node);
+            if view_rep == container_rep {
+                continue;
+            }
+            let view_eventful = class_facts
+                .iter()
+                .any(|&(class, _, eventful)| eventful && partition.rep_of(class) == view_rep);
+            if view_eventful {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Pipeline Step-4b dispatch: attempt the per-function replacement, report

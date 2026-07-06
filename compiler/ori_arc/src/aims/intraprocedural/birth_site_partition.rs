@@ -33,6 +33,11 @@ impl FieldPath {
         Self(smallvec![field])
     }
 
+    /// Whether this is the whole-variable path (no projection hops).
+    pub(crate) fn is_whole_var(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Append one projection hop in place.
     pub(crate) fn push(&mut self, field: u32) {
         self.0.push(field);
@@ -127,6 +132,15 @@ impl BirthSitePartition {
         field_nodes
             .into_iter()
             .any(|node| self.find(node.0) == class_root)
+    }
+
+    /// Snapshot of every interned `(var, field-path) -> node` entry —
+    /// diagnostic/gate surface (the class-ledger field-view hazard scan).
+    pub(crate) fn nodes_snapshot(&self) -> Vec<(ArcVarId, FieldPath, NodeIdx)> {
+        self.nodes
+            .iter()
+            .map(|((var, path), &idx)| (*var, path.clone(), idx))
+            .collect()
     }
 
     /// Intern a `(variable, field-path)` node, returning its dense index.

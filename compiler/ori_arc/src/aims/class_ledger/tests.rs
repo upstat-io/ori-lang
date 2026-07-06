@@ -1050,3 +1050,106 @@ fn per_iteration_block_local_class_releases_after_last_use() {
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
 }
+
+// Unmodeled-shape gates (TRMC / reuse)
+
+/// A function carrying a reuse-token shape (`Reset`/`Reuse` pairing) falls
+/// back: the rebirth reuses the DYING value's allocation, which the
+/// fresh-birth-site class model does not represent yet.
+#[test]
+fn replacement_declines_reuse_shapes() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Reset {
+                var: v(0),
+                token: v(1),
+            },
+            ArcInstr::Reuse {
+                token: v(1),
+                dst: v(2),
+                ty: ty(0),
+                ctor: CtorKind::Tuple,
+                args: vec![],
+            },
+        ],
+        ret(2),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("reuse-shape"));
+    assert_eq!(gated, func);
+}
+
+/// A function whose state map carries a TRMC `ContextHole`-shaped variable
+/// falls back: context-hole threading (fill-at-recursive-call) is the
+/// protocol-loop surface the class model does not represent yet.
+#[test]
+fn replacement_declines_trmc_context_hole() {
+    let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(v(0), crate::aims::lattice::ShapeClass::ContextHole);
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("trmc-context"));
+    assert_eq!(gated, func);
+}
+
+/// A container released by the plan (whole-var dec / consume) whose
+/// field-path view class carries its OWN events: the whole-var release
+/// recursively frees the field's allocation while the extracted view still
+/// reads it — cross-class liveness the model does not represent. The
+/// function falls back.
+#[test]
+fn replacement_declines_live_field_view_of_released_container() {
+    // %0 = Apply f()          (opaque container — no field funding known)
+    // %1 = Project %0.0       (extracted view; container-held field class)
+    // %2 = IsShared %0        (container read; container dies after)
+    // %3 = IsShared %1        (view read AFTER the container's last use)
+    // Return %4 (scalar)
+    let func = one_block_func(
+        5,
+        vec![
+            ArcInstr::Apply {
+                dst: v(0),
+                ty: ty(0),
+                func: Name::from_raw(7),
+                args: vec![],
+                arg_ownership: vec![],
+                mono_instance_id: None,
+            },
+            ArcInstr::Project {
+                dst: v(1),
+                ty: ty(0),
+                value: v(0),
+                field: 0,
+            },
+            is_shared(2, 0),
+            is_shared(3, 1),
+        ],
+        ret(4),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(4));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("field-view-liveness"));
+    assert_eq!(gated, func);
+}

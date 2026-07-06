@@ -80,7 +80,14 @@ pub(crate) fn attempt_replacement(
 ) -> ReplacementOutcome {
     let analysis = analyze_from_state_map(func, state_map, contracts);
     let ops = planned_ops(&analysis);
-    if let Some(reason) = gate_rejection(func, &analysis, &ops, type_registry, allow_replacement) {
+    if let Some(reason) = gate_rejection(
+        func,
+        state_map,
+        &analysis,
+        &ops,
+        type_registry,
+        allow_replacement,
+    ) {
         return ReplacementOutcome {
             mode: EmissionMode::Fallback,
             analysis,
@@ -122,6 +129,7 @@ pub(crate) fn planned_ops(analysis: &ClassLedgerAnalysis) -> Vec<PlannedOp> {
 /// The first failed pre-apply gate, `None` when all hold.
 fn gate_rejection(
     func: &ArcFunction,
+    state_map: &AimsStateMap,
     analysis: &ClassLedgerAnalysis,
     ops: &[PlannedOp],
     type_registry: &TypeRegistry,
@@ -136,6 +144,19 @@ fn gate_rejection(
     if !analysis.readiness.all_classes_clean {
         return Some("readiness-not-clean");
     }
+    // Unmodeled shapes stay on the legacy walk: a Reset/Reuse pairing
+    // rebirths the DYING value's allocation (no fresh birth site), and a
+    // TRMC context hole threads a fill-at-recursive-call obligation —
+    // neither is represented by the class model yet.
+    if has_reuse_shape(func) {
+        return Some("reuse-shape");
+    }
+    if has_context_hole(func, state_map) {
+        return Some("trmc-context");
+    }
+    if analysis.field_view_hazard {
+        return Some("field-view-liveness");
+    }
     if func
         .var_types
         .iter()
@@ -147,6 +168,31 @@ fn gate_rejection(
         return Some("op-var-placement");
     }
     None
+}
+
+/// Whether any instruction is a `Reset` / `Reuse` / `CollectionReuse`
+/// (FBIP allocation-reuse pairing).
+fn has_reuse_shape(func: &ArcFunction) -> bool {
+    func.blocks.iter().any(|block| {
+        block.body.iter().any(|instr| {
+            matches!(
+                instr,
+                crate::ir::ArcInstr::Reset { .. }
+                    | crate::ir::ArcInstr::Reuse { .. }
+                    | crate::ir::ArcInstr::CollectionReuse { .. }
+            )
+        })
+    })
+}
+
+/// Whether any variable carries the TRMC `ContextHole` shape.
+fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
+    (0..func.var_types.len()).any(|raw| {
+        let Ok(raw) = u32::try_from(raw) else {
+            return false;
+        };
+        state_map.var_shape(ArcVarId::new(raw)) == crate::aims::lattice::ShapeClass::ContextHole
+    })
 }
 
 /// The definition point of a variable, for slot-dominance checking.

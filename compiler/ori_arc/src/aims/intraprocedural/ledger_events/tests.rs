@@ -1157,3 +1157,29 @@ fn heap_primop_dst_births_fresh_and_operands_read() {
         vec![LedgerEvent::Birth, LedgerEvent::Read]
     );
 }
+
+/// A NON-STRING literal under a non-excluded (heap-repr) variable — the
+/// iterator-protocol placeholder shape `%n: str = 0` — allocates nothing at
+/// runtime: no birth, no events, no release (a planned dec on it would
+/// release a non-pointer).
+#[test]
+fn non_string_literal_under_heap_var_emits_no_events() {
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            },
+            construct(1, vec![]),
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let placeholder = rep(&mut partition, 0);
+    assert!(derive_ledger(placeholder, &flat(&classification)).is_empty());
+    assert!(!classification.class_origins.contains_key(&placeholder));
+}

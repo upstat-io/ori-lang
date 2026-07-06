@@ -68,15 +68,16 @@ pub(crate) fn compute_birth_site_partition(
                     let src_node = whole_node(&mut partition, *src);
                     partition.union_tier1(dst_node, src_node);
                 }
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Literal(_) | ArcValue::PrimOp { .. },
-                    ..
-                } => {
-                    // A non-excluded heap literal (a non-empty string;
-                    // scalars and immortals are state-map-excluded) or a
-                    // heap-producing PrimOp result (string concat) is a
-                    // fresh allocation site, minted like a Construct.
+                ArcInstr::Let { dst, value, .. }
+                    if matches!(value, ArcValue::PrimOp { .. })
+                        || matches!(value, ArcValue::Literal(lit)
+                            if matches!(lit, crate::ir::LitValue::String(_))) =>
+                {
+                    // A non-excluded STRING literal (the empty string is
+                    // immortal-excluded) or a heap-producing PrimOp result
+                    // (string concat) is a fresh allocation site, minted
+                    // like a Construct. Non-string literals allocate
+                    // nothing at runtime even under a heap-repr variable.
                     if state_map.is_excluded(*dst) {
                         continue;
                     }
