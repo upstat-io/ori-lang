@@ -1179,3 +1179,63 @@ fn live_field_view_of_released_container_funds_itself_at_extraction() {
         "view class funds at extraction and releases at last use: {view_ops:?}"
     );
 }
+
+/// An RL-34 passthrough through an INVOKE: the consume sits at the invoking
+/// block's terminator and its refund credit at the NORMAL successor's entry
+/// — the same call boundary, so no funding inc is planned and the class
+/// nets zero with no ops (the transfer moves the existing reference).
+#[test]
+fn ttr_refund_across_invoke_normal_edge_needs_no_inc() {
+    // bb0: Invoke f(%0 owned) -> %1, normal bb1, unwind bb2
+    // bb1: Return %1
+    // bb2: Resume
+    let mut func = func_with_blocks(
+        2,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![],
+                ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![], ret(1)),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Owned,
+    }];
+    let mut state_map = AimsStateMap::new(&func);
+    let mut aliases: FxHashMap<
+        ArcVarId,
+        crate::aims::intraprocedural::state_map::ApplyAliasSource,
+    > = FxHashMap::default();
+    aliases.insert(
+        v(1),
+        crate::aims::intraprocedural::state_map::ApplyAliasSource::Direct(v(0)),
+    );
+    state_map.set_apply_result_aliases(aliases);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 0);
+    assert_eq!(class, class_rep(&mut partition, 1), "ttr unifies the class");
+    assert!(
+        ops_for(&analysis, class).is_empty(),
+        "the passthrough moves the existing reference: {:?}",
+        ops_for(&analysis, class)
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.readiness.declined.is_empty());
+}

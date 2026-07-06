@@ -283,6 +283,7 @@ fn plan_incs(
             }
             if !borrowed
                 && (same_site_credit_follows(evs, position)
+                    || invoke_refund_credit_follows(func, events, block, ev)
                     || !(suffix_has_demand(evs, position) || live_out(func, block, demand_live)))
             {
                 continue;
@@ -303,6 +304,33 @@ fn plan_incs(
         }
     }
     Ok(ops)
+}
+
+/// Whether a Terminator-site consume is refunded at the SAME call boundary
+/// across an `Invoke`'s normal edge: the result credit routes to the NORMAL
+/// successor's block entry, so the RL-34 transfer-with-refund pair spans
+/// the edge instead of sharing a site.
+fn invoke_refund_credit_follows(
+    func: &ArcFunction,
+    events: &ClassEvents,
+    block: usize,
+    consume: &ClassEvent,
+) -> bool {
+    if consume.site != EventSite::Terminator {
+        return false;
+    }
+    let Some(arc_block) = func.blocks.get(block) else {
+        return false;
+    };
+    let normal = match &arc_block.terminator {
+        crate::ir::ArcTerminator::Invoke { normal, .. }
+        | crate::ir::ArcTerminator::InvokeIndirect { normal, .. } => normal.index(),
+        _ => return false,
+    };
+    events.per_block.get(normal).is_some_and(|evs| {
+        evs.iter()
+            .any(|ev| ev.kind == EventKind::Credit && ev.site == EventSite::BlockEntry)
+    })
 }
 
 /// Whether a same-site CREDIT follows `position` (the transfer-with-refund
