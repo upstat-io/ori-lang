@@ -1007,3 +1007,46 @@ fn unused_loop_body_construct_releases_immediately_and_verifies_clean() {
     assert!(analysis.readiness.all_classes_clean);
     assert!(analysis.readiness.declined.is_empty());
 }
+
+/// A class born and last-used inside ONE loop block (a per-iteration heap
+/// literal read then dead): the block-local release lands right after the
+/// class's last event, so each iteration balances and the loop header's
+/// owed count agrees across the back-edge.
+#[test]
+fn per_iteration_block_local_class_releases_after_last_use() {
+    // bb0: Jump bb1
+    // bb1: %1 = "lit"; %2 = IsShared %1; Branch %0 ? bb1' : bb2  (loop on bb1)
+    // bb2: Return %0
+    let func = func_with_blocks(
+        3,
+        vec![
+            block(0, vec![], vec![], jump(1, vec![])),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                    },
+                    is_shared(2, 1),
+                ],
+                branch(0, 1, 2),
+            ),
+            block(2, vec![], vec![], ret(0)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    state_map.set_permanent_scalar(v(2));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 1);
+    assert_eq!(
+        ops_for(&analysis, class),
+        vec![dec(PlanSlot::AfterBody { block: 1, index: 1 }, 1)]
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+}

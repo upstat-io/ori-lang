@@ -215,6 +215,39 @@ fn plan_releases(
     ops: &mut Vec<PlannedOp>,
 ) -> Result<(), DeclineReason> {
     let mut fronts: FxHashSet<usize> = FxHashSet::default();
+    // RL-2 block-local: every event of the class in ONE block, netting one
+    // owed reference, last event a body instruction — the class is born and
+    // last-used there; the release lands right after the last event
+    // regardless of cycle-polluted liveness (a back-edge re-entering the
+    // block is the NEXT iteration's instance, so the per-iteration balance
+    // is exactly what makes the loop header's owed count agree).
+    let occupied: Vec<usize> = events
+        .per_block
+        .iter()
+        .enumerate()
+        .filter(|(_, evs)| !evs.is_empty())
+        .map(|(block, _)| block)
+        .collect();
+    if let [only_block] = occupied[..] {
+        if delta[only_block] == 1 {
+            if let Some(ClassEvent {
+                site: EventSite::Body(index),
+                ..
+            }) = events.per_block[only_block].last()
+            {
+                let var = release_var(events, only_block)?;
+                ops.push(PlannedOp {
+                    slot: PlanSlot::AfterBody {
+                        block: only_block,
+                        index: *index,
+                    },
+                    kind: PlannedOpKind::Dec,
+                    var,
+                });
+                return Ok(());
+            }
+        }
+    }
     for (block, block_entry) in entry_net.iter().enumerate().take(func.blocks.len()) {
         let Some(entry) = block_entry else {
             continue;
