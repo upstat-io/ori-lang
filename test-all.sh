@@ -17,6 +17,12 @@
 
 set -e
 
+# Force color off for every cargo/nextest invocation: captured leg output is
+# parsed by scripts/test_all/parsing.sh via exact-text matching, and callers
+# with FORCE_COLOR set would otherwise inject ANSI sequences into the capture.
+export CARGO_TERM_COLOR=never
+export NEXTEST_COLOR=never
+
 # AOT identity-gate library: snapshot-integrity verdict + manifest helpers.
 # Sourced by BASH_SOURCE-relative path so it resolves regardless of cwd.
 TEST_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

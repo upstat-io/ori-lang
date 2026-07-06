@@ -45,7 +45,7 @@ build_with_race_retry() {
 rust_test_leg() {
     local out="$1"; shift
     if [ -n "$NEXTEST_ACTIVE" ]; then
-        cargo_race_retry "$out" cargo nextest run --no-fail-fast "$@"
+        cargo_race_retry "$out" cargo nextest run --color=never --no-fail-fast "$@"
     else
         cargo_race_retry "$out" cargo test "$@"
     fi

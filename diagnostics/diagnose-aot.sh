@@ -41,6 +41,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
+# Shared strip_ansi stdin filter (no per-script copy).
+# shellcheck source=../scripts/lib/ansi.sh
+source "$SCRIPT_DIR/../scripts/lib/ansi.sh"
 
 # --- Defaults ---
 USE_VALGRIND=0
@@ -504,10 +507,10 @@ fi
 
 # Write per-section results for --both-builds comparison (if requested via env)
 if [[ -n "${_DIAGNOSE_AOT_RESULTS:-}" ]]; then
-    # Strip ANSI color codes from status symbols for comparison
-    strip_ansi() { echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
     for i in 1 2 3 4 5 6 7 8 9; do
-        status=$(strip_ansi "${results[$i]}")
+        # echo -e interprets the literal \033 escapes stored in C_* status
+        # symbols; strip_ansi (shared, scripts/lib/ansi.sh) then removes them.
+        status=$(echo -e "${results[$i]}" | strip_ansi)
         echo "${section_names[$i]}|${status}" >> "$_DIAGNOSE_AOT_RESULTS"
     done
 fi

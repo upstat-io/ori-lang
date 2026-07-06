@@ -52,6 +52,13 @@ if [ -z "${BUILD_RACE_RE:-}" ]; then
     exit 1
 fi
 eval "$(sed -n '/^cargo_race_retry()/,/^}/p' "$LEG_HELPERS")"
+# parse_rust_results depends on the shared strip_ansi helper; source it when
+# present so the eval-extracted function runs in a faithful environment.
+ANSI_HELPER="$HERE/../lib/ansi.sh"
+if [ -f "$ANSI_HELPER" ]; then
+    # shellcheck source=/dev/null
+    . "$ANSI_HELPER"
+fi
 eval "$(sed -n '/^parse_rust_results()/,/^}/p' "$PARSING_HELPERS")"
 eval "$(sed -n '/^suite_status()/,/^}/p' "$PARSING_HELPERS")"
 
