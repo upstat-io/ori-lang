@@ -106,6 +106,29 @@ impl BirthSitePartition {
             .map(|((var, path), _)| (*var, path.clone()))
     }
 
+    /// Whether `class` holds any FIELD-PATH member (a `(var, path)` node
+    /// with a non-empty projection path) — the structural mark of a
+    /// container-held class (its reference lives in the container's field
+    /// slot, funded by the container's own class).
+    pub(crate) fn class_has_field_path_member(&mut self, class: NodeIdx) -> bool {
+        // The collect ends the intern-table borrow before the mutable
+        // path-compressing `find` calls.
+        #[expect(
+            clippy::needless_collect,
+            reason = "find() takes &mut self; iterating self.nodes while calling it fails borrowck"
+        )]
+        let field_nodes: Vec<NodeIdx> = self
+            .nodes
+            .iter()
+            .filter(|((_, path), _)| !path.0.is_empty())
+            .map(|(_, &idx)| idx)
+            .collect();
+        let class_root = self.find(class.0);
+        field_nodes
+            .into_iter()
+            .any(|node| self.find(node.0) == class_root)
+    }
+
     /// Intern a `(variable, field-path)` node, returning its dense index.
     /// Idempotent: re-registering an existing key returns the same index.
     pub(crate) fn register_node(&mut self, var: ArcVarId, path: FieldPath) -> NodeIdx {

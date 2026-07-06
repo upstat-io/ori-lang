@@ -443,6 +443,7 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
     // consumed (-1, floor 1) so the Return arm alone nets 0.
     let events = ClassEvents {
         origin: Some(ClassOrigin::Fresh),
+        container_held: false,
         per_block: vec![
             vec![ClassEvent {
                 site: EventSite::Body(0),
@@ -575,6 +576,7 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
     let preds = crate::graph::compute_predecessors(&func);
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
+        container_held: false,
         per_block: vec![vec![ClassEvent {
             site: EventSite::Body(0),
             kind: EventKind::Consume,
@@ -889,4 +891,84 @@ fn branch_exclusive_death_places_edge_dec_and_verifies_clean() {
         1,
         "exactly one RL-4 front dec on the dead arm: {threaded_ops:?}"
     );
+}
+
+// Container-held field classes
+
+/// A field view projected out of a param aggregate is CONTAINER-HELD: the
+/// aggregate owns the field's reference, so the field class owes nothing at
+/// entry and a hand-off (store into a fresh Construct) funds its own inc —
+/// exactly the borrowed-rooted discipline, with the container in the
+/// caller's role.
+#[test]
+fn param_field_view_consume_gets_funding_inc_and_verifies_clean() {
+    // %0: borrowed param aggregate; %1 = Project %0.0; %2 = Construct(%1)
+    let mut func = one_block_func(
+        3,
+        vec![
+            ArcInstr::Project {
+                dst: v(1),
+                ty: ty(0),
+                value: v(0),
+                field: 0,
+            },
+            construct(2, vec![1]),
+        ],
+        ret(2),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let state_map = AimsStateMap::new(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let field_class = {
+        let node = partition.register_node(v(1), FieldPath::whole_var());
+        partition.rep_of(node)
+    };
+    assert_eq!(
+        ops_for(&analysis, field_class),
+        vec![inc(PlanSlot::BeforeBody { block: 0, index: 1 }, 1)]
+    );
+    assert_eq!(verdict_for(&analysis, field_class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// A read-only projected field view of an owned param aggregate owes
+/// nothing: the container's class owns the release; the field class
+/// verifies Clean with zero ops.
+#[test]
+fn owned_param_field_view_read_only_owes_nothing() {
+    // %0: owned param aggregate; %1 = Project %0.0; %2 = IsShared %1
+    let mut func = one_block_func(
+        3,
+        vec![
+            ArcInstr::Project {
+                dst: v(1),
+                ty: ty(0),
+                value: v(0),
+                field: 0,
+            },
+            is_shared(2, 1),
+        ],
+        ret(2),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Owned,
+    }];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let field_class = {
+        let node = partition.register_node(v(1), FieldPath::whole_var());
+        partition.rep_of(node)
+    };
+    assert!(ops_for(&analysis, field_class).is_empty());
+    assert_eq!(verdict_for(&analysis, field_class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
 }

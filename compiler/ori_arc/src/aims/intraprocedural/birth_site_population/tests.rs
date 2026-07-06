@@ -494,3 +494,30 @@ fn immortal_literal_let_mints_no_birth_site() {
     let node = whole(&mut partition, 0);
     assert_eq!(partition.site(node), None);
 }
+
+/// A non-excluded heap-producing `PrimOp` dst (string concat) is a fresh
+/// allocation site with its own known birth site.
+#[test]
+fn heap_primop_dst_mints_birth_site() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            },
+        ],
+    );
+    let mut partition = compute(&func);
+
+    let result = whole(&mut partition, 2);
+    let lhs = whole(&mut partition, 0);
+    assert!(partition.site(result).is_some());
+    assert_ne!(partition.site(result), partition.site(lhs));
+}

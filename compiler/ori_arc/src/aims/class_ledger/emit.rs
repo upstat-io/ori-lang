@@ -171,7 +171,7 @@ fn plan_incs(
     events: &ClassEvents,
     demand_live: &[bool],
 ) -> Result<Vec<PlannedOp>, DeclineReason> {
-    let borrowed = events.is_borrowed_rooted();
+    let borrowed = events.is_externally_funded();
     let mut ops = Vec::new();
     for (block, evs) in events.per_block.iter().enumerate() {
         for (position, ev) in evs.iter().enumerate() {

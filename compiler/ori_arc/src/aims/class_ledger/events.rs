@@ -39,16 +39,25 @@ pub(crate) struct ClassEvent {
 #[derive(Debug)]
 pub(crate) struct ClassEvents {
     pub(crate) origin: Option<ClassOrigin>,
+    /// The class is birth-less but holds a field-path member: its reference
+    /// lives in a container's field slot (a param/foreign aggregate's
+    /// field), released by the CONTAINER's class, never this one.
+    pub(crate) container_held: bool,
     /// Indexed by block position; stream order preserved within a block.
     pub(crate) per_block: Vec<Vec<ClassEvent>>,
 }
 
 impl ClassEvents {
-    /// Whether the class roots at a borrowed function param — the caller
-    /// retains ownership, so the class owes nothing at birth and every
-    /// hand-off needs its own funded reference.
-    pub(crate) fn is_borrowed_rooted(&self) -> bool {
-        self.origin == Some(ClassOrigin::Borrowed)
+    /// Whether the class's tracked reference is owned ELSEWHERE — a
+    /// borrowed function param (the caller retains ownership) or a
+    /// container-held field slot (the aggregate retains ownership). Either
+    /// way the class owes nothing at entry and every hand-off needs its own
+    /// funded reference (the borrowed-rooted discipline of the boundary
+    /// calculus, with the container in the caller's role). A birth-less
+    /// WHOLE-VAR class is NOT externally funded — that shape is a
+    /// classification gap and stays fail-closed at the read floor.
+    pub(crate) fn is_externally_funded(&self) -> bool {
+        self.origin == Some(ClassOrigin::Borrowed) || self.container_held
     }
 }
 
@@ -95,7 +104,8 @@ pub(crate) fn extract_class_events(
     class: NodeIdx,
 ) -> ClassEvents {
     let origin = classification.class_origins.get(&class).copied();
-    let borrowed = origin == Some(ClassOrigin::Borrowed);
+    let container_held = origin.is_none() && partition.class_has_field_path_member(class);
+    let externally_funded = origin == Some(ClassOrigin::Borrowed) || container_held;
     let mut per_block: Vec<Vec<ClassEvent>> = vec![Vec::new(); func.blocks.len()];
     for (block, stream) in classification.blocks.iter().enumerate() {
         for (position, instr) in stream.iter().enumerate() {
@@ -111,7 +121,7 @@ pub(crate) fn extract_class_events(
                 block,
                 position,
                 instr,
-                borrowed,
+                externally_funded,
             );
             if let Some(events) = per_block.get_mut(block) {
                 events.push(ClassEvent {
@@ -124,7 +134,11 @@ pub(crate) fn extract_class_events(
             }
         }
     }
-    ClassEvents { origin, per_block }
+    ClassEvents {
+        origin,
+        container_held,
+        per_block,
+    }
 }
 
 /// The recorded source site of `blocks[block][position]`.

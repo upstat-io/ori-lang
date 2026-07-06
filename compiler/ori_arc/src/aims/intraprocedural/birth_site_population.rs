@@ -70,11 +70,12 @@ pub(crate) fn compute_birth_site_partition(
                 }
                 ArcInstr::Let {
                     dst,
-                    value: ArcValue::Literal(_),
+                    value: ArcValue::Literal(_) | ArcValue::PrimOp { .. },
                     ..
                 } => {
                     // A non-excluded heap literal (a non-empty string;
-                    // scalars and immortals are state-map-excluded) is a
+                    // scalars and immortals are state-map-excluded) or a
+                    // heap-producing PrimOp result (string concat) is a
                     // fresh allocation site, minted like a Construct.
                     if state_map.is_excluded(*dst) {
                         continue;

@@ -40,11 +40,17 @@ impl Classifier<'_> {
                         self.birth(stream, *dst, ClassOrigin::Fresh);
                     }
                 }
+                // Operands are borrow-READS; a non-excluded heap dst
+                // (string concat) is a fresh allocation — the operands are
+                // read, never funded into the result.
                 ArcValue::PrimOp { args, .. } => {
                     for &arg in args {
                         if !self.excluded(arg) {
                             self.read(stream, arg);
                         }
+                    }
+                    if !self.excluded(*dst) {
+                        self.birth(stream, *dst, ClassOrigin::Fresh);
                     }
                 }
             },

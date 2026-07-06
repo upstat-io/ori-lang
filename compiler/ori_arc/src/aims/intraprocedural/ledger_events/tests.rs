@@ -1119,3 +1119,41 @@ fn invoke_result_births_in_normal_successor_not_invoking_block() {
     assert!(!births_in(2), "the unwind path never sees the result");
     assert!(classification.blocks[2].is_empty());
 }
+
+/// A heap-producing `PrimOp` (string concat) is a fresh allocation: the
+/// non-excluded dst births FRESH; the operands stay borrow-READS. Scalar
+/// `PrimOp` dsts remain state-map-excluded and event-less.
+#[test]
+fn heap_primop_dst_births_fresh_and_operands_read() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let result = rep(&mut partition, 2);
+    let events = derive_ledger(result, &flat(&classification));
+    assert_eq!(events, vec![LedgerEvent::Birth, LedgerEvent::Consume]);
+    assert_eq!(
+        classification.class_origins.get(&result),
+        Some(&ClassOrigin::Fresh)
+    );
+    let lhs = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(lhs, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+}
