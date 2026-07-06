@@ -445,3 +445,52 @@ fn chained_merges_admit_to_fixpoint() {
     assert!(partition.same_rep(inner_merge, alloc));
     assert!(partition.same_rep(dependent_merge, alloc));
 }
+
+/// A non-excluded heap literal (non-empty string) is a fresh allocation
+/// site: its class carries a KNOWN birth site, distinct per `Let` site, so
+/// a phi merge over two distinct literals refuses (no singleton witness).
+#[test]
+fn str_literal_lets_mint_distinct_known_birth_sites() {
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(ori_ir::Name::from_raw(3))),
+            },
+            ArcInstr::Let {
+                dst: v(1),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(ori_ir::Name::from_raw(4))),
+            },
+        ],
+    );
+    let mut partition = compute(&func);
+
+    let first = whole(&mut partition, 0);
+    let second = whole(&mut partition, 1);
+    assert!(partition.site(first).is_some());
+    assert!(partition.site(second).is_some());
+    assert_ne!(partition.site(first), partition.site(second));
+    assert!(!partition.same_rep(first, second));
+}
+
+/// An immortal literal stays excluded: no node facts, no birth site.
+#[test]
+fn immortal_literal_let_mints_no_birth_site() {
+    let func = one_block_func(
+        1,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(crate::ir::LitValue::String(ori_ir::Name::from_raw(3))),
+        }],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_immortals(vec![true]);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+
+    let node = whole(&mut partition, 0);
+    assert_eq!(partition.site(node), None);
+}

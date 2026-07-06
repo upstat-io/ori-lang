@@ -63,9 +63,20 @@ pub(crate) fn verify_class(
         .collect();
     let nets = compute_burden_entry_nets(func, preds, &delta);
     if !nets.converged {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            gate = "non-converged",
+            "class verdict Unprovable: entry-net fixpoint did not converge"
+        );
         return ClassVerdict::Unprovable;
     }
     if !nets.disagree_blocks.is_empty() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            gate = "merge-disagree",
+            blocks = ?nets.disagree_blocks,
+            "class verdict Unprovable: predecessor edges disagree on the owed count into a merge"
+        );
         return ClassVerdict::Unprovable;
     }
     walk_paths(func, &nets.entry_net, &walks)
@@ -84,8 +95,17 @@ fn walk_paths(
             continue;
         };
         let mut running = *entry;
-        for item in &walks[block] {
+        for (index, item) in walks[block].iter().enumerate() {
             if running < item.floor {
+                tracing::trace!(
+                    target: "ori_arc::aims::class_ledger",
+                    gate = "floor",
+                    block,
+                    walk_index = index,
+                    running,
+                    floor = item.floor,
+                    "class verdict Unprovable: running owed count below an event floor"
+                );
                 return ClassVerdict::Unprovable;
             }
             running += item.delta;
@@ -94,15 +114,43 @@ fn walk_paths(
             ArcTerminator::Return { .. } => {
                 saw_return = true;
                 if running > 0 {
+                    tracing::trace!(
+                        target: "ori_arc::aims::class_ledger",
+                        gate = "leak",
+                        block,
+                        running,
+                        "class terminal nets > 0 (unreleased reference at Return)"
+                    );
                     leak = true;
                 } else if running < 0 {
+                    tracing::trace!(
+                        target: "ori_arc::aims::class_ledger",
+                        gate = "negative-terminal-net",
+                        block,
+                        running,
+                        "class verdict Unprovable: Return terminal nets < 0"
+                    );
                     return ClassVerdict::Unprovable;
                 }
             }
             ArcTerminator::Resume | ArcTerminator::Unreachable => {
                 if running > 0 {
+                    tracing::trace!(
+                        target: "ori_arc::aims::class_ledger",
+                        gate = "leak",
+                        block,
+                        running,
+                        "class terminal nets > 0 (unreleased reference at Resume/Unreachable)"
+                    );
                     leak = true;
                 } else if running < 0 {
+                    tracing::trace!(
+                        target: "ori_arc::aims::class_ledger",
+                        gate = "negative-terminal-net",
+                        block,
+                        running,
+                        "class verdict Unprovable: Resume/Unreachable terminal nets < 0"
+                    );
                     return ClassVerdict::Unprovable;
                 }
             }
@@ -110,6 +158,11 @@ fn walk_paths(
         }
     }
     if !saw_return {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            gate = "no-reachable-return",
+            "class verdict Unprovable: no reachable Return terminal"
+        );
         return ClassVerdict::Unprovable;
     }
     if leak {
@@ -128,7 +181,7 @@ fn build_walks(func: &ArcFunction, events: &ClassEvents, ops: &[PlannedOp]) -> V
     for (block, evs) in events.per_block.iter().enumerate() {
         for ev in evs {
             let key = match ev.site {
-                EventSite::Params => 0,
+                EventSite::BlockEntry => 0,
                 EventSite::Body(index) => 3 + 3 * index,
                 EventSite::Terminator => 3 + 3 * body_len(func, block),
             };

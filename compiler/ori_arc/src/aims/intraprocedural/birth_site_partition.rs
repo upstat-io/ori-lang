@@ -95,6 +95,17 @@ impl BirthSitePartition {
         Self::default()
     }
 
+    /// The `(variable, field-path)` key interned at `node`, when present.
+    ///
+    /// Reverse lookup over the intern table; diagnostic-surface only (the
+    /// class-ledger readiness report renders class identities through it).
+    pub(crate) fn node_key(&self, node: NodeIdx) -> Option<(ArcVarId, FieldPath)> {
+        self.nodes
+            .iter()
+            .find(|&(_, idx)| *idx == node)
+            .map(|((var, path), _)| (*var, path.clone()))
+    }
+
     /// Intern a `(variable, field-path)` node, returning its dense index.
     /// Idempotent: re-registering an existing key returns the same index.
     pub(crate) fn register_node(&mut self, var: ArcVarId, path: FieldPath) -> NodeIdx {

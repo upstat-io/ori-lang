@@ -137,6 +137,15 @@ pub(crate) fn analyze_class_ledger(
             }
         };
         let verdict = verify::verify_class(func, &preds, &class_events, planned_ops);
+        if verdict != ClassVerdict::Clean {
+            tracing::debug!(
+                target: "ori_arc::aims::class_ledger",
+                class = ?partition.node_key(class),
+                verdict = ?verdict,
+                declined = ?declined.iter().find(|&&(c, _)| c == class).map(|&(_, r)| r),
+                "class not clean (run ORI_LOG=ori_arc::aims::class_ledger=trace for the failing gate)"
+            );
+        }
         verdicts.push((class, verdict));
         classes.push(ClassPlan { class, outcome });
     }

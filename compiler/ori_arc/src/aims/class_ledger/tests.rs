@@ -10,7 +10,8 @@ use crate::aims::intraprocedural::ledger_events::{
 };
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, CtorKind,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, CtorKind,
 };
 use crate::ownership::Ownership;
 
@@ -205,6 +206,59 @@ fn fresh_construct_returned_moves_with_no_ops() {
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
     assert!(analysis.readiness.declined.is_empty());
+}
+
+/// A non-empty string literal returned is the literal analog of the fresh
+/// move: birth at the `Let`, consumed by the Return transfer — Clean with
+/// NO planned ops (the legacy path emits nothing for it either).
+#[test]
+fn str_literal_returned_moves_clean_with_no_ops() {
+    let func = one_block_func(
+        1,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+        }],
+        ret(0),
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 0);
+    assert!(ops_for(&analysis, class).is_empty());
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// A string literal read then dead: the birth funds the read's floor and
+/// one planned dec releases it — Clean, mirroring the fresh-read-dead
+/// Construct shape.
+#[test]
+fn str_literal_read_then_dead_verifies_clean() {
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            is_shared(1, 0),
+        ],
+        ret(1),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 0);
+    assert_eq!(
+        ops_for(&analysis, class),
+        vec![dec(PlanSlot::AfterBody { block: 0, index: 1 }, 0)]
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
 }
 
 /// Fresh + read + dead: exactly one `BurdenDec` after the last read, in the
@@ -729,4 +783,110 @@ fn op_var_placement_requires_dominating_definition() {
 
     let after_own_def = vec![dec(PlanSlot::AfterBody { block: 0, index: 0 }, 1)];
     assert!(super::replace::ops_placeable(&func, &after_own_def));
+}
+
+// Invoke-with-unwind shapes
+
+/// An `Invoke` result read on the normal path then dead: the result's class
+/// births at the NORMAL successor's entry (never the invoking block), the
+/// unwind path owes nothing for it, every class verifies Clean, and every
+/// planned op is placeable (no release of a never-materialized value on the
+/// unwind edge).
+#[test]
+fn invoke_result_class_clean_and_placeable_across_unwind() {
+    // bb0: %0 = Construct; Invoke f(%0 owned) -> %1, normal bb1, unwind bb2
+    // bb1: %2 = IsShared %1; Return %2
+    // bb2: Resume
+    let func = func_with_blocks(
+        3,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![])],
+                ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![is_shared(2, 1)], ret(2)),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let result = class_rep(&mut partition, 1);
+    assert_eq!(verdict_for(&analysis, result), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.readiness.declined.is_empty());
+
+    let ops = planned_ops(&analysis);
+    assert!(
+        super::replace::ops_placeable(&func, &ops),
+        "no planned op may land where its variable never materializes: {ops:?}"
+    );
+    assert!(
+        ops.iter().all(|op| op.slot.block() != 2),
+        "the unwind path owes nothing for the invoke result: {ops:?}"
+    );
+}
+
+// Branch-exclusive edge death (RL-4)
+
+/// A value threaded through ONE arm of a branch and dead on the other: the
+/// merge param is funded per-edge (cross-class credits), and the dying
+/// class takes exactly one RL-4 front dec on its dead arm — the edge
+/// release resolves the merge's owed-count agreement, so the class
+/// verifies Clean (never `MergeDisagree`).
+#[test]
+fn branch_exclusive_death_places_edge_dec_and_verifies_clean() {
+    // bb0: %1 = Construct; branch %0 ? bb1 : bb2   (%0 scalar cond)
+    // bb1: %4 = Let Var(%1); Jump bb3(%4)          (same class as %1)
+    // bb2: %5 = Construct;   Jump bb3(%5)          (distinct class)
+    // bb3(%6): Return %6                            (refused merge param)
+    let func = func_with_blocks(
+        7,
+        vec![
+            block(0, vec![], vec![construct(1, vec![])], branch(0, 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(4),
+                    ty: ty(0),
+                    value: ArcValue::Var(v(1)),
+                }],
+                jump(3, vec![4]),
+            ),
+            block(2, vec![], vec![construct(5, vec![])], jump(3, vec![5])),
+            block(3, vec![6], vec![], ret(6)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let threaded = class_rep(&mut partition, 1);
+    assert_eq!(verdict_for(&analysis, threaded), ClassVerdict::Clean);
+    assert!(analysis.readiness.declined.is_empty());
+    assert!(analysis.readiness.all_classes_clean);
+
+    let threaded_ops = ops_for(&analysis, threaded);
+    assert_eq!(
+        threaded_ops
+            .iter()
+            .filter(|op| op.kind == PlannedOpKind::Dec
+                && op.slot == (PlanSlot::BlockFront { block: 2 }))
+            .count(),
+        1,
+        "exactly one RL-4 front dec on the dead arm: {threaded_ops:?}"
+    );
 }

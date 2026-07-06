@@ -85,6 +85,16 @@ pub(crate) enum ClassOutcome {
 }
 
 /// Plan `BurdenInc`/`BurdenDec` insertions for one class.
+///
+/// Releases plan on the PRE-release entry nets; the merge-agreement gate
+/// runs on the COMPLETED op set — a branch-exclusive class disagrees at its
+/// merge exactly until the dead-arm RL-4 dec lands, so gating before the
+/// releases would decline a plannable class. A planning error DEFERS to the
+/// final gate: when the completed nets still disagree, `MergeDisagree` is the
+/// dominant diagnosis (a cyclic per-iteration imbalance reports the merge
+/// disagreement, not its downstream unplaceable-release symptom). The
+/// per-class verify walk re-checks the completed plan independently
+/// (floors + terminal nets), so a mis-planned release can never read Clean.
 pub(crate) fn plan_class(
     func: &ArcFunction,
     preds: &[Vec<usize>],
@@ -101,20 +111,54 @@ pub(crate) fn plan_class(
     if !nets.converged {
         return ClassOutcome::Declined(DeclineReason::NonConverged);
     }
-    if !nets.disagree_blocks.is_empty() {
-        return ClassOutcome::Declined(DeclineReason::MergeDisagree);
-    }
-    match plan_releases(
+    let plan_error = plan_releases(
         func,
         events,
         &activity_live,
         &nets.entry_net,
         &delta,
         &mut ops,
-    ) {
-        Ok(()) => ClassOutcome::Planned(ops),
-        Err(reason) => ClassOutcome::Declined(reason),
+    )
+    .err();
+    let final_delta = per_block_delta(events, &ops, func.blocks.len());
+    let final_nets = compute_burden_entry_nets(func, preds, &final_delta);
+    if !final_nets.converged {
+        return ClassOutcome::Declined(DeclineReason::NonConverged);
     }
+    if !final_nets.disagree_blocks.is_empty() {
+        return ClassOutcome::Declined(DeclineReason::MergeDisagree);
+    }
+    if let Some(reason) = plan_error {
+        return ClassOutcome::Declined(reason);
+    }
+    ClassOutcome::Planned(ops)
+}
+
+/// Release placement at the class's death frontier, one walk over the
+/// pre-release entry nets: per-edge (RL-4) releases for dead successors of
+/// live-out blocks; within-block (RL-2 / RL-5) releases after the class's
+/// last event where no successor is live.
+fn plan_releases(
+    func: &ArcFunction,
+    events: &ClassEvents,
+    activity_live: &[bool],
+    entry_net: &[Option<i64>],
+    delta: &[i64],
+    ops: &mut Vec<PlannedOp>,
+) -> Result<(), DeclineReason> {
+    let mut fronts: FxHashSet<usize> = FxHashSet::default();
+    for (block, block_entry) in entry_net.iter().enumerate().take(func.blocks.len()) {
+        let Some(entry) = block_entry else {
+            continue;
+        };
+        let exit = entry + delta[block];
+        if live_out(func, block, activity_live) {
+            plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
+        } else if exit > 0 && !events.per_block[block].is_empty() {
+            plan_block_release(func, events, block, exit, ops, &mut fronts)?;
+        }
+    }
+    Ok(())
 }
 
 /// `BurdenInc` before every CONSUME that duplicates: the class stays live
@@ -146,7 +190,7 @@ fn plan_incs(
             let slot = match ev.site {
                 EventSite::Body(index) => PlanSlot::BeforeBody { block, index },
                 EventSite::Terminator => PlanSlot::BeforeTerminator { block },
-                EventSite::Params => return Err(DeclineReason::UnplaceableRelease),
+                EventSite::BlockEntry => return Err(DeclineReason::UnplaceableRelease),
             };
             ops.push(PlannedOp {
                 slot,
@@ -195,42 +239,13 @@ fn per_block_delta(events: &ClassEvents, ops: &[PlannedOp], num_blocks: usize) -
     delta
 }
 
-/// Release placement at the class's death frontier.
-///
-/// - Within-block (RL-2 / RL-5): no live successor and one owed reference —
-///   ONE `BurdenDec` after the class's last event in the block (at the block
-///   front when the last event is a param birth; at every successor's front
-///   when it is the terminator).
-/// - Per-edge (RL-4): the class stays live at the block exit but is dead at
-///   a successor — the dec is attributed to that edge, materialized at the
-///   dead successor's front (sound: the pre-release entry nets agree, so
-///   every path into the dead successor carries the same owed count).
-///   Same-class jump hand-offs are silent in the event streams, so a
-///   threaded reference never reads as an edge death.
-fn plan_releases(
-    func: &ArcFunction,
-    events: &ClassEvents,
-    activity_live: &[bool],
-    entry_net: &[Option<i64>],
-    delta: &[i64],
-    ops: &mut Vec<PlannedOp>,
-) -> Result<(), DeclineReason> {
-    let mut fronts: FxHashSet<usize> = FxHashSet::default();
-    for (block, block_entry) in entry_net.iter().enumerate().take(func.blocks.len()) {
-        let Some(entry) = block_entry else {
-            continue;
-        };
-        let exit = entry + delta[block];
-        if live_out(func, block, activity_live) {
-            plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
-        } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(func, events, block, exit, ops, &mut fronts)?;
-        }
-    }
-    Ok(())
-}
-
-/// RL-4 per-edge releases for `block`'s dead successors.
+/// RL-4 per-edge releases for `block`'s dead successors: the class stays
+/// live at the block exit but is dead at a successor — the dec is
+/// attributed to that edge, materialized at the dead successor's front
+/// (a multi-pred dead successor with divergent per-edge counts is caught by
+/// the phase-2 merge-agreement gate). Same-class jump hand-offs are silent
+/// in the event streams, so a threaded reference never reads as an edge
+/// death.
 fn plan_edge_releases(
     func: &ArcFunction,
     events: &ClassEvents,
@@ -279,7 +294,7 @@ fn plan_block_release(
                 var,
             });
         }
-        EventSite::Params => {
+        EventSite::BlockEntry => {
             push_front_dec(events, block, block, ops, fronts)?;
         }
         EventSite::Terminator => {

@@ -171,8 +171,20 @@ pub(super) fn ops_placeable(func: &ArcFunction, ops: &[PlannedOp]) -> bool {
     let defs = collect_def_points(func);
     let dom = DominatorTree::build(func);
     ops.iter().all(|op| {
-        defs.get(&op.var)
-            .is_some_and(|&def| def_reaches_slot(func, &dom, def, op.slot))
+        let placeable = defs
+            .get(&op.var)
+            .is_some_and(|&def| def_reaches_slot(func, &dom, def, op.slot));
+        if !placeable {
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                gate = "op-var-placement",
+                var = ?op.var,
+                slot = ?op.slot,
+                def = ?defs.get(&op.var),
+                "planned op's variable definition does not dominate its insertion slot"
+            );
+        }
+        placeable
     })
 }
 

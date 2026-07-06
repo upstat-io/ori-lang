@@ -276,6 +276,60 @@ fn fresh_construct_return_births_and_consumes_net_zero() {
     );
 }
 
+/// A non-excluded heap literal (a non-empty string) is a fresh allocation:
+/// its class births FRESH at the `Let` and consumes at the Return transfer —
+/// net 0, mirroring the Construct shape (TF-3 analog; only `""` is immortal
+/// per the immortal pre-pass, so a non-empty literal is RC-carrying).
+#[test]
+fn str_literal_let_births_fresh_and_return_consumes_net_zero() {
+    let func = one_block_func(
+        1,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+        }],
+        ArcTerminator::Return { value: v(0) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let class = rep(&mut partition, 0);
+    let events = derive_ledger(class, &flat(&classification));
+    assert_eq!(events, vec![LedgerEvent::Birth, LedgerEvent::Consume]);
+    assert_eq!(net(&events), 0);
+    assert_eq!(
+        classification.class_origins.get(&class),
+        Some(&ClassOrigin::Fresh)
+    );
+}
+
+/// An EXCLUDED literal (scalar or immortal per the state map) stays out of
+/// the event stream entirely — no birth, no class.
+#[test]
+fn excluded_literal_let_emits_no_events() {
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            construct(1, vec![]),
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_immortals(vec![true, false]);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let literal_class = rep(&mut partition, 0);
+    let events = derive_ledger(literal_class, &flat(&classification));
+    assert!(events.is_empty());
+    assert!(!classification.class_origins.contains_key(&literal_class));
+}
+
 /// Constructor arg funding is a `ConstructArg` transfer: the stored buffer's
 /// class consumes at the store (the container inherits the obligation), and
 /// the aggregate's class births separately.
@@ -1011,4 +1065,57 @@ fn apply_indirect_reads_closure_and_args_result_births_opaque() {
         derive_ledger(result, &flat(&classification)),
         vec![LedgerEvent::Birth, LedgerEvent::Consume]
     );
+}
+
+/// An `Invoke` result materializes ONLY on the normal edge: its birth event
+/// lands in the NORMAL successor's stream (block-entry site), never in the
+/// invoking block, so the unwind path inherits no owed count for a value
+/// that never existed there (PV-4: the boundary credit lands where the
+/// return lands).
+#[test]
+fn invoke_result_births_in_normal_successor_not_invoking_block() {
+    // bb0: %0 = Construct; Invoke f(%0) -> %1, normal bb1, unwind bb2
+    // bb1: Return %1
+    // bb2: Resume
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![])],
+                ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![], ArcTerminator::Return { value: v(1) }),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let result = rep(&mut partition, 1);
+    let births_in = |block: usize| {
+        classification.blocks[block]
+            .iter()
+            .any(|instr| matches!(instr, ClassInstr::Birth { class, .. } if *class == result))
+    };
+    assert!(
+        !births_in(0),
+        "invoke result must not birth in the invoking block"
+    );
+    assert!(
+        births_in(1),
+        "invoke result births at the normal successor's entry"
+    );
+    assert!(!births_in(2), "the unwind path never sees the result");
+    assert!(classification.blocks[2].is_empty());
 }

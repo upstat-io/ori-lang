@@ -52,15 +52,20 @@ pub(crate) fn classify_function(
         partition,
         boundary_facts,
         out: LedgerClassification::default(),
+        pending_entry: FxHashMap::default(),
     };
     classifier.record_merge_origins(func);
+    classifier.record_invoke_result_entries(func);
     for (block_idx, arc_block) in func.blocks.iter().enumerate() {
         let mut stream = Vec::new();
         let mut sites = Vec::new();
         if block_idx == func.entry.index() {
             classifier.classify_params(func, &mut stream);
-            sites.resize(stream.len(), EventSite::Params);
         }
+        if let Some(pending) = classifier.pending_entry.remove(&block_idx) {
+            stream.extend(pending);
+        }
+        sites.resize(stream.len(), EventSite::BlockEntry);
         for (position, instr) in arc_block.body.iter().enumerate() {
             classifier.classify_instr(instr, &mut stream);
             sites.resize(stream.len(), EventSite::Body(position));
@@ -129,6 +134,10 @@ struct Classifier<'a> {
     partition: &'a mut BirthSitePartition,
     boundary_facts: &'a FxHashMap<Name, BoundaryFacts>,
     out: LedgerClassification,
+    /// `Invoke`/`InvokeIndirect` result events routed to their NORMAL
+    /// successor's block entry (pre-recorded by
+    /// `record_invoke_result_entries`; drained by the block walk).
+    pending_entry: FxHashMap<usize, Vec<ClassInstr>>,
 }
 
 impl Classifier<'_> {
@@ -143,9 +152,39 @@ impl Classifier<'_> {
     }
 
     fn birth(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId, origin: ClassOrigin) {
+        let instr = self.birth_instr(var, origin);
+        stream.push(instr);
+    }
+
+    /// Build a birth event and record the class origin.
+    fn birth_instr(&mut self, var: ArcVarId, origin: ClassOrigin) -> ClassInstr {
         let class = self.rep(var);
-        stream.push(ClassInstr::Birth { class, origin });
         self.out.class_origins.insert(class, origin);
+        ClassInstr::Birth { class, origin }
+    }
+
+    /// Pre-record every `Invoke`/`InvokeIndirect` RESULT event at its NORMAL
+    /// successor's block entry: the result materializes only when the call
+    /// returns, so the unwind path never inherits an owed count for it
+    /// (PV-4: the boundary credit lands where the return lands).
+    fn record_invoke_result_entries(&mut self, func: &ArcFunction) {
+        for arc_block in &func.blocks {
+            let (event, normal) = match &arc_block.terminator {
+                ArcTerminator::Invoke {
+                    dst,
+                    func: callee,
+                    normal,
+                    ..
+                } => (self.call_result_event(*dst, Some(*callee)), normal.index()),
+                ArcTerminator::InvokeIndirect { dst, normal, .. } => {
+                    (self.call_result_event(*dst, None), normal.index())
+                }
+                _ => continue,
+            };
+            if let Some(event) = event {
+                self.pending_entry.entry(normal).or_default().push(event);
+            }
+        }
     }
 
     fn consume(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId) {

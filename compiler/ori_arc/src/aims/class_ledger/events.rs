@@ -282,7 +282,7 @@ fn resolve_event_var(
     }
     let consume = matches!(instr, ClassInstr::Consume { .. });
     let candidates = match site {
-        EventSite::Params => func.params.iter().map(|p| p.var).collect(),
+        EventSite::BlockEntry => block_entry_candidates(func, block),
         EventSite::Body(index) => body_candidates(func, block, index, consume),
         EventSite::Terminator => terminator_candidates(func, block, instr),
     };
@@ -295,6 +295,29 @@ fn resolve_event_var(
 fn is_member(partition: &mut BirthSitePartition, var: ArcVarId, class: NodeIdx) -> bool {
     let node = partition.register_node(var, FieldPath::whole_var());
     partition.rep_of(node) == class
+}
+
+/// Candidate vars at a block-entry site: function params (entry block),
+/// this block's params, and every `Invoke`/`InvokeIndirect` result
+/// materialized at this block's entry (its normal successor).
+fn block_entry_candidates(func: &ArcFunction, block: usize) -> Vec<ArcVarId> {
+    let mut candidates: Vec<ArcVarId> = Vec::new();
+    if block == func.entry.index() {
+        candidates.extend(func.params.iter().map(|p| p.var));
+    }
+    if let Some(arc_block) = func.blocks.get(block) {
+        candidates.extend(arc_block.params.iter().map(|&(param, _)| param));
+    }
+    for pred_block in &func.blocks {
+        if let ArcTerminator::Invoke { dst, normal, .. }
+        | ArcTerminator::InvokeIndirect { dst, normal, .. } = &pred_block.terminator
+        {
+            if normal.index() == block {
+                candidates.push(*dst);
+            }
+        }
+    }
+    candidates
 }
 
 /// Candidate vars at a body site.

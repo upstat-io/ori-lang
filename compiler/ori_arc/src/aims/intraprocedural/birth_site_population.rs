@@ -68,6 +68,21 @@ pub(crate) fn compute_birth_site_partition(
                     let src_node = whole_node(&mut partition, *src);
                     partition.union_tier1(dst_node, src_node);
                 }
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Literal(_),
+                    ..
+                } => {
+                    // A non-excluded heap literal (a non-empty string;
+                    // scalars and immortals are state-map-excluded) is a
+                    // fresh allocation site, minted like a Construct.
+                    if state_map.is_excluded(*dst) {
+                        continue;
+                    }
+                    let dst_node = whole_node(&mut partition, *dst);
+                    partition.set(dst_node, BirthSiteId::new(next_site));
+                    next_site += 1;
+                }
                 ArcInstr::Project {
                     dst, value, field, ..
                 } => {

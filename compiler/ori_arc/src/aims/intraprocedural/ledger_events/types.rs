@@ -122,8 +122,12 @@ pub(crate) enum ClassInstr {
 /// placement anchor the class-ledger emitter plans insertions against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EventSite {
-    /// Entry-block function-param births (before any body instruction).
-    Params,
+    /// Block-entry events, before any body instruction: function-param
+    /// births in the entry block; `Invoke`/`InvokeIndirect` result events
+    /// materialized at a NORMAL successor's entry (the result never exists
+    /// on the unwind edge — PV-4: the boundary credit lands where the
+    /// return lands).
+    BlockEntry,
     /// The body instruction at this index.
     Body(usize),
     /// The block terminator.

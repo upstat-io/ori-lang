@@ -29,9 +29,17 @@ impl Classifier<'_> {
                 }
                 self.classify_fresh_alloc(stream, *dst, args);
             }
-            ArcInstr::Let { value, .. } => match value {
+            ArcInstr::Let { dst, value, .. } => match value {
                 // A whole-var alias is a partition edge, not an event.
-                ArcValue::Var(_) | ArcValue::Literal(_) => {}
+                ArcValue::Var(_) => {}
+                // A non-excluded heap literal (a non-empty string; scalars
+                // and immortals are state-map-excluded) is a fresh
+                // allocation — the TF-3 analog with zero funded args.
+                ArcValue::Literal(_) => {
+                    if !self.excluded(*dst) {
+                        self.birth(stream, *dst, ClassOrigin::Fresh);
+                    }
+                }
                 ArcValue::PrimOp { args, .. } => {
                     for &arg in args {
                         if !self.excluded(arg) {
@@ -193,18 +201,20 @@ impl Classifier<'_> {
                     self.read(stream, *scrutinee);
                 }
             }
+            // Invoke/InvokeIndirect RESULT events are pre-recorded at the
+            // NORMAL successor's entry (`record_invoke_result_entries`);
+            // only the argument uses classify at the terminator (the
+            // hand-off happens on BOTH paths — the callee owns consumed
+            // args even when it unwinds).
             ArcTerminator::Invoke {
-                dst,
                 func: callee,
                 args,
                 arg_ownership,
                 ..
             } => {
-                self.classify_call(stream, *dst, *callee, args, arg_ownership, true);
+                self.classify_call_args(stream, Some(*callee), args, arg_ownership, true);
             }
-            ArcTerminator::InvokeIndirect {
-                dst, closure, args, ..
-            } => {
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
                 if !self.excluded(*closure) {
                     self.read(stream, *closure);
                 }
@@ -213,9 +223,6 @@ impl Classifier<'_> {
                         self.read(stream, arg);
                     }
                 }
-                if !self.excluded(*dst) {
-                    self.birth(stream, *dst, ClassOrigin::Opaque);
-                }
             }
             ArcTerminator::Resume | ArcTerminator::Unreachable => {}
         }
@@ -223,8 +230,9 @@ impl Classifier<'_> {
 
     /// Classify a direct call boundary through the callee contract (PV-4):
     /// per-arg CONSUME/READ by the iter-consume fact and the ownership
-    /// annotation; the result CREDITS on a passthrough/sharing-view contract
-    /// and BIRTHS (FOREIGN/OPAQUE) otherwise.
+    /// annotation; the result event pushed inline (the `Apply` body-site
+    /// path — an `Invoke` result routes to its normal successor's entry via
+    /// `record_invoke_result_entries` instead).
     fn classify_call(
         &mut self,
         stream: &mut Vec<ClassInstr>,
@@ -234,7 +242,22 @@ impl Classifier<'_> {
         arg_ownership: &[ArgOwnership],
         default_owned: bool,
     ) {
-        let facts = self.boundary_facts.get(&callee);
+        self.classify_call_args(stream, Some(callee), args, arg_ownership, default_owned);
+        if let Some(event) = self.call_result_event(dst, Some(callee)) {
+            stream.push(event);
+        }
+    }
+
+    /// Per-arg CONSUME/READ classification at a direct call boundary.
+    pub(super) fn classify_call_args(
+        &mut self,
+        stream: &mut Vec<ClassInstr>,
+        callee: Option<Name>,
+        args: &[ArcVarId],
+        arg_ownership: &[ArgOwnership],
+        default_owned: bool,
+    ) {
+        let facts = callee.and_then(|name| self.boundary_facts.get(&name));
         for (position, &arg) in args.iter().enumerate() {
             if self.excluded(arg) {
                 continue;
@@ -249,9 +272,23 @@ impl Classifier<'_> {
                 self.read(stream, arg);
             }
         }
+    }
+
+    /// The call RESULT event (PV-4): CREDIT on a passthrough/sharing-view
+    /// contract, BIRTH (FOREIGN/OPAQUE) otherwise; `None` for an excluded
+    /// destination. `callee = None` (indirect call) has no contract and
+    /// births OPAQUE.
+    pub(super) fn call_result_event(
+        &mut self,
+        dst: ArcVarId,
+        callee: Option<Name>,
+    ) -> Option<ClassInstr> {
         if self.excluded(dst) {
-            return;
+            return None;
         }
+        let facts = callee.and_then(|name| self.boundary_facts.get(&name));
+        let returns_sharing_view = facts.is_some_and(|f| f.returns_sharing_view);
+        let returns_owned_fresh = facts.is_some_and(|f| f.returns_owned_fresh);
         let alias = self.state_map.apply_result_alias(dst);
         let unified_alias = match alias {
             Some(ApplyAliasSource::Direct(_) | ApplyAliasSource::Project { .. }) => true,
@@ -264,18 +301,15 @@ impl Classifier<'_> {
             }
             Some(ApplyAliasSource::Wrapped(_)) | None => false,
         };
-        if unified_alias {
-            // RL-34 passthrough return leg: the caller re-acquires the SAME
-            // allocation — credit, not birth.
+        if unified_alias || returns_sharing_view {
+            // RL-34 passthrough return leg / sharing-view producer: the
+            // caller re-acquires the SAME allocation — credit, not birth.
             let class = self.rep(dst);
-            stream.push(ClassInstr::Credit { class });
-        } else if facts.is_some_and(|f| f.returns_sharing_view) {
-            let class = self.rep(dst);
-            stream.push(ClassInstr::Credit { class });
-        } else if facts.is_some_and(|f| f.returns_owned_fresh) {
-            self.birth(stream, dst, ClassOrigin::Foreign);
+            Some(ClassInstr::Credit { class })
+        } else if returns_owned_fresh {
+            Some(self.birth_instr(dst, ClassOrigin::Foreign))
         } else {
-            self.birth(stream, dst, ClassOrigin::Opaque);
+            Some(self.birth_instr(dst, ClassOrigin::Opaque))
         }
     }
 }
