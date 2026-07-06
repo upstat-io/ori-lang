@@ -444,6 +444,7 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
     let events = ClassEvents {
         origin: Some(ClassOrigin::Fresh),
         container_held: false,
+        threads_back_edge: false,
         per_block: vec![
             vec![ClassEvent {
                 site: EventSite::Body(0),
@@ -577,6 +578,7 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
         container_held: false,
+        threads_back_edge: false,
         per_block: vec![vec![ClassEvent {
             site: EventSite::Body(0),
             kind: EventKind::Consume,
@@ -1281,4 +1283,46 @@ fn rebind_loop_hand_off_plants_no_spurious_inc() {
         cons_ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
         "no funding inc for a pure transfer: {cons_ops:?}"
     );
+}
+
+/// A loop accumulator seeded with an EXCLUDED initial value (an immortal
+/// empty string): the entry edge still credits the param class — the slot
+/// holds a reference whose eventual dec is a runtime no-op on the immortal
+/// — so both loop-header edges agree at one owed reference and the class
+/// verifies Clean.
+#[test]
+fn immortal_seeded_accumulator_credits_the_entry_edge() {
+    // bb0: %0 = "" (immortal, excluded); Jump bb1(%0)
+    // bb1(%1): Branch %4 ? bb2 : bb3
+    // bb2: %2 = Construct(); Jump bb1(%2)     (fresh accumulator value)
+    // bb3: Return %1
+    let func = func_with_blocks(
+        5,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                }],
+                jump(1, vec![0]),
+            ),
+            block(1, vec![1], vec![], branch(4, 2, 3)),
+            block(2, vec![], vec![construct(2, vec![])], jump(1, vec![2])),
+            block(3, vec![], vec![], ret(1)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_immortals(vec![true, false, false, false, false]);
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        analysis.readiness.declined.is_empty(),
+        "declined: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(analysis.readiness.all_classes_clean);
 }

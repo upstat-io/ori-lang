@@ -39,6 +39,12 @@ pub(crate) struct ClassEvent {
 #[derive(Debug)]
 pub(crate) struct ClassEvents {
     pub(crate) origin: Option<ClassOrigin>,
+    /// A member reference crosses a BACK-edge silently (a same-class jump
+    /// arg into a same-class loop param): the SAME reference persists into
+    /// the next iteration, so liveness must include the back-edge. A class
+    /// without silent back-edge threading treats back-edges as the next
+    /// iteration's ledger (forward-only liveness).
+    pub(crate) threads_back_edge: bool,
     /// The class is birth-less but holds a field-path member: its reference
     /// lives in a container's field slot (a param/foreign aggregate's
     /// field), released by the CONTAINER's class, never this one.
@@ -120,6 +126,7 @@ pub(crate) fn extract_class_events_with(
     let container_held = origin.is_none() && partition.class_has_field_path_member(class);
     let externally_funded =
         !force_owned && (origin == Some(ClassOrigin::Borrowed) || container_held);
+    let threads_back_edge = class_threads_back_edge(func, partition, class);
     let mut per_block: Vec<Vec<ClassEvent>> = vec![Vec::new(); func.blocks.len()];
     for (block, stream) in classification.blocks.iter().enumerate() {
         for (position, instr) in stream.iter().enumerate() {
@@ -151,8 +158,40 @@ pub(crate) fn extract_class_events_with(
     ClassEvents {
         origin,
         container_held,
+        threads_back_edge,
         per_block,
     }
+}
+
+/// Whether any same-class jump arg lands in a same-class param across a
+/// BACK-edge (target dominates the jumping block) — the silent threading
+/// the RL-4 exemption keeps event-less.
+fn class_threads_back_edge(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    class: NodeIdx,
+) -> bool {
+    let dom = crate::graph::DominatorTree::build(func);
+    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+        let ArcTerminator::Jump { target, args } = &arc_block.terminator else {
+            continue;
+        };
+        let Some(target_block) = func.blocks.get(target.index()) else {
+            continue;
+        };
+        if !dom.dominates(target_block.id, arc_block.id) {
+            continue;
+        }
+        let _ = block_idx;
+        for (&arg, &(param, _)) in args.iter().zip(target_block.params.iter()) {
+            let arg_node = partition.register_node(arg, FieldPath::whole_var());
+            let param_node = partition.register_node(param, FieldPath::whole_var());
+            if partition.rep_of(arg_node) == class && partition.rep_of(param_node) == class {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// The recorded source site of `blocks[block][position]`.

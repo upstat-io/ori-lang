@@ -186,7 +186,17 @@ impl Classifier<'_> {
                     return;
                 };
                 for (&arg, &(param, _)) in args.iter().zip(target_block.params.iter()) {
-                    if self.excluded(arg) || self.excluded(param) {
+                    if self.excluded(param) {
+                        continue;
+                    }
+                    if self.excluded(arg) {
+                        // An excluded hand-off (an immortal seed) still
+                        // CREDITS the param class: the slot holds a
+                        // reference whose eventual dec is a runtime no-op
+                        // on the immortal, so every entry edge funds the
+                        // param uniformly.
+                        let param_class = self.rep(param);
+                        stream.push(ClassInstr::Credit { class: param_class });
                         continue;
                     }
                     let arg_class = self.rep(arg);

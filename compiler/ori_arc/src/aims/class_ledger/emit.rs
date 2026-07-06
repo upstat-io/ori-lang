@@ -118,8 +118,21 @@ pub(crate) fn plan_class(
     // suffix is the next iteration's events, never continued use of the
     // current reference. Release placement keeps the full closure.
     let dom = crate::graph::DominatorTree::build(func);
-    let demand_live = live_from_forward(func, &event_blocks(events, true), &dom);
-    let activity_live = live_from(func, &event_blocks(events, false));
+    // A class that silently THREADS a back-edge keeps the same reference
+    // across iterations — full-closure liveness. Otherwise back-edges are
+    // the next iteration's ledger: forward-only for funding decisions AND
+    // the death frontier.
+    let (demand_live, activity_live) = if events.threads_back_edge {
+        (
+            live_from(func, &event_blocks(events, true)),
+            live_from(func, &event_blocks(events, false)),
+        )
+    } else {
+        (
+            live_from_forward(func, &event_blocks(events, true), &dom),
+            live_from_forward(func, &event_blocks(events, false), &dom),
+        )
+    };
     let mut ops = seed_ops.to_vec();
     match plan_incs(func, events, &demand_live, &dom) {
         Ok(incs) => ops.extend(incs),
@@ -136,6 +149,7 @@ pub(crate) fn plan_class(
         &activity_live,
         &nets.entry_net,
         &delta,
+        &dom,
         &mut ops,
     )
     .err();
@@ -228,6 +242,7 @@ fn plan_releases(
     activity_live: &[bool],
     entry_net: &[Option<i64>],
     delta: &[i64],
+    dom: &crate::graph::DominatorTree,
     ops: &mut Vec<PlannedOp>,
 ) -> Result<(), DeclineReason> {
     let mut fronts: FxHashSet<usize> = FxHashSet::default();
@@ -269,10 +284,15 @@ fn plan_releases(
             continue;
         };
         let exit = entry + delta[block];
-        if live_out(func, block, activity_live) {
+        let block_live_out = if events.threads_back_edge {
+            live_out(func, block, activity_live)
+        } else {
+            live_out_forward(func, block, activity_live, dom)
+        };
+        if block_live_out {
             plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
         } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(func, events, block, exit, ops, &mut fronts)?;
+            plan_block_release(func, events, block, *entry, exit, ops, &mut fronts)?;
         }
     }
     Ok(())
@@ -296,11 +316,15 @@ fn plan_incs(
             if ev.kind != EventKind::Consume {
                 continue;
             }
+            let demand_out = if events.threads_back_edge {
+                live_out(func, block, demand_live)
+            } else {
+                live_out_forward(func, block, demand_live, dom)
+            };
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position)
-                        || live_out_forward(func, block, demand_live, dom)))
+                    || !(suffix_has_demand(evs, position) || demand_out))
             {
                 continue;
             }
@@ -417,44 +441,69 @@ fn plan_edge_releases(
     Ok(())
 }
 
-/// RL-2 / RL-5 within-block release after the class's last event.
+/// RL-2 / RL-5 within-block release of THIS iteration's residue.
+///
+/// The residue = entry + pre-terminator deltas + terminator CONSUMES —
+/// terminator credits belong to the outgoing edge (the next reference's
+/// ledger) and never count toward what dies here. Placement: after the
+/// last pre-terminator body event (RL-2 last-use); at the block's own
+/// front when the class has no pre-terminator use here (RL-5
+/// dead-at-entry); at every successor's front when a terminator-site READ
+/// is the last use (the release must follow the terminator).
 fn plan_block_release(
     func: &ArcFunction,
     events: &ClassEvents,
     block: usize,
-    exit: i64,
+    entry: i64,
+    _exit: i64,
     ops: &mut Vec<PlannedOp>,
     fronts: &mut FxHashSet<usize>,
 ) -> Result<(), DeclineReason> {
-    if exit != 1 {
+    let evs = &events.per_block[block];
+    let pre_delta: i64 = evs
+        .iter()
+        .filter(|ev| ev.site != EventSite::Terminator)
+        .map(|ev| ev.delta)
+        .sum();
+    let terminator_consumes: i64 = evs
+        .iter()
+        .filter(|ev| ev.site == EventSite::Terminator && ev.delta < 0)
+        .map(|ev| ev.delta)
+        .sum();
+    let residue = entry + pre_delta + terminator_consumes;
+    if residue == 0 {
+        return Ok(());
+    }
+    if residue != 1 {
         return Err(DeclineReason::UnplaceableRelease);
     }
-    let Some(last) = events.per_block[block].last() else {
-        return Err(DeclineReason::UnplaceableRelease);
-    };
-    match last.site {
-        EventSite::Body(index) => {
+    let terminator_read = evs
+        .iter()
+        .any(|ev| ev.site == EventSite::Terminator && ev.floor > 0 && ev.delta == 0);
+    if terminator_read {
+        let successors = successors_of(func, block);
+        if successors.is_empty() {
+            return Err(DeclineReason::UnplaceableRelease);
+        }
+        for successor in successors {
+            push_front_dec(events, block, successor, ops, fronts)?;
+        }
+        return Ok(());
+    }
+    let last_pre = evs.iter().rev().find(|ev| ev.site != EventSite::Terminator);
+    match last_pre.map(|ev| ev.site) {
+        Some(EventSite::Body(index)) => {
             let var = release_var(events, block)?;
             ops.push(PlannedOp {
                 slot: PlanSlot::AfterBody { block, index },
                 kind: PlannedOpKind::Dec,
                 var,
             });
+            Ok(())
         }
-        EventSite::BlockEntry => {
-            push_front_dec(events, block, block, ops, fronts)?;
-        }
-        EventSite::Terminator => {
-            let successors = successors_of(func, block);
-            if successors.is_empty() {
-                return Err(DeclineReason::UnplaceableRelease);
-            }
-            for successor in successors {
-                push_front_dec(events, block, successor, ops, fronts)?;
-            }
-        }
+        Some(EventSite::BlockEntry) | None => push_front_dec(events, block, block, ops, fronts),
+        Some(EventSite::Terminator) => unreachable!("filtered to non-terminator sites"),
     }
-    Ok(())
 }
 
 /// Plan a block-front `BurdenDec`, deduplicated per target block.
