@@ -20,6 +20,7 @@ pub mod burden_loop_invariant_dead_local;
 pub mod burden_match_release;
 pub mod burden_store_dup;
 pub mod burden_yield_identity_push_dup;
+pub mod class_ledger_skeleton;
 pub mod cli;
 pub mod closure_drop;
 pub mod closure_fold_edge_dec_probe;
