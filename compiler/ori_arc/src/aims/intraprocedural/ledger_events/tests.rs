@@ -1183,3 +1183,39 @@ fn non_string_literal_under_heap_var_emits_no_events() {
     assert!(derive_ledger(placeholder, &flat(&classification)).is_empty());
     assert!(!classification.class_origins.contains_key(&placeholder));
 }
+
+/// A var defined by a NON-string literal under a heap repr (the iterator
+/// placeholder `%n: [str] = 0`) is a placeholder, not an allocation: NO
+/// events attach to it anywhere — not even reads (a borrowed-arg read of
+/// it would demand an owned reference that cannot exist).
+#[test]
+fn placeholder_literal_var_is_event_less_everywhere() {
+    let callee = Name::from_raw(9);
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            },
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(0),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let placeholder = rep(&mut partition, 0);
+    assert!(
+        derive_ledger(placeholder, &flat(&classification)).is_empty(),
+        "no events for a placeholder literal"
+    );
+}

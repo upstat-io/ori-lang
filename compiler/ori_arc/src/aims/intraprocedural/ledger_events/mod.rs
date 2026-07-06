@@ -53,6 +53,7 @@ pub(crate) fn classify_function(
         boundary_facts,
         out: LedgerClassification::default(),
         pending_entry: FxHashMap::default(),
+        placeholders: collect_placeholder_vars(func),
     };
     classifier.record_merge_origins(func);
     classifier.record_invoke_result_entries(func);
@@ -128,6 +129,28 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
     siblings.len()
 }
 
+/// Vars defined by NON-string literals (a placeholder value, never an
+/// allocation) — event-less like excluded vars.
+fn collect_placeholder_vars(func: &ArcFunction) -> rustc_hash::FxHashSet<ArcVarId> {
+    use crate::ir::{ArcInstr, ArcValue, LitValue};
+    let mut placeholders = rustc_hash::FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Literal(lit),
+                ..
+            } = instr
+            {
+                if !matches!(lit, LitValue::String(_)) {
+                    placeholders.insert(*dst);
+                }
+            }
+        }
+    }
+    placeholders
+}
+
 /// The per-function classification walk state.
 struct Classifier<'a> {
     state_map: &'a AimsStateMap,
@@ -138,6 +161,10 @@ struct Classifier<'a> {
     /// successor's block entry (pre-recorded by
     /// `record_invoke_result_entries`; drained by the block walk).
     pending_entry: FxHashMap<usize, Vec<ClassInstr>>,
+    /// Vars defined by NON-string literals under a heap repr — placeholders
+    /// (the iterator-protocol `%n: [T] = 0` shape), never allocations; no
+    /// event attaches to them.
+    placeholders: rustc_hash::FxHashSet<ArcVarId>,
 }
 
 impl Classifier<'_> {
@@ -148,7 +175,7 @@ impl Classifier<'_> {
     }
 
     fn excluded(&self, var: ArcVarId) -> bool {
-        self.state_map.is_excluded(var)
+        self.state_map.is_excluded(var) || self.placeholders.contains(&var)
     }
 
     fn birth(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId, origin: ClassOrigin) {

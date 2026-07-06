@@ -261,6 +261,16 @@ fn admit_witnessed_merges(
             }
             if partition.union_phi_witnessed(merge_node, &preds) {
                 changed = true;
+            } else {
+                tracing::trace!(
+                    target: "ori_arc::aims::intraprocedural",
+                    merge_var = ?merge_var,
+                    pred_sites = ?preds
+                        .iter()
+                        .map(|&node| partition.site(node))
+                        .collect::<Vec<_>>(),
+                    "phi admission refused: predecessors lack a singleton known birth site"
+                );
             }
         }
     }
