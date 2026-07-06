@@ -99,8 +99,9 @@ pub(crate) fn plan_class(
     func: &ArcFunction,
     preds: &[Vec<usize>],
     events: &ClassEvents,
+    seed_ops: &[PlannedOp],
 ) -> ClassOutcome {
-    if births_only(events) {
+    if seed_ops.is_empty() && births_only(events) {
         // RL-2 unused-owned / RL-5 dead-at-entry: a class whose only events
         // are births (no demand, no credits — a credit is itself a live use
         // of its subject) releases each owed birth immediately after its
@@ -114,10 +115,11 @@ pub(crate) fn plan_class(
     }
     let demand_live = live_from(func, &event_blocks(events, true));
     let activity_live = live_from(func, &event_blocks(events, false));
-    let mut ops = match plan_incs(func, events, &demand_live) {
-        Ok(ops) => ops,
+    let mut ops = seed_ops.to_vec();
+    match plan_incs(func, events, &demand_live) {
+        Ok(incs) => ops.extend(incs),
         Err(reason) => return ClassOutcome::Declined(reason),
-    };
+    }
     let delta = per_block_delta(events, &ops, func.blocks.len());
     let nets = compute_burden_entry_nets(func, preds, &delta);
     if !nets.converged {

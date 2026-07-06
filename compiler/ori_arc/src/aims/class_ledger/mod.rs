@@ -70,13 +70,6 @@ pub(crate) fn class_ledger_emitter_enabled() -> bool {
 /// One class's planning outcome, keyed by its partition representative.
 #[derive(Debug)]
 pub(crate) struct ClassPlan {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the class-ledger emitter cutover; test-pinned until the differential harness lands"
-        )
-    )]
     pub(crate) class: NodeIdx,
     pub(crate) outcome: ClassOutcome,
 }
@@ -134,7 +127,7 @@ pub(crate) fn analyze_class_ledger(
     let mut class_facts: Vec<(NodeIdx, bool, bool)> = Vec::new();
     for class in events::collect_classes(classification) {
         let class_events = events::extract_class_events(func, classification, partition, class);
-        let outcome = emit::plan_class(func, &preds, &class_events);
+        let outcome = emit::plan_class(func, &preds, &class_events, &[]);
         let planned_ops: &[PlannedOp] = match &outcome {
             ClassOutcome::Planned(ops) => ops,
             ClassOutcome::Declined(reason) => {
@@ -154,18 +147,34 @@ pub(crate) fn analyze_class_ledger(
             );
         }
         verdicts.push((class, verdict));
+        // Locally released = a PLANNED whole-var dec (an actual local free
+        // whose recursion reaches the fields). A transfer-out consume
+        // (Return / store) hands the container to a new owner and frees
+        // nothing here.
         let released = matches!(&outcome, ClassOutcome::Planned(ops)
-                if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec))
-            || class_events
-                .per_block
-                .iter()
-                .flatten()
-                .any(|ev| ev.kind == events::EventKind::Consume);
+                if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec));
         let eventful = class_events.per_block.iter().any(|evs| !evs.is_empty());
         class_facts.push((class, released, eventful));
         classes.push(ClassPlan { class, outcome });
     }
-    let field_view_hazard = compute_field_view_hazard(partition, &class_facts);
+    let hazard_views = field_view_hazard_classes(partition, &class_facts);
+    let mut uncured = Vec::new();
+    for view in hazard_views {
+        if cure_view_with_extraction_funding(
+            func,
+            classification,
+            partition,
+            &preds,
+            view,
+            &mut classes,
+            &mut verdicts,
+            &mut declined,
+        ) {
+            continue;
+        }
+        uncured.push(view);
+    }
+    let field_view_hazard = !uncured.is_empty();
     let all_classes_clean = declined.is_empty()
         && verdicts
             .iter()
@@ -181,23 +190,23 @@ pub(crate) fn analyze_class_ledger(
     }
 }
 
-/// Whether any locally-released container class has a SIBLING field-path
-/// view class (rooted at one of the container's member vars) that carries
-/// events of its own — the container's recursive release would free the
-/// view's allocation while the view still uses it.
-fn compute_field_view_hazard(
+/// The field-path VIEW classes endangered by a locally-released container:
+/// the container's recursive release would free the view's allocation while
+/// the view still uses it. Deduplicated, deterministic order.
+fn field_view_hazard_classes(
     partition: &mut BirthSitePartition,
     class_facts: &[(NodeIdx, bool, bool)],
-) -> bool {
+) -> Vec<NodeIdx> {
     let released: Vec<NodeIdx> = class_facts
         .iter()
         .filter(|&&(_, released, _)| released)
         .map(|&(class, _, _)| class)
         .collect();
     if released.is_empty() {
-        return false;
+        return Vec::new();
     }
     let nodes = partition.nodes_snapshot();
+    let mut views: Vec<NodeIdx> = Vec::new();
     for &container in &released {
         let container_rep = partition.rep_of(container);
         // Member vars of the container class (whole-var nodes).
@@ -218,12 +227,82 @@ fn compute_field_view_hazard(
             let view_eventful = class_facts
                 .iter()
                 .any(|&(class, _, eventful)| eventful && partition.rep_of(class) == view_rep);
-            if view_eventful {
-                return true;
+            if view_eventful && !views.contains(&view_rep) {
+                views.push(view_rep);
             }
         }
     }
-    false
+    views.sort_unstable();
+    views
+}
+
+/// Cure one endangered view class by funding it at its extraction sites: an
+/// RL-1 dup `BurdenInc` right after each `Project` that defines a member
+/// var, with the class re-planned and re-verified under OWNED semantics
+/// (the container's recursive release and the view's independent reference
+/// each balance). Returns `true` when the cured plan verifies `Clean`;
+/// `false` leaves the original outcome in place (the replacement gate then
+/// declines the function).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal cure pass over analyze_class_ledger's own accumulators"
+)]
+fn cure_view_with_extraction_funding(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    preds: &[Vec<usize>],
+    view: NodeIdx,
+    classes: &mut [ClassPlan],
+    verdicts: &mut [(NodeIdx, ClassVerdict)],
+    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
+) -> bool {
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+    use crate::ir::ArcInstr;
+
+    let mut seeds = Vec::new();
+    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+        for (index, instr) in arc_block.body.iter().enumerate() {
+            let ArcInstr::Project { dst, .. } = instr else {
+                continue;
+            };
+            let node = partition.register_node(*dst, FieldPath::whole_var());
+            if partition.rep_of(node) != view {
+                continue;
+            }
+            seeds.push(emit::PlannedOp {
+                slot: emit::PlanSlot::AfterBody {
+                    block: block_idx,
+                    index,
+                },
+                kind: emit::PlannedOpKind::Inc,
+                var: *dst,
+            });
+        }
+    }
+    if seeds.is_empty() {
+        return false;
+    }
+    let funded_events =
+        events::extract_class_events_with(func, classification, partition, view, true);
+    let outcome = emit::plan_class(func, preds, &funded_events, &seeds);
+    let planned: &[PlannedOp] = match &outcome {
+        ClassOutcome::Planned(ops) => ops,
+        ClassOutcome::Declined(_) => return false,
+    };
+    let verdict = verify::verify_class(func, preds, &funded_events, planned);
+    if verdict != ClassVerdict::Clean {
+        return false;
+    }
+    let Some(entry) = classes.iter_mut().find(|plan| plan.class == view) else {
+        return false;
+    };
+    entry.outcome = outcome;
+    if let Some(slot) = verdicts.iter_mut().find(|(class, _)| *class == view) {
+        slot.1 = ClassVerdict::Clean;
+    }
+    declined.retain(|&(class, _)| class != view);
+    true
 }
 
 /// Pipeline Step-4b dispatch: attempt the per-function replacement, report

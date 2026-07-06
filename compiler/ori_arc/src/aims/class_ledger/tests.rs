@@ -586,7 +586,7 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
         }]],
     };
     assert!(matches!(
-        super::emit::plan_class(&func, &preds, &events),
+        super::emit::plan_class(&func, &preds, &events, &[]),
         ClassOutcome::Declined(DeclineReason::UnresolvedOpVar)
     ));
 }
@@ -936,11 +936,12 @@ fn param_field_view_consume_gets_funding_inc_and_verifies_clean() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
-/// A read-only projected field view of an owned param aggregate owes
-/// nothing: the container's class owns the release; the field class
-/// verifies Clean with zero ops.
+/// A projected field view of an OWNED param aggregate read past the
+/// container's own last use: the container's planned release (recursive,
+/// after ITS last event) precedes the view's read, so the view funds itself
+/// at extraction — inc at the Project, dec after the view's last read.
 #[test]
-fn owned_param_field_view_read_only_owes_nothing() {
+fn owned_param_field_view_read_past_container_release_funds_itself() {
     // %0: owned param aggregate; %1 = Project %0.0; %2 = IsShared %1
     let mut func = one_block_func(
         3,
@@ -968,7 +969,13 @@ fn owned_param_field_view_read_only_owes_nothing() {
         let node = partition.register_node(v(1), FieldPath::whole_var());
         partition.rep_of(node)
     };
-    assert!(ops_for(&analysis, field_class).is_empty());
+    assert_eq!(
+        ops_for(&analysis, field_class),
+        vec![
+            inc(PlanSlot::AfterBody { block: 0, index: 0 }, 1),
+            dec(PlanSlot::AfterBody { block: 0, index: 1 }, 1),
+        ]
+    );
     assert_eq!(verdict_for(&analysis, field_class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
 }
@@ -1107,19 +1114,19 @@ fn replacement_declines_trmc_context_hole() {
 }
 
 /// A container released by the plan (whole-var dec / consume) whose
-/// field-path view class carries its OWN events: the whole-var release
-/// recursively frees the field's allocation while the extracted view still
-/// reads it — cross-class liveness the model does not represent. The
-/// function falls back.
+/// field-path view class carries its OWN events: the view funds itself with
+/// an inc at its extraction site (RL-1 dup — the container's recursive
+/// release and the view's independent reference each balance), so the
+/// function REPLACES with inc-at-project + dec-at-last-use on the view.
 #[test]
-fn replacement_declines_live_field_view_of_released_container() {
+fn live_field_view_of_released_container_funds_itself_at_extraction() {
     // %0 = Apply f()          (opaque container — no field funding known)
     // %1 = Project %0.0       (extracted view; container-held field class)
     // %2 = IsShared %0        (container read; container dies after)
     // %3 = IsShared %1        (view read AFTER the container's last use)
-    // Return %4 (scalar)
+    // Return %3 (scalar)
     let func = one_block_func(
-        5,
+        4,
         vec![
             ArcInstr::Apply {
                 dst: v(0),
@@ -1138,18 +1145,37 @@ fn replacement_declines_live_field_view_of_released_container() {
             is_shared(2, 0),
             is_shared(3, 1),
         ],
-        ret(4),
+        ret(3),
     );
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(2));
     state_map.set_permanent_scalar(v(3));
-    state_map.set_permanent_scalar(v(4));
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
-    assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("field-view-liveness"));
-    assert_eq!(gated, func);
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "fallback_reason={:?} readiness={:?}",
+        outcome.fallback_reason,
+        outcome.analysis.readiness
+    );
+    assert!(outcome.fallback_reason.is_none());
+
+    let mut partition = {
+        let sm = AimsStateMap::new(&func);
+        compute_birth_site_partition(&func, &sm)
+    };
+    let view = class_rep(&mut partition, 1);
+    let view_ops = ops_for(&outcome.analysis, view);
+    assert_eq!(
+        view_ops,
+        vec![
+            inc(PlanSlot::AfterBody { block: 0, index: 1 }, 1),
+            dec(PlanSlot::AfterBody { block: 0, index: 3 }, 1),
+        ],
+        "view class funds at extraction and releases at last use: {view_ops:?}"
+    );
 }

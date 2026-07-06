@@ -103,9 +103,23 @@ pub(crate) fn extract_class_events(
     partition: &mut BirthSitePartition,
     class: NodeIdx,
 ) -> ClassEvents {
+    extract_class_events_with(func, classification, partition, class, false)
+}
+
+/// [`extract_class_events`] with `force_owned`: a funded-at-extraction view
+/// class re-extracts under OWNED semantics (reads floor 1 against its
+/// extraction inc) instead of the container-held floor-0 discipline.
+pub(crate) fn extract_class_events_with(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    class: NodeIdx,
+    force_owned: bool,
+) -> ClassEvents {
     let origin = classification.class_origins.get(&class).copied();
     let container_held = origin.is_none() && partition.class_has_field_path_member(class);
-    let externally_funded = origin == Some(ClassOrigin::Borrowed) || container_held;
+    let externally_funded =
+        !force_owned && (origin == Some(ClassOrigin::Borrowed) || container_held);
     let mut per_block: Vec<Vec<ClassEvent>> = vec![Vec::new(); func.blocks.len()];
     for (block, stream) in classification.blocks.iter().enumerate() {
         for (position, instr) in stream.iter().enumerate() {
