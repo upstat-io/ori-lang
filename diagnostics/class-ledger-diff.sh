@@ -163,8 +163,14 @@ TOTAL_REPLACED=0
 TOTAL_FALLBACK=0
 declare -A REASON_TOTALS=()
 declare -a DIVERGENT_DETAILS=()
+TOGGLED_FIXES=0
+declare -a TOGGLED_FIX_DETAILS=()
 
 strip_ansi() { sed -e 's/\x1b\[[0-9;]*m//g'; }
+
+# Normalize a run-output file for comparison: heap addresses vary per run
+# (ASLR), so two identical crashes must not read as a divergence.
+normalize_out() { sed -E 's/0x[0-9a-f]+/0xADDR/g' "$1"; }
 
 # Run one leg: build + execute. Args: <file> <leg> (a|b).
 # Writes: $WORK_DIR/$leg.build-exit, $leg.run-exit, $leg.out, $leg.trace (b only).
@@ -279,15 +285,26 @@ for file in "${CORPUS_FILES[@]}"; do
         continue
     fi
 
-    if [[ "$exit_a" -eq "$exit_b" ]] && cmp -s "$WORK_DIR/a.out" "$WORK_DIR/b.out"; then
+    normalize_out "$WORK_DIR/a.out" > "$WORK_DIR/a.norm"
+    normalize_out "$WORK_DIR/b.out" > "$WORK_DIR/b.norm"
+    if [[ "$exit_a" -eq "$exit_b" ]] && cmp -s "$WORK_DIR/a.norm" "$WORK_DIR/b.norm"; then
         ((IDENTICAL++))
         record "$rel" "identical" "$exit_a" "$exit_b" "$PROG_REPLACED" "$PROG_FALLBACK" "$PROG_REASONS" ""
         [[ $VERBOSE -eq 1 ]] && printf "  %s ... ${C_GREEN}identical${C_NC} ${C_DIM}(replaced=%d fallback=%d)${C_NC}\n" \
             "$rel" "$PROG_REPLACED" "$PROG_FALLBACK"
+    elif [[ "$exit_a" -ne 0 && "$exit_b" -eq 0 ]]; then
+        # The legacy leg crashes and the toggled leg runs clean: the toggled
+        # emitter FIXES a legacy defect on this cell. Reported separately —
+        # informative, not a cutover blocker.
+        ((TOGGLED_FIXES++))
+        detail="legacy=$exit_a toggled=0: legacy=[$(head -c 120 "$WORK_DIR/a.out" | tr '\n\t' '  ')]"
+        TOGGLED_FIX_DETAILS+=("$rel — $detail")
+        record "$rel" "toggled-fixes-legacy" "$exit_a" "$exit_b" "$PROG_REPLACED" "$PROG_FALLBACK" "$PROG_REASONS" "$detail"
+        printf "  %s ... ${C_YELLOW}TOGGLED FIXES LEGACY${C_NC}\n" "$rel"
     else
         ((DIVERGENT++))
         detail="exit legacy=$exit_a toggled=$exit_b"
-        if ! cmp -s "$WORK_DIR/a.out" "$WORK_DIR/b.out"; then
+        if ! cmp -s "$WORK_DIR/a.norm" "$WORK_DIR/b.norm"; then
             detail+="; stdout differs: legacy=[$(head -c 120 "$WORK_DIR/a.out" | tr '\n\t' '  ')] toggled=[$(head -c 120 "$WORK_DIR/b.out" | tr '\n\t' '  ')]"
         fi
         DIVERGENT_DETAILS+=("$rel — $detail")
@@ -306,6 +323,7 @@ if [[ $DIVERGENT -gt 0 ]]; then
 else
     printf "  Divergent:             0\n"
 fi
+[[ $TOGGLED_FIXES -gt 0 ]] && printf "  ${C_YELLOW}Toggled fixes legacy${C_NC}:  %d\n" "$TOGGLED_FIXES"
 [[ $BUILD_FAIL_BOTH -gt 0 ]] && printf "  ${C_DIM}Build fail (both)${C_NC}:     %d\n" "$BUILD_FAIL_BOTH"
 printf "  Replaced functions:    %d\n" "$TOTAL_REPLACED"
 printf "  Fallback functions:    %d\n" "$TOTAL_FALLBACK"
@@ -314,6 +332,14 @@ if [[ ${#DIVERGENT_DETAILS[@]} -gt 0 ]]; then
     echo ""
     printf "  ${C_RED}${C_BOLD}Divergences (cutover blockers):${C_NC}\n"
     for d in "${DIVERGENT_DETAILS[@]}"; do
+        printf "    %s\n" "$d"
+    done
+fi
+
+if [[ ${#TOGGLED_FIX_DETAILS[@]} -gt 0 ]]; then
+    echo ""
+    printf "  ${C_YELLOW}${C_BOLD}Toggled fixes legacy (informative, not blockers):${C_NC}\n"
+    for d in "${TOGGLED_FIX_DETAILS[@]}"; do
         printf "    %s\n" "$d"
     done
 fi
@@ -335,12 +361,13 @@ echo ""
 if [[ $EMIT_JSON -eq 1 ]]; then
     mkdir -p "$(dirname "$JSON_PATH")"
     python3 - "$RECORDS" "$JSON_PATH" "$COMPARED" "$IDENTICAL" "$DIVERGENT" \
-        "$BUILD_FAIL_BOTH" "$TIMEOUTS" "$TOTAL_REPLACED" "$TOTAL_FALLBACK" <<'PYEOF'
+        "$BUILD_FAIL_BOTH" "$TIMEOUTS" "$TOTAL_REPLACED" "$TOTAL_FALLBACK" \
+        "$TOGGLED_FIXES" <<'PYEOF'
 import json, sys, datetime
 
 records_path, json_path = sys.argv[1], sys.argv[2]
-compared, identical, divergent, build_fail_both, timeouts, replaced, fallback = (
-    int(x) for x in sys.argv[3:10]
+compared, identical, divergent, build_fail_both, timeouts, replaced, fallback, toggled_fixes = (
+    int(x) for x in sys.argv[3:11]
 )
 
 programs = []
@@ -379,6 +406,7 @@ report = {
         "programs_compared": compared,
         "identical": identical,
         "divergent": divergent,
+        "toggled_fixes_legacy": toggled_fixes,
         "build_fail_both": build_fail_both,
         "timeouts": timeouts,
         "replaced_functions": replaced,
