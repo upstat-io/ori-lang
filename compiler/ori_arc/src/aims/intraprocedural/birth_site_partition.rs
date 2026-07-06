@@ -194,13 +194,6 @@ impl BirthSitePartition {
     }
 
     /// The representative node of `node`'s class.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for the partition's Phase-6/Phase-7 consumers"
-        )
-    )]
     pub(crate) fn rep_of(&mut self, node: NodeIdx) -> NodeIdx {
         NodeIdx(self.find(node.0))
     }

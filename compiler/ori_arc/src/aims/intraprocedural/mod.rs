@@ -38,6 +38,7 @@ pub(crate) mod birth_site_population;
 pub mod block;
 pub(crate) mod effects;
 pub(crate) mod fip_balance;
+pub(crate) mod ledger_events;
 pub(crate) mod post_convergence;
 pub(crate) mod project_aliases;
 pub(crate) mod ssa_alias_classes;
