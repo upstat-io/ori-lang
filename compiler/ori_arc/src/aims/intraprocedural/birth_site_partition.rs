@@ -67,7 +67,9 @@ impl BirthSiteId {
 }
 
 /// Dense index of an interned `(ArcVarId, FieldPath)` node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+///
+/// Ordered by intern index so class collections sort deterministically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct NodeIdx(u32);
 
 /// Union-find over `(ArcVarId, FieldPath)` nodes partitioned by allocation

@@ -132,6 +132,18 @@ pub(crate) enum ClassInstr {
     Mutate { class: NodeIdx, value: ArcVarId },
 }
 
+/// Source position of one classified event inside its block — the
+/// placement anchor the class-ledger emitter plans insertions against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EventSite {
+    /// Entry-block function-param births (before any body instruction).
+    Params,
+    /// The body instruction at this index.
+    Body(usize),
+    /// The block terminator.
+    Terminator,
+}
+
 /// A derived per-class ledger event — mirror of the calculus `LedgerEvent`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LedgerEvent {
@@ -163,13 +175,6 @@ impl BoundaryFacts {
     /// Project the classification-relevant facts out of a full
     /// `MemoryContract` (the production adapter; PV-4's
     /// `BoundaryContract.ofParamContract` composed per param).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the class-ledger emitter wiring; test-pinned until the emitter toggle lands"
-        )
-    )]
     pub(crate) fn from_contract(contract: &MemoryContract) -> Self {
         Self {
             param_iter_consumes: contract.params.iter().map(|p| p.iter_consumes).collect(),
@@ -205,6 +210,9 @@ impl BoundaryFacts {
 pub(crate) struct LedgerClassification {
     /// One ordered stream per block, indexed by block position.
     pub(crate) blocks: Vec<Vec<ClassInstr>>,
+    /// Per-event source site, parallel to `blocks` (`sites[b][k]` locates
+    /// `blocks[b][k]` within block `b`).
+    pub(crate) sites: Vec<Vec<EventSite>>,
     /// Class representative -> origin kind.
     pub(crate) class_origins: FxHashMap<NodeIdx, ClassOrigin>,
 }
@@ -218,13 +226,6 @@ pub(crate) struct LedgerClassification {
 /// `boundary_facts` carries the PV-4 callee-contract projections keyed by
 /// callee name; an absent entry classifies conservatively (owned args
 /// consume, borrowed args read, results are `Opaque`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the class-ledger emitter wiring; test-pinned until the emitter toggle lands"
-    )
-)]
 pub(crate) fn classify_function(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -240,14 +241,19 @@ pub(crate) fn classify_function(
     classifier.record_merge_origins(func);
     for (block_idx, arc_block) in func.blocks.iter().enumerate() {
         let mut stream = Vec::new();
+        let mut sites = Vec::new();
         if block_idx == func.entry.index() {
             classifier.classify_params(func, &mut stream);
+            sites.resize(stream.len(), EventSite::Params);
         }
-        for instr in &arc_block.body {
+        for (position, instr) in arc_block.body.iter().enumerate() {
             classifier.classify_instr(instr, &mut stream);
+            sites.resize(stream.len(), EventSite::Body(position));
         }
         classifier.classify_terminator(func, &arc_block.terminator, &mut stream);
+        sites.resize(stream.len(), EventSite::Terminator);
         classifier.out.blocks.push(stream);
+        classifier.out.sites.push(sites);
     }
     classifier.out
 }
@@ -260,7 +266,7 @@ pub(crate) fn classify_function(
     not(test),
     expect(
         dead_code,
-        reason = "consumed by the class-ledger emitter wiring; test-pinned until the emitter toggle lands"
+        reason = "consumed by the class-ledger emitter cutover; test-pinned until the differential harness lands"
     )
 )]
 pub(crate) fn derive_ledger(class: NodeIdx, instrs: &[ClassInstr]) -> Vec<LedgerEvent> {
@@ -285,7 +291,7 @@ pub(crate) fn derive_ledger(class: NodeIdx, instrs: &[ClassInstr]) -> Vec<Ledger
 /// Distinct OTHER same-class values still read in the path suffix — the
 /// live-sibling count a dynamic-COW mutate's floor demands
 /// (`AimsProof.Ledger::sibReadCount`).
-fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr]) -> usize {
+pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr]) -> usize {
     let mut siblings: Vec<ArcVarId> = Vec::new();
     for instr in rest {
         let ClassInstr::Read {

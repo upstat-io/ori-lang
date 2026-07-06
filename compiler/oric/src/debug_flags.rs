@@ -1387,6 +1387,17 @@ flags! {
     /// Usage: `ORI_FORCE_OVERELIMINATE=1 ori build file.ori`
     ORI_FORCE_OVERELIMINATE
 
+    /// Enable the class-ledger alternate Phase-5 emitter ANALYSIS at the
+    /// Step-4b slot (insertion plan + per-class verify + readiness report).
+    ///
+    /// Consumed directly in `ori_arc::aims::class_ledger` (which can't
+    /// depend on `oric`). Defined here for documentation and
+    /// `check-debug-flags.sh` consistency. Analysis-only: the existing
+    /// burden path still performs all emission, so compiled output is
+    /// byte-identical with the toggle on or off. Experimental.
+    /// Usage: `ORI_CLASS_LEDGER_EMITTER=1 ori build file.ori`
+    ORI_CLASS_LEDGER_EMITTER
+
     // Runtime Trace Flags
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).
     // Defined here for documentation and `check-debug-flags.sh` consistency.

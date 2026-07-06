@@ -20,6 +20,7 @@
 //! - [`realize`] — unified realization (two-phase decision surface)
 
 pub mod builtins;
+pub(crate) mod class_ledger;
 pub mod contract;
 pub mod emit_rc;
 pub mod emit_reuse;

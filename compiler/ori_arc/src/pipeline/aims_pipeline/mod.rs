@@ -270,6 +270,19 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
+    // Step 4b analysis-only sibling: class-ledger emitter readiness, gated
+    // on ORI_CLASS_LEDGER_EMITTER=1. Reads the pre-burden IR + converged
+    // state map (before emit_burden_ops so the legacy path's placed ops do
+    // not enter the class event streams) and reports on the
+    // ori_arc::aims::class_ledger target; mutates nothing — the burden path
+    // below remains the sole emitter.
+    crate::aims::class_ledger::report_pipeline_readiness(
+        func,
+        &state_map,
+        config.contracts,
+        config.interner,
+    );
+
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
     emit_burden_ops_step(func, config, &derived_ownership, &state_map);
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
