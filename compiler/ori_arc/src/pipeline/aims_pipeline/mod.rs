@@ -24,9 +24,8 @@
 
 mod batch;
 mod postprocess;
+mod step4b;
 mod trmc;
-
-use std::sync::LazyLock;
 
 use ori_ir::Name;
 use ori_types::TypeRegistry;
@@ -42,29 +41,6 @@ use crate::ArcClassification;
 
 // Re-export batch entry points used by pipeline/mod.rs.
 pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
-
-/// `ORI_DISABLE_BURDEN_OPS=1` skips `emit_burden_ops` at Step 4b; the
-/// predicate-stack realization path runs as in the pre-burden baseline. Read
-/// once at first access; permanent empty-harness parity + bisection flag.
-static BURDEN_OPS_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
-
-/// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
-/// after Step 4b `emit_burden_ops`, before any realization. Surfaces the
-/// faithful Phase-5 `BurdenInc` / `BurdenDec*` emission for VF-1 residual
-/// localization (the post-realize `ORI_DUMP_AFTER_ARC` cannot show pre-realize
-/// burden placement). Read once at first access; zero overhead when unset.
-static DUMP_AFTER_BURDEN: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN").as_deref() == Ok("1"));
-
-/// `ORI_DUMP_AFTER_BURDEN_ELIM=1` dumps each function's ARC IR after running
-/// Phase-6 `eliminate_burden_ops` on a CLONE of the post-Step-4b function,
-/// before any predicate-stack realization. Surfaces which `BurdenInc` /
-/// `BurdenDec*` survive DP-2/DP-3 elimination — the ledger that Phase-7
-/// mechanical lowering would turn into real `RcInc`/`RcDec`. Read once at
-/// first access; zero overhead when unset.
-static DUMP_AFTER_BURDEN_ELIM: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN_ELIM").as_deref() == Ok("1"));
 
 /// Callback invoked at each pipeline checkpoint.
 ///
@@ -199,6 +175,21 @@ pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
+    run_aims_pipeline_gated(
+        func,
+        config,
+        crate::aims::class_ledger::class_ledger_emitter_enabled(),
+    )
+}
+
+/// [`run_aims_pipeline`] body with the class-ledger toggle threaded as an
+/// explicit parameter — the env read stays at the outer entry so tests can
+/// drive both Step-4b emission paths without process-wide env mutation.
+pub(crate) fn run_aims_pipeline_gated(
+    func: &mut ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+    class_ledger_enabled: bool,
+) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
     // Steps 3–3a: compute var_reprs, detect immortals, normalize with
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
@@ -270,31 +261,29 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Step 4b analysis-only sibling: class-ledger emitter readiness, gated
-    // on ORI_CLASS_LEDGER_EMITTER=1. Reads the pre-burden IR + converged
-    // state map (before emit_burden_ops so the legacy path's placed ops do
-    // not enter the class event streams) and reports on the
-    // ori_arc::aims::class_ledger target; mutates nothing — the burden path
-    // below remains the sole emitter.
-    crate::aims::class_ledger::report_pipeline_readiness(
+    // Step 4b dispatch: class-ledger replacement (gated on the toggle + the
+    // per-function readiness gate) or the legacy burden walk. The analysis
+    // reads the pre-burden IR + converged state map (before any legacy ops
+    // enter the class event streams); a replaced function carries the applied
+    // plan and skips the legacy emission entirely (never both emitters).
+    let class_ledger_replaced = crate::aims::class_ledger::pipeline_step_4b(
         func,
         &state_map,
         config.contracts,
+        config.type_registry,
         config.interner,
+        class_ledger_enabled,
+        step4b::legacy_emission_enabled(),
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    emit_burden_ops_step(func, config, &derived_ownership, &state_map);
+    if !class_ledger_replaced {
+        step4b::emit_burden_ops_step(func, config, &derived_ownership, &state_map);
+    }
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
-    if *DUMP_AFTER_BURDEN {
-        eprintln!(
-            "=== ARC IR after emit_burden_ops ===\n{}",
-            crate::ir::format::format_function(func, config.pool, config.interner)
-        );
-    }
-
-    dump_after_burden_elim(func, &state_map, config);
+    step4b::dump_after_burden(func, config);
+    step4b::dump_after_burden_elim(func, &state_map, config);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -341,68 +330,6 @@ pub(crate) fn run_aims_pipeline(
     })
 }
 
-/// Step 4b: emit `BurdenInc`/`BurdenDec*` ops from the converged state map.
-///
-/// `ORI_DISABLE_BURDEN_OPS=1` skips emission entirely.
-///
-/// The live `TypeRegistry` is threaded so `lookup_burden` resolves both the
-/// builtin (`BURDEN_TABLE`) partition AND user-side `[T]` / `{K:V}` / `Set<T>` /
-/// closure-env / struct burdens (`TypeRegistry::burden(idx)`); the burden path
-/// is the sole real-RC emitter, so the field-grain `BurdenDecPartial` /
-/// `BurdenDecField` / `BurdenDecVariant` codegen glue is exercised.
-fn emit_burden_ops_step(
-    func: &mut ArcFunction,
-    config: &AimsPipelineConfig<'_>,
-    derived_ownership: &[crate::ownership::DerivedOwnership],
-    // Converged Step-4 state map — supplies `apply_result_aliases` to the
-    // §1.9 unified alias-table construction inside the burden walk (the
-    // sibling-union cross-block identity). Spec: Annex E §AIMS.
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-) {
-    if *BURDEN_OPS_DISABLED {
-        return;
-    }
-    let _span = tracing::info_span!("emit_burden_ops").entered();
-    let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
-    let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
-        func,
-        config.type_registry,
-        derived_ownership,
-        &immortals,
-        config.contracts,
-        state_map.apply_result_aliases(),
-        true,
-        config.interner,
-    );
-}
-
-/// Dump the post-`eliminate_burden_ops` ARC IR to stderr when
-/// `ORI_DUMP_AFTER_BURDEN_ELIM=1`. Operates on a clone so the live pipeline
-/// IR is untouched; no-op when the flag is unset.
-fn dump_after_burden_elim(
-    func: &ArcFunction,
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-    config: &AimsPipelineConfig<'_>,
-) {
-    if !*DUMP_AFTER_BURDEN_ELIM {
-        return;
-    }
-    let mut clone = func.clone();
-    let same_alloc_reps =
-        crate::aims::emit_rc::compute_same_alloc_reps(&clone, state_map.apply_result_aliases());
-    crate::aims::realize::eliminate_burden_ops(
-        &mut clone,
-        state_map,
-        &same_alloc_reps,
-        config.contracts,
-        config.interner,
-    );
-    eprintln!(
-        "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
-        crate::ir::format::format_function(&clone, config.pool, config.interner)
-    );
-}
-
 /// Phase 2: COW + drop hints (post-merge) followed by post-realize
 /// cleanup of redundant project-alias decs.
 fn apply_phase_2_annotations(
@@ -432,7 +359,11 @@ fn apply_phase_2_annotations(
     func.cow_annotations = std::mem::take(&mut result.cow_annotations);
     func.drop_hints = std::mem::take(&mut result.drop_hints);
 
-    {
+    // The redundant-project-alias-dec cleanup repairs a legacy-emission
+    // over-emission; a class-ledger-replaced function's decs are the verified
+    // plan, so the cleanup is skipped for it (per
+    // `ArcFunction::class_ledger_emission`).
+    if !func.class_ledger_emission {
         let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
         crate::aims::realize::cleanup_redundant_project_alias_decs(
             func,
@@ -440,13 +371,13 @@ fn apply_phase_2_annotations(
             config.pool,
             config.interner,
         );
+        trace_pipeline_checkpoint(
+            func,
+            "cleanup_redundant_project_alias_decs",
+            config.interner,
+            config.observer,
+        );
     }
-    trace_pipeline_checkpoint(
-        func,
-        "cleanup_redundant_project_alias_decs",
-        config.interner,
-        config.observer,
-    );
 }
 
 /// Step 5a: FIP enforcement pre-check.

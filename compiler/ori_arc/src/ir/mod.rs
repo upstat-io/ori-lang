@@ -557,6 +557,20 @@ pub struct ArcFunction {
     /// skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
+    /// Whether the class-ledger emitter's verified plan replaced the legacy
+    /// Step-4b burden emission for this function.
+    ///
+    /// `true` = the burden ops in the instruction stream ARE the class-ledger
+    /// plan: realization lowers them mechanically (Phase 7) and skips the
+    /// Phase-6 elimination + repair passes, which optimize over the legacy
+    /// emission baseline (a per-var DP-3 verdict would strip a planned
+    /// funding inc). `burden_emitted` stays unmarked for plan variables — the
+    /// plan defers no release to the edge-cleanup machinery, so the
+    /// `carries_burden` gates stay inert. Set only by
+    /// `aims::class_ledger::attempt_replacement`. Skipped during cache
+    /// serialization — derived data.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub class_ledger_emission: bool,
 }
 
 /// Flatten an ARC function cache into a single Vec (parents + lambdas).

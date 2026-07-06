@@ -163,16 +163,24 @@ fn dec(slot: PlanSlot, var: u32) -> PlannedOp {
 
 // Toggle
 
-/// The toggle changes the code path: default-off makes the pipeline entry a
-/// no-op; the enabled path produces a plan on the same inputs.
+/// The toggle changes the code path: default-off makes the Step-4b dispatch
+/// a no-op (no analysis, no mutation, no replacement); the enabled path
+/// produces a plan on the same inputs.
 #[test]
 fn default_toggle_off_pipeline_entry_is_noop() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let state_map = AimsStateMap::new(&func);
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+    let interner = ori_ir::StringInterner::new();
 
     assert!(!class_ledger_emitter_enabled());
-    assert!(pipeline_analysis(&func, &state_map, &contracts).is_none());
+    let mut gated = func.clone();
+    let replaced = pipeline_step_4b(
+        &mut gated, &state_map, &contracts, &registry, &interner, false, true,
+    );
+    assert!(!replaced);
+    assert_eq!(gated, func);
 
     let analysis = analyze_from_state_map(&func, &state_map, &contracts);
     assert!(!analysis.plan.classes.is_empty());
@@ -457,4 +465,158 @@ fn passthrough_refund_needs_no_inc() {
     assert!(ops_for(&analysis, class).is_empty());
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
+}
+
+// Replacement seam (`replace::attempt_replacement`)
+
+/// The fully-clean skeleton commits: plan applied, emission flag set,
+/// `burden_emitted` unmarked (the edge machinery stays inert).
+#[test]
+fn replacement_commits_clean_plan_and_sets_emission_flag() {
+    let func = one_block_func(2, vec![construct(0, vec![]), is_shared(1, 0)], ret(1));
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut replaced = func;
+    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Replaced);
+    assert!(outcome.fallback_reason.is_none());
+    assert!(replaced.class_ledger_emission);
+    assert!(replaced.burden_emitted.iter().all(|marked| !marked));
+    assert_eq!(replaced.blocks[0].body.len(), 3);
+    assert_eq!(
+        replaced.blocks[0].body[2],
+        ArcInstr::BurdenDec { var: v(0) }
+    );
+}
+
+/// `allow_replacement = false` (Step-4b emission disabled) keeps the
+/// analysis reportable and never mutates the function.
+#[test]
+fn replacement_disallowed_reports_analysis_and_leaves_function_untouched() {
+    let func = one_block_func(2, vec![construct(0, vec![]), is_shared(1, 0)], ret(1));
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, false);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("legacy-emission-disabled"));
+    assert!(outcome.analysis.readiness.all_classes_clean);
+    assert_eq!(gated, func);
+}
+
+/// A declined class (non-clean readiness) falls back untouched.
+#[test]
+fn replacement_declines_non_clean_readiness() {
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![0])),
+            block(
+                1,
+                vec![1],
+                vec![ArcInstr::BurdenInc { var: v(1) }],
+                branch(3, 2, 3),
+            ),
+            block(2, vec![], vec![], jump(1, vec![1])),
+            block(3, vec![], vec![], ret(3)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("readiness-not-clean"));
+    assert!(!gated.class_ledger_emission);
+    assert_eq!(gated, func);
+}
+
+/// A zero-class function falls back: the class model proves nothing about
+/// variables it never evented.
+#[test]
+fn replacement_declines_zero_class_function() {
+    let func = one_block_func(1, vec![], ret(0));
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("zero-classes"));
+    assert_eq!(gated, func);
+}
+
+/// A function whose type surface carries a user `@drop` falls back — the
+/// RL-DROP user-drop completeness pass belongs to the legacy walk.
+#[test]
+fn replacement_declines_user_drop_glue_function() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let mut func = one_block_func(2, vec![construct(0, vec![]), is_shared(1, 0)], ret(1));
+    func.var_types = vec![struct_idx, ty(0)];
+    if let Some(ArcInstr::Construct { ty: ctor_ty, .. }) = func.blocks[0].body.first_mut() {
+        *ctor_ty = struct_idx;
+    }
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some("user-drop-glue"));
+    assert_eq!(gated, func);
+}
+
+// Op-placement guard (`replace::ops_placeable`)
+
+/// A planned op whose variable's definition dominates the slot is
+/// placeable; a definition on a sibling branch is not.
+#[test]
+fn op_var_placement_requires_dominating_definition() {
+    let func = func_with_blocks(
+        3,
+        vec![
+            block(0, vec![], vec![construct(1, vec![])], branch(0, 1, 2)),
+            block(1, vec![], vec![], ret(1)),
+            block(2, vec![], vec![construct(2, vec![])], ret(2)),
+        ],
+    );
+
+    let dominated = vec![dec(PlanSlot::BlockFront { block: 1 }, 1)];
+    assert!(super::replace::ops_placeable(&func, &dominated));
+
+    let off_path = vec![dec(PlanSlot::BlockFront { block: 1 }, 2)];
+    assert!(!super::replace::ops_placeable(&func, &off_path));
+
+    let before_own_def = vec![dec(PlanSlot::BlockFront { block: 0 }, 1)];
+    assert!(!super::replace::ops_placeable(&func, &before_own_def));
+
+    let after_own_def = vec![dec(PlanSlot::AfterBody { block: 0, index: 0 }, 1)];
+    assert!(super::replace::ops_placeable(&func, &after_own_def));
 }

@@ -9,26 +9,31 @@
 //! every merge block; a release is never hoisted past a merge point.
 //!
 //! Staging: with `ORI_CLASS_LEDGER_EMITTER=1` the pipeline runs the analysis
-//! (classification + insertion plan + per-class readiness verdict) and
-//! reports it on the `ori_arc::aims::class_ledger` tracing target. The
-//! existing burden path still performs ALL emission, so compiled output is
-//! byte-identical with the toggle on or off. Op materialization into the
-//! instruction stream is exercised in unit tests through the plan-application
-//! helper (`apply`); pipeline cutover is deferred to the differential
-//! harness. A class whose per-class net dataflow cannot be proven
-//! (non-converged, merge-disagreeing, or an inexpressible release) is
-//! DECLINED — no ops are planned for it and the readiness summary reports it
-//! (fail-closed, never a wrong placement).
+//! (classification + insertion plan + per-class readiness verdict) and, per
+//! function, REPLACES the legacy Step-4b emission with the applied plan when
+//! the replacement gate holds (`replace` module: FULLY CLEAN readiness with
+//! one class or more, no user-`@drop` type in the function, dominance-checked
+//! op placement, and a VF-1 structural check on a clone — commit-or-discard).
+//! Any function failing a gate falls back to the legacy walk unchanged; the
+//! per-function mode + readiness verdict are reported on the
+//! `ori_arc::aims::class_ledger` tracing target. Toggle off, the pipeline is
+//! byte-identical to the legacy path. Corpus-level default-on cutover is
+//! deferred to the differential harness. A class whose per-class net
+//! dataflow cannot be proven (non-converged, merge-disagreeing, or an
+//! inexpressible release) is DECLINED — no ops are planned for it and the
+//! readiness summary reports it (fail-closed, never a wrong placement).
 
 mod apply;
 mod emit;
 mod events;
+mod replace;
 mod verify;
 
 #[cfg(test)]
 mod tests;
 
 pub(crate) use emit::{ClassOutcome, PlannedOp};
+pub(crate) use replace::{attempt_replacement, EmissionMode, ReplacementOutcome};
 pub(crate) use verify::{ClassVerdict, ReadinessSummary};
 
 #[cfg(test)]
@@ -50,8 +55,10 @@ use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
 
 // Env: ORI_CLASS_LEDGER_EMITTER — enables the class-ledger alternate Phase-5
-// emitter analysis (insertion plan + per-class verification + readiness
-// report; no emission cutover), experimental.
+// emitter (insertion plan + per-class verification + readiness report +
+// per-function replacement of the legacy Step-4b emission behind the
+// readiness gate; non-clean functions fall back to the legacy walk),
+// experimental.
 static CLASS_LEDGER_EMITTER: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_CLASS_LEDGER_EMITTER").as_deref() == Ok("1"));
 
@@ -87,20 +94,9 @@ pub(crate) struct ClassLedgerAnalysis {
     pub(crate) readiness: ReadinessSummary,
 }
 
-/// Toggle-gated pipeline entry: a no-op (`None`) while the toggle is off.
-pub(crate) fn pipeline_analysis(
-    func: &ArcFunction,
-    state_map: &AimsStateMap,
-    contracts: &FxHashMap<Name, MemoryContract>,
-) -> Option<ClassLedgerAnalysis> {
-    if !class_ledger_emitter_enabled() {
-        return None;
-    }
-    Some(analyze_from_state_map(func, state_map, contracts))
-}
-
 /// Run classification, planning, and per-class verification from the
-/// converged state map — the enabled path of [`pipeline_analysis`].
+/// converged state map — the analysis entry [`attempt_replacement`] and the
+/// tests share.
 pub(crate) fn analyze_from_state_map(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -158,18 +154,45 @@ pub(crate) fn analyze_class_ledger(
     }
 }
 
-/// Pipeline step: run the gated analysis and report the readiness verdict
-/// on the `ori_arc::aims::class_ledger` tracing target. Mutates nothing —
-/// the burden path remains the sole emitter until cutover.
-pub(crate) fn report_pipeline_readiness(
-    func: &ArcFunction,
+/// Pipeline Step-4b dispatch: attempt the per-function replacement, report
+/// the readiness verdict + emission mode on the `ori_arc::aims::class_ledger`
+/// tracing target, and return whether the plan replaced the legacy emission.
+///
+/// `class_ledger_enabled` carries the toggle read at the pipeline's outer
+/// entry (`class_ledger_emitter_enabled`); off = no analysis, no report,
+/// `false`. `legacy_emission_enabled = false` (Step-4b emission disabled)
+/// keeps the analysis-only readiness report and never replaces.
+pub(crate) fn pipeline_step_4b(
+    func: &mut ArcFunction,
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
+    class_ledger_enabled: bool,
+    legacy_emission_enabled: bool,
+) -> bool {
+    if !class_ledger_enabled {
+        return false;
+    }
+    let outcome = attempt_replacement(
+        func,
+        state_map,
+        contracts,
+        type_registry,
+        legacy_emission_enabled,
+    );
+    report_readiness(func, interner, &outcome);
+    outcome.mode == EmissionMode::Replaced
+}
+
+/// Report one function's readiness verdict + Step-4b emission mode on the
+/// `ori_arc::aims::class_ledger` tracing target.
+fn report_readiness(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+    outcome: &ReplacementOutcome,
 ) {
-    let Some(analysis) = pipeline_analysis(func, state_map, contracts) else {
-        return;
-    };
+    let analysis = &outcome.analysis;
     let planned_ops: usize = analysis
         .plan
         .classes
@@ -197,6 +220,8 @@ pub(crate) fn report_pipeline_readiness(
         unprovable = verdict_count(ClassVerdict::Unprovable),
         declined = analysis.readiness.declined.len(),
         all_classes_clean = analysis.readiness.all_classes_clean,
+        mode = outcome.mode.as_str(),
+        fallback_reason = outcome.fallback_reason.unwrap_or(""),
         "class-ledger readiness"
     );
 }

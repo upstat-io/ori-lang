@@ -40,6 +40,7 @@ impl Default for ArcFunction {
             burden_emitted: Vec::new(),
             reassign_deaths: Vec::new(),
             catch_scoped_checked_ops: Vec::new(),
+            class_ledger_emission: false,
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Plan materialization: insert planned burden ops into a function's
-//! instruction stream. Exercised by unit tests until the differential
-//! harness lands and the pipeline cuts over to the class-ledger plan.
+//! instruction stream. Production consumer: the per-function replacement
+//! path (`replace::attempt_replacement`).
 
 use crate::ir::{ArcFunction, ArcInstr};
 
@@ -9,13 +9,6 @@ use super::emit::{PlanSlot, PlannedOp, PlannedOpKind};
 /// Insert every planned op at its slot. Insertions within one block apply
 /// back-to-front so earlier indices stay valid; ops sharing an insertion
 /// point keep plan order.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the class-ledger emitter cutover; test-pinned until the differential harness lands"
-    )
-)]
 pub(crate) fn apply_plan(func: &mut ArcFunction, ops: &[PlannedOp]) {
     for block in 0..func.blocks.len() {
         let mut inserts: Vec<(usize, usize, ArcInstr)> = ops

@@ -449,6 +449,7 @@ impl ArcIrBuilder {
             burden_emitted: Vec::new(),
             reassign_deaths: self.reassign_deaths,
             catch_scoped_checked_ops: self.catch_scoped_checked_ops,
+            class_ledger_emission: false,
         }
     }
 }

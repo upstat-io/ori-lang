@@ -760,3 +760,234 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
 
     let _ = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
 }
+
+// Class-ledger Step-4b replacement (pipeline-level)
+
+/// Drive `run_aims_pipeline_gated` with the class-ledger toggle threaded
+/// explicitly (no process-wide env mutation).
+fn run_gated_pipeline(func: &mut ArcFunction, class_ledger_enabled: bool) {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(func.params.len()));
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let type_registry = ori_types::TypeRegistry::default();
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        func_names: &func_names,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+        sigs: &sigs,
+        type_registry: &type_registry,
+    };
+    let result = super::aims_pipeline::run_aims_pipeline_gated(func, &config, class_ledger_enabled);
+    assert!(
+        result.is_ok(),
+        "pipeline must succeed for the class-ledger fixtures"
+    );
+}
+
+/// Fresh `str` construct, read once (`IsShared`), dead — the fully-clean
+/// class-ledger skeleton whose plan is exactly one release after the read.
+fn class_ledger_clean_fixture() -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::BOOL],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(0),
+                    ty: Idx::STR,
+                    ctor: crate::ir::CtorKind::Tuple,
+                    args: vec![],
+                },
+                ArcInstr::IsShared {
+                    dst: v(1),
+                    var: v(0),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// Loop-threaded `str` class with a pre-seeded per-iteration `BurdenInc`
+/// credit: the class's owed count disagrees at the loop-header merge, so the
+/// class-ledger analysis DECLINES the class (readiness not clean).
+fn class_ledger_declined_fixture() -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::BOOL, Idx::BOOL],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(0),
+                    ty: Idx::STR,
+                    ctor: crate::ir::CtorKind::Tuple,
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![v(0)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(v(1), Idx::STR)],
+                body: vec![
+                    ArcInstr::BurdenInc { var: v(1) },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::BOOL,
+                        value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::BOOL,
+                    value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Bool(false)),
+                }],
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// Count `(RcInc total, RcDec on var, Burden* residue)` across all blocks.
+fn count_rc_shape(func: &ArcFunction, dec_var: ArcVarId) -> (usize, usize, usize) {
+    let mut incs = 0usize;
+    let mut decs_on_var = 0usize;
+    let mut burden = 0usize;
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::RcInc { .. } => incs += 1,
+                ArcInstr::RcDec { var, .. } if *var == dec_var => decs_on_var += 1,
+                ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. } => burden += 1,
+                _ => {}
+            }
+        }
+    }
+    (incs, decs_on_var, burden)
+}
+
+/// Toggle ON + fully-clean function: the class-ledger plan replaces the
+/// legacy emission — exactly ONE lowered release after the last read, no
+/// duplicate legacy ops, no burden residue, edge machinery unmarked.
+#[test]
+fn class_ledger_replaces_clean_function_with_lowered_plan() {
+    let mut func = class_ledger_clean_fixture();
+    run_gated_pipeline(&mut func, true);
+
+    assert!(func.class_ledger_emission, "replacement must commit");
+    let (incs, decs_on_v0, burden) = count_rc_shape(&func, v(0));
+    assert_eq!(incs, 0, "the plan funds no duplication on this shape");
+    assert_eq!(decs_on_v0, 1, "exactly one release for the dead class");
+    assert_eq!(burden, 0, "every planned op lowers to real RC");
+    assert!(
+        func.burden_emitted.iter().all(|marked| !marked),
+        "replacement never marks burden_emitted"
+    );
+
+    let body = &func.blocks[0].body;
+    assert!(matches!(body[1], ArcInstr::IsShared { .. }));
+    assert!(
+        matches!(body[2], ArcInstr::RcDec { var, .. } if var == v(0)),
+        "the release lands immediately after the last read; body={body:?}"
+    );
+}
+
+/// Toggle ON + a declined class: the function falls back to the legacy
+/// path, byte-identical (instruction streams) to a toggle-OFF run.
+#[test]
+fn class_ledger_declined_function_falls_back_byte_identical_to_legacy() {
+    let mut gated = class_ledger_declined_fixture();
+    let mut legacy = class_ledger_declined_fixture();
+    run_gated_pipeline(&mut gated, true);
+    run_gated_pipeline(&mut legacy, false);
+
+    assert!(
+        !gated.class_ledger_emission,
+        "declined class must fall back"
+    );
+    assert_eq!(gated.blocks, legacy.blocks);
+    assert_eq!(gated.burden_emitted, legacy.burden_emitted);
+}
+
+/// Toggle OFF: byte-identical (instruction streams) across runs on both
+/// fixtures; the replacement flag never flips.
+#[test]
+fn class_ledger_toggle_off_is_byte_identical_on_both_fixtures() {
+    for fixture in [class_ledger_clean_fixture, class_ledger_declined_fixture] {
+        let mut first = fixture();
+        let mut second = fixture();
+        run_gated_pipeline(&mut first, false);
+        run_gated_pipeline(&mut second, false);
+        assert!(!first.class_ledger_emission);
+        assert_eq!(first.blocks, second.blocks);
+        assert_eq!(first.burden_emitted, second.burden_emitted);
+    }
+}
+
+/// Double-emission guard: the replaced output carries the plan's single
+/// release and nothing else; the legacy path independently converges to the
+/// same single release (two emitters on one function would double it).
+#[test]
+fn class_ledger_replaced_function_carries_no_legacy_ops() {
+    let mut replaced = class_ledger_clean_fixture();
+    let mut legacy = class_ledger_clean_fixture();
+    run_gated_pipeline(&mut replaced, true);
+    run_gated_pipeline(&mut legacy, false);
+
+    let (replaced_incs, replaced_decs, replaced_burden) = count_rc_shape(&replaced, v(0));
+    assert_eq!(
+        (replaced_incs, replaced_decs, replaced_burden),
+        (0, 1, 0),
+        "replaced output is exactly the lowered plan"
+    );
+    let (_, legacy_decs, legacy_burden) = count_rc_shape(&legacy, v(0));
+    assert_eq!(
+        legacy_decs, 1,
+        "legacy converges to the same single release"
+    );
+    assert_eq!(legacy_burden, 0);
+    assert!(
+        legacy.burden_emitted.iter().any(|marked| *marked),
+        "legacy marks burden_emitted; replacement leaves it unmarked"
+    );
+    assert!(replaced.burden_emitted.iter().all(|marked| !marked));
+}

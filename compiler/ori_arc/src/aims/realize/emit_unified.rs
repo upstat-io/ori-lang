@@ -157,6 +157,28 @@ pub(super) fn emit_rc_unified(
         "var_reprs must be populated before RC emission"
     );
 
+    // Class-ledger replacement (`ArcFunction::class_ledger_emission`): the
+    // burden ops in the stream ARE the per-class-verified plan. Phase-6
+    // elimination and the Phase-6.5..6.99 repair passes optimize over the
+    // LEGACY Phase-5 baseline (a per-var DP-3 verdict would strip a planned
+    // funding inc; the repairs compensate legacy-specific shapes), so the
+    // plan lowers mechanically (Phase 7, no fresh-site inc elision — the
+    // plan emits none) and coalesces.
+    if func.class_ledger_emission {
+        lower_burden_ops_to_rc(func, pool, type_registry, &FxHashSet::default());
+        trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+        for block in &mut func.blocks {
+            coalesce_block_rc(&mut block.body);
+        }
+        trace_phase_snapshot("after_phase_3_coalesce", func, interner);
+        return (
+            count_rc_ops(func),
+            Vec::new(),
+            Vec::new(),
+            metrics::SynergyMetrics::default(),
+        );
+    }
+
     let all_borrowed_defs = collect_all_borrowed_defs(func, pool);
 
     // Per-class take-project facts (union-find + CFG reachability), computed
