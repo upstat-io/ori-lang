@@ -25,17 +25,18 @@
 #      cannot separate real from exec failures, so the safe call is non-verdict).
 #  (f) suite_status integration — (nonzero exit, FAILED=0) => errored non-verdict;
 #      (nonzero exit, FAILED=2) => failed verdict (real failures stay a verdict).
+#  (g) GUARD — an unset/empty BUILD_RACE_RE must never fall through to
+#      `grep -qE ""`, which matches every non-empty line and would
+#      misclassify every clean nextest Summary as a build-artifact race;
+#      parse_rust_results must require BUILD_RACE_RE non-empty before the
+#      race-signature grep.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TESTALL="$HERE/../../test-all.sh"
 LEG_HELPERS="$HERE/../test_all/legs.sh"
 PARSING_HELPERS="$HERE/../test_all/parsing.sh"
+ANSI_HELPER="$HERE/../lib/ansi.sh"
 
-if [ ! -f "$TESTALL" ]; then
-    echo "FAIL: test-all.sh not found at $TESTALL"
-    exit 1
-fi
 if [ ! -f "$LEG_HELPERS" ]; then
     echo "FAIL: leg helper file not found at $LEG_HELPERS"
     exit 1
@@ -44,23 +45,25 @@ if [ ! -f "$PARSING_HELPERS" ]; then
     echo "FAIL: parsing helper file not found at $PARSING_HELPERS"
     exit 1
 fi
+if [ ! -f "$ANSI_HELPER" ]; then
+    echo "FAIL: shared ANSI helper not found at $ANSI_HELPER"
+    exit 1
+fi
 
-# Extract globals + functions under test from the sourced helper files.
-eval "$(sed -n '/^BUILD_RACE_RE=/p' "$LEG_HELPERS")"
+# Source the real production helpers under test directly (no sed-extraction:
+# both files define only functions/globals with no top-level side effects, so
+# sourcing is faithful to production and immune to a function-body-shape
+# change silently truncating a text-extraction pattern). parsing.sh sources
+# the shared ansi.sh helper itself, defining strip_ansi as a side effect
+# (parse_rust_results depends on it post-fix).
+# shellcheck source=/dev/null
+. "$LEG_HELPERS"
 if [ -z "${BUILD_RACE_RE:-}" ]; then
     echo "FAIL: BUILD_RACE_RE not defined in $LEG_HELPERS"
     exit 1
 fi
-eval "$(sed -n '/^cargo_race_retry()/,/^}/p' "$LEG_HELPERS")"
-# parse_rust_results depends on the shared strip_ansi helper; source it when
-# present so the eval-extracted function runs in a faithful environment.
-ANSI_HELPER="$HERE/../lib/ansi.sh"
-if [ -f "$ANSI_HELPER" ]; then
-    # shellcheck source=/dev/null
-    . "$ANSI_HELPER"
-fi
-eval "$(sed -n '/^parse_rust_results()/,/^}/p' "$PARSING_HELPERS")"
-eval "$(sed -n '/^suite_status()/,/^}/p' "$PARSING_HELPERS")"
+# shellcheck source=/dev/null
+. "$PARSING_HELPERS"
 
 RACE_LINE='error: [double-spawn] failed to exec "deps/aot-x": No such file or directory (os error 2)'
 
@@ -150,5 +153,24 @@ if [ "$real_status" != "failed" ]; then
     exit 1
 fi
 echo "OK: (f) suite_status — (nonzero,0)=>errored non-verdict, (nonzero,2)=>failed verdict"
+
+# (g) GUARD — unset BUILD_RACE_RE must not turn the race grep into a
+# match-all (empty ERE matches every non-empty line), which would
+# misclassify a genuinely clean nextest Summary as a race.
+saved_build_race_re="$BUILD_RACE_RE"
+unset BUILD_RACE_RE
+noguard_fix="$(mktemp)"
+cat > "$noguard_fix" <<'EOF'
+    PASS [   0.020s] (1/3) ori_stack tests::grows
+     Summary [   0.020s] 3 tests run: 3 passed, 0 skipped
+EOF
+NEXTEST_ACTIVE=1 parse_rust_results "$noguard_fix" "NOGUARD"
+rm -f "$noguard_fix"
+BUILD_RACE_RE="$saved_build_race_re"
+if [ "${NOGUARD_PASSED:-unset}" != "3" ] || [ "${NOGUARD_FAILED:-unset}" != "0" ]; then
+    echo "FAIL: (g) unset BUILD_RACE_RE misclassified a clean Summary as a race: PASSED=${NOGUARD_PASSED:-unset} FAILED=${NOGUARD_FAILED:-unset} (expected 3/0 — an empty ERE pattern must never match-all)"
+    exit 1
+fi
+echo "OK: (g) unset BUILD_RACE_RE does not misclassify a clean Summary as a race"
 
 echo "PASS: test_test_all_nextest_race — race exec-failures classified errored (non-verdict), real failures preserved"

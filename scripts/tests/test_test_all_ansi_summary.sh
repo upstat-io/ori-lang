@@ -22,15 +22,23 @@
 #      (race-classification precedence preserved on colored input; see
 #      test_test_all_nextest_race.sh for the full race pin suite).
 #  (f) PRODUCTION PATH — the REAL rust_test_leg invocation site carries
-#      --color=never on its cargo nextest run line, and running the REAL
-#      rust_test_leg under FORCE_COLOR=3 yields output parse_rust_results
-#      reads as real counts (PASSED>0, FAILED=0) — the leg function itself,
-#      not an ad-hoc nextest call, is the surface under test.
+#      --color=never on its cargo nextest run line (grep pin, always
+#      enforced), and running the REAL rust_test_leg under FORCE_COLOR=3
+#      yields output parse_rust_results reads as real counts (PASSED>0,
+#      FAILED=0) — the leg function itself, not an ad-hoc nextest call, is
+#      the surface under test. The live-invocation half SKIPs (not FAILs)
+#      when cargo-nextest is absent from PATH — this pin exercises the
+#      nextest-specific parse path, which has no meaningful substitute
+#      when the tool itself is unavailable.
 #  (g) ENV LAYER — test-all.sh exports CARGO_TERM_COLOR=never and
 #      NEXTEST_COLOR=never (belt-and-suspenders for the non-nextest cargo
 #      invocations: doctests, plain cargo test fallback, builds).
 #  (h) MIGRATION — diagnose-aot.sh no longer defines a private strip_ansi;
 #      it sources the shared scripts/lib/ansi.sh helper (no third copy).
+#  (i) PRODUCTION WIRING — the production parse path (parsing.sh or
+#      test-all.sh) actually sources scripts/lib/ansi.sh; this test file's
+#      own source of the helper (for pins a-h) must never be the only
+#      wiring the real run depends on.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,20 +54,24 @@ if [ ! -f "$PARSING_HELPERS" ]; then
     echo "FAIL: parsing helper file not found at $PARSING_HELPERS"
     exit 1
 fi
+if [ ! -f "$ANSI_HELPER" ]; then
+    echo "FAIL: shared ANSI helper not found at $ANSI_HELPER"
+    exit 1
+fi
 
-# Extract globals + functions under test from the sourced helper files.
-eval "$(sed -n '/^BUILD_RACE_RE=/p' "$LEG_HELPERS")"
+# Source the real production helpers under test directly (no sed-extraction:
+# both files define only functions/globals with no top-level side effects, so
+# sourcing is faithful to production and immune to a function-body-shape
+# change silently truncating a text-extraction pattern). parsing.sh sources
+# the shared ansi.sh helper itself, defining strip_ansi as a side effect.
+# shellcheck source=/dev/null
+. "$LEG_HELPERS"
 if [ -z "${BUILD_RACE_RE:-}" ]; then
     echo "FAIL: BUILD_RACE_RE not defined in $LEG_HELPERS"
     exit 1
 fi
-# Source the shared ANSI helper when present (parse_rust_results depends on
-# strip_ansi post-fix); pin (d) asserts its existence + behavior explicitly.
-if [ -f "$ANSI_HELPER" ]; then
-    # shellcheck source=/dev/null
-    . "$ANSI_HELPER"
-fi
-eval "$(sed -n '/^parse_rust_results()/,/^}/p' "$PARSING_HELPERS")"
+# shellcheck source=/dev/null
+. "$PARSING_HELPERS"
 
 # parse_rust_results is shell-option-agnostic: its internal count pipelines
 # carry `|| true` so an absent token (clean Summary has no "failed") never
@@ -161,24 +173,28 @@ if ! grep -qE 'cargo nextest run[^|]*--color=never' "$LEG_HELPERS"; then
     echo "FAIL: (f) rust_test_leg's cargo nextest run invocation in $LEG_HELPERS does not carry --color=never (the source fix)"
     exit 1
 fi
-REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-eval "$(sed -n '/^cargo_race_retry()/,/^}/p' "$LEG_HELPERS")"
-eval "$(sed -n '/^rust_test_leg()/,/^}/p' "$LEG_HELPERS")"
-out_f="$(mktemp)"
-if ( cd "$REPO_ROOT" && NEXTEST_ACTIVE=1 FORCE_COLOR=3 rust_test_leg "$out_f" -p ori_stack --lib ); then
-    run_parse "$out_f" "PROD"
-    if [ "${PROD_PASSED:-0}" -lt 1 ] || [ "${PROD_FAILED:-unset}" != "0" ]; then
-        echo "FAIL: (f) real rust_test_leg under FORCE_COLOR=3 parsed PASSED=${PROD_PASSED:-unset} FAILED=${PROD_FAILED:-unset} (expected PASSED>=1 FAILED=0)"
+if ! command -v cargo-nextest >/dev/null 2>&1; then
+    echo "SKIP: (f) cargo-nextest not on PATH - the real nextest-mode leg cannot run in this environment (static --color=never check above still enforced)"
+else
+    REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+    # cargo_race_retry + rust_test_leg are already defined (sourced from
+    # $LEG_HELPERS above) — no re-extraction needed.
+    out_f="$(mktemp)"
+    if ( cd "$REPO_ROOT" && NEXTEST_ACTIVE=1 FORCE_COLOR=3 rust_test_leg "$out_f" -p ori_stack --lib ); then
+        run_parse "$out_f" "PROD"
+        if [ "${PROD_PASSED:-0}" -lt 1 ] || [ "${PROD_FAILED:-unset}" != "0" ]; then
+            echo "FAIL: (f) real rust_test_leg under FORCE_COLOR=3 parsed PASSED=${PROD_PASSED:-unset} FAILED=${PROD_FAILED:-unset} (expected PASSED>=1 FAILED=0)"
+            rm -f "$out_f"
+            exit 1
+        fi
+        echo "OK: (f) real rust_test_leg under FORCE_COLOR=3 parses real counts (PASSED=${PROD_PASSED})"
+    else
+        echo "FAIL: (f) real rust_test_leg returned non-zero under FORCE_COLOR=3 (leg output at $out_f)"
         rm -f "$out_f"
         exit 1
     fi
-    echo "OK: (f) real rust_test_leg under FORCE_COLOR=3 parses real counts (PASSED=${PROD_PASSED})"
-else
-    echo "FAIL: (f) real rust_test_leg returned non-zero under FORCE_COLOR=3 (leg output at $out_f)"
     rm -f "$out_f"
-    exit 1
 fi
-rm -f "$out_f"
 
 # (g) ENV LAYER — test-all.sh forces color off for every cargo invocation
 TESTALL="$HERE/../../test-all.sh"

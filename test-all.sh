@@ -1,15 +1,16 @@
 #!/bin/bash
 # Run ALL tests: Rust unit tests and Ori language tests
-# Usage: ./test-all [-v|--verbose] [-s|--sequential] [--json[=<path>]]
+# Usage: ./test-all.sh [-v|--verbose] [-s|--sequential] [--json[=<path>]] [--json-summary[=<path>]]
 #
 # This script runs:
 # 1. Rust unit tests (workspace default members - excludes ori_llvm)
-# 2. Runtime library tests (ori_rt)
-# 3. Rust unit tests (ori_llvm)
-# 4. AOT integration tests (compile-and-run through ori build)
-# 5. External playground WASM build (cargo build of ori-lang-website crate)
-# 6. Ori language spec tests (interpreter backend)
-# 7. Ori language spec tests (LLVM backend)
+# 2. Rust doctests (workspace + ori_llvm)
+# 3. Runtime library tests (ori_rt)
+# 4. Rust unit tests (ori_llvm)
+# 5. AOT integration tests (compile-and-run through ori build)
+# 6. External playground WASM build (cargo build of ori-lang-website crate)
+# 7. Ori language spec tests (interpreter backend)
+# 8. Ori language spec tests (LLVM backend)
 #
 # By default, runs tests in parallel for faster execution.
 # Use -s or --sequential for sequential execution.
@@ -302,17 +303,20 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     echo ""
 
-    # Phase 2: ALL suites in parallel. Everything was pre-built in Phase 1,
-    # so these invocations only RUN their binaries - no concurrent compile
-    # into the shared target/, hence no build-artifact race.
+    # Phase 2: the workspace crate graph was pre-built in Phase 1, so those
+    # invocations only RUN their binaries - no concurrent compile of workspace
+    # crates into the shared target/, hence no build-artifact race for them.
     # - run_rust_workspace: --workspace --exclude ori_llvm --lib --bins --tests (run pre-built)
-    # - run_rust_doctests: --workspace --doc (the LONE compiling invocation)
+    # - run_rust_doctests: --workspace --doc (the lone workspace-crate compiling invocation)
     # - run_rust_rt: -p ori_rt (run pre-built)
     # - run_rust_llvm: -p ori_llvm --lib (run pre-built)
     # - run_aot: -p ori_llvm --test aot (run pre-built)
-    # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
-    # - run_ori_llvm: direct binary (./target/release/ori), no cargo
-    # - run_wasm_build: separate target dir (website playground workspace)
+    # - run_ori_interpreter: direct binary ($CARGO_TARGET_DIR/debug/ori), no cargo
+    # - run_ori_llvm: direct binary ($CARGO_TARGET_DIR/release/ori), no cargo
+    # - run_wasm_build: a disjoint crate graph on a disjoint target-triple
+    #   subdir (website playground workspace) inside the SAME $CARGO_TARGET_DIR
+    #   root - shares the root but cannot collide with the workspace-crate
+    #   artifacts the other legs read/write
     # AOT identity-gate baseline (Go model: pin at start, immune thereafter).
     # The AOT harness snapshots the compiler binary + staticlib into a
     # per-process hardlink stage and records the staged source identities in
