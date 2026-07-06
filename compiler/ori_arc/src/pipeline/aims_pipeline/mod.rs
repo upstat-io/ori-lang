@@ -23,8 +23,8 @@
 //! 12. FBIP enforcement — read-only diagnostic
 
 mod batch;
+mod burden_emission;
 mod postprocess;
-mod step4b;
 mod trmc;
 
 use ori_ir::Name;
@@ -273,17 +273,17 @@ pub(crate) fn run_aims_pipeline_gated(
         config.type_registry,
         config.interner,
         class_ledger_enabled,
-        step4b::legacy_emission_enabled(),
+        burden_emission::legacy_emission_enabled(),
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
     if !class_ledger_replaced {
-        step4b::emit_burden_ops_step(func, config, &derived_ownership, &state_map);
+        burden_emission::emit_burden_ops_step(func, config, &derived_ownership, &state_map);
     }
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
 
-    step4b::dump_after_burden(func, config);
-    step4b::dump_after_burden_elim(func, &state_map, config);
+    burden_emission::dump_after_burden(func, config);
+    burden_emission::dump_after_burden_elim(func, &state_map, config);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
