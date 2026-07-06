@@ -972,3 +972,38 @@ fn owned_param_field_view_read_only_owes_nothing() {
     assert_eq!(verdict_for(&analysis, field_class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
 }
+
+// Fully-dead classes (RL-2 unused-owned)
+
+/// A fresh Construct born inside a loop body and never used: the class has
+/// zero demand events, so each iteration's reference releases immediately
+/// after its birth (RL-2 unused-owned) — the loop header's owed count
+/// agrees at 0 across the back-edge and the class verifies Clean.
+#[test]
+fn unused_loop_body_construct_releases_immediately_and_verifies_clean() {
+    // bb0: Jump bb1
+    // bb1: Branch %0 ? bb2 : bb3     (%0 scalar cond)
+    // bb2: %1 = Construct; Jump bb1  (unused, dead-on-creation, in-cycle)
+    // bb3: Return %0
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![], jump(1, vec![])),
+            block(1, vec![], vec![], branch(0, 2, 3)),
+            block(2, vec![], vec![construct(1, vec![])], jump(1, vec![])),
+            block(3, vec![], vec![], ret(0)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 1);
+    assert_eq!(
+        ops_for(&analysis, class),
+        vec![dec(PlanSlot::AfterBody { block: 2, index: 0 }, 1)]
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.readiness.declined.is_empty());
+}

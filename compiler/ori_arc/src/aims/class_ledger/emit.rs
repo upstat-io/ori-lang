@@ -100,6 +100,18 @@ pub(crate) fn plan_class(
     preds: &[Vec<usize>],
     events: &ClassEvents,
 ) -> ClassOutcome {
+    if births_only(events) {
+        // RL-2 unused-owned / RL-5 dead-at-entry: a class whose only events
+        // are births (no demand, no credits — a credit is itself a live use
+        // of its subject) releases each owed birth immediately after its
+        // site — the general death-frontier walk cannot place these (a
+        // birth inside a cycle keeps every loop block activity-live, so no
+        // block ever reads as the frontier).
+        return match plan_dead_class_releases(func, events) {
+            Ok(ops) => ClassOutcome::Planned(ops),
+            Err(reason) => ClassOutcome::Declined(reason),
+        };
+    }
     let demand_live = live_from(func, &event_blocks(events, true));
     let activity_live = live_from(func, &event_blocks(events, false));
     let mut ops = match plan_incs(func, events, &demand_live) {
@@ -132,6 +144,62 @@ pub(crate) fn plan_class(
         return ClassOutcome::Declined(reason);
     }
     ClassOutcome::Planned(ops)
+}
+
+/// Whether the class's events are exclusively births — no demand (Read /
+/// Mutate / Consume) and no credits (a placed inc reads its subject, so a
+/// credit-bearing class is never dead-on-creation).
+fn births_only(events: &ClassEvents) -> bool {
+    events
+        .per_block
+        .iter()
+        .flatten()
+        .all(|ev| ev.kind == EventKind::Birth)
+}
+
+/// RL-2 unused-owned / RL-5 dead-at-entry releases for a class with zero
+/// demand events: every acquiring event (positive delta) gets its release
+/// immediately after its site — after the acquiring body instruction, at
+/// the block front for a block-entry acquisition, or at every successor's
+/// front for a terminator-site acquisition (a cross-class jump credit lands
+/// in the target block). Zero-delta events (an externally-funded birth) owe
+/// nothing.
+fn plan_dead_class_releases(
+    func: &ArcFunction,
+    events: &ClassEvents,
+) -> Result<Vec<PlannedOp>, DeclineReason> {
+    let mut ops = Vec::new();
+    let mut fronts: FxHashSet<usize> = FxHashSet::default();
+    for (block, evs) in events.per_block.iter().enumerate() {
+        for ev in evs {
+            if ev.delta <= 0 {
+                continue;
+            }
+            match ev.site {
+                EventSite::Body(index) => {
+                    let var = ev.var.ok_or(DeclineReason::UnresolvedOpVar)?;
+                    ops.push(PlannedOp {
+                        slot: PlanSlot::AfterBody { block, index },
+                        kind: PlannedOpKind::Dec,
+                        var,
+                    });
+                }
+                EventSite::BlockEntry => {
+                    push_front_dec(events, block, block, &mut ops, &mut fronts)?;
+                }
+                EventSite::Terminator => {
+                    let successors = successors_of(func, block);
+                    if successors.is_empty() {
+                        return Err(DeclineReason::UnplaceableRelease);
+                    }
+                    for successor in successors {
+                        push_front_dec(events, block, successor, &mut ops, &mut fronts)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(ops)
 }
 
 /// Release placement at the class's death frontier, one walk over the
