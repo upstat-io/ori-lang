@@ -18,7 +18,8 @@ use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::ir::{ArcFunction, ArcVarId};
 
 use super::events::{
-    event_blocks, live_from, live_out, successors_of, ClassEvent, ClassEvents, EventKind,
+    event_blocks, live_from, live_from_forward, live_out, live_out_forward, successors_of,
+    ClassEvent, ClassEvents, EventKind,
 };
 
 /// One planned burden-op insertion.
@@ -113,10 +114,14 @@ pub(crate) fn plan_class(
             Err(reason) => ClassOutcome::Declined(reason),
         };
     }
-    let demand_live = live_from(func, &event_blocks(events, true));
+    // Funding (inc) decisions use FORWARD-only demand liveness: a back-edge
+    // suffix is the next iteration's events, never continued use of the
+    // current reference. Release placement keeps the full closure.
+    let dom = crate::graph::DominatorTree::build(func);
+    let demand_live = live_from_forward(func, &event_blocks(events, true), &dom);
     let activity_live = live_from(func, &event_blocks(events, false));
     let mut ops = seed_ops.to_vec();
-    match plan_incs(func, events, &demand_live) {
+    match plan_incs(func, events, &demand_live, &dom) {
         Ok(incs) => ops.extend(incs),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
@@ -140,6 +145,15 @@ pub(crate) fn plan_class(
         return ClassOutcome::Declined(DeclineReason::NonConverged);
     }
     if !final_nets.disagree_blocks.is_empty() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            gate = "plan-merge-disagree",
+            disagree = ?final_nets.disagree_blocks,
+            delta = ?final_delta,
+            planned = ?ops,
+            events = ?events.per_block,
+            "class declined: completed-plan owed counts disagree at a merge"
+        );
         return ClassOutcome::Declined(DeclineReason::MergeDisagree);
     }
     if let Some(reason) = plan_error {
@@ -273,6 +287,7 @@ fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
+    dom: &crate::graph::DominatorTree,
 ) -> Result<Vec<PlannedOp>, DeclineReason> {
     let borrowed = events.is_externally_funded();
     let mut ops = Vec::new();
@@ -284,7 +299,8 @@ fn plan_incs(
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position) || live_out(func, block, demand_live)))
+                    || !(suffix_has_demand(evs, position)
+                        || live_out_forward(func, block, demand_live, dom)))
             {
                 continue;
             }

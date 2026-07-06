@@ -1239,3 +1239,46 @@ fn ttr_refund_across_invoke_normal_edge_needs_no_inc() {
     assert!(analysis.readiness.all_classes_clean);
     assert!(analysis.readiness.declined.is_empty());
 }
+
+/// The rebind loop (`acc = Cons(x, acc)`): each iteration's fresh node is
+/// consumed by the jump hand-off into the loop param — a genuine transfer,
+/// not a duplication. Demand liveness must not wrap the back-edge (the
+/// "later demand" it would see is the NEXT iteration's own events), so no
+/// funding inc is planted and every class nets zero per iteration.
+#[test]
+fn rebind_loop_hand_off_plants_no_spurious_inc() {
+    // bb0: %0 = Construct (Nil); Jump bb1(%0)
+    // bb1(%1): Branch %4 ? bb2 : bb3
+    // bb2: %2 = Construct(%1) (Cons funding the param); Jump bb1(%2)
+    // bb3: Return %1
+    let func = func_with_blocks(
+        5,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![0])),
+            block(1, vec![1], vec![], branch(4, 2, 3)),
+            block(2, vec![], vec![construct(2, vec![1])], jump(1, vec![2])),
+            block(3, vec![], vec![], ret(1)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    // The loop param is a refused merge (Nil site vs Cons site) funded
+    // per-edge; the Cons node transfers into it each iteration. No class
+    // declines and every verdict is Clean.
+    assert!(
+        analysis.readiness.declined.is_empty(),
+        "declined: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    // No inc lands in the loop body: the hand-off transfers the reference.
+    let cons = class_rep(&mut partition, 2);
+    let cons_ops = ops_for(&analysis, cons);
+    assert!(
+        cons_ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
+        "no funding inc for a pure transfer: {cons_ops:?}"
+    );
+}

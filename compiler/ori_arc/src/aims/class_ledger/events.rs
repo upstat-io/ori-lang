@@ -269,6 +269,32 @@ pub(crate) fn event_blocks(events: &ClassEvents, demand_only: bool) -> Vec<bool>
 /// Backward closure: `true` at `b` iff `seed[b]` or any block reachable
 /// from `b` is seeded. Monotone boolean fixpoint (at most `n` rounds).
 pub(crate) fn live_from(func: &ArcFunction, seed: &[bool]) -> Vec<bool> {
+    live_from_with(func, seed, |_, _| true)
+}
+
+/// [`live_from`] restricted to FORWARD edges: propagation skips back-edges
+/// (a successor that dominates its block). A back-edge suffix is the NEXT
+/// iteration's events, not continued use of the current reference — funding
+/// decisions must not read it as later demand.
+pub(crate) fn live_from_forward(
+    func: &ArcFunction,
+    seed: &[bool],
+    dom: &crate::graph::DominatorTree,
+) -> Vec<bool> {
+    live_from_with(func, seed, |block, successor| {
+        let (Some(from), Some(to)) = (func.blocks.get(block), func.blocks.get(successor)) else {
+            return false;
+        };
+        !dom.dominates(to.id, from.id)
+    })
+}
+
+/// Shared fixpoint over successor edges admitted by `edge_ok(block, succ)`.
+fn live_from_with(
+    func: &ArcFunction,
+    seed: &[bool],
+    edge_ok: impl Fn(usize, usize) -> bool,
+) -> Vec<bool> {
     let mut live = seed.to_vec();
     let mut changed = true;
     while changed {
@@ -277,7 +303,10 @@ pub(crate) fn live_from(func: &ArcFunction, seed: &[bool]) -> Vec<bool> {
             if live[block] {
                 continue;
             }
-            if successors_of(func, block).iter().any(|&s| live[s]) {
+            if successors_of(func, block)
+                .iter()
+                .any(|&s| live[s] && edge_ok(block, s))
+            {
                 live[block] = true;
                 changed = true;
             }
@@ -291,6 +320,24 @@ pub(crate) fn live_out(func: &ArcFunction, block: usize, live: &[bool]) -> bool 
     successors_of(func, block)
         .iter()
         .any(|&s| live.get(s).copied().unwrap_or(false))
+}
+
+/// [`live_out`] restricted to FORWARD out-edges: a back-edge continuation
+/// (successor dominates the block) is the next iteration, never continued
+/// use of the current reference.
+pub(crate) fn live_out_forward(
+    func: &ArcFunction,
+    block: usize,
+    live: &[bool],
+    dom: &crate::graph::DominatorTree,
+) -> bool {
+    successors_of(func, block).iter().any(|&s| {
+        live.get(s).copied().unwrap_or(false)
+            && match (func.blocks.get(block), func.blocks.get(s)) {
+                (Some(from), Some(to)) => !dom.dominates(to.id, from.id),
+                _ => false,
+            }
+    })
 }
 
 /// Resolve the member variable an event names. Reads and mutates carry it;
