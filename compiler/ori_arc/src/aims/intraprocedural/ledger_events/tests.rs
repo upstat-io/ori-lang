@@ -1,8 +1,12 @@
+//! Tests for the per-class ledger-event classifier.
+
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
+use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
-use crate::ir::{ArcBlock, ArcBlockId, ArcParam, CtorKind};
+use crate::aims::intraprocedural::state_map::ApplyAliasSource;
+use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcValue, ArgOwnership, CtorKind};
 
 use super::*;
 
@@ -799,4 +803,212 @@ fn fresh_read_shape_nets_plus_one_owed_release() {
     let events = derive_ledger(aggregate, &flat(&classification));
     assert_eq!(events, vec![LedgerEvent::Birth, LedgerEvent::Read]);
     assert_eq!(net(&events), 1);
+}
+
+/// `Select` is a conditional-alias READ of every operand (cond + both
+/// branches); the dst is EXCLUDED from partition admission (per
+/// `birth_site_partition`'s distinct-site refusal), so it carries no birth
+/// of its own — the selected allocation's obligation stays with its source
+/// class.
+#[test]
+fn select_reads_cond_and_both_branch_operands() {
+    let func = one_block_func(
+        4,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::Select {
+                dst: v(2),
+                ty: ty(0),
+                cond: v(3),
+                true_val: v(0),
+                false_val: v(1),
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let true_branch = rep(&mut partition, 0);
+    let false_branch = rep(&mut partition, 1);
+    assert_eq!(
+        derive_ledger(true_branch, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+    assert_eq!(
+        derive_ledger(false_branch, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+    assert!(!classification
+        .class_origins
+        .contains_key(&rep(&mut partition, 2)));
+}
+
+/// `BurdenDecField` is the field-grain placed release: it consumes the
+/// field-path class (distinct from the whole-var `base` class), never the
+/// base's whole-var class.
+#[test]
+fn burden_dec_field_consumes_the_field_path_class() {
+    let func = one_block_func(
+        1,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::BurdenDecField {
+                base: v(0),
+                field: 2,
+            },
+        ],
+        ArcTerminator::Return { value: v(0) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let whole = rep(&mut partition, 0);
+    let field_node = partition.register_node(v(0), FieldPath::single(2));
+    let field_class = partition.rep_of(field_node);
+    assert_ne!(
+        whole, field_class,
+        "field-grain release targets its own class"
+    );
+
+    assert_eq!(
+        derive_ledger(whole, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "the whole-var class still owes its Return-terminator consume"
+    );
+    assert_eq!(
+        derive_ledger(field_class, &flat(&classification)),
+        vec![LedgerEvent::Consume],
+        "BurdenDecField consumes the FIELD class, not the base's whole-var class"
+    );
+}
+
+/// Realized (Phase-7-lowered) RC ops are not uses per TF-11 — the classifier
+/// runs before placement, and `RcInc`/`RcDec` in view belong to the legacy
+/// path the toggle keeps disjoint (per `classify_placed_op`'s fallback arm).
+/// A construct followed by a realized inc/dec pair with NO burden ops
+/// produces only the construct's Birth (plus the terminator's consume) —
+/// zero Credit/extra-Consume events from the realized ops themselves.
+#[test]
+fn realized_rc_ops_produce_no_ledger_events() {
+    let func = one_block_func(
+        1,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::RcInc {
+                var: v(0),
+                count: 1,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
+            },
+            ArcInstr::RcDec {
+                var: v(0),
+                strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
+            },
+        ],
+        ArcTerminator::Return { value: v(0) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let class = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(class, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "realized RcInc/RcDec must classify as no-ops, never Credit/Consume"
+    );
+}
+
+/// `CollectionReuse` consumes the recycled `old_var`'s class (transfer, per
+/// the committed table) AND funds a fresh allocation exactly like
+/// `Construct`/`Reuse`: the dst births FRESH and every new-element arg is
+/// consumed into it.
+#[test]
+fn collection_reuse_consumes_old_var_and_funds_new_args() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::CollectionReuse {
+                old_var: v(0),
+                dst: v(2),
+                ty: ty(0),
+                ctor: CtorKind::ListLiteral,
+                args: vec![v(1)],
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let old = rep(&mut partition, 0);
+    let elem = rep(&mut partition, 1);
+    let new_collection = rep(&mut partition, 2);
+    assert_eq!(
+        derive_ledger(old, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "the recycled old_var is CONSUMEd (transfer terminal use)"
+    );
+    assert_eq!(
+        derive_ledger(elem, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
+    );
+    assert_eq!(
+        classification.class_origins.get(&new_collection),
+        Some(&ClassOrigin::Fresh)
+    );
+    assert_eq!(
+        derive_ledger(new_collection, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
+    );
+}
+
+/// `ApplyIndirect` has no contract: the closure receiver and args are
+/// conservative READs; the result BIRTHS OPAQUE (mirrors `Apply`'s
+/// contract-less arm, distinct code path via the indirect terminator/instr
+/// dispatch).
+#[test]
+fn apply_indirect_reads_closure_and_args_result_births_opaque() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::ApplyIndirect {
+                dst: v(2),
+                ty: ty(0),
+                closure: v(0),
+                args: vec![v(1)],
+                arg_ownership: vec![],
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let closure = rep(&mut partition, 0);
+    let arg = rep(&mut partition, 1);
+    let result = rep(&mut partition, 2);
+    assert_eq!(
+        derive_ledger(closure, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+    assert_eq!(
+        derive_ledger(arg, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+    assert_eq!(
+        classification.class_origins.get(&result),
+        Some(&ClassOrigin::Opaque)
+    );
+    assert_eq!(
+        derive_ledger(result, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
+    );
 }

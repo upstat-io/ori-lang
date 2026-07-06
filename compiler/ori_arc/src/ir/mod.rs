@@ -566,9 +566,14 @@ pub struct ArcFunction {
     /// emission baseline (a per-var DP-3 verdict would strip a planned
     /// funding inc). `burden_emitted` stays unmarked for plan variables — the
     /// plan defers no release to the edge-cleanup machinery, so the
-    /// `carries_burden` gates stay inert. Set only by
+    /// `carries_burden` gates stay inert. Step-10's redundant-project-alias
+    /// dec cleanup is also skipped for replaced functions (it repairs the
+    /// legacy baseline). Set only by
     /// `aims::class_ledger::attempt_replacement`. Skipped during cache
-    /// serialization — derived data.
+    /// serialization: a cache-restored function deserializes to `false`,
+    /// which is safe only because the flag is re-derived on every pipeline
+    /// run (function-level caching of post-pipeline IR is not wired; if it
+    /// lands, this flag must be cached or re-derived with it).
     #[cfg_attr(feature = "cache", serde(skip))]
     pub class_ledger_emission: bool,
 }

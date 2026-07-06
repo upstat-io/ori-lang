@@ -5,7 +5,9 @@ use rustc_hash::FxHashMap;
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
 use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
-use crate::aims::intraprocedural::ledger_events::{classify_function, BoundaryFacts};
+use crate::aims::intraprocedural::ledger_events::{
+    classify_function, BoundaryFacts, ClassOrigin, EventSite,
+};
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, CtorKind,
@@ -13,6 +15,8 @@ use crate::ir::{
 use crate::ownership::Ownership;
 
 use super::apply::apply_plan;
+use super::events::{ClassEvent, ClassEvents, EventKind};
+use super::verify::verify_class;
 use super::*;
 
 fn v(n: u32) -> ArcVarId {
@@ -359,6 +363,57 @@ fn branch_death_gets_edge_dec_on_dying_arm_only() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
+// Verifier soundness (`verify::verify_class`)
+
+/// A residual owed reference reaching a `Resume` terminal is a leak exactly
+/// like one reaching `Return` — `verify_class` must catch it even when the
+/// planner supplies no releasing ops (the defense-in-depth case: a planner
+/// bug that fails to place a release on the unwind arm). Hand-built events
+/// bypass `plan_class` so the verifier's own terminal-net check is pinned in
+/// isolation, matching the uniform Return/Resume/Unreachable treatment in
+/// `aims::verify::burden_delta::balance_verdict_from_nets`.
+#[test]
+fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
+    let func = func_with_blocks(
+        1,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], branch(0, 1, 2)),
+            block(1, vec![], vec![], ArcTerminator::Resume),
+            block(2, vec![], vec![], ret(0)),
+        ],
+    );
+    let preds = crate::graph::compute_predecessors(&func);
+
+    // block 0: birth (+1, floor 0); block 1 (Resume): nothing — the class's
+    // sole owed reference is never released on this arm; block 2 (Return):
+    // consumed (-1, floor 1) so the Return arm alone nets 0.
+    let events = ClassEvents {
+        origin: Some(ClassOrigin::Fresh),
+        per_block: vec![
+            vec![ClassEvent {
+                site: EventSite::Body(0),
+                kind: EventKind::Birth,
+                var: Some(v(0)),
+                delta: 1,
+                floor: 0,
+            }],
+            vec![],
+            vec![ClassEvent {
+                site: EventSite::Terminator,
+                kind: EventKind::Consume,
+                var: Some(v(0)),
+                delta: -1,
+                floor: 1,
+            }],
+        ],
+    };
+
+    assert_eq!(
+        verify_class(&func, &preds, &events, &[]),
+        ClassVerdict::LeakOnly
+    );
+}
+
 // Loop shapes
 
 /// Same-class loop threading (jump-arg silent): no per-iteration ops; the
@@ -423,6 +478,61 @@ fn cyclic_nonzero_iteration_delta_declines_and_verifies_unprovable() {
         vec![(class, DeclineReason::MergeDisagree)]
     );
     assert!(planned_ops(&analysis).is_empty());
+}
+
+// Decline-path coverage (`emit::DeclineReason`)
+
+/// An over-owed class (a birth plus a placed credit, no consume) reaching
+/// the sole block's end with no live successor is a within-block release
+/// the emitter cannot place (`exit != 1`) — declined `UnplaceableRelease`,
+/// never silently planned; the verifier still walks the bare event stream
+/// and reports the leak honestly.
+#[test]
+fn over_owed_class_declines_unplaceable_release_and_verifies_leak() {
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            is_shared(1, 0),
+            ArcInstr::BurdenInc { var: v(0) },
+        ],
+        ret(1),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 0);
+    assert_eq!(
+        decline_for(&analysis, class),
+        DeclineReason::UnplaceableRelease
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::LeakOnly);
+    assert!(!analysis.readiness.all_classes_clean);
+}
+
+/// A borrowed-rooted class's CONSUME event with no resolvable member
+/// variable cannot be funded — `plan_incs` cannot emit the mandatory
+/// `BurdenInc` without a subject, so the class declines `UnresolvedOpVar`
+/// (fail-closed; never a wrong placement synthesized from a missing var).
+#[test]
+fn unresolved_consume_var_declines_unresolved_op_var() {
+    let func = one_block_func(1, vec![], ret(0));
+    let preds = crate::graph::compute_predecessors(&func);
+    let events = ClassEvents {
+        origin: Some(ClassOrigin::Borrowed),
+        per_block: vec![vec![ClassEvent {
+            site: EventSite::Body(0),
+            kind: EventKind::Consume,
+            var: None,
+            delta: -1,
+            floor: 1,
+        }]],
+    };
+    assert!(matches!(
+        super::emit::plan_class(&func, &preds, &events),
+        ClassOutcome::Declined(DeclineReason::UnresolvedOpVar)
+    ));
 }
 
 // Passthrough refund

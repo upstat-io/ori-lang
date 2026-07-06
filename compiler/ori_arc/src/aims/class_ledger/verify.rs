@@ -2,9 +2,10 @@
 //! per partition class over the class's event stream plus its planned ops.
 //!
 //! Gate order: non-convergence first, then merge disagreement, then the
-//! per-path running-count walk (every event floor satisfied, Return
-//! terminals net 0, Resume/Unreachable terminals net >= 0). Unwind edges
-//! run under the same rules — no special-casing.
+//! per-path running-count walk (every event floor satisfied; every terminal
+//! kind — Return, Resume, Unreachable — nets 0, matching the terminal-net
+//! check `balance_verdict_from_nets` applies uniformly across all three).
+//! Unwind edges run under the same rules — no special-casing.
 //! Spec: Annex E §AIMS RL-2 + RL-4 + RL-comp.
 
 use crate::aims::intraprocedural::birth_site_partition::NodeIdx;
@@ -18,11 +19,11 @@ use super::events::ClassEvents;
 /// Per-class verification verdict.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClassVerdict {
-    /// Every Return terminal nets 0; every Resume/Unreachable terminal nets
-    /// >= 0; the running owed count satisfies every event floor.
+    /// Every terminal — Return, Resume, Unreachable — nets 0; the running
+    /// owed count satisfies every event floor.
     Clean,
-    /// Some Return terminal nets > 0 (an unreleased reference); everything
-    /// else holds.
+    /// Some terminal (Return, Resume, or Unreachable) nets > 0 (an
+    /// unreleased reference); everything else holds.
     LeakOnly,
     /// Non-convergence, merge disagreement, a floor violation, a negative
     /// terminal net, or no reachable Return.
@@ -99,7 +100,9 @@ fn walk_paths(
                 }
             }
             ArcTerminator::Resume | ArcTerminator::Unreachable => {
-                if running < 0 {
+                if running > 0 {
+                    leak = true;
+                } else if running < 0 {
                     return ClassVerdict::Unprovable;
                 }
             }

@@ -118,14 +118,24 @@ impl BirthSitePartition {
     ///
     /// Class-level fact: stored at the class root, visible through every
     /// member. Re-recording the same site is a no-op; a DISTINCT site on a
-    /// class with a known one is an admission bug (debug-asserted).
+    /// class with a known one is an upstream admission bug — the write is
+    /// REFUSED release-active (the class keeps its original site; a flipped
+    /// site would launder two allocations into one class, the corruption
+    /// `samerep_birthsite_sound` forbids).
     pub(crate) fn set(&mut self, node: NodeIdx, site: BirthSiteId) {
         let root = self.find(node.0);
         let slot = &mut self.birth_site[root as usize];
-        debug_assert!(
-            slot.is_none() || *slot == Some(site),
-            "birth-site reassignment on a class with a distinct known site: {slot:?} vs {site:?}"
-        );
+        if let Some(existing) = *slot {
+            if existing != site {
+                tracing::warn!(
+                    target: "ori_arc::aims::intraprocedural",
+                    ?existing,
+                    ?site,
+                    "birth-site reassignment refused: class already carries a distinct known site"
+                );
+            }
+            return;
+        }
         *slot = Some(site);
     }
 
@@ -133,11 +143,13 @@ impl BirthSitePartition {
     /// Let-Var whole-var alias, a Project field-path composition, a Construct
     /// field funding, or a `ReturnAliasShape` contract alias. The edge KIND is
     /// the caller's classification; the partition records the edge. Two sides
-    /// carrying DISTINCT known birth sites is an admission bug
-    /// (debug-asserted); a single known birth site propagates onto the merged
-    /// class.
-    pub(crate) fn union_tier1(&mut self, a: NodeIdx, b: NodeIdx) {
-        self.union_roots(a, b);
+    /// carrying DISTINCT known birth sites is an upstream admission bug — the
+    /// union is REFUSED release-active and `false` is returned (the classes
+    /// stay separate: conservative under `samerep_birthsite_sound`, mirroring
+    /// [`Self::union_phi_witnessed`]'s refusal shape). A single known birth
+    /// site propagates onto the merged class.
+    pub(crate) fn union_tier1(&mut self, a: NodeIdx, b: NodeIdx) -> bool {
+        self.union_roots(a, b)
     }
 
     /// Admit a phi/Select merge ONLY under the singleton birth-site witness:
@@ -165,8 +177,7 @@ impl BirthSitePartition {
                 return false;
             }
         }
-        self.union_roots(merge_node, first_pred);
-        true
+        self.union_roots(merge_node, first_pred)
     }
 
     /// Mark `node`'s class as a COW boundary: a COW-mutating use of any
@@ -244,199 +255,36 @@ impl BirthSitePartition {
 
     /// Point `a`'s root at `b`'s root, merging the class facts: the known
     /// birth site (at most one side carries one under sound admission) and
-    /// the COW-boundary taint (tainted union anything = tainted).
-    fn union_roots(&mut self, a: NodeIdx, b: NodeIdx) {
+    /// the COW-boundary taint (tainted union anything = tainted). Distinct
+    /// known birth sites REFUSE release-active (returns `false`, nothing
+    /// changes): merging them would be exactly the cross-allocation
+    /// unification `samerep_birthsite_sound` proves never happens.
+    fn union_roots(&mut self, a: NodeIdx, b: NodeIdx) -> bool {
         let root_a = self.find(a.0);
         let root_b = self.find(b.0);
         if root_a == root_b {
-            return;
+            return true;
         }
         let site_a = self.birth_site[root_a as usize];
         let site_b = self.birth_site[root_b as usize];
-        debug_assert!(
-            !matches!((site_a, site_b), (Some(sa), Some(sb)) if sa != sb),
-            "union across classes with distinct known birth sites: {site_a:?} vs {site_b:?}"
-        );
+        if let (Some(sa), Some(sb)) = (site_a, site_b) {
+            if sa != sb {
+                tracing::warn!(
+                    target: "ori_arc::aims::intraprocedural",
+                    ?sa,
+                    ?sb,
+                    "tier-1 union refused: classes carry distinct known birth sites"
+                );
+                return false;
+            }
+        }
         let tainted = self.cow_boundary[root_a as usize] || self.cow_boundary[root_b as usize];
         self.parent[root_a as usize] = root_b;
         self.birth_site[root_b as usize] = site_b.or(site_a);
         self.cow_boundary[root_b as usize] = tainted;
+        true
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Intern a whole-variable node for the raw var index.
-    fn whole(partition: &mut BirthSitePartition, var: u32) -> NodeIdx {
-        partition.register_node(ArcVarId::new(var), FieldPath::whole_var())
-    }
-
-    /// Mirrors `AimsProof.Partition::T1_items_view_unified` +
-    /// `T1_agg_class_holds_no_field`: tier-1 view/alias edges unify within a
-    /// class, propagate the known birth site in either union direction, and
-    /// never leak across classes.
-    #[test]
-    fn tier1_view_edge_unifies_and_classes_stay_disjoint() {
-        let mut partition = BirthSitePartition::new();
-        let items_ctor = whole(&mut partition, 10);
-        let items_view = whole(&mut partition, 11);
-        let extra_view = whole(&mut partition, 13);
-        let agg_root = whole(&mut partition, 30);
-        let agg_alias = whole(&mut partition, 31);
-        partition.set(items_ctor, BirthSiteId::new(100));
-        partition.set(agg_root, BirthSiteId::new(300));
-
-        partition.union_tier1(items_view, items_ctor);
-        partition.union_tier1(agg_alias, agg_root);
-        // Known-site side as the FIRST union argument.
-        partition.union_tier1(items_ctor, extra_view);
-
-        assert!(partition.same_rep(items_view, items_ctor));
-        assert!(partition.same_rep(extra_view, items_view));
-        assert!(partition.same_rep(agg_alias, agg_root));
-        assert_eq!(partition.site(items_view), Some(BirthSiteId::new(100)));
-        assert_eq!(partition.site(extra_view), Some(BirthSiteId::new(100)));
-        assert_eq!(partition.site(agg_alias), Some(BirthSiteId::new(300)));
-        assert!(!partition.same_rep(agg_root, items_ctor));
-    }
-
-    /// Mirrors `T1_items_header_unified_across_backedge`: a loop-header field
-    /// fed the SAME loop-invariant allocation on the entry and latch
-    /// (back-edge) predecessors carries the singleton witness, is admitted,
-    /// and joins the birth class.
-    #[test]
-    fn loop_invariant_merge_admitted_under_singleton_witness() {
-        let mut partition = BirthSitePartition::new();
-        let items_ctor = whole(&mut partition, 10);
-        let items_view = whole(&mut partition, 11);
-        let items_hdr = whole(&mut partition, 12);
-        partition.set(items_ctor, BirthSiteId::new(100));
-        partition.union_tier1(items_view, items_ctor);
-
-        // Entry and latch predecessors both resolve to the items class.
-        assert!(partition.union_phi_witnessed(items_hdr, &[items_view, items_view]));
-
-        assert!(partition.same_rep(items_hdr, items_ctor));
-        assert_eq!(partition.site(items_hdr), Some(BirthSiteId::new(100)));
-    }
-
-    /// Mirrors `T1_backedge_keeps_distinct_from_entry` / `_latch` +
-    /// `T1_distinct_label_allocs_not_unified`: a merge fed TWO distinct birth
-    /// sites (per-iteration re-allocation across the back-edge) has no
-    /// singleton witness; the refusal changes nothing and the merge node
-    /// keeps its own representative.
-    #[test]
-    fn loop_varying_merge_refused_over_distinct_birth_sites() {
-        let mut partition = BirthSitePartition::new();
-        let label_b0 = whole(&mut partition, 20);
-        let label_b1 = whole(&mut partition, 21);
-        let label_hdr = whole(&mut partition, 22);
-        partition.set(label_b0, BirthSiteId::new(200));
-        partition.set(label_b1, BirthSiteId::new(201));
-
-        assert!(!partition.union_phi_witnessed(label_hdr, &[label_b0, label_b1]));
-
-        assert!(!partition.same_rep(label_hdr, label_b0));
-        assert!(!partition.same_rep(label_hdr, label_b1));
-        assert!(!partition.same_rep(label_b0, label_b1));
-        assert_eq!(partition.rep_of(label_hdr), label_hdr);
-        assert_eq!(partition.site(label_hdr), None);
-    }
-
-    /// Distinct field paths of ONE variable intern to distinct nodes and stay
-    /// distinct classes absent an admitted edge.
-    #[test]
-    fn distinct_fields_of_one_var_are_distinct_classes() {
-        let mut partition = BirthSitePartition::new();
-        let agg = ArcVarId::new(0);
-        let items_field = partition.register_node(agg, FieldPath::single(0));
-        let label_field = partition.register_node(agg, FieldPath::single(1));
-        let whole_agg = partition.register_node(agg, FieldPath::whole_var());
-
-        assert_ne!(items_field, label_field);
-        assert!(!partition.same_rep(items_field, label_field));
-        assert!(!partition.same_rep(whole_agg, items_field));
-        assert!(!partition.same_rep(whole_agg, label_field));
-        assert_eq!(partition.len(), 3);
-    }
-
-    /// An UNKNOWN predecessor birth site is no witness: the merge refuses
-    /// conservatively in every predecessor position, and nothing changes.
-    #[test]
-    fn unknown_birth_site_pred_refuses_phi_witness() {
-        let mut partition = BirthSitePartition::new();
-        let known = whole(&mut partition, 20);
-        let unknown = whole(&mut partition, 21);
-        let merge = whole(&mut partition, 22);
-        partition.set(known, BirthSiteId::new(200));
-
-        assert!(!partition.union_phi_witnessed(merge, &[known, unknown]));
-        assert!(!partition.union_phi_witnessed(merge, &[unknown, known]));
-        assert!(!partition.union_phi_witnessed(merge, &[unknown]));
-        assert!(!partition.union_phi_witnessed(merge, &[]));
-
-        assert!(!partition.same_rep(merge, known));
-        assert!(!partition.same_rep(merge, unknown));
-        assert_eq!(partition.site(merge), None);
-    }
-
-    /// A COW boundary taints the CLASS: the taint survives a later tier-1
-    /// union in either argument direction; other classes stay untainted.
-    #[test]
-    fn cow_taint_survives_tier1_union_in_either_direction() {
-        let mut partition = BirthSitePartition::new();
-        let tainted_lhs = whole(&mut partition, 1);
-        let clean_rhs = whole(&mut partition, 2);
-        let clean_lhs = whole(&mut partition, 3);
-        let tainted_rhs = whole(&mut partition, 4);
-        let bystander = whole(&mut partition, 5);
-
-        partition.mark_cow_boundary(tainted_lhs);
-        assert!(partition.is_cow_boundary(tainted_lhs));
-        partition.union_tier1(tainted_lhs, clean_rhs);
-        assert!(partition.is_cow_boundary(clean_rhs));
-
-        partition.mark_cow_boundary(tainted_rhs);
-        partition.union_tier1(clean_lhs, tainted_rhs);
-        assert!(partition.is_cow_boundary(clean_lhs));
-
-        assert!(!partition.is_cow_boundary(bystander));
-    }
-
-    /// `a.b` extended by `.c` equals the hop-by-hop `[b, c]` path; equal
-    /// paths hash equal and intern to ONE node.
-    #[test]
-    fn multi_hop_field_path_composition_interns_to_one_node() {
-        let composed = FieldPath::single(3).extended(7);
-        let mut pushed = FieldPath::single(3);
-        pushed.push(7);
-        let from_whole = FieldPath::whole_var().extended(3).extended(7);
-        assert_eq!(composed, pushed);
-        assert_eq!(composed, from_whole);
-        assert_ne!(composed, FieldPath::single(3));
-
-        let mut partition = BirthSitePartition::new();
-        let var = ArcVarId::new(9);
-        let first = partition.register_node(var, composed);
-        let second = partition.register_node(var, pushed);
-        assert_eq!(first, second);
-        assert_eq!(partition.len(), 1);
-    }
-
-    /// `register_node` is an idempotent intern: re-registration returns the
-    /// same index and allocates no second node.
-    #[test]
-    fn register_node_is_idempotent() {
-        let mut partition = BirthSitePartition::new();
-        assert!(partition.is_empty());
-
-        let first = partition.register_node(ArcVarId::new(4), FieldPath::single(2));
-        let second = partition.register_node(ArcVarId::new(4), FieldPath::single(2));
-
-        assert_eq!(first, second);
-        assert_eq!(partition.len(), 1);
-        assert!(!partition.is_empty());
-    }
-}
+mod tests;
