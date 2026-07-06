@@ -1258,3 +1258,124 @@ fn wrapped_combined_tie_break_removes_the_first_proven_inc() {
         "the smallest (block, instr_idx) proven inc is the canonical removal"
     );
 }
+
+// Adversarial convergence pins — the promoted verify core MUST fail closed
+// on a cyclic lineage whose per-iteration class delta is non-zero (the
+// loop-header entry net is genuinely ill-defined: it depends on the runtime
+// iteration count). The gate ordering under pin: `classify_model` consults
+// `compute_burden_entry_nets`'s `converged` signal FIRST, then
+// `disagree_blocks`, BEFORE any per-path leak/negative verdict — a future
+// refactor dropping either gate would let a stale net read as `Clean`.
+
+use super::model::{BlockEvents, Event, LineageModel};
+use super::verify::{classify_model, Change, NetVerdict};
+
+/// b0 (pre-header) -> b1 (loop header) -> {b2 (body tail) -> b1 back-edge,
+/// b3 Return}. `body_delta` is the per-iteration class delta carried by b2.
+fn cyclic_lineage_func(num_vars: u32) -> (ArcFunction, Vec<Vec<usize>>) {
+    let ty = Idx::from_raw(0);
+    let func = ArcFunction {
+        var_types: (0..num_vars).map(|_| ty).collect(),
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![construct_list(v(0))],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            },
+        ],
+        ..Default::default()
+    };
+    let preds = vec![vec![], vec![0, 2], vec![1], vec![1]];
+    (func, preds)
+}
+
+/// The model over the cyclic CFG: the lineage births in b0 (+1), the body
+/// tail carries `body_delta` per iteration, the exit block consumes (-1).
+fn cyclic_model(body_delta: i64) -> LineageModel {
+    let inc = Event {
+        alive: false,
+        delta: body_delta,
+    };
+    LineageModel {
+        events: vec![
+            BlockEvents {
+                entry_credit: 0,
+                body: vec![Event {
+                    alive: false,
+                    delta: 1,
+                }],
+                term: vec![],
+            },
+            BlockEvents::default(),
+            BlockEvents {
+                entry_credit: 0,
+                body: if body_delta == 0 { vec![] } else { vec![inc] },
+                term: vec![],
+            },
+            BlockEvents {
+                entry_credit: 0,
+                body: vec![],
+                term: vec![Event {
+                    alive: true,
+                    delta: -1,
+                }],
+            },
+        ],
+        fresh_site_incs: vec![],
+        read_blocks: FxHashMap::default(),
+    }
+}
+
+/// The exact non-convergence shape: a back-edge whose per-iteration class
+/// delta is NON-ZERO makes the loop-header entry net a function of the
+/// runtime iteration count. The promoted verify core MUST report the
+/// fail-closed non-Clean verdict — never a false `Clean` from a stale or
+/// frozen-on-disagree net.
+#[test]
+fn cyclic_nonzero_iteration_delta_classifies_unprovable_never_clean() {
+    let (func, preds) = cyclic_lineage_func(2);
+    let model = cyclic_model(1);
+    let verdict = classify_model(&func, &preds, &model, Change::default());
+    assert_eq!(verdict, NetVerdict::Unprovable);
+}
+
+/// Positive control (the pin's discriminator): the SAME CFG with a ZERO
+/// per-iteration delta converges — every path nets 0 and the verdict is
+/// `Clean`. Proves the adversarial pin fails on the cyclic non-convergence
+/// specifically, not on cyclic CFGs at large.
+#[test]
+fn cyclic_zero_iteration_delta_classifies_clean() {
+    let (func, preds) = cyclic_lineage_func(2);
+    let model = cyclic_model(0);
+    let verdict = classify_model(&func, &preds, &model, Change::default());
+    assert_eq!(verdict, NetVerdict::Clean);
+}
