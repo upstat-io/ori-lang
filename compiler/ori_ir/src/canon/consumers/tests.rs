@@ -73,6 +73,45 @@ fn interpreter_reads_decision_trees_but_not_the_resolved_type_pool() {
 }
 
 #[test]
+fn arc_lowering_reads_all_three_pools() {
+    let arc = entry_for("ori_arc").unwrap_or_else(|| panic!("ori_arc must be registered"));
+    match arc.pool_access {
+        PoolAccess::MeaningConsumer(pools) => {
+            for pool in [
+                CanonPool::CanExpr,
+                CanonPool::DecisionTreePool,
+                CanonPool::ResolvedTypePool,
+            ] {
+                assert!(pools.contains(&pool), "ori_arc must read {pool:?}");
+            }
+        }
+        other => panic!("ori_arc must be a MeaningConsumer, got {other:?}"),
+    }
+}
+
+#[test]
+fn llvm_backend_reads_only_the_resolved_type_pool() {
+    let llvm = entry_for("ori_llvm").unwrap_or_else(|| panic!("ori_llvm must be registered"));
+    match llvm.pool_access {
+        PoolAccess::MeaningConsumer(pools) => {
+            assert!(
+                pools.contains(&CanonPool::ResolvedTypePool),
+                "ori_llvm must read the resolved type pool for layout/codegen"
+            );
+            assert!(
+                !pools.contains(&CanonPool::CanExpr),
+                "ori_llvm delegates the CanExpr walk to ARC and must NOT read CanExpr directly"
+            );
+            assert!(
+                !pools.contains(&CanonPool::DecisionTreePool),
+                "ori_llvm delegates the decision-tree walk to ARC and must NOT read it directly"
+            );
+        }
+        other => panic!("ori_llvm must be a MeaningConsumer, got {other:?}"),
+    }
+}
+
+#[test]
 fn id_only_importers_are_not_meaning_consumers() {
     for crate_name in ["ori_types", "ori_patterns"] {
         let entry =

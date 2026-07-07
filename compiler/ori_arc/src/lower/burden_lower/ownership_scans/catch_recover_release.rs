@@ -671,3 +671,6 @@ fn catch_recover_root_def_block(func: &ArcFunction, root: ArcVarId) -> usize {
     }
     func.entry.index()
 }
+
+#[cfg(test)]
+mod tests;

@@ -77,9 +77,12 @@ pub struct ConsumerEntry {
 /// import a canon id/handle as a bare index/key.
 ///
 /// An id-only importer is REGISTERED with the `IdOnlyImporter` shape, never
-/// silently omitted: every crate carrying an `ori_ir::canon` dependency edge
-/// appears here with its shape named, so a bare-handle importer is a deliberate,
-/// auditable classification rather than an untracked gap in the consumer set.
+/// silently omitted: a crate that imports a canon id/handle names its shape here
+/// rather than passing unclassified, so the id-only category is a deliberate,
+/// auditable decision. Canon PRODUCERS (`ori_canon`, which constructs the pools)
+/// hold an `ori_ir::canon` edge but consume no meaning, so they are correctly
+/// absent — the list is the curated meaning-consumer + id-only-importer set, not
+/// every crate with a canon edge.
 pub const CANON_CONSUMERS: &[ConsumerEntry] = &[
     // Interpreter tree-walks CanExpr (via CanId) and the compiled decision
     // trees; it has no dependency on the type checker, so it reads no resolved

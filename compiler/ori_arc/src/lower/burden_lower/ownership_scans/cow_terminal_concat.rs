@@ -121,3 +121,6 @@ pub(in crate::lower::burden_lower) fn compute_cow_terminal_concat_inc_dsts(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

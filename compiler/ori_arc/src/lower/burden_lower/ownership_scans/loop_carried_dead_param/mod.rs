@@ -423,3 +423,6 @@ fn grow_lineage(
     }
     members
 }
+
+#[cfg(test)]
+mod tests;
