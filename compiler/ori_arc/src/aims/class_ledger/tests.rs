@@ -1532,3 +1532,51 @@ fn select_of_real_allocations_funds_the_selected_reference() {
     }
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// A cross-class credit entering a loop-THREADED class releases at the
+/// CYCLE EXIT, never inside the loop: a header-front dec would fire again
+/// on every back-edge re-entry (double-free), so the credited reference
+/// stays live through the cycle and dies at the single-pred exit block.
+#[test]
+fn loop_threaded_credit_releases_at_the_cycle_exit() {
+    // %0: owned param (no birth site) -> jump bb1(%0) is a CROSS-CLASS
+    // credit into the refused merge param %1.
+    // bb1(%1): Branch %4 ? bb2 : bb3
+    // bb2: jump bb1(%1)               (back-edge, same-class silent)
+    // bb3: Return %5 (scalar)         (single-pred cycle exit)
+    let mut func = func_with_blocks(
+        6,
+        vec![
+            block(0, vec![], vec![], jump(1, vec![0])),
+            block(1, vec![1], vec![], branch(4, 2, 3)),
+            block(2, vec![], vec![], jump(1, vec![1])),
+            block(3, vec![], vec![], ArcTerminator::Return { value: v(5) }),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Owned,
+    }];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    state_map.set_permanent_scalar(v(5));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let threaded = class_rep(&mut partition, 1);
+    assert_eq!(verdict_for(&analysis, threaded), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, threaded);
+    assert_eq!(ops.len(), 1, "one exit release: {ops:?}");
+    assert!(
+        matches!(
+            ops[0],
+            PlannedOp {
+                slot: PlanSlot::BlockFront { block: 3 },
+                kind: PlannedOpKind::Dec,
+                ..
+            }
+        ),
+        "front dec at the cycle exit: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}

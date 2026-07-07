@@ -153,6 +153,7 @@ pub(crate) fn plan_class(
     }
     let plan_error = plan_releases(
         func,
+        preds,
         events,
         &activity_live,
         &nets.entry_net,
@@ -211,6 +212,53 @@ fn block_in_cycle(func: &ArcFunction, block: usize) -> bool {
         stack.extend_from_slice(&successors_of(func, next));
     }
     false
+}
+
+/// The exit frontier of the cycle region containing `block`: every
+/// successor OUTSIDE the region of a block INSIDE it. The region = blocks
+/// mutually reachable with `block` (its strongly-connected component).
+fn cycle_exit_frontier(func: &ArcFunction, block: usize) -> Vec<usize> {
+    let forward = reachable_set(func, block);
+    let mut exits = Vec::new();
+    for (member, _) in func.blocks.iter().enumerate() {
+        let in_scc = forward[member]
+            && reachable_set(func, member)
+                .get(block)
+                .copied()
+                .unwrap_or(false);
+        let in_scc = in_scc || member == block;
+        if !in_scc {
+            continue;
+        }
+        for succ in successors_of(func, member) {
+            let succ_in_scc = (forward.get(succ).copied().unwrap_or(false)
+                && reachable_set(func, succ)
+                    .get(block)
+                    .copied()
+                    .unwrap_or(false))
+                || succ == block;
+            if !succ_in_scc && !exits.contains(&succ) {
+                exits.push(succ);
+            }
+        }
+    }
+    exits.sort_unstable();
+    exits
+}
+
+/// Blocks reachable from `block` via successor edges (excluding `block`
+/// itself unless a cycle returns to it).
+fn reachable_set(func: &ArcFunction, block: usize) -> Vec<bool> {
+    let mut visited = vec![false; func.blocks.len()];
+    let mut stack: Vec<usize> = successors_of(func, block);
+    while let Some(next) = stack.pop() {
+        if next >= visited.len() || visited[next] {
+            continue;
+        }
+        visited[next] = true;
+        stack.extend_from_slice(&successors_of(func, next));
+    }
+    visited
 }
 
 /// Whether the class's events are exclusively births — no demand (Read /
@@ -273,8 +321,13 @@ fn plan_dead_class_releases(
 /// pre-release entry nets: per-edge (RL-4) releases for dead successors of
 /// live-out blocks; within-block (RL-2 / RL-5) releases after the class's
 /// last event where no successor is live.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "release planning consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_class computed'"
+)]
 fn plan_releases(
     func: &ArcFunction,
+    preds: &[Vec<usize>],
     events: &ClassEvents,
     activity_live: &[bool],
     entry_net: &[Option<i64>],
@@ -329,7 +382,7 @@ fn plan_releases(
         if block_live_out {
             plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
         } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(func, events, block, *entry, dom, ops, &mut fronts)?;
+            plan_block_release(func, preds, events, block, *entry, dom, ops, &mut fronts)?;
         }
     }
     Ok(())
@@ -515,8 +568,13 @@ fn plan_edge_releases(
 /// front when the class has no pre-terminator use here (RL-5
 /// dead-at-entry); at every successor's front when a terminator-site READ
 /// is the last use (the release must follow the terminator).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "block-release placement consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_releases holds'"
+)]
 fn plan_block_release(
     func: &ArcFunction,
+    preds: &[Vec<usize>],
     events: &ClassEvents,
     block: usize,
     entry: i64,
@@ -573,7 +631,21 @@ fn plan_block_release(
         if residue + edge_credits != 1 {
             return Err(DeclineReason::UnplaceableRelease);
         }
-        return push_front_dec(events, block, successor, ops, fronts);
+        if !block_in_cycle(func, successor) {
+            return push_front_dec(events, block, successor, ops, fronts);
+        }
+        // The credited reference enters a CYCLE (a loop-threaded class): a
+        // header-front dec would fire again on every back-edge re-entry.
+        // The reference stays live through the cycle and dies on the exit
+        // frontier — a front dec at each single-pred exit block (exactly
+        // one exit executes per path).
+        for exit in cycle_exit_frontier(func, successor) {
+            if preds.get(exit).is_none_or(|p| p.len() != 1) {
+                return Err(DeclineReason::UnplaceableRelease);
+            }
+            push_front_dec(events, block, exit, ops, fronts)?;
+        }
+        return Ok(());
     }
     if residue == 0 {
         return Ok(());
