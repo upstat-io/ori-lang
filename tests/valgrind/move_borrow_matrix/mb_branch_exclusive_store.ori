@@ -1,0 +1,24 @@
+// Move/borrow matrix: MB10 — branch-exclusive store with a borrowing sibling arm.
+// A fresh local collection is stored into a container on exactly ONE branch; the
+// sibling branch only borrow-reads it, then the paths merge at the function return.
+// Verifies the funded duplicate dying on the non-consuming edge gets its per-edge
+// release — no leak on the borrowing path, no double-free on the storing path.
+
+type Holder = { kept: [int] }
+
+@store_one (flag: bool) -> int = {
+    let base = [1, 2, 3];
+    if flag then {
+        let h = Holder { kept: base };
+        h.kept.length()
+    } else {
+        base.length() + 10
+    }
+}
+
+@main () -> int = {
+    let a = store_one(flag: true);
+    let b = store_one(flag: false);
+
+    if a == 3 && b == 13 then 0 else 1
+}
