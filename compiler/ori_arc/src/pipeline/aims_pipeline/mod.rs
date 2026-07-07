@@ -71,7 +71,7 @@ pub(crate) fn trace_pipeline_checkpoint(
     observer: Option<&CheckpointObserver<'_>>,
 ) {
     // Early exit when the pipeline target is disabled — avoids the cost of
-    // count_rc_opsand string lookup when tracing is off.
+    // count_rc_ops and string lookup when tracing is off.
     if tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
         let fn_name = interner.lookup(func.name);
         let rc = rc_count::count_rc_ops(func);

@@ -2,6 +2,9 @@
 //! classifier's per-block streams — the placement-ready view the emitter
 //! and the per-class verifier consume.
 
+mod liveness;
+mod resolve;
+
 use rustc_hash::FxHashSet;
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
@@ -10,6 +13,9 @@ use crate::aims::intraprocedural::ledger_events::{
 };
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
+
+pub(crate) use liveness::{live_from, live_from_forward, live_out, live_out_forward};
+use resolve::resolve_event_var;
 
 /// Event vocabulary of one class-resolved instruction, placement-ready.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,7 +182,7 @@ fn class_threads_back_edge(
     class: NodeIdx,
 ) -> bool {
     let dom = crate::graph::DominatorTree::build(func);
-    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+    for arc_block in &func.blocks {
         let ArcTerminator::Jump { target, args } = &arc_block.terminator else {
             continue;
         };
@@ -186,7 +192,6 @@ fn class_threads_back_edge(
         if !dom.dominates(target_block.id, arc_block.id) {
             continue;
         }
-        let _ = block_idx;
         for (&arg, &(param, _)) in args.iter().zip(target_block.params.iter()) {
             let arg_node = partition.register_node(arg, FieldPath::whole_var());
             let param_node = partition.register_node(param, FieldPath::whole_var());
@@ -308,180 +313,4 @@ pub(crate) fn event_blocks(events: &ClassEvents, demand_only: bool) -> Vec<bool>
             })
         })
         .collect()
-}
-
-/// Backward closure: `true` at `b` iff `seed[b]` or any block reachable
-/// from `b` is seeded. Monotone boolean fixpoint (at most `n` rounds).
-pub(crate) fn live_from(func: &ArcFunction, seed: &[bool]) -> Vec<bool> {
-    live_from_with(func, seed, |_, _| true)
-}
-
-/// [`live_from`] restricted to FORWARD edges: propagation skips back-edges
-/// (a successor that dominates its block). A back-edge suffix is the NEXT
-/// iteration's events, not continued use of the current reference — funding
-/// decisions must not read it as later demand.
-pub(crate) fn live_from_forward(
-    func: &ArcFunction,
-    seed: &[bool],
-    dom: &crate::graph::DominatorTree,
-) -> Vec<bool> {
-    live_from_with(func, seed, |block, successor| {
-        let (Some(from), Some(to)) = (func.blocks.get(block), func.blocks.get(successor)) else {
-            return false;
-        };
-        !dom.dominates(to.id, from.id)
-    })
-}
-
-/// Shared fixpoint over successor edges admitted by `edge_ok(block, succ)`.
-fn live_from_with(
-    func: &ArcFunction,
-    seed: &[bool],
-    edge_ok: impl Fn(usize, usize) -> bool,
-) -> Vec<bool> {
-    let mut live = seed.to_vec();
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block in 0..live.len() {
-            if live[block] {
-                continue;
-            }
-            if successors_of(func, block)
-                .iter()
-                .any(|&s| live[s] && edge_ok(block, s))
-            {
-                live[block] = true;
-                changed = true;
-            }
-        }
-    }
-    live
-}
-
-/// Whether any successor of `block` is live.
-pub(crate) fn live_out(func: &ArcFunction, block: usize, live: &[bool]) -> bool {
-    successors_of(func, block)
-        .iter()
-        .any(|&s| live.get(s).copied().unwrap_or(false))
-}
-
-/// [`live_out`] restricted to FORWARD out-edges: a back-edge continuation
-/// (successor dominates the block) is the next iteration, never continued
-/// use of the current reference.
-pub(crate) fn live_out_forward(
-    func: &ArcFunction,
-    block: usize,
-    live: &[bool],
-    dom: &crate::graph::DominatorTree,
-) -> bool {
-    successors_of(func, block).iter().any(|&s| {
-        live.get(s).copied().unwrap_or(false)
-            && match (func.blocks.get(block), func.blocks.get(s)) {
-                (Some(from), Some(to)) => !dom.dominates(to.id, from.id),
-                _ => false,
-            }
-    })
-}
-
-/// Resolve the member variable an event names. Reads and mutates carry it;
-/// every other kind resolves through the source instruction's variables
-/// (operands first for a consume — the handed-off reference — destination
-/// first otherwise).
-fn resolve_event_var(
-    func: &ArcFunction,
-    partition: &mut BirthSitePartition,
-    class: NodeIdx,
-    block: usize,
-    site: EventSite,
-    instr: &ClassInstr,
-) -> Option<ArcVarId> {
-    if let ClassInstr::Read { value, .. }
-    | ClassInstr::Mutate { value, .. }
-    | ClassInstr::SelectCredit { var: value, .. } = *instr
-    {
-        return Some(value);
-    }
-    let consume = matches!(instr, ClassInstr::Consume { .. });
-    let candidates = match site {
-        EventSite::BlockEntry => block_entry_candidates(func, block),
-        EventSite::Body(index) => body_candidates(func, block, index, consume),
-        EventSite::Terminator => terminator_candidates(func, block, instr),
-    };
-    candidates
-        .into_iter()
-        .find(|&var| is_member(partition, var, class))
-}
-
-/// Whether `var`'s whole-variable node belongs to `class`.
-fn is_member(partition: &mut BirthSitePartition, var: ArcVarId, class: NodeIdx) -> bool {
-    let node = partition.register_node(var, FieldPath::whole_var());
-    partition.rep_of(node) == class
-}
-
-/// Candidate vars at a block-entry site: function params (entry block),
-/// this block's params, and every `Invoke`/`InvokeIndirect` result
-/// materialized at this block's entry (its normal successor).
-fn block_entry_candidates(func: &ArcFunction, block: usize) -> Vec<ArcVarId> {
-    let mut candidates: Vec<ArcVarId> = Vec::new();
-    if block == func.entry.index() {
-        candidates.extend(func.params.iter().map(|p| p.var));
-    }
-    if let Some(arc_block) = func.blocks.get(block) {
-        candidates.extend(arc_block.params.iter().map(|&(param, _)| param));
-    }
-    for pred_block in &func.blocks {
-        if let ArcTerminator::Invoke { dst, normal, .. }
-        | ArcTerminator::InvokeIndirect { dst, normal, .. } = &pred_block.terminator
-        {
-            if normal.index() == block {
-                candidates.push(*dst);
-            }
-        }
-    }
-    candidates
-}
-
-/// Candidate vars at a body site.
-fn body_candidates(func: &ArcFunction, block: usize, index: usize, consume: bool) -> Vec<ArcVarId> {
-    let Some(instr) = func
-        .blocks
-        .get(block)
-        .and_then(|arc_block| arc_block.body.get(index))
-    else {
-        return Vec::new();
-    };
-    let defined: Vec<ArcVarId> = instr.defined_var().into_iter().collect();
-    let used: Vec<ArcVarId> = instr.used_vars().into_iter().collect();
-    if consume {
-        used.into_iter().chain(defined).collect()
-    } else {
-        defined.into_iter().chain(used).collect()
-    }
-}
-
-/// Candidate vars at a terminator site. A cross-class Jump CREDIT names the
-/// target block's param; an Invoke result birth/credit names the
-/// destination; everything else names the terminator's own operand vars.
-fn terminator_candidates(func: &ArcFunction, block: usize, instr: &ClassInstr) -> Vec<ArcVarId> {
-    let Some(arc_block) = func.blocks.get(block) else {
-        return Vec::new();
-    };
-    let terminator = &arc_block.terminator;
-    let mut candidates: Vec<ArcVarId> = Vec::new();
-    if matches!(instr, ClassInstr::Credit { .. } | ClassInstr::Birth { .. }) {
-        match terminator {
-            ArcTerminator::Jump { target, .. } => {
-                if let Some(target_block) = func.blocks.get(target.index()) {
-                    candidates.extend(target_block.params.iter().map(|&(param, _)| param));
-                }
-            }
-            ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
-                candidates.push(*dst);
-            }
-            _ => {}
-        }
-    }
-    candidates.extend(terminator.used_vars());
-    candidates
 }

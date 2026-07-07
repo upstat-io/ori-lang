@@ -14,23 +14,174 @@
 //! origin attribution. Placement is the emitter's job — this module mutates
 //! nothing and emits no burden ops.
 
+mod dispatch;
 mod types;
 
-#[cfg(test)]
-pub(crate) use types::TerminalUse;
-pub(crate) use types::{
-    BoundaryFacts, ClassInstr, ClassOrigin, EventSite, LedgerClassification, LedgerEvent,
-};
-
-use rustc_hash::FxHashMap;
-
 use ori_ir::Name;
+use rustc_hash::FxHashMap;
 
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 use crate::ownership::Ownership;
 
 use super::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
 use super::state_map::AimsStateMap;
+#[cfg(test)]
+pub(crate) use types::TerminalUse;
+pub(crate) use types::{
+    BoundaryFacts, ClassInstr, ClassOrigin, EventSite, LedgerClassification, LedgerEvent,
+};
+
+/// The per-function classification walk state.
+struct Classifier<'a> {
+    state_map: &'a AimsStateMap,
+    partition: &'a mut BirthSitePartition,
+    boundary_facts: &'a FxHashMap<Name, BoundaryFacts>,
+    out: LedgerClassification,
+    /// `Invoke`/`InvokeIndirect` result events routed to their NORMAL
+    /// successor's block entry (pre-recorded by
+    /// `record_invoke_result_entries`; drained by the block walk).
+    pending_entry: FxHashMap<usize, Vec<ClassInstr>>,
+    /// Vars defined by NON-string literals under a heap repr — placeholders
+    /// (the iterator-protocol `%n: [T] = 0` shape), never allocations; no
+    /// event attaches to them.
+    placeholders: rustc_hash::FxHashSet<ArcVarId>,
+}
+
+impl Classifier<'_> {
+    /// The class representative of `var`'s whole-variable node.
+    fn rep(&mut self, var: ArcVarId) -> NodeIdx {
+        let node = self.partition.register_node(var, FieldPath::whole_var());
+        self.partition.rep_of(node)
+    }
+
+    fn excluded(&self, var: ArcVarId) -> bool {
+        self.state_map.is_excluded(var) || self.placeholders.contains(&var)
+    }
+
+    fn birth(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId, origin: ClassOrigin) {
+        let instr = self.birth_instr(var, origin);
+        stream.push(instr);
+    }
+
+    /// Build a birth event and record the class origin.
+    fn birth_instr(&mut self, var: ArcVarId, origin: ClassOrigin) -> ClassInstr {
+        let class = self.rep(var);
+        self.out.class_origins.insert(class, origin);
+        ClassInstr::Birth { class, origin }
+    }
+
+    /// Pre-record every `Invoke`/`InvokeIndirect` RESULT event at its NORMAL
+    /// successor's block entry: the result materializes only when the call
+    /// returns, so the unwind path never inherits an owed count for it
+    /// (PV-4: the boundary credit lands where the return lands).
+    fn record_invoke_result_entries(&mut self, func: &ArcFunction) {
+        for arc_block in &func.blocks {
+            let (event, normal) = match &arc_block.terminator {
+                ArcTerminator::Invoke {
+                    dst,
+                    func: callee,
+                    normal,
+                    ..
+                } => (self.call_result_event(*dst, Some(*callee)), normal.index()),
+                ArcTerminator::InvokeIndirect { dst, normal, .. } => {
+                    (self.call_result_event(*dst, None), normal.index())
+                }
+                _ => continue,
+            };
+            if let Some(event) = event {
+                self.pending_entry.entry(normal).or_default().push(event);
+            }
+        }
+    }
+
+    fn consume(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId) {
+        let class = self.rep(var);
+        stream.push(ClassInstr::Consume { class });
+    }
+
+    fn read(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId) {
+        let class = self.rep(var);
+        stream.push(ClassInstr::Read { class, value: var });
+    }
+
+    /// A fresh allocation site: the destination births FRESH and every
+    /// non-excluded argument hands its reference into the allocation (a
+    /// transfer terminal use — `ConstructArg` / `ReuseArg` /
+    /// `CollectionReuseArg` / `PartialApplyCapture` all transfer per the
+    /// committed table).
+    fn classify_fresh_alloc(
+        &mut self,
+        stream: &mut Vec<ClassInstr>,
+        dst: ArcVarId,
+        args: &[ArcVarId],
+    ) {
+        if !self.excluded(dst) {
+            self.birth(stream, dst, ClassOrigin::Fresh);
+        }
+        for &arg in args {
+            if !self.excluded(arg) {
+                self.consume(stream, arg);
+            }
+        }
+    }
+
+    /// A COW-mutating use of `base`'s class.
+    fn mutate(&mut self, stream: &mut Vec<ClassInstr>, base: ArcVarId) {
+        if self.excluded(base) {
+            return;
+        }
+        let class = self.rep(base);
+        stream.push(ClassInstr::Mutate { class, value: base });
+    }
+
+    /// Attribute MERGE origin to every multi-predecessor block param whose
+    /// class the population pass REFUSED to unify (cross-class per edge; the
+    /// class is funded by per-edge credits, never a birth event).
+    fn record_merge_origins(&mut self, func: &ArcFunction) {
+        let mut incoming: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+        for arc_block in &func.blocks {
+            let ArcTerminator::Jump { target, args } = &arc_block.terminator else {
+                continue;
+            };
+            let Some(target_block) = func.blocks.get(target.index()) else {
+                continue;
+            };
+            for (&arg, &(param, _)) in args.iter().zip(target_block.params.iter()) {
+                incoming.entry(param).or_default().push(arg);
+            }
+        }
+        for (param, args) in incoming {
+            if self.excluded(param) || args.len() < 2 {
+                continue;
+            }
+            let param_class = self.rep(param);
+            let unified = args.iter().any(|&arg| {
+                let arg_class = self.rep(arg);
+                arg_class == param_class
+            });
+            if !unified {
+                self.out
+                    .class_origins
+                    .insert(param_class, ClassOrigin::Merge);
+            }
+        }
+    }
+
+    /// Function params birth their classes: Owned = FOREIGN, Borrowed =
+    /// BORROWED.
+    fn classify_params(&mut self, func: &ArcFunction, stream: &mut Vec<ClassInstr>) {
+        for param in &func.params {
+            if self.excluded(param.var) {
+                continue;
+            }
+            let origin = match param.ownership {
+                Ownership::Owned => ClassOrigin::Foreign,
+                Ownership::Borrowed => ClassOrigin::Borrowed,
+            };
+            self.birth(stream, param.var, origin);
+        }
+    }
+}
 
 /// Classify every partition-class member use in `func` into per-block
 /// class-instruction streams.
@@ -198,160 +349,6 @@ fn collect_placeholder_vars(
     }
     placeholders
 }
-
-/// The per-function classification walk state.
-struct Classifier<'a> {
-    state_map: &'a AimsStateMap,
-    partition: &'a mut BirthSitePartition,
-    boundary_facts: &'a FxHashMap<Name, BoundaryFacts>,
-    out: LedgerClassification,
-    /// `Invoke`/`InvokeIndirect` result events routed to their NORMAL
-    /// successor's block entry (pre-recorded by
-    /// `record_invoke_result_entries`; drained by the block walk).
-    pending_entry: FxHashMap<usize, Vec<ClassInstr>>,
-    /// Vars defined by NON-string literals under a heap repr — placeholders
-    /// (the iterator-protocol `%n: [T] = 0` shape), never allocations; no
-    /// event attaches to them.
-    placeholders: rustc_hash::FxHashSet<ArcVarId>,
-}
-
-impl Classifier<'_> {
-    /// The class representative of `var`'s whole-variable node.
-    fn rep(&mut self, var: ArcVarId) -> NodeIdx {
-        let node = self.partition.register_node(var, FieldPath::whole_var());
-        self.partition.rep_of(node)
-    }
-
-    fn excluded(&self, var: ArcVarId) -> bool {
-        self.state_map.is_excluded(var) || self.placeholders.contains(&var)
-    }
-
-    fn birth(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId, origin: ClassOrigin) {
-        let instr = self.birth_instr(var, origin);
-        stream.push(instr);
-    }
-
-    /// Build a birth event and record the class origin.
-    fn birth_instr(&mut self, var: ArcVarId, origin: ClassOrigin) -> ClassInstr {
-        let class = self.rep(var);
-        self.out.class_origins.insert(class, origin);
-        ClassInstr::Birth { class, origin }
-    }
-
-    /// Pre-record every `Invoke`/`InvokeIndirect` RESULT event at its NORMAL
-    /// successor's block entry: the result materializes only when the call
-    /// returns, so the unwind path never inherits an owed count for it
-    /// (PV-4: the boundary credit lands where the return lands).
-    fn record_invoke_result_entries(&mut self, func: &ArcFunction) {
-        for arc_block in &func.blocks {
-            let (event, normal) = match &arc_block.terminator {
-                ArcTerminator::Invoke {
-                    dst,
-                    func: callee,
-                    normal,
-                    ..
-                } => (self.call_result_event(*dst, Some(*callee)), normal.index()),
-                ArcTerminator::InvokeIndirect { dst, normal, .. } => {
-                    (self.call_result_event(*dst, None), normal.index())
-                }
-                _ => continue,
-            };
-            if let Some(event) = event {
-                self.pending_entry.entry(normal).or_default().push(event);
-            }
-        }
-    }
-
-    fn consume(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId) {
-        let class = self.rep(var);
-        stream.push(ClassInstr::Consume { class });
-    }
-
-    fn read(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId) {
-        let class = self.rep(var);
-        stream.push(ClassInstr::Read { class, value: var });
-    }
-
-    /// A fresh allocation site: the destination births FRESH and every
-    /// non-excluded argument hands its reference into the allocation (a
-    /// transfer terminal use — `ConstructArg` / `ReuseArg` /
-    /// `CollectionReuseArg` / `PartialApplyCapture` all transfer per the
-    /// committed table).
-    fn classify_fresh_alloc(
-        &mut self,
-        stream: &mut Vec<ClassInstr>,
-        dst: ArcVarId,
-        args: &[ArcVarId],
-    ) {
-        if !self.excluded(dst) {
-            self.birth(stream, dst, ClassOrigin::Fresh);
-        }
-        for &arg in args {
-            if !self.excluded(arg) {
-                self.consume(stream, arg);
-            }
-        }
-    }
-
-    /// A COW-mutating use of `base`'s class.
-    fn mutate(&mut self, stream: &mut Vec<ClassInstr>, base: ArcVarId) {
-        if self.excluded(base) {
-            return;
-        }
-        let class = self.rep(base);
-        stream.push(ClassInstr::Mutate { class, value: base });
-    }
-
-    /// Attribute MERGE origin to every multi-predecessor block param whose
-    /// class the population pass REFUSED to unify (cross-class per edge; the
-    /// class is funded by per-edge credits, never a birth event).
-    fn record_merge_origins(&mut self, func: &ArcFunction) {
-        let mut incoming: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
-        for arc_block in &func.blocks {
-            let ArcTerminator::Jump { target, args } = &arc_block.terminator else {
-                continue;
-            };
-            let Some(target_block) = func.blocks.get(target.index()) else {
-                continue;
-            };
-            for (&arg, &(param, _)) in args.iter().zip(target_block.params.iter()) {
-                incoming.entry(param).or_default().push(arg);
-            }
-        }
-        for (param, args) in incoming {
-            if self.excluded(param) || args.len() < 2 {
-                continue;
-            }
-            let param_class = self.rep(param);
-            let unified = args.iter().any(|&arg| {
-                let arg_class = self.rep(arg);
-                arg_class == param_class
-            });
-            if !unified {
-                self.out
-                    .class_origins
-                    .insert(param_class, ClassOrigin::Merge);
-            }
-        }
-    }
-
-    /// Function params birth their classes: Owned = FOREIGN, Borrowed =
-    /// BORROWED.
-    fn classify_params(&mut self, func: &ArcFunction, stream: &mut Vec<ClassInstr>) {
-        for param in &func.params {
-            if self.excluded(param.var) {
-                continue;
-            }
-            let origin = match param.ownership {
-                Ownership::Owned => ClassOrigin::Foreign,
-                Ownership::Borrowed => ClassOrigin::Borrowed,
-            };
-            self.birth(stream, param.var, origin);
-        }
-    }
-}
-
-mod dispatch;
 
 #[cfg(test)]
 mod tests;
