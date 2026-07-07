@@ -274,7 +274,7 @@ fn admit_witnessed_merges(
     merges: &[(ArcVarId, Vec<ArcVarId>)],
 ) {
     admit_fixpoint(partition, merges);
-    if resolve_merge_families(partition, merges) {
+    while resolve_merge_families(partition, merges) {
         admit_fixpoint(partition, merges);
     }
 }

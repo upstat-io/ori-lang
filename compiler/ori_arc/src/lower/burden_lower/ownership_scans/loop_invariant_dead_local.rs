@@ -162,24 +162,13 @@ fn admit_borrow_only_lineage(
     // (the sole root) and threaded by its own self-aliases satisfies RL-5's
     // dead-at-entry single-reference premise; a reassigned slot carries a fresh
     // allocation per iteration whose release the base walk already owns.
-    if !lineage_is_closed_under_feeders(func, &members, &param_loc_of(func)) {
+    if !lineage_is_closed_under_feeders(func, &members, param_loc) {
         return None;
     }
     if !lineage_is_borrow_only_dead(func, &members) {
         return None;
     }
     find_sole_terminal(func, &members, param_loc, owned_vars_needing_rc)
-}
-
-/// Block-param -> defining `(block_idx, position)` index over the whole function.
-fn param_loc_of(func: &ArcFunction) -> FxHashMap<ArcVarId, (usize, usize)> {
-    let mut m: FxHashMap<ArcVarId, (usize, usize)> = FxHashMap::default();
-    for (bi, block) in func.blocks.iter().enumerate() {
-        for (pos, &(p, _)) in block.params.iter().enumerate() {
-            m.insert(p, (bi, pos));
-        }
-    }
-    m
 }
 
 /// True iff every member that is a block-param has ALL its incoming `Jump`-args
