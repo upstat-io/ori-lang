@@ -54,6 +54,7 @@ impl Classifier<'_> {
                 }
             }
             ArcInstr::Select {
+                dst,
                 cond,
                 true_val,
                 false_val,
@@ -62,11 +63,17 @@ impl Classifier<'_> {
                 // The Select edge is EXCLUDED from partition admission; the
                 // operands are conditional-alias READS and the dst carries
                 // no birth (the selected allocation's obligation stays with
-                // its source class).
+                // its source class). A non-excluded dst ACQUIRES the
+                // selected reference: the planner realizes it with an RL-1
+                // duplication inc after the select.
                 for &operand in &[*cond, *true_val, *false_val] {
                     if !self.excluded(operand) {
                         self.read(stream, operand);
                     }
+                }
+                if !self.excluded(*dst) {
+                    let class = self.rep(*dst);
+                    stream.push(ClassInstr::SelectCredit { class, var: *dst });
                 }
             }
             ArcInstr::Apply {

@@ -1227,3 +1227,62 @@ fn placeholder_literal_var_is_event_less_everywhere() {
         "no events for a placeholder literal"
     );
 }
+
+/// A `Select` whose value operands are ALL excluded (placeholders /
+/// immortals / scalars) holds an excluded value itself: no events attach
+/// to the dst anywhere — its later jump hand-off seeds the receiving param
+/// with an immortal credit instead of an unfunded consume.
+#[test]
+fn select_of_excluded_operands_is_excluded() {
+    // %0, %1: non-string literals under heap repr (placeholders)
+    // %2 = Select %3 ? %0 : %1
+    // jump bb1(%2); bb1(%4): Return %5
+    let func = func_with_blocks(
+        6,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                    ArcInstr::Select {
+                        dst: v(2),
+                        ty: ty(0),
+                        cond: v(3),
+                        true_val: v(0),
+                        false_val: v(1),
+                    },
+                ],
+                jump(1, vec![2]),
+            ),
+            block(1, vec![4], vec![], ArcTerminator::Return { value: v(5) }),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(5));
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    // The excluded-select hand-off seeds the receiving class with an
+    // immortal Credit — never an unfunded Consume (the pre-fix shape).
+    let param = rep(&mut partition, 4);
+    assert_eq!(
+        derive_ledger(param, &flat(&classification)),
+        vec![LedgerEvent::Credit]
+    );
+    let selected = rep(&mut partition, 2);
+    let selected_events = derive_ledger(selected, &flat(&classification));
+    assert!(
+        !selected_events.contains(&LedgerEvent::Consume),
+        "no unfunded consume on the select class: {selected_events:?}"
+    );
+}

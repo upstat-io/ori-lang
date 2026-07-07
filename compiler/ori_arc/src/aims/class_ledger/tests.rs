@@ -1475,3 +1475,60 @@ fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
     assert_eq!(incs, 1, "one funding inc: {ops:?}");
     assert_eq!(front_decs, 2, "front dec at each successor: {ops:?}");
 }
+
+/// A `Select` over two REAL allocations acquires the selected reference:
+/// the planner realizes the acquisition with an RL-1 duplication inc after
+/// the select, each operand class balances via its own birth + release,
+/// and the select class's hand-off consume is funded — every class Clean.
+#[test]
+fn select_of_real_allocations_funds_the_selected_reference() {
+    // bb0: %0 = Construct []; %1 = Construct []
+    //      %2 = Select %3 ? %0 : %1
+    //      jump bb1(%2)
+    // bb1(%4): Return %5 (scalar)
+    let func = func_with_blocks(
+        6,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    construct(1, vec![]),
+                    ArcInstr::Select {
+                        dst: v(2),
+                        ty: ty(0),
+                        cond: v(3),
+                        true_val: v(0),
+                        false_val: v(1),
+                    },
+                ],
+                jump(1, vec![2]),
+            ),
+            block(1, vec![4], vec![], ArcTerminator::Return { value: v(5) }),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(5));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let selected = class_rep(&mut partition, 2);
+    assert_eq!(verdict_for(&analysis, selected), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, selected);
+    assert!(
+        ops.iter().any(|op| op.kind == PlannedOpKind::Inc
+            && matches!(op.slot, PlanSlot::AfterBody { block: 0, index: 2 })
+            && op.var == v(2)),
+        "realizing inc after the select: {ops:?}"
+    );
+    for operand in [0u32, 1] {
+        let class = class_rep(&mut partition, operand);
+        assert_eq!(
+            verdict_for(&analysis, class),
+            ClassVerdict::Clean,
+            "operand %{operand} class"
+        );
+    }
+    assert!(analysis.readiness.all_classes_clean);
+}

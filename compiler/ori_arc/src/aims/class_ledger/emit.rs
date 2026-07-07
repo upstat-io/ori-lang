@@ -142,6 +142,10 @@ pub(crate) fn plan_class(
         Ok(incs) => ops.extend(incs),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
+    match plan_select_credit_incs(events) {
+        Ok(incs) => ops.extend(incs),
+        Err(reason) => return ClassOutcome::Declined(reason),
+    }
     let delta = per_block_delta(events, &ops, func.blocks.len());
     let nets = compute_burden_entry_nets(func, preds, &delta);
     if !nets.converged {
@@ -371,6 +375,34 @@ fn plan_incs(
             };
             ops.push(PlannedOp {
                 slot,
+                kind: PlannedOpKind::Inc,
+                var,
+            });
+        }
+    }
+    Ok(ops)
+}
+
+/// Realize every `Select` acquisition: the dst conditionally holds ONE
+/// operand's allocation, and the acquired reference is manufactured by an
+/// RL-1 duplication inc on the dst immediately after the select (the
+/// runtime inc lands on whichever allocation was selected; each operand
+/// class stays balanced by its own birth + release).
+fn plan_select_credit_incs(events: &ClassEvents) -> Result<Vec<PlannedOp>, DeclineReason> {
+    let mut ops = Vec::new();
+    for (block, evs) in events.per_block.iter().enumerate() {
+        for ev in evs {
+            if ev.kind != EventKind::SelectCredit {
+                continue;
+            }
+            let EventSite::Body(index) = ev.site else {
+                return Err(DeclineReason::UnplaceableRelease);
+            };
+            let Some(var) = ev.var else {
+                return Err(DeclineReason::UnresolvedOpVar);
+            };
+            ops.push(PlannedOp {
+                slot: PlanSlot::AfterBody { block, index },
                 kind: PlannedOpKind::Inc,
                 var,
             });

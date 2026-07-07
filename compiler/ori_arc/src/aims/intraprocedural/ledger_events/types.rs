@@ -109,6 +109,11 @@ pub(crate) enum ClassInstr {
     /// RL-1 duplication inc / RL-34 return-leg / sharing-view producer /
     /// cross-class jump-arg funding: +1.
     Credit { class: NodeIdx },
+    /// A `Select` acquisition: the dst conditionally holds ONE operand's
+    /// allocation; the planner REALIZES the acquired reference with an
+    /// RL-1 duplication inc placed after the select (the event itself is
+    /// delta-0 — an unplanned class stays honestly unfunded).
+    SelectCredit { class: NodeIdx, var: ArcVarId },
     /// Ownership hand-off out (a transfer terminal use) or a placed
     /// release: -1.
     Consume { class: NodeIdx },

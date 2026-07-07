@@ -19,6 +19,9 @@ pub(crate) enum EventKind {
     Consume,
     Read,
     Mutate,
+    /// A `Select` acquisition marker (delta 0): realized by a planner-placed
+    /// RL-1 duplication inc at the select site.
+    SelectCredit,
 }
 
 /// One class event: its source site, resolved subject variable, signed
@@ -96,6 +99,7 @@ fn class_of(instr: &ClassInstr) -> NodeIdx {
     match *instr {
         ClassInstr::Birth { class, .. }
         | ClassInstr::Credit { class }
+        | ClassInstr::SelectCredit { class, .. }
         | ClassInstr::Consume { class }
         | ClassInstr::Read { class, .. }
         | ClassInstr::Mutate { class, .. } => class,
@@ -222,6 +226,7 @@ fn event_shape(
     match *instr {
         ClassInstr::Birth { .. } => (EventKind::Birth, owned_unit, 0),
         ClassInstr::Credit { .. } => (EventKind::Credit, 1, 0),
+        ClassInstr::SelectCredit { .. } => (EventKind::SelectCredit, 0, 0),
         ClassInstr::Consume { .. } => (EventKind::Consume, -1, 1),
         ClassInstr::Read { .. } => (EventKind::Read, 0, owned_unit),
         ClassInstr::Mutate { value, .. } => {
@@ -391,7 +396,10 @@ fn resolve_event_var(
     site: EventSite,
     instr: &ClassInstr,
 ) -> Option<ArcVarId> {
-    if let ClassInstr::Read { value, .. } | ClassInstr::Mutate { value, .. } = *instr {
+    if let ClassInstr::Read { value, .. }
+    | ClassInstr::Mutate { value, .. }
+    | ClassInstr::SelectCredit { var: value, .. } = *instr
+    {
         return Some(value);
     }
     let consume = matches!(instr, ClassInstr::Consume { .. });

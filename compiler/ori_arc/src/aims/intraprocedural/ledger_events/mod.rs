@@ -53,7 +53,7 @@ pub(crate) fn classify_function(
         boundary_facts,
         out: LedgerClassification::default(),
         pending_entry: FxHashMap::default(),
-        placeholders: collect_placeholder_vars(func),
+        placeholders: collect_placeholder_vars(func, state_map),
     };
     classifier.record_merge_origins(func);
     classifier.record_invoke_result_entries(func);
@@ -96,6 +96,9 @@ pub(crate) fn derive_ledger(class: NodeIdx, instrs: &[ClassInstr]) -> Vec<Ledger
         match *instr {
             ClassInstr::Birth { class: c, .. } if c == class => events.push(LedgerEvent::Birth),
             ClassInstr::Credit { class: c } if c == class => events.push(LedgerEvent::Credit),
+            ClassInstr::SelectCredit { class: c, .. } if c == class => {
+                events.push(LedgerEvent::Credit);
+            }
             ClassInstr::Consume { class: c } if c == class => events.push(LedgerEvent::Consume),
             ClassInstr::Read { class: c, .. } if c == class => events.push(LedgerEvent::Read),
             ClassInstr::Mutate { class: c, value } if c == class => {
@@ -130,8 +133,13 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
 }
 
 /// Vars defined by NON-string literals (a placeholder value, never an
-/// allocation) — event-less like excluded vars.
-fn collect_placeholder_vars(func: &ArcFunction) -> rustc_hash::FxHashSet<ArcVarId> {
+/// allocation) — event-less like excluded vars. A `Select` whose value
+/// operands are ALL excluded holds an excluded value itself; exclusion
+/// propagates through Select chains to a fixpoint.
+fn collect_placeholder_vars(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+) -> rustc_hash::FxHashSet<ArcVarId> {
     use crate::ir::{ArcInstr, ArcValue, LitValue};
     let mut placeholders = rustc_hash::FxHashSet::default();
     for block in &func.blocks {
@@ -144,6 +152,32 @@ fn collect_placeholder_vars(func: &ArcFunction) -> rustc_hash::FxHashSet<ArcVarI
             {
                 if !matches!(lit, LitValue::String(_)) {
                     placeholders.insert(*dst);
+                }
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                let ArcInstr::Select {
+                    dst,
+                    true_val,
+                    false_val,
+                    ..
+                } = instr
+                else {
+                    continue;
+                };
+                let operand_excluded =
+                    |var: ArcVarId| state_map.is_excluded(var) || placeholders.contains(&var);
+                if !operand_excluded(*dst)
+                    && operand_excluded(*true_val)
+                    && operand_excluded(*false_val)
+                    && placeholders.insert(*dst)
+                {
+                    changed = true;
                 }
             }
         }
