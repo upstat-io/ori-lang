@@ -1373,3 +1373,50 @@ fn dead_cross_class_merge_credit_releases_at_receiving_front() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// A LOOP-INVARIANT class (no events inside any CFG cycle; the value
+/// crosses the loop by dominance, not threading) keeps full-closure
+/// liveness: no release lands inside the loop, and the post-loop consume
+/// is the single balanced hand-off.
+#[test]
+fn loop_invariant_dominance_class_survives_the_loop_unreleased() {
+    // bb0: %0 = Construct []; jump bb1
+    // bb1: Branch %1 ? bb2 : bb3     (loop header)
+    // bb2: jump bb1                  (loop body, no class events)
+    // bb3: %2 = Apply @f(%0 [own]); Return %3
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![])),
+            block(1, vec![], vec![], branch(1, 2, 3)),
+            block(2, vec![], vec![], jump(1, vec![])),
+            block(
+                3,
+                vec![],
+                vec![ArcInstr::Apply {
+                    dst: v(2),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                    mono_instance_id: None,
+                }],
+                ArcTerminator::Return { value: v(3) },
+            ),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let alloc = class_rep(&mut partition, 0);
+    assert_eq!(verdict_for(&analysis, alloc), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, alloc);
+    assert!(
+        ops.iter()
+            .all(|op| op.slot.block() != 2 && op.slot.block() != 1),
+        "no release inside the loop: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}

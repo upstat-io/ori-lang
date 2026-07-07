@@ -119,20 +119,24 @@ pub(crate) fn plan_class(
     // current reference. Release placement keeps the full closure.
     let dom = crate::graph::DominatorTree::build(func);
     // A class that silently THREADS a back-edge keeps the same reference
-    // across iterations — full-closure liveness. Otherwise back-edges are
-    // the next iteration's ledger: forward-only for funding decisions AND
-    // the death frontier.
-    let (demand_live, activity_live) = if events.threads_back_edge {
-        (
-            live_from(func, &event_blocks(events, true)),
-            live_from(func, &event_blocks(events, false)),
-        )
-    } else {
-        (
-            live_from_forward(func, &event_blocks(events, true), &dom),
-            live_from_forward(func, &event_blocks(events, false), &dom),
-        )
-    };
+    // across iterations — full-closure liveness. A class with NO event
+    // inside any CFG cycle is loop-INVARIANT (it crosses loops by
+    // dominance, not per-iteration definition): a back-edge suffix IS
+    // continued use of the same reference, so full closure applies to it
+    // too. Otherwise back-edges are the next iteration's ledger:
+    // forward-only for funding decisions AND the death frontier.
+    let (demand_live, activity_live) =
+        if events.threads_back_edge || !has_cycle_events(func, events) {
+            (
+                live_from(func, &event_blocks(events, true)),
+                live_from(func, &event_blocks(events, false)),
+            )
+        } else {
+            (
+                live_from_forward(func, &event_blocks(events, true), &dom),
+                live_from_forward(func, &event_blocks(events, false), &dom),
+            )
+        };
     let mut ops = seed_ops.to_vec();
     match plan_incs(func, events, &demand_live, &dom) {
         Ok(incs) => ops.extend(incs),
@@ -174,6 +178,35 @@ pub(crate) fn plan_class(
         return ClassOutcome::Declined(reason);
     }
     ClassOutcome::Planned(ops)
+}
+
+/// Whether any event of the class sits inside a CFG cycle (a block that
+/// can reach itself). A class with zero in-cycle events has no
+/// per-iteration instance; its reference is loop-invariant.
+fn has_cycle_events(func: &ArcFunction, events: &ClassEvents) -> bool {
+    events
+        .per_block
+        .iter()
+        .enumerate()
+        .filter(|(_, evs)| !evs.is_empty())
+        .any(|(block, _)| block_in_cycle(func, block))
+}
+
+/// Whether `block` can reach itself via successor edges.
+fn block_in_cycle(func: &ArcFunction, block: usize) -> bool {
+    let mut visited = vec![false; func.blocks.len()];
+    let mut stack: Vec<usize> = successors_of(func, block);
+    while let Some(next) = stack.pop() {
+        if next == block {
+            return true;
+        }
+        if next >= visited.len() || visited[next] {
+            continue;
+        }
+        visited[next] = true;
+        stack.extend_from_slice(&successors_of(func, next));
+    }
+    false
 }
 
 /// Whether the class's events are exclusively births — no demand (Read /
