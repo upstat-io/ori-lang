@@ -1286,3 +1286,41 @@ fn select_of_excluded_operands_is_excluded() {
         "no unfunded consume on the select class: {selected_events:?}"
     );
 }
+
+/// A whole-var alias of an EXCLUDED var (an immortal, e.g. the empty
+/// string) is excluded itself: reads of the alias are event-less, so no
+/// unfunded floor accrues on the alias's class.
+#[test]
+fn alias_of_excluded_var_is_excluded() {
+    // %0: immortal; %1 = Let Var(%0); %2 = PrimOp(%1 == %1)
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Let {
+                dst: v(1),
+                ty: ty(0),
+                value: ArcValue::Var(v(0)),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                    args: vec![v(1), v(1)],
+                },
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_immortals(vec![true, false, false]);
+    state_map.set_permanent_scalar(v(2));
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let alias = rep(&mut partition, 1);
+    assert!(
+        derive_ledger(alias, &flat(&classification)).is_empty(),
+        "no events on the excluded-alias class"
+    );
+}

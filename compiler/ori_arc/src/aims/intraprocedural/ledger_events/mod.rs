@@ -161,23 +161,37 @@ fn collect_placeholder_vars(
         changed = false;
         for block in &func.blocks {
             for instr in &block.body {
-                let ArcInstr::Select {
-                    dst,
-                    true_val,
-                    false_val,
-                    ..
-                } = instr
-                else {
-                    continue;
+                let excluded = |set: &rustc_hash::FxHashSet<ArcVarId>, var: ArcVarId| {
+                    state_map.is_excluded(var) || set.contains(&var)
                 };
-                let operand_excluded =
-                    |var: ArcVarId| state_map.is_excluded(var) || placeholders.contains(&var);
-                if !operand_excluded(*dst)
-                    && operand_excluded(*true_val)
-                    && operand_excluded(*false_val)
-                    && placeholders.insert(*dst)
-                {
-                    changed = true;
+                match instr {
+                    ArcInstr::Select {
+                        dst,
+                        true_val,
+                        false_val,
+                        ..
+                    } => {
+                        if !excluded(&placeholders, *dst)
+                            && excluded(&placeholders, *true_val)
+                            && excluded(&placeholders, *false_val)
+                            && placeholders.insert(*dst)
+                        {
+                            changed = true;
+                        }
+                    }
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Var(src),
+                        ..
+                    } => {
+                        if !excluded(&placeholders, *dst)
+                            && excluded(&placeholders, *src)
+                            && placeholders.insert(*dst)
+                        {
+                            changed = true;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
