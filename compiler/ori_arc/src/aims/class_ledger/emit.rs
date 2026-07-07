@@ -493,11 +493,23 @@ fn plan_block_release(
     fronts: &mut FxHashSet<usize>,
 ) -> Result<(), DeclineReason> {
     let evs = &events.per_block[block];
+    // Ops already placed in this block (funding incs, seeds) are real
+    // pre-terminator deltas: the caller's per-block delta includes them,
+    // and the residue must agree or a funded reference reads as released.
+    let placed_delta: i64 = ops
+        .iter()
+        .filter(|op| op.slot.block() == block)
+        .map(|op| match op.kind {
+            PlannedOpKind::Inc => 1,
+            PlannedOpKind::Dec => -1,
+        })
+        .sum();
     let pre_delta: i64 = evs
         .iter()
         .filter(|ev| ev.site != EventSite::Terminator)
         .map(|ev| ev.delta)
-        .sum();
+        .sum::<i64>()
+        + placed_delta;
     let terminator_consumes: i64 = evs
         .iter()
         .filter(|ev| ev.site == EventSite::Terminator && ev.delta < 0)

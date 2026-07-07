@@ -1420,3 +1420,58 @@ fn loop_invariant_dominance_class_survives_the_loop_unreleased() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// A consume FUNDED by a planned inc, followed by a terminator borrow-read
+/// in the SAME block, still owes one release: the funded reference survives
+/// the read and dies on the outgoing edges, so the plan places front decs
+/// at both successors and the class verifies Clean.
+#[test]
+fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
+    // bb0: %0 = Construct []; %1 = Construct [%0]   (consumes %0, %0 live after)
+    //      Invoke @f(%0 [borrow]) normal bb1 unwind bb2
+    // bb1: Return %3 (scalar)
+    // bb2: Resume
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![]), construct(1, vec![0])],
+                ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![], ArcTerminator::Return { value: v(3) }),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let stored = class_rep(&mut partition, 0);
+    assert_eq!(verdict_for(&analysis, stored), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, stored);
+    let incs = ops
+        .iter()
+        .filter(|op| op.kind == PlannedOpKind::Inc)
+        .count();
+    let front_decs = ops
+        .iter()
+        .filter(|op| {
+            op.kind == PlannedOpKind::Dec
+                && matches!(op.slot, PlanSlot::BlockFront { block } if block == 1 || block == 2)
+        })
+        .count();
+    assert_eq!(incs, 1, "one funding inc: {ops:?}");
+    assert_eq!(front_decs, 2, "front dec at each successor: {ops:?}");
+}
