@@ -31,7 +31,7 @@ mod replace;
 mod verify;
 
 pub(crate) use emit::{ClassOutcome, PlannedOp};
-pub(crate) use replace::{attempt_replacement, EmissionMode, ReplacementOutcome};
+pub(crate) use replace::{attempt_replacement, EmissionMode, FallbackReason, ReplacementOutcome};
 pub(crate) use verify::{ClassVerdict, ReadinessSummary};
 
 #[cfg(test)]
@@ -285,7 +285,7 @@ fn report_readiness(
         declined = analysis.readiness.declined.len(),
         all_classes_clean = analysis.readiness.all_classes_clean,
         mode = outcome.mode.as_str(),
-        fallback_reason = outcome.fallback_reason.unwrap_or(""),
+        fallback_reason = outcome.fallback_reason.map_or("", FallbackReason::as_str),
         "class-ledger readiness"
     );
 }

@@ -63,7 +63,69 @@ pub(crate) struct ReplacementOutcome {
     pub(crate) mode: EmissionMode,
     pub(crate) analysis: ClassLedgerAnalysis,
     /// The failed gate on `Fallback`; `None` on `Replaced`.
-    pub(crate) fallback_reason: Option<&'static str>,
+    pub(crate) fallback_reason: Option<FallbackReason>,
+}
+
+/// Why a function fell back to the legacy Step-4b emission (the closed set
+/// of `gate_rejection` outcomes plus the post-apply structural-verify gate).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FallbackReason {
+    /// Step-4b emission disabled (`legacy_emission_enabled = false`).
+    LegacyEmissionDisabled,
+    /// The function evented no partition class.
+    ZeroClasses,
+    /// A class declined or verified non-`Clean`.
+    ReadinessNotClean,
+    /// The function carries a `Reset`/`Reuse`/`CollectionReuse` shape.
+    ReuseShape,
+    /// The function carries a TRMC `ContextHole`-shaped variable.
+    TrmcContext,
+    /// An endangered field-path view went uncured — both `hazard` cure-ladder
+    /// rungs declined. Every hazard-bearing fixture in the current test
+    /// corpus is cured (`!field_view_hazard` pinned in each), and each
+    /// individual cure's own decline path is pinned where `plan_class`
+    /// itself declines (`emit::DeclineReason`'s tests); no fixture yet
+    /// forces both ladder rungs to decline for the SAME view.
+    FieldViewLiveness,
+    /// A variable's type carries a user `@drop`.
+    UserDropGlue,
+    /// A planned op's variable definition does not dominate its slot.
+    /// Defense in depth over a correct-by-construction planner: every
+    /// slot the emitter chooses derives from a real instruction position
+    /// reached via the dominator tree, so this arm is not exercised by a
+    /// planner-derived plan in the test corpus. The gate itself
+    /// (`ops_placeable`) is pinned directly against hand-built off-path
+    /// ops in `op_var_placement_requires_dominating_definition`.
+    OpVarPlacement,
+    /// A planned `DecPartial` skip set names a field outside the
+    /// container's own named owned-field surface. Pinned end-to-end (both
+    /// the clearing and the rejecting case) via
+    /// `field_decomposition_cure_replaces_end_to_end_with_registered_burden`
+    /// and `field_decomposition_cure_declines_replacement_on_skip_field_mismatch`.
+    FieldDecompositionShape,
+    /// The applied plan failed the post-apply VF-1 structural check.
+    /// Defense in depth over the pre-apply gates above, which already rule
+    /// out every ill-formed shape those gates recognize; `check_function`
+    /// itself carries its own dedicated pin corpus in `verify::tests`.
+    StructuralVerify,
+}
+
+impl FallbackReason {
+    /// Tracing label for the reason.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::LegacyEmissionDisabled => "legacy-emission-disabled",
+            Self::ZeroClasses => "zero-classes",
+            Self::ReadinessNotClean => "readiness-not-clean",
+            Self::ReuseShape => "reuse-shape",
+            Self::TrmcContext => "trmc-context",
+            Self::FieldViewLiveness => "field-view-liveness",
+            Self::UserDropGlue => "user-drop-glue",
+            Self::OpVarPlacement => "op-var-placement",
+            Self::FieldDecompositionShape => "field-decomposition-shape",
+            Self::StructuralVerify => "structural-verify",
+        }
+    }
 }
 
 /// Analyze `func` and commit the class-ledger plan when every replacement
@@ -101,7 +163,7 @@ pub(crate) fn attempt_replacement(
         return ReplacementOutcome {
             mode: EmissionMode::Fallback,
             analysis,
-            fallback_reason: Some("structural-verify"),
+            fallback_reason: Some(FallbackReason::StructuralVerify),
         };
     }
     *func = applied;
@@ -134,41 +196,40 @@ fn gate_rejection(
     ops: &[PlannedOp],
     type_registry: &TypeRegistry,
     allow_replacement: bool,
-) -> Option<&'static str> {
+) -> Option<FallbackReason> {
     if !allow_replacement {
-        return Some("legacy-emission-disabled");
+        return Some(FallbackReason::LegacyEmissionDisabled);
     }
     if analysis.plan.classes.is_empty() {
-        return Some("zero-classes");
+        return Some(FallbackReason::ZeroClasses);
     }
     if !analysis.readiness.all_classes_clean {
-        return Some("readiness-not-clean");
+        return Some(FallbackReason::ReadinessNotClean);
     }
     // Unmodeled shapes stay on the legacy walk: a Reset/Reuse pairing
-    // rebirths the DYING value's allocation (no fresh birth site), and a
-    // TRMC context hole threads a fill-at-recursive-call obligation —
-    // neither is represented by the class model yet.
+    // rebirths the DYING value's allocation (no fresh birth site); a TRMC
+    // context hole threads a fill-at-recursive-call obligation - neither is modeled here.
     if has_reuse_shape(func) {
-        return Some("reuse-shape");
+        return Some(FallbackReason::ReuseShape);
     }
     if has_context_hole(func, state_map) {
-        return Some("trmc-context");
+        return Some(FallbackReason::TrmcContext);
     }
     if analysis.field_view_hazard {
-        return Some("field-view-liveness");
+        return Some(FallbackReason::FieldViewLiveness);
     }
     if func
         .var_types
         .iter()
         .any(|&ty| type_has_user_drop(ty, type_registry))
     {
-        return Some("user-drop-glue");
+        return Some(FallbackReason::UserDropGlue);
     }
     if !ops_placeable(func, ops) {
-        return Some("op-var-placement");
+        return Some(FallbackReason::OpVarPlacement);
     }
     if !dec_partial_skips_valid(func, ops, type_registry) {
-        return Some("field-decomposition-shape");
+        return Some(FallbackReason::FieldDecompositionShape);
     }
     None
 }

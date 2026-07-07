@@ -730,7 +730,10 @@ fn replacement_disallowed_reports_analysis_and_leaves_function_untouched() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, false);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("legacy-emission-disabled"));
+    assert_eq!(
+        outcome.fallback_reason,
+        Some(FallbackReason::LegacyEmissionDisabled)
+    );
     assert!(outcome.analysis.readiness.all_classes_clean);
     assert_eq!(gated, func);
 }
@@ -760,7 +763,10 @@ fn replacement_declines_non_clean_readiness() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("readiness-not-clean"));
+    assert_eq!(
+        outcome.fallback_reason,
+        Some(FallbackReason::ReadinessNotClean)
+    );
     assert!(!gated.class_ledger_emission);
     assert_eq!(gated, func);
 }
@@ -778,7 +784,7 @@ fn replacement_declines_zero_class_function() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("zero-classes"));
+    assert_eq!(outcome.fallback_reason, Some(FallbackReason::ZeroClasses));
     assert_eq!(gated, func);
 }
 
@@ -814,7 +820,7 @@ fn replacement_declines_user_drop_glue_function() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("user-drop-glue"));
+    assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
     assert_eq!(gated, func);
 }
 
@@ -1141,7 +1147,7 @@ fn replacement_declines_reuse_shapes() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("reuse-shape"));
+    assert_eq!(outcome.fallback_reason, Some(FallbackReason::ReuseShape));
     assert_eq!(gated, func);
 }
 
@@ -1159,7 +1165,7 @@ fn replacement_declines_trmc_context_hole() {
     let mut gated = func.clone();
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some("trmc-context"));
+    assert_eq!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
     assert_eq!(gated, func);
 }
 
@@ -1856,6 +1862,134 @@ fn extract_then_move_out_decomposes_container_release() {
     );
 }
 
+/// Same shape as `extract_then_move_out_decomposes_container_release`, but
+/// run through `attempt_replacement` with a container type REGISTERED in the
+/// `TypeRegistry` with a real owned-field surface (field 0 named, per
+/// `registered_struct_with_two_owned_str_fields`). The prior test proves the
+/// cure COMPUTES a `DecPartial(skip=[0])`; this test proves that computed
+/// skip set actually clears `replace::dec_partial_skips_valid` and drives a
+/// real end-to-end replacement — the flagship claim
+/// (`struct_list_field_flagship_per_field_classes_replace`'s "the replacement
+/// gate accepts on these terms") was previously asserted only via the
+/// lower-level `analyze()` helper, which never calls the gate at all.
+#[test]
+fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(2),
+    );
+    func.params = vec![];
+    // The container's real type flows to every alias sharing its allocation
+    // (a `Let { Var }` rename never changes type) — v(1) the Construct dst
+    // AND v(3) the Let-Var alias the last read walks off both carry the
+    // struct's Idx; the synthetic per-index `ty(n)` fixture default does not
+    // reflect that invariant, so both slots are overridden explicitly.
+    func.var_types[1] = struct_idx;
+    func.var_types[3] = struct_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let mut replaced = func;
+    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "fallback_reason={:?} readiness={:?}",
+        outcome.fallback_reason,
+        outcome.analysis.readiness
+    );
+    assert!(outcome.fallback_reason.is_none());
+    assert!(replaced.class_ledger_emission);
+    assert!(
+        replaced.blocks[0].body.iter().any(|instr| matches!(
+            instr,
+            ArcInstr::BurdenDecPartial { skip_fields, .. }
+                if skip_fields.as_slice() == [0]
+        )),
+        "the container's whole-var release lowered to a field-skipping partial dec: {:?}",
+        replaced.blocks[0].body
+    );
+}
+
+/// Negative sibling of `field_decomposition_cure_replaces_end_to_end_with_
+/// registered_burden`: same consume-marked-then-Return shape, but the
+/// container's registered burden names ONLY field 1 as owned
+/// (`registered_struct_value_heap_mixed`) while the extracted member is
+/// field 0. The cure still computes `DecPartial(skip=[0])` from the
+/// partition's consume marks alone (it never consults the registry); the
+/// skip index then falls OUTSIDE the container's named owned-field surface,
+/// so `replace::dec_partial_skips_valid` rejects it and `attempt_replacement`
+/// falls back with `FieldDecompositionShape` rather than committing a plan
+/// whose interior field walk would silently mis-skip at runtime.
+#[test]
+fn field_decomposition_cure_declines_replacement_on_skip_field_mismatch() {
+    use crate::lower::test_utils::registered_struct_value_heap_mixed;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_value_heap_mixed(&mut registry, "Mixed", struct_idx);
+
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(2),
+    );
+    func.params = vec![];
+    func.var_types[1] = struct_idx;
+    func.var_types[3] = struct_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(
+        outcome.fallback_reason,
+        Some(FallbackReason::FieldDecompositionShape)
+    );
+    assert!(!gated.class_ledger_emission);
+    assert_eq!(gated, func, "gate rejection leaves the function untouched");
+}
+
 #[test]
 fn demand_only_view_is_never_skipped() {
     // The member is only READ after extraction — demand-endangered, never
@@ -1894,6 +2028,181 @@ fn demand_only_view_is_never_skipped() {
             !ops.iter()
                 .any(|op| matches!(op.kind, PlannedOpKind::DecPartial { .. })),
             "a merely-read view was skipped (over-skip = leak)"
+        );
+    }
+}
+
+/// Same consume-marked-then-Return shape as
+/// `extract_then_move_out_decomposes_container_release`, but the container is
+/// a SUM type (`CtorKind::EnumVariant`) instead of a tuple: the field
+/// decomposition cure declines a sum container (`hazard.sum_container`) since
+/// a variant's skip is discriminant- and arm-conditional and the per-class
+/// walk does not model per-arm variant state. The extraction-funding cure
+/// covers the endangered view instead, so the container's own release stays a
+/// plain whole-var `Dec` — never a `DecPartial`.
+#[test]
+fn sum_container_view_declines_field_decomposition() {
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: ty(0),
+                ctor: CtorKind::EnumVariant {
+                    enum_name: Name::from_raw(9),
+                    variant: 0,
+                },
+                args: vec![v(0)],
+            },
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(2),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "extraction funding must cure a sum-container-endangered view"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let container_node = partition.register_node(v(1), FieldPath::whole_var());
+    let container_rep = partition.rep_of(container_node);
+    let mut saw_container_release = false;
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        if partition.rep_of(plan.class) != container_rep {
+            continue;
+        }
+        for op in ops {
+            if op.kind == PlannedOpKind::Dec {
+                saw_container_release = true;
+            }
+            assert!(
+                !matches!(op.kind, PlannedOpKind::DecPartial { .. }),
+                "a sum container must never decompose: variant-conditional \
+                 books are unmodeled by the per-class walk"
+            );
+        }
+    }
+    assert!(
+        saw_container_release,
+        "the sum container must still get its plain whole-var release"
+    );
+}
+
+/// A single payload extracted from one released container and re-stored into
+/// a SECOND released container: the payload's view class is endangered by
+/// BOTH containers (`multi_container`), so the field-decomposition cure is
+/// skipped entirely for it in favor of extraction funding — a `DecPartial`
+/// must never be planned off EITHER container's release for this view.
+#[test]
+fn multi_container_view_declines_field_decomposition() {
+    // %0 = Construct payload
+    // %1 = Construct tuple_a(%0)      (container A — released)
+    // %2 = Project %1.0               (extract member from A)
+    // %3 = Construct tuple_b(%2)      (container B — released; re-stores the
+    //                                  extracted member as its own field 0,
+    //                                  congruence-unioning the SAME view
+    //                                  class into B's field slot too)
+    // %4 = Project %3.0               (move the member out again, endangering
+    //                                  the shared view under BOTH containers)
+    // %5 = Let %1 (alias keeping A eventful)   %6 = IsShared %5
+    // %7 = Let %3 (alias keeping B eventful)   %8 = IsShared %7
+    let mut func = one_block_func(
+        9,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Project {
+                dst: v(4),
+                ty: ty(0),
+                value: v(3),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(5),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(6, 5),
+            ArcInstr::Let {
+                dst: v(7),
+                ty: ty(0),
+                value: ArcValue::Var(v(3)),
+            },
+            is_shared(8, 7),
+        ],
+        ret(4),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(6));
+    state_map.set_permanent_scalar(v(8));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let container_a = class_rep(&mut partition, 1);
+    let container_b = class_rep(&mut partition, 3);
+    let view = class_rep(&mut partition, 0);
+    assert_ne!(
+        container_a, container_b,
+        "the two containers stay distinct classes"
+    );
+    assert_eq!(
+        class_rep(&mut partition, 2),
+        view,
+        "the re-extracted member composes into the shared payload class"
+    );
+
+    assert!(analysis.readiness.all_classes_clean);
+    assert!(
+        !analysis.field_view_hazard,
+        "extraction funding must cure the shared multi-container view"
+    );
+    assert!(
+        ops_for(&analysis, view)
+            .iter()
+            .any(|op| op.kind == PlannedOpKind::Inc),
+        "the shared view must fund itself at an extraction site, proving \
+         extraction funding (not a lucky non-hazard) cured it"
+    );
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        let rep = partition.rep_of(plan.class);
+        if rep != container_a && rep != container_b {
+            continue;
+        }
+        assert!(
+            ops.iter()
+                .all(|op| !matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+            "a multi-container view must never decompose off either \
+             container's release: {ops:?}"
         );
     }
 }

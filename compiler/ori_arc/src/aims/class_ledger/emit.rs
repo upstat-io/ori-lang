@@ -74,7 +74,13 @@ impl PlanSlot {
 /// Why a class was declined (fail-closed: no ops planned for it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeclineReason {
-    /// The per-class net dataflow exhausted its iteration cap.
+    /// The per-class net dataflow exhausted its iteration cap. Defense in
+    /// depth: `compute_burden_entry_nets`'s freeze-on-disagree invariant
+    /// converges any real disagreeing merge to `MergeDisagree` well before
+    /// the cap, so no class-ledger fixture reaches this arm; the underlying
+    /// non-convergence path is pinned directly against a hand-built
+    /// `BurdenEntryNets { converged: false, .. }` in
+    /// `aims::verify::burden_delta`'s own test module.
     NonConverged,
     /// Merge predecessors exit with divergent owed counts.
     MergeDisagree,

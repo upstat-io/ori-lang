@@ -33,7 +33,6 @@ impl FieldPath {
         Self(smallvec![field])
     }
 
-    /// Whether this is the whole-variable path (no projection hops).
     /// The sole field index of a single-hop path; `None` for whole-var or
     /// nested paths.
     pub(crate) fn single_index(&self) -> Option<u32> {
@@ -43,6 +42,7 @@ impl FieldPath {
         }
     }
 
+    /// Whether this is the whole-variable path (no projection hops).
     pub(crate) fn is_whole_var(&self) -> bool {
         self.0.is_empty()
     }
@@ -89,6 +89,10 @@ pub(crate) struct NodeIdx(u32);
 pub(crate) struct BirthSitePartition {
     /// Intern table: node key -> dense node index.
     nodes: FxHashMap<(ArcVarId, FieldPath), NodeIdx>,
+    /// Reverse of `nodes`, indexed by `NodeIdx` (dense — `register_node`
+    /// pushes both tables together). Backs the O(1) `node_key` reverse
+    /// lookup the diagnostic/tracing surface calls unconditionally.
+    keys: Vec<(ArcVarId, FieldPath)>,
     /// Union-find parent per node; `parent[i] == i` at a class root.
     parent: Vec<u32>,
     /// Known birth site per class, authoritative at the class root.
@@ -105,13 +109,12 @@ impl BirthSitePartition {
 
     /// The `(variable, field-path)` key interned at `node`, when present.
     ///
-    /// Reverse lookup over the intern table; diagnostic-surface only (the
-    /// class-ledger readiness report renders class identities through it).
+    /// O(1) dense-vector lookup; diagnostic-surface only (the class-ledger
+    /// readiness report renders class identities through it, unconditionally
+    /// on every `tracing::debug!`/`tracing::trace!` call site — the lookup
+    /// must never cost more than an index + clone).
     pub(crate) fn node_key(&self, node: NodeIdx) -> Option<(ArcVarId, FieldPath)> {
-        self.nodes
-            .iter()
-            .find(|&(_, idx)| *idx == node)
-            .map(|((var, path), _)| (*var, path.clone()))
+        self.keys.get(node.0 as usize).cloned()
     }
 
     /// Whether `class` holds any FIELD-PATH member (a `(var, path)` node
@@ -156,6 +159,7 @@ impl BirthSitePartition {
             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::hash_map::Entry::Vacant(entry) => {
                 let idx = NodeIdx(next_raw);
+                self.keys.push(entry.key().clone());
                 entry.insert(idx);
                 self.parent.push(next_raw);
                 self.birth_site.push(None);

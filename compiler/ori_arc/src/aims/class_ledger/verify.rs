@@ -43,7 +43,7 @@ pub(crate) struct ReadinessSummary {
 }
 
 /// One ordered walk item: a class event or a planned op.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct WalkItem {
     delta: i64,
     floor: i64,
@@ -172,19 +172,78 @@ fn walk_paths(
     }
 }
 
+/// A walk item's source position inside its block: entry first, then per
+/// body index (a planned op BEFORE the instruction, the instruction's own
+/// event, a planned op AFTER it), then the pre-terminator slot, then the
+/// terminator's own events. Derived `Ord` on (body index, phase) IS the
+/// interleaving contract — a planned `BlockFront` op follows entry events,
+/// a `BeforeTerminator` op precedes terminator events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct WalkKey {
+    index: usize,
+    phase: WalkPhase,
+}
+
+/// Within-index phase ordering (declaration order is the `Ord` contract).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum WalkPhase {
+    Before,
+    At,
+    After,
+}
+
+impl WalkKey {
+    fn for_event(func: &ArcFunction, block: usize, site: EventSite) -> Self {
+        match site {
+            // Entry events precede a BlockFront op: entry is index 0
+            // Before, the op index 0 At.
+            EventSite::BlockEntry => Self {
+                index: 0,
+                phase: WalkPhase::Before,
+            },
+            // Body events sit at their own instruction, between the
+            // before/after op slots: index+1 keeps them past the entry pair.
+            EventSite::Body(index) => Self {
+                index: index + 1,
+                phase: WalkPhase::At,
+            },
+            EventSite::Terminator => Self {
+                index: body_len(func, block) + 1,
+                phase: WalkPhase::At,
+            },
+        }
+    }
+
+    fn for_op(func: &ArcFunction, slot: PlanSlot) -> Self {
+        match slot {
+            PlanSlot::BlockFront { .. } => Self {
+                index: 0,
+                phase: WalkPhase::At,
+            },
+            PlanSlot::BeforeBody { index, .. } => Self {
+                index: index + 1,
+                phase: WalkPhase::Before,
+            },
+            PlanSlot::AfterBody { index, .. } => Self {
+                index: index + 1,
+                phase: WalkPhase::After,
+            },
+            PlanSlot::BeforeTerminator { block } => Self {
+                index: body_len(func, block) + 1,
+                phase: WalkPhase::Before,
+            },
+        }
+    }
+}
+
 /// Merge events and planned ops into per-block walks ordered by source
-/// position: params, block front, then per body index (before / at /
-/// after), then before-terminator, then terminator events.
+/// position per [`WalkKey`]'s derived ordering; ties keep arrival order.
 fn build_walks(func: &ArcFunction, events: &ClassEvents, ops: &[PlannedOp]) -> Vec<Vec<WalkItem>> {
-    let mut keyed: Vec<Vec<(usize, usize, WalkItem)>> = vec![Vec::new(); func.blocks.len()];
+    let mut keyed: Vec<Vec<(WalkKey, usize, WalkItem)>> = vec![Vec::new(); func.blocks.len()];
     let mut sequence = 0usize;
     for (block, evs) in events.per_block.iter().enumerate() {
         for ev in evs {
-            let key = match ev.site {
-                EventSite::BlockEntry => 0,
-                EventSite::Body(index) => 3 + 3 * index,
-                EventSite::Terminator => 3 + 3 * body_len(func, block),
-            };
+            let key = WalkKey::for_event(func, block, ev.site);
             if let Some(items) = keyed.get_mut(block) {
                 items.push((
                     key,
@@ -200,12 +259,7 @@ fn build_walks(func: &ArcFunction, events: &ClassEvents, ops: &[PlannedOp]) -> V
     }
     for op in ops {
         let block = op.slot.block();
-        let key = match op.slot {
-            PlanSlot::BlockFront { .. } => 1,
-            PlanSlot::BeforeBody { index, .. } => 2 + 3 * index,
-            PlanSlot::AfterBody { index, .. } => 4 + 3 * index,
-            PlanSlot::BeforeTerminator { .. } => 2 + 3 * body_len(func, block),
-        };
+        let key = WalkKey::for_op(func, op.slot);
         let item = match op.kind {
             PlannedOpKind::Inc => WalkItem { delta: 1, floor: 0 },
             PlannedOpKind::Dec | PlannedOpKind::DecPartial { .. } => WalkItem {

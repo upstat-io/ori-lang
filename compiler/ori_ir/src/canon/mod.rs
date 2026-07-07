@@ -22,6 +22,7 @@
 //! - Uses `CanId` / `CanRange` (not `ExprId` / `ExprRange`) — distinct index space
 
 mod arena;
+pub mod consumers;
 mod expr;
 pub mod hash;
 mod ids;

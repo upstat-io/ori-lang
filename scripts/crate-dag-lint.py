@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """crate-dag-lint — architectural fitness function over the workspace crate DAG.
 
-Asserts the intended phase/crate dependency direction: a forbidden-edge set
-encoded as data (FORBIDDEN_EDGES, the SSOT) must NOT appear in the actual
-workspace dependency graph read via `cargo metadata --no-deps`. Each forbidden
-edge cites the per-crate conflict rule it enforces.
+Two checks over the workspace dependency graph read via `cargo metadata
+--no-deps`, both data-driven:
+
+1. Forbidden-edge direction (FORBIDDEN_EDGES): a banned phase/crate dependency
+   must NOT appear. Each forbidden edge cites the per-crate conflict rule.
+2. Canon-consumer registration (single semantic authority): every crate listed
+   in the `ori_ir::canon::consumers::CANON_CONSUMERS` Rust registry MUST have a
+   dependency edge on `ori_ir`. The registry is the SSOT — read from source, not
+   duplicated here.
 
 `cargo metadata` reads Cargo.toml only — it succeeds on a non-compiling tree,
 so the gate works on a tree a parallel session has broken.
@@ -15,20 +20,31 @@ Usage:
   crate-dag-lint.py --self-test    # synthetic-graph fixtures, exit 0 on pass
 
 Exit codes:
-  0  clean (no forbidden edge present) OR --self-test passed
-  1  one or more forbidden edges present (names the edge + the rule)
-  2  could not enumerate the workspace (cargo metadata failed) — caller SHALL
-     fall back rather than skip the gate
+  0  clean (no violation present) OR --self-test passed
+  1  one or more violations present (names the edge/consumer + the rule)
+  2  could not enumerate the workspace (cargo metadata failed OR the
+     CANON_CONSUMERS registry source is unreadable) — caller SHALL fall back
+     rather than skip the gate
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+import tempfile
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+
+# Rust SSOT for the canon-consumer registry, relative to the Cargo workspace
+# root. Parsed (never copied) by `_read_canon_consumers`.
+CANON_CONSUMERS_SRC = Path("compiler/ori_ir/src/canon/consumers.rs")
+# The leaf IR crate every canon-meaning consumer must depend on.
+CANON_IR_CRATE = "ori_ir"
+# Extracts each `crate_name: "<name>"` entry from CANON_CONSUMERS.
+_CRATE_NAME_RE = re.compile(r'crate_name:\s*"([^"]+)"')
 
 
 @dataclass(frozen=True)
@@ -246,6 +262,58 @@ def check_graph(
     return violations
 
 
+def _read_canon_consumers(root: Path) -> list[str]:
+    """Return the registered `crate_name`s from the CANON_CONSUMERS Rust SSOT.
+
+    Reads `compiler/ori_ir/src/canon/consumers.rs` and extracts each
+    `crate_name: "<name>"` entry. The Rust const is the single source of truth;
+    this parse derives from it, never keeps a parallel copy. Raises RuntimeError
+    when the source file is missing (caller maps to exit 2).
+    """
+    src = root / CANON_CONSUMERS_SRC
+    try:
+        text = src.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"cannot read CANON_CONSUMERS registry {src}: {exc}") from exc
+    names = _CRATE_NAME_RE.findall(text)
+    if not names:
+        # Non-empty by construction; zero-entry parse = broken registry. Fail
+        # closed (caller maps RuntimeError to exit 2), never a false clean.
+        raise RuntimeError(
+            f"CANON_CONSUMERS registry {src} parsed zero entries — "
+            "the const is empty, renamed, or reformatted past the parser"
+        )
+    return names
+
+
+def check_registered_consumers(
+    graph: dict[str, set[str]], registry: list[str], ir_crate: str = CANON_IR_CRATE
+) -> list[dict[str, str]]:
+    """Pure check: every registered canon consumer must depend on `ir_crate`.
+
+    One violation dict per registered `crate_name` that is either not a
+    workspace member (kind `unknown-consumer-crate`) or is a member without a
+    direct dependency edge on `ir_crate` (kind `missing-ir-dep`). Empty list =
+    clean.
+    """
+    rule = (
+        "single semantic authority: every CANON_CONSUMERS entry depends on "
+        f"ori_ir::canon and MUST carry a dependency edge on {ir_crate}"
+    )
+    violations: list[dict[str, str]] = []
+    for crate_name in registry:
+        if crate_name not in graph:
+            kind = "unknown-consumer-crate"
+        elif ir_crate not in graph[crate_name]:
+            kind = "missing-ir-dep"
+        else:
+            continue
+        violations.append(
+            {"src": crate_name, "target": ir_crate, "kind": kind, "rule": rule}
+        )
+    return violations
+
+
 def _self_test() -> int:
     """Synthetic-graph fixtures: forbidden-edge graph fails closed; clean passes.
 
@@ -319,6 +387,50 @@ def _self_test() -> int:
     }
     expect("clean-baseline", check_graph(graph_clean), want_nonempty=False)
 
+    # Fixture E — registered consumers all depend on ori_ir (clean).
+    reg_graph = {
+        "ori_ir": set(),
+        "ori_eval": {"ori_ir"},
+        "oric": {"ori_ir", "ori_eval"},
+    }
+    expect(
+        "registered-clean",
+        check_registered_consumers(reg_graph, ["ori_eval", "oric"]),
+        want_nonempty=False,
+    )
+
+    # Fixture F — a registered consumer lacks a dependency edge on ori_ir.
+    reg_graph_missing = {"ori_ir": set(), "ori_eval": set()}
+    expect(
+        "registered-missing-ir-dep",
+        check_registered_consumers(reg_graph_missing, ["ori_eval"]),
+        want_nonempty=True,
+    )
+
+    # Fixture G — a registered crate_name is not a workspace member (typo).
+    expect(
+        "registered-unknown-crate",
+        check_registered_consumers({"ori_ir": set()}, ["ori_evla"]),
+        want_nonempty=True,
+    )
+
+    # Fixture H — _read_canon_consumers fails closed on a zero-entry parse
+    # (registry present but const emptied/renamed) rather than reporting clean.
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / CANON_CONSUMERS_SRC
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_text("// no CANON_CONSUMERS entries here\n", encoding="utf-8")
+        try:
+            _read_canon_consumers(Path(td))
+            failures += 1
+            print("FAIL[read-empty-registry]: expected RuntimeError", file=sys.stderr)
+        except RuntimeError:
+            pass
+        src.write_text('ConsumerEntry { crate_name: "ori_eval" }\n', encoding="utf-8")
+        if _read_canon_consumers(Path(td)) != ["ori_eval"]:
+            failures += 1
+            print("FAIL[read-valid-registry]: expected ['ori_eval']", file=sys.stderr)
+
     if failures:
         print(f"crate-dag-lint self-test: {failures} failure(s)", file=sys.stderr)
         return 1
@@ -352,16 +464,17 @@ def main(argv: list[str]) -> int:
     try:
         root = _cargo_workspace_root()
         graph = _read_workspace_graph(root)
+        registry = _read_canon_consumers(root)
     except RuntimeError as exc:
         print(f"crate-dag-lint: {exc}", file=sys.stderr)
         return 2
 
-    violations = check_graph(graph)
+    violations = check_graph(graph) + check_registered_consumers(graph, registry)
 
     if args.json:
         print(json.dumps({"clean": not violations, "violations": violations}, indent=2))
     elif violations:
-        print(f"crate-dag-lint: {len(violations)} forbidden edge(s) present:", file=sys.stderr)
+        print(f"crate-dag-lint: {len(violations)} violation(s) present:", file=sys.stderr)
         for v in violations:
             print(
                 f"  VIOLATION: {v['src']} -> {v['target']} ({v['kind']})\n"
@@ -369,7 +482,10 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
     else:
-        print("crate-dag-lint: clean — no forbidden crate-DAG edge present")
+        print(
+            "crate-dag-lint: clean — no forbidden crate-DAG edge; "
+            "every registered canon consumer depends on ori_ir"
+        )
 
     return 1 if violations else 0
 

@@ -21,6 +21,7 @@ use super::ClassPlan;
 /// top-level field indices under the container (the `DecPartial` skip set),
 /// and whether the view carries a Consume outside those sites (the consume
 /// mark the skip derivation requires per PV-6).
+#[derive(Debug)]
 pub(crate) struct FieldViewHazard {
     pub(crate) view: NodeIdx,
     pub(crate) container: NodeIdx,
@@ -32,6 +33,7 @@ pub(crate) struct FieldViewHazard {
 }
 
 /// Per-class facts the field-view hazard consumes.
+#[derive(Debug)]
 pub(crate) struct ClassHazardFacts {
     class: NodeIdx,
     released: bool,
@@ -281,33 +283,83 @@ fn cure_view_with_extraction_funding(
     }
     let funded_events =
         events::extract_class_events_with(func, classification, partition, view, true);
-    let outcome = emit::plan_class(func, preds, regions, &funded_events, &seeds);
+    let Some(outcome) = plan_and_verify_cure(
+        func,
+        preds,
+        regions,
+        partition,
+        view,
+        "extraction-funding",
+        &funded_events,
+        &seeds,
+    ) else {
+        return false;
+    };
+    commit_cured_view(classes, verdicts, declined, view, outcome)
+}
+
+/// Plan `events` (seeded with `seeds`) and verify the result against the
+/// owed invariant; traces the failing gate under `cure_label` and returns
+/// `None` for the caller to decline, or the clean [`ClassOutcome`] to commit.
+/// Shared plan-and-verify skeleton for every cure ladder rung
+/// ([`cure_view_with_extraction_funding`], [`cure_view_with_field_decomposition`]).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal cure pass over analyze_class_ledger's own accumulators"
+)]
+fn plan_and_verify_cure(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    regions: &emit::CycleRegions,
+    partition: &mut BirthSitePartition,
+    view: NodeIdx,
+    cure_label: &'static str,
+    events: &events::ClassEvents,
+    seeds: &[PlannedOp],
+) -> Option<ClassOutcome> {
+    let outcome = emit::plan_class(func, preds, regions, events, seeds);
     let planned: &[PlannedOp] = match &outcome {
         ClassOutcome::Planned(ops) => ops,
         ClassOutcome::Declined(reason) => {
             tracing::trace!(
                 target: "ori_arc::aims::class_ledger",
+                cure = cure_label,
                 view = ?partition.node_key(view),
                 declined = ?reason,
                 seeds = seeds.len(),
-                events = ?funded_events.per_block,
-                "view cure declined: funded plan declined"
+                events = ?events.per_block,
+                "cure declined: plan declined"
             );
-            return false;
+            return None;
         }
     };
-    let verdict = verify::verify_class(func, preds, &funded_events, planned);
+    let verdict = verify::verify_class(func, preds, events, planned);
     if verdict != ClassVerdict::Clean {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
+            cure = cure_label,
             view = ?partition.node_key(view),
             verdict = ?verdict,
             planned = ?planned,
-            events = ?funded_events.per_block,
-            "view cure declined: funded plan verifies non-Clean"
+            events = ?events.per_block,
+            "cure declined: plan verifies non-Clean"
         );
-        return false;
+        return None;
     }
+    Some(outcome)
+}
+
+/// Commit a cured view's clean plan into the whole-function accumulators:
+/// replace its outcome, flip its verdict to `Clean`, and drop it from the
+/// declined list. Leaves the accumulators untouched and returns `false` when
+/// `view`'s plan entry is not found.
+fn commit_cured_view(
+    classes: &mut [ClassPlan],
+    verdicts: &mut [(NodeIdx, ClassVerdict)],
+    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
+    view: NodeIdx,
+    outcome: ClassOutcome,
+) -> bool {
     let Some(entry) = classes.iter_mut().find(|plan| plan.class == view) else {
         return false;
     };
@@ -324,10 +376,9 @@ fn cure_view_with_extraction_funding(
 /// `DecPartial(skip = the view's field indices)` and the view's events are
 /// RE-BOOKED with the move-in store non-consuming (ownership never enters
 /// the container's release path), then re-planned + re-verified. The skip
-/// set derives from the partition's consume marks and nothing else — the
-/// UNIQUE clause-preserving skip set per IA-T6 `FD_skipset_sound`
-/// (`aims-rules.md §12` PV-6). A merely-read (demand-endangered) view is
-/// never consume-marked, so it is never skipped (over-skip = leak).
+/// set derives solely from the partition's consume marks — the UNIQUE
+/// clause-preserving skip set per IA-T6 `FD_skipset_sound` (`aims-rules.md
+/// §12` PV-6). A merely-read view is never consume-marked, never skipped (over-skip = leak).
 #[expect(
     clippy::too_many_arguments,
     reason = "internal cure pass over analyze_class_ledger's own accumulators"
@@ -345,8 +396,7 @@ fn cure_view_with_field_decomposition(
 ) -> bool {
     // A sum container's skip is a variant ordinal whose safety is
     // discriminant- and arm-conditional (the payload-less arm's books are
-    // asymmetric); the per-class walk does not model per-arm variant state,
-    // so sum containers stay on the funding/decline path fail-closed.
+    // asymmetric); per-arm state is unmodeled, so sum containers decline (fail-closed).
     if !hazard.consume_marked
         || hazard.nested_path
         || hazard.sum_container
@@ -370,32 +420,18 @@ fn cure_view_with_field_decomposition(
         hazard.view,
         &hazard.construct_sites,
     );
-    let outcome = emit::plan_class(func, preds, regions, &rebooked, &[]);
-    let planned: &[PlannedOp] = match &outcome {
-        ClassOutcome::Planned(ops) => ops,
-        ClassOutcome::Declined(reason) => {
-            tracing::trace!(
-                target: "ori_arc::aims::class_ledger",
-                view = ?partition.node_key(hazard.view),
-                declined = ?reason,
-                events = ?rebooked.per_block,
-                "field-decomposition cure declined: rebooked plan declined"
-            );
-            return false;
-        }
-    };
-    let verdict = verify::verify_class(func, preds, &rebooked, planned);
-    if verdict != ClassVerdict::Clean {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(hazard.view),
-            verdict = ?verdict,
-            planned = ?planned,
-            events = ?rebooked.per_block,
-            "field-decomposition cure declined: rebooked plan verifies non-Clean"
-        );
+    let Some(outcome) = plan_and_verify_cure(
+        func,
+        preds,
+        regions,
+        partition,
+        hazard.view,
+        "field-decomposition",
+        &rebooked,
+        &[],
+    ) else {
         return false;
-    }
+    };
     let container = hazard.container;
     let Some(container_entry) = classes
         .iter_mut()
@@ -424,14 +460,9 @@ fn cure_view_with_field_decomposition(
             emit::PlannedOpKind::Inc => {}
         }
     }
-    let Some(entry) = classes.iter_mut().find(|plan| plan.class == hazard.view) else {
+    if !commit_cured_view(classes, verdicts, declined, hazard.view, outcome) {
         return false;
-    };
-    entry.outcome = outcome;
-    if let Some(slot) = verdicts.iter_mut().find(|(class, _)| *class == hazard.view) {
-        slot.1 = ClassVerdict::Clean;
     }
-    declined.retain(|&(class, _)| class != hazard.view);
     tracing::debug!(
         target: "ori_arc::aims::class_ledger",
         view = ?partition.node_key(hazard.view),
