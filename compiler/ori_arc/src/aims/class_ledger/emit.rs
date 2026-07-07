@@ -224,31 +224,52 @@ fn block_in_cycle(func: &ArcFunction, block: usize) -> bool {
 /// mutually reachable with `block` (its strongly-connected component).
 fn cycle_exit_frontier(func: &ArcFunction, block: usize) -> Vec<usize> {
     let forward = reachable_set(func, block);
+    let backward = reaching_set(func, block);
+    let in_scc = |x: usize| {
+        x == block
+            || (forward.get(x).copied().unwrap_or(false)
+                && backward.get(x).copied().unwrap_or(false))
+    };
+    let mut seen = vec![false; func.blocks.len()];
     let mut exits = Vec::new();
-    for (member, _) in func.blocks.iter().enumerate() {
-        let in_scc = forward[member]
-            && reachable_set(func, member)
-                .get(block)
-                .copied()
-                .unwrap_or(false);
-        let in_scc = in_scc || member == block;
-        if !in_scc {
+    for member in 0..func.blocks.len() {
+        if !in_scc(member) {
             continue;
         }
         for succ in successors_of(func, member) {
-            let succ_in_scc = (forward.get(succ).copied().unwrap_or(false)
-                && reachable_set(func, succ)
-                    .get(block)
-                    .copied()
-                    .unwrap_or(false))
-                || succ == block;
-            if !succ_in_scc && !exits.contains(&succ) {
+            if !in_scc(succ) && succ < seen.len() && !seen[succ] {
+                seen[succ] = true;
                 exits.push(succ);
             }
         }
     }
     exits.sort_unstable();
     exits
+}
+
+/// Blocks that can reach `block` via successor edges (excluding `block`
+/// itself unless a cycle returns to it) — the backward dual of
+/// [`reachable_set`], one predecessor-BFS per frontier query.
+fn reaching_set(func: &ArcFunction, block: usize) -> Vec<bool> {
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
+    for b in 0..func.blocks.len() {
+        for succ in successors_of(func, b) {
+            if succ < preds.len() {
+                preds[succ].push(b);
+            }
+        }
+    }
+    let mut visited = vec![false; func.blocks.len()];
+    let mut stack: Vec<usize> = preds[block].clone();
+    while let Some(next) = stack.pop() {
+        if next >= visited.len() || visited[next] {
+            continue;
+        }
+        visited[next] = true;
+        let more = preds[next].clone();
+        stack.extend_from_slice(&more);
+    }
+    visited
 }
 
 /// Blocks reachable from `block` via successor edges (excluding `block`

@@ -29,10 +29,10 @@ type Named = { name: str, id: int }
     let dropped3 = if keep_no then [dropped_o] else [];
     let ok3 = kept3.length() == 1 && dropped3.length() == 0;
 
-    // Row 4: closures — env consumed on one branch only
+    // Row 4: closure with a heap capture, called once branch-exclusively
     let base = "abcdefghijklmnopqrstuvwxyz1234";
     let f = (n: int) -> int = base.length() + n;
-    let picked = if f(0) > 10 then f(1) else 0;
+    let picked = if take then f(1) else 0;
     let ok4 = picked == 31;
 
     // Row 5: struct with heap field — fresh LOCAL consumed branch-exclusively

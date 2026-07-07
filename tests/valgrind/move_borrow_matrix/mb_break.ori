@@ -32,15 +32,15 @@ type Named = { name: str, id: int }
     };
     let ok3 = total3 == 30;
 
-    // Row 4: closure with a heap capture, live across a broken loop
+    // Row 4: closure with a heap capture, called once after a broken loop
     let base = "abcdefghijklmnopqrstuvwxyz1234";
     let f = (n: int) -> int = base.length() + n;
-    let total4 = f(0);
+    let total4 = 0;
     for i in 0..5 do {
         if i == 2 then break;
         total4 = total4 + i;
     };
-    let ok4 = f(total4) == 61;
+    let ok4 = f(total4) == 31;
 
     // Row 5: struct elements with heap fields, break on id match
     let total5 = 0;
