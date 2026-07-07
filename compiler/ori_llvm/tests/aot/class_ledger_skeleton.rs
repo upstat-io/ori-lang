@@ -312,3 +312,23 @@ type Named = { name: str, id: int }
 "#;
     assert_class_ledger_cures_legacy_defect(src, "nested_forwarder_struct");
 }
+
+/// Adversarial family row: a closure capturing a heap payload, invoked
+/// twice then dead. The closure-env release must DOMINATE the captured
+/// payload's release — the env's single scope-exit dec cascade-frees the
+/// capture exactly once. The class-ledger emitter accounts the env class
+/// correctly (green); the legacy scan leaks the env/payload allocation.
+#[test]
+fn skeleton_closure_env_release_dominates_capture_ledger_green() {
+    let src = r#"
+@main () -> int = {
+    let payload = "captured heap payload string exceeding sso threshold";
+    let f = (n: int) -> int = payload.length() + n;
+    let a = f(1);
+    let b = f(2);
+
+    if a + b == payload.length() * 2 + 3 then 0 else 1
+}
+"#;
+    assert_class_ledger_cures_legacy_defect(src, "closure_env_release_dominates_capture");
+}
