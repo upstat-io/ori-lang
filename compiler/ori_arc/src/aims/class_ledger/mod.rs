@@ -143,6 +143,9 @@ pub(crate) fn analyze_class_ledger(
                 class = ?partition.node_key(class),
                 verdict = ?verdict,
                 declined = ?decline,
+                origin = ?class_events.origin,
+                container_held = class_events.container_held,
+                threads_back_edge = class_events.threads_back_edge,
                 events = ?class_events.per_block,
                 planned = ?planned_ops,
                 "class not clean (run ORI_LOG=ori_arc::aims::class_ledger=trace for the failing gate)"
