@@ -23,7 +23,7 @@ use crate::ir::{ArcFunction, ArcVarId};
 use super::events::{event_blocks, live_from, live_from_forward, ClassEvents, EventKind};
 
 /// One planned burden-op insertion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PlannedOp {
     pub(crate) slot: PlanSlot,
     pub(crate) kind: PlannedOpKind,
@@ -31,12 +31,19 @@ pub(crate) struct PlannedOp {
 }
 
 /// The op a plan entry materializes to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PlannedOpKind {
     /// `BurdenInc { var }` — funds a duplicated reference.
     Inc,
     /// `BurdenDec { var }` — releases the class's owed reference.
     Dec,
+    /// `BurdenDecPartial { var, skip_fields }` — releases the class's owed
+    /// reference, skipping the named top-level owned fields whose payload
+    /// ownership transferred out (the partition's consume marks). Books the
+    /// SAME single whole-var consume on the container's class as `Dec`
+    /// (IA-T6 `FD_container_class_verbatim`); the skip set only silences
+    /// interior field walks at drop time.
+    DecPartial { skip_fields: Vec<u32> },
 }
 
 /// Where an insertion lands inside its block.
@@ -268,7 +275,7 @@ fn per_block_delta(events: &ClassEvents, ops: &[PlannedOp], num_blocks: usize) -
     for op in ops {
         let signed = match op.kind {
             PlannedOpKind::Inc => 1,
-            PlannedOpKind::Dec => -1,
+            PlannedOpKind::Dec | PlannedOpKind::DecPartial { .. } => -1,
         };
         delta[op.slot.block()] += signed;
     }

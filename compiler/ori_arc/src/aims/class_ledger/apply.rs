@@ -39,8 +39,12 @@ fn insertion_index(func: &ArcFunction, slot: PlanSlot) -> usize {
 
 /// The burden op a plan entry materializes to.
 fn materialize(op: &PlannedOp) -> ArcInstr {
-    match op.kind {
+    match &op.kind {
         PlannedOpKind::Inc => ArcInstr::BurdenInc { var: op.var },
         PlannedOpKind::Dec => ArcInstr::BurdenDec { var: op.var },
+        PlannedOpKind::DecPartial { skip_fields } => ArcInstr::BurdenDecPartial {
+            var: op.var,
+            skip_fields: skip_fields.clone(),
+        },
     }
 }

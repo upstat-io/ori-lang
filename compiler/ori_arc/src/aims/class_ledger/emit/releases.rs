@@ -209,7 +209,7 @@ fn plan_block_release(
         .filter(|op| op.slot.block() == block)
         .map(|op| match op.kind {
             PlannedOpKind::Inc => 1,
-            PlannedOpKind::Dec => -1,
+            PlannedOpKind::Dec | PlannedOpKind::DecPartial { .. } => -1,
         })
         .sum();
     let pre_delta: i64 = evs

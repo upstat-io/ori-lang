@@ -1,9 +1,112 @@
 //! Type conversion operations (casts, extensions, truncations) for `IrBuilder`.
 
+use inkwell::builder::Builder as InkwellBuilder;
+use inkwell::types::{FloatType, IntType};
+use inkwell::values::{FloatValue, IntValue};
+
 use super::IrBuilder;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
-impl IrBuilder<'_, '_> {
+impl<'ctx> IrBuilder<'_, 'ctx> {
+    /// Emit an int→int conversion after checking the operand is an int.
+    /// On a non-int operand records a codegen error and returns `const_i64(0)`.
+    fn int_to_int_conv(
+        &mut self,
+        val: ValueId,
+        ty: LLVMTypeId,
+        name: &str,
+        op: &str,
+        build: impl FnOnce(&InkwellBuilder<'ctx>, IntValue<'ctx>, IntType<'ctx>, &str) -> IntValue<'ctx>,
+    ) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_int_type();
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "{op} on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
+        let result = build(&self.builder, v.into_int_value(), target, name);
+        self.arena.push_value(result.into())
+    }
+
+    /// Emit an int→float conversion after checking the operand is an int.
+    /// On a non-int operand records a codegen error and returns `const_f64(0.0)`.
+    fn int_to_float_conv(
+        &mut self,
+        val: ValueId,
+        ty: LLVMTypeId,
+        name: &str,
+        op: &str,
+        build: impl FnOnce(
+            &InkwellBuilder<'ctx>,
+            IntValue<'ctx>,
+            FloatType<'ctx>,
+            &str,
+        ) -> FloatValue<'ctx>,
+    ) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_float_type();
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "{op} on non-int operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
+        let result = build(&self.builder, v.into_int_value(), target, name);
+        self.arena.push_value(result.into())
+    }
+
+    /// Emit a float→int conversion after checking the operand is a float.
+    /// On a non-float operand records a codegen error and returns `const_i64(0)`.
+    fn float_to_int_conv(
+        &mut self,
+        val: ValueId,
+        ty: LLVMTypeId,
+        name: &str,
+        op: &str,
+        build: impl FnOnce(
+            &InkwellBuilder<'ctx>,
+            FloatValue<'ctx>,
+            IntType<'ctx>,
+            &str,
+        ) -> IntValue<'ctx>,
+    ) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_int_type();
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "{op} on non-float operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
+        let result = build(&self.builder, v.into_float_value(), target, name);
+        self.arena.push_value(result.into())
+    }
+
+    /// Emit a float→float conversion after checking the operand is a float.
+    /// On a non-float operand records a codegen error and returns `const_f64(0.0)`.
+    fn float_to_float_conv(
+        &mut self,
+        val: ValueId,
+        ty: LLVMTypeId,
+        name: &str,
+        op: &str,
+        build: impl FnOnce(
+            &InkwellBuilder<'ctx>,
+            FloatValue<'ctx>,
+            FloatType<'ctx>,
+            &str,
+        ) -> FloatValue<'ctx>,
+    ) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_float_type();
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "{op} on non-float operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
+        let result = build(&self.builder, v.into_float_value(), target, name);
+        self.arena.push_value(result.into())
+    }
+
     /// Build a bitcast.
     pub fn bitcast(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
@@ -17,18 +120,9 @@ impl IrBuilder<'_, '_> {
 
     /// Build integer truncation (to a smaller integer type).
     pub fn trunc(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "trunc on non-int operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = self
-            .builder
-            .build_int_truncate(v.into_int_value(), target, name)
-            .expect("trunc");
-        self.arena.push_value(result.into())
+        self.int_to_int_conv(val, ty, name, "trunc", |b, v, t, n| {
+            b.build_int_truncate(v, t, n).expect("trunc")
+        })
     }
 
     /// Sign-extend an integer value to i64 if it is narrower. Returns the
@@ -54,50 +148,23 @@ impl IrBuilder<'_, '_> {
 
     /// Build sign extension (to a larger integer type).
     pub fn sext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "sext on non-int operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = self
-            .builder
-            .build_int_s_extend(v.into_int_value(), target, name)
-            .expect("sext");
-        self.arena.push_value(result.into())
+        self.int_to_int_conv(val, ty, name, "sext", |b, v, t, n| {
+            b.build_int_s_extend(v, t, n).expect("sext")
+        })
     }
 
     /// Build zero extension (to a larger integer type).
     pub fn zext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "zext on non-int operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = self
-            .builder
-            .build_int_z_extend(v.into_int_value(), target, name)
-            .expect("zext");
-        self.arena.push_value(result.into())
+        self.int_to_int_conv(val, ty, name, "zext", |b, v, t, n| {
+            b.build_int_z_extend(v, t, n).expect("zext")
+        })
     }
 
     /// Build signed integer to floating-point conversion.
     pub fn si_to_fp(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "si_to_fp on non-int operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = self
-            .builder
-            .build_signed_int_to_float(v.into_int_value(), target, name)
-            .expect("si_to_fp");
-        self.arena.push_value(result.into())
+        self.int_to_float_conv(val, ty, name, "si_to_fp", |b, v, t, n| {
+            b.build_signed_int_to_float(v, t, n).expect("si_to_fp")
+        })
     }
 
     /// Build a SATURATING floating-point to signed integer conversion via
@@ -142,50 +209,23 @@ impl IrBuilder<'_, '_> {
 
     /// Build floating-point to signed integer conversion.
     pub fn fp_to_si(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "fp_to_si on non-float operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = self
-            .builder
-            .build_float_to_signed_int(v.into_float_value(), target, name)
-            .expect("fp_to_si");
-        self.arena.push_value(result.into())
+        self.float_to_int_conv(val, ty, name, "fp_to_si", |b, v, t, n| {
+            b.build_float_to_signed_int(v, t, n).expect("fp_to_si")
+        })
     }
 
     /// Build unsigned integer to floating-point conversion.
     pub fn uitofp(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "uitofp on non-int operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = self
-            .builder
-            .build_unsigned_int_to_float(v.into_int_value(), target, name)
-            .expect("uitofp");
-        self.arena.push_value(result.into())
+        self.int_to_float_conv(val, ty, name, "uitofp", |b, v, t, n| {
+            b.build_unsigned_int_to_float(v, t, n).expect("uitofp")
+        })
     }
 
     /// Build floating-point to unsigned integer conversion.
     pub fn fptoui(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "fptoui on non-float operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = self
-            .builder
-            .build_float_to_unsigned_int(v.into_float_value(), target, name)
-            .expect("fptoui");
-        self.arena.push_value(result.into())
+        self.float_to_int_conv(val, ty, name, "fptoui", |b, v, t, n| {
+            b.build_float_to_unsigned_int(v, t, n).expect("fptoui")
+        })
     }
 
     /// Extend a float value to f64 if it is narrower (f32). Returns the
@@ -211,34 +251,16 @@ impl IrBuilder<'_, '_> {
 
     /// Build float truncation (e.g., f64 → f32).
     pub fn float_trunc(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "float_trunc on non-float operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = self
-            .builder
-            .build_float_trunc(v.into_float_value(), target, name)
-            .expect("float_trunc");
-        self.arena.push_value(result.into())
+        self.float_to_float_conv(val, ty, name, "float_trunc", |b, v, t, n| {
+            b.build_float_trunc(v, t, n).expect("float_trunc")
+        })
     }
 
     /// Build float extension (e.g., f32 → f64).
     pub fn float_ext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "float_ext on non-float operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = self
-            .builder
-            .build_float_ext(v.into_float_value(), target, name)
-            .expect("float_ext");
-        self.arena.push_value(result.into())
+        self.float_to_float_conv(val, ty, name, "float_ext", |b, v, t, n| {
+            b.build_float_ext(v, t, n).expect("float_ext")
+        })
     }
 
     /// Build pointer-to-integer conversion.

@@ -135,6 +135,39 @@ pub(crate) fn extract_class_events_with(
     class: NodeIdx,
     force_owned: bool,
 ) -> ClassEvents {
+    extract_class_events_inner(func, classification, partition, class, force_owned, &[])
+}
+
+/// [`extract_class_events`] with the store-consumes at the given sites
+/// RE-BOOKED as non-consuming: a consume-marked field skipped by the
+/// container's `DecPartial` never enters the container's release books, so
+/// its move-in store is not an ownership handoff (IA-T6 `payloadEvents`
+/// skipped cell; per `aims-rules.md §12` PV-6).
+pub(crate) fn extract_class_events_rebooked(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    class: NodeIdx,
+    skip_consume_sites: &[(usize, EventSite)],
+) -> ClassEvents {
+    extract_class_events_inner(
+        func,
+        classification,
+        partition,
+        class,
+        false,
+        skip_consume_sites,
+    )
+}
+
+fn extract_class_events_inner(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    class: NodeIdx,
+    force_owned: bool,
+    skip_consume_sites: &[(usize, EventSite)],
+) -> ClassEvents {
     let origin = classification.class_origins.get(&class).copied();
     let container_held = origin.is_none() && partition.class_has_field_path_member(class);
     let externally_funded =
@@ -147,6 +180,11 @@ pub(crate) fn extract_class_events_with(
                 continue;
             }
             let site = event_site(classification, block, position);
+            if matches!(instr, ClassInstr::Consume { .. })
+                && skip_consume_sites.contains(&(block, site))
+            {
+                continue;
+            }
             let var = resolve_event_var(func, partition, class, block, site, instr);
             let (kind, delta, floor) = event_shape(
                 func,

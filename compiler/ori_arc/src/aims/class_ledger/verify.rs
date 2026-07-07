@@ -208,7 +208,7 @@ fn build_walks(func: &ArcFunction, events: &ClassEvents, ops: &[PlannedOp]) -> V
         };
         let item = match op.kind {
             PlannedOpKind::Inc => WalkItem { delta: 1, floor: 0 },
-            PlannedOpKind::Dec => WalkItem {
+            PlannedOpKind::Dec | PlannedOpKind::DecPartial { .. } => WalkItem {
                 delta: -1,
                 floor: 1,
             },

@@ -359,8 +359,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "equals" | "is_equal" if arg_vals.len() >= 2 => {
                 Some(self.emit_str_runtime_call("ori_str_eq", arg_vals[0], arg_vals[1], false))
             }
-            "compare" if arg_vals.len() >= 2 => self.emit_str_compare(arg_vals[0], arg_vals[1]),
-            "hash" => self.emit_str_hash(arg_vals[0]),
+            "compare" if arg_vals.len() >= 2 => {
+                self.emit_str_compare_call(arg_vals[0], arg_vals[1])
+            }
+            "hash" => self.emit_str_hash_call(arg_vals[0]),
             "is_less" if arg_vals.len() >= 2 => {
                 self.emit_str_cmp_predicate(arg_vals[0], arg_vals[1], CmpPredicate::Less)
             }
@@ -377,38 +379,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit `str.compare(other)` via `ori_str_compare`.
-    ///
-    /// `ori_str_compare(ptr, ptr) -> i8` returns the Ordering directly.
-    fn emit_str_compare(&mut self, lhs: ValueId, rhs: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_compare");
-
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let lhs_ptr =
-            self.builder
-                .create_entry_alloca(self.current_function, "str_cmp.lhs", str_ty);
-        self.builder.store(lhs, lhs_ptr);
-        let rhs_ptr =
-            self.builder
-                .create_entry_alloca(self.current_function, "str_cmp.rhs", str_ty);
-        self.builder.store(rhs, rhs_ptr);
-
-        self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], "str_cmp")
-    }
-
-    /// Emit `str.hash()` via `ori_str_hash`.
-    fn emit_str_hash(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_hash");
-
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let ptr = self
-            .builder
-            .create_entry_alloca(self.current_function, "str_hash.arg", str_ty);
-        self.builder.store(receiver, ptr);
-
-        self.emit_rt_call(func_id, &[ptr], "str_hash")
-    }
-
     /// Emit string comparison predicate via compare-then-check.
     ///
     /// Calls `ori_str_compare` then checks the i8 result against the
@@ -419,7 +389,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         predicate: CmpPredicate,
     ) -> Option<ValueId> {
-        let cmp_result = self.emit_str_compare(lhs, rhs)?;
+        let cmp_result = self.emit_str_compare_call(lhs, rhs)?;
         Some(match predicate {
             CmpPredicate::Less => {
                 let zero = self.builder.const_i8(0);

@@ -157,13 +157,15 @@ THEOREM_MAP: dict[str, tuple[str, str, list[str]]] = {
     # RL-DROP — Realization.lean (drop-glue-gated scope-exit user @drop).
     "RL-DROP": ("Realization", "RLDROP_scalar_lifecycle_sound", ["userDrop", "scalar"]),
     # 12-provenance T-theorems — Partition / Ledger / RunningCount /
-    # ContractBoundary. Keyed by the .proof header id (family prefix + T-n);
-    # the checked-in rows carry the bare T-n proof_id.
+    # ContractBoundary / FieldDecomposition. Keyed by the .proof header id
+    # (family prefix + T-n); emitted rows carry the bare T-n proof_id via
+    # display_pid.
     "IA-T1": ("Partition", "samerep_birthsite_sound", ["birthsite", "samerep"]),
     "RL-T2": ("Ledger", "compositional_placement_sound", ["threeclauses", "ledgersafe"]),
     "RL-T3": ("RunningCount", "keep_alive_redundancy_sound_iff_whole_pair", ["runningrc", "neverbelow"]),
     "IC-T4": ("ContractBoundary", "T4_contract_boundary_composition_sound", ["boundaryinstrs", "calleeconforms"]),
     "IA-T5": ("ContractBoundary", "T5_frame_untouched_class_ledger_verbatim", ["mergeclasses", "deriveledger"]),
+    "IA-T6": ("FieldDecomposition", "FD_skipset_sound", ["payloadevents", "threeclauses"]),
     "CH-comp-PV": ("ProvenanceComposition", "CHcomp_partition_side_table", ["eliminateatclass", "handshakeaccepts"]),
     # CH — Coexistence.lean
     "CH-1": ("Coexistence", "CH1_lattice_bridge", ["burden", "bridge"]),
@@ -225,7 +227,7 @@ DOC_ENCODED_TF = {
     "TF-12": ("Transfer", "PartialApply emits NO TF-11 demand (Transfer.lean header); no demand image"),
     "TF-15": ("Transfer", "Set in-place, no dst (Transfer.lean header); no forward image"),
     "TF-15a": ("Transfer", "SetTag in-place, no dst (Transfer.lean header); no forward image"),
-    "TF-N-A": ("Transfer", "RcInc/RcDec side-effect-only, no dst; no forward image"),
+    "TF-N-A": ("Transfer", "RcInc/RcDec + BurdenInc/BurdenDec side-effect-only, no dst; no forward image"),
 }
 CN5_DOC = ("Canonicalization", "§CN-5 — Unique+Dead preserves reusable shape (forbids a collapse, adds no theorem)")
 
@@ -264,8 +266,15 @@ def proof_status(path: Path) -> str | None:
     return None
 
 
+def display_pid(pid: str) -> str:
+    """Emitted proof_id: family-12 T-theorem headers (IA-T1, RL-T2, ...) carry
+    the bare T-n id in the checked-in rows; every other id passes through."""
+    m = re.match(r"^(?:IA|RL|IC)-(T\d+)$", pid)
+    return m.group(1) if m else pid
+
+
 def classify(rel: str, pid: str, status: str | None) -> dict:
-    row: dict = {"proof_id": pid, "proof_path": rel}
+    row: dict = {"proof_id": display_pid(pid), "proof_path": rel}
     if status == "definition_only":
         row.update(kind="definition", lean_module=None, lean_theorem=None,
                    parity_tokens=[], note="definition_only SSOT; check-proofs.sh skips; no Lean theorem")

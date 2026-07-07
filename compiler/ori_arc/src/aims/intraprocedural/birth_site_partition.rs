@@ -34,6 +34,15 @@ impl FieldPath {
     }
 
     /// Whether this is the whole-variable path (no projection hops).
+    /// The sole field index of a single-hop path; `None` for whole-var or
+    /// nested paths.
+    pub(crate) fn single_index(&self) -> Option<u32> {
+        match self.0.as_slice() {
+            [index] => Some(*index),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_whole_var(&self) -> bool {
         self.0.is_empty()
     }

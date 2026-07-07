@@ -1693,17 +1693,6 @@
       "note": ""
     },
     {
-      "proof_id": "RL-comp",
-      "proof_path": "proofs/08-realization/RL-comp.proof",
-      "kind": "composition_folded",
-      "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL3_elision_net_preserving",
-      "parity_tokens": [
-        "net"
-      ],
-      "note": ""
-    },
-    {
       "proof_id": "RL-DROP",
       "proof_path": "proofs/08-realization/RL-DROP.proof",
       "kind": "theorem",
@@ -1712,6 +1701,17 @@
       "parity_tokens": [
         "userDrop",
         "scalar"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-comp",
+      "proof_path": "proofs/08-realization/RL-comp.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL3_elision_net_preserving",
+      "parity_tokens": [
+        "net"
       ],
       "note": ""
     },
@@ -1950,6 +1950,18 @@
       "parity_tokens": [
         "mergeclasses",
         "deriveledger"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T6",
+      "proof_path": "proofs/12-provenance/T6-per-field-decomposition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.FieldDecomposition",
+      "lean_theorem": "FD_skipset_sound",
+      "parity_tokens": [
+        "payloadevents",
+        "threeclauses"
       ],
       "note": ""
     },

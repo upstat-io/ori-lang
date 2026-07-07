@@ -189,24 +189,18 @@ pub(crate) fn analyze_class_ledger(
         });
         classes.push(ClassPlan { class, outcome });
     }
-    let hazard_views = field_view_hazard_classes(func, partition, &class_facts);
-    let mut uncured = Vec::new();
-    for view in hazard_views {
-        if cure_view_with_extraction_funding(
-            func,
-            classification,
-            partition,
-            &preds,
-            &regions,
-            view,
-            &mut classes,
-            &mut verdicts,
-            &mut declined,
-        ) {
-            continue;
-        }
-        uncured.push(view);
-    }
+    let hazards = field_view_hazard_classes(func, partition, &class_facts);
+    let uncured = cure_endangered_views(
+        func,
+        classification,
+        partition,
+        &preds,
+        &regions,
+        &hazards,
+        &mut classes,
+        &mut verdicts,
+        &mut declined,
+    );
     let field_view_hazard = !uncured.is_empty();
     let all_classes_clean = declined.is_empty()
         && verdicts
@@ -221,6 +215,89 @@ pub(crate) fn analyze_class_ledger(
         },
         field_view_hazard,
     }
+}
+
+/// Run the cure ladder over every endangered (view, container) pair; the
+/// views no cure lands for come back uncured (the replacement gate then
+/// declines the function). A consume-marked single-container view's precise
+/// cure is the per-field release decomposition (zero added RC traffic — the
+/// container's release skips the moved field); seed-funding is the general
+/// fallback and the sole cure for demand-only views (never skipped per
+/// IA-T6 over-skip rejection).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal cure ladder over analyze_class_ledger's own accumulators"
+)]
+fn cure_endangered_views(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    preds: &[Vec<usize>],
+    regions: &emit::CycleRegions,
+    hazards: &[FieldViewHazard],
+    classes: &mut [ClassPlan],
+    verdicts: &mut [(NodeIdx, ClassVerdict)],
+    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
+) -> Vec<NodeIdx> {
+    let mut uncured = Vec::new();
+    let mut cured_views: Vec<NodeIdx> = Vec::new();
+    for hazard in hazards {
+        if cured_views.contains(&hazard.view) {
+            continue;
+        }
+        let multi_container = hazards
+            .iter()
+            .filter(|other| other.view == hazard.view)
+            .count()
+            > 1;
+        if !multi_container
+            && cure_view_with_field_decomposition(
+                func,
+                classification,
+                partition,
+                preds,
+                regions,
+                hazard,
+                classes,
+                verdicts,
+                declined,
+            )
+        {
+            cured_views.push(hazard.view);
+            continue;
+        }
+        if cure_view_with_extraction_funding(
+            func,
+            classification,
+            partition,
+            preds,
+            regions,
+            hazard.view,
+            classes,
+            verdicts,
+            declined,
+        ) {
+            cured_views.push(hazard.view);
+            continue;
+        }
+        uncured.push(hazard.view);
+    }
+    uncured
+}
+
+/// One endangered (view, container) pair the cure passes consume: the
+/// container's construct sites (the legitimate move-in stores), the view's
+/// top-level field indices under the container (the `DecPartial` skip set),
+/// and whether the view carries a Consume outside those sites (the consume
+/// mark the skip derivation requires per PV-6).
+struct FieldViewHazard {
+    view: NodeIdx,
+    container: NodeIdx,
+    construct_sites: Vec<(usize, EventSite)>,
+    skip_fields: Vec<u32>,
+    nested_path: bool,
+    sum_container: bool,
+    consume_marked: bool,
 }
 
 /// Per-class facts the field-view hazard consumes.
@@ -240,7 +317,7 @@ fn field_view_hazard_classes(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     class_facts: &[ClassHazardFacts],
-) -> Vec<NodeIdx> {
+) -> Vec<FieldViewHazard> {
     use crate::ir::ArcInstr;
 
     let released: Vec<NodeIdx> = class_facts
@@ -252,7 +329,7 @@ fn field_view_hazard_classes(
         return Vec::new();
     }
     let nodes = partition.nodes_snapshot();
-    let mut views: Vec<NodeIdx> = Vec::new();
+    let mut hazards: Vec<FieldViewHazard> = Vec::new();
     for &container in &released {
         let container_rep = partition.rep_of(container);
         // Member vars of the container class (whole-var nodes).
@@ -265,13 +342,15 @@ fn field_view_hazard_classes(
         // The container class's own Construct sites: a view's Consume at one
         // of these is the move-in store the container's release pays for.
         let mut construct_sites: Vec<(usize, EventSite)> = Vec::new();
+        let mut sum_container = false;
         for (block_idx, arc_block) in func.blocks.iter().enumerate() {
             for (index, instr) in arc_block.body.iter().enumerate() {
-                let ArcInstr::Construct { dst, .. } = instr else {
+                let ArcInstr::Construct { dst, ctor, .. } = instr else {
                     continue;
                 };
                 if member_vars.contains(dst) {
                     construct_sites.push((block_idx, EventSite::Body(index)));
+                    sum_container |= matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
                 }
             }
         }
@@ -283,21 +362,53 @@ fn field_view_hazard_classes(
             if view_rep == container_rep {
                 continue;
             }
-            let endangered = class_facts.iter().any(|facts| {
+            let consume_marked = class_facts.iter().any(|facts| {
                 partition.rep_of(facts.class) == view_rep
-                    && (facts.has_demand
-                        || facts
-                            .consume_sites
-                            .iter()
-                            .any(|site| !construct_sites.contains(site)))
+                    && facts
+                        .consume_sites
+                        .iter()
+                        .any(|site| !construct_sites.contains(site))
             });
-            if endangered && !views.contains(&view_rep) {
-                views.push(view_rep);
+            let endangered = consume_marked
+                || class_facts
+                    .iter()
+                    .any(|facts| partition.rep_of(facts.class) == view_rep && facts.has_demand);
+            if !endangered {
+                continue;
             }
+            if let Some(hazard) = hazards
+                .iter_mut()
+                .find(|hazard| hazard.view == view_rep && hazard.container == container_rep)
+            {
+                if let Some(index) = path.single_index() {
+                    if !hazard.skip_fields.contains(&index) {
+                        hazard.skip_fields.push(index);
+                    }
+                } else {
+                    hazard.nested_path = true;
+                }
+                hazard.consume_marked |= consume_marked;
+                continue;
+            }
+            let mut skip_fields = Vec::new();
+            let mut nested_path = false;
+            match path.single_index() {
+                Some(index) => skip_fields.push(index),
+                None => nested_path = true,
+            }
+            hazards.push(FieldViewHazard {
+                view: view_rep,
+                container: container_rep,
+                construct_sites: construct_sites.clone(),
+                skip_fields,
+                nested_path,
+                sum_container,
+                consume_marked,
+            });
         }
     }
-    views.sort_unstable();
-    views
+    hazards.sort_unstable_by_key(|hazard| (hazard.view, hazard.container));
+    hazards
 }
 
 /// Cure one endangered view class by funding it at its extraction sites: an
@@ -390,6 +501,129 @@ fn cure_view_with_extraction_funding(
         slot.1 = ClassVerdict::Clean;
     }
     declined.retain(|&(class, _)| class != view);
+    true
+}
+
+/// Cure one consume-marked endangered view by decomposing the container's
+/// release per named owned field: the container's planned `Dec`s become
+/// `DecPartial(skip = the view's field indices)` and the view's events are
+/// RE-BOOKED with the move-in store non-consuming (ownership never enters
+/// the container's release path), then re-planned + re-verified. The skip
+/// set derives from the partition's consume marks and nothing else — the
+/// UNIQUE clause-preserving skip set per IA-T6 `FD_skipset_sound`
+/// (`aims-rules.md §12` PV-6). A merely-read (demand-endangered) view is
+/// never consume-marked, so it is never skipped (over-skip = leak).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal cure pass over analyze_class_ledger's own accumulators"
+)]
+fn cure_view_with_field_decomposition(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    preds: &[Vec<usize>],
+    regions: &emit::CycleRegions,
+    hazard: &FieldViewHazard,
+    classes: &mut [ClassPlan],
+    verdicts: &mut [(NodeIdx, ClassVerdict)],
+    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
+) -> bool {
+    // A sum container's skip is a variant ordinal whose safety is
+    // discriminant- and arm-conditional (the payload-less arm's books are
+    // asymmetric); the per-class walk does not model per-arm variant state,
+    // so sum containers stay on the funding/decline path fail-closed.
+    if !hazard.consume_marked
+        || hazard.nested_path
+        || hazard.sum_container
+        || hazard.skip_fields.is_empty()
+    {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            consume_marked = hazard.consume_marked,
+            nested_path = hazard.nested_path,
+            sum_container = hazard.sum_container,
+            skip_fields = ?hazard.skip_fields,
+            "field-decomposition cure declined: view not skip-derivable"
+        );
+        return false;
+    }
+    let rebooked = events::extract_class_events_rebooked(
+        func,
+        classification,
+        partition,
+        hazard.view,
+        &hazard.construct_sites,
+    );
+    let outcome = emit::plan_class(func, preds, regions, &rebooked, &[]);
+    let planned: &[PlannedOp] = match &outcome {
+        ClassOutcome::Planned(ops) => ops,
+        ClassOutcome::Declined(reason) => {
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                view = ?partition.node_key(hazard.view),
+                declined = ?reason,
+                events = ?rebooked.per_block,
+                "field-decomposition cure declined: rebooked plan declined"
+            );
+            return false;
+        }
+    };
+    let verdict = verify::verify_class(func, preds, &rebooked, planned);
+    if verdict != ClassVerdict::Clean {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            verdict = ?verdict,
+            planned = ?planned,
+            events = ?rebooked.per_block,
+            "field-decomposition cure declined: rebooked plan verifies non-Clean"
+        );
+        return false;
+    }
+    let container = hazard.container;
+    let Some(container_entry) = classes
+        .iter_mut()
+        .find(|plan| partition.rep_of(plan.class) == container)
+    else {
+        return false;
+    };
+    let ClassOutcome::Planned(container_ops) = &mut container_entry.outcome else {
+        return false;
+    };
+    for op in container_ops.iter_mut() {
+        match &mut op.kind {
+            emit::PlannedOpKind::Dec => {
+                op.kind = emit::PlannedOpKind::DecPartial {
+                    skip_fields: hazard.skip_fields.clone(),
+                };
+            }
+            emit::PlannedOpKind::DecPartial { skip_fields } => {
+                for &field in &hazard.skip_fields {
+                    if !skip_fields.contains(&field) {
+                        skip_fields.push(field);
+                    }
+                }
+                skip_fields.sort_unstable();
+            }
+            emit::PlannedOpKind::Inc => {}
+        }
+    }
+    let Some(entry) = classes.iter_mut().find(|plan| plan.class == hazard.view) else {
+        return false;
+    };
+    entry.outcome = outcome;
+    if let Some(slot) = verdicts.iter_mut().find(|(class, _)| *class == hazard.view) {
+        slot.1 = ClassVerdict::Clean;
+    }
+    declined.retain(|&(class, _)| class != hazard.view);
+    tracing::debug!(
+        target: "ori_arc::aims::class_ledger",
+        view = ?partition.node_key(hazard.view),
+        container = ?partition.node_key(container),
+        skip_fields = ?hazard.skip_fields,
+        "field-decomposition cure applied: container releases skip consume-marked fields"
+    );
     true
 }
 

@@ -17,3 +17,4 @@ import AimsProof.RunningCount
 import AimsProof.Ledger
 import AimsProof.ContractBoundary
 import AimsProof.ProvenanceComposition
+import AimsProof.FieldDecomposition

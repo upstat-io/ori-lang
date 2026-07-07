@@ -1744,3 +1744,113 @@ fn extract_then_move_out_keeps_hazard_when_uncurable() {
         "cured acceptance without clean verdicts"
     );
 }
+
+#[test]
+fn extract_then_move_out_decomposes_container_release() {
+    // The member is extracted then moved out through the Return — a consume
+    // mark under exactly ONE released container. The decomposition cure
+    // flips the container's Dec to DecPartial(skip = [0]) and re-books the
+    // view without its move-in store (PV-6 / IA-T6): the transferee owns
+    // the payload, the container's glue skips it.
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(2),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    // Fail-closed floor: never a silent acceptance with non-clean classes.
+    assert!(
+        analysis.field_view_hazard || analysis.readiness.all_classes_clean,
+        "cured acceptance without clean verdicts"
+    );
+    assert!(
+        !analysis.field_view_hazard,
+        "single-container consume-marked view must decompose, not decline"
+    );
+    // The decomposition must be visible: a DecPartial on the container's
+    // class skipping exactly the consume-marked field index 0.
+    let container_node = partition.register_node(v(1), FieldPath::whole_var());
+    let container_rep = partition.rep_of(container_node);
+    let mut saw_partial = false;
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        for op in ops {
+            if let PlannedOpKind::DecPartial { skip_fields } = &op.kind {
+                saw_partial = true;
+                assert_eq!(skip_fields.as_slice(), &[0], "skip set != consume marks");
+                assert_eq!(
+                    partition.rep_of(plan.class),
+                    container_rep,
+                    "DecPartial planned off the container class"
+                );
+            }
+        }
+    }
+    assert!(
+        saw_partial,
+        "consume-marked view cleared without the per-field decomposition"
+    );
+}
+
+#[test]
+fn demand_only_view_is_never_skipped() {
+    // The member is only READ after extraction — demand-endangered, never
+    // consume-marked. Over-skip is the leak cell IA-T6 rejects: no planned
+    // DecPartial may exist for this shape whatever cure ran.
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            is_shared(3, 2),
+            ArcInstr::Let {
+                dst: v(4),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+        ],
+        ret(3),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+            "a merely-read view was skipped (over-skip = leak)"
+        );
+    }
+}

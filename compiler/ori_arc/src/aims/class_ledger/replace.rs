@@ -122,7 +122,7 @@ pub(crate) fn planned_ops(analysis: &ClassLedgerAnalysis) -> Vec<PlannedOp> {
             ClassOutcome::Planned(ops) => ops.as_slice(),
             ClassOutcome::Declined(_) => &[],
         })
-        .copied()
+        .cloned()
         .collect()
 }
 
@@ -167,7 +167,47 @@ fn gate_rejection(
     if !ops_placeable(func, ops) {
         return Some("op-var-placement");
     }
+    if !dec_partial_skips_valid(func, ops, type_registry) {
+        return Some("field-decomposition-shape");
+    }
     None
+}
+
+/// Whether every planned `DecPartial`'s skip set names only the container
+/// type's OWN named top-level owned fields (struct field indices) or
+/// variant ordinals (sum types) — the grain the drop glue walks. A skip
+/// index outside that surface (or a container with no burden) declines the
+/// function; the interior walk would silently mis-skip at runtime.
+fn dec_partial_skips_valid(
+    func: &ArcFunction,
+    ops: &[PlannedOp],
+    type_registry: &TypeRegistry,
+) -> bool {
+    use crate::lower::burden::Burden;
+    use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
+
+    ops.iter().all(|op| {
+        let super::emit::PlannedOpKind::DecPartial { skip_fields } = &op.kind else {
+            return true;
+        };
+        if skip_fields.is_empty() {
+            return false;
+        }
+        let Some(&ty) = func.var_types.get(op.var.index()) else {
+            return false;
+        };
+        let Some(burden) = lookup_burden(idx_to_type_ref(ty, type_registry), type_registry) else {
+            return false;
+        };
+        let named: Vec<u32> = burden
+            .owned_fields()
+            .filter_map(|field| field.field_path.first().copied())
+            .collect();
+        let variant_count = burden.variant_burdens().count();
+        skip_fields.iter().all(|&field| {
+            named.contains(&field) || u32::try_from(variant_count).is_ok_and(|count| field < count)
+        })
+    })
 }
 
 /// Whether any instruction is a `Reset` / `Reuse` / `CollectionReuse`

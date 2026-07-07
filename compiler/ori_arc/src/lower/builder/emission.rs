@@ -15,13 +15,25 @@ use super::{ArcIrBuilder, InvokeTargets};
 impl ArcIrBuilder {
     // Instruction emission
 
-    /// Emit a `Let` instruction binding a value to a fresh variable.
-    pub fn emit_let(&mut self, ty: Idx, value: ArcValue, span: Option<Span>) -> ArcVarId {
+    /// Push an instruction into the current block, allocating a fresh `dst`
+    /// variable of type `ty` and recording `span`. `make` builds the
+    /// instruction from the fresh `dst`. Returns the fresh variable.
+    fn push_instr(
+        &mut self,
+        ty: Idx,
+        span: Option<Span>,
+        make: impl FnOnce(ArcVarId) -> ArcInstr,
+    ) -> ArcVarId {
         let dst = self.fresh_var(ty);
         let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::Let { dst, ty, value });
+        block.body.push(make(dst));
         block.spans.push(span);
         dst
+    }
+
+    /// Emit a `Let` instruction binding a value to a fresh variable.
+    pub fn emit_let(&mut self, ty: Idx, value: ArcValue, span: Option<Span>) -> ArcVarId {
+        self.push_instr(ty, span, |dst| ArcInstr::Let { dst, ty, value })
     }
 
     /// Emit an `Apply` (direct function call) instruction.
@@ -37,19 +49,17 @@ impl ArcIrBuilder {
         span: Option<Span>,
         mono_instance_id: Option<MonoInstanceId>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        let arg_count = args.len();
-        block.body.push(ArcInstr::Apply {
-            dst,
-            ty,
-            func,
-            args,
-            arg_ownership: vec![ArgOwnership::Owned; arg_count],
-            mono_instance_id,
-        });
-        block.spans.push(span);
-        dst
+        self.push_instr(ty, span, |dst| {
+            let arg_count = args.len();
+            ArcInstr::Apply {
+                dst,
+                ty,
+                func,
+                args,
+                arg_ownership: vec![ArgOwnership::Owned; arg_count],
+                mono_instance_id,
+            }
+        })
     }
 
     /// Emit an `ApplyIndirect` (closure call) instruction.
@@ -60,17 +70,13 @@ impl ArcIrBuilder {
         args: Vec<ArcVarId>,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::ApplyIndirect {
+        self.push_instr(ty, span, |dst| ArcInstr::ApplyIndirect {
             dst,
             ty,
             closure,
             args,
             arg_ownership: Vec::new(),
-        });
-        block.spans.push(span);
-        dst
+        })
     }
 
     /// Emit a `Construct` instruction.
@@ -81,16 +87,12 @@ impl ArcIrBuilder {
         args: Vec<ArcVarId>,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::Construct {
+        self.push_instr(ty, span, |dst| ArcInstr::Construct {
             dst,
             ty,
             ctor,
             args,
-        });
-        block.spans.push(span);
-        dst
+        })
     }
 
     /// Emit a `PartialApply` instruction (closure creation with captures).
@@ -101,16 +103,12 @@ impl ArcIrBuilder {
         args: Vec<ArcVarId>,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::PartialApply {
+        self.push_instr(ty, span, |dst| ArcInstr::PartialApply {
             dst,
             ty,
             func,
             args,
-        });
-        block.spans.push(span);
-        dst
+        })
     }
 
     /// Emit a `Project` (field access) instruction.
@@ -121,16 +119,12 @@ impl ArcIrBuilder {
         field: u32,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::Project {
+        self.push_instr(ty, span, |dst| ArcInstr::Project {
             dst,
             ty,
             value,
             field,
-        });
-        block.spans.push(span);
-        dst
+        })
     }
 
     /// Emit a `Select` (branchless conditional value) instruction.
@@ -146,17 +140,13 @@ impl ArcIrBuilder {
         false_val: ArcVarId,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let block = &mut self.blocks[self.current_block.index()];
-        block.body.push(ArcInstr::Select {
+        self.push_instr(ty, span, |dst| ArcInstr::Select {
             dst,
             ty,
             cond,
             true_val,
             false_val,
-        });
-        block.spans.push(span);
-        dst
+        })
     }
 
     // Invoke (call that may unwind)
