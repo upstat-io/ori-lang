@@ -1613,3 +1613,134 @@ fn loop_invariant_class_read_inside_the_cycle_survives_iterations() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+// struct_list_field flagship — the NEW per-field-class mechanism carries the
+// 2+-owned-field aggregate-move cluster (the evidence-bar positive pin: the
+// per-field classes verify Clean with extraction funding and the hazard set
+// empties, so the replacement gate accepts; the legacy whole-var admission
+// never runs on the replaced path).
+
+/// The flagship shape reduced: two fresh heap fields moved into an aggregate
+/// container, each read back through an alias-hop Project. Field congruence
+/// joins the Project dsts with their field-source classes; the extraction
+/// funding cure plans a seed inc per member read; every class verifies
+/// Clean and no field-view hazard survives.
+#[test]
+fn struct_list_field_flagship_per_field_classes_replace() {
+    // %0 = Construct List(...)      (items buffer)
+    // %1 = Construct Str-ish        (label allocation, modeled as Construct)
+    // %2 = Construct Struct(%0, %1) (container)
+    // %3 = Let %2 (alias)
+    // %4 = Project %3.0 (items view)  %5 = IsShared %4 (read)
+    // %6 = Project %3.1 (label view)  %7 = IsShared %6 (read)
+    let mut func = one_block_func(
+        8,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            construct(2, vec![0, 1]),
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(2)),
+            },
+            ArcInstr::Project {
+                dst: v(4),
+                ty: ty(0),
+                value: v(3),
+                field: 0,
+            },
+            is_shared(5, 4),
+            ArcInstr::Project {
+                dst: v(6),
+                ty: ty(0),
+                value: v(3),
+                field: 1,
+            },
+            is_shared(7, 6),
+        ],
+        ret(5),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(5));
+    state_map.set_permanent_scalar(v(7));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    // Field congruence: each Project dst joins its field-source class.
+    let items_class = class_rep(&mut partition, 0);
+    let view_class = class_rep(&mut partition, 4);
+    assert_eq!(
+        items_class, view_class,
+        "alias-hop Project composes into the field class"
+    );
+    let label_class = class_rep(&mut partition, 1);
+    let label_view = class_rep(&mut partition, 6);
+    assert_eq!(label_class, label_view);
+
+    // Every per-field class verifies Clean and the hazard set is empty —
+    // the replacement gate accepts on these terms (the positive pin that
+    // the NEW mechanism, not the legacy whole-var admission, carries the
+    // flagship: on replaced functions the legacy emission is skipped).
+    assert!(analysis.readiness.all_classes_clean);
+    assert!(
+        !analysis.field_view_hazard,
+        "extraction funding cures every endangered view"
+    );
+    assert_eq!(verdict_for(&analysis, items_class), ClassVerdict::Clean);
+    assert_eq!(verdict_for(&analysis, label_class), ClassVerdict::Clean);
+}
+
+/// Negative pin (fail-closed discipline): a member EXTRACTED from a released
+/// container and moved OUT to a second container keeps the field-view hazard
+/// when the funded re-plan cannot verify Clean — the gate declines rather
+/// than emitting an unsound plan (no whole-var admission change, per-field
+/// handling stays local to the ledger planner).
+#[test]
+fn extract_then_move_out_keeps_hazard_when_uncurable() {
+    // %0 = Construct payload
+    // %1 = Construct tuple(%0)      (first container)
+    // %2 = Project %1.0             (extract member)
+    // %3 = Construct holder(%2)     (move member OUT to a second container)
+    // %4 = Let %1 (alias keeping the first container eventful)
+    // ret %5 (scalar)
+    let mut func = one_block_func(
+        6,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Let {
+                dst: v(4),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(5, 4),
+        ],
+        ret(5),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(5));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    // The member's consume sits at the SECOND container's Construct — not a
+    // move-in store of the released first container — so it stays an
+    // endangered view unless the funded re-plan verifies Clean. Either the
+    // cure verifies (hazard false, all clean) or the gate declines (hazard
+    // true): both are sound; an unfunded silent acceptance is neither.
+    // Either the hazard survives (fail-closed: the gate declines this
+    // function) or the cure landed — in which case every class MUST verify
+    // Clean for the acceptance to stand. An unfunded silent acceptance is
+    // the one outcome this pin rejects.
+    assert!(
+        analysis.field_view_hazard || analysis.readiness.all_classes_clean,
+        "cured acceptance without clean verdicts"
+    );
+}
