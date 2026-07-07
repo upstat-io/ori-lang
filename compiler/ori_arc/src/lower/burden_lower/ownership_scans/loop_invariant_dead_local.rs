@@ -24,6 +24,9 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 #[cfg(test)]
 mod tests;
 
+// Env: ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE — declines the RL-5
+// release for a purely-dead loop-invariant fresh-collection local (the
+// bisection surface; default off -> the release is emitted), debug-only.
 /// `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1` declines the RL-5 release
 /// for a purely-dead loop-invariant fresh-collection local (the bisection
 /// surface; default off -> the release is emitted). Spec: Annex E §AIMS RL-5.
@@ -31,6 +34,10 @@ fn disabled() -> bool {
     std::env::var("ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE").as_deref() == Ok("1")
 }
 
+// Env: ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE — declines the RL-5
+// release for the borrow-only-read loop-invariant fresh-collection local
+// (the borrow-read sibling; default off -> the release is emitted),
+// debug-only.
 /// `ORI_DISABLE_LOOP_INVARIANT_BORROW_ONLY_RELEASE=1` declines the RL-5 release
 /// for the BORROW-ONLY-READ loop-invariant fresh-collection local (the
 /// borrow-read sibling of the purely-dead family; default off -> the release is

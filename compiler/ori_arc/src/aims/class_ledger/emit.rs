@@ -11,16 +11,16 @@
 //! planned for it (fail-closed, never a wrong placement).
 //! Spec: Annex E §AIMS RL-1 + RL-2 + RL-4 + RL-5.
 
-use rustc_hash::FxHashSet;
+mod cfg_region;
+mod incs;
+mod releases;
 
-use crate::aims::intraprocedural::ledger_events::EventSite;
+pub(crate) use cfg_region::CycleRegions;
+
 use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::ir::{ArcFunction, ArcVarId};
 
-use super::events::{
-    event_blocks, live_from, live_from_forward, live_out, live_out_forward, successors_of,
-    ClassEvent, ClassEvents, EventKind,
-};
+use super::events::{event_blocks, live_from, live_from_forward, ClassEvents, EventKind};
 
 /// One planned burden-op insertion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +99,7 @@ pub(crate) enum ClassOutcome {
 pub(crate) fn plan_class(
     func: &ArcFunction,
     preds: &[Vec<usize>],
+    regions: &CycleRegions,
     events: &ClassEvents,
     seed_ops: &[PlannedOp],
 ) -> ClassOutcome {
@@ -109,7 +110,7 @@ pub(crate) fn plan_class(
         // site — the general death-frontier walk cannot place these (a
         // birth inside a cycle keeps every loop block activity-live, so no
         // block ever reads as the frontier).
-        return match plan_dead_class_releases(func, events) {
+        return match releases::plan_dead_class_releases(func, events) {
             Ok(ops) => ClassOutcome::Planned(ops),
             Err(reason) => ClassOutcome::Declined(reason),
         };
@@ -126,7 +127,7 @@ pub(crate) fn plan_class(
     // too. Otherwise back-edges are the next iteration's ledger:
     // forward-only for funding decisions AND the death frontier.
     let (demand_live, activity_live) =
-        if events.threads_back_edge || !has_cycle_events(func, events) {
+        if events.threads_back_edge || !has_cycle_events(regions, events) {
             (
                 live_from(func, &event_blocks(events, true)),
                 live_from(func, &event_blocks(events, false)),
@@ -138,12 +139,12 @@ pub(crate) fn plan_class(
             )
         };
     let mut ops = seed_ops.to_vec();
-    match plan_incs(func, events, &demand_live, &dom) {
-        Ok(incs) => ops.extend(incs),
+    match incs::plan_incs(func, events, &demand_live, &dom) {
+        Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
-    match plan_select_credit_incs(events) {
-        Ok(incs) => ops.extend(incs),
+    match incs::plan_select_credit_incs(events) {
+        Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
     let delta = per_block_delta(events, &ops, func.blocks.len());
@@ -151,9 +152,10 @@ pub(crate) fn plan_class(
     if !nets.converged {
         return ClassOutcome::Declined(DeclineReason::NonConverged);
     }
-    let plan_error = plan_releases(
+    let plan_error = releases::plan_releases(
         func,
         preds,
+        regions,
         events,
         &activity_live,
         &nets.entry_net,
@@ -190,7 +192,7 @@ pub(crate) fn plan_class(
 /// acquisitions inside a cycle mean a per-iteration instance (forward-only
 /// liveness); reads and consumes never create instances — a class born
 /// outside the cycle and only read within it is loop-invariant.
-fn has_cycle_events(func: &ArcFunction, events: &ClassEvents) -> bool {
+fn has_cycle_events(regions: &CycleRegions, events: &ClassEvents) -> bool {
     events
         .per_block
         .iter()
@@ -199,92 +201,7 @@ fn has_cycle_events(func: &ArcFunction, events: &ClassEvents) -> bool {
             evs.iter()
                 .any(|ev| ev.delta > 0 || ev.kind == EventKind::SelectCredit)
         })
-        .any(|(block, _)| block_in_cycle(func, block))
-}
-
-/// Whether `block` can reach itself via successor edges.
-fn block_in_cycle(func: &ArcFunction, block: usize) -> bool {
-    let mut visited = vec![false; func.blocks.len()];
-    let mut stack: Vec<usize> = successors_of(func, block);
-    while let Some(next) = stack.pop() {
-        if next == block {
-            return true;
-        }
-        if next >= visited.len() || visited[next] {
-            continue;
-        }
-        visited[next] = true;
-        stack.extend_from_slice(&successors_of(func, next));
-    }
-    false
-}
-
-/// The exit frontier of the cycle region containing `block`: every
-/// successor OUTSIDE the region of a block INSIDE it. The region = blocks
-/// mutually reachable with `block` (its strongly-connected component).
-fn cycle_exit_frontier(func: &ArcFunction, block: usize) -> Vec<usize> {
-    let forward = reachable_set(func, block);
-    let backward = reaching_set(func, block);
-    let in_scc = |x: usize| {
-        x == block
-            || (forward.get(x).copied().unwrap_or(false)
-                && backward.get(x).copied().unwrap_or(false))
-    };
-    let mut seen = vec![false; func.blocks.len()];
-    let mut exits = Vec::new();
-    for member in 0..func.blocks.len() {
-        if !in_scc(member) {
-            continue;
-        }
-        for succ in successors_of(func, member) {
-            if !in_scc(succ) && succ < seen.len() && !seen[succ] {
-                seen[succ] = true;
-                exits.push(succ);
-            }
-        }
-    }
-    exits.sort_unstable();
-    exits
-}
-
-/// Blocks that can reach `block` via successor edges (excluding `block`
-/// itself unless a cycle returns to it) — the backward dual of
-/// [`reachable_set`], one predecessor-BFS per frontier query.
-fn reaching_set(func: &ArcFunction, block: usize) -> Vec<bool> {
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
-    for b in 0..func.blocks.len() {
-        for succ in successors_of(func, b) {
-            if succ < preds.len() {
-                preds[succ].push(b);
-            }
-        }
-    }
-    let mut visited = vec![false; func.blocks.len()];
-    let mut stack: Vec<usize> = preds[block].clone();
-    while let Some(next) = stack.pop() {
-        if next >= visited.len() || visited[next] {
-            continue;
-        }
-        visited[next] = true;
-        let more = preds[next].clone();
-        stack.extend_from_slice(&more);
-    }
-    visited
-}
-
-/// Blocks reachable from `block` via successor edges (excluding `block`
-/// itself unless a cycle returns to it).
-fn reachable_set(func: &ArcFunction, block: usize) -> Vec<bool> {
-    let mut visited = vec![false; func.blocks.len()];
-    let mut stack: Vec<usize> = successors_of(func, block);
-    while let Some(next) = stack.pop() {
-        if next >= visited.len() || visited[next] {
-            continue;
-        }
-        visited[next] = true;
-        stack.extend_from_slice(&successors_of(func, next));
-    }
-    visited
+        .any(|(block, _)| regions.in_cycle(block))
 }
 
 /// Whether the class's events are exclusively births — no demand (Read /
@@ -296,246 +213,6 @@ fn births_only(events: &ClassEvents) -> bool {
         .iter()
         .flatten()
         .all(|ev| ev.kind == EventKind::Birth)
-}
-
-/// RL-2 unused-owned / RL-5 dead-at-entry releases for a class with zero
-/// demand events: every acquiring event (positive delta) gets its release
-/// immediately after its site — after the acquiring body instruction, at
-/// the block front for a block-entry acquisition, or at every successor's
-/// front for a terminator-site acquisition (a cross-class jump credit lands
-/// in the target block). Zero-delta events (an externally-funded birth) owe
-/// nothing.
-fn plan_dead_class_releases(
-    func: &ArcFunction,
-    events: &ClassEvents,
-) -> Result<Vec<PlannedOp>, DeclineReason> {
-    let mut ops = Vec::new();
-    let mut fronts: FxHashSet<usize> = FxHashSet::default();
-    for (block, evs) in events.per_block.iter().enumerate() {
-        for ev in evs {
-            if ev.delta <= 0 {
-                continue;
-            }
-            match ev.site {
-                EventSite::Body(index) => {
-                    let var = ev.var.ok_or(DeclineReason::UnresolvedOpVar)?;
-                    ops.push(PlannedOp {
-                        slot: PlanSlot::AfterBody { block, index },
-                        kind: PlannedOpKind::Dec,
-                        var,
-                    });
-                }
-                EventSite::BlockEntry => {
-                    push_front_dec(events, block, block, &mut ops, &mut fronts)?;
-                }
-                EventSite::Terminator => {
-                    let successors = successors_of(func, block);
-                    if successors.is_empty() {
-                        return Err(DeclineReason::UnplaceableRelease);
-                    }
-                    for successor in successors {
-                        push_front_dec(events, block, successor, &mut ops, &mut fronts)?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(ops)
-}
-
-/// Release placement at the class's death frontier, one walk over the
-/// pre-release entry nets: per-edge (RL-4) releases for dead successors of
-/// live-out blocks; within-block (RL-2 / RL-5) releases after the class's
-/// last event where no successor is live.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "release planning consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_class computed'"
-)]
-fn plan_releases(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    events: &ClassEvents,
-    activity_live: &[bool],
-    entry_net: &[Option<i64>],
-    delta: &[i64],
-    dom: &crate::graph::DominatorTree,
-    ops: &mut Vec<PlannedOp>,
-) -> Result<(), DeclineReason> {
-    let mut fronts: FxHashSet<usize> = FxHashSet::default();
-    // RL-2 block-local: every event of the class in ONE block, netting one
-    // owed reference, last event a body instruction — the class is born and
-    // last-used there; the release lands right after the last event
-    // regardless of cycle-polluted liveness (a back-edge re-entering the
-    // block is the NEXT iteration's instance, so the per-iteration balance
-    // is exactly what makes the loop header's owed count agree).
-    let occupied: Vec<usize> = events
-        .per_block
-        .iter()
-        .enumerate()
-        .filter(|(_, evs)| !evs.is_empty())
-        .map(|(block, _)| block)
-        .collect();
-    if let [only_block] = occupied[..] {
-        if delta[only_block] == 1 {
-            if let Some(ClassEvent {
-                site: EventSite::Body(index),
-                ..
-            }) = events.per_block[only_block].last()
-            {
-                let var = release_var(events, only_block)?;
-                ops.push(PlannedOp {
-                    slot: PlanSlot::AfterBody {
-                        block: only_block,
-                        index: *index,
-                    },
-                    kind: PlannedOpKind::Dec,
-                    var,
-                });
-                return Ok(());
-            }
-        }
-    }
-    for (block, block_entry) in entry_net.iter().enumerate().take(func.blocks.len()) {
-        let Some(entry) = block_entry else {
-            continue;
-        };
-        let exit = entry + delta[block];
-        let block_live_out = if events.threads_back_edge {
-            live_out(func, block, activity_live)
-        } else {
-            live_out_forward(func, block, activity_live, dom)
-        };
-        if block_live_out {
-            plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
-        } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(func, preds, events, block, *entry, dom, ops, &mut fronts)?;
-        }
-    }
-    Ok(())
-}
-
-/// `BurdenInc` before every CONSUME that duplicates: the class stays live
-/// past the hand-off (a later Read / Mutate / Consume in the stream or a
-/// successor), or the class is borrowed-rooted. A consume refunded by a
-/// same-site CREDIT (the passthrough return leg) transfers the existing
-/// reference and needs no inc on an owned-rooted class.
-fn plan_incs(
-    func: &ArcFunction,
-    events: &ClassEvents,
-    demand_live: &[bool],
-    dom: &crate::graph::DominatorTree,
-) -> Result<Vec<PlannedOp>, DeclineReason> {
-    let borrowed = events.is_externally_funded();
-    let mut ops = Vec::new();
-    for (block, evs) in events.per_block.iter().enumerate() {
-        for (position, ev) in evs.iter().enumerate() {
-            if ev.kind != EventKind::Consume {
-                continue;
-            }
-            let demand_out = if events.threads_back_edge {
-                live_out(func, block, demand_live)
-            } else {
-                live_out_forward(func, block, demand_live, dom)
-            };
-            if !borrowed
-                && (same_site_credit_follows(evs, position)
-                    || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position) || demand_out))
-            {
-                continue;
-            }
-            let Some(var) = ev.var else {
-                return Err(DeclineReason::UnresolvedOpVar);
-            };
-            let slot = match ev.site {
-                EventSite::Body(index) => PlanSlot::BeforeBody { block, index },
-                EventSite::Terminator => PlanSlot::BeforeTerminator { block },
-                EventSite::BlockEntry => return Err(DeclineReason::UnplaceableRelease),
-            };
-            ops.push(PlannedOp {
-                slot,
-                kind: PlannedOpKind::Inc,
-                var,
-            });
-        }
-    }
-    Ok(ops)
-}
-
-/// Realize every `Select` acquisition: the dst conditionally holds ONE
-/// operand's allocation, and the acquired reference is manufactured by an
-/// RL-1 duplication inc on the dst immediately after the select (the
-/// runtime inc lands on whichever allocation was selected; each operand
-/// class stays balanced by its own birth + release).
-fn plan_select_credit_incs(events: &ClassEvents) -> Result<Vec<PlannedOp>, DeclineReason> {
-    let mut ops = Vec::new();
-    for (block, evs) in events.per_block.iter().enumerate() {
-        for ev in evs {
-            if ev.kind != EventKind::SelectCredit {
-                continue;
-            }
-            let EventSite::Body(index) = ev.site else {
-                return Err(DeclineReason::UnplaceableRelease);
-            };
-            let Some(var) = ev.var else {
-                return Err(DeclineReason::UnresolvedOpVar);
-            };
-            ops.push(PlannedOp {
-                slot: PlanSlot::AfterBody { block, index },
-                kind: PlannedOpKind::Inc,
-                var,
-            });
-        }
-    }
-    Ok(ops)
-}
-
-/// Whether a Terminator-site consume is refunded at the SAME call boundary
-/// across an `Invoke`'s normal edge: the result credit routes to the NORMAL
-/// successor's block entry, so the RL-34 transfer-with-refund pair spans
-/// the edge instead of sharing a site.
-fn invoke_refund_credit_follows(
-    func: &ArcFunction,
-    events: &ClassEvents,
-    block: usize,
-    consume: &ClassEvent,
-) -> bool {
-    if consume.site != EventSite::Terminator {
-        return false;
-    }
-    let Some(arc_block) = func.blocks.get(block) else {
-        return false;
-    };
-    let normal = match &arc_block.terminator {
-        crate::ir::ArcTerminator::Invoke { normal, .. }
-        | crate::ir::ArcTerminator::InvokeIndirect { normal, .. } => normal.index(),
-        _ => return false,
-    };
-    events.per_block.get(normal).is_some_and(|evs| {
-        evs.iter()
-            .any(|ev| ev.kind == EventKind::Credit && ev.site == EventSite::BlockEntry)
-    })
-}
-
-/// Whether a same-site CREDIT follows `position` (the transfer-with-refund
-/// pair a passthrough call classifies to).
-fn same_site_credit_follows(evs: &[ClassEvent], position: usize) -> bool {
-    let Some(current) = evs.get(position) else {
-        return false;
-    };
-    evs[position + 1..]
-        .iter()
-        .any(|ev| ev.kind == EventKind::Credit && ev.site == current.site)
-}
-
-/// Whether a later value use (Read / Mutate / Consume) exists in the block.
-fn suffix_has_demand(evs: &[ClassEvent], position: usize) -> bool {
-    evs[position + 1..].iter().any(|ev| {
-        matches!(
-            ev.kind,
-            EventKind::Read | EventKind::Mutate | EventKind::Consume
-        )
-    })
 }
 
 /// Per-block owed delta: event deltas plus planned ops.
@@ -552,189 +229,4 @@ fn per_block_delta(events: &ClassEvents, ops: &[PlannedOp], num_blocks: usize) -
         delta[op.slot.block()] += signed;
     }
     delta
-}
-
-/// RL-4 per-edge releases for `block`'s dead successors: the class stays
-/// live at the block exit but is dead at a successor — the dec is
-/// attributed to that edge, materialized at the dead successor's front
-/// (a multi-pred dead successor with divergent per-edge counts is caught by
-/// the phase-2 merge-agreement gate). Same-class jump hand-offs are silent
-/// in the event streams, so a threaded reference never reads as an edge
-/// death.
-fn plan_edge_releases(
-    func: &ArcFunction,
-    events: &ClassEvents,
-    activity_live: &[bool],
-    block: usize,
-    exit: i64,
-    ops: &mut Vec<PlannedOp>,
-    fronts: &mut FxHashSet<usize>,
-) -> Result<(), DeclineReason> {
-    for successor in successors_of(func, block) {
-        if activity_live.get(successor).copied().unwrap_or(false) {
-            continue;
-        }
-        if exit == 0 {
-            continue;
-        }
-        if exit != 1 {
-            return Err(DeclineReason::UnplaceableRelease);
-        }
-        push_front_dec(events, block, successor, ops, fronts)?;
-    }
-    Ok(())
-}
-
-/// RL-2 / RL-5 within-block release of THIS iteration's residue.
-///
-/// The residue = entry + pre-terminator deltas + terminator CONSUMES —
-/// terminator credits belong to the outgoing edge (the next reference's
-/// ledger) and never count toward what dies here. Placement: after the
-/// last pre-terminator body event (RL-2 last-use); at the block's own
-/// front when the class has no pre-terminator use here (RL-5
-/// dead-at-entry); at every successor's front when a terminator-site READ
-/// is the last use (the release must follow the terminator).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "block-release placement consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_releases holds'"
-)]
-fn plan_block_release(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    events: &ClassEvents,
-    block: usize,
-    entry: i64,
-    dom: &crate::graph::DominatorTree,
-    ops: &mut Vec<PlannedOp>,
-    fronts: &mut FxHashSet<usize>,
-) -> Result<(), DeclineReason> {
-    let evs = &events.per_block[block];
-    // Ops already placed in this block (funding incs, seeds) are real
-    // pre-terminator deltas: the caller's per-block delta includes them,
-    // and the residue must agree or a funded reference reads as released.
-    let placed_delta: i64 = ops
-        .iter()
-        .filter(|op| op.slot.block() == block)
-        .map(|op| match op.kind {
-            PlannedOpKind::Inc => 1,
-            PlannedOpKind::Dec => -1,
-        })
-        .sum();
-    let pre_delta: i64 = evs
-        .iter()
-        .filter(|ev| ev.site != EventSite::Terminator)
-        .map(|ev| ev.delta)
-        .sum::<i64>()
-        + placed_delta;
-    let terminator_consumes: i64 = evs
-        .iter()
-        .filter(|ev| ev.site == EventSite::Terminator && ev.delta < 0)
-        .map(|ev| ev.delta)
-        .sum();
-    let residue = entry + pre_delta + terminator_consumes;
-    let edge_credits: i64 = evs
-        .iter()
-        .filter(|ev| ev.site == EventSite::Terminator && ev.delta > 0)
-        .map(|ev| ev.delta)
-        .sum();
-    let forward_credit_target = if edge_credits > 0 {
-        // A FORWARD Jump-arg credit hands the reference to the successor's
-        // param; the !live_out gate already proved the class has no
-        // downstream activity, so the credited reference dies on arrival —
-        // release at the single successor's front (a Jump has exactly one
-        // successor). A BACK-edge credit funds the next iteration's ledger
-        // and falls through to the residue logic.
-        match successors_of(func, block)[..] {
-            [successor] if !dom.dominates(func.blocks[successor].id, func.blocks[block].id) => {
-                Some(successor)
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
-    if let Some(successor) = forward_credit_target {
-        if residue + edge_credits != 1 {
-            return Err(DeclineReason::UnplaceableRelease);
-        }
-        if !block_in_cycle(func, successor) {
-            return push_front_dec(events, block, successor, ops, fronts);
-        }
-        // The credited reference enters a CYCLE (a loop-threaded class): a
-        // header-front dec would fire again on every back-edge re-entry.
-        // The reference stays live through the cycle and dies on the exit
-        // frontier — a front dec at each single-pred exit block (exactly
-        // one exit executes per path).
-        for exit in cycle_exit_frontier(func, successor) {
-            if preds.get(exit).is_none_or(|p| p.len() != 1) {
-                return Err(DeclineReason::UnplaceableRelease);
-            }
-            push_front_dec(events, block, exit, ops, fronts)?;
-        }
-        return Ok(());
-    }
-    if residue == 0 {
-        return Ok(());
-    }
-    if residue != 1 {
-        return Err(DeclineReason::UnplaceableRelease);
-    }
-    let terminator_read = evs
-        .iter()
-        .any(|ev| ev.site == EventSite::Terminator && ev.floor > 0 && ev.delta == 0);
-    if terminator_read {
-        let successors = successors_of(func, block);
-        if successors.is_empty() {
-            return Err(DeclineReason::UnplaceableRelease);
-        }
-        for successor in successors {
-            push_front_dec(events, block, successor, ops, fronts)?;
-        }
-        return Ok(());
-    }
-    let last_pre = evs.iter().rev().find(|ev| ev.site != EventSite::Terminator);
-    match last_pre.map(|ev| ev.site) {
-        Some(EventSite::Body(index)) => {
-            let var = release_var(events, block)?;
-            ops.push(PlannedOp {
-                slot: PlanSlot::AfterBody { block, index },
-                kind: PlannedOpKind::Dec,
-                var,
-            });
-            Ok(())
-        }
-        Some(EventSite::BlockEntry) | None => push_front_dec(events, block, block, ops, fronts),
-        Some(EventSite::Terminator) => unreachable!("filtered to non-terminator sites"),
-    }
-}
-
-/// Plan a block-front `BurdenDec`, deduplicated per target block.
-fn push_front_dec(
-    events: &ClassEvents,
-    from_block: usize,
-    target: usize,
-    ops: &mut Vec<PlannedOp>,
-    fronts: &mut FxHashSet<usize>,
-) -> Result<(), DeclineReason> {
-    if !fronts.insert(target) {
-        return Ok(());
-    }
-    let var = release_var(events, from_block)?;
-    ops.push(PlannedOp {
-        slot: PlanSlot::BlockFront { block: target },
-        kind: PlannedOpKind::Dec,
-        var,
-    });
-    Ok(())
-}
-
-/// The member variable a release names: the last resolved event var in the
-/// releasing block, else the class's first resolved var anywhere.
-fn release_var(events: &ClassEvents, block: usize) -> Result<ArcVarId, DeclineReason> {
-    events.per_block[block]
-        .iter()
-        .rev()
-        .find_map(|ev| ev.var)
-        .or_else(|| events.per_block.iter().flatten().find_map(|ev| ev.var))
-        .ok_or(DeclineReason::UnresolvedOpVar)
 }

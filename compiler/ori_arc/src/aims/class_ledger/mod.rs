@@ -121,13 +121,14 @@ pub(crate) fn analyze_class_ledger(
     partition: &mut BirthSitePartition,
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
+    let regions = emit::CycleRegions::compute(func);
     let mut classes = Vec::new();
     let mut verdicts = Vec::new();
     let mut declined = Vec::new();
     let mut class_facts: Vec<(NodeIdx, bool, bool)> = Vec::new();
     for class in events::collect_classes(classification) {
         let class_events = events::extract_class_events(func, classification, partition, class);
-        let outcome = emit::plan_class(func, &preds, &class_events, &[]);
+        let outcome = emit::plan_class(func, &preds, &regions, &class_events, &[]);
         let planned_ops: &[PlannedOp] = match &outcome {
             ClassOutcome::Planned(ops) => ops,
             ClassOutcome::Declined(reason) => {
@@ -170,6 +171,7 @@ pub(crate) fn analyze_class_ledger(
             classification,
             partition,
             &preds,
+            &regions,
             view,
             &mut classes,
             &mut verdicts,
@@ -257,6 +259,7 @@ fn cure_view_with_extraction_funding(
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
     preds: &[Vec<usize>],
+    regions: &emit::CycleRegions,
     view: NodeIdx,
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
@@ -290,7 +293,7 @@ fn cure_view_with_extraction_funding(
     }
     let funded_events =
         events::extract_class_events_with(func, classification, partition, view, true);
-    let outcome = emit::plan_class(func, preds, &funded_events, &seeds);
+    let outcome = emit::plan_class(func, preds, regions, &funded_events, &seeds);
     let planned: &[PlannedOp] = match &outcome {
         ClassOutcome::Planned(ops) => ops,
         ClassOutcome::Declined(_) => return false,
@@ -318,7 +321,7 @@ fn cure_view_with_extraction_funding(
 /// entry (`class_ledger_emitter_enabled`); off = no analysis, no report,
 /// `false`. `legacy_emission_enabled = false` (Step-4b emission disabled)
 /// keeps the analysis-only readiness report and never replaces.
-pub(crate) fn pipeline_step_4b(
+pub(crate) fn apply_class_ledger_replacement(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,

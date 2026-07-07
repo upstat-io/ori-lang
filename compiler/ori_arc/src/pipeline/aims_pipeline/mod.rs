@@ -266,7 +266,7 @@ pub(crate) fn run_aims_pipeline_gated(
     // reads the pre-burden IR + converged state map (before any legacy ops
     // enter the class event streams); a replaced function carries the applied
     // plan and skips the legacy emission entirely (never both emitters).
-    let class_ledger_replaced = crate::aims::class_ledger::pipeline_step_4b(
+    let class_ledger_replaced = crate::aims::class_ledger::apply_class_ledger_replacement(
         func,
         &state_map,
         config.contracts,

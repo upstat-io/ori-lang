@@ -181,7 +181,7 @@ fn default_toggle_off_pipeline_entry_is_noop() {
 
     assert!(!class_ledger_emitter_enabled());
     let mut gated = func.clone();
-    let replaced = pipeline_step_4b(
+    let replaced = apply_class_ledger_replacement(
         &mut gated, &state_map, &contracts, &registry, &interner, false, true,
     );
     assert!(!replaced);
@@ -587,8 +587,9 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
             floor: 1,
         }]],
     };
+    let regions = super::emit::CycleRegions::compute(&func);
     assert!(matches!(
-        super::emit::plan_class(&func, &preds, &events, &[]),
+        super::emit::plan_class(&func, &preds, &regions, &events, &[]),
         ClassOutcome::Declined(DeclineReason::UnresolvedOpVar)
     ));
 }
