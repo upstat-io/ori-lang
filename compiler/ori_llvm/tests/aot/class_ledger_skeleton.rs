@@ -234,3 +234,81 @@ fn skeleton_loop_invariant_value_threaded() {
 "#;
     assert_class_ledger_toggle_parity(src, "loop_invariant_value_threaded");
 }
+
+/// Compile + run `source` under (a) the gated burden-sole probe alone and
+/// (b) the probe plus `ORI_CLASS_LEDGER_EMITTER=1`, asserting the CLASS-LEDGER
+/// leg is fully green (exit 0, leak-free, interpreter parity) while the
+/// baseline leg still EXHIBITS the legacy-path defect the fixture documents.
+/// The baseline assertion is the promotion trigger: when the legacy path is
+/// cured this test fails loudly, and the fixture graduates to
+/// [`assert_class_ledger_toggle_parity`].
+fn assert_class_ledger_cures_legacy_defect(source: &str, label: &str) {
+    let mut toggled: Vec<(&str, &str)> = PROBE.to_vec();
+    toggled.push(("ORI_CLASS_LEDGER_EMITTER", "1"));
+    let (led_exit, led_stdout, led_stderr) = compile_and_run_with_build_env(source, &toggled);
+    assert_eq!(
+        led_exit, 0,
+        "[{label}] class-ledger-toggled run must compile and exit 0, got \
+         {led_exit}\nstdout:\n{led_stdout}\nstderr:\n{led_stderr}"
+    );
+    assert_leak_free(&led_stderr, label, "class-ledger-toggled");
+    let (interp_exit, interp_stdout) = interpreter_run(source);
+    assert_eq!(
+        (led_exit, led_stdout.as_str()),
+        (interp_exit, interp_stdout.as_str()),
+        "[{label}] class-ledger AOT leg diverged from the interpreter"
+    );
+
+    let (base_exit, _base_stdout, base_stderr) = compile_and_run_with_build_env(source, PROBE);
+    let base_defective = base_exit != 0
+        || base_stderr.contains("FATAL")
+        || base_stderr.contains("already-freed")
+        || base_stderr.to_lowercase().contains("leak");
+    assert!(
+        base_defective,
+        "[{label}] the legacy burden-sole leg ran clean — the legacy defect \
+         this fixture documents is cured; promote the fixture to \
+         assert_class_ledger_toggle_parity"
+    );
+}
+
+/// Adversarial family row: an owned aggregate param branch-stored into a
+/// collection literal in the callee. The class-ledger planner's funded-dup
+/// CONSUME family accounts the store correctly (green); the legacy scan
+/// leaks the payload on every path.
+#[test]
+fn skeleton_branch_stored_owned_param_collection_ledger_green() {
+    let src = r#"
+@hold_opt (flag: bool, o: Option<str>) -> [Option<str>] = if flag then [o] else [];
+
+@main () -> int = {
+    let kept = hold_opt(flag: true, o: Some("abcdefghijklmnopqrstuvwxyz1234"));
+    print(msg: `{kept.length()}`);
+
+    if kept.length() == 1 then 0 else 1
+}
+"#;
+    assert_class_ledger_cures_legacy_defect(src, "branch_stored_owned_param_collection");
+}
+
+/// Adversarial family row: a struct with a heap field through a NESTED
+/// identity-forwarder chain (single hop is green everywhere). The
+/// class-ledger planner's forwarder CREDIT-passthrough family accounts the
+/// chain correctly (green); the legacy scan double-frees the field payload.
+#[test]
+fn skeleton_nested_forwarder_struct_ledger_green() {
+    let src = r#"
+type Named = { name: str, id: int }
+
+@id_named (p: Named) -> Named = p;
+
+@main () -> int = {
+    let p = id_named(p: id_named(p: Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 7 }));
+    let n = p.name.length();
+    print(msg: `{n}`);
+
+    if n == 30 && p.id == 7 then 0 else 1
+}
+"#;
+    assert_class_ledger_cures_legacy_defect(src, "nested_forwarder_struct");
+}
