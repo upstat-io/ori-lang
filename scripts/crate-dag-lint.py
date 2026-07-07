@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """crate-dag-lint — architectural fitness function over the workspace crate DAG.
 
-Two checks over the workspace dependency graph read via `cargo metadata
---no-deps`, both data-driven:
+Two checks over the workspace PRODUCTION dependency graph read via `cargo
+metadata --no-deps` (dev/build deps excluded, see `_graph_from_metadata`):
 
 1. Forbidden-edge direction (FORBIDDEN_EDGES): a banned phase/crate dependency
    must NOT appear. Each forbidden edge cites the per-crate conflict rule.
 2. Canon-consumer registration (single semantic authority): every crate listed
-   in the `ori_ir::canon::consumers::CANON_CONSUMERS` Rust registry MUST have a
-   dependency edge on `ori_ir`. The registry is the SSOT — read from source, not
-   duplicated here.
+   in the `ori_ir::canon::consumers::CANON_CONSUMERS` Rust registry (the SSOT,
+   read from source not duplicated here) MUST have a dependency edge on `ori_ir`.
 
 `cargo metadata` reads Cargo.toml only — it succeeds on a non-compiling tree,
 so the gate works on a tree a parallel session has broken.
@@ -51,27 +50,25 @@ _CRATE_NAME_RE = re.compile(r'crate_name:\s*"([^"]+)"')
 class ForbiddenEdge:
     """A banned dependency: `src` must not reach any crate in `targets`.
 
-    `transitive` selects direct-only (False) vs reachability (True) checking.
-    `rule` names the per-crate conflict rule the edge enforces.
+    `transitive` selects direct-only (False) vs reachability (True). `rule`
+    cites the per-crate conflict rule. `targets=None` is the leaf-crate
+    sentinel (`_resolve_targets`): every workspace member except `src` and
+    `allowed`, so a newly added crate is banned automatically.
     """
 
     src: str
-    targets: frozenset[str]
+    targets: frozenset[str] | None
     transitive: bool
     rule: str
+    allowed: frozenset[str] = frozenset()
 
 
-# Forbidden-edge SSOT. Each entry is derived from a per-crate conflict rule
-# in the project's mission inventory; the `rule` string cites it. Targets are
-# crate-name sets so one entry covers a "must not depend on ANY of these".
-# Transitive entries assert REACHABILITY (src must not REACH target through
-# the workspace-dep graph); direct entries assert only a direct dependency is
-# absent (the source rule constrains the immediate edge, not the closure).
+# Forbidden-edge SSOT, each derived from a per-crate conflict rule in the
+# project's mission inventory (cited via `rule`); see ForbiddenEdge docstring
+# for the transitive/direct + targets=None semantics.
 FORBIDDEN_EDGES: tuple[ForbiddenEdge, ...] = (
-    # Codegen consumes realized ARC IR, not CanExpr. Direct-only: ori_llvm
-    # depends on ori_arc, which legitimately depends on ori_canon, so the
-    # transitive reach ori_llvm -> ori_canon exists through ori_arc and is
-    # NOT a violation; the banned shape is a DIRECT ori_llvm -> ori_canon edge.
+    # Direct-only: ori_llvm->ori_arc->ori_canon transitively is legitimate;
+    # only a DIRECT ori_llvm->ori_canon edge is banned (codegen consumes ARC IR).
     ForbiddenEdge(
         src="ori_llvm",
         targets=frozenset({"ori_canon"}),
@@ -79,34 +76,11 @@ FORBIDDEN_EDGES: tuple[ForbiddenEdge, ...] = (
         rule="ori_llvm conflict rule: depends on ori_arc but NOT on ori_canon "
         "(codegen consumes realized ARC IR, not CanExpr)",
     ),
-    # Leaf status: every pipeline crate depends on ori_ir, never vice versa.
-    # Transitive: a dep on ANY workspace crate (direct or through the closure)
-    # breaks leaf status.
+    # Leaf status: ori_ir depends on no pipeline crate. targets=None bans every
+    # other workspace member, so a newly added crate is covered automatically.
     ForbiddenEdge(
         src="ori_ir",
-        targets=frozenset(
-            {
-                "ori_arc",
-                "ori_canon",
-                "ori_compiler",
-                "ori_diagnostic",
-                "ori_eval",
-                "ori_fmt",
-                "ori_lexer",
-                "ori_lexer_core",
-                "ori_llvm",
-                "ori_lsp",
-                "ori_parse",
-                "ori_patterns",
-                "ori_registry",
-                "ori_repr",
-                "ori_rt",
-                "ori_stack",
-                "ori_test_harness",
-                "ori_types",
-                "oric",
-            }
-        ),
+        targets=None,
         transitive=True,
         rule="ori_ir conflict rule: leaf status is load-bearing; an upstream "
         "compiler dep forces every pipeline crate to rebuild on IR changes",
@@ -114,57 +88,24 @@ FORBIDDEN_EDGES: tuple[ForbiddenEdge, ...] = (
     # Leaf of the lexing front: imported only by ori_lexer; no compiler dep.
     ForbiddenEdge(
         src="ori_lexer_core",
-        targets=frozenset(
-            {
-                "ori_arc",
-                "ori_canon",
-                "ori_compiler",
-                "ori_diagnostic",
-                "ori_eval",
-                "ori_fmt",
-                "ori_ir",
-                "ori_lexer",
-                "ori_llvm",
-                "ori_lsp",
-                "ori_parse",
-                "ori_patterns",
-                "ori_registry",
-                "ori_repr",
-                "ori_rt",
-                "ori_stack",
-                "ori_test_harness",
-                "ori_types",
-                "oric",
-            }
-        ),
+        targets=None,
         transitive=True,
         rule="ori_lexer_core conflict rule: leaf of the lexing front; core "
         "stays pure (no names/types/scopes, no compiler dep)",
     ),
-    # Zero semantic knowledge: lexer must not reach the semantic crates.
-    # Transitive: any reach into a semantic crate is phase-bleeding.
+    # Zero semantic knowledge: lexer bans everything except its 2 declared
+    # deps (`allowed`) — incl. ori_parse, the canonical backward-edge example.
     ForbiddenEdge(
         src="ori_lexer",
-        targets=frozenset(
-            {
-                "ori_types",
-                "ori_canon",
-                "ori_eval",
-                "ori_arc",
-                "ori_patterns",
-                "ori_repr",
-                "ori_llvm",
-            }
-        ),
+        targets=None,
+        allowed=frozenset({"ori_ir", "ori_lexer_core"}),
         transitive=True,
         rule="ori_lexer conflict rule: zero semantic knowledge; names/types/"
-        "scopes are phase-bleeding (parser or type checker owns that)",
+        "scopes are phase-bleeding; one-way data flow bans ANY dep on a "
+        "downstream/sibling phase",
     ),
-    # Pure IO-free facade: no Salsa/LLVM. ori_compiler legitimately depends on
-    # core pipeline crates (ori_canon/ori_eval/ori_patterns are in its dep
-    # set), so the ban is narrow: it must not reach oric (Salsa driver) or
-    # ori_llvm (LLVM backend). Transitive: reaching either through any path
-    # fractures embedding.
+    # Pure IO-free facade: legitimately depends on core pipeline crates, but
+    # must not transitively reach oric (Salsa driver) or ori_llvm (LLVM backend).
     ForbiddenEdge(
         src="ori_compiler",
         targets=frozenset({"oric", "ori_llvm"}),
@@ -172,9 +113,8 @@ FORBIDDEN_EDGES: tuple[ForbiddenEdge, ...] = (
         rule="ori_compiler conflict rule: pure IO-free facade; any IO/Salsa/"
         "LLVM dependency (oric or ori_llvm) fractures embedding",
     ),
-    # Downstream phases never re-parse/re-infer: parser must not depend on the
-    # phases that consume its output. Transitive: reaching a downstream phase
-    # through any path inverts the pipeline direction.
+    # Parser owns output absolutely: must not transitively depend on any
+    # downstream-phase consumer of its output.
     ForbiddenEdge(
         src="ori_parse",
         targets=frozenset({"ori_types", "ori_canon", "ori_eval", "ori_llvm"}),
@@ -185,12 +125,33 @@ FORBIDDEN_EDGES: tuple[ForbiddenEdge, ...] = (
 )
 
 
-def _read_workspace_graph(root: Path) -> dict[str, set[str]]:
-    """Return {crate_name: {workspace-member dep names}} via cargo metadata.
+def _graph_from_metadata(meta: dict) -> dict[str, set[str]]:
+    """Pure: {crate_name: {workspace-member PRODUCTION dep names}} from a
+    parsed `cargo metadata --format-version 1` document.
 
-    `--no-deps` restricts packages to workspace members; each member's
-    `dependencies` are filtered to names that are themselves workspace
-    members (external crates are not graph nodes). Raises RuntimeError on
+    Excludes external (non-member) deps and non-normal (`kind is not None`)
+    edges — a dev-dependency is test-time-only and Cargo permits it cyclically
+    (a leaf crate's tests may dev-depend on a downstream crate for fixtures);
+    folding it into the forbidden-edge graph would false-positive-ban that.
+    `compiler.md §Architecture` documents the same production/dev split.
+    """
+    members = {pkg["name"] for pkg in meta.get("packages", [])}
+    graph: dict[str, set[str]] = {name: set() for name in members}
+    for pkg in meta.get("packages", []):
+        name = pkg["name"]
+        for dep in pkg.get("dependencies", []):
+            if dep.get("kind") is not None:
+                continue
+            dep_name = dep.get("name", "")
+            if dep_name in members and dep_name != name:
+                graph[name].add(dep_name)
+    return graph
+
+
+def _read_workspace_graph(root: Path) -> dict[str, set[str]]:
+    """Return {crate_name: {workspace-member production dep names}} via cargo metadata.
+
+    `--no-deps` restricts packages to workspace members. Raises RuntimeError on
     cargo failure (caller maps to exit 2).
     """
     out = subprocess.run(
@@ -203,16 +164,7 @@ def _read_workspace_graph(root: Path) -> dict[str, set[str]]:
     )
     if out.returncode != 0:
         raise RuntimeError(f"cargo metadata failed: {out.stderr.strip()[:400]}")
-    meta = json.loads(out.stdout)
-    members = {pkg["name"] for pkg in meta.get("packages", [])}
-    graph: dict[str, set[str]] = {name: set() for name in members}
-    for pkg in meta.get("packages", []):
-        name = pkg["name"]
-        for dep in pkg.get("dependencies", []):
-            dep_name = dep.get("name", "")
-            if dep_name in members and dep_name != name:
-                graph[name].add(dep_name)
-    return graph
+    return _graph_from_metadata(json.loads(out.stdout))
 
 
 def _reaches(graph: dict[str, set[str]], src: str, targets: frozenset[str]) -> set[str]:
@@ -235,6 +187,18 @@ def _reaches(graph: dict[str, set[str]], src: str, targets: frozenset[str]) -> s
     return targets & seen
 
 
+def _resolve_targets(edge: ForbiddenEdge, graph: dict[str, set[str]]) -> frozenset[str]:
+    """Resolve an edge's ban set against the live workspace graph.
+
+    An explicit `targets` frozenset is returned unchanged. `targets=None`
+    resolves to every workspace member except `edge.src` and `edge.allowed`
+    — derived from `graph`, never a parallel hand-maintained copy.
+    """
+    if edge.targets is not None:
+        return edge.targets
+    return frozenset(graph) - {edge.src} - edge.allowed
+
+
 def check_graph(
     graph: dict[str, set[str]], edges: tuple[ForbiddenEdge, ...] = FORBIDDEN_EDGES
 ) -> list[dict[str, str]]:
@@ -246,10 +210,11 @@ def check_graph(
     """
     violations: list[dict[str, str]] = []
     for edge in edges:
+        targets = _resolve_targets(edge, graph)
         if edge.transitive:
-            hits = _reaches(graph, edge.src, edge.targets)
+            hits = _reaches(graph, edge.src, targets)
         else:
-            hits = edge.targets & graph.get(edge.src, set())
+            hits = targets & graph.get(edge.src, set())
         for hit in sorted(hits):
             violations.append(
                 {
@@ -292,9 +257,8 @@ def check_registered_consumers(
     """Pure check: every registered canon consumer must depend on `ir_crate`.
 
     One violation dict per registered `crate_name` that is either not a
-    workspace member (kind `unknown-consumer-crate`) or is a member without a
-    direct dependency edge on `ir_crate` (kind `missing-ir-dep`). Empty list =
-    clean.
+    workspace member (`unknown-consumer-crate`) or lacks a direct dependency
+    edge on `ir_crate` (`missing-ir-dep`). Empty list = clean.
     """
     rule = (
         "single semantic authority: every CANON_CONSUMERS entry depends on "
@@ -317,10 +281,10 @@ def check_registered_consumers(
 def _self_test() -> int:
     """Synthetic-graph fixtures: forbidden-edge graph fails closed; clean passes.
 
-    Exercises a direct-only fixture (ori_llvm -> ori_canon must fire), a
-    transitive fixture (ori_lexer reaching a semantic crate through one hop),
-    a direct-only NON-violation (ori_llvm reaching ori_canon ONLY through
-    ori_arc must NOT fire), and a clean baseline.
+    Covers direct + transitive violations, a direct non-violation through an
+    allowed intermediate, a clean baseline, `targets=None` leaf-ban coverage
+    of a new crate, the `allowed` exemption, and the canon-consumer +
+    dev-dep-exclusion checks.
     """
     failures = 0
 
@@ -387,7 +351,28 @@ def _self_test() -> int:
     }
     expect("clean-baseline", check_graph(graph_clean), want_nonempty=False)
 
-    # Fixture E — registered consumers all depend on ori_ir (clean).
+    # Fixture E — leaf ban (`targets=None`) auto-covers a brand-new crate
+    # absent from any hand-maintained list (ori_format-class gap pin).
+    ir_edge = tuple(e for e in FORBIDDEN_EDGES if e.src == "ori_ir")
+    graph_new_crate = {"ori_ir": {"ori_brand_new"}, "ori_brand_new": set()}
+    expect(
+        "leaf-ban-covers-new-crate", check_graph(graph_new_crate, ir_edge), want_nonempty=True
+    )
+
+    # Fixture F — ori_lexer's ban exempts its 2 legit deps but bans ori_parse
+    # (PHASE-02: "ori_lexer never imports ori_parse").
+    graph_lexer_ok = {
+        "ori_lexer": {"ori_ir", "ori_lexer_core"},
+        "ori_ir": set(),
+        "ori_lexer_core": set(),
+    }
+    expect(
+        "lexer-allowed-deps-clean", check_graph(graph_lexer_ok, lexer_edge), want_nonempty=False
+    )
+    graph_lexer_bad = {"ori_lexer": {"ori_ir", "ori_parse"}, "ori_ir": set(), "ori_parse": set()}
+    expect("lexer-bans-parse", check_graph(graph_lexer_bad, lexer_edge), want_nonempty=True)
+
+    # Fixture G — registered consumers all depend on ori_ir (clean).
     reg_graph = {
         "ori_ir": set(),
         "ori_eval": {"ori_ir"},
@@ -399,7 +384,7 @@ def _self_test() -> int:
         want_nonempty=False,
     )
 
-    # Fixture F — a registered consumer lacks a dependency edge on ori_ir.
+    # Fixture H — a registered consumer lacks a dependency edge on ori_ir.
     reg_graph_missing = {"ori_ir": set(), "ori_eval": set()}
     expect(
         "registered-missing-ir-dep",
@@ -407,14 +392,14 @@ def _self_test() -> int:
         want_nonempty=True,
     )
 
-    # Fixture G — a registered crate_name is not a workspace member (typo).
+    # Fixture I — a registered crate_name is not a workspace member (typo).
     expect(
         "registered-unknown-crate",
         check_registered_consumers({"ori_ir": set()}, ["ori_evla"]),
         want_nonempty=True,
     )
 
-    # Fixture H — _read_canon_consumers fails closed on a zero-entry parse
+    # Fixture J — _read_canon_consumers fails closed on a zero-entry parse
     # (registry present but const emptied/renamed) rather than reporting clean.
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / CANON_CONSUMERS_SRC
@@ -430,6 +415,27 @@ def _self_test() -> int:
         if _read_canon_consumers(Path(td)) != ["ori_eval"]:
             failures += 1
             print("FAIL[read-valid-registry]: expected ['ori_eval']", file=sys.stderr)
+
+    # Fixture K — a dev-dependency must NOT become a graph edge (Cargo permits
+    # a cyclic dev-dep for test fixtures; mirrors the real ori_types ->
+    # ori_lexer dev-dep `compiler.md §Architecture` documents).
+    meta_with_dev_dep = {
+        "packages": [
+            {
+                "name": "ori_ir",
+                "dependencies": [{"name": "ori_parse", "kind": "dev"}],
+            },
+            {"name": "ori_parse", "dependencies": []},
+        ]
+    }
+    graph_from_meta = _graph_from_metadata(meta_with_dev_dep)
+    if graph_from_meta.get("ori_ir") != set():
+        failures += 1
+        print(
+            f"FAIL[dev-dep-excluded]: expected empty ori_ir edge set, "
+            f"got {graph_from_meta.get('ori_ir')}",
+            file=sys.stderr,
+        )
 
     if failures:
         print(f"crate-dag-lint self-test: {failures} failure(s)", file=sys.stderr)
