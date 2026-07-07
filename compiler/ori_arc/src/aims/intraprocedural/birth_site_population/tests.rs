@@ -521,3 +521,65 @@ fn heap_primop_dst_mints_birth_site() {
     assert!(partition.site(result).is_some());
     assert_ne!(partition.site(result), partition.site(lhs));
 }
+
+/// Mutually-dependent phi merges (a loop param and an invoke-split merge
+/// param feeding each other): neither admits node-locally — each waits on
+/// the other's unknown site — but the family's ONLY external predecessor is
+/// one known Construct site, so the SCC flow witness assigns it and both
+/// admit into the construct's class (PV-1 P6).
+#[test]
+fn mutually_dependent_merges_admit_via_scc_flow_witness() {
+    // bb0: %0 = Construct; Jump bb1(%0)
+    // bb1(%1): Branch %3 ? bb2 : bb6
+    // bb2: Branch %3 ? bb3 : bb4
+    // bb3: Jump bb5(%1)
+    // bb4: Jump bb5(%1)
+    // bb5(%2): Jump bb1(%2)
+    // bb6: Return %1
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![0])),
+            block(
+                1,
+                vec![1],
+                vec![],
+                ArcTerminator::Branch {
+                    cond: v(3),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(6),
+                },
+            ),
+            block(
+                2,
+                vec![],
+                vec![],
+                ArcTerminator::Branch {
+                    cond: v(3),
+                    then_block: ArcBlockId::new(3),
+                    else_block: ArcBlockId::new(4),
+                },
+            ),
+            block(3, vec![], vec![], jump(5, vec![1])),
+            block(4, vec![], vec![], jump(5, vec![1])),
+            block(5, vec![2], vec![], jump(1, vec![2])),
+            block(6, vec![], vec![], ArcTerminator::Return { value: v(1) }),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+
+    let alloc = whole(&mut partition, 0);
+    let outer = whole(&mut partition, 1);
+    let inner = whole(&mut partition, 2);
+    assert!(
+        partition.same_rep(outer, alloc),
+        "outer param joins the construct class"
+    );
+    assert!(
+        partition.same_rep(inner, alloc),
+        "inner merge joins the construct class"
+    );
+    assert!(partition.site(outer).is_some());
+}

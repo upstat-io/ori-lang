@@ -81,6 +81,14 @@ Theorem IA-T1: Per-field birth-site partition soundness
         T1_agg_class_holds_no_field, T1_label_merge_no_singleton_witness (P4)
       T1_cured_loop_safe, T1_per_field_release_exactly_once_over_loop,
         T1_buggy_loop_leaks (P5)
+      scc_external_source_determines      (P6 - the SCC flow witness: a
+        strongly-connected phi-merge family whose every external predecessor
+        is born at one site B holds only B-born values - strong induction
+        over the entry depth to an external predecessor)
+      scc_flow_witness_admits_phi         (P6 - corollary: with the family
+        assigned B, each phi edge carries the standard singleton witness and
+        admits under the EXISTING PartitionAdm.phi rule - no new admission
+        rule; a witness-finding algorithm for the existing one)
       T1_per_field_birthsite_union_find_sound (conclusion bundle)
     The compiled Lean (verified by `lake build` under the trusted kernel) is the
     authoritative calculus; this .proof is the human-readable companion.

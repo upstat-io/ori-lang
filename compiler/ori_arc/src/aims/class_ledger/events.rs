@@ -157,8 +157,8 @@ pub(crate) fn extract_class_events_with(
     }
     ClassEvents {
         origin,
-        container_held,
         threads_back_edge,
+        container_held,
         per_block,
     }
 }

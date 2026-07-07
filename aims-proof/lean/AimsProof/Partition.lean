@@ -655,6 +655,68 @@ theorem T1_buggy_loop_leaks :
     (perFieldRun pfBuggyLoop).1 = 1 ∧ (perFieldRun pfBuggyLoop).2.1 = 2 := by
   unfold perFieldRun pfBuggyLoop; decide
 
+/-! ## §T1 Part E — SCC flow witness (mutually-dependent phi merges)
+
+    Justifies SCC-aware birth-site propagation in the population pass: a
+    STRONGLY-CONNECTED family of phi merges whose every EXTERNAL predecessor
+    is born at ONE site `B` holds only `B`-born values — so assigning `B` to
+    the family's classes and then admitting each phi edge under the standard
+    singleton witness satisfies `PartitionAdm.phi` verbatim (no new admission
+    rule; a better witness-finding algorithm for the existing one).
+
+    The flow model: `entry` measures each member's shortest pred-chain to an
+    external predecessor (phi semantics: a merge holds SOME predecessor's
+    value; on any execution the first value entering the family flowed from
+    an external pred, and circulation preserves it). The lemma is the strong
+    induction over that entry depth. -/
+
+/-- §T1 (P6) the SCC flow witness. `pred` is the value-flow relation (a phi
+    merge draws its value from a predecessor). Given: every member's every
+    predecessor is a member or is born at `B`; every member draws its
+    birth-site from one of its predecessors; and every member has a finite
+    entry depth (a pred-chain reaching an external predecessor — no
+    sourceless cycle). Then every member is born at `B`. -/
+theorem scc_external_source_determines {ν β : Type} {birthSite : ν → β}
+    {S : List ν} {B : β} (pred : ν → ν → Prop)
+    (hclosed : ∀ s ∈ S, ∀ a, pred s a → a ∈ S ∨ birthSite a = B)
+    (hdraw : ∀ s ∈ S, ∃ a, pred s a ∧ birthSite s = birthSite a)
+    (entry : ν → Nat)
+    (hentry : ∀ s ∈ S, ∃ a, pred s a ∧ birthSite s = birthSite a
+      ∧ (a ∉ S ∨ (a ∈ S ∧ entry a < entry s))) :
+    ∀ s ∈ S, birthSite s = B := by
+  -- strong induction over the entry depth, packaged as a well-founded
+  -- recursion on `n` bounding `entry s`
+  suffices h : ∀ n, ∀ s ∈ S, entry s = n → birthSite s = B by
+    intro s hs
+    exact h (entry s) s hs rfl
+  intro n
+  induction n using Nat.strongRecOn with
+  | ind n ih =>
+    intro s hs hn
+    obtain ⟨a, hpred, hdrawn, hcase⟩ := hentry s hs
+    cases hcase with
+    | inl hout =>
+      -- the drawn predecessor is external: it is born at B by closure
+      cases hclosed s hs a hpred with
+      | inl hin => exact absurd hin hout
+      | inr hB => exact hdrawn.trans hB
+    | inr hin =>
+      obtain ⟨hmem, hlt⟩ := hin
+      -- the drawn predecessor is a member with a smaller entry depth
+      exact hdrawn.trans (ih (entry a) (hn ▸ hlt) a hmem rfl)
+
+/-- §T1 (P6) corollary: with every member assigned `B`, each phi edge over
+    the family carries the standard singleton witness — the preds list of a
+    member (members ∪ external-B preds) is uniformly `B`-born, and the merge
+    itself is `B`-born — so `PartitionAdm.phi` admits it with NO new rule. -/
+theorem scc_flow_witness_admits_phi {ν β : Type} {birthSite : ν → β}
+    {p a : ν} {preds : List ν} {B : β}
+    (hmem : a ∈ preds)
+    (hall : ∀ x ∈ preds, birthSite x = B)
+    (hp : birthSite p = B) :
+    PartitionAdm birthSite p a :=
+  PartitionAdm.phi hmem hall hp
+
 /-! ## §T1 conclusion bundle -/
 
 /-- §T1 the feasibility bundle: computed unification of the singleton-admitted
