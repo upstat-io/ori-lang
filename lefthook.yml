@@ -82,6 +82,17 @@ pre-commit:
       # once dogfood shows true-positive rate is reliable.
       glob: "**/*.rs"
       run: python3 scripts/operation-name-lint.py --warn-only
+    crate-dag-lint:
+      # Crate-dependency-DAG fitness + canon-consumer registration
+      # (scripts/crate-dag-lint.py --help). Checks: no forbidden crate-DAG edge;
+      # every registered ori_ir::canon consumer depends on ori_ir; every
+      # ori_ir::canon importer is registered (fix: add a ConsumerEntry to
+      # ori_ir::canon::consumers::CANON_CONSUMERS).
+      # Bedding-in mode (--warn-only): the unregistered-consumer source-scan is
+      # new; surfaces findings to stderr without gating. Promote to gating by
+      # dropping --warn-only once the source-scan true-positive rate is reliable.
+      glob: "**/*.rs"
+      run: python3 scripts/crate-dag-lint.py --warn-only
     debug-flags-consistency:
       # ORI_* debug-flag registry consistency (diagnostics/check-debug-flags.sh):
       # every flag used in source (raw std::env::var_os) is registered in

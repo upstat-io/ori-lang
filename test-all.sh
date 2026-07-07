@@ -187,6 +187,15 @@ else
 fi
 echo ""
 
+# Crate-DAG + canon-consumer registration lint. Bedding-in mode (--warn-only):
+# the unregistered-consumer source-scan is new; surfaces findings without gating
+# the suite. Promote to gating by dropping --warn-only once the source-scan
+# true-positive rate is reliable.
+echo "=== Checking crate-DAG + canon-consumer registration ==="
+python3 scripts/crate-dag-lint.py --warn-only
+echo "  [ok] crate-DAG + canon-consumer registration lint (bedding-in --warn-only)"
+echo ""
+
 # Build cache: wrap every cargo build below with sccache only when the wrapper
 # can actually execute rustc. Some environments expose an unusable sccache
 # binary/socket; treating mere presence as readiness turns a cache issue into a
