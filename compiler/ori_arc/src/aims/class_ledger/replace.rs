@@ -174,10 +174,13 @@ fn gate_rejection(
 }
 
 /// Whether every planned `DecPartial`'s skip set names only the container
-/// type's OWN named top-level owned fields (struct field indices) or
-/// variant ordinals (sum types) — the grain the drop glue walks. A skip
-/// index outside that surface (or a container with no burden) declines the
-/// function; the interior walk would silently mis-skip at runtime.
+/// type's OWN named top-level owned fields (struct field indices) — the
+/// grain the drop glue walks. The cure ladder declines sum containers
+/// (`FieldViewHazard::sum_container`), so a variant-ordinal skip is
+/// unproducible; extending the producer to sums requires extending this
+/// gate deliberately. A skip index outside the named surface (or a
+/// container with no burden) declines the function; the interior walk
+/// would silently mis-skip at runtime.
 fn dec_partial_skips_valid(
     func: &ArcFunction,
     ops: &[PlannedOp],
@@ -203,10 +206,7 @@ fn dec_partial_skips_valid(
             .owned_fields()
             .filter_map(|field| field.field_path.first().copied())
             .collect();
-        let variant_count = burden.variant_burdens().count();
-        skip_fields.iter().all(|&field| {
-            named.contains(&field) || u32::try_from(variant_count).is_ok_and(|count| field < count)
-        })
+        skip_fields.iter().all(|&field| named.contains(&field))
     })
 }
 
