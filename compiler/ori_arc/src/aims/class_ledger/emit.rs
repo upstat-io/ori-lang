@@ -74,6 +74,8 @@ pub(crate) enum DeclineReason {
     /// A required release has no expressible insertion slot, or the owed
     /// count at a death point is not exactly one.
     UnplaceableRelease,
+    /// A required funding inc has no expressible insertion slot.
+    UnplaceableInc,
     /// No member variable resolvable for a planned op.
     UnresolvedOpVar,
 }

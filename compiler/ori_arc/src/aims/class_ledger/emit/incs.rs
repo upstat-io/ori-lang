@@ -44,7 +44,7 @@ pub(super) fn plan_incs(
             let slot = match ev.site {
                 EventSite::Body(index) => PlanSlot::BeforeBody { block, index },
                 EventSite::Terminator => PlanSlot::BeforeTerminator { block },
-                EventSite::BlockEntry => return Err(DeclineReason::UnplaceableRelease),
+                EventSite::BlockEntry => return Err(DeclineReason::UnplaceableInc),
             };
             ops.push(PlannedOp {
                 slot,
@@ -71,7 +71,7 @@ pub(super) fn plan_select_credit_incs(
                 continue;
             }
             let EventSite::Body(index) = ev.site else {
-                return Err(DeclineReason::UnplaceableRelease);
+                return Err(DeclineReason::UnplaceableInc);
             };
             let Some(var) = ev.var else {
                 return Err(DeclineReason::UnresolvedOpVar);
