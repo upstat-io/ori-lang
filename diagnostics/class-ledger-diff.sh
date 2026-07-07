@@ -12,6 +12,10 @@
 #                      (a plain token matches as a substring)
 #   --json[=PATH]      Emit JSON report (default: build/class-ledger-diff.json)
 #   --timeout N        Per-step timeout in seconds (default: 30)
+#   --leaks            Run BOTH legs under ORI_CHECK_LEAKS=1 - leak counts land
+#                      in the compared output, so a leg-vs-leg leak difference
+#                      reports as a divergence (leaks are otherwise invisible
+#                      to the exit/stdout comparison)
 #   -v, --verbose      Show every program result, not just divergences
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
@@ -48,6 +52,7 @@ FAMILY=""
 EMIT_JSON=0
 JSON_PATH="$ROOT_DIR/build/class-ledger-diff.json"
 STEP_TIMEOUT=30
+CHECK_LEAKS=0
 VERBOSE=0
 USE_COLOR=auto
 
@@ -66,6 +71,7 @@ while [[ $# -gt 0 ]]; do
         --json=*) EMIT_JSON=1; JSON_PATH="${1#--json=}"; shift ;;
         --timeout) STEP_TIMEOUT="$2"; shift 2 ;;
         --timeout=*) STEP_TIMEOUT="${1#--timeout=}"; shift ;;
+        --leaks) CHECK_LEAKS=1; shift ;;
         -v|--verbose) VERBOSE=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
@@ -204,7 +210,9 @@ run_leg() {
     fi
 
     local run_exit
-    timeout -k 5 "$STEP_TIMEOUT" "$bin" > "$WORK_DIR/$leg.out" 2>&1 \
+    local -a run_env=()
+    [[ $CHECK_LEAKS -eq 1 ]] && run_env=(ORI_CHECK_LEAKS=1)
+    timeout -k 5 "$STEP_TIMEOUT" env "${run_env[@]}" "$bin" > "$WORK_DIR/$leg.out" 2>&1 \
         && run_exit=0 || run_exit=$?
     echo "$run_exit" > "$WORK_DIR/$leg.run-exit"
     rm -f "$bin"
