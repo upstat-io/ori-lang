@@ -19,7 +19,7 @@ use crate::ir::ArcVarId;
 ///
 /// Holds the field indices of a nested projection chain in root-to-leaf order
 /// (`a.b.c` is `[b_index, c_index]` rooted at `a`).
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct FieldPath(SmallVec<[u32; 2]>);
 
 impl FieldPath {
@@ -266,13 +266,6 @@ impl BirthSitePartition {
     }
 
     /// Number of interned nodes.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for the partition's Phase-6/Phase-7 consumers"
-        )
-    )]
     pub(crate) fn len(&self) -> usize {
         self.parent.len()
     }

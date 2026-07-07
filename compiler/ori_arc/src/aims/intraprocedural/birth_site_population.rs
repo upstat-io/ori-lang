@@ -135,8 +135,65 @@ pub(crate) fn compute_birth_site_partition(
     let mut merges = collect_contract_alias_edges(&mut partition, state_map);
     collect_block_param_edges(&mut partition, func, state_map, &mut merges);
     admit_witnessed_merges(&mut partition, &merges);
+    admit_field_congruence(&mut partition);
 
     partition
+}
+
+/// Field-congruence closure: two whole-var nodes in ONE class name the SAME
+/// allocation (PV-1 invariant of every admitted union), so their same-index
+/// field nodes name the same field allocation — union them. A witness-finding
+/// pass over the existing admission rule (the `scc_flow_witness_admits_phi`
+/// precedent), NEVER a new admission kind: each congruence edge carries the
+/// same-birth-site witness `samerep_birthsite_sound` requires. Composes the
+/// single-hop `Project` registration across `Let`-Var alias hops (the field
+/// node registered on the Construct dst and the field node registered on the
+/// alias a `Project` reads through join one class). Fixpoint: a field-node
+/// union can merge classes holding further whole-var nodes (nested
+/// aggregates), exposing new congruence pairs; unions strictly reduce class
+/// count, so the loop terminates within the node count.
+fn admit_field_congruence(partition: &mut BirthSitePartition) {
+    let cap = partition.len() + 2;
+    for _round in 0..cap {
+        // Group registered FIELD nodes by (whole-var class rep, field path).
+        let snapshot = partition.nodes_snapshot();
+        let mut groups: FxHashMap<(NodeIdx, FieldPath), Vec<NodeIdx>> = FxHashMap::default();
+        for (var, path, node) in &snapshot {
+            if path.is_whole_var() {
+                continue;
+            }
+            let base = partition.register_node(*var, FieldPath::whole_var());
+            let base_rep = partition.rep_of(base);
+            groups
+                .entry((base_rep, path.clone()))
+                .or_default()
+                .push(*node);
+        }
+        let mut changed = false;
+        let mut keys: Vec<_> = groups.keys().cloned().collect();
+        keys.sort_unstable_by_key(|(rep, path)| (*rep, path.clone()));
+        for key in keys {
+            let nodes = &groups[&key];
+            let Some((&first, rest)) = nodes.split_first() else {
+                continue;
+            };
+            for &other in rest {
+                if partition.same_rep(first, other) {
+                    continue;
+                }
+                // union_tier1 REFUSES on distinct known birth sites
+                // (release-active fail-closed); a refusal leaves the
+                // classes apart — congruence never forces an unsound join.
+                if partition.union_tier1(first, other) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+    }
+    unreachable!("field-congruence fixpoint exceeded its derived cap");
 }
 
 /// Intern the whole-variable node for `var`.

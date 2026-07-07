@@ -134,19 +134,30 @@ pub(crate) fn plan_class(
     // discriminator drives BOTH the liveness vectors here and the per-block
     // live-out queries in the incs/releases sub-modules.
     let full_closure = events.threads_back_edge || !has_cycle_events(regions, events);
+    // Extraction-funded (seeded) member vars pay their own demand: exclude
+    // them from the DEMAND surface so a store-consume whose only surviving
+    // reads are seed-funded takes no duplication inc (the seed IS that
+    // funding). The ACTIVITY surface keeps every event — release placement
+    // still sees the funded reads.
+    let seed_vars: rustc_hash::FxHashSet<ArcVarId> = seed_ops.iter().map(|op| op.var).collect();
+    let demand_seed = if seed_vars.is_empty() {
+        event_blocks(events, true)
+    } else {
+        super::events::demand_blocks_excluding_seeded(events, &seed_vars)
+    };
     let (demand_live, activity_live) = if full_closure {
         (
-            live_from(func, &event_blocks(events, true)),
+            live_from(func, &demand_seed),
             live_from(func, &event_blocks(events, false)),
         )
     } else {
         (
-            live_from_forward(func, &event_blocks(events, true), &dom),
+            live_from_forward(func, &demand_seed, &dom),
             live_from_forward(func, &event_blocks(events, false), &dom),
         )
     };
     let mut ops = seed_ops.to_vec();
-    match incs::plan_incs(func, events, &demand_live, full_closure, &dom) {
+    match incs::plan_incs(func, events, &demand_live, &seed_vars, full_closure, &dom) {
         Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }

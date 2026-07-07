@@ -299,6 +299,27 @@ pub(crate) fn successors_of(func: &ArcFunction, block: usize) -> Vec<usize> {
 
 /// Per-block seed flags: with `demand_only`, blocks holding a value use
 /// (Read / Mutate / Consume); otherwise blocks holding ANY event.
+/// Demand blocks EXCLUDING seed-funded member reads: an extraction-funded
+/// (seeded) member var's demand is paid by its own RL-1 inc at the `Project`
+/// site, so it never counts as surviving demand on the pre-consume reference.
+pub(crate) fn demand_blocks_excluding_seeded(
+    events: &ClassEvents,
+    seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+) -> Vec<bool> {
+    events
+        .per_block
+        .iter()
+        .map(|evs| {
+            evs.iter().any(|ev| {
+                matches!(
+                    ev.kind,
+                    EventKind::Read | EventKind::Mutate | EventKind::Consume
+                ) && !ev.var.is_some_and(|v| seed_vars.contains(&v))
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn event_blocks(events: &ClassEvents, demand_only: bool) -> Vec<bool> {
     events
         .per_block

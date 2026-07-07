@@ -286,6 +286,11 @@ fn cure_view_with_extraction_funding(
         }
     }
     if seeds.is_empty() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(view),
+            "view cure declined: no member-defining Project seeds"
+        );
         return false;
     }
     let funded_events =
@@ -293,10 +298,28 @@ fn cure_view_with_extraction_funding(
     let outcome = emit::plan_class(func, preds, regions, &funded_events, &seeds);
     let planned: &[PlannedOp] = match &outcome {
         ClassOutcome::Planned(ops) => ops,
-        ClassOutcome::Declined(_) => return false,
+        ClassOutcome::Declined(reason) => {
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                view = ?partition.node_key(view),
+                declined = ?reason,
+                seeds = seeds.len(),
+                events = ?funded_events.per_block,
+                "view cure declined: funded plan declined"
+            );
+            return false;
+        }
     };
     let verdict = verify::verify_class(func, preds, &funded_events, planned);
     if verdict != ClassVerdict::Clean {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(view),
+            verdict = ?verdict,
+            planned = ?planned,
+            events = ?funded_events.per_block,
+            "view cure declined: funded plan verifies non-Clean"
+        );
         return false;
     }
     let Some(entry) = classes.iter_mut().find(|plan| plan.class == view) else {

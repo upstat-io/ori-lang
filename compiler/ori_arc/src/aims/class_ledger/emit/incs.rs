@@ -17,6 +17,7 @@ pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
+    seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
     full_closure: bool,
     dom: &crate::graph::DominatorTree,
 ) -> Result<Vec<PlannedOp>, DeclineReason> {
@@ -37,7 +38,7 @@ pub(super) fn plan_incs(
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position) || demand_out))
+                    || !(suffix_has_demand(evs, position, seed_vars) || demand_out))
             {
                 continue;
             }
@@ -128,11 +129,17 @@ fn same_site_credit_follows(evs: &[ClassEvent], position: usize) -> bool {
 }
 
 /// Whether a later value use (Read / Mutate / Consume) exists in the block.
-fn suffix_has_demand(evs: &[ClassEvent], position: usize) -> bool {
+/// Seed-funded member vars are excluded: their demand is paid by the
+/// extraction-site inc, never by a pre-consume duplication inc.
+fn suffix_has_demand(
+    evs: &[ClassEvent],
+    position: usize,
+    seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+) -> bool {
     evs[position + 1..].iter().any(|ev| {
         matches!(
             ev.kind,
             EventKind::Read | EventKind::Mutate | EventKind::Consume
-        )
+        ) && !ev.var.is_some_and(|v| seed_vars.contains(&v))
     })
 }
