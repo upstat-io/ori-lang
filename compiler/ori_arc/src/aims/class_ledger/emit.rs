@@ -185,15 +185,20 @@ pub(crate) fn plan_class(
     ClassOutcome::Planned(ops)
 }
 
-/// Whether any event of the class sits inside a CFG cycle (a block that
-/// can reach itself). A class with zero in-cycle events has no
-/// per-iteration instance; its reference is loop-invariant.
+/// Whether any INSTANCE-CREATING event of the class sits inside a CFG
+/// cycle (a block that can reach itself). Births, credits, and select
+/// acquisitions inside a cycle mean a per-iteration instance (forward-only
+/// liveness); reads and consumes never create instances — a class born
+/// outside the cycle and only read within it is loop-invariant.
 fn has_cycle_events(func: &ArcFunction, events: &ClassEvents) -> bool {
     events
         .per_block
         .iter()
         .enumerate()
-        .filter(|(_, evs)| !evs.is_empty())
+        .filter(|(_, evs)| {
+            evs.iter()
+                .any(|ev| ev.delta > 0 || ev.kind == EventKind::SelectCredit)
+        })
         .any(|(block, _)| block_in_cycle(func, block))
 }
 

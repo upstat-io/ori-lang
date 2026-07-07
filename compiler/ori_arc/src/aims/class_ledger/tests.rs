@@ -1580,3 +1580,57 @@ fn loop_threaded_credit_releases_at_the_cycle_exit() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// A loop-invariant class READ inside the cycle (born outside, borrowed
+/// by an in-loop call every iteration) keeps full-closure liveness: no
+/// release lands on the read's in-loop successors; the value dies on the
+/// loop-exit edge.
+#[test]
+fn loop_invariant_class_read_inside_the_cycle_survives_iterations() {
+    // bb0: %0 = Construct []; jump bb1
+    // bb1: Branch %1 ? bb2 : bb3        (loop header)
+    // bb2: Invoke @f(%0 [borrow]) normal bb4 unwind bb5
+    // bb4: jump bb1                     (back-edge)
+    // bb5: Resume
+    // bb3: Return %3                    (loop exit)
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![])),
+            block(1, vec![], vec![], branch(1, 2, 3)),
+            block(
+                2,
+                vec![],
+                vec![],
+                ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: ty(0),
+                    func: Name::from_raw(7),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(4),
+                    unwind: ArcBlockId::new(5),
+                },
+            ),
+            block(3, vec![], vec![], ArcTerminator::Return { value: v(3) }),
+            block(4, vec![], vec![], jump(1, vec![])),
+            block(5, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let invariant = class_rep(&mut partition, 0);
+    assert_eq!(verdict_for(&analysis, invariant), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, invariant);
+    assert!(
+        ops.iter()
+            .all(|op| op.slot.block() != 4 && op.slot.block() != 1),
+        "no release inside the loop: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
