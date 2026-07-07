@@ -35,9 +35,12 @@ pub struct ConsumerEntry {
 /// flags are not tracked by this list; it registers dependency-edge
 /// membership only.
 pub const CANON_CONSUMERS: &[ConsumerEntry] = &[
+    // ori_eval's runtime method-dispatch selects among candidates the frontend
+    // already resolved and type-checked; it is a scoped-allowed dispatch surface,
+    // never a re-derivation of program meaning.
     ConsumerEntry {
         crate_name: "ori_eval",
-        description: "interpreter — tree-walks CanExpr",
+        description: "interpreter — tree-walks CanExpr; runtime dispatch scoped-allowed",
     },
     ConsumerEntry {
         crate_name: "ori_arc",
