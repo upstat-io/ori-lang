@@ -13,10 +13,14 @@ use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
+static EMPTY_SEED_VARS: std::sync::LazyLock<rustc_hash::FxHashSet<crate::ir::ArcVarId>> =
+    std::sync::LazyLock::new(rustc_hash::FxHashSet::default);
+
 pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
+    demand_live_full: &[bool],
     seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
     full_closure: bool,
     dom: &crate::graph::DominatorTree,
@@ -30,15 +34,30 @@ pub(super) fn plan_incs(
             }
             // Same discriminator as plan_class's liveness vectors: the
             // per-block query mode must match the vector's closure mode.
-            let demand_out = if full_closure {
-                live_out(func, block, demand_live)
+            // A consume OF a seeded member prices against the FULL demand
+            // surface (the seed funds one reference at extraction; the
+            // member's own hand-offs keep normal funding); every other
+            // consume prices against the seed-filtered surface.
+            let consume_of_seeded = ev.var.is_some_and(|v| seed_vars.contains(&v));
+            let live_vec = if consume_of_seeded {
+                demand_live_full
             } else {
-                live_out_forward(func, block, demand_live, dom)
+                demand_live
+            };
+            let demand_out = if full_closure {
+                live_out(func, block, live_vec)
+            } else {
+                live_out_forward(func, block, live_vec, dom)
+            };
+            let suffix_exclusions = if consume_of_seeded {
+                &EMPTY_SEED_VARS
+            } else {
+                seed_vars
             };
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position, seed_vars) || demand_out))
+                    || !(suffix_has_demand(evs, position, suffix_exclusions) || demand_out))
             {
                 continue;
             }

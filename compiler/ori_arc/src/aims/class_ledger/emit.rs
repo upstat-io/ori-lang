@@ -145,19 +145,36 @@ pub(crate) fn plan_class(
     } else {
         super::events::demand_blocks_excluding_seeded(events, &seed_vars)
     };
-    let (demand_live, activity_live) = if full_closure {
+    // TWO demand surfaces: the FILTERED one (seed-funded member reads
+    // excluded) prices consumes of NON-seeded vars — the container-transit
+    // store whose post-store member demand the seeds already fund. The FULL
+    // one prices consumes OF a seeded member var: the seed funds exactly ONE
+    // reference at its extraction site, so the member's own hand-offs keep
+    // normal duplication funding.
+    let demand_full = event_blocks(events, true);
+    let (demand_live, demand_live_full, activity_live) = if full_closure {
         (
             live_from(func, &demand_seed),
+            live_from(func, &demand_full),
             live_from(func, &event_blocks(events, false)),
         )
     } else {
         (
             live_from_forward(func, &demand_seed, &dom),
+            live_from_forward(func, &demand_full, &dom),
             live_from_forward(func, &event_blocks(events, false), &dom),
         )
     };
     let mut ops = seed_ops.to_vec();
-    match incs::plan_incs(func, events, &demand_live, &seed_vars, full_closure, &dom) {
+    match incs::plan_incs(
+        func,
+        events,
+        &demand_live,
+        &demand_live_full,
+        &seed_vars,
+        full_closure,
+        &dom,
+    ) {
         Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }

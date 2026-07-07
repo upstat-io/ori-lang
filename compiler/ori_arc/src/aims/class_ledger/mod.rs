@@ -44,6 +44,7 @@ use rustc_hash::FxHashMap;
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
+use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::aims::intraprocedural::ledger_events::{
     classify_function, BoundaryFacts, LedgerClassification,
 };
@@ -122,7 +123,7 @@ pub(crate) fn analyze_class_ledger(
     let mut classes = Vec::new();
     let mut verdicts = Vec::new();
     let mut declined = Vec::new();
-    let mut class_facts: Vec<(NodeIdx, bool, bool)> = Vec::new();
+    let mut class_facts: Vec<ClassHazardFacts> = Vec::new();
     for class in events::collect_classes(classification) {
         let class_events = events::extract_class_events(func, classification, partition, class);
         let outcome = emit::plan_class(func, &preds, &regions, &class_events, &[]);
@@ -156,11 +157,39 @@ pub(crate) fn analyze_class_ledger(
         // nothing here.
         let released = matches!(&outcome, ClassOutcome::Planned(ops)
                 if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec));
-        let eventful = class_events.per_block.iter().any(|evs| !evs.is_empty());
-        class_facts.push((class, released, eventful));
+        // Hazard facts: a view is ENDANGERED by independent DEMAND (Read /
+        // Mutate / SelectCredit) OR by a Consume that is NOT the move-in
+        // store at the released container's own Construct site — an
+        // extract-then-move-out member is freed by the original container's
+        // recursive release AND owned by its new container (the
+        // aliased-subtree corruption). Only the move-in store (a Consume at
+        // the container's Construct) is the lifecycle the container's
+        // release legitimately pays for.
+        let has_demand = class_events.per_block.iter().flatten().any(|ev| {
+            matches!(
+                ev.kind,
+                events::EventKind::Read
+                    | events::EventKind::Mutate
+                    | events::EventKind::SelectCredit
+            )
+        });
+        let mut consume_sites: Vec<(usize, EventSite)> = Vec::new();
+        for (block, evs) in class_events.per_block.iter().enumerate() {
+            for ev in evs {
+                if ev.kind == events::EventKind::Consume {
+                    consume_sites.push((block, ev.site));
+                }
+            }
+        }
+        class_facts.push(ClassHazardFacts {
+            class,
+            released,
+            has_demand,
+            consume_sites,
+        });
         classes.push(ClassPlan { class, outcome });
     }
-    let hazard_views = field_view_hazard_classes(partition, &class_facts);
+    let hazard_views = field_view_hazard_classes(func, partition, &class_facts);
     let mut uncured = Vec::new();
     for view in hazard_views {
         if cure_view_with_extraction_funding(
@@ -194,17 +223,30 @@ pub(crate) fn analyze_class_ledger(
     }
 }
 
+/// Per-class facts the field-view hazard consumes.
+struct ClassHazardFacts {
+    class: NodeIdx,
+    released: bool,
+    has_demand: bool,
+    consume_sites: Vec<(usize, EventSite)>,
+}
+
 /// The field-path VIEW classes endangered by a locally-released container:
 /// the container's recursive release would free the view's allocation while
-/// the view still uses it. Deduplicated, deterministic order.
+/// the view still uses it (a demand event), or after the view moved OUT to a
+/// new owner (a Consume anywhere but the container's own Construct sites).
+/// Deduplicated, deterministic order.
 fn field_view_hazard_classes(
+    func: &ArcFunction,
     partition: &mut BirthSitePartition,
-    class_facts: &[(NodeIdx, bool, bool)],
+    class_facts: &[ClassHazardFacts],
 ) -> Vec<NodeIdx> {
+    use crate::ir::ArcInstr;
+
     let released: Vec<NodeIdx> = class_facts
         .iter()
-        .filter(|&&(_, released, _)| released)
-        .map(|&(class, _, _)| class)
+        .filter(|facts| facts.released)
+        .map(|facts| facts.class)
         .collect();
     if released.is_empty() {
         return Vec::new();
@@ -220,6 +262,19 @@ fn field_view_hazard_classes(
             .filter(|&&(_, _, node)| partition.rep_of(node) == container_rep)
             .map(|&(var, _, _)| var)
             .collect();
+        // The container class's own Construct sites: a view's Consume at one
+        // of these is the move-in store the container's release pays for.
+        let mut construct_sites: Vec<(usize, EventSite)> = Vec::new();
+        for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+            for (index, instr) in arc_block.body.iter().enumerate() {
+                let ArcInstr::Construct { dst, .. } = instr else {
+                    continue;
+                };
+                if member_vars.contains(dst) {
+                    construct_sites.push((block_idx, EventSite::Body(index)));
+                }
+            }
+        }
         for (var, path, node) in &nodes {
             if path.is_whole_var() || !member_vars.contains(var) {
                 continue;
@@ -228,10 +283,15 @@ fn field_view_hazard_classes(
             if view_rep == container_rep {
                 continue;
             }
-            let view_eventful = class_facts
-                .iter()
-                .any(|&(class, _, eventful)| eventful && partition.rep_of(class) == view_rep);
-            if view_eventful && !views.contains(&view_rep) {
+            let endangered = class_facts.iter().any(|facts| {
+                partition.rep_of(facts.class) == view_rep
+                    && (facts.has_demand
+                        || facts
+                            .consume_sites
+                            .iter()
+                            .any(|site| !construct_sites.contains(site)))
+            });
+            if endangered && !views.contains(&view_rep) {
                 views.push(view_rep);
             }
         }
