@@ -7,8 +7,12 @@
 //! (`ApplyAliasSource::Direct` / `::Project`). Block-param merges and
 //! `ApplyAliasSource::Conditional` aliases are admitted ONLY under the
 //! singleton birth-site witness, iterated to a fixpoint so chained merges
-//! compose. Birth sites are minted per `Construct` site; every other fresh
-//! definition stays UNKNOWN, so a merge over it refuses conservatively.
+//! compose. Birth sites are minted per `Construct` site, per heap-producing
+//! literal/PrimOp `Let`, and per NON-aliased call result (an alias-free
+//! `Apply`/`Invoke` destination is the caller-frame acquisition of a fresh
+//! allocation — the event classifier births it, so the partition sites it);
+//! every other fresh definition stays UNKNOWN, so a merge over it refuses
+//! conservatively.
 //! COW-mutating uses (`Set` / `SetTag`) taint their class as a boundary.
 //! Scalar / immortal vars carry no allocation and are skipped.
 
@@ -85,6 +89,9 @@ pub(crate) fn compute_birth_site_partition(
                     partition.set(dst_node, BirthSiteId::new(next_site));
                     next_site += 1;
                 }
+                ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. } => {
+                    mint_call_result_site(&mut partition, state_map, *dst, &mut next_site);
+                }
                 ArcInstr::Project {
                     dst, value, field, ..
                 } => {
@@ -117,6 +124,12 @@ pub(crate) fn compute_birth_site_partition(
                 _ => {}
             }
         }
+        match &block.terminator {
+            ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
+                mint_call_result_site(&mut partition, state_map, *dst, &mut next_site);
+            }
+            _ => {}
+        }
     }
 
     let mut merges = collect_contract_alias_edges(&mut partition, state_map);
@@ -129,6 +142,23 @@ pub(crate) fn compute_birth_site_partition(
 /// Intern the whole-variable node for `var`.
 fn whole_node(partition: &mut BirthSitePartition, var: ArcVarId) -> NodeIdx {
     partition.register_node(var, FieldPath::whole_var())
+}
+
+/// Mint a birth site for a NON-aliased call result. An alias-carrying
+/// destination (`ApplyAliasSource`) joins its source's class and inherits
+/// that class's site; minting a second site there is skipped.
+fn mint_call_result_site(
+    partition: &mut BirthSitePartition,
+    state_map: &AimsStateMap,
+    dst: ArcVarId,
+    next_site: &mut u32,
+) {
+    if state_map.is_excluded(dst) || state_map.apply_result_alias(dst).is_some() {
+        return;
+    }
+    let dst_node = whole_node(partition, dst);
+    partition.set(dst_node, BirthSiteId::new(*next_site));
+    *next_site += 1;
 }
 
 /// Admit contract-proven Apply/Invoke result aliases.

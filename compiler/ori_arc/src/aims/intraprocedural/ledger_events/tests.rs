@@ -1120,11 +1120,14 @@ fn invoke_result_births_in_normal_successor_not_invoking_block() {
     assert!(classification.blocks[2].is_empty());
 }
 
-/// A heap-producing `PrimOp` (string concat) is a fresh allocation: the
-/// non-excluded dst births FRESH; the operands stay borrow-READS. Scalar
-/// `PrimOp` dsts remain state-map-excluded and event-less.
+/// A heap-producing `PrimOp` (str/list concat) is a fresh allocation with
+/// CONSUMED operands: the runtime concat frees or reuses both inputs (the
+/// `ConstructArg` transfer kind — the legacy path emits NO operand dec), so
+/// the non-excluded dst births FRESH and each operand hands its reference
+/// in. Scalar `PrimOp` dsts remain state-map-excluded; their heap operands
+/// are comparison borrow-READS.
 #[test]
-fn heap_primop_dst_births_fresh_and_operands_read() {
+fn heap_primop_dst_births_fresh_and_operands_consumed() {
     let func = one_block_func(
         3,
         vec![
@@ -1154,7 +1157,12 @@ fn heap_primop_dst_births_fresh_and_operands_read() {
     let lhs = rep(&mut partition, 0);
     assert_eq!(
         derive_ledger(lhs, &flat(&classification)),
-        vec![LedgerEvent::Birth, LedgerEvent::Read]
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
+    );
+    let rhs = rep(&mut partition, 1);
+    assert_eq!(
+        derive_ledger(rhs, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
     );
 }
 

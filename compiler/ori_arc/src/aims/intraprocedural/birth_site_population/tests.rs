@@ -583,3 +583,96 @@ fn mutually_dependent_merges_admit_via_scc_flow_witness() {
     );
     assert!(partition.site(outer).is_some());
 }
+
+/// A fresh non-aliased call result is a birth site: threaded into a
+/// two-predecessor loop param (the for-yield `ori_list_take` shape), the
+/// param joins the result's class under the standard singleton witness.
+#[test]
+fn call_result_births_site_and_admits_loop_param_merge() {
+    // bb0: %0 = Apply @f()          (fresh call result, no alias entry)
+    //      jump bb1(%0)
+    // bb1(%1): Branch %2 ? bb2 : bb3
+    // bb2: jump bb1(%1)             (back-edge threads the param)
+    // bb3: Return %1
+    let func = func_with_blocks(
+        3,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Apply {
+                    dst: v(0),
+                    ty: ty(0),
+                    func: ori_ir::Name::from_raw(7),
+                    args: vec![],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                }],
+                jump(1, vec![0]),
+            ),
+            block(
+                1,
+                vec![1],
+                vec![],
+                ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(3),
+                },
+            ),
+            block(2, vec![], vec![], jump(1, vec![1])),
+            block(3, vec![], vec![], ArcTerminator::Return { value: v(1) }),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+
+    let result = whole(&mut partition, 0);
+    let param = whole(&mut partition, 1);
+    assert!(
+        partition.same_rep(param, result),
+        "loop param joins the call-result class"
+    );
+    assert!(partition.site(result).is_some(), "call result has a site");
+}
+
+/// A contract-ALIASED call result is NOT a fresh birth site: the alias
+/// union carries its source's site; no second site is minted for the dst.
+#[test]
+fn aliased_call_result_does_not_mint_second_site() {
+    // bb0: %0 = Construct []        (the real allocation, site A)
+    //      %1 = Apply @id(%0)       (ttr forwarder; Direct alias of %0)
+    //      Return %1
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(0),
+                func: ori_ir::Name::from_raw(7),
+                args: vec![v(0)],
+                arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    let mut aliases = FxHashMap::default();
+    aliases.insert(v(1), ApplyAliasSource::Direct(v(0)));
+    state_map.set_apply_result_aliases(aliases);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+
+    let alloc = whole(&mut partition, 0);
+    let result = whole(&mut partition, 1);
+    assert!(
+        partition.same_rep(result, alloc),
+        "ttr result joins its source class"
+    );
+    assert_eq!(
+        partition.site(result),
+        partition.site(alloc),
+        "one class, one site"
+    );
+}

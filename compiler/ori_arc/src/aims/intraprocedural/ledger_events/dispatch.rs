@@ -29,34 +29,9 @@ impl Classifier<'_> {
                 }
                 self.classify_fresh_alloc(stream, *dst, args);
             }
-            ArcInstr::Let { dst, value, .. } => match value {
-                // A whole-var alias is a partition edge, not an event.
-                ArcValue::Var(_) => {}
-                // A non-excluded STRING literal (a non-empty string; the
-                // empty string is immortal-excluded) is a fresh allocation —
-                // the TF-3 analog with zero funded args. Every other literal
-                // kind allocates nothing at runtime even under a heap-repr
-                // variable (the iterator-protocol placeholder `%n: str = 0`
-                // shape), so it stays event-less.
-                ArcValue::Literal(lit) => {
-                    if matches!(lit, crate::ir::LitValue::String(_)) && !self.excluded(*dst) {
-                        self.birth(stream, *dst, ClassOrigin::Fresh);
-                    }
-                }
-                // Operands are borrow-READS; a non-excluded heap dst
-                // (string concat) is a fresh allocation — the operands are
-                // read, never funded into the result.
-                ArcValue::PrimOp { args, .. } => {
-                    for &arg in args {
-                        if !self.excluded(arg) {
-                            self.read(stream, arg);
-                        }
-                    }
-                    if !self.excluded(*dst) {
-                        self.birth(stream, *dst, ClassOrigin::Fresh);
-                    }
-                }
-            },
+            ArcInstr::Let { dst, value, .. } => {
+                self.classify_let_value(stream, *dst, value);
+            }
             ArcInstr::Project { value, .. } => {
                 // The view variable joins the field class via the partition;
                 // the Project itself borrow-READS the source aggregate.
@@ -132,6 +107,44 @@ impl Classifier<'_> {
             | ArcInstr::RcDecField { .. }
             | ArcInstr::RcDecVariant { .. } => {
                 self.classify_placed_op(instr, stream);
+            }
+        }
+    }
+
+    /// Classify a `Let` by its value kind. A whole-var alias is a partition
+    /// edge, not an event. A non-excluded STRING literal (a non-empty
+    /// string; the empty string is immortal-excluded) is a fresh allocation
+    /// — the TF-3 analog with zero funded args; every other literal kind
+    /// allocates nothing at runtime even under a heap-repr variable (the
+    /// iterator-protocol placeholder `%n: str = 0` shape), so it stays
+    /// event-less. A HEAP-producing `PrimOp` (str/list concat) is a fresh
+    /// allocation whose operands transfer in (the runtime concat frees or
+    /// reuses both inputs — `ConstructArg` kind; the legacy path emits no
+    /// operand dec); a SCALAR-dst `PrimOp` (comparison) borrow-READS its heap
+    /// operands.
+    fn classify_let_value(
+        &mut self,
+        stream: &mut Vec<ClassInstr>,
+        dst: ArcVarId,
+        value: &ArcValue,
+    ) {
+        match value {
+            ArcValue::Var(_) => {}
+            ArcValue::Literal(lit) => {
+                if matches!(lit, crate::ir::LitValue::String(_)) && !self.excluded(dst) {
+                    self.birth(stream, dst, ClassOrigin::Fresh);
+                }
+            }
+            ArcValue::PrimOp { args, .. } => {
+                if self.excluded(dst) {
+                    for &arg in args {
+                        if !self.excluded(arg) {
+                            self.read(stream, arg);
+                        }
+                    }
+                } else {
+                    self.classify_fresh_alloc(stream, dst, args);
+                }
             }
         }
     }
