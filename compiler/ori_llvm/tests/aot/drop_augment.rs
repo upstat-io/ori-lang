@@ -1195,3 +1195,113 @@ impl Logged: Drop { @drop (self) -> void = print(msg: `dropped-{self.tag}`); }
         "the dead heap-field struct @drop must still fire exactly once; stdout:\n{stdout}"
     );
 }
+
+/// Matrix cell: a LET-BOUND user-drop struct VALUE borrowed by the map-insert
+/// Invoke terminator. The value's release must land AFTER the call — the
+/// "inserted" marker must print BEFORE the teardown-time drop panic (a
+/// pre-call drop would print boom first and never reach the insert).
+#[test]
+fn drop_map_value_let_bound_released_after_insert() {
+    let source = r#"
+type Boom = { tag: str }
+
+impl Boom: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-val-{self.tag}`);
+        panic(msg: "boom-val")
+    }
+}
+
+@main () -> void = {
+    let v = Boom { tag: "v" };
+    let m: {str: Boom} = {};
+    let m2 = m.insert(key: "k", value: v);
+    print(msg: "inserted");
+
+    let w = [m2]
+}
+"#;
+    let (_exit_code, stdout, _stderr) = compile_and_run_capture(source);
+    let inserted = stdout.find("inserted");
+    let boom = stdout.find("boom-val-v");
+    assert!(
+        inserted.is_some() && boom.is_some(),
+        "both the post-insert marker and the teardown drop must run; stdout:\n{stdout}"
+    );
+    assert!(
+        inserted < boom,
+        "the value's drop must fire at teardown, AFTER the insert consumed it; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: a LET-BOUND struct key with NO user drop (heap str field only)
+/// borrowed by the map-insert Invoke terminator. A pre-call release of the key
+/// frees its field payload before the insert elem-incs it — double-free at
+/// teardown (SIGABRT). Must run clean and leak-free.
+#[test]
+fn map_insert_let_bound_struct_key_no_user_drop_clean() {
+    let source = r#"
+type Key = { tag: str }
+
+impl Key: Eq {
+    @eq (self, other: Key) -> bool = self.tag == other.tag;
+}
+
+impl Key: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+@main () -> void = {
+    let k = Key { tag: "some heap allocated key tag string long" };
+    let m: {Key: int} = {};
+    let m2 = m.insert(key: k, value: 7);
+    print(msg: `{m2.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "let-bound struct-key insert must not double-free; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains('1'),
+        "the inserted map must report len 1; stdout:\n{stdout}"
+    );
+}
+
+/// Over-fire guard cell (consensus requirement): a struct key with a LIVE field
+/// extract crossing the borrowing call — the extracted str is read AFTER the
+/// insert. The Struct-root death-point relocation must not double-free the
+/// extracted view's backing. Clean exit + leak-free is the pin either way the
+/// scan disposes the root (admit-with-guard or decline).
+#[test]
+fn map_insert_struct_key_live_field_extract_no_double_free() {
+    let source = r#"
+type Key = { tag: str }
+
+impl Key: Eq {
+    @eq (self, other: Key) -> bool = self.tag == other.tag;
+}
+
+impl Key: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+@main () -> void = {
+    let k = Key { tag: "live extract survives the borrowing insert" };
+    let t = k.tag;
+    let m: {Key: int} = {};
+    let m2 = m.insert(key: k, value: 7);
+    print(msg: `{m2.len()} {t.length()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "live field extract across the borrowing insert must stay valid; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("1 43"),
+        "map len 1 + extracted tag length 43 expected; stdout:\n{stdout}"
+    );
+}

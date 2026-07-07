@@ -139,8 +139,10 @@ fn collect_roots_admits_list_construct_declines_string_literal() {
 #[test]
 fn collect_roots_admits_owned_enum_variant_construct() {
     // bb0: %0 = Construct EnumVariant(..) ; %1 = Construct Struct(..) ; Unreachable.
-    // The EnumVariant dst is admitted ONLY when in owned_vars_needing_rc; the plain
-    // Struct Construct is NEVER a root (no failing cell -> stays declined).
+    // BOTH dsts are admitted when in owned_vars_needing_rc — the EnumVariant arm
+    // and the plain-Struct arm share the heap-burden membership discriminator (a
+    // let-bound user-drop struct key borrowed by a map-insert Invoke terminator is
+    // the failing cell that admitted the Struct family).
     let f = func(
         2,
         vec![block(
@@ -155,8 +157,28 @@ fn collect_roots_admits_owned_enum_variant_construct() {
     let roots = collect_fresh_construct_roots(&f, &owned);
     assert_eq!(
         roots,
-        vec![vv(0)],
-        "the owned EnumVariant Construct is admitted; the plain Struct Construct stays declined",
+        vec![vv(0), vv(1)],
+        "the owned EnumVariant AND the owned plain-Struct Constructs are admitted",
+    );
+}
+
+#[test]
+fn collect_roots_declines_struct_construct_without_rc_burden() {
+    // A plain Struct Construct whose dst is NOT in owned_vars_needing_rc (an
+    // all-scalar struct with no RC-bearing field) carries no heap burden — the
+    // membership gate declines it, bounding the Struct-arm admission.
+    let f = func(
+        1,
+        vec![block(
+            0,
+            vec![struct_construct(0)],
+            ArcTerminator::Unreachable,
+        )],
+    );
+    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
+    assert!(
+        roots.is_empty(),
+        "a Struct Construct absent from owned_vars_needing_rc is not a root",
     );
 }
 
