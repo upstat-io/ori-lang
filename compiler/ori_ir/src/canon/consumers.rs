@@ -2,23 +2,19 @@
 //! depend on `ori_ir::canon` (`CanExpr` / `DecisionTreePool` / the resolved
 //! type pool).
 //!
-//! # Purpose
-//!
-//! The frontend (lex -> parse -> typecheck -> canon) is the sole authority for
-//! program meaning; every backend/consumer reads canonical IR rather than
-//! re-deriving it (single semantic authority). This module is the canonical home
-//! for which crates depend on `ori_ir::canon`, checked mechanically (each
-//! registered crate must carry a dependency edge on `ori_ir`) by
-//! `scripts/crate-dag-lint.py`.
-//!
 //! # Design Invariants
 //!
-//! 1. **Pure data** — a `const` slice of `ConsumerEntry`, no logic beyond a
+//! 1. **Single semantic authority** — every backend/consumer reads canonical
+//!    IR rather than re-deriving program meaning; this module is the
+//!    canonical home for which crates depend on `ori_ir::canon`, checked
+//!    mechanically by `scripts/crate-dag-lint.py` (each registered crate
+//!    must carry a dependency edge on `ori_ir`).
+//! 2. **Pure data** — a `const` slice of `ConsumerEntry`, no logic beyond a
 //!    linear-scan lookup (mirrors `ori_registry` / `ori_registry::burden`).
-//! 2. **`crate_name` is the identity** — the real Cargo package name, the unit
+//! 3. **`crate_name` is the identity** — the real Cargo package name, the unit
 //!    `cargo metadata` resolves. A module-qualified detail (e.g.
 //!    `ori_llvm::evaluator`) lives in `description` only and is never checked.
-//! 3. **One query** — `entry_for(crate_name)`; no parallel lookup functions.
+//! 4. **One query** — `entry_for(crate_name)`; no parallel lookup functions.
 
 /// A single `ori_ir::canon` consumer crate, keyed by its real Cargo package name.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -32,12 +28,12 @@ pub struct ConsumerEntry {
 
 /// The canonical set of crates that depend on `ori_ir::canon`.
 ///
-/// The five real `ori_ir::canon` dependents. Per-consumer meaning-vs-ID
-/// classification (which are true tree-walking meaning-consumers — `ori_eval`,
-/// `ori_arc`, `ori_llvm` — vs orchestration / ID-only handle-passers —
-/// `ori_compiler`, `oric` — and ID-only importers `ori_types` / `ori_patterns`),
-/// plus per-pool-subset flags, are a later registry refinement, not this
-/// starting set's concern.
+/// The five real `ori_ir::canon` dependents. Meaning-vs-ID classification —
+/// tree-walking meaning-consumers (`ori_eval`, `ori_arc`, `ori_llvm`) vs
+/// orchestration / ID-only handle-passers (`ori_compiler`, `oric`) vs
+/// ID-only importers (`ori_types`, `ori_patterns`) — and per-pool-subset
+/// flags are not tracked by this list; it registers dependency-edge
+/// membership only.
 pub const CANON_CONSUMERS: &[ConsumerEntry] = &[
     ConsumerEntry {
         crate_name: "ori_eval",

@@ -3,7 +3,7 @@
 //! The canonical IR (`CanExpr`) sits between the type checker and both backends.
 //! It is a **distinct type** from `ExprKind` — sugar variants cannot be represented,
 //! enforced at the type level. Both `ori_eval` (interpreter) and `ori_arc` (ARC/LLVM
-//! codegen) consume `CanExpr` exclusively after migration.
+//! codegen) consume `CanExpr` exclusively.
 //!
 //! # Architecture
 //!

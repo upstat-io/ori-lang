@@ -130,10 +130,9 @@ def _graph_from_metadata(meta: dict) -> dict[str, set[str]]:
     parsed `cargo metadata --format-version 1` document.
 
     Excludes external (non-member) deps and non-normal (`kind is not None`)
-    edges — a dev-dependency is test-time-only and Cargo permits it cyclically
-    (a leaf crate's tests may dev-depend on a downstream crate for fixtures);
-    folding it into the forbidden-edge graph would false-positive-ban that.
-    `compiler.md §Architecture` documents the same production/dev split.
+    edges — dev-dependency edges are permitted to be cyclic by Cargo (a leaf
+    crate's tests may dev-depend on a downstream crate for fixtures) and are
+    excluded from the forbidden-edge graph.
     """
     members = {pkg["name"] for pkg in meta.get("packages", [])}
     graph: dict[str, set[str]] = {name: set() for name in members}
@@ -360,7 +359,7 @@ def _self_test() -> int:
     )
 
     # Fixture F — ori_lexer's ban exempts its 2 legit deps but bans ori_parse
-    # (PHASE-02: "ori_lexer never imports ori_parse").
+    # (lexer never imports parser — zero semantic knowledge in the lexing front).
     graph_lexer_ok = {
         "ori_lexer": {"ori_ir", "ori_lexer_core"},
         "ori_ir": set(),
@@ -418,7 +417,7 @@ def _self_test() -> int:
 
     # Fixture K — a dev-dependency must NOT become a graph edge (Cargo permits
     # a cyclic dev-dep for test fixtures; mirrors the real ori_types ->
-    # ori_lexer dev-dep `compiler.md §Architecture` documents).
+    # ori_lexer dev-dep in the workspace).
     meta_with_dev_dep = {
         "packages": [
             {
