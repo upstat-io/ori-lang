@@ -197,7 +197,7 @@ fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
 
 /// The definition point of a variable, for slot-dominance checking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DefPoint {
+pub(super) enum DefPoint {
     /// A function param — defined at entry, dominates every slot.
     Entry,
     /// Defined at a block's front: a block param, or an `Invoke` /
@@ -235,7 +235,7 @@ pub(super) fn ops_placeable(func: &ArcFunction, ops: &[PlannedOp]) -> bool {
 }
 
 /// Definition points of every variable in `func`.
-fn collect_def_points(func: &ArcFunction) -> FxHashMap<ArcVarId, DefPoint> {
+pub(super) fn collect_def_points(func: &ArcFunction) -> FxHashMap<ArcVarId, DefPoint> {
     let mut defs: FxHashMap<ArcVarId, DefPoint> = FxHashMap::default();
     for param in &func.params {
         defs.insert(param.var, DefPoint::Entry);
@@ -261,7 +261,7 @@ fn collect_def_points(func: &ArcFunction) -> FxHashMap<ArcVarId, DefPoint> {
 /// Whether `def` dominates `slot` — cross-block via the dominator tree
 /// (blocks execute atomically, so a dominating block's whole body precedes
 /// the slot), same-block via body position.
-fn def_reaches_slot(
+pub(super) fn def_reaches_slot(
     func: &ArcFunction,
     dom: &DominatorTree,
     def: DefPoint,

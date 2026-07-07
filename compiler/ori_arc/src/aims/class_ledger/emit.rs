@@ -105,6 +105,8 @@ pub(crate) fn plan_class(
     events: &ClassEvents,
     seed_ops: &[PlannedOp],
 ) -> ClassOutcome {
+    let dom_early = crate::graph::DominatorTree::build(func);
+    let release_ctx = releases::ReleaseCtx::new(func, &dom_early);
     if seed_ops.is_empty() && births_only(events) {
         // RL-2 unused-owned / RL-5 dead-at-entry: a class whose only events
         // are births (no demand, no credits — a credit is itself a live use
@@ -112,7 +114,7 @@ pub(crate) fn plan_class(
         // site — the general death-frontier walk cannot place these (a
         // birth inside a cycle keeps every loop block activity-live, so no
         // block ever reads as the frontier).
-        return match releases::plan_dead_class_releases(func, events) {
+        return match releases::plan_dead_class_releases(func, &release_ctx, events) {
             Ok(ops) => ClassOutcome::Planned(ops),
             Err(reason) => ClassOutcome::Declined(reason),
         };
@@ -120,7 +122,7 @@ pub(crate) fn plan_class(
     // Funding (inc) decisions use FORWARD-only demand liveness: a back-edge
     // suffix is the next iteration's events, never continued use of the
     // current reference. Release placement keeps the full closure.
-    let dom = crate::graph::DominatorTree::build(func);
+    let dom = &dom_early;
     // Inv: per-block event indexing aligns with the function's block indexing
     // (and thus with CycleRegions).
     debug_assert_eq!(events.per_block.len(), func.blocks.len());
@@ -165,9 +167,9 @@ pub(crate) fn plan_class(
         )
     } else {
         (
-            super::events::live_from_forward_killing(func, &demand_seed, &credit_kills, &dom),
-            super::events::live_from_forward_killing(func, &demand_full, &credit_kills, &dom),
-            live_from_forward(func, &event_blocks(events, false), &dom),
+            super::events::live_from_forward_killing(func, &demand_seed, &credit_kills, dom),
+            super::events::live_from_forward_killing(func, &demand_full, &credit_kills, dom),
+            live_from_forward(func, &event_blocks(events, false), dom),
         )
     };
     let mut ops = seed_ops.to_vec();
@@ -178,7 +180,7 @@ pub(crate) fn plan_class(
         &demand_live_full,
         &seed_vars,
         full_closure,
-        &dom,
+        dom,
     ) {
         Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
@@ -194,6 +196,7 @@ pub(crate) fn plan_class(
     }
     let plan_error = releases::plan_releases(
         func,
+        &release_ctx,
         preds,
         regions,
         events,
@@ -201,7 +204,7 @@ pub(crate) fn plan_class(
         full_closure,
         &nets.entry_net,
         &delta,
-        &dom,
+        dom,
         &mut ops,
     )
     .err();
