@@ -33,6 +33,9 @@ pub(crate) use types::{
 
 /// The per-function classification walk state.
 struct Classifier<'a> {
+    /// The function under classification (repr lookups for the concat
+    /// operand ownership split).
+    func: &'a ArcFunction,
     state_map: &'a AimsStateMap,
     partition: &'a mut BirthSitePartition,
     boundary_facts: &'a FxHashMap<Name, BoundaryFacts>,
@@ -168,14 +171,30 @@ impl Classifier<'_> {
     }
 
     /// Function params birth their classes: Owned = FOREIGN, Borrowed =
-    /// BORROWED.
+    /// BORROWED — EXCEPT a Borrowed param this function's OWN contract marks
+    /// iter-consuming (PV-4: the caller classified its arg
+    /// `ApplyToIterConsumingParam` and transferred the reference in), which
+    /// arrives OWNING that reference and births FOREIGN. Borrowed-origin
+    /// classification would make the emitter self-fund the internal
+    /// `@iter [own]` hand-off the caller's transfer already pays for
+    /// (double-funding: the caller's transferred reference never released).
     fn classify_params(&mut self, func: &ArcFunction, stream: &mut Vec<ClassInstr>) {
-        for param in &func.params {
+        let own_iter: Vec<bool> = self.boundary_facts.get(&func.name).map_or_else(
+            || vec![false; func.params.len()],
+            |facts| {
+                (0..func.params.len())
+                    .map(|position| facts.iter_consume_transfer(position))
+                    .collect()
+            },
+        );
+        for (position, param) in func.params.iter().enumerate() {
             if self.excluded(param.var) {
                 continue;
             }
+            let iter_consuming = own_iter.get(position).copied().unwrap_or(false);
             let origin = match param.ownership {
                 Ownership::Owned => ClassOrigin::Foreign,
+                Ownership::Borrowed if iter_consuming => ClassOrigin::Foreign,
                 Ownership::Borrowed => ClassOrigin::Borrowed,
             };
             self.birth(stream, param.var, origin);
@@ -199,6 +218,7 @@ pub(crate) fn classify_function(
     boundary_facts: &FxHashMap<Name, BoundaryFacts>,
 ) -> LedgerClassification {
     let mut classifier = Classifier {
+        func,
         state_map,
         partition,
         boundary_facts,

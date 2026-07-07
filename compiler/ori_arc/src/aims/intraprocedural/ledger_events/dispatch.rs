@@ -125,9 +125,13 @@ impl Classifier<'_> {
     /// allocates nothing at runtime even under a heap-repr variable (the
     /// iterator-protocol placeholder `%n: str = 0` shape), so it stays
     /// event-less. A HEAP-producing `PrimOp` (str/list concat) is a fresh
-    /// allocation whose operands transfer in (the runtime concat frees or
-    /// reuses both inputs — `ConstructArg` kind; the legacy path emits no
-    /// operand dec); a SCALAR-dst `PrimOp` (comparison) borrow-READS its heap
+    /// allocation whose operand ownership splits by repr, mirroring the
+    /// runtime contract (and the legacy walk's consumed-operand
+    /// discriminator): an `RcPointer` operand transfers into the
+    /// dual-consuming `ori_list_concat_cow` (CONSUME); a `FatValue` str
+    /// operand is BORROWED by `ori_str_concat` — the operand's class READs
+    /// and keeps its own owed release with the planner (the caller-side
+    /// dec). A SCALAR-dst `PrimOp` (comparison) borrow-READS its heap
     /// operands.
     fn classify_let_value(
         &mut self,
@@ -150,7 +154,22 @@ impl Classifier<'_> {
                         }
                     }
                 } else {
-                    self.classify_fresh_alloc(stream, dst, args);
+                    if !self.excluded(dst) {
+                        self.birth(stream, dst, ClassOrigin::Fresh);
+                    }
+                    for &arg in args {
+                        if self.excluded(arg) {
+                            continue;
+                        }
+                        if matches!(
+                            self.func.var_repr(arg),
+                            Some(crate::ir::ValueRepr::RcPointer)
+                        ) {
+                            self.consume(stream, arg);
+                        } else {
+                            self.read(stream, arg);
+                        }
+                    }
                 }
             }
         }

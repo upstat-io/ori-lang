@@ -123,3 +123,16 @@ fn id_only_importers_are_not_meaning_consumers() {
         );
     }
 }
+
+#[test]
+fn orchestration_facades_pass_handles_without_walking_pools() {
+    for crate_name in ["ori_compiler", "oric"] {
+        let entry =
+            entry_for(crate_name).unwrap_or_else(|| panic!("{crate_name} must be registered"));
+        assert_eq!(
+            entry.pool_access,
+            PoolAccess::OrchestrationIdOnly,
+            "{crate_name} wires the pipeline without tree-walking a pool and must be OrchestrationIdOnly"
+        );
+    }
+}

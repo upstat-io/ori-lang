@@ -1120,15 +1120,16 @@ fn invoke_result_births_in_normal_successor_not_invoking_block() {
     assert!(classification.blocks[2].is_empty());
 }
 
-/// A heap-producing `PrimOp` (str/list concat) is a fresh allocation with
-/// CONSUMED operands: the runtime concat frees or reuses both inputs (the
-/// `ConstructArg` transfer kind — the legacy path emits NO operand dec), so
-/// the non-excluded dst births FRESH and each operand hands its reference
-/// in. Scalar `PrimOp` dsts remain state-map-excluded; their heap operands
-/// are comparison borrow-READS.
+/// A heap-producing `PrimOp` (list concat) is a fresh allocation whose
+/// `RcPointer` operands are CONSUMED: the dual-consuming
+/// `ori_list_concat_cow` takes over or releases both inputs, so the
+/// non-excluded dst births FRESH and each operand hands its reference in.
+/// (`FatValue` str operands are BORROWED and READ instead — pinned by
+/// `str_concat_operand_reads_not_consumes`.) Scalar `PrimOp` dsts remain
+/// state-map-excluded; their heap operands are comparison borrow-READS.
 #[test]
-fn heap_primop_dst_births_fresh_and_operands_consumed() {
-    let func = one_block_func(
+fn heap_primop_dst_births_fresh_and_rcptr_operands_consumed() {
+    let mut func = one_block_func(
         3,
         vec![
             construct(0, vec![]),
@@ -1144,6 +1145,11 @@ fn heap_primop_dst_births_fresh_and_operands_consumed() {
         ],
         ArcTerminator::Return { value: v(2) },
     );
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+    ];
     let state_map = AimsStateMap::new(&func);
     let (classification, mut partition) = classify(&func, &state_map, &no_facts());
 
@@ -1322,5 +1328,150 @@ fn alias_of_excluded_var_is_excluded() {
     assert!(
         derive_ledger(alias, &flat(&classification)).is_empty(),
         "no events on the excluded-alias class"
+    );
+}
+
+/// A STR concat operand (`FatValue` repr) is BORROWED by `ori_str_concat`
+/// (the runtime reads both inputs and builds a fresh result; the caller's
+/// own dec is the operand's release) — the operand's class READs at the
+/// concat, keeping its Birth's owed release with the planner. Classifying
+/// it Consume plans no release and funds a spurious dup inc on a
+/// borrowed-rooted operand (the b003 lazy-iter lambda +2 leak shape).
+#[test]
+fn str_concat_operand_reads_not_consumes() {
+    let mut func = one_block_func(
+        3,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            ArcInstr::Let {
+                dst: v(1),
+                ty: ty(1),
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(4))),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(2),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::FatValue,
+    ];
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let operand = rep(&mut partition, 0);
+    let events = derive_ledger(operand, &flat(&classification));
+    assert_eq!(
+        events,
+        vec![LedgerEvent::Birth, LedgerEvent::Read],
+        "a borrowed str concat operand READs; its Birth keeps the owed release"
+    );
+    assert_eq!(net(&events), 1, "the operand still owes its own release");
+}
+
+/// A LIST concat operand (`RcPointer` repr) transfers into the
+/// dual-consuming `ori_list_concat_cow` (unique buffers taken over, shared
+/// ones released by the runtime) — the operand's class CONSUMEs at the
+/// concat, net 0, no planner-placed release.
+#[test]
+fn list_concat_operand_consumes() {
+    let mut func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(2),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+    ];
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let operand = rep(&mut partition, 0);
+    let events = derive_ledger(operand, &flat(&classification));
+    assert_eq!(
+        events,
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "a list concat operand transfers into the dual-consuming runtime concat"
+    );
+    assert_eq!(net(&events), 0);
+}
+
+/// A BORROWED param this function's OWN contract marks iter-consuming
+/// (PV-4: the caller classified its arg `ApplyToIterConsumingParam` and
+/// transferred the reference in) arrives OWNING that reference — it births
+/// FOREIGN like an owned param. Borrowed-origin classification would make
+/// the emitter self-fund the internal `@iter [own]` hand-off the caller's
+/// transfer already pays for (the double-funded whole-collection leak on
+/// the caught-panic `fat_ptr_iter` shape).
+#[test]
+fn borrowed_iter_consuming_param_births_foreign() {
+    let mut func = one_block_func(1, vec![], ArcTerminator::Return { value: v(0) });
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut facts = no_facts();
+    facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_iter_consumes: vec![true],
+            param_transfers_through_return: vec![false],
+            ..BoundaryFacts::default()
+        },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &facts);
+
+    let param = rep(&mut partition, 0);
+    assert_eq!(
+        classification.class_origins.get(&param),
+        Some(&ClassOrigin::Foreign),
+        "an iter-consuming borrowed param owns its transferred-in reference"
+    );
+}
+
+/// The same borrowed param WITHOUT the iter-consume contract fact stays
+/// BORROWED-origin (the caller retains ownership; reads are free).
+#[test]
+fn borrowed_non_iter_consuming_param_stays_borrowed() {
+    let mut func = one_block_func(1, vec![], ArcTerminator::Return { value: v(0) });
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    let param = rep(&mut partition, 0);
+    assert_eq!(
+        classification.class_origins.get(&param),
+        Some(&ClassOrigin::Borrowed)
     );
 }

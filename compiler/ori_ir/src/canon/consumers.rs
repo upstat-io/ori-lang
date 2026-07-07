@@ -5,22 +5,13 @@
 //! # Design Invariants
 //!
 //! 1. **Single semantic authority** — every backend/consumer reads frontend
-//!    output rather than re-deriving program meaning; this module is the
-//!    canonical home for which crates depend on `ori_ir::canon`, checked
-//!    mechanically by `scripts/crate-dag-lint.py` (each registered crate must
-//!    carry a dependency edge on `ori_ir`).
+//!    output rather than re-deriving program meaning; canonical home for
+//!    `ori_ir::canon` consumers, checked by `scripts/crate-dag-lint.py`.
 //! 2. **Closed consumption classification** — a crate touches the meaning
-//!    surface in exactly ONE of three shapes: it tree-walks pools for meaning
-//!    ([`PoolAccess::MeaningConsumer`]), it wires the pipeline while passing
-//!    pools and ids as opaque handles ([`PoolAccess::OrchestrationIdOnly`]), or
-//!    it imports a canon id/handle as a bare index/key
-//!    ([`PoolAccess::IdOnlyImporter`]). Modeling the shape as a closed enum —
-//!    never three independent booleans — makes the overlapping combinations
-//!    (a crate that is both orchestration and id-only, or a meaning consumer
-//!    that also claims id-only) unrepresentable, and forces every new consumer
-//!    to name exactly one shape. A [`PoolAccess::MeaningConsumer`] carries the
-//!    non-empty set of pools it walks; the emptiness invariant is pinned by a
-//!    test.
+//!    surface in exactly ONE of [`PoolAccess`]'s three shapes (never as
+//!    independent booleans, which would make overlapping combinations
+//!    representable); [`PoolAccess::MeaningConsumer`]'s pool set is non-empty,
+//!    pinned by a test.
 //! 3. **Pure data** — a `const` slice of `ConsumerEntry`, no logic beyond a
 //!    linear-scan lookup (mirrors `ori_registry` / `ori_registry::burden`).
 //! 4. **`crate_name` is the identity** — the real Cargo package name, the unit
