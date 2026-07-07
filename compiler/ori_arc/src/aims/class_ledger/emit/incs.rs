@@ -17,6 +17,7 @@ pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
+    full_closure: bool,
     dom: &crate::graph::DominatorTree,
 ) -> Result<Vec<PlannedOp>, DeclineReason> {
     let borrowed = events.is_externally_funded();
@@ -26,7 +27,9 @@ pub(super) fn plan_incs(
             if ev.kind != EventKind::Consume {
                 continue;
             }
-            let demand_out = if events.threads_back_edge {
+            // Same discriminator as plan_class's liveness vectors: the
+            // per-block query mode must match the vector's closure mode.
+            let demand_out = if full_closure {
                 live_out(func, block, demand_live)
             } else {
                 live_out_forward(func, block, demand_live, dom)

@@ -67,6 +67,7 @@ pub(super) fn plan_releases(
     regions: &CycleRegions,
     events: &ClassEvents,
     activity_live: &[bool],
+    full_closure: bool,
     entry_net: &[Option<i64>],
     delta: &[i64],
     dom: &crate::graph::DominatorTree,
@@ -111,7 +112,9 @@ pub(super) fn plan_releases(
             continue;
         };
         let exit = entry + delta[block];
-        let block_live_out = if events.threads_back_edge {
+        // Same discriminator as plan_class's liveness vectors: the
+        // per-block query mode must match the vector's closure mode.
+        let block_live_out = if full_closure {
             live_out(func, block, activity_live)
         } else {
             live_out_forward(func, block, activity_live, dom)

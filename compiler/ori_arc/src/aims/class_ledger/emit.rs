@@ -121,27 +121,32 @@ pub(crate) fn plan_class(
     // suffix is the next iteration's events, never continued use of the
     // current reference. Release placement keeps the full closure.
     let dom = crate::graph::DominatorTree::build(func);
+    // Inv: per-block event indexing aligns with the function's block indexing
+    // (and thus with CycleRegions).
+    debug_assert_eq!(events.per_block.len(), func.blocks.len());
     // A class that silently THREADS a back-edge keeps the same reference
     // across iterations — full-closure liveness. A class with NO event
     // inside any CFG cycle is loop-INVARIANT (it crosses loops by
     // dominance, not per-iteration definition): a back-edge suffix IS
     // continued use of the same reference, so full closure applies to it
     // too. Otherwise back-edges are the next iteration's ledger:
-    // forward-only for funding decisions AND the death frontier.
-    let (demand_live, activity_live) =
-        if events.threads_back_edge || !has_cycle_events(regions, events) {
-            (
-                live_from(func, &event_blocks(events, true)),
-                live_from(func, &event_blocks(events, false)),
-            )
-        } else {
-            (
-                live_from_forward(func, &event_blocks(events, true), &dom),
-                live_from_forward(func, &event_blocks(events, false), &dom),
-            )
-        };
+    // forward-only for funding decisions AND the death frontier. ONE
+    // discriminator drives BOTH the liveness vectors here and the per-block
+    // live-out queries in the incs/releases sub-modules.
+    let full_closure = events.threads_back_edge || !has_cycle_events(regions, events);
+    let (demand_live, activity_live) = if full_closure {
+        (
+            live_from(func, &event_blocks(events, true)),
+            live_from(func, &event_blocks(events, false)),
+        )
+    } else {
+        (
+            live_from_forward(func, &event_blocks(events, true), &dom),
+            live_from_forward(func, &event_blocks(events, false), &dom),
+        )
+    };
     let mut ops = seed_ops.to_vec();
-    match incs::plan_incs(func, events, &demand_live, &dom) {
+    match incs::plan_incs(func, events, &demand_live, full_closure, &dom) {
         Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
@@ -160,6 +165,7 @@ pub(crate) fn plan_class(
         regions,
         events,
         &activity_live,
+        full_closure,
         &nets.entry_net,
         &delta,
         &dom,
