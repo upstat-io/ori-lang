@@ -14,7 +14,10 @@ use crate::aims::intraprocedural::ledger_events::{
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 
-pub(crate) use liveness::{live_from, live_from_forward, live_out, live_out_forward};
+pub(crate) use liveness::{
+    live_from, live_from_forward, live_from_forward_killing, live_from_killing, live_out,
+    live_out_forward,
+};
 use resolve::resolve_event_var;
 
 /// Event vocabulary of one class-resolved instruction, placement-ready.
@@ -316,6 +319,20 @@ pub(crate) fn demand_blocks_excluding_seeded(
                     EventKind::Read | EventKind::Mutate | EventKind::Consume
                 ) && !ev.var.is_some_and(|v| seed_vars.contains(&v))
             })
+        })
+        .collect()
+}
+
+/// Blocks whose ENTRY carries a Credit re-acquisition: demand at/after such
+/// a block is credit-funded and never propagates back past it.
+pub(crate) fn entry_credit_blocks(events: &ClassEvents) -> Vec<bool> {
+    use crate::aims::intraprocedural::ledger_events::EventSite;
+    events
+        .per_block
+        .iter()
+        .map(|evs| {
+            evs.iter()
+                .any(|ev| ev.kind == EventKind::Credit && ev.site == EventSite::BlockEntry)
         })
         .collect()
 }

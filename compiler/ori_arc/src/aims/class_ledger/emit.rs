@@ -152,16 +152,21 @@ pub(crate) fn plan_class(
     // reference at its extraction site, so the member's own hand-offs keep
     // normal duplication funding.
     let demand_full = event_blocks(events, true);
+    // Entry-credit blocks KILL backward demand propagation for funding
+    // decisions: demand at/after a Credit re-acquisition is funded by the
+    // credit, never by a pre-consume duplication inc. Release placement
+    // (activity) keeps the full picture.
+    let credit_kills = super::events::entry_credit_blocks(events);
     let (demand_live, demand_live_full, activity_live) = if full_closure {
         (
-            live_from(func, &demand_seed),
-            live_from(func, &demand_full),
+            super::events::live_from_killing(func, &demand_seed, &credit_kills),
+            super::events::live_from_killing(func, &demand_full, &credit_kills),
             live_from(func, &event_blocks(events, false)),
         )
     } else {
         (
-            live_from_forward(func, &demand_seed, &dom),
-            live_from_forward(func, &demand_full, &dom),
+            super::events::live_from_forward_killing(func, &demand_seed, &credit_kills, &dom),
+            super::events::live_from_forward_killing(func, &demand_full, &credit_kills, &dom),
             live_from_forward(func, &event_blocks(events, false), &dom),
         )
     };
