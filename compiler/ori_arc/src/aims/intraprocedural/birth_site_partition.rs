@@ -54,13 +54,7 @@ impl FieldPath {
 
     /// A copy of this path with one more projection hop appended.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for the partition's Phase-6/Phase-7 consumers"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
     pub(crate) fn extended(&self, field: u32) -> Self {
         let mut path = self.clone();
         path.push(field);
@@ -246,13 +240,7 @@ impl BirthSitePartition {
     }
 
     /// Whether `node`'s class carries the COW-boundary taint.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for the partition's Phase-6/Phase-7 consumers"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
     pub(crate) fn is_cow_boundary(&mut self, node: NodeIdx) -> bool {
         let root = self.find(node.0);
         self.cow_boundary[root as usize]
@@ -280,13 +268,7 @@ impl BirthSitePartition {
     }
 
     /// Whether no node has been interned.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved for the partition's Phase-6/Phase-7 consumers"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
     pub(crate) fn is_empty(&self) -> bool {
         self.parent.is_empty()
     }

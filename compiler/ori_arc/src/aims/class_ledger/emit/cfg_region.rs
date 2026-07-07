@@ -61,7 +61,7 @@ impl CycleRegions {
     }
 
     /// Whether `block` can reach itself via successor edges.
-    pub(crate) fn in_cycle(&self, block: usize) -> bool {
+    pub(crate) fn is_in_cycle(&self, block: usize) -> bool {
         self.in_cycle.get(block).copied().unwrap_or(false)
     }
 

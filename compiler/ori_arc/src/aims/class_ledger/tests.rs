@@ -630,6 +630,34 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
     ));
 }
 
+/// A borrowed-rooted class's CONSUME event recorded at BLOCK ENTRY has no
+/// instruction slot to insert the mandatory funding `BurdenInc` before —
+/// `plan_incs` has no expressible pre-consume site for a block-entry
+/// consume, so the class declines `UnplaceableInc` (fail-closed; never a
+/// wrong placement synthesized from a slot that doesn't exist).
+#[test]
+fn consume_at_block_entry_declines_unplaceable_inc() {
+    let func = one_block_func(1, vec![], ret(0));
+    let preds = crate::graph::compute_predecessors(&func);
+    let events = ClassEvents {
+        origin: Some(ClassOrigin::Borrowed),
+        container_held: false,
+        threads_back_edge: false,
+        per_block: vec![vec![ClassEvent {
+            site: EventSite::BlockEntry,
+            kind: EventKind::Consume,
+            var: Some(v(0)),
+            delta: -1,
+            floor: 1,
+        }]],
+    };
+    let regions = super::emit::CycleRegions::compute(&func);
+    assert!(matches!(
+        super::emit::plan_class(&func, &preds, &regions, &events, &[]),
+        ClassOutcome::Declined(DeclineReason::UnplaceableInc)
+    ));
+}
+
 // Passthrough refund
 
 /// An RL-34 passthrough (consume at the call refunded by the same-site
@@ -1134,6 +1162,8 @@ fn replacement_declines_trmc_context_hole() {
     assert_eq!(outcome.fallback_reason, Some("trmc-context"));
     assert_eq!(gated, func);
 }
+
+// Field-view hazard cures across loop / merge / select liveness shapes
 
 /// A container released by the plan (whole-var dec / consume) whose
 /// field-path view class carries its OWN events: the view funds itself with
@@ -1691,15 +1721,19 @@ fn struct_list_field_flagship_per_field_classes_replace() {
     assert_eq!(verdict_for(&analysis, label_class), ClassVerdict::Clean);
 }
 
-/// Negative pin (fail-closed discipline): a member EXTRACTED from a released
-/// container and moved OUT to a second container keeps the field-view hazard
-/// when the funded re-plan cannot verify Clean — the gate declines rather
-/// than emitting an unsound plan (no whole-var admission change, per-field
-/// handling stays local to the ledger planner).
+/// A member EXTRACTED from a released container and moved OUT via a SECOND
+/// container's `Construct` arg (a `ConstructArg` transferring terminal use,
+/// distinct from the sibling test's `Return` sink): the extraction-funding
+/// cure applies — the view funds itself with an inc right after the
+/// `Project`, and the transfer into the second container consumes that
+/// funded reference, so the ORIGINAL container's release stays a plain
+/// whole-var `Dec` (no field-decomposition needed here; the funded
+/// duplicate — not a skipped release — is what keeps the two hand-offs
+/// balanced). Every class verifies Clean and no field-view hazard survives.
 #[test]
-fn extract_then_move_out_keeps_hazard_when_uncurable() {
+fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     // %0 = Construct payload
-    // %1 = Construct tuple(%0)      (first container)
+    // %1 = Construct tuple(%0)      (first container — the one released)
     // %2 = Project %1.0             (extract member)
     // %3 = Construct holder(%2)     (move member OUT to a second container)
     // %4 = Let %1 (alias keeping the first container eventful)
@@ -1728,20 +1762,29 @@ fn extract_then_move_out_keeps_hazard_when_uncurable() {
     func.params = vec![];
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(5));
-    let (analysis, _partition) = analyze(&func, &state_map);
+    let (analysis, mut partition) = analyze(&func, &state_map);
 
-    // The member's consume sits at the SECOND container's Construct — not a
-    // move-in store of the released first container — so it stays an
-    // endangered view unless the funded re-plan verifies Clean. Either the
-    // cure verifies (hazard false, all clean) or the gate declines (hazard
-    // true): both are sound; an unfunded silent acceptance is neither.
-    // Either the hazard survives (fail-closed: the gate declines this
-    // function) or the cure landed — in which case every class MUST verify
-    // Clean for the acceptance to stand. An unfunded silent acceptance is
-    // the one outcome this pin rejects.
+    // Deterministic outcome (never the fail-closed decline for this shape):
+    // pin the exact verdict rather than the permissive "hazard OR clean"
+    // disjunction the prior version of this test used, which silently
+    // accepted a regression that stopped the cure from firing.
     assert!(
-        analysis.field_view_hazard || analysis.readiness.all_classes_clean,
-        "cured acceptance without clean verdicts"
+        !analysis.field_view_hazard,
+        "the ConstructArg-sink move-out must cure, not decline"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let container = class_rep(&mut partition, 1);
+    let payload = class_rep(&mut partition, 0);
+    assert_eq!(
+        ops_for(&analysis, payload),
+        vec![inc(PlanSlot::AfterBody { block: 0, index: 2 }, 2)],
+        "the view funds itself right after the Project extracting it"
+    );
+    assert_eq!(
+        ops_for(&analysis, container),
+        vec![dec(PlanSlot::AfterBody { block: 0, index: 5 }, 4)],
+        "the container's own release stays a plain whole-var Dec"
     );
 }
 

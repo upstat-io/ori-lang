@@ -102,7 +102,7 @@ pub(super) fn plan_releases(
                     block: only_block,
                     index: *index,
                 };
-                let var = release_var(ctx, events, only_block, slot)?;
+                let var = release_var_for_slot(ctx, events, only_block, slot)?;
                 ops.push(PlannedOp {
                     slot,
                     kind: PlannedOpKind::Dec,
@@ -249,7 +249,7 @@ fn plan_block_release(
         if residue + edge_credits != 1 {
             return Err(DeclineReason::UnplaceableRelease);
         }
-        if !regions.in_cycle(successor) {
+        if !regions.is_in_cycle(successor) {
             return push_front_dec(ctx, events, block, successor, ops, fronts);
         }
         // The credited reference enters a CYCLE (a loop-threaded class): a
@@ -288,7 +288,7 @@ fn plan_block_release(
     match last_pre.map(|ev| ev.site) {
         Some(EventSite::Body(index)) => {
             let slot = PlanSlot::AfterBody { block, index };
-            let var = release_var(ctx, events, block, slot)?;
+            let var = release_var_for_slot(ctx, events, block, slot)?;
             ops.push(PlannedOp {
                 slot,
                 kind: PlannedOpKind::Dec,
@@ -374,14 +374,4 @@ fn release_var_for_slot(
                 .find(|&v| reaches(v))
         })
         .ok_or(DeclineReason::UnresolvedOpVar)
-}
-
-/// Backward-compatible chooser for same-block body slots.
-fn release_var(
-    ctx: &ReleaseCtx<'_>,
-    events: &ClassEvents,
-    block: usize,
-    slot: PlanSlot,
-) -> Result<ArcVarId, DeclineReason> {
-    release_var_for_slot(ctx, events, block, slot)
 }

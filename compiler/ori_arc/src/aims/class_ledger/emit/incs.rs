@@ -8,14 +8,18 @@ use crate::ir::ArcFunction;
 use super::super::events::{live_out, live_out_forward, ClassEvent, ClassEvents, EventKind};
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 
+/// Empty seed-var set: the `suffix_exclusions` a consume OF a seeded member
+/// passes, so nothing is excluded from the suffix demand scan (the seed funds
+/// exactly one reference at extraction; the member's own hand-offs keep normal
+/// duplication funding).
+static EMPTY_SEED_VARS: std::sync::LazyLock<rustc_hash::FxHashSet<crate::ir::ArcVarId>> =
+    std::sync::LazyLock::new(rustc_hash::FxHashSet::default);
+
 /// `BurdenInc` before every CONSUME that duplicates: the class stays live
 /// past the hand-off (a later Read / Mutate / Consume in the stream or a
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
-static EMPTY_SEED_VARS: std::sync::LazyLock<rustc_hash::FxHashSet<crate::ir::ArcVarId>> =
-    std::sync::LazyLock::new(rustc_hash::FxHashSet::default);
-
 pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,

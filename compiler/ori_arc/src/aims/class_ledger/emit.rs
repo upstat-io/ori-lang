@@ -252,7 +252,7 @@ fn has_cycle_events(regions: &CycleRegions, events: &ClassEvents) -> bool {
             evs.iter()
                 .any(|ev| ev.delta > 0 || ev.kind == EventKind::SelectCredit)
         })
-        .any(|(block, _)| regions.in_cycle(block))
+        .any(|(block, _)| regions.is_in_cycle(block))
 }
 
 /// Whether the class's events are exclusively births — no demand (Read /

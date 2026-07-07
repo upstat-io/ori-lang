@@ -338,8 +338,6 @@ pub(crate) fn successors_of(func: &ArcFunction, block: usize) -> Vec<usize> {
         .collect()
 }
 
-/// Per-block seed flags: with `demand_only`, blocks holding a value use
-/// (Read / Mutate / Consume); otherwise blocks holding ANY event.
 /// Demand blocks EXCLUDING seed-funded member reads: an extraction-funded
 /// (seeded) member var's demand is paid by its own RL-1 inc at the `Project`
 /// site, so it never counts as surviving demand on the pre-consume reference.
@@ -364,7 +362,6 @@ pub(crate) fn demand_blocks_excluding_seeded(
 /// Blocks whose ENTRY carries a Credit re-acquisition: demand at/after such
 /// a block is credit-funded and never propagates back past it.
 pub(crate) fn entry_credit_blocks(events: &ClassEvents) -> Vec<bool> {
-    use crate::aims::intraprocedural::ledger_events::EventSite;
     events
         .per_block
         .iter()
@@ -375,6 +372,8 @@ pub(crate) fn entry_credit_blocks(events: &ClassEvents) -> Vec<bool> {
         .collect()
 }
 
+/// Per-block seed flags: with `demand_only`, blocks holding a value use
+/// (Read / Mutate / Consume); otherwise blocks holding ANY event.
 pub(crate) fn event_blocks(events: &ClassEvents, demand_only: bool) -> Vec<bool> {
     events
         .per_block
