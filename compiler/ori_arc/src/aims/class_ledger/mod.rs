@@ -29,9 +29,6 @@ mod events;
 mod replace;
 mod verify;
 
-#[cfg(test)]
-mod tests;
-
 pub(crate) use emit::{ClassOutcome, PlannedOp};
 pub(crate) use replace::{attempt_replacement, EmissionMode, ReplacementOutcome};
 pub(crate) use verify::{ClassVerdict, ReadinessSummary};
@@ -384,3 +381,6 @@ fn report_readiness(
         "class-ledger readiness"
     );
 }
+
+#[cfg(test)]
+mod tests;
