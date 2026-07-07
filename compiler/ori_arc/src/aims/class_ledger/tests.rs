@@ -1326,3 +1326,50 @@ fn immortal_seeded_accumulator_credits_the_entry_edge() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// A cross-class Jump credit into a MERGE param the function never reads
+/// (a distinct-birth-site merge the partition refuses) releases at the
+/// receiving block's front: the credited reference dies on arrival, so the
+/// merge class verifies Clean with one placed front dec.
+#[test]
+fn dead_cross_class_merge_credit_releases_at_receiving_front() {
+    // bb0: %0 = Construct []; %1 = Construct []; Branch %3 ? bb1 : bb2
+    // bb1: jump bb3(%0)
+    // bb2: jump bb3(%1)
+    // bb3(%2): Return %4          (the merged str is never read)
+    let func = func_with_blocks(
+        5,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![]), construct(1, vec![])],
+                branch(3, 1, 2),
+            ),
+            block(1, vec![], vec![], jump(3, vec![0])),
+            block(2, vec![], vec![], jump(3, vec![1])),
+            block(3, vec![2], vec![], ArcTerminator::Return { value: v(4) }),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let merged = class_rep(&mut partition, 2);
+    assert_eq!(verdict_for(&analysis, merged), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, merged);
+    assert_eq!(ops.len(), 1, "one front dec: {ops:?}");
+    assert!(
+        matches!(
+            ops[0],
+            PlannedOp {
+                slot: PlanSlot::BlockFront { block: 3 },
+                kind: PlannedOpKind::Dec,
+                ..
+            }
+        ),
+        "front dec at the receiving block: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}

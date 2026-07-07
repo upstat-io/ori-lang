@@ -292,7 +292,7 @@ fn plan_releases(
         if block_live_out {
             plan_edge_releases(func, events, activity_live, block, exit, ops, &mut fronts)?;
         } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(func, events, block, *entry, exit, ops, &mut fronts)?;
+            plan_block_release(func, events, block, *entry, dom, ops, &mut fronts)?;
         }
     }
     Ok(())
@@ -455,7 +455,7 @@ fn plan_block_release(
     events: &ClassEvents,
     block: usize,
     entry: i64,
-    _exit: i64,
+    dom: &crate::graph::DominatorTree,
     ops: &mut Vec<PlannedOp>,
     fronts: &mut FxHashSet<usize>,
 ) -> Result<(), DeclineReason> {
@@ -471,6 +471,33 @@ fn plan_block_release(
         .map(|ev| ev.delta)
         .sum();
     let residue = entry + pre_delta + terminator_consumes;
+    let edge_credits: i64 = evs
+        .iter()
+        .filter(|ev| ev.site == EventSite::Terminator && ev.delta > 0)
+        .map(|ev| ev.delta)
+        .sum();
+    let forward_credit_target = if edge_credits > 0 {
+        // A FORWARD Jump-arg credit hands the reference to the successor's
+        // param; the !live_out gate already proved the class has no
+        // downstream activity, so the credited reference dies on arrival —
+        // release at the single successor's front (a Jump has exactly one
+        // successor). A BACK-edge credit funds the next iteration's ledger
+        // and falls through to the residue logic.
+        match successors_of(func, block)[..] {
+            [successor] if !dom.dominates(func.blocks[successor].id, func.blocks[block].id) => {
+                Some(successor)
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(successor) = forward_credit_target {
+        if residue + edge_credits != 1 {
+            return Err(DeclineReason::UnplaceableRelease);
+        }
+        return push_front_dec(events, block, successor, ops, fronts);
+    }
     if residue == 0 {
         return Ok(());
     }
