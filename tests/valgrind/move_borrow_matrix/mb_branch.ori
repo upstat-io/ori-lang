@@ -1,0 +1,46 @@
+// Move/borrow matrix: MB03 — branch-exclusive consume across all type rows.
+// A fresh value is consumed (stored into an aggregate) on exactly one branch;
+// the untaken path leaves it dying on the merge edge. Verifies the RL-4
+// edge release fires on the non-consuming path — no leak, no double-free.
+
+type Named = { name: str, id: int }
+
+@hold_str (flag: bool, s: str) -> [str] = if flag then [s] else [];
+
+@main () -> int = {
+    // Row 1: heap str — consumed on then-branch, dies on else-edge
+    let kept1 = hold_str(flag: true, s: "abcdefghijklmnopqrstuvwxyz1234");
+    let dropped1 = hold_str(flag: false, s: "another_long_heap_string_content");
+    let ok1 = kept1.length() == 1 && dropped1.length() == 0;
+
+    // Row 2: [int] — fresh LOCAL consumed on one branch, dies on the other
+    let take = 1 == 1;
+    let keep_no = 1 == 2;
+    let xs_kept = [1, 2, 3];
+    let kept2 = if take then [xs_kept] else [];
+    let xs_dropped = [4, 5, 6, 7];
+    let dropped2 = if keep_no then [xs_dropped] else [];
+    let ok2 = kept2.length() == 1 && dropped2.length() == 0;
+
+    // Row 3: Option<str> — fresh LOCAL consumed on one branch, dies on the other
+    let kept_o = Some("abcdefghijklmnopqrstuvwxyz1234");
+    let kept3 = if take then [kept_o] else [];
+    let dropped_o = Some("another_long_heap_string_content");
+    let dropped3 = if keep_no then [dropped_o] else [];
+    let ok3 = kept3.length() == 1 && dropped3.length() == 0;
+
+    // Row 4: closures — env consumed on one branch only
+    let base = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (n: int) -> int = base.length() + n;
+    let picked = if f(0) > 10 then f(1) else 0;
+    let ok4 = picked == 31;
+
+    // Row 5: struct with heap field — fresh LOCAL consumed branch-exclusively
+    let kept_p = Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 1 };
+    let kept5 = if take then [kept_p] else [];
+    let dropped_p = Named { name: "another_long_heap_string_content", id: 2 };
+    let dropped5 = if keep_no then [dropped_p] else [];
+    let ok5 = kept5.length() == 1 && dropped5.length() == 0;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

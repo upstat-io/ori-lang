@@ -21,6 +21,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
+#[cfg(test)]
+mod tests;
+
 /// `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1` declines the RL-5 release
 /// for a purely-dead loop-invariant fresh-collection local (the bisection
 /// surface; default off -> the release is emitted). Spec: Annex E §AIMS RL-5.
