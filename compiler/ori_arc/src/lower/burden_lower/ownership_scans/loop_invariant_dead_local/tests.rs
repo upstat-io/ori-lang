@@ -106,6 +106,19 @@ fn run(func: &ArcFunction, owned: &FxHashSet<ArcVarId>) -> FxHashMap<usize, Vec<
     compute_loop_invariant_dead_local_releases(func, owned)
 }
 
+/// Build the single-arg `Apply @f(arg [ownership])` call the borrow-only /
+/// owned-position-consume fixtures thread through the loop-invariant lineage.
+fn read_call(dst: u32, arg: u32, ownership: crate::ir::ArgOwnership) -> ArcInstr {
+    ArcInstr::Apply {
+        dst: ArcVarId::new(dst),
+        ty: Idx::BOOL,
+        func: Name::from_raw(1),
+        args: vec![ArcVarId::new(arg)],
+        arg_ownership: vec![ownership],
+        mono_instance_id: None,
+    }
+}
+
 /// Walking skeleton (semantic pin): the canonical purely-dead list shape emits
 /// EXACTLY ONE release at the terminal dead block-param's block entry.
 /// Reverting the scan drops this release -> the loop-invariant buffer leak.
@@ -178,14 +191,7 @@ fn borrow_only_loop_read_releases_at_terminal_dead_param() {
             ty,
             value: ArcValue::Var(v(2)),
         },
-        ArcInstr::Apply {
-            dst: v(5),
-            ty: Idx::BOOL,
-            func: Name::from_raw(1),
-            args: vec![v(4)],
-            arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
-            mono_instance_id: None,
-        },
+        read_call(5, 4, crate::ir::ArgOwnership::Borrowed),
     ];
     let releases = run(&func, &owned_lineage());
 
@@ -211,14 +217,7 @@ fn owned_position_consume_declines() {
             ty,
             value: ArcValue::Var(v(2)),
         },
-        ArcInstr::Apply {
-            dst: v(5),
-            ty: Idx::BOOL,
-            func: Name::from_raw(1),
-            args: vec![v(4)],
-            arg_ownership: vec![crate::ir::ArgOwnership::Owned],
-            mono_instance_id: None,
-        },
+        read_call(5, 4, crate::ir::ArgOwnership::Owned),
     ];
     assert!(
         run(&func, &owned_lineage()).is_empty(),
@@ -261,14 +260,7 @@ fn reassigned_loop_slot_declines_borrow_only() {
             ty,
             value: ArcValue::Var(v(2)),
         },
-        ArcInstr::Apply {
-            dst: v(5),
-            ty: Idx::BOOL,
-            func: Name::from_raw(1),
-            args: vec![v(4)],
-            arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
-            mono_instance_id: None,
-        },
+        read_call(5, 4, crate::ir::ArgOwnership::Borrowed),
         // The per-iteration reassignment (a fresh non-member feeder).
         ArcInstr::Construct {
             dst: v(6),

@@ -25,6 +25,21 @@ fn construct(dst: u32, args: Vec<u32>) -> ArcInstr {
     }
 }
 
+/// Build an `Apply` with the fixture-standard callee (`Name::from_raw(7)`)
+/// and no mono-instance dispatch. `args` pairs each argument var with its
+/// ownership.
+fn apply(dst: u32, args: Vec<(u32, crate::ir::ArgOwnership)>) -> ArcInstr {
+    let (vars, ownership): (Vec<u32>, Vec<crate::ir::ArgOwnership>) = args.into_iter().unzip();
+    ArcInstr::Apply {
+        dst: v(dst),
+        ty: ty(0),
+        func: ori_ir::Name::from_raw(7),
+        args: vars.into_iter().map(v).collect(),
+        arg_ownership: ownership,
+        mono_instance_id: None,
+    }
+}
+
 fn block(id: u32, params: Vec<u32>, body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(id),
@@ -597,19 +612,7 @@ fn call_result_births_site_and_admits_loop_param_merge() {
     let func = func_with_blocks(
         3,
         vec![
-            block(
-                0,
-                vec![],
-                vec![ArcInstr::Apply {
-                    dst: v(0),
-                    ty: ty(0),
-                    func: ori_ir::Name::from_raw(7),
-                    args: vec![],
-                    arg_ownership: vec![],
-                    mono_instance_id: None,
-                }],
-                jump(1, vec![0]),
-            ),
+            block(0, vec![], vec![apply(0, vec![])], jump(1, vec![0])),
             block(
                 1,
                 vec![1],
@@ -648,14 +651,7 @@ fn aliased_call_result_does_not_mint_second_site() {
         2,
         vec![
             construct(0, vec![]),
-            ArcInstr::Apply {
-                dst: v(1),
-                ty: ty(0),
-                func: ori_ir::Name::from_raw(7),
-                args: vec![v(0)],
-                arg_ownership: vec![crate::ir::ArgOwnership::Owned],
-                mono_instance_id: None,
-            },
+            apply(1, vec![(0, crate::ir::ArgOwnership::Owned)]),
         ],
     );
     let mut state_map = AimsStateMap::new(&func);

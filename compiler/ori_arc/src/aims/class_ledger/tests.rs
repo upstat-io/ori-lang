@@ -44,6 +44,42 @@ fn is_shared(dst: u32, var: u32) -> ArcInstr {
     }
 }
 
+/// Build an `Apply` with the fixture-standard callee (`Name::from_raw(7)`)
+/// and no mono-instance dispatch. `args` pairs each argument var with its
+/// ownership.
+fn apply(dst: u32, args: Vec<(u32, ArgOwnership)>) -> ArcInstr {
+    apply_to(dst, Name::from_raw(7), args)
+}
+
+/// Same as `apply`, with an explicit callee `Name`.
+fn apply_to(dst: u32, func: Name, args: Vec<(u32, ArgOwnership)>) -> ArcInstr {
+    let (vars, ownership): (Vec<u32>, Vec<ArgOwnership>) = args.into_iter().unzip();
+    ArcInstr::Apply {
+        dst: v(dst),
+        ty: ty(0),
+        func,
+        args: vars.into_iter().map(v).collect(),
+        arg_ownership: ownership,
+        mono_instance_id: None,
+    }
+}
+
+/// Build an `Invoke` with the fixture-standard callee (`Name::from_raw(7)`)
+/// and no mono-instance dispatch.
+fn invoke(dst: u32, args: Vec<(u32, ArgOwnership)>, normal: u32, unwind: u32) -> ArcTerminator {
+    let (vars, ownership): (Vec<u32>, Vec<ArgOwnership>) = args.into_iter().unzip();
+    ArcTerminator::Invoke {
+        dst: v(dst),
+        ty: ty(0),
+        func: Name::from_raw(7),
+        args: vars.into_iter().map(v).collect(),
+        arg_ownership: ownership,
+        mono_instance_id: None,
+        normal: ArcBlockId::new(normal),
+        unwind: ArcBlockId::new(unwind),
+    }
+}
+
 fn block(id: u32, params: Vec<u32>, body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(id),
@@ -600,19 +636,11 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
 /// credit) transfers the existing reference: no inc, net 0.
 #[test]
 fn passthrough_refund_needs_no_inc() {
-    let callee = Name::from_raw(11);
     let func = one_block_func(
         2,
         vec![
             construct(0, vec![]),
-            ArcInstr::Apply {
-                dst: v(1),
-                ty: ty(0),
-                func: callee,
-                args: vec![v(0)],
-                arg_ownership: vec![crate::ir::ArgOwnership::Owned],
-                mono_instance_id: None,
-            },
+            apply_to(1, Name::from_raw(11), vec![(0, ArgOwnership::Owned)]),
         ],
         ret(1),
     );
@@ -809,16 +837,7 @@ fn invoke_result_class_clean_and_placeable_across_unwind() {
                 0,
                 vec![],
                 vec![construct(0, vec![])],
-                ArcTerminator::Invoke {
-                    dst: v(1),
-                    ty: ty(0),
-                    func: Name::from_raw(7),
-                    args: vec![v(0)],
-                    arg_ownership: vec![ArgOwnership::Owned],
-                    mono_instance_id: None,
-                    normal: ArcBlockId::new(1),
-                    unwind: ArcBlockId::new(2),
-                },
+                invoke(1, vec![(0, ArgOwnership::Owned)], 1, 2),
             ),
             block(1, vec![], vec![is_shared(2, 1)], ret(2)),
             block(2, vec![], vec![], ArcTerminator::Resume),
@@ -1131,14 +1150,7 @@ fn live_field_view_of_released_container_funds_itself_at_extraction() {
     let func = one_block_func(
         4,
         vec![
-            ArcInstr::Apply {
-                dst: v(0),
-                ty: ty(0),
-                func: Name::from_raw(7),
-                args: vec![],
-                arg_ownership: vec![],
-                mono_instance_id: None,
-            },
+            apply(0, vec![]),
             ArcInstr::Project {
                 dst: v(1),
                 ty: ty(0),
@@ -1199,16 +1211,7 @@ fn ttr_refund_across_invoke_normal_edge_needs_no_inc() {
                 0,
                 vec![],
                 vec![],
-                ArcTerminator::Invoke {
-                    dst: v(1),
-                    ty: ty(0),
-                    func: Name::from_raw(7),
-                    args: vec![v(0)],
-                    arg_ownership: vec![ArgOwnership::Owned],
-                    mono_instance_id: None,
-                    normal: ArcBlockId::new(1),
-                    unwind: ArcBlockId::new(2),
-                },
+                invoke(1, vec![(0, ArgOwnership::Owned)], 1, 2),
             ),
             block(1, vec![], vec![], ret(1)),
             block(2, vec![], vec![], ArcTerminator::Resume),
@@ -1394,14 +1397,7 @@ fn loop_invariant_dominance_class_survives_the_loop_unreleased() {
             block(
                 3,
                 vec![],
-                vec![ArcInstr::Apply {
-                    dst: v(2),
-                    ty: ty(0),
-                    func: Name::from_raw(7),
-                    args: vec![v(0)],
-                    arg_ownership: vec![crate::ir::ArgOwnership::Owned],
-                    mono_instance_id: None,
-                }],
+                vec![apply(2, vec![(0, ArgOwnership::Owned)])],
                 ArcTerminator::Return { value: v(3) },
             ),
         ],
@@ -1439,16 +1435,7 @@ fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
                 0,
                 vec![],
                 vec![construct(0, vec![]), construct(1, vec![0])],
-                ArcTerminator::Invoke {
-                    dst: v(2),
-                    ty: ty(0),
-                    func: Name::from_raw(7),
-                    args: vec![v(0)],
-                    arg_ownership: vec![ArgOwnership::Borrowed],
-                    mono_instance_id: None,
-                    normal: ArcBlockId::new(1),
-                    unwind: ArcBlockId::new(2),
-                },
+                invoke(2, vec![(0, ArgOwnership::Borrowed)], 1, 2),
             ),
             block(1, vec![], vec![], ArcTerminator::Return { value: v(3) }),
             block(2, vec![], vec![], ArcTerminator::Resume),
@@ -1603,16 +1590,7 @@ fn loop_invariant_class_read_inside_the_cycle_survives_iterations() {
                 2,
                 vec![],
                 vec![],
-                ArcTerminator::Invoke {
-                    dst: v(2),
-                    ty: ty(0),
-                    func: Name::from_raw(7),
-                    args: vec![v(0)],
-                    arg_ownership: vec![ArgOwnership::Borrowed],
-                    mono_instance_id: None,
-                    normal: ArcBlockId::new(4),
-                    unwind: ArcBlockId::new(5),
-                },
+                invoke(2, vec![(0, ArgOwnership::Borrowed)], 4, 5),
             ),
             block(3, vec![], vec![], ArcTerminator::Return { value: v(3) }),
             block(4, vec![], vec![], jump(1, vec![])),
