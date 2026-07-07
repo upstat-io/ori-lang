@@ -89,6 +89,9 @@ pub(crate) struct ClassLedgerAnalysis {
     /// container's recursive release and the view's cross-class liveness are
     /// not modeled together — the replacement gate declines.
     pub(crate) field_view_hazard: bool,
+    /// A heap arg handed through an indirect call (unmodeled ownership;
+    /// per the classification flag) — the replacement gate declines.
+    pub(crate) indirect_arg_handoff: bool,
 }
 
 /// Run classification, planning, and per-class verification from the
@@ -215,6 +218,7 @@ pub(crate) fn analyze_class_ledger(
             declined,
         },
         field_view_hazard,
+        indirect_arg_handoff: classification.indirect_arg_handoff,
     }
 }
 

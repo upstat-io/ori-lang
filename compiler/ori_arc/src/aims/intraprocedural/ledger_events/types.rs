@@ -210,4 +210,12 @@ pub(crate) struct LedgerClassification {
     pub(crate) sites: Vec<Vec<EventSite>>,
     /// Class representative -> origin kind.
     pub(crate) class_origins: FxHashMap<NodeIdx, ClassOrigin>,
+    /// A non-excluded HEAP arg was handed through an indirect call
+    /// (`ApplyIndirect` / `InvokeIndirect` arg position, receiver excluded).
+    /// Call-site `arg_ownership` is populated during realization — AFTER
+    /// this classification runs — and the callee is unresolved, so the
+    /// consumed-vs-borrowed hand-off is UNMODELED: the readiness gate falls
+    /// back (READ double-frees a consuming callee; CONSUME leaks a
+    /// borrowing one).
+    pub(crate) indirect_arg_handoff: bool,
 }

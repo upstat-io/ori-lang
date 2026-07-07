@@ -80,6 +80,9 @@ pub(crate) enum FallbackReason {
     ReuseShape,
     /// The function carries a TRMC `ContextHole`-shaped variable.
     TrmcContext,
+    /// A heap arg handed through an indirect call — call-site ownership is
+    /// unresolved at classification time (unmodeled hand-off).
+    IndirectArgOwnership,
     /// An endangered field-path view went uncured — both `hazard` cure-ladder
     /// rungs declined. Every hazard-bearing fixture in the current test
     /// corpus is cured (`!field_view_hazard` pinned in each), and each
@@ -119,6 +122,7 @@ impl FallbackReason {
             Self::ReadinessNotClean => "readiness-not-clean",
             Self::ReuseShape => "reuse-shape",
             Self::TrmcContext => "trmc-context",
+            Self::IndirectArgOwnership => "indirect-arg-ownership",
             Self::FieldViewLiveness => "field-view-liveness",
             Self::UserDropGlue => "user-drop-glue",
             Self::OpVarPlacement => "op-var-placement",
@@ -214,6 +218,9 @@ fn gate_rejection(
     }
     if has_context_hole(func, state_map) {
         return Some(FallbackReason::TrmcContext);
+    }
+    if analysis.indirect_arg_handoff {
+        return Some(FallbackReason::IndirectArgOwnership);
     }
     if analysis.field_view_hazard {
         return Some(FallbackReason::FieldViewLiveness);

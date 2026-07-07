@@ -89,14 +89,18 @@ impl Classifier<'_> {
                 dst, closure, args, ..
             } => {
                 // Indirect callees have no contract: the closure receiver is
-                // borrowed; args default Borrowed (conservative — the caller
-                // retains cleanup responsibility); the result is OPAQUE.
+                // borrowed (ABI pos 0); the result is OPAQUE. A non-excluded
+                // HEAP arg is an UNMODELED hand-off (arg_ownership lands at
+                // realization; the callee is unresolved) — read it for floor
+                // honesty AND poison the classification so readiness falls
+                // back.
                 if !self.excluded(*closure) {
                     self.read(stream, *closure);
                 }
                 for &arg in args {
                     if !self.excluded(arg) {
                         self.read(stream, arg);
+                        self.out.indirect_arg_handoff = true;
                     }
                 }
                 if !self.excluded(*dst) {
@@ -279,6 +283,9 @@ impl Classifier<'_> {
                 for &arg in args {
                     if !self.excluded(arg) {
                         self.read(stream, arg);
+                        // Same unmodeled hand-off as the body ApplyIndirect
+                        // arm — poison so readiness falls back.
+                        self.out.indirect_arg_handoff = true;
                     }
                 }
             }

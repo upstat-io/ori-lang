@@ -1475,3 +1475,59 @@ fn borrowed_non_iter_consuming_param_stays_borrowed() {
         Some(&ClassOrigin::Borrowed)
     );
 }
+
+/// A HEAP arg handed through an indirect call is an UNMODELED ownership
+/// hand-off at classification time (call-site `arg_ownership` is populated
+/// during realization, AFTER Stage-B runs; the callee is unresolved, so
+/// consumed-vs-borrowed is unknowable). The classification carries the
+/// poison flag so the readiness gate falls back — guessing READ
+/// double-frees a consuming callee (the curried-closure capture shape);
+/// guessing CONSUME leaks a borrowing one.
+#[test]
+fn indirect_heap_arg_sets_handoff_flag() {
+    let func = one_block_func(
+        3,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            ArcInstr::ApplyIndirect {
+                dst: v(2),
+                ty: ty(0),
+                closure: v(1),
+                args: vec![v(0)],
+                arg_ownership: vec![],
+            },
+        ],
+        ArcTerminator::Return { value: v(2) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, _) = classify(&func, &state_map, &no_facts());
+    assert!(
+        classification.indirect_arg_handoff,
+        "a heap arg through ApplyIndirect poisons the classification"
+    );
+}
+
+/// An indirect call whose only class member is the CLOSURE RECEIVER (pos 0,
+/// always borrowed per the ABI) does NOT poison — receiver-only indirect
+/// calls (the lazy-iter lambda invocation shape) stay replaceable.
+#[test]
+fn indirect_receiver_only_does_not_set_handoff_flag() {
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::ApplyIndirect {
+                dst: v(1),
+                ty: ty(0),
+                closure: v(0),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, _) = classify(&func, &state_map, &no_facts());
+    assert!(!classification.indirect_arg_handoff);
+}
