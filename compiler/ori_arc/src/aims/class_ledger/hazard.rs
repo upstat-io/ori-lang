@@ -397,9 +397,14 @@ fn cure_view_with_field_decomposition(
     // A sum container's skip is a variant ordinal whose safety is
     // discriminant- and arm-conditional (the payload-less arm's books are
     // asymmetric); per-arm state is unmodeled, so sum containers decline (fail-closed).
+    // A container with NO local Construct site (a call result / param) has no
+    // move-in store cell to re-book — the IA-T6 payload model's store event is
+    // its precondition — and its ctor-derived sum discriminator is blind, so it
+    // declines too.
     if !hazard.consume_marked
         || hazard.nested_path
         || hazard.sum_container
+        || hazard.construct_sites.is_empty()
         || hazard.skip_fields.is_empty()
     {
         tracing::trace!(
@@ -408,6 +413,7 @@ fn cure_view_with_field_decomposition(
             consume_marked = hazard.consume_marked,
             nested_path = hazard.nested_path,
             sum_container = hazard.sum_container,
+            constructless = hazard.construct_sites.is_empty(),
             skip_fields = ?hazard.skip_fields,
             "field-decomposition cure declined: view not skip-derivable"
         );
