@@ -14,7 +14,7 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @Error_ctor ---
-define void @_ori_Error_ctor(ptr noalias sret(%ori.Error) %0, ptr noundef %1, ptr noundef nonnull dereferenceable(24) %2) #0 {
+define internal void @_ori_Error_ctor(ptr noalias sret(%ori.Error) %0, ptr noundef %1, ptr noundef nonnull dereferenceable(24) %2) #0 {
 entry:
   %dst_msg_ptr = getelementptr inbounds nuw %ori.Error, ptr %0, i32 0, i32 0
   %src = getelementptr inbounds nuw { i64, i64, ptr }, ptr %2, i32 0, i32 0
@@ -36,7 +36,7 @@ entry:
 
 ; Function Attrs: cold nounwind uwtable
 ; --- drop T ---
-define void @"_ori_drop$141"(ptr noundef %0) #1 {
+define internal void @"_ori_drop$141"(ptr noundef %0) #1 {
 entry:
   call void @ori_rc_free(ptr %0, i64 8, i64 8)
   ret void

@@ -496,9 +496,12 @@ fn build_import_infos(
     interner: &ori_ir::StringInterner,
 ) -> Vec<crate::commands::compile_common::ImportedFunctionInfo> {
     // Call-site local/aliased names keyed by (imported module path, exported
-    // fn name). Only functions the host names in a `use` get a local key;
+    // fn name). Only functions the host names in a `use` get local keys;
     // module-alias imports expand to qualified `alias.fn` entries upstream.
-    let mut local_names: rustc_hash::FxHashMap<(PathBuf, String), String> =
+    // ONE exported fn can carry SEVERAL local names (`use { f as g, f as h }`,
+    // or a named import plus a module-alias qualified entry) - every alias
+    // needs its own registration or its call sites miss callee resolution.
+    let mut local_names: rustc_hash::FxHashMap<(PathBuf, String), Vec<String>> =
         rustc_hash::FxHashMap::default();
     for func_ref in &resolved_imports.imported_functions {
         if func_ref.is_module_alias {
@@ -507,17 +510,23 @@ fn build_import_infos(
         let Some(module) = resolved_imports.modules.get(func_ref.module_index) else {
             continue;
         };
-        let key_path = module
-            .module_path
-            .canonicalize()
-            .unwrap_or_else(|_| module.module_path.clone());
-        local_names.insert(
-            (
+        let key_path = module.module_path.canonicalize().unwrap_or_else(|e| {
+            eprintln!(
+                "warning: cannot canonicalize import '{}' for local-name resolution: {e}",
+                module.module_path.display()
+            );
+            module.module_path.clone()
+        });
+        let local = interner.lookup(func_ref.local_name).to_string();
+        let entry = local_names
+            .entry((
                 key_path,
                 interner.lookup(func_ref.original_name).to_string(),
-            ),
-            interner.lookup(func_ref.local_name).to_string(),
-        );
+            ))
+            .or_default();
+        if !entry.contains(&local) {
+            entry.push(local);
+        }
     }
 
     let mut imported_functions = Vec::new();
@@ -532,20 +541,41 @@ fn build_import_infos(
             continue;
         };
 
-        let key_path = import_path
-            .canonicalize()
-            .unwrap_or_else(|_| import_path.to_path_buf());
+        let key_path = import_path.canonicalize().unwrap_or_else(|e| {
+            eprintln!(
+                "warning: cannot canonicalize compiled module '{}' for local-name resolution: {e}",
+                import_path.display()
+            );
+            import_path.to_path_buf()
+        });
         imported_functions.reserve(module_info.public_functions.len());
         for (mangled_name, source_name, param_types, return_type) in &module_info.public_functions {
-            let local_name = local_names
-                .get(&(key_path.clone(), source_name.clone()))
-                .cloned();
-            imported_functions.push(crate::commands::compile_common::ImportedFunctionInfo {
-                mangled_name: mangled_name.clone(),
-                local_name,
-                param_types: param_types.clone(),
-                return_type: *return_type,
-            });
+            match local_names.get(&(key_path.clone(), source_name.clone())) {
+                Some(locals) => {
+                    // One entry PER local alias - each call-site name resolves
+                    // to the same extern symbol.
+                    for local in locals {
+                        imported_functions.push(
+                            crate::commands::compile_common::ImportedFunctionInfo {
+                                mangled_name: mangled_name.clone(),
+                                local_name: Some(local.clone()),
+                                param_types: param_types.clone(),
+                                return_type: *return_type,
+                            },
+                        );
+                    }
+                }
+                None => {
+                    imported_functions.push(
+                        crate::commands::compile_common::ImportedFunctionInfo {
+                            mangled_name: mangled_name.clone(),
+                            local_name: None,
+                            param_types: param_types.clone(),
+                            return_type: *return_type,
+                        },
+                    );
+                }
+            }
         }
     }
 

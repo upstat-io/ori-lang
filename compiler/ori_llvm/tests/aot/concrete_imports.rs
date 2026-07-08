@@ -126,3 +126,20 @@ fn sret_return_import_isolated() {
         "code-7",
     );
 }
+
+// Code-TPR round 1 (Critical): TWO aliases of ONE imported fn each need their
+// own registration - a single-slot local name collapses to the last alias.
+#[test]
+fn multi_alias_import_resolves_both_names() {
+    assert_multifile_cell_output(
+        &[
+            (
+                "host.ori",
+                include_str!("fixtures/concrete_imports/host_multi_alias.ori"),
+            ),
+            ("mathlib.ori", MATHLIB),
+        ],
+        "multi_alias_import_resolves_both_names",
+        "42\n84",
+    );
+}
