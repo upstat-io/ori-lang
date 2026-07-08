@@ -5655,3 +5655,139 @@ fn probe_heap_str_literal_returned_no_double_free_negative() {
 "#;
     assert_burden_path_self_sufficient(src, "heap_str_literal_returned_negative");
 }
+
+// Set-collect fresh-allocation matrix: a `.iter().collect()` Set result flowing
+// into an iter-consuming generic callee at a borrowed body-call arg. The caller
+// must emit NO release for the lineage (the callee's contract-gated set-buffer
+// dec after `ori_set_to_list` is the single release); a caller release placed
+// before the call frees the buffer + heap elements the callee then reads.
+// Clamps pin the boundary from every side: a post-call read keeps the caller
+// release; a second consuming call routes to the multi-borrow treatment; an
+// iter-consuming callee that ALSO returns its param transfers ownership out and
+// keeps its keep-alive accounting; a dead collect result gets exactly one
+// scope-exit release; a returned collect result stays a transfer.
+
+/// Regression: heap-elem Set collect + LIVE-ACROSS read after the consuming
+/// call — the caller keeps its release for the still-live lineage (no UAF from
+/// suppressing, no double-free from keeping).
+#[test]
+fn probe_set_str_collect_read_after_iter_consuming_call_no_uaf() {
+    let src = r#"
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let n = count_explicit(c: s);
+    let m = s.len();
+    if n == 2 && m == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "set_str_collect_read_after_iter_consuming_call");
+}
+
+/// Regression: heap-elem Set collect consumed by TWO iter-consuming calls —
+/// the single-use suppression declines; the multi-borrow treatment owns the
+/// accounting (no double-free from stripping both).
+#[test]
+fn probe_set_str_collect_two_iter_consuming_calls_no_double_free() {
+    let src = r#"
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let a = count_explicit(c: s);
+    let b = count_explicit(c: s);
+    if a == 2 && b == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "set_str_collect_two_iter_consuming_calls");
+}
+
+/// Regression: iter-consuming callee that ALSO returns its param — ownership
+/// transfers through the return, so the caller-side suppression must NOT fire
+/// (the returned lineage carries the release).
+#[test]
+fn probe_set_str_collect_iter_consume_then_return_param_no_leak() {
+    let src = r#"
+@count_then_pass<T> (c: Set<T>) -> Set<T> = {
+    let $n = c.iter().count();
+
+    c
+};
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let t = count_then_pass(c: s);
+    if t.len() == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "set_str_collect_iter_consume_then_return_param");
+}
+
+/// Regression: heap-elem Set collect result DEAD at scope exit (no consuming
+/// call) — the fresh-collect admission gives it exactly one scope-exit release
+/// (no leak, no double-free).
+#[test]
+fn probe_set_str_collect_dead_at_scope_exit_freed_once() {
+    let src = r#"
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    if s.len() == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "set_str_collect_dead_at_scope_exit");
+}
+
+/// Regression: heap-elem Set collect result RETURNED from a helper — the
+/// transferred lineage keeps its accounting (fresh-collect admission must not
+/// strip a returned value's ops).
+#[test]
+fn probe_set_str_collect_returned_from_helper_no_double_free() {
+    let src = r#"
+@build () -> Set<str> = [
+    "a very long set element string exceeding the sso threshold for sure",
+    "another long set element string for generic iter parameter cleanup"
+].iter().collect();
+
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s = build();
+    let n = count_explicit(c: s);
+    if n == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "set_str_collect_returned_from_helper");
+}
+
+/// Regression: heap-elem LIST collect (the `[str]` sibling of the Set shape)
+/// through the same iter-consuming generic callee — the list path's fresh
+/// admission + caller-release accounting must match the set path.
+#[test]
+fn probe_list_str_collect_iter_consuming_call_no_double_free() {
+    let src = r#"
+@count_explicit<T> (c: [T]) -> int = c.iter().count();
+
+@main () -> int = {
+    let xs: [str] = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let n = count_explicit(c: xs);
+    if n == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "list_str_collect_iter_consuming_call");
+}
