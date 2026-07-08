@@ -100,8 +100,21 @@ pub(crate) fn emit_invoke_unwind_pair_net_releases(
         }
     }
     for &(succ, var) in &releases {
+        // Faithful release: place at the successor's END, not its front. No
+        // `RcStrategy` shape is a sound "never observable" proof (a
+        // `HeapPointer`/`FatPointer`/`AggregateFields`/`Closure` release may
+        // transitively run a user `@drop` — see `apply_edge_decs`'s same
+        // reasoning in `edge_cleanup.rs`), so a front-inserted dec here would
+        // risk firing that drop BEFORE the unwind successor's own statements
+        // (its `catch`-arm body), inverting the user-visible drop order.
+        // Keep `func.spans[succ]` in lockstep with the appended instruction —
+        // per every other body-mutating pass in this crate (per
+        // `apply_edge_decs`'s span-lockstep convention).
         if let Some(block) = func.blocks.get_mut(succ) {
-            block.body.insert(0, ArcInstr::BurdenDec { var });
+            block.body.push(ArcInstr::BurdenDec { var });
+        }
+        if let Some(spans) = func.spans.get_mut(succ) {
+            spans.push(None);
         }
         tracing::debug!(
             target: "ori_arc::aims::realize::edge_cleanup",
