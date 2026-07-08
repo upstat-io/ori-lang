@@ -278,13 +278,13 @@ fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
         // One unit per release op; the sort is stable, so same-var release
         // sequences keep their relative order.
         let tail: Vec<ArcInstr> = body.split_off(start);
-        let mut units: Vec<(u32, ArcInstr)> = tail
+        let mut units: Vec<(usize, ArcInstr)> = tail
             .into_iter()
             .map(|instr| {
                 let Some(var) = release_var(&instr) else {
                     unreachable!("trailing run contains only release ops")
                 };
-                (var.index() as u32, instr)
+                (var.index(), instr)
             })
             .collect();
         units.sort_by(|a, b| b.0.cmp(&a.0));

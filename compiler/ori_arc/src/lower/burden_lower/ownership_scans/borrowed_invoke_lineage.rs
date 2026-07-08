@@ -307,14 +307,6 @@ fn record_admitted_candidate(
     }
 }
 
-/// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
-/// `None` (declined).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the per-root gate sequence threads the full claimed-set context \
-              (construct-fed, live-extract, in-scan, result-roots) — bundling \
-              would obscure the gate-(b)/(b')/(c) claim disjointness"
-)]
 /// TRUE iff any `Project` extracts a field from a lineage member into a
 /// non-member dst — the same-alloc struct-field view gate (s1) declines on.
 fn struct_root_has_field_extract(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
@@ -326,6 +318,14 @@ fn struct_root_has_field_extract(func: &ArcFunction, members: &FxHashSet<ArcVarI
     })
 }
 
+/// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
+/// `None` (declined).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the per-root gate sequence threads the full claimed-set context \
+              (construct-fed, live-extract, in-scan, result-roots) — bundling \
+              would obscure the gate-(b)/(b')/(c) claim disjointness"
+)]
 fn try_build_candidate(
     func: &ArcFunction,
     root: ArcVarId,
