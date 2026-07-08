@@ -1384,4 +1384,8 @@ impl Val: Drop {
         inserted < boom,
         "the key drop must fire at teardown, AFTER the insert; stdout:\n{stdout}"
     );
+    assert!(
+        inserted < val,
+        "the value drop must fire at teardown, AFTER the insert; stdout:\n{stdout}"
+    );
 }
