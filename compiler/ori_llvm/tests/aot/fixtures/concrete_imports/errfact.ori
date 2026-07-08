@@ -1,0 +1,1 @@
+pub @fail_with (code: int) -> Error = Error(msg: `code-{code}`);

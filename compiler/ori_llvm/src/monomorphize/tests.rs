@@ -223,9 +223,9 @@ fn collect_resolves_top_level_via_import_sigs() {
 
     let mono_fns = collect_mono_functions(
         &[instance],
-        &[],                             // function_sigs empty — forces fall-through
-        &[],                             // impl_sigs empty
-        &[(imported_name, generic_sig)], // import_sigs supplies the sig
+        &[], // function_sigs empty — forces fall-through
+        &[], // impl_sigs empty
+        &[(imported_name, "_ori_lib$imported".to_string(), generic_sig)], // import_sigs supplies the sig
         &interner,
         &pool,
     );
@@ -265,9 +265,9 @@ fn collect_does_not_consult_import_sigs_for_methods() {
 
     let mono_fns = collect_mono_functions(
         &[instance],
-        &[],                           // function_sigs empty
-        &[],                           // impl_sigs empty — would normally drive the miss
-        &[(method_name, generic_sig)], // import_sigs HAS the name but methods must NOT consult it
+        &[],                                                          // function_sigs empty
+        &[], // impl_sigs empty — would normally drive the miss
+        &[(method_name, "_ori_lib$method".to_string(), generic_sig)], // import_sigs HAS the name but methods must NOT consult it
         &interner,
         &pool,
     );
@@ -306,7 +306,7 @@ fn collect_prefers_function_sigs_over_import_sigs_on_name_collision() {
         &[instance],
         std::slice::from_ref(&local_sig),
         &[],
-        &[(name, imported_sig)],
+        &[(name, "_ori_lib$imported".to_string(), imported_sig)],
         &interner,
         &pool,
     );

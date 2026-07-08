@@ -103,9 +103,13 @@ impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
     }
 
     /// Declare external imported functions (for multi-module AOT compilation).
-    pub fn declare_imports(&mut self, imports: &[(Name, FunctionSig)]) {
-        for (name, sig) in imports {
-            self.declare_function(*name, sig, Span::DUMMY);
+    ///
+    /// `name` is the call-site local/aliased Name (the `codegen_ctx.functions`
+    /// key `resolve_callee` probes); `symbol` is the exporting module's EXACT
+    /// mangled symbol (never re-mangled against the host module path).
+    pub fn declare_imports(&mut self, imports: &[(Name, String, FunctionSig)]) {
+        for (name, symbol, sig) in imports {
+            self.declare_function_with_symbol(*name, symbol, sig, Span::DUMMY);
         }
     }
 

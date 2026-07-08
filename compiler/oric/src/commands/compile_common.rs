@@ -40,6 +40,11 @@ use oric::{CompilerDb, Db, SourceFile};
 pub struct ImportedFunctionInfo {
     /// The mangled name of the function (e.g., `_ori_helper$add`).
     pub mangled_name: String,
+    /// The call-site local/aliased name from the importing module's `use`
+    /// statement (`None` when the host does not import this function by
+    /// name). ARC IR call sites carry this name; `codegen_ctx.functions`
+    /// is keyed by it so `resolve_callee` finds the import.
+    pub local_name: Option<String>,
     /// Parameter types as `Idx`.
     pub param_types: Vec<Idx>,
     /// Return type.
@@ -179,10 +184,15 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     let _ = (arc_cache, module_hash);
 
     let interner = db.interner();
-    let import_sigs: Vec<(Name, FunctionSig)> = imported_functions
+    // Registration key = the call-site local/aliased name (matching the ARC
+    // IR callee Name resolve_callee probes); the LLVM extern symbol stays the
+    // exporting module's exact mangled name. A function the host never
+    // imports by name keeps its mangled-name key (unreachable from ARC IR).
+    let import_sigs: Vec<(Name, String, FunctionSig)> = imported_functions
         .iter()
         .map(|info| {
-            let name = interner.intern(&info.mangled_name);
+            let key = info.local_name.as_deref().unwrap_or(&info.mangled_name);
+            let name = interner.intern(key);
             // Generate synthetic param names — compute_function_abi() zips
             // param_names with param_types, so they must be parallel.
             let param_names: Vec<Name> = (0..info.param_types.len())
@@ -194,7 +204,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 info.param_types.clone(),
                 info.return_type,
             );
-            (name, sig)
+            (name, info.mangled_name.clone(), sig)
         })
         .collect();
 

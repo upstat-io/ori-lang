@@ -1,0 +1,3 @@
+use "./mathlib" { double as twice }
+
+@main () -> void = print(msg: `{twice(x: 21)}`);

@@ -1,0 +1,6 @@
+use "./mathlib" { double }
+
+@main () -> void = {
+    let $f = (x: int) -> double(x: x) + 1;
+    print(msg: `{f(10)}`);
+}

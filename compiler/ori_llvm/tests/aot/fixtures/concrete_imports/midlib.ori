@@ -1,0 +1,3 @@
+use "./mathlib" { double }
+
+pub @quadruple (x: int) -> int = double(x: double(x: x));

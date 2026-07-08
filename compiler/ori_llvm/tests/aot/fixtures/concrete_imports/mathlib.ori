@@ -1,0 +1,3 @@
+pub @double (x: int) -> int = x * 2;
+
+pub @announce (msg: str) -> void = print(msg: msg);

@@ -201,7 +201,7 @@ pub(super) struct CompiledModuleInfo {
     /// Public function signatures (`mangled_name`, `param_types`, `return_type`).
     /// These are the actual types from type checking, not defaults.
     /// The mangled name is pre-computed to avoid needing the interner later.
-    pub(super) public_functions: Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)>,
+    pub(super) public_functions: Vec<(String, String, Vec<ori_types::Idx>, ori_types::Idx)>,
     /// Exported type metadata (repr attrs + visibility) for cross-module repr
     /// plan construction. Imported modules' metadata is fed into `ReprPlan` so
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
@@ -336,13 +336,19 @@ fn compile_single_module(
         ctx.db,
     );
 
-    let imported_functions = build_import_infos(
-        source_path,
-        ctx.graph,
-        compiled_modules,
-        ctx.base_dir,
-        ctx.mangler,
-    );
+    let resolved_imports = crate::imports::resolve_imports(ctx.db, &parse_result, source_path);
+    let imported_functions = {
+        use oric::Db;
+        build_import_infos(
+            source_path,
+            ctx.graph,
+            compiled_modules,
+            ctx.base_dir,
+            ctx.mangler,
+            &resolved_imports,
+            ctx.db.interner(),
+        )
+    };
 
     // Why: imported `pub` and `#repr(...)` types must be exempted from integer
     // narrowing when the repr plan is constructed.
@@ -405,7 +411,7 @@ fn extract_public_function_types(
     module_name: &str,
     mangler: &ori_llvm::aot::Mangler,
     db: &oric::CompilerDb,
-) -> Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)> {
+) -> Vec<(String, String, Vec<ori_types::Idx>, ori_types::Idx)> {
     use oric::Db; // For interner() method
 
     let interner = db.interner();
@@ -436,6 +442,7 @@ fn extract_public_function_types(
 
             public_functions.push((
                 mangled_name,
+                func_name_str.to_string(),
                 func_sig.param_types.clone(),
                 func_sig.return_type,
             ));
@@ -485,7 +492,34 @@ fn build_import_infos(
     compiled_modules: &[CompiledModuleInfo],
     _base_dir: &Path,
     _mangler: &ori_llvm::aot::Mangler,
+    resolved_imports: &crate::imports::ResolvedImports,
+    interner: &ori_ir::StringInterner,
 ) -> Vec<crate::commands::compile_common::ImportedFunctionInfo> {
+    // Call-site local/aliased names keyed by (imported module path, exported
+    // fn name). Only functions the host names in a `use` get a local key;
+    // module-alias imports expand to qualified `alias.fn` entries upstream.
+    let mut local_names: rustc_hash::FxHashMap<(PathBuf, String), String> =
+        rustc_hash::FxHashMap::default();
+    for func_ref in &resolved_imports.imported_functions {
+        if func_ref.is_module_alias {
+            continue;
+        }
+        let Some(module) = resolved_imports.modules.get(func_ref.module_index) else {
+            continue;
+        };
+        let key_path = module
+            .module_path
+            .canonicalize()
+            .unwrap_or_else(|_| module.module_path.clone());
+        local_names.insert(
+            (
+                key_path,
+                interner.lookup(func_ref.original_name).to_string(),
+            ),
+            interner.lookup(func_ref.local_name).to_string(),
+        );
+    }
+
     let mut imported_functions = Vec::new();
 
     for (import_path, info) in imported_module_infos(source_path, graph, compiled_modules) {
@@ -498,10 +532,17 @@ fn build_import_infos(
             continue;
         };
 
+        let key_path = import_path
+            .canonicalize()
+            .unwrap_or_else(|_| import_path.to_path_buf());
         imported_functions.reserve(module_info.public_functions.len());
-        for (mangled_name, param_types, return_type) in &module_info.public_functions {
+        for (mangled_name, source_name, param_types, return_type) in &module_info.public_functions {
+            let local_name = local_names
+                .get(&(key_path.clone(), source_name.clone()))
+                .cloned();
             imported_functions.push(crate::commands::compile_common::ImportedFunctionInfo {
                 mangled_name: mangled_name.clone(),
+                local_name,
                 param_types: param_types.clone(),
                 return_type: *return_type,
             });

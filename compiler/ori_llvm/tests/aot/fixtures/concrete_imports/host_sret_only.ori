@@ -1,0 +1,6 @@
+use "./errfact" { fail_with }
+
+@main () -> void = {
+    let $e = fail_with(code: 7);
+    print(msg: e.message);
+}

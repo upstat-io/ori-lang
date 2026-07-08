@@ -28,6 +28,7 @@ pub mod coalesce;
 pub mod codegen;
 pub mod collections_ext;
 pub mod composite_mono;
+pub mod concrete_imports;
 pub mod conversions;
 pub mod corpus_under_flag_gate;
 pub mod cow_map_set;

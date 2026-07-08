@@ -99,7 +99,7 @@ pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
     impl_sigs: &[(Idx, Name, FunctionSig)],
-    import_sigs: &[(Name, FunctionSig)],
+    import_sigs: &[(Name, String, FunctionSig)],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
@@ -128,7 +128,7 @@ pub fn collect_mono_functions(
     // Consulted after `function_sigs` misses on the top-level path; first registration wins.
     let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
-    for (name, sig) in import_sigs {
+    for (name, _symbol, sig) in import_sigs {
         import_sig_by_name.entry(*name).or_insert(sig);
     }
 

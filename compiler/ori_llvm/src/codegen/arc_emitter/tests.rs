@@ -94,7 +94,7 @@ fn drop_fn_trivial_generates_rc_free() {
     let name = format!("\"_ori_drop${}\"", Idx::STR.raw());
 
     assert!(
-        ir.contains(&format!("define void @{name}(ptr")),
+        ir.contains(&format!("define internal void @{name}(ptr")),
         "Missing drop fn:\n{ir}"
     );
     assert!(ir.contains("ori_rc_free"), "Missing ori_rc_free:\n{ir}");
@@ -459,7 +459,7 @@ fn get_or_generate_caches_across_calls() {
     // Only one definition in the module
     let ir = scx.llmod.print_to_string().to_string();
     let name = format!("\"_ori_drop${}\"", Idx::STR.raw());
-    let count = ir.matches(&format!("define void @{name}")).count();
+    let count = ir.matches(&format!("define internal void @{name}")).count();
     assert_eq!(count, 1, "Exactly one definition:\n{ir}");
 
     drop(em);
@@ -552,7 +552,7 @@ fn drop_fn_uses_c_calling_convention() {
     let name = format!("\"_ori_drop${}\"", Idx::STR.raw());
     let drop_line = ir
         .lines()
-        .find(|l: &&str| l.contains(&format!("define void @{name}")))
+        .find(|l: &&str| l.contains(&format!("define internal void @{name}")))
         .expect("drop fn should exist");
     // C convention = LLVM default (no prefix). Must NOT be fastcc.
     assert!(
@@ -2836,7 +2836,9 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
 
     let ir = scx.llmod.print_to_string().to_string();
     let mangled = format!("\"_ori_drop${}\"", node_ty.raw());
-    let definitions = ir.matches(&format!("define void @{mangled}(ptr")).count();
+    let definitions = ir
+        .matches(&format!("define internal void @{mangled}(ptr"))
+        .count();
     assert_eq!(
         definitions, 1,
         "recursive type yields exactly ONE drop fn definition (cache prevents duplicate generation):\n{ir}"
@@ -3048,10 +3050,10 @@ fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
     let forest_mangled = format!("\"_ori_drop${}\"", forest_ty.raw());
 
     let tree_defs = ir
-        .matches(&format!("define void @{tree_mangled}(ptr"))
+        .matches(&format!("define internal void @{tree_mangled}(ptr"))
         .count();
     let forest_defs = ir
-        .matches(&format!("define void @{forest_mangled}(ptr"))
+        .matches(&format!("define internal void @{forest_mangled}(ptr"))
         .count();
     assert_eq!(tree_defs, 1, "Tree drop fn defined exactly once:\n{ir}");
     assert_eq!(forest_defs, 1, "Forest drop fn defined exactly once:\n{ir}");
@@ -3135,7 +3137,9 @@ fn drop_fn_cache_prevents_infinite_generation() {
 
     let ir = scx.llmod.print_to_string().to_string();
     let mangled = format!("\"_ori_drop${}\"", node_ty.raw());
-    let definitions = ir.matches(&format!("define void @{mangled}(ptr")).count();
+    let definitions = ir
+        .matches(&format!("define internal void @{mangled}(ptr"))
+        .count();
     assert_eq!(
         definitions, 1,
         "cache MUST prevent duplicate drop fn definitions even under repeated invocation:\n{ir}"
@@ -3241,7 +3245,7 @@ fn augment_drop_body_emits_zero_self_dec() {
 
     // AUGMENT fired: the drop fn is defined AND runs the user @drop on self.
     assert!(
-        ir.contains(&format!("define void @{mangled}(ptr")),
+        ir.contains(&format!("define internal void @{mangled}(ptr")),
         "AUGMENT drop fn MUST be defined:\n{ir}"
     );
     assert!(

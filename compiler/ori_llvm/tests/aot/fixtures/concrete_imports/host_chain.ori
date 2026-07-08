@@ -1,0 +1,3 @@
+use "./midlib" { quadruple }
+
+@main () -> void = print(msg: `{quadruple(x: 5)}`);
