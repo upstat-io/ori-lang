@@ -491,8 +491,7 @@ impl<'a> ModuleChecker<'a> {
     pub fn finish_with_pool(mut self) -> (TypeCheckResult, Pool) {
         // The explicit-Formattable impl set + builtin FormatSpec type idxs
         // ori_canon consumes to desugar non-primitive `{expr:spec}`. Computed
-        // before `pool` is moved out; extracted to a helper to keep this method
-        // within the line cap.
+        // before `pool` is moved out.
         let (formattable_impl_types, format_spec_types) = self.collect_formattable_metadata();
         let mut pool = self.pool;
         let deferred_mono_calls = self.deferred_mono_calls;
@@ -565,9 +564,8 @@ impl<'a> ModuleChecker<'a> {
 
         // Dedup mono instances by the full identity tuple, then sort by
         // `fn_name` and remap the dispatch entries through the composed
-        // `pre-dedup → dedup → sorted` permutation. Extracted to a free
-        // function to keep `finish_with_pool` within the line cap and to
-        // sidestep the partial-move of `self.pool` earlier in this method.
+        // `pre-dedup → dedup → sorted` permutation. A free function sidesteps
+        // the partial-move of `self.pool` earlier in this method.
         let (mono_instances, mono_dispatch_map) =
             dedup_and_remap_mono_instances(mono_instances, self.mono_dispatch_pre_dedup);
 

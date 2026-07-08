@@ -2,9 +2,8 @@
 //! pass that the per-var DP-2/DP-3 elimination (`burden_elim.rs`) cannot
 //! express.
 //!
-//! Split out of `burden_elim.rs` (WASTE-12: single-file line-budget) as its
-//! own cohesive concern — grouping burden ops by `same_alloc_reps` rep and
-//! deciding, per rep, whether removal alone can re-balance the lineage.
+//! Groups burden ops by `same_alloc_reps` rep and decides, per rep, whether
+//! removal alone can re-balance the lineage.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 

@@ -1,8 +1,6 @@
 //! Broken-Format Control-Flow Constructs
 //!
-//! `if`/`let`/lambda/`with`/`for`/`while` rendering for [`super::Formatter::emit_broken`],
-//! split out of `broken/mod.rs` to keep the dispatch match's sibling file
-//! under the workspace file-size limit.
+//! `if`/`let`/lambda/`with`/`for`/`while` rendering for [`super::Formatter::emit_broken`].
 
 use ori_ir::{BindingPatternId, ExprId, Name, ParamRange, ParsedTypeId, StringLookup};
 

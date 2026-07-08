@@ -11,7 +11,7 @@ use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::MemoryContract;
+use crate::aims::contract::{MemoryContract, ParamContract};
 use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
@@ -3018,9 +3018,7 @@ fn arg_pos_iter_consumes(
     contracts
         .get(&callee)
         .and_then(|c| c.params.get(pos))
-        // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return` — a
-        // ttr+iter-consume callee hands the arg back through its return.
-        .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
+        .is_some_and(ParamContract::is_rl2_consume)
 }
 
 /// Phase 6.67 (probe): emit a keep-alive `BurdenInc` on every iter-element-view
@@ -4142,11 +4140,7 @@ fn record_iter_consume_uses(
         let Some(param) = contract.params.get(pos) else {
             continue;
         };
-        // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
-        // (`ApplyToIterConsumingParam`); a ttr+iter-consume callee transfers the
-        // arg out through its return, so the caller-side consume accounting
-        // (Phase 6.66 multi-borrow) must not count it here.
-        if !param.iter_consumes || param.transfers_through_return {
+        if !param.is_rl2_consume() {
             continue;
         }
         record(arg);
@@ -4700,14 +4694,10 @@ fn user_callee_iter_consume_uses_of_rep(
             if rep_of(arg) != rep {
                 continue;
             }
-            // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
-            // (`ApplyToIterConsumingParam`); a ttr+iter-consume callee hands the
-            // arg back through its return (Phase 6.66d territory) — stripping the
-            // caller's ops for it would drop the transferred lineage's release.
             if contract
                 .params
                 .get(pos)
-                .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
+                .is_some_and(ParamContract::is_rl2_consume)
             {
                 uses.push(IterConsumeUse { block, instr });
             }
@@ -8581,13 +8571,9 @@ fn compute_fresh_owned_collection_reps(
     // && s.contains(..)`). The str analogue of the conversion / set-algebra producers;
     // freed here as a dead-at-scope-exit value. Spec: Annex E §AIMS RL-2.
     let fresh_str_names = fresh_str_producing_method_names(interner);
-    // The `__collect_set` PROTOCOL builtin (`Set<T> = xs.iter().collect()`) is the
-    // protocol-lowered sibling of the bare `@collect`/`@collect_set` consumer names:
-    // `ori_iter_collect_set` copies + `elem_inc_fn`s each element into a FRESH set
-    // buffer distinct from the consumed iterator + its source. Admitted by exact
-    // protocol name (NOT `is_self_allocating_builtin_callee` wholesale — that set
-    // re-covers the bare names and must not bypass the COW receiver-origin gate).
-    // Spec: Annex E §AIMS RL-2.
+    // `__collect_set` (protocol sibling of `@collect`/`@collect_set`) yields a
+    // FRESH set buffer; admitted by exact protocol name only, never via
+    // `is_self_allocating_builtin_callee` (preserves the COW receiver-origin gate). Spec: Annex E §AIMS RL-2.
     let collect_set_protocol =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();

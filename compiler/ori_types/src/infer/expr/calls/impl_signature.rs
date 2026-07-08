@@ -1,8 +1,7 @@
 //! `resolve_impl_signature` — resolve a looked-up impl/trait method to a
 //! concrete `ImplMethodSig` (impl-binder substitution → method-Scheme
-//! instantiation → arity check). Lives apart from `impl_lookup.rs` to keep that
-//! module under the 500-line cap; signature resolution is a distinct
-//! responsibility from method lookup.
+//! instantiation → arity check) — signature resolution, distinct from the
+//! method lookup in `impl_lookup.rs`.
 
 use rustc_hash::FxHashMap;
 

@@ -1,7 +1,4 @@
 //! Target triple component parsing and typed queries.
-//!
-//! Split out of `target_features.rs` (WASTE-12: keep source files under the
-//! 500-line cap).
 
 use std::fmt;
 

@@ -162,14 +162,9 @@ pub(super) fn collect_fresh_builtin_invoke_result_roots(
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
     interner: &ori_ir::StringInterner,
 ) -> FxHashSet<ArcVarId> {
-    // The `__collect_set` PROTOCOL builtin (`Set<T> = xs.iter().collect()`)
-    // produces a fresh rc=1 set buffer as a block-BODY `Apply` result — the
-    // body-form sibling of the terminator family. Admitted by exact protocol
-    // name (the narrow defect surface): a collect result later borrowed at an
-    // `Invoke` arg is the same carrier shape as a fresh collection literal,
-    // and the base walk otherwise places its release inline BEFORE the
-    // borrowed-use terminator (use-after-free / element double-free on
-    // heap-element sets). Spec: Annex E §AIMS RL-2 + RL-4.
+    // `__collect_set` (`xs.iter().collect()`) yields a fresh rc=1 set buffer as
+    // a body-form `Apply` result; admitted by exact protocol name so its
+    // release lands after the borrowed-use `Invoke`. Spec: Annex E §AIMS RL-2 + RL-4.
     let collect_set_protocol =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     let mut roots: FxHashSet<ArcVarId> = FxHashSet::default();

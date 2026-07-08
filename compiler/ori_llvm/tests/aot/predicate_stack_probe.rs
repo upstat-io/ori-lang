@@ -5656,16 +5656,9 @@ fn probe_heap_str_literal_returned_no_double_free_negative() {
     assert_burden_path_self_sufficient(src, "heap_str_literal_returned_negative");
 }
 
-// Set-collect fresh-allocation matrix: a `.iter().collect()` Set result flowing
-// into an iter-consuming generic callee at a borrowed body-call arg. The caller
-// must emit NO release for the lineage (the callee's contract-gated set-buffer
-// dec after `ori_set_to_list` is the single release); a caller release placed
-// before the call frees the buffer + heap elements the callee then reads.
-// Clamps pin the boundary from every side: a post-call read keeps the caller
-// release; a second consuming call routes to the multi-borrow treatment; an
-// iter-consuming callee that ALSO returns its param transfers ownership out and
-// keeps its keep-alive accounting; a dead collect result gets exactly one
-// scope-exit release; a returned collect result stays a transfer.
+// Set-collect fresh-allocation matrix: a `.iter().collect()` Set/List result
+// flowing into an iter-consuming generic callee at a borrowed body-call arg.
+// Spec: Annex E §AIMS RL-1 + RL-2 (per-test docs below pin each boundary clamp).
 
 /// Regression: heap-elem Set collect + LIVE-ACROSS read after the consuming
 /// call — the caller keeps its release for the still-live lineage (no UAF from

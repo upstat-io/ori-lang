@@ -1,7 +1,6 @@
 //! Method-dispatch diagnostics: `into`-not-implemented + the general
-//! method-not-found emit. Lives apart from `impl_lookup.rs` to keep that module
-//! under the 500-line cap; the emit logic is a distinct responsibility
-//! (diagnostic construction) from the lookup/resolution paths.
+//! method-not-found emit — diagnostic construction, distinct from the
+//! lookup/resolution paths in `impl_lookup.rs`.
 
 use ori_ir::{Name, Span};
 

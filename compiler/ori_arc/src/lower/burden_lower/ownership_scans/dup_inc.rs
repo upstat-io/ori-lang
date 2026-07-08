@@ -6,14 +6,13 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
-use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
 use super::forwarder::collect_ttr_param_aliases;
-use super::live_extract::{collect_fresh_sum_roots, is_niche_family_sum};
 use super::successor_reachable_blocks;
+use super::sum_payload_iter_consume::collect_iter_consumed_positions;
 
 /// Compute function-wide use counts and the duplication-alias dst set, and
 /// extend `inc_suppressed_vars` with dead FRESH values per AIMS RL-2.
@@ -292,55 +291,13 @@ pub(in crate::lower::burden_lower) fn compute_ttr_iter_consume_dup_aliases(
     let Some((_, alias_to_src)) = collect_ttr_param_aliases(func, contracts) else {
         return FxHashSet::default();
     };
-    let iter_name =
-        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
-    // The set of vars consumed at an iter-consuming OWNED arg position. A
-    // user-callee arg at an `iter_consumes` param is recorded; an `@iter [own]`
-    // protocol-builtin arg is recorded (the inline for-loop's iterator owns +
-    // frees the buffer via `ori_iter_drop`). Mirrors the Phase-6.66c
-    // `record_iter_consume_uses` SSOT.
-    let mut iter_consumed: FxHashSet<ArcVarId> = FxHashSet::default();
-    let user_iter_consume_args =
-        |callee: Name, args: &[ArcVarId], out: &mut FxHashSet<ArcVarId>| {
-            let Some(contract) = contracts.get(&callee) else {
-                return;
-            };
-            for (pos, &arg) in args.iter().enumerate() {
-                if contract.params.get(pos).is_some_and(|p| p.iter_consumes) {
-                    out.insert(arg);
-                }
-            }
-        };
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee,
-                args,
-                arg_ownership,
-                ..
-            } = instr
-            {
-                if *callee == iter_name {
-                    for (pos, &arg) in args.iter().enumerate() {
-                        if arg_ownership
-                            .get(pos)
-                            .is_none_or(|o| *o == crate::ir::ArgOwnership::Owned)
-                        {
-                            iter_consumed.insert(arg);
-                        }
-                    }
-                } else {
-                    user_iter_consume_args(*callee, args, &mut iter_consumed);
-                }
-            }
-        }
-        if let ArcTerminator::Invoke {
-            func: callee, args, ..
-        } = &block.terminator
-        {
-            user_iter_consume_args(*callee, args, &mut iter_consumed);
-        }
-    }
+    // `exclude_ttr_overlap = false`: this scan targets the ttr-param /
+    // iter-consume OVERLAP itself (a THIS-function ttr param whose alias is
+    // ALSO iter-consumed), so a user-callee param carrying its OWN
+    // `transfers_through_return` must stay admitted here — unlike
+    // `sum_payload_iter_consume::iter_consumed_vars`, which excludes it to
+    // isolate the pure-consume case.
+    let iter_consumed = collect_iter_consumed_positions(func, contracts, interner, false);
     if iter_consumed.is_empty() {
         return FxHashSet::default();
     }
@@ -355,193 +312,4 @@ pub(in crate::lower::burden_lower) fn compute_ttr_iter_consume_dup_aliases(
         .copied()
         .filter(|dst| iter_consumed.contains(dst))
         .collect()
-}
-
-/// The set of vars consumed at an iter-consuming OWNED position — `@iter [own]`
-/// (the inline for-loop's iterator owns + frees the buffer via `ori_iter_drop`)
-/// OR a user-callee arg at an `iter_consumes` contract param. Mirrors the
-/// `record_iter_consume_uses` SSOT + the [`compute_ttr_iter_consume_dup_aliases`]
-/// detection above.
-fn iter_consumed_vars(
-    func: &ArcFunction,
-    contracts: &FxHashMap<Name, MemoryContract>,
-    interner: &ori_ir::StringInterner,
-) -> FxHashSet<ArcVarId> {
-    let iter_name =
-        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
-    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
-    let user_iter_consume_args =
-        |callee: Name, args: &[ArcVarId], out: &mut FxHashSet<ArcVarId>| {
-            let Some(contract) = contracts.get(&callee) else {
-                return;
-            };
-            for (pos, &arg) in args.iter().enumerate() {
-                // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
-                // — a ttr+iter-consume callee hands the arg back through its
-                // return (the overlap keeps its own accounting).
-                if contract
-                    .params
-                    .get(pos)
-                    .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
-                {
-                    out.insert(arg);
-                }
-            }
-        };
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee,
-                args,
-                arg_ownership,
-                ..
-            } = instr
-            {
-                if *callee == iter_name {
-                    for (pos, &arg) in args.iter().enumerate() {
-                        if arg_ownership
-                            .get(pos)
-                            .is_none_or(|o| *o == crate::ir::ArgOwnership::Owned)
-                        {
-                            out.insert(arg);
-                        }
-                    }
-                } else {
-                    user_iter_consume_args(*callee, args, &mut out);
-                }
-            }
-        }
-        if let ArcTerminator::Invoke {
-            func: callee, args, ..
-        } = &block.terminator
-        {
-            user_iter_consume_args(*callee, args, &mut out);
-        }
-    }
-    out
-}
-
-/// RL-1 + RL-2 surplus dup-alias-inc suppression for a fresh niche-family
-/// sum-aggregate whose extracted payload is ITER-CONSUMED on the live-extract
-/// path (`let m: Option<[str]> = Some([..]); match m { Some(words) -> { for w
-/// in words do .. }, None -> .. }`).
-///
-/// The buffer is born ONCE (the `Construct List` then MOVED by-value into
-/// `Construct Variant(Option.0)` — the niche-family sum carries no allocation of
-/// its own; its inline payload IS the buffer). A `Let { Var }` alias of the
-/// by-value aggregate (`%5 = %3`) is a MOVE-ONCE alias and adds NO owner, so
-/// per RL-1 (`AimsProof.Realization::RL1_duplication_balanced`, `incElidable =
-/// true` → no inc) its duplication `BurdenInc` is ELIDABLE. The base walk's
-/// `use_counts >= 2` proxy mis-classes the alias as a duplication and emits the
-/// surplus inc. On the live-extract path the payload (`Project alias.1`) is
-/// iter-consumed via `@iter [own]` whose `ori_iter_drop` releases the buffer
-/// (RL-2 `ApplyToIterConsumingParam` transfer, no caller dec —
-/// `RL2_iter_consuming_no_caller_dec`); the aggregate's kept construct-site inc
-/// is released by the Some-arm scope-exit dec, and the dead None / Unreachable
-/// arms release the birth + construct-site inc. The surplus dup-alias inc has no
-/// matching dec on the iter-consume path → +1 leak (the buffer ends at rc=1; its
-/// heap str elements leak with it since `ori_iter_drop` never re-runs the
-/// `elem_dec_fn`).
-///
-/// Cure: suppress the SURPLUS Let-Var dup-alias `BurdenInc`. CP-1 case (a) —
-/// the impl over-emits a move-once alias inc the proven calculus elides; no Lean
-/// change.
-///
-/// Gates (the over-fire boundary — proven same-allocation identity, NOT a
-/// use-count / type proxy):
-///   (a) root is a fresh niche-family sum-aggregate ([`collect_fresh_sum_roots`]
-///       + [`is_niche_family_sum`]) with `Aggregate` repr, in
-///       `owned_vars_needing_rc`.
-///   (b) the alias is a `Let { Var(root) }` dup-alias (in `dup_alias_dsts`) of
-///       that root.
-///   (c) the alias's NICHE-PAYLOAD `Project` extract is iter-consumed at an
-///       `@iter [own]` / `iter_consumes`-param owned position (the live-extract
-///       iter-consume — the transfer that leaves the dup-alias inc unmatched).
-///
-/// Spec: Annex E §AIMS RL-1 + RL-2 + TF-4.
-pub(in crate::lower::burden_lower) fn compute_sum_payload_iter_consume_dup_inc_suppression(
-    func: &ArcFunction,
-    contracts: &FxHashMap<Name, MemoryContract>,
-    owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    dup_alias_dsts: &FxHashSet<ArcVarId>,
-    type_registry: &TypeRegistry,
-    interner: &ori_ir::StringInterner,
-) -> FxHashSet<ArcVarId> {
-    let iter_consumed = iter_consumed_vars(func, contracts, interner);
-    if iter_consumed.is_empty() {
-        return FxHashSet::default();
-    }
-    // A var transitively reaches an iter-consume through `Let { Var }` move
-    // aliases (`%11 = %8; @iter(%11 [own])` folds the intermediate move).
-    let mut reaches_iter_consume = iter_consumed;
-    loop {
-        let mut grew = false;
-        for block in &func.blocks {
-            for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if reaches_iter_consume.contains(dst) && reaches_iter_consume.insert(*src) {
-                        grew = true;
-                    }
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-
-    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
-    let roots: FxHashSet<ArcVarId> = collect_fresh_sum_roots(func, contracts)
-        .into_iter()
-        .filter(|r| {
-            owned_vars_needing_rc.contains(r)
-                && matches!(func.var_repr(*r), Some(ValueRepr::Aggregate))
-                && is_niche_family_sum(func, *r, type_registry)
-        })
-        .collect();
-    if roots.is_empty() {
-        return out;
-    }
-    for block in &func.blocks {
-        for instr in &block.body {
-            // The alias: `Let { Var(root) }` dup-alias of a fresh niche-sum root.
-            let ArcInstr::Let {
-                dst: alias,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            else {
-                continue;
-            };
-            if !roots.contains(src) || !dup_alias_dsts.contains(alias) {
-                continue;
-            }
-            // The alias's niche-payload `Project` extract reaches an iter-consume.
-            let extracts_iter_consumed = func.blocks.iter().any(|b| {
-                b.body.iter().any(|i| {
-                    matches!(
-                        i,
-                        ArcInstr::Project { dst, value, .. }
-                            if *value == *alias && reaches_iter_consume.contains(dst)
-                    )
-                })
-            });
-            if extracts_iter_consumed {
-                tracing::trace!(
-                    target: "ori_arc::aims::realize",
-                    fn_name = ?func.name,
-                    alias = alias.index(),
-                    root = src.index(),
-                    "sum-payload iter-consume surplus dup-alias inc suppressed (RL-1 move-once)"
-                );
-                out.insert(*alias);
-            }
-        }
-    }
-    out
 }

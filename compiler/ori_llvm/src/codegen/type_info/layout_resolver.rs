@@ -1,7 +1,7 @@
 //! `TypeLayoutResolver` — recursive LLVM type resolution with cycle detection.
 //!
 //! Resolves `Idx` → `BasicTypeEnum` with two-phase struct creation for
-//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene.
+//! recursive types.
 
 use std::cell::{Cell, RefCell};
 

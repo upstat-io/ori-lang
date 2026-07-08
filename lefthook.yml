@@ -93,6 +93,22 @@ pre-commit:
       # dropping --warn-only once the source-scan true-positive rate is reliable.
       glob: "**/*.rs"
       run: python3 scripts/crate-dag-lint.py --warn-only
+    comment-refactor-narration-lint:
+      # Refactor-narration comment detector (COMMENT-11 / COMMENT-26
+      # self-referential-narration) — see impl-hygiene.md COMMENT-11 +
+      # COMMENT-26 + `python3 scripts/comment-refactor-narration-lint.py
+      # --help`. Mechanically gates ONLY the near-zero-false-positive subset:
+      # a "split out of X" / "extracted from X" / "factored out of X" /
+      # "lives apart from X" comment citing a line-cap/hygiene reason, or a
+      # "previously ... consolidated as a cure" history narration. The wider
+      # temporal/geographical-framing surface (COMMENT-45/46) stays
+      # reviewer-time — this is the ast-lint companion until the CPG
+      # comment-extraction (`Comment {repo:'ori'}`) lands per intelligence.md.
+      # Bedding-in mode (--warn-only): new; surfaces findings to stderr
+      # without gating. Promote to gating once the true-positive rate is
+      # reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/comment-refactor-narration-lint.py --warn-only
     debug-flags-consistency:
       # ORI_* debug-flag registry consistency (diagnostics/check-debug-flags.sh):
       # every flag used in source (raw std::env::var_os) is registered in

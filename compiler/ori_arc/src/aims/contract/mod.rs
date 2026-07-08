@@ -592,6 +592,17 @@ impl ParamContract {
         iter_consumes_projected_field: None,
     };
 
+    /// RL-2 CONSUME classification: `iter_consumes ∧ ¬transfers_through_return`.
+    ///
+    /// A ttr+iter-consume callee hands the argument back through its own
+    /// return, so that overlap keeps its own accounting (see
+    /// `compute_ttr_iter_consume_dup_aliases`) and must not double-count as a
+    /// plain iter-consume here.
+    #[must_use]
+    pub fn is_rl2_consume(&self) -> bool {
+        self.iter_consumes && !self.transfers_through_return
+    }
+
     /// Componentwise join toward conservative.
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {

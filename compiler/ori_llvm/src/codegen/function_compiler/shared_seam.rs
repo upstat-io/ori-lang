@@ -4,9 +4,7 @@
 //! Both the immediate-emit path ([`FunctionCompiler::emit_arc_function`] in
 //! [`super::define_phase`]) and the two-pass prepare path
 //! ([`FunctionCompiler::prepare_arc_function`] in [`super::nounwind::prepare`])
-//! route through these helpers. Factored out of `define_phase.rs` as part
-//! of the hygiene sweep so `define_phase.rs` stays under the 500-line
-//! cap while keeping the shared-seam surface in one place.
+//! route through these helpers, keeping the shared-seam surface in one place.
 //!
 //! Callers (grep-verifiable):
 //! - `define_phase.rs`: `emit_arc_function_inner` → `process_arc_function`;

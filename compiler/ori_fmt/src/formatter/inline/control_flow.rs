@@ -1,8 +1,7 @@
 //! Inline-Format Control-Flow Constructs
 //!
 //! `if`/`let`/lambda/`with`/`for`/`loop`/`while` rendering for
-//! [`super::Formatter::emit_inline`], split out of `inline/mod.rs` to keep
-//! the dispatch match's sibling file under the workspace file-size limit.
+//! [`super::Formatter::emit_inline`].
 
 use ori_ir::{BindingPatternId, ExprId, Name, ParamRange, ParsedTypeId, StringLookup};
 
