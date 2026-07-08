@@ -1301,8 +1301,8 @@ impl Key: Hashable {
         "live field extract across the borrowing insert must stay valid; stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
-        stdout.contains("1 43"),
-        "map len 1 + extracted tag length 43 expected; stdout:\n{stdout}"
+        stdout.contains("1 42"),
+        "map len 1 + extracted tag length 42 expected; stdout:\n{stdout}"
     );
 }
 

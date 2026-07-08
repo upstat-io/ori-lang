@@ -225,6 +225,8 @@ pub(super) fn emit_rc_unified(
     }
     trace_phase_snapshot("after_phase_3_coalesce", func, interner);
 
+    order_return_block_scope_exit_decs(func);
+
     let rc_count = count_rc_ops(func);
     (
         rc_count,
@@ -232,6 +234,59 @@ pub(super) fn emit_rc_unified(
         Vec::new(),
         metrics::SynergyMetrics::default(),
     )
+}
+
+/// RL-2 scope-exit drop ordering on `Return` blocks: sort each Return block's
+/// trailing release run into REVERSE DECLARATION ORDER (descending `ArcVarId`),
+/// the value-semantics teardown order (a later-declared container drops before
+/// the earlier locals its teardown may observe — the two-channel map teardown
+/// fires before the caller's own key/value copies release). Releases within
+/// one trailing run are a per-path permutation (RC-net neutral); only the
+/// user-`@drop`-observable order changes. An adjacent whole-var
+/// `BurdenDec v` + `RcDec v` marker pair moves as one unit. Spec: Annex E
+/// §AIMS RL-2 + RL-DROP.
+fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
+    for block in &mut func.blocks {
+        if !matches!(block.terminator, crate::ir::ArcTerminator::Return { .. }) {
+            continue;
+        }
+        let body = &mut block.body;
+        // The maximal trailing run of release ops (whole-var RcDec / BurdenDec).
+        let mut start = body.len();
+        while start > 0 {
+            match &body[start - 1] {
+                ArcInstr::RcDec { .. } | ArcInstr::BurdenDec { .. } => start -= 1,
+                _ => break,
+            }
+        }
+        if body.len() - start < 2 {
+            continue;
+        }
+        // Group into units: a `BurdenDec v` immediately followed by `RcDec v`
+        // stays glued to its marker partner.
+        let tail: Vec<ArcInstr> = body.split_off(start);
+        let mut units: Vec<(u32, Vec<ArcInstr>)> = Vec::new();
+        let mut i = 0;
+        while i < tail.len() {
+            match (&tail[i], tail.get(i + 1)) {
+                (ArcInstr::BurdenDec { var: b }, Some(ArcInstr::RcDec { var: r, .. }))
+                    if b == r =>
+                {
+                    units.push((b.index() as u32, vec![tail[i].clone(), tail[i + 1].clone()]));
+                    i += 2;
+                }
+                (ArcInstr::RcDec { var, .. } | ArcInstr::BurdenDec { var }, _) => {
+                    units.push((var.index() as u32, vec![tail[i].clone()]));
+                    i += 1;
+                }
+                _ => unreachable!("trailing run contains only release ops"),
+            }
+        }
+        units.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, instrs) in units {
+            body.extend(instrs);
+        }
+    }
 }
 
 /// Phase 2.5: DP-2/DP-3 burden-op elimination. Consumes post-emission IR with

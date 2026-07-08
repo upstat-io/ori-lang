@@ -30,12 +30,7 @@ entry:
   %dst6 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_msg_ptr, i32 0, i32 2
   store ptr %fld5, ptr %dst6, align 8
   %dst_trace_ptr = getelementptr inbounds nuw %ori.Error, ptr %0, i32 0, i32 1
-  %len = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 0
-  store i64 0, ptr %len, align 8
-  %cap = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 1
-  store i64 0, ptr %cap, align 8
-  %data = getelementptr inbounds nuw { i64, i64, ptr }, ptr %dst_trace_ptr, i32 0, i32 2
-  store ptr null, ptr %data, align 8
+  store { i64, i64, ptr } zeroinitializer, ptr %dst_trace_ptr, align 8
   ret void
 }
 

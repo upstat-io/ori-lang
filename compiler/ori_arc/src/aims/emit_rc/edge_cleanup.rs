@@ -245,22 +245,6 @@ pub(crate) fn emit_edge_cleanup(
 
 /// Apply collected edge decs: prepend for single-pred successors, trampoline
 /// for multi-pred successors.
-/// TRUE iff `var`'s type carries a user `@drop` (drop glue) per the burden
-/// registry — the observable-release discriminator for edge-dec placement.
-fn var_has_drop_glue(
-    func: &ArcFunction,
-    var: ArcVarId,
-    type_registry: &ori_types::TypeRegistry,
-) -> bool {
-    use crate::lower::burden::Burden as _;
-    let Some(ty) = func.var_types.get(var.index()).copied() else {
-        return false;
-    };
-    let type_ref = crate::lower::burden_lookup::idx_to_type_ref(ty, type_registry);
-    crate::lower::burden_lookup::lookup_burden(type_ref, type_registry)
-        .is_some_and(|b| b.user_drop().is_some())
-}
-
 fn apply_edge_decs(
     func: &mut ArcFunction,
     predecessors: &[Vec<usize>],
