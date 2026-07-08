@@ -20,7 +20,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 
 use super::{function_used_vars, ForwarderReleasePos};
 use death_point::{choose_death_point, DeathPoint, DeathPointModes};
@@ -165,7 +165,8 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     //    later consumed at a borrowed-`Invoke` arg — the CARRIER-SUCC family
     //    whose sole release lands at the consuming `Invoke`'s normal-successor
     //    entry ([`collect_fresh_builtin_invoke_result_roots`]).
-    let collection_roots = collect_fresh_construct_roots(func, owned_vars_needing_rc);
+    let (collection_roots, struct_roots) =
+        collect_fresh_construct_roots(func, owned_vars_needing_rc);
     let (result_root_vec, fresh_result_roots) =
         collect_borrowed_call_result_roots(func, owned_vars_needing_rc, contracts);
     let result_roots: FxHashSet<ArcVarId> = result_root_vec.iter().copied().collect();
@@ -199,6 +200,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
             &result_roots,
             &fresh_result_roots,
             &builtin_result_roots,
+            &struct_roots,
             &claimed_roots,
             contracts,
             interner,
@@ -313,6 +315,17 @@ fn record_admitted_candidate(
               (construct-fed, live-extract, in-scan, result-roots) — bundling \
               would obscure the gate-(b)/(b')/(c) claim disjointness"
 )]
+/// TRUE iff any `Project` extracts a field from a lineage member into a
+/// non-member dst — the same-alloc struct-field view gate (s1) declines on.
+fn struct_root_has_field_extract(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
+    func.blocks.iter().any(|block| {
+        block.body.iter().any(|instr| {
+            matches!(instr, ArcInstr::Project { dst, value, .. }
+                if members.contains(value) && !members.contains(dst))
+        })
+    })
+}
+
 fn try_build_candidate(
     func: &ArcFunction,
     root: ArcVarId,
@@ -323,6 +336,7 @@ fn try_build_candidate(
     result_roots: &FxHashSet<ArcVarId>,
     fresh_result_roots: &FxHashSet<ArcVarId>,
     builtin_result_roots: &FxHashSet<ArcVarId>,
+    struct_roots: &FxHashSet<ArcVarId>,
     claimed_roots: &FxHashSet<ArcVarId>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
@@ -371,6 +385,17 @@ fn try_build_candidate(
         decline("c:no-borrowed-invoke");
         return None;
     }
+    // Gate (s1): a STRUCT root with ANY field extract declines — a struct field
+    // `Project` IS a same-alloc view (unlike a collection element, which is an
+    // `Invoke` RESULT with its own allocation); a whole-var release beside a
+    // live extract double-frees the extracted field's backing. Conservative:
+    // any `Project` of a member with a non-member dst declines the candidate
+    // (declining is memory-safe — status-quo emission). Spec: Annex E §AIMS
+    // RL-2 + TF-4.
+    if struct_roots.contains(&root) && struct_root_has_field_extract(func, &members) {
+        decline("s1:struct-field-extract");
+        return None;
+    }
     // Gate (c2): DECLINE when any member is a borrowed-`Invoke` arg to an
     // ITER-CONSUMING callee (`for w in coll` inside the callee → its
     // `ori_iter_drop` frees the buffer; RL-2 `iter_consumes` ownership transfer
@@ -398,8 +423,11 @@ fn try_build_candidate(
     // caller allocates before the loop and borrow-reads inside it. A RESULT
     // root is defined by an in-loop `Invoke` (per-iteration; (l3) declines it
     // anyway) and stays with the dead-param / no-sink modes.
-    let allow_loop_exit =
-        !result_roots.contains(&root) && !loop_borrowed_lineage_exit_release_disabled();
+    // STRUCT roots stay with the dead-param / no-sink modes (loop-exit +
+    // carrier-succ are excluded at admission until a failing cell exists).
+    let allow_loop_exit = !result_roots.contains(&root)
+        && !struct_roots.contains(&root)
+        && !loop_borrowed_lineage_exit_release_disabled();
     // CARRIER-SUCC mode is restricted to the SELF-ALLOCATING-BUILTIN result
     // family: the root is structurally a fresh rc=1 buffer the runtime
     // allocated (never a view, never a caller-aliased transfer), so the single

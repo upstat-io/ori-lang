@@ -32,14 +32,23 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKi
 ///    overlap gate place EXACTLY ONE release after the closure's final
 ///    borrow-read on the normal exit. Spec: Annex E §AIMS RL-2 + RL-4.
 ///
-/// Plain `Struct` ctors stay DECLINED (no failing cell; a wider admission is
-/// over-fire surface without evidence). An SSO str literal (absent from
-/// `owned_vars_needing_rc`) declines naturally — no RC burden.
+/// Plain `Struct` ctors are admitted under the SAME `owned_vars_needing_rc`
+/// heap-burden discriminator as the `EnumVariant` arm (a let-bound user-drop
+/// struct key borrowed by a map-insert `Invoke` terminator is the failing cell:
+/// the base walk's inline `[AggFields]` dec runs the key's drop glue BEFORE the
+/// call reads it). Struct roots are returned in the second set — the caller
+/// restricts them to the DEAD-PARAM + NO-SINK death-point modes (loop-exit +
+/// carrier-succ stay excluded until a failing cell exists) and declines any
+/// struct root carrying a live field extract (a struct field `Project` IS a
+/// same-alloc view; a whole-var release would double-free its backing). An SSO
+/// str literal (absent from `owned_vars_needing_rc`) declines naturally — no
+/// RC burden.
 pub(super) fn collect_fresh_construct_roots(
     func: &ArcFunction,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-) -> Vec<ArcVarId> {
+) -> (Vec<ArcVarId>, FxHashSet<ArcVarId>) {
     let mut roots: Vec<ArcVarId> = Vec::new();
+    let mut struct_roots: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
@@ -60,11 +69,21 @@ pub(super) fn collect_fresh_construct_roots(
                     value: ArcValue::Literal(LitValue::String(_)),
                     ..
                 } if owned_vars_needing_rc.contains(dst) => roots.push(*dst),
+                // Plain `Struct` Construct: same membership gate; tagged for the
+                // caller's mode restriction + field-extract decline.
+                ArcInstr::Construct {
+                    dst,
+                    ctor: CtorKind::Struct(_),
+                    ..
+                } if owned_vars_needing_rc.contains(dst) => {
+                    roots.push(*dst);
+                    struct_roots.insert(*dst);
+                }
                 _ => {}
             }
         }
     }
-    roots
+    (roots, struct_roots)
 }
 
 /// Candidate RESULT roots: a heap `Invoke` result of a may-unwind USER call

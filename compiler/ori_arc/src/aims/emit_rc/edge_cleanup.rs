@@ -245,6 +245,22 @@ pub(crate) fn emit_edge_cleanup(
 
 /// Apply collected edge decs: prepend for single-pred successors, trampoline
 /// for multi-pred successors.
+/// TRUE iff `var`'s type carries a user `@drop` (drop glue) per the burden
+/// registry — the observable-release discriminator for edge-dec placement.
+fn var_has_drop_glue(
+    func: &ArcFunction,
+    var: ArcVarId,
+    type_registry: &ori_types::TypeRegistry,
+) -> bool {
+    use crate::lower::burden::Burden as _;
+    let Some(ty) = func.var_types.get(var.index()).copied() else {
+        return false;
+    };
+    let type_ref = crate::lower::burden_lookup::idx_to_type_ref(ty, type_registry);
+    crate::lower::burden_lookup::lookup_burden(type_ref, type_registry)
+        .is_some_and(|b| b.user_drop().is_some())
+}
+
 fn apply_edge_decs(
     func: &mut ArcFunction,
     predecessors: &[Vec<usize>],
@@ -284,19 +300,43 @@ fn apply_edge_decs(
             // Faithful release: `BurdenDec` paired per edge `RcDec` nets 0
             // across this CFG edge (RL-4); suppressed for an owned-transfer
             // arg of `pred`'s terminator (already balanced at the transfer).
-            let dec_instrs: Vec<ArcInstr> = decs
+            // An aggregate dec (`AggregateFields` / `InlineEnum`) may run a
+            // user `@drop` (drop glue — a trait-impl fact ori_arc cannot see;
+            // codegen's `user_drop_method` is that SSOT), making the release
+            // OBSERVABLE: block-entry placement would fire the `@drop` before
+            // the successor's remaining statements and before the walk's own
+            // scope-exit decs, inverting the user-visible drop order.
+            // Aggregate decs land at the END of the successor body — the RL-2
+            // scope-exit position; the var is dead at entry, so the delay is
+            // unobservable for a glue-less aggregate and correct for `@drop`
+            // ordering. Non-aggregate strategies keep entry placement.
+            // Spec: Annex E §AIMS RL-2 + RL-4 + RL-DROP.
+            let (glue_decs, plain_decs): (Vec<EdgeDec>, Vec<EdgeDec>) =
+                decs.iter().copied().partition(|&(_, strategy)| {
+                    matches!(
+                        strategy,
+                        RcStrategy::AggregateFields | RcStrategy::InlineEnum
+                    )
+                });
+            let release = |func: &ArcFunction, var: ArcVarId, strategy: RcStrategy| {
+                if burden_only {
+                    super::release_burden_only_edge(func, *pred, *succ, var)
+                } else {
+                    super::release_with_burden_edge(func, *pred, var, strategy)
+                }
+            };
+            let entry_instrs: Vec<ArcInstr> = plain_decs
                 .iter()
-                .flat_map(|&(var, strategy)| {
-                    if burden_only {
-                        super::release_burden_only_edge(func, *pred, *succ, var)
-                    } else {
-                        super::release_with_burden_edge(func, *pred, var, strategy)
-                    }
-                })
+                .flat_map(|&(var, strategy)| release(func, var, strategy))
+                .collect();
+            let end_instrs: Vec<ArcInstr> = glue_decs
+                .iter()
+                .flat_map(|&(var, strategy)| release(func, var, strategy))
                 .collect();
             let body = &mut func.blocks[*succ].body;
-            let mut new_body = dec_instrs;
+            let mut new_body = entry_instrs;
             new_body.append(body);
+            new_body.extend(end_instrs);
             *body = new_body;
         } else {
             trampolines.push((*pred, *succ, decs.clone()));

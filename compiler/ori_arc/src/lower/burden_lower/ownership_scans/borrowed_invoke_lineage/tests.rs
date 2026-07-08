@@ -128,7 +128,7 @@ fn collect_roots_admits_list_construct_declines_string_literal() {
             ArcTerminator::Unreachable,
         )],
     );
-    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
+    let (roots, _) = collect_fresh_construct_roots(&f, &FxHashSet::default());
     assert_eq!(
         roots,
         vec![vv(0)],
@@ -154,11 +154,15 @@ fn collect_roots_admits_owned_enum_variant_construct() {
     let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
     owned.insert(vv(0));
     owned.insert(vv(1));
-    let roots = collect_fresh_construct_roots(&f, &owned);
+    let (roots, struct_roots) = collect_fresh_construct_roots(&f, &owned);
     assert_eq!(
         roots,
         vec![vv(0), vv(1)],
         "the owned EnumVariant AND the owned plain-Struct Constructs are admitted",
+    );
+    assert!(
+        struct_roots.contains(&vv(1)) && !struct_roots.contains(&vv(0)),
+        "only the plain-Struct root carries the struct tag",
     );
 }
 
@@ -175,7 +179,7 @@ fn collect_roots_declines_struct_construct_without_rc_burden() {
             ArcTerminator::Unreachable,
         )],
     );
-    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
+    let (roots, _) = collect_fresh_construct_roots(&f, &FxHashSet::default());
     assert!(
         roots.is_empty(),
         "a Struct Construct absent from owned_vars_needing_rc is not a root",
@@ -195,7 +199,7 @@ fn collect_roots_declines_scalar_payload_enum_variant() {
             ArcTerminator::Unreachable,
         )],
     );
-    let roots = collect_fresh_construct_roots(&f, &FxHashSet::default());
+    let (roots, _) = collect_fresh_construct_roots(&f, &FxHashSet::default());
     assert!(
         roots.is_empty(),
         "an EnumVariant Construct absent from owned_vars_needing_rc is not a root",
@@ -256,11 +260,12 @@ fn enum_variant_root_no_sink_admitted_and_claimed() {
     );
 }
 
-/// A plain Struct root reaching the same shape is NEVER a candidate (gate a does
-/// not admit `CtorKind::Struct`), so the scan suppresses nothing and claims
-/// nothing — the IR stays unchanged for the Struct lineage.
+/// A plain Struct root with an RC burden reaching the borrowed-`Invoke` shape
+/// IS a candidate: the scan suppresses the lineage and takes a death-point
+/// treatment (the no-sink claim for this sink-less shape) instead of leaving
+/// the premature inline `[AggFields]` dec in place.
 #[test]
-fn struct_root_not_a_candidate() {
+fn struct_root_admitted_with_rc_burden() {
     let f = func(
         4,
         vec![
@@ -292,10 +297,13 @@ fn struct_root_not_a_candidate() {
         &ori_ir::StringInterner::new(),
     );
     assert!(
-        out.suppressed_lineage_vars.is_empty()
-            && out.claimed_no_sink_vars.is_empty()
-            && out.releases.is_empty(),
-        "a plain Struct root is never a candidate (gate a declines it) — IR unchanged",
+        out.suppressed_lineage_vars.contains(&vv(0))
+            && out.suppressed_lineage_vars.contains(&vv(1)),
+        "the owned Struct lineage is suppressed (premature inline dec removed)",
+    );
+    assert!(
+        !out.claimed_no_sink_vars.is_empty() || !out.releases.is_empty(),
+        "the struct lineage takes a death-point treatment (no-sink claim or placed release)",
     );
 }
 
@@ -708,7 +716,7 @@ fn no_sink_minimal_classified_as_edge_death() {
     let f = no_sink_minimal_func();
     let members = vet_or_panic(&f, vv(0));
     assert_eq!(
-        choose_no_sink_carrier(&f, &members),
+        choose_no_sink_carrier(&f, &members, &ori_ir::StringInterner::new()),
         Some(vv(1)),
         "the borrowed-Invoke arg %1 is the no-sink edge-death carrier",
     );
@@ -774,7 +782,7 @@ fn no_sink_self_loop_carrier_declines() {
     );
     let members = vet_or_panic(&f, vv(0));
     assert!(
-        choose_no_sink_carrier(&f, &members).is_none(),
+        choose_no_sink_carrier(&f, &members, &ori_ir::StringInterner::new()).is_none(),
         "a carrier whose Invoke re-reaches its own block declines (CFG cycle, gate n1)",
     );
 }
@@ -820,7 +828,7 @@ fn no_sink_live_across_carrier_is_last_invoke() {
     );
     let members = vet_or_panic(&f, vv(0));
     assert_eq!(
-        choose_no_sink_carrier(&f, &members),
+        choose_no_sink_carrier(&f, &members, &ori_ir::StringInterner::new()),
         Some(vv(5)),
         "the execution-final carrier is the LAST borrowed Invoke's arg %5 (the \
          post-call last read), not the first %1",
@@ -890,7 +898,7 @@ fn no_sink_declines_heap_result_carrier() {
     f.var_reprs[2] = ValueRepr::RcPointer;
     let members = vet_or_panic(&f, vv(0));
     assert_eq!(
-        choose_no_sink_carrier(&f, &members),
+        choose_no_sink_carrier(&f, &members, &ori_ir::StringInterner::new()),
         None,
         "a heap-result borrowing Invoke may return a same-alloc view; decline",
     );

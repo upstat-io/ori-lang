@@ -97,7 +97,7 @@ pub(super) fn choose_death_point(
             dec_var,
         });
     }
-    if let Some(death) = choose_no_sink_death(func, members, modes.no_sink) {
+    if let Some(death) = choose_no_sink_death(func, members, modes.no_sink, interner) {
         return Some(death);
     }
     if modes.carrier_succ {
@@ -129,11 +129,12 @@ fn choose_no_sink_death(
     func: &ArcFunction,
     members: &FxHashSet<ArcVarId>,
     allow_no_sink: bool,
+    interner: &ori_ir::StringInterner,
 ) -> Option<DeathPoint> {
     if !allow_no_sink {
         return None;
     }
-    let claim = choose_no_sink_carrier(func, members)?;
+    let claim = choose_no_sink_carrier(func, members, interner)?;
     // Live Project-extract decline gate: `same_alloc_closure_vetted` does NOT
     // grow the closure to include `Project` results (a buffer element / niche
     // payload extracted from a member is a DISTINCT allocation the result-lineage
@@ -290,7 +291,9 @@ fn has_live_project_extract(
 pub(super) fn choose_no_sink_carrier(
     func: &ArcFunction,
     members: &FxHashSet<ArcVarId>,
+    interner: &ori_ir::StringInterner,
 ) -> Option<ArcVarId> {
+    let copy_arg_callees = crate::borrow::consuming_receiver_only_builtin_names(interner);
     // Carrier blocks: a block whose may-unwind `Invoke`/`InvokeIndirect`
     // terminator reads a member at a BORROWED arg position. Record (block_idx,
     // carrier_var).
@@ -321,14 +324,21 @@ pub(super) fn choose_no_sink_carrier(
         // A heap-typed result may be a same-allocation VIEW of the carrier (a
         // slice): the view keeps the allocation live at the successor, the
         // per-edge probe suppresses the release on both edges, and the
-        // suppressed inline pair releases nothing. Only a provably-Scalar
-        // result is safe for the no-sink claim (an unpopulated repr declines
-        // conservatively). Spec: Annex E §AIMS RL-2.
-        if func
+        // suppressed inline pair releases nothing. A provably-Scalar result is
+        // safe; so is a COPY-SEMANTICS builtin callee (`insert`/`remove`/
+        // set-algebra per `CONSUMING_RECEIVER_ONLY_METHOD_NAMES`) whose
+        // borrowed non-receiver args are elem-inc'd into the result, never held
+        // as raw views. An unpopulated repr with an unknown callee declines
+        // conservatively. Spec: Annex E §AIMS RL-2.
+        let result_scalar = func
             .var_reprs
             .get(dst.index())
-            .is_none_or(|r| *r != crate::ir::ValueRepr::Scalar)
-        {
+            .is_some_and(|r| *r == crate::ir::ValueRepr::Scalar);
+        let copy_semantics_callee = matches!(
+            term,
+            ArcTerminator::Invoke { func: callee, .. } if copy_arg_callees.contains(callee)
+        );
+        if !result_scalar && !copy_semantics_callee {
             continue;
         }
         for (pos, &v) in term.used_vars().iter().enumerate() {

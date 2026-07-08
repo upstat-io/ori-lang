@@ -1305,3 +1305,83 @@ impl Key: Hashable {
         "map len 1 + extracted tag length 43 expected; stdout:\n{stdout}"
     );
 }
+
+/// Matrix cell: a LET-BOUND struct VALUE with NO user drop (heap str field
+/// only) borrowed by the map-insert Invoke terminator — value-position analog
+/// of the no-user-drop key cell. Must run clean.
+#[test]
+fn map_insert_let_bound_struct_value_no_user_drop_clean() {
+    let source = r#"
+type Val = { tag: str }
+
+@main () -> void = {
+    let v = Val { tag: "some heap allocated value tag string long" };
+    let m: {str: Val} = {};
+    let m2 = m.insert(key: "k", value: v);
+    print(msg: `{m2.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "let-bound struct-value insert must not double-free or leak; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains('1'),
+        "the inserted map must report len 1; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: BOTH channels let-bound user-drop structs — two admitted
+/// lineages borrowed by one insert call. Both drops must fire at teardown
+/// (after the insert), key channel first panicking, value channel still
+/// dropping via the two-channel cleanup.
+#[test]
+fn drop_map_both_channels_let_bound_structs() {
+    let source = r#"
+type BoomKey = { tag: str }
+
+impl BoomKey: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-key-{self.tag}`);
+        panic(msg: "boom-key")
+    }
+}
+
+impl BoomKey: Eq {
+    @eq (self, other: BoomKey) -> bool = self.tag == other.tag;
+}
+
+impl BoomKey: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+type Val = { tag: str }
+
+impl Val: Drop {
+    @drop (self) -> void = print(msg: `val-{self.tag}`);
+}
+
+@main () -> void = {
+    let k = BoomKey { tag: "k" };
+    let v = Val { tag: "v" };
+    let m: {BoomKey: Val} = {};
+    let m2 = m.insert(key: k, value: v);
+    print(msg: "inserted");
+
+    let w = [m2]
+}
+"#;
+    let (_exit_code, stdout, _stderr) = compile_and_run_capture(source);
+    let inserted = stdout.find("inserted");
+    let boom = stdout.find("boom-key-k");
+    let val = stdout.find("val-v");
+    assert!(
+        inserted.is_some() && boom.is_some() && val.is_some(),
+        "insert marker + both channel drops must all run; stdout:\n{stdout}"
+    );
+    assert!(
+        inserted < boom,
+        "the key drop must fire at teardown, AFTER the insert; stdout:\n{stdout}"
+    );
+}
