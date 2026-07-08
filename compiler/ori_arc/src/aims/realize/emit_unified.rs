@@ -4140,7 +4140,11 @@ fn record_iter_consume_uses(
         let Some(param) = contract.params.get(pos) else {
             continue;
         };
-        if !param.iter_consumes {
+        // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
+        // (`ApplyToIterConsumingParam`); a ttr+iter-consume callee transfers the
+        // arg out through its return, so the caller-side consume accounting
+        // (Phase 6.66 multi-borrow) must not count it here.
+        if !param.iter_consumes || param.transfers_through_return {
             continue;
         }
         record(arg);
@@ -4694,7 +4698,15 @@ fn user_callee_iter_consume_uses_of_rep(
             if rep_of(arg) != rep {
                 continue;
             }
-            if contract.params.get(pos).is_some_and(|p| p.iter_consumes) {
+            // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
+            // (`ApplyToIterConsumingParam`); a ttr+iter-consume callee hands the
+            // arg back through its return (Phase 6.66d territory) — stripping the
+            // caller's ops for it would drop the transferred lineage's release.
+            if contract
+                .params
+                .get(pos)
+                .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
+            {
                 uses.push(IterConsumeUse { block, instr });
             }
         }
@@ -8567,6 +8579,15 @@ fn compute_fresh_owned_collection_reps(
     // && s.contains(..)`). The str analogue of the conversion / set-algebra producers;
     // freed here as a dead-at-scope-exit value. Spec: Annex E §AIMS RL-2.
     let fresh_str_names = fresh_str_producing_method_names(interner);
+    // The `__collect_set` PROTOCOL builtin (`Set<T> = xs.iter().collect()`) is the
+    // protocol-lowered sibling of the bare `@collect`/`@collect_set` consumer names:
+    // `ori_iter_collect_set` copies + `elem_inc_fn`s each element into a FRESH set
+    // buffer distinct from the consumed iterator + its source. Admitted by exact
+    // protocol name (NOT `is_self_allocating_builtin_callee` wholesale — that set
+    // re-covers the bare names and must not bypass the COW receiver-origin gate).
+    // Spec: Annex E §AIMS RL-2.
+    let collect_set_protocol =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -8604,6 +8625,11 @@ fn compute_fresh_owned_collection_reps(
                 ArcInstr::Apply {
                     dst, func: callee, ..
                 } if iter_consumer_names.contains(callee) => *dst,
+                // The `__collect_set` protocol-builtin result is the same fresh
+                // owned collection through the protocol lowering.
+                ArcInstr::Apply {
+                    dst, func: callee, ..
+                } if *callee == collect_set_protocol => *dst,
                 // A set-algebra result (`@union`/`@difference`/`@intersection`) is a
                 // fresh owned Set — distinct allocation from both operands.
                 ArcInstr::Apply {
@@ -8673,6 +8699,7 @@ fn compute_fresh_owned_collection_reps(
             let is_fresh = (cow_names.contains(callee) && cow_receiver_is_fresh_local(args))
                 || conversion_names.contains(callee)
                 || iter_consumer_names.contains(callee)
+                || *callee == collect_set_protocol
                 || set_algebra_names.contains(callee)
                 || fresh_str_names.contains(callee)
                 || (dst_is_freeable && user_call_fresh_result(*callee, args, *dst));

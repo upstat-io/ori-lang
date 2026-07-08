@@ -5791,3 +5791,51 @@ fn probe_list_str_collect_iter_consuming_call_no_double_free() {
 "#;
     assert_burden_path_self_sufficient(src, "list_str_collect_iter_consuming_call");
 }
+
+/// Regression: heap-elem Set collect borrowed at a MAY-UNWIND call to the
+/// iter-consuming generic callee (`catch` wraps the call so it lowers to an
+/// `Invoke` terminator arg) — pins the Invoke-terminator admission arm.
+#[test]
+fn probe_set_str_collect_invoke_terminator_iter_consuming_call_no_double_free() {
+    let src = r#"
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let r = catch(expr: count_explicit(c: s));
+    let n = match r {
+        Ok(v) -> v,
+        Err(_) -> 0,
+    };
+    if n == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "set_str_collect_invoke_terminator_iter_consuming_call",
+    );
+}
+
+/// Regression: heap-key map built then borrowed-read through the `keys()`
+/// conversion — clamps the narrowed `__collect_set` admission against touching
+/// map-producing names (the conversion-result accounting must be unchanged).
+#[test]
+fn probe_map_str_keys_conversion_unchanged_by_collect_admission() {
+    let src = r#"
+@main () -> int = {
+    let m = {
+        "a very long map key string exceeding the sso threshold for sure": 1,
+        "another long map key string for conversion clamp coverage": 2
+    };
+    let ks = m.keys();
+    if ks.len() == 2 then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "map_str_keys_conversion_unchanged_by_collect_admission",
+    );
+}
