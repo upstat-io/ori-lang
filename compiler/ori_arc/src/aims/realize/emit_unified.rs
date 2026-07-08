@@ -245,19 +245,34 @@ pub(super) fn emit_rc_unified(
 /// user-`@drop`-observable order changes. An adjacent whole-var
 /// `BurdenDec v` + `RcDec v` marker pair moves as one unit. Spec: Annex E
 /// §AIMS RL-2 + RL-DROP.
+/// The released var of a scope-exit release op (whole-var or field-grain),
+/// `None` for every non-release instruction.
+fn release_var(instr: &ArcInstr) -> Option<ArcVarId> {
+    match instr {
+        ArcInstr::RcDec { var, .. }
+        | ArcInstr::BurdenDec { var }
+        | ArcInstr::RcDecPartial { var, .. }
+        | ArcInstr::BurdenDecPartial { var, .. }
+        | ArcInstr::RcDecVariant { var }
+        | ArcInstr::BurdenDecVariant { var } => Some(*var),
+        ArcInstr::RcDecField { base, .. } | ArcInstr::BurdenDecField { base, .. } => Some(*base),
+        _ => None,
+    }
+}
+
 fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
     for block in &mut func.blocks {
         if !matches!(block.terminator, crate::ir::ArcTerminator::Return { .. }) {
             continue;
         }
         let body = &mut block.body;
-        // The maximal trailing run of release ops (whole-var RcDec / BurdenDec).
+        // The maximal trailing run of release ops — whole-var AND field-grain
+        // (a partial/field/variant dec walks field payloads whose drop glue
+        // may fire transitively, so it is order-bearing and must not truncate
+        // the run).
         let mut start = body.len();
-        while start > 0 {
-            match &body[start - 1] {
-                ArcInstr::RcDec { .. } | ArcInstr::BurdenDec { .. } => start -= 1,
-                _ => break,
-            }
+        while start > 0 && release_var(&body[start - 1]).is_some() {
+            start -= 1;
         }
         if body.len() - start < 2 {
             continue;
@@ -275,11 +290,13 @@ fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
                     units.push((b.index() as u32, vec![tail[i].clone(), tail[i + 1].clone()]));
                     i += 2;
                 }
-                (ArcInstr::RcDec { var, .. } | ArcInstr::BurdenDec { var }, _) => {
+                _ => {
+                    let Some(var) = release_var(&tail[i]) else {
+                        unreachable!("trailing run contains only release ops")
+                    };
                     units.push((var.index() as u32, vec![tail[i].clone()]));
                     i += 1;
                 }
-                _ => unreachable!("trailing run contains only release ops"),
             }
         }
         units.sort_by(|a, b| b.0.cmp(&a.0));
