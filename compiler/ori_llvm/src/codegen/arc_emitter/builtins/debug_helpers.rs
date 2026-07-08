@@ -281,54 +281,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Call a compiled `.debug()` method for a type via method dispatch.
+    /// Call a compiled `str`-returning derived method (`debug` / `to_str`)
+    /// for a type via method dispatch.
     ///
-    /// Looks up the type's debug function in `method_functions`, applies
-    /// ABI parameter passing (Indirect for large structs), and handles
-    /// sret return (debug returns `str` which is 24 bytes → sret).
-    /// Returns `None` if no compiled debug method exists for the type.
-    pub(super) fn emit_derived_debug_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+    /// Looks up `method_name` in `method_functions`, applies ABI parameter
+    /// passing (Indirect for large structs), and handles the sret return
+    /// (both `debug` and `to_str` return `str`, which is 24 bytes -> sret).
+    /// Returns `None` if no compiled method exists for the type.
+    fn emit_derived_str_method_call(
+        &mut self,
+        val: ValueId,
+        ty: Idx,
+        method_name: &str,
+        label: &str,
+    ) -> Option<ValueId> {
         // Mono-first (per-instantiation concrete Idx) so a multi-instantiation
         // generic composite formats the layout-correct fields.
-        let interned_debug = self.interner.intern("debug");
-        let (func_id, abi) = self.derived_method_full(ty, interned_debug)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, abi) = self.derived_method_full(ty, interned_method)?;
 
         let raw_args = [val];
         let passed_args = self.apply_param_passing(&raw_args, None, &abi.params);
 
-        // Debug returns str (24 bytes), which uses sret return convention.
         match &abi.return_abi.passing {
             crate::codegen::abi::ReturnPassing::Sret { .. } => {
                 let str_ty = self.resolve_type(Idx::STR);
-                self.call_with_sret(func_id, &passed_args, str_ty, "dbg.derived")
+                self.call_with_sret(func_id, &passed_args, str_ty, label)
             }
-            _ => self.emit_rt_call(func_id, &passed_args, "dbg.derived"),
+            _ => self.emit_rt_call(func_id, &passed_args, label),
         }
+    }
+
+    /// Call a compiled `.debug()` method for a type via method dispatch.
+    ///
+    /// Returns `None` if no compiled debug method exists for the type.
+    pub(super) fn emit_derived_debug_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+        self.emit_derived_str_method_call(val, ty, "debug", "dbg.derived")
     }
 
     /// Call a compiled `.to_str()` (Printable) method for a type via method
     /// dispatch. Printable analog of [`emit_derived_debug_call`].
     ///
-    /// Looks up the type's `to_str` function in `method_functions`, applies
-    /// ABI parameter passing (Indirect for large structs), and handles the
-    /// sret return (`to_str` returns `str` which is 24 bytes -> sret).
     /// Returns `None` if no compiled `to_str` method exists for the type.
     pub(super) fn emit_derived_to_str_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
-        // Mono-first (per-instantiation concrete Idx) so a multi-instantiation
-        // generic composite formats the layout-correct fields.
-        let interned_to_str = self.interner.intern("to_str");
-        let (func_id, abi) = self.derived_method_full(ty, interned_to_str)?;
-
-        let raw_args = [val];
-        let passed_args = self.apply_param_passing(&raw_args, None, &abi.params);
-
-        // to_str returns str (24 bytes), which uses sret return convention.
-        match &abi.return_abi.passing {
-            crate::codegen::abi::ReturnPassing::Sret { .. } => {
-                let str_ty = self.resolve_type(Idx::STR);
-                self.call_with_sret(func_id, &passed_args, str_ty, "tstr.derived")
-            }
-            _ => self.emit_rt_call(func_id, &passed_args, "tstr.derived"),
-        }
+        self.emit_derived_str_method_call(val, ty, "to_str", "tstr.derived")
     }
 }

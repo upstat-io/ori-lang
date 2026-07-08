@@ -19,29 +19,57 @@ use crate::ast::TemplatePart;
 use super::{to_u16, to_u32, ExprArena};
 
 impl ExprArena {
+    /// Append `items` to `storage` and return the covering range built via
+    /// `ctor`. Every `alloc_*` range builder in this file shares this exact
+    /// append + overflow-check + range-construction skeleton; only the
+    /// backing storage, the range constructor, and the two labels
+    /// (for the `to_u32`/`to_u16` overflow diagnostics) differ per call.
+    #[inline]
+    fn alloc_range<T, R>(
+        storage: &mut Vec<T>,
+        items: impl IntoIterator<Item = T>,
+        ctor: impl FnOnce(u32, u16) -> R,
+        storage_label: &str,
+        list_label: &str,
+    ) -> R {
+        let start = to_u32(storage.len(), storage_label);
+        storage.extend(items);
+        debug_assert!(
+            storage.len() >= start as usize,
+            "arena corruption: {storage_label} length {} < start {start}",
+            storage.len(),
+        );
+        let len = to_u16(storage.len() - start as usize, list_label);
+        ctor(start, len)
+    }
+
+    /// Slice `storage` by a `(start, len)` range. Every `get_*` range
+    /// accessor in this file shares this exact index computation.
+    #[inline]
+    fn slice_range<T>(storage: &[T], start: u32, len: u16) -> &[T] {
+        let start = start as usize;
+        let end = start + len as usize;
+        &storage[start..end]
+    }
+
     // -- Expression List Ranges --
 
     /// Allocate expression list, return range.
     #[inline]
     pub fn alloc_expr_list(&mut self, exprs: impl IntoIterator<Item = ExprId>) -> ExprRange {
-        let start = to_u32(self.expr_lists.len(), "expression lists");
-        self.expr_lists.extend(exprs);
-        debug_assert!(
-            self.expr_lists.len() >= start as usize,
-            "arena corruption: expr_lists length {} < start {}",
-            self.expr_lists.len(),
-            start
-        );
-        let len = to_u16(self.expr_lists.len() - start as usize, "expression list");
-        ExprRange::new(start, len)
+        Self::alloc_range(
+            &mut self.expr_lists,
+            exprs,
+            ExprRange::new,
+            "expression lists",
+            "expression list",
+        )
     }
 
     /// Get expression list by range.
     #[inline]
     pub fn get_expr_list(&self, range: ExprRange) -> &[ExprId] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.expr_lists[start..end]
+        Self::slice_range(&self.expr_lists, range.start, range.len)
     }
 
     /// Allocate expression list from a slice, always storing in `expr_lists`.
@@ -64,33 +92,26 @@ impl ExprArena {
 
     /// Get statements by range.
     pub fn get_stmt_range(&self, range: StmtRange) -> &[Stmt] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.stmts[start..end]
+        Self::slice_range(&self.stmts, range.start, range.len)
     }
 
     // -- Parameter Ranges --
 
     /// Allocate parameter list, return range.
     pub fn alloc_params(&mut self, params: impl IntoIterator<Item = Param>) -> ParamRange {
-        let start = to_u32(self.params.len(), "parameters");
-        self.params.extend(params);
-        debug_assert!(
-            self.params.len() >= start as usize,
-            "arena corruption: params length {} < start {}",
-            self.params.len(),
-            start
-        );
-        let len = to_u16(self.params.len() - start as usize, "parameter list");
-        ParamRange::new(start, len)
+        Self::alloc_range(
+            &mut self.params,
+            params,
+            ParamRange::new,
+            "parameters",
+            "parameter list",
+        )
     }
 
     /// Get parameters by range.
     #[inline]
     pub fn get_params(&self, range: ParamRange) -> &[Param] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.params[start..end]
+        Self::slice_range(&self.params, range.start, range.len)
     }
 
     /// Get just the parameter names from a range.
@@ -115,24 +136,19 @@ impl ExprArena {
 
     /// Allocate match arms, return range.
     pub fn alloc_arms(&mut self, arms: impl IntoIterator<Item = MatchArm>) -> ArmRange {
-        let start = to_u32(self.arms.len(), "match arms");
-        self.arms.extend(arms);
-        debug_assert!(
-            self.arms.len() >= start as usize,
-            "arena corruption: arms length {} < start {}",
-            self.arms.len(),
-            start
-        );
-        let len = to_u16(self.arms.len() - start as usize, "match arm list");
-        ArmRange::new(start, len)
+        Self::alloc_range(
+            &mut self.arms,
+            arms,
+            ArmRange::new,
+            "match arms",
+            "match arm list",
+        )
     }
 
     /// Get match arms by range.
     #[inline]
     pub fn get_arms(&self, range: ArmRange) -> &[MatchArm] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.arms[start..end]
+        Self::slice_range(&self.arms, range.start, range.len)
     }
 
     // -- Map Entry Ranges --
@@ -142,24 +158,19 @@ impl ExprArena {
         &mut self,
         entries: impl IntoIterator<Item = MapEntry>,
     ) -> MapEntryRange {
-        let start = to_u32(self.map_entries.len(), "map entries");
-        self.map_entries.extend(entries);
-        debug_assert!(
-            self.map_entries.len() >= start as usize,
-            "arena corruption: map_entries length {} < start {}",
-            self.map_entries.len(),
-            start
-        );
-        let len = to_u16(self.map_entries.len() - start as usize, "map entry list");
-        MapEntryRange::new(start, len)
+        Self::alloc_range(
+            &mut self.map_entries,
+            entries,
+            MapEntryRange::new,
+            "map entries",
+            "map entry list",
+        )
     }
 
     /// Get map entries by range.
     #[inline]
     pub fn get_map_entries(&self, range: MapEntryRange) -> &[MapEntry] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.map_entries[start..end]
+        Self::slice_range(&self.map_entries, range.start, range.len)
     }
 
     // -- Field Init Ranges --
@@ -169,27 +180,19 @@ impl ExprArena {
         &mut self,
         inits: impl IntoIterator<Item = FieldInit>,
     ) -> FieldInitRange {
-        let start = to_u32(self.field_inits.len(), "field initializers");
-        self.field_inits.extend(inits);
-        debug_assert!(
-            self.field_inits.len() >= start as usize,
-            "arena corruption: field_inits length {} < start {}",
-            self.field_inits.len(),
-            start
-        );
-        let len = to_u16(
-            self.field_inits.len() - start as usize,
+        Self::alloc_range(
+            &mut self.field_inits,
+            inits,
+            FieldInitRange::new,
+            "field initializers",
             "field initializer list",
-        );
-        FieldInitRange::new(start, len)
+        )
     }
 
     /// Get field initializers by range.
     #[inline]
     pub fn get_field_inits(&self, range: FieldInitRange) -> &[FieldInit] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.field_inits[start..end]
+        Self::slice_range(&self.field_inits, range.start, range.len)
     }
 
     // -- Struct Literal Field Ranges --
@@ -199,27 +202,19 @@ impl ExprArena {
         &mut self,
         fields: impl IntoIterator<Item = StructLitField>,
     ) -> StructLitFieldRange {
-        let start = to_u32(self.struct_lit_fields.len(), "struct literal fields");
-        self.struct_lit_fields.extend(fields);
-        debug_assert!(
-            self.struct_lit_fields.len() >= start as usize,
-            "arena corruption: struct_lit_fields length {} < start {}",
-            self.struct_lit_fields.len(),
-            start
-        );
-        let len = to_u16(
-            self.struct_lit_fields.len() - start as usize,
+        Self::alloc_range(
+            &mut self.struct_lit_fields,
+            fields,
+            StructLitFieldRange::new,
+            "struct literal fields",
             "struct literal field list",
-        );
-        StructLitFieldRange::new(start, len)
+        )
     }
 
     /// Get struct literal fields by range.
     #[inline]
     pub fn get_struct_lit_fields(&self, range: StructLitFieldRange) -> &[StructLitField] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.struct_lit_fields[start..end]
+        Self::slice_range(&self.struct_lit_fields, range.start, range.len)
     }
 
     // -- List Element Ranges --
@@ -229,27 +224,19 @@ impl ExprArena {
         &mut self,
         elements: impl IntoIterator<Item = ListElement>,
     ) -> ListElementRange {
-        let start = to_u32(self.list_elements.len(), "list elements");
-        self.list_elements.extend(elements);
-        debug_assert!(
-            self.list_elements.len() >= start as usize,
-            "arena corruption: list_elements length {} < start {}",
-            self.list_elements.len(),
-            start
-        );
-        let len = to_u16(
-            self.list_elements.len() - start as usize,
+        Self::alloc_range(
+            &mut self.list_elements,
+            elements,
+            ListElementRange::new,
+            "list elements",
             "list element list",
-        );
-        ListElementRange::new(start, len)
+        )
     }
 
     /// Get list elements by range.
     #[inline]
     pub fn get_list_elements(&self, range: ListElementRange) -> &[ListElement] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.list_elements[start..end]
+        Self::slice_range(&self.list_elements, range.start, range.len)
     }
 
     // -- Map Element Ranges --
@@ -259,24 +246,19 @@ impl ExprArena {
         &mut self,
         elements: impl IntoIterator<Item = MapElement>,
     ) -> MapElementRange {
-        let start = to_u32(self.map_elements.len(), "map elements");
-        self.map_elements.extend(elements);
-        debug_assert!(
-            self.map_elements.len() >= start as usize,
-            "arena corruption: map_elements length {} < start {}",
-            self.map_elements.len(),
-            start
-        );
-        let len = to_u16(self.map_elements.len() - start as usize, "map element list");
-        MapElementRange::new(start, len)
+        Self::alloc_range(
+            &mut self.map_elements,
+            elements,
+            MapElementRange::new,
+            "map elements",
+            "map element list",
+        )
     }
 
     /// Get map elements by range.
     #[inline]
     pub fn get_map_elements(&self, range: MapElementRange) -> &[MapElement] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.map_elements[start..end]
+        Self::slice_range(&self.map_elements, range.start, range.len)
     }
 
     // -- Named Expression Ranges --
@@ -286,51 +268,38 @@ impl ExprArena {
         &mut self,
         exprs: impl IntoIterator<Item = NamedExpr>,
     ) -> NamedExprRange {
-        let start = to_u32(self.named_exprs.len(), "named expressions");
-        self.named_exprs.extend(exprs);
-        debug_assert!(
-            self.named_exprs.len() >= start as usize,
-            "arena corruption: named_exprs length {} < start {}",
-            self.named_exprs.len(),
-            start
-        );
-        let len = to_u16(
-            self.named_exprs.len() - start as usize,
+        Self::alloc_range(
+            &mut self.named_exprs,
+            exprs,
+            NamedExprRange::new,
+            "named expressions",
             "named expression list",
-        );
-        NamedExprRange::new(start, len)
+        )
     }
 
     /// Get named expressions by range.
     #[inline]
     pub fn get_named_exprs(&self, range: NamedExprRange) -> &[NamedExpr] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.named_exprs[start..end]
+        Self::slice_range(&self.named_exprs, range.start, range.len)
     }
 
     // -- Call Argument Ranges --
 
     /// Allocate call arguments, return range.
     pub fn alloc_call_args(&mut self, args: impl IntoIterator<Item = CallArg>) -> CallArgRange {
-        let start = to_u32(self.call_args.len(), "call arguments");
-        self.call_args.extend(args);
-        debug_assert!(
-            self.call_args.len() >= start as usize,
-            "arena corruption: call_args length {} < start {}",
-            self.call_args.len(),
-            start
-        );
-        let len = to_u16(self.call_args.len() - start as usize, "call argument list");
-        CallArgRange::new(start, len)
+        Self::alloc_range(
+            &mut self.call_args,
+            args,
+            CallArgRange::new,
+            "call arguments",
+            "call argument list",
+        )
     }
 
     /// Get call arguments by range.
     #[inline]
     pub fn get_call_args(&self, range: CallArgRange) -> &[CallArg] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.call_args[start..end]
+        Self::slice_range(&self.call_args, range.start, range.len)
     }
 
     // -- Generic Parameter Ranges --
@@ -340,27 +309,19 @@ impl ExprArena {
         &mut self,
         params: impl IntoIterator<Item = GenericParam>,
     ) -> GenericParamRange {
-        let start = to_u32(self.generic_params.len(), "generic parameters");
-        self.generic_params.extend(params);
-        debug_assert!(
-            self.generic_params.len() >= start as usize,
-            "arena corruption: generic_params length {} < start {}",
-            self.generic_params.len(),
-            start
-        );
-        let len = to_u16(
-            self.generic_params.len() - start as usize,
+        Self::alloc_range(
+            &mut self.generic_params,
+            params,
+            GenericParamRange::new,
+            "generic parameters",
             "generic parameter list",
-        );
-        GenericParamRange::new(start, len)
+        )
     }
 
     /// Get generic parameters by range.
     #[inline]
     pub fn get_generic_params(&self, range: GenericParamRange) -> &[GenericParam] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.generic_params[start..end]
+        Self::slice_range(&self.generic_params, range.start, range.len)
     }
 
     // -- Parsed Type List Ranges --
@@ -370,27 +331,19 @@ impl ExprArena {
         &mut self,
         types: impl IntoIterator<Item = ParsedTypeId>,
     ) -> ParsedTypeRange {
-        let start = to_u32(self.parsed_type_lists.len(), "parsed type lists");
-        self.parsed_type_lists.extend(types);
-        debug_assert!(
-            self.parsed_type_lists.len() >= start as usize,
-            "arena corruption: parsed_type_lists length {} < start {}",
-            self.parsed_type_lists.len(),
-            start
-        );
-        let len = to_u16(
-            self.parsed_type_lists.len() - start as usize,
+        Self::alloc_range(
+            &mut self.parsed_type_lists,
+            types,
+            ParsedTypeRange::new,
+            "parsed type lists",
             "parsed type list",
-        );
-        ParsedTypeRange::new(start, len)
+        )
     }
 
     /// Get parsed type list by range.
     #[inline]
     pub fn get_parsed_type_list(&self, range: ParsedTypeRange) -> &[ParsedTypeId] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.parsed_type_lists[start..end]
+        Self::slice_range(&self.parsed_type_lists, range.start, range.len)
     }
 
     // -- Match Pattern List Ranges --
@@ -400,27 +353,19 @@ impl ExprArena {
         &mut self,
         patterns: impl IntoIterator<Item = MatchPatternId>,
     ) -> MatchPatternRange {
-        let start = to_u32(self.match_pattern_lists.len(), "match pattern lists");
-        self.match_pattern_lists.extend(patterns);
-        debug_assert!(
-            self.match_pattern_lists.len() >= start as usize,
-            "arena corruption: match_pattern_lists length {} < start {}",
-            self.match_pattern_lists.len(),
-            start
-        );
-        let len = to_u16(
-            self.match_pattern_lists.len() - start as usize,
+        Self::alloc_range(
+            &mut self.match_pattern_lists,
+            patterns,
+            MatchPatternRange::new,
+            "match pattern lists",
             "match pattern list",
-        );
-        MatchPatternRange::new(start, len)
+        )
     }
 
     /// Get match pattern list by range.
     #[inline]
     pub fn get_match_pattern_list(&self, range: MatchPatternRange) -> &[MatchPatternId] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.match_pattern_lists[start..end]
+        Self::slice_range(&self.match_pattern_lists, range.start, range.len)
     }
 
     // -- Template Part Ranges --
@@ -430,21 +375,19 @@ impl ExprArena {
         &mut self,
         parts: impl IntoIterator<Item = TemplatePart>,
     ) -> TemplatePartRange {
-        let start = to_u32(self.template_parts.len(), "template parts");
-        self.template_parts.extend(parts);
-        let len = to_u16(
-            self.template_parts.len() - start as usize,
+        Self::alloc_range(
+            &mut self.template_parts,
+            parts,
+            TemplatePartRange::new,
+            "template parts",
             "template part list",
-        );
-        TemplatePartRange::new(start, len)
+        )
     }
 
     /// Get template parts by range.
     #[inline]
     pub fn get_template_parts(&self, range: TemplatePartRange) -> &[TemplatePart] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.template_parts[start..end]
+        Self::slice_range(&self.template_parts, range.start, range.len)
     }
 
     // -- Access Step Ranges --
@@ -454,23 +397,18 @@ impl ExprArena {
         &mut self,
         steps: impl IntoIterator<Item = AccessStep>,
     ) -> AccessStepRange {
-        let start = to_u32(self.access_steps.len(), "access steps");
-        self.access_steps.extend(steps);
-        debug_assert!(
-            self.access_steps.len() >= start as usize,
-            "arena corruption: access_steps length {} < start {}",
-            self.access_steps.len(),
-            start
-        );
-        let len = to_u16(self.access_steps.len() - start as usize, "access step list");
-        AccessStepRange::new(start, len)
+        Self::alloc_range(
+            &mut self.access_steps,
+            steps,
+            AccessStepRange::new,
+            "access steps",
+            "access step list",
+        )
     }
 
     /// Get access steps by range.
     #[inline]
     pub fn get_access_steps(&self, range: AccessStepRange) -> &[AccessStep] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.access_steps[start..end]
+        Self::slice_range(&self.access_steps, range.start, range.len)
     }
 }

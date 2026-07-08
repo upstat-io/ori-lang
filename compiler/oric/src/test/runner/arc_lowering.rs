@@ -102,7 +102,7 @@ pub(crate) fn lower_and_infer_borrows(
     interner: &ori_ir::StringInterner,
     pool: &ori_types::Pool,
     impl_sigs: &[(ori_types::Idx, Name, ori_types::FunctionSig)],
-    import_sigs: &[(Name, String, ori_types::FunctionSig)],
+    import_sigs: &[ori_llvm::monomorphize::ImportSig],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
     user_types: &[ori_types::TypeEntry],

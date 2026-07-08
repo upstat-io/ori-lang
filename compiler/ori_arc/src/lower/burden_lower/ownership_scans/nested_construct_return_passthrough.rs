@@ -31,6 +31,7 @@ use ori_ir::Name;
 use ori_types::TypeRegistry;
 
 use crate::aims::contract::MemoryContract;
+use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
 
 use crate::lower::burden::Burden;
@@ -186,24 +187,6 @@ fn resolve_roundtrip_rec(
         return Some(leaf);
     }
     Some(leaf)
-}
-
-/// `Let { dst, Var(src) }` alias map (dst -> src).
-fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
-    let mut out = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                out.insert(*dst, *src);
-            }
-        }
-    }
-    out
 }
 
 /// `Project { dst, value, field }` map (dst -> (src, field)).

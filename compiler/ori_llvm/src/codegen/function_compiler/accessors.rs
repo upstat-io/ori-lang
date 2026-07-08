@@ -6,9 +6,10 @@
 //! the sibling emission modules.
 
 use super::{
-    warn, FunctionAbi, FunctionCompiler, FunctionId, FunctionSig, FxHashMap, Idx, IrBuilder,
-    LLVMTypeId, Name, ParamPassing, Pool, ReturnPassing, Span, TypeInfoStore, ValueId,
+    warn, FunctionAbi, FunctionCompiler, FunctionId, FxHashMap, Idx, IrBuilder, LLVMTypeId, Name,
+    ParamPassing, Pool, ReturnPassing, Span, TypeInfoStore, ValueId,
 };
+use crate::monomorphize::ImportSig;
 
 impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
     /// Enter debug scope for the function being compiled.
@@ -107,13 +108,13 @@ impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
     /// `name` is the call-site local/aliased Name (the `codegen_ctx.functions`
     /// key `resolve_callee` probes); `symbol` is the exporting module's EXACT
     /// mangled symbol (never re-mangled against the host module path).
-    pub fn declare_imports(&mut self, imports: &[(Name, String, FunctionSig)]) {
+    pub fn declare_imports(&mut self, imports: &[ImportSig]) {
         // Several local aliases can share ONE extern symbol (`use { f as g,
         // f as h }`). Declare each symbol once; register every alias Name
         // against the same FunctionId (a second add_function on the same
         // symbol would make LLVM mint a renamed `sym.1` global).
         let mut declared: FxHashMap<&str, (FunctionId, FunctionAbi)> = FxHashMap::default();
-        for (name, symbol, sig) in imports {
+        for ImportSig { name, symbol, sig } in imports {
             if let Some(entry) = declared.get(symbol.as_str()) {
                 self.codegen_ctx.functions.insert(*name, entry.clone());
             } else {

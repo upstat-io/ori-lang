@@ -164,13 +164,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call(func_id, &[iter_ptr, elem_size_val], "iter.count")
     }
 
-    pub(in crate::codegen) fn emit_iter_any(
+    /// Shared emission for `iter.any(pred)` / `iter.all(pred)`: builds the
+    /// predicate trampoline, calls `runtime_fn_name`, and converts the `i8`
+    /// runtime result to `i1`. The two consumers differ only in which
+    /// runtime function they call and the emitted-value label prefix.
+    fn emit_iter_any_all(
         &mut self,
         iter_ptr: ValueId,
         arg_vals: &[ValueId],
-        _args: &[ArcVarId],
-        _arc_func: &ArcFunction,
         elem_ty: Idx,
+        runtime_fn_name: &'static str,
+        label: &str,
     ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
             return None;
@@ -184,18 +188,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func_id = self.builder.runtime_fn("ori_iter_any");
+        let func_id = self.builder.runtime_fn(runtime_fn_name);
         let result = self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
-            "iter.any",
+            label,
         )?;
 
         // Convert i8 -> i1
         let zero = self.builder.const_i64(0);
         let i8_ty = self.builder.i8_type();
         let zero_i8 = self.builder.trunc(zero, i8_ty, "zero");
-        Some(self.builder.icmp_ne(result, zero_i8, "iter.any.bool"))
+        Some(
+            self.builder
+                .icmp_ne(result, zero_i8, &format!("{label}.bool")),
+        )
+    }
+
+    pub(in crate::codegen) fn emit_iter_any(
+        &mut self,
+        iter_ptr: ValueId,
+        arg_vals: &[ValueId],
+        _args: &[ArcVarId],
+        _arc_func: &ArcFunction,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_iter_any_all(iter_ptr, arg_vals, elem_ty, "ori_iter_any", "iter.any")
     }
 
     pub(in crate::codegen) fn emit_iter_all(
@@ -206,30 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         _arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        if arg_vals.len() < 2 {
-            return None;
-        }
-        let closure = arg_vals[1];
-
-        let (tramp_fn, closure_env) =
-            self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
-
-        // Canonical element size — narrowing confined to list storage boundary.
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-
-        let func_id = self.builder.runtime_fn("ori_iter_all");
-        let result = self.emit_rt_call(
-            func_id,
-            &[iter_ptr, tramp_fn, closure_env, elem_size_val],
-            "iter.all",
-        )?;
-
-        // Convert i8 -> i1
-        let zero = self.builder.const_i64(0);
-        let i8_ty = self.builder.i8_type();
-        let zero_i8 = self.builder.trunc(zero, i8_ty, "zero");
-        Some(self.builder.icmp_ne(result, zero_i8, "iter.all.bool"))
+        self.emit_iter_any_all(iter_ptr, arg_vals, elem_ty, "ori_iter_all", "iter.all")
     }
 
     pub(in crate::codegen) fn emit_iter_find(

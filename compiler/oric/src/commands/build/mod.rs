@@ -14,6 +14,10 @@ mod multi;
 #[cfg(feature = "llvm")]
 mod multi_emission;
 #[cfg(feature = "llvm")]
+mod multi_imports;
+#[cfg(feature = "llvm")]
+mod multi_mono_state;
+#[cfg(feature = "llvm")]
 mod single;
 
 // Re-export cross-module imported-generic resolution helper so the
@@ -23,7 +27,7 @@ mod single;
 // `use std.testing { assert_eq }` in a single-file program) and relative
 // imports — both flow through `resolve_imports`.
 #[cfg(feature = "llvm")]
-pub(crate) use multi::build_imported_mono_state;
+pub(crate) use multi_mono_state::build_imported_mono_state;
 
 #[cfg(test)]
 mod tests;

@@ -60,6 +60,20 @@ pub struct TypeCheckError {
 }
 
 impl TypeCheckError {
+    /// Build an error carrying exactly one priority-0 suggestion — the
+    /// canonical shape shared by most single-suggestion error-kind
+    /// constructors across this module family (`constructors.rs`,
+    /// `constructors_expr.rs`). Constructors needing a computed or
+    /// multi-item suggestion list build `Self` directly instead.
+    fn new_with_suggestion(span: Span, kind: TypeErrorKind, suggestion: impl Into<String>) -> Self {
+        Self {
+            span,
+            kind,
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(suggestion, 0)],
+        }
+    }
+
     /// Create a new type mismatch error.
     pub fn mismatch(
         span: Span,
@@ -267,15 +281,11 @@ impl TypeCheckError {
     /// position; signature positions (no `ExprKind` in scope) pass
     /// `AmbiguousTypeSite::Expression`.
     pub fn ambiguous_type(span: Span, var_id: u32, site: AmbiguousTypeSite) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::AmbiguousType { var_id, site },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add a type annotation to clarify the expected type",
-                0,
-            )],
-        }
+            TypeErrorKind::AmbiguousType { var_id, site },
+            "add a type annotation to clarify the expected type",
+        )
     }
 
     /// Create a conditional partial-move error (E2043).

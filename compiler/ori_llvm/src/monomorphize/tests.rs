@@ -1,7 +1,7 @@
 use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool};
 
-use super::{collect_mono_functions, mangle_mono_name};
+use super::{collect_mono_functions, mangle_mono_name, ImportSig};
 
 fn make_interner() -> StringInterner {
     StringInterner::new()
@@ -225,7 +225,11 @@ fn collect_resolves_top_level_via_import_sigs() {
         &[instance],
         &[], // function_sigs empty — forces fall-through
         &[], // impl_sigs empty
-        &[(imported_name, "_ori_lib$imported".to_string(), generic_sig)], // import_sigs supplies the sig
+        &[ImportSig {
+            name: imported_name,
+            symbol: "_ori_lib$imported".to_string(),
+            sig: generic_sig,
+        }], // import_sigs supplies the sig
         &interner,
         &pool,
     );
@@ -265,9 +269,13 @@ fn collect_does_not_consult_import_sigs_for_methods() {
 
     let mono_fns = collect_mono_functions(
         &[instance],
-        &[],                                                          // function_sigs empty
+        &[], // function_sigs empty
         &[], // impl_sigs empty — would normally drive the miss
-        &[(method_name, "_ori_lib$method".to_string(), generic_sig)], // import_sigs HAS the name but methods must NOT consult it
+        &[ImportSig {
+            name: method_name,
+            symbol: "_ori_lib$method".to_string(),
+            sig: generic_sig,
+        }], // import_sigs HAS the name but methods must NOT consult it
         &interner,
         &pool,
     );
@@ -306,7 +314,11 @@ fn collect_prefers_function_sigs_over_import_sigs_on_name_collision() {
         &[instance],
         std::slice::from_ref(&local_sig),
         &[],
-        &[(name, "_ori_lib$imported".to_string(), imported_sig)],
+        &[ImportSig {
+            name,
+            symbol: "_ori_lib$imported".to_string(),
+            sig: imported_sig,
+        }],
         &interner,
         &pool,
     );

@@ -7,6 +7,26 @@ use ori_ir::Span;
 use super::{LexError, LexErrorContext, LexErrorKind, LexSuggestion, UnicodeEscapeDetail};
 
 impl LexError {
+    /// Build an error carrying exactly one suggestion — the canonical shape
+    /// shared by most single-suggestion factory methods in this file.
+    /// Factories needing a computed/multi-part suggestion or a `context`
+    /// derived from `span` build `Self` directly instead.
+    #[cold]
+    fn new_with_suggestion(
+        span: Span,
+        kind: LexErrorKind,
+        context: LexErrorContext,
+        suggestion: impl Into<String>,
+        priority: u8,
+    ) -> Self {
+        Self {
+            span,
+            kind,
+            context,
+            suggestions: vec![LexSuggestion::text(suggestion, priority)],
+        }
+    }
+
     /// Create an unterminated string error.
     #[cold]
     pub fn unterminated_string(span: Span) -> Self {
@@ -162,54 +182,49 @@ impl LexError {
     /// Create an integer overflow error.
     #[cold]
     pub fn int_overflow(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::IntOverflow,
-            context: LexErrorContext::NumberLiteral,
-            suggestions: vec![LexSuggestion::text(
-                "use a smaller value (maximum is 18446744073709551615)",
-                1,
-            )],
-        }
+            LexErrorKind::IntOverflow,
+            LexErrorContext::NumberLiteral,
+            "use a smaller value (maximum is 18446744073709551615)",
+            1,
+        )
     }
 
     /// Create a hex integer overflow error.
     #[cold]
     pub fn hex_int_overflow(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::HexIntOverflow,
-            context: LexErrorContext::NumberLiteral,
-            suggestions: vec![LexSuggestion::text(
-                "use a smaller value (maximum is 0xFFFFFFFFFFFFFFFF)",
-                1,
-            )],
-        }
+            LexErrorKind::HexIntOverflow,
+            LexErrorContext::NumberLiteral,
+            "use a smaller value (maximum is 0xFFFFFFFFFFFFFFFF)",
+            1,
+        )
     }
 
     /// Create a binary integer overflow error.
     #[cold]
     pub fn bin_int_overflow(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::BinIntOverflow,
-            context: LexErrorContext::NumberLiteral,
-            suggestions: vec![LexSuggestion::text("use at most 64 binary digits", 1)],
-        }
+            LexErrorKind::BinIntOverflow,
+            LexErrorContext::NumberLiteral,
+            "use at most 64 binary digits",
+            1,
+        )
     }
 
     /// Create a float parse error.
     #[cold]
     pub fn float_parse_error(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::FloatParseError,
-            context: LexErrorContext::NumberLiteral,
-            suggestions: vec![LexSuggestion::text(
-                "check the number format (e.g., `3.14`, `1.5e10`)",
-                1,
-            )],
-        }
+            LexErrorKind::FloatParseError,
+            LexErrorContext::NumberLiteral,
+            "check the number format (e.g., `3.14`, `1.5e10`)",
+            1,
+        )
     }
 
     /// Create an invalid byte error.
@@ -245,15 +260,13 @@ impl LexError {
     /// Create a single-quote string habit error.
     #[cold]
     pub fn single_quote_string(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::SingleQuoteString,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                "use double quotes for strings; single quotes are for one character",
-                0,
-            )],
-        }
+            LexErrorKind::SingleQuoteString,
+            LexErrorContext::TopLevel,
+            "use double quotes for strings; single quotes are for one character",
+            0,
+        )
     }
 
     /// Create an increment/decrement operator error.
@@ -273,15 +286,13 @@ impl LexError {
     /// Create an interior null byte error (from `SourceBuffer` encoding detection).
     #[cold]
     pub fn interior_null(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::InvalidNullByte,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                "remove the null byte — null bytes are not allowed in Ori source",
-                0,
-            )],
-        }
+            LexErrorKind::InvalidNullByte,
+            LexErrorContext::TopLevel,
+            "remove the null byte — null bytes are not allowed in Ori source",
+            0,
+        )
     }
 
     /// Create a UTF-8 BOM error (from `SourceBuffer` encoding detection).
@@ -301,29 +312,25 @@ impl LexError {
     /// Create a UTF-16 LE BOM error (from `SourceBuffer` encoding detection).
     #[cold]
     pub fn utf16_le_bom(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::Utf16LeBom,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                "re-encode the file as UTF-8 — Ori does not support UTF-16",
-                0,
-            )],
-        }
+            LexErrorKind::Utf16LeBom,
+            LexErrorContext::TopLevel,
+            "re-encode the file as UTF-8 — Ori does not support UTF-16",
+            0,
+        )
     }
 
     /// Create a UTF-16 BE BOM error (from `SourceBuffer` encoding detection).
     #[cold]
     pub fn utf16_be_bom(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::Utf16BeBom,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                "re-encode the file as UTF-8 — Ori does not support UTF-16",
-                0,
-            )],
-        }
+            LexErrorKind::Utf16BeBom,
+            LexErrorContext::TopLevel,
+            "re-encode the file as UTF-8 — Ori does not support UTF-16",
+            0,
+        )
     }
 
     /// Create a standalone backslash error.
@@ -340,15 +347,13 @@ impl LexError {
     /// Create a decimal-not-representable error for duration/size literals.
     #[cold]
     pub fn decimal_not_representable(span: Span) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: LexErrorKind::DecimalNotRepresentable,
-            context: LexErrorContext::NumberLiteral,
-            suggestions: vec![LexSuggestion::text(
-                "use a value that divides evenly into base units (nanoseconds or bytes)",
-                1,
-            )],
-        }
+            LexErrorKind::DecimalNotRepresentable,
+            LexErrorContext::NumberLiteral,
+            "use a value that divides evenly into base units (nanoseconds or bytes)",
+            1,
+        )
     }
 
     /// Create a Unicode confusable error.

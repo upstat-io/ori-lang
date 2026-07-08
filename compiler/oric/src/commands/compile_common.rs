@@ -156,7 +156,6 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// drives symbol mangling. `imported` carries the `ImportedMonoFn` triples
 /// plus re-interned canons for cross-module generic body specialization
 /// (both empty when the host has no imported generic instantiations).
-/// `arc_cache` / `module_hash` are reserved for ARC IR disk caching.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
@@ -175,20 +174,15 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
     imported: super::ImportedSurfaces<'_>,
-    arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
-    module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
-    // arc_cache and module_hash reserved for future ARC IR disk caching.
-    let _ = (arc_cache, module_hash);
-
     let interner = db.interner();
     // Registration key = the call-site local/aliased name (matching the ARC
     // IR callee Name resolve_callee probes); the LLVM extern symbol stays the
     // exporting module's exact mangled name. A function the host never
     // imports by name keeps its mangled-name key (unreachable from ARC IR).
-    let import_sigs: Vec<(Name, String, FunctionSig)> = imported_functions
+    let import_sigs: Vec<ori_llvm::monomorphize::ImportSig> = imported_functions
         .iter()
         .map(|info| {
             let key = info.local_name.as_deref().unwrap_or(&info.mangled_name);
@@ -204,7 +198,11 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 info.param_types.clone(),
                 info.return_type,
             );
-            (name, info.mangled_name.clone(), sig)
+            ori_llvm::monomorphize::ImportSig {
+                name,
+                symbol: info.mangled_name.clone(),
+                sig,
+            }
         })
         .collect();
 

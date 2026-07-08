@@ -14,6 +14,20 @@ use ori_types::{FunctionSig, Idx, MonoInstance, Pool, Tag};
 mod mangle;
 pub use mangle::mangle_mono_name;
 
+// ImportSig
+
+/// A cross-module imported function's declared signature.
+///
+/// `name` is the call-site local/aliased [`Name`] (the `codegen_ctx.functions`
+/// key `resolve_callee` probes); `symbol` is the exporting module's exact
+/// mangled symbol (never re-mangled against the host module path).
+#[derive(Clone, Debug)]
+pub struct ImportSig {
+    pub name: Name,
+    pub symbol: String,
+    pub sig: FunctionSig,
+}
+
 // MonoFunction
 
 /// A monomorphized function ready for LLVM codegen.
@@ -99,7 +113,7 @@ pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
     impl_sigs: &[(Idx, Name, FunctionSig)],
-    import_sigs: &[(Name, String, FunctionSig)],
+    import_sigs: &[ImportSig],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
@@ -128,7 +142,7 @@ pub fn collect_mono_functions(
     // Consulted after `function_sigs` misses on the top-level path; first registration wins.
     let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
-    for (name, _symbol, sig) in import_sigs {
+    for ImportSig { name, sig, .. } in import_sigs {
         import_sig_by_name.entry(*name).or_insert(sig);
     }
 

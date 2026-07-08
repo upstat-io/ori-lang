@@ -90,8 +90,8 @@ fn module_alias_qualified_import_calls_direct() {
     );
 }
 
-// Cluster cure (plan TPR round 1): an imported concrete fn called from INSIDE
-// a closure body resolves through the lambda's own emission context.
+// An imported concrete fn called from INSIDE a closure body resolves through
+// the lambda's own emission context.
 #[test]
 fn import_called_inside_closure_body() {
     assert_multifile_cell_output(
@@ -127,8 +127,8 @@ fn sret_return_import_isolated() {
     );
 }
 
-// Code-TPR round 1 (Critical): TWO aliases of ONE imported fn each need their
-// own registration - a single-slot local name collapses to the last alias.
+// TWO aliases of ONE imported fn each need their own registration - a
+// single-slot local name collapses to the last alias.
 #[test]
 fn multi_alias_import_resolves_both_names() {
     assert_multifile_cell_output(
