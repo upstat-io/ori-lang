@@ -77,6 +77,7 @@ pub(super) fn get_or_create_derive_eq_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -140,6 +141,7 @@ fn get_or_create_list_eq_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -200,6 +202,7 @@ fn get_or_create_tuple_eq_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -287,6 +290,7 @@ fn get_or_create_user_type_eq_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -365,6 +369,7 @@ pub(super) fn get_or_create_derive_hash_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -415,6 +420,7 @@ fn get_or_create_constant_hash_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);

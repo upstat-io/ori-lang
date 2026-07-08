@@ -30,6 +30,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let func_id =
             self.declare_function_llvm_with_extra_params("_ori_Error_ctor", &abi, &[ptr_ty]);
         self.builder.set_ccc(func_id);
+        self.builder.set_internal_linkage(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         self.codegen_ctx

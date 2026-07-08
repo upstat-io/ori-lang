@@ -1,0 +1,12 @@
+@main () -> void = {
+    let $e = Error(msg: "audit");
+    let $errs = [Error(msg: "a"), Error(msg: "b")];
+    let $eq = [1, 2] == [1, 2];
+    let $r = catch(expr: 4 / 2);
+    let $v = match r {
+        Ok(v) -> v,
+        Err(_) -> 0,
+    };
+    let $f = (x: int) -> x + 1;
+    print(msg: `{e.message} {errs.len()} {eq} {v} {f(1)}`);
+}

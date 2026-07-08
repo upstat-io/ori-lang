@@ -73,6 +73,7 @@ pub mod lto;
 pub mod match_alias;
 pub mod memory_stress;
 pub mod mono_cross_facet;
+pub mod multi_module_glue;
 pub mod mutations;
 pub mod narrowing;
 pub mod operators;

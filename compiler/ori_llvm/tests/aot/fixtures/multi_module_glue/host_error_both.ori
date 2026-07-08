@@ -1,0 +1,7 @@
+use "./errlib" { tagged }
+
+@main () -> void = {
+    let $e1 = tagged(msg: "from-lib");
+    let $e2 = Error(msg: "local");
+    print(msg: `{e1.message} {e2.message}`);
+}

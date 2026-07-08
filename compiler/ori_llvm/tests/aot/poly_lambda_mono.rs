@@ -65,7 +65,6 @@ const IMPORTED_GENERICS_HELPER: &str = include_str!("fixtures/imported_generics/
 /// 24-byte `{ len, cap, data }` fat-pointer layout through the imported
 /// generic body (indirect passing above the 16-byte direct threshold).
 #[test]
-#[ignore = "BUG-04-230: AOT multi-file build emits duplicate _ori_Error_ctor across translation units (linker multiple definition); prelude-derived Error ctor lacks emit-once/linkonce_odr"]
 fn test_imported_generic_fn_list_int() {
     assert_multifile_aot_success(
         &[
@@ -88,7 +87,6 @@ fn test_imported_generic_fn_list_int() {
 /// (`Point`'s `Idx` not re-interned). `Point` (`{ x: int, y: int }`) is 16
 /// bytes — exactly at the direct/indirect ABI passing boundary.
 #[test]
-#[ignore = "BUG-04-230: AOT multi-file build emits duplicate _ori_Error_ctor across translation units (linker multiple definition); prelude-derived Error ctor lacks emit-once/linkonce_odr"]
 fn test_imported_generic_fn_struct() {
     assert_multifile_aot_success(
         &[

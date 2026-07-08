@@ -60,6 +60,7 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     }
 
     emitter.builder.set_ccc(func_id);
+    emitter.builder.set_internal_linkage(func_id);
     // A may-unwind drop fn (its drop tree reaches a user `@drop` that may raise
     // a foreign Ori exception) MUST NOT be `nounwind` — it threads the
     // exception out via a cleanup landing pad (the AUGMENT body runs the field

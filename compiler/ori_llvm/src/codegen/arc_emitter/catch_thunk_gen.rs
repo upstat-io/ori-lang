@@ -29,6 +29,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let name = format!("_ori_catch_thunk${counter}");
         let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
         self.builder.set_ccc(thunk_id);
+        self.builder.set_internal_linkage(thunk_id);
         // NOT nounwind — the callee may panic, and the unwind must propagate
         // through this thunk so that ori_try_call's catch can intercept it.
         self.builder.add_uwtable_attribute(thunk_id);
@@ -158,6 +159,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let name = format!("_ori_catch_thunk${counter}");
         let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
         self.builder.set_ccc(thunk_id);
+        self.builder.set_internal_linkage(thunk_id);
         // NOT nounwind — callee may panic; uwtable for SEH frame info
         self.builder.add_uwtable_attribute(thunk_id);
 

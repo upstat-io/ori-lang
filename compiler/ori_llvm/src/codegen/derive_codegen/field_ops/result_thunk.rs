@@ -175,6 +175,7 @@ pub(super) fn get_or_create_result_eq_thunk<'a>(
         let saved_func = fc.builder_mut().current_function();
 
         fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_internal_linkage(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);

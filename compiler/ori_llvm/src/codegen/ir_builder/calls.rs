@@ -248,6 +248,19 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_function(func)
     }
 
+    /// Mark a function definition module-local (`Linkage::Internal`).
+    ///
+    /// Per-module synthesized glue (`_ori_Error_ctor`, drop glue, element
+    /// fns, derive thunks, closure wrappers, catch thunks) is referenced only
+    /// through in-module maps or runtime pointers; an external definition of
+    /// the same fixed symbol in two objects fails the multi-module link step
+    /// (E5006 duplicate strong symbol).
+    pub fn set_internal_linkage(&mut self, func_id: FunctionId) {
+        self.arena
+            .get_function(func_id)
+            .set_linkage(Linkage::Internal);
+    }
+
     /// Declare an external function with `External` linkage.
     ///
     /// Used for runtime library functions (`ori_print`, `ori_panic`, etc.)
