@@ -669,7 +669,7 @@ fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
 /// If this cell passes post-fix while cells 1/5 (Error-typed) still fail,
 /// the gate is correct and Error-typed cells are blocked by a separate
 /// defect (Error not registered in `TypeRegistry`; falls through to
-/// `fresh_named_var` at `type_resolution.rs:175`).
+/// `fresh_named_var` in `resolve_parsed_type`).
 #[test]
 fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
     let source = "trait Convert<T> { @to_t (self) -> T }\n\

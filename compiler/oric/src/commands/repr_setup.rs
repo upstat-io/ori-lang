@@ -75,7 +75,7 @@ pub(super) fn lower_impl_methods_for_analysis(
         });
 
         for method in &impl_def.methods {
-            let Some((_, _, sig)) = sig_iter.next() else {
+            let Some(ori_types::ImplSig { sig, .. }) = sig_iter.next() else {
                 break;
             };
             if sig.is_generic() {
@@ -207,7 +207,7 @@ fn record_qualified_by_recv(
 fn lower_default_trait_methods<'a>(
     impl_def: &ori_ir::ImplDef,
     parse_result: &ParseOutput,
-    sig_iter: &mut impl Iterator<Item = &'a (ori_types::Idx, Name, ori_types::FunctionSig)>,
+    sig_iter: &mut impl Iterator<Item = &'a ori_types::ImplSig>,
     type_name_name: Option<Name>,
     self_type_idx: Option<Idx>,
     interner: &StringInterner,
@@ -237,7 +237,7 @@ fn lower_default_trait_methods<'a>(
     for item in &trait_def.items {
         if let ori_ir::TraitItem::DefaultMethod(default) = item {
             if !overridden.contains(&default.name) {
-                let Some((_, _, sig)) = sig_iter.next() else {
+                let Some(ori_types::ImplSig { sig, .. }) = sig_iter.next() else {
                     break;
                 };
                 if sig.is_generic() {
@@ -334,7 +334,11 @@ pub(super) fn compute_module_repr_plan(
     // element layout is an ABI surface — callers construct lists with canonical
     // element widths. Without this, integer narrowing Phase C could narrow the
     // element repr while callers still use 8-byte strides.
-    collect_public_collection_types(pool, &type_result.typed.functions, &mut pub_type_indices);
+    ori_types::collect_public_collection_types(
+        pool,
+        &type_result.typed.functions,
+        &mut pub_type_indices,
+    );
 
     // Collect unconstrained function names (pub + trait impl) for
     // interprocedural range analysis. The qualified-name algorithm is a
@@ -358,37 +362,4 @@ pub(super) fn compute_module_repr_plan(
         &unconstrained_fn_names,
         has_analysis_only_functions,
     )
-}
-
-/// Collect collection wrapper type indices from public function signatures.
-///
-/// When a public function has `[int]`, `Set<int>`, or similar collection
-/// types in its parameters or return type, those collection type indices
-/// must be marked public so integer narrowing Phase C does not narrow their
-/// element layout (which would break ABI with external callers).
-///
-/// Uses the shared `walk_collection_types` walker from `ori_types::pool`
-/// to avoid duplicating the recursive type-walking logic.
-fn collect_public_collection_types(
-    pool: &Pool,
-    function_sigs: &[ori_types::FunctionSig],
-    pub_type_indices: &mut Vec<Idx>,
-) {
-    for sig in function_sigs {
-        if !sig.is_public {
-            continue;
-        }
-        for &param_ty in &sig.param_types {
-            ori_types::walk_collection_types(pool, param_ty, &mut |idx| {
-                if !pub_type_indices.contains(&idx) {
-                    pub_type_indices.push(idx);
-                }
-            });
-        }
-        ori_types::walk_collection_types(pool, sig.return_type, &mut |idx| {
-            if !pub_type_indices.contains(&idx) {
-                pub_type_indices.push(idx);
-            }
-        });
-    }
 }

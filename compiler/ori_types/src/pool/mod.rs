@@ -24,7 +24,7 @@ pub mod re_intern;
 mod structural_eq;
 pub mod substitute;
 
-pub use collection_surface::walk_collection_types;
+pub use collection_surface::{collect_public_collection_types, walk_collection_types};
 pub use construct::*;
 pub use descriptor::{TypeDescriptor, VariantDescriptor};
 pub use re_intern::{

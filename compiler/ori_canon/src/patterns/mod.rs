@@ -29,7 +29,7 @@ use crate::lower::Lowerer;
 /// Compile match arm patterns into a decision tree.
 ///
 /// Converts each arm's `MatchPattern` into a `FlatPattern` via
-/// `ori_arc::decision_tree::flatten`, then builds a `PatternMatrix`
+/// `decision_tree::flatten`, then builds a `PatternMatrix`
 /// and compiles it with the Maranget algorithm.
 ///
 /// # Arguments

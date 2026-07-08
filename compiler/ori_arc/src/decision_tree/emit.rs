@@ -1,10 +1,8 @@
 //! Emit ARC IR basic blocks from a compiled [`DecisionTree`].
 //!
-//! This is the final step in pattern match compilation:
-//! 1. `flatten.rs` converts `MatchPattern` → `FlatPattern`
-//! 2. `compile.rs` compiles the pattern matrix into a `DecisionTree`
-//! 3. **This module** walks the tree and emits ARC IR blocks with
-//!    `Switch`/`Branch` terminators
+//! `ori_canon` flattens `MatchPattern` into `FlatPattern` and compiles the
+//! pattern matrix into a `DecisionTree`; this module walks that tree and
+//! emits ARC IR blocks with `Switch`/`Branch` terminators.
 //!
 //! The emission is performed by [`emit_decision_tree`], called from
 //! `lower_match` in `lower/control_flow.rs`.

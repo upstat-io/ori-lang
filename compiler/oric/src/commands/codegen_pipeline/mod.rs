@@ -86,7 +86,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
     let (codegen_errors, codegen_descriptions) = {
-        // SAFETY: Detached reference to scx — see comment above.
+        // SAFETY: `scx_ref` is a detached reborrow of `scx`, which `ManuallyDrop`
+        // holds alive for this whole function; the reborrow's lifetime ends
+        // inside this block, so the detachment is sound.
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
         let eh_model = target_triple.map_or(EhModel::Itanium, EhModel::from_triple);
@@ -161,7 +163,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // Why: impl methods join the analysis set so interprocedural range
         // analysis sees their call sites; they are lowered once (with
         // type-qualified analysis names) and reused for both the repr plan
-        // and the as-compiled impl-method contract pre-pass below.
+        // and the as-compiled impl-method contract pre-pass.
         let (impl_analysis_funcs, impl_qualified_by_recv) =
             super::repr_setup::lower_impl_methods_for_analysis(
                 parse_result,
@@ -181,7 +183,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .typed
             .impl_sigs
             .iter()
-            .any(|(_, _, sig)| !sig.is_generic());
+            .any(|entry| !entry.sig.is_generic());
         let repr_plan = super::repr_setup::compute_module_repr_plan(
             pool,
             &all_arc_funcs,
@@ -213,7 +215,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         };
 
         // Why: impl methods compile on the `compile_impls()` immediate-emit
-        // path and never enter `compute_aims_contracts` above, so callers see
+        // path and never enter `compute_aims_contracts`, so callers see
         // no contract for them (IC-1 gap) and every impl-method call site gets
         // the conservative no-contract treatment. The as-compiled pre-pass
         // computes each non-generic impl method's sanitized contract

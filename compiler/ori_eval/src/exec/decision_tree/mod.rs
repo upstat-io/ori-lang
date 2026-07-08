@@ -2,7 +2,7 @@
 //!
 //! Walks pre-compiled `DecisionTree` nodes (produced by `ori_canon::patterns`)
 //! against runtime `Value`s. This is the evaluator counterpart to the Maranget
-//! (2008) compilation in `ori_arc::decision_tree::compile`.
+//! (2008) compilation in `ori_canon::patterns::decision_tree::compile`.
 //!
 //! # Status
 //!

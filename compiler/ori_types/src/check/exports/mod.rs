@@ -93,29 +93,17 @@ pub(super) fn generate_exported_type_metadata(
 /// the merkle hashes of discovered collection types, merged with imported
 /// collection surfaces for transitive forwarding (A→B→C propagation).
 ///
-/// This parallels `collect_public_collection_types()` in `repr_setup.rs` but
-/// outputs merkle hashes (for cross-module transport) instead of Pool Idx values
-/// (for same-module use). Both use the shared `walk_collection_types()` walker.
+/// Hash-projection of [`crate::pool::collect_public_collection_types`]:
+/// merkle hashes travel cross-module where a Pool `Idx` cannot.
 pub(super) fn generate_exported_collection_surfaces(
     pool: &Pool,
     functions: &[crate::output::FunctionSig],
     imported: &[u64],
 ) -> Vec<u64> {
-    let mut hashes = FxHashSet::default();
+    let mut indices = Vec::new();
+    crate::pool::collect_public_collection_types(pool, functions, &mut indices);
 
-    for sig in functions {
-        if !sig.is_public {
-            continue;
-        }
-        for &param_ty in &sig.param_types {
-            crate::pool::walk_collection_types(pool, param_ty, &mut |idx| {
-                hashes.insert(pool.hash(idx));
-            });
-        }
-        crate::pool::walk_collection_types(pool, sig.return_type, &mut |idx| {
-            hashes.insert(pool.hash(idx));
-        });
-    }
+    let mut hashes: FxHashSet<u64> = indices.into_iter().map(|idx| pool.hash(idx)).collect();
 
     // Merge imported collection surfaces for transitive forwarding.
     for &hash in imported {

@@ -101,7 +101,7 @@ pub(crate) fn lower_and_infer_borrows(
     canon: &ori_ir::canon::CanonResult,
     interner: &ori_ir::StringInterner,
     pool: &ori_types::Pool,
-    impl_sigs: &[(ori_types::Idx, Name, ori_types::FunctionSig)],
+    impl_sigs: &[ori_types::ImplSig],
     import_sigs: &[ori_llvm::monomorphize::ImportSig],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
@@ -163,8 +163,9 @@ pub(crate) fn lower_and_infer_borrows(
     }
 
     // Lower imported monomorphized generic functions with their module's canon.
-    // Uses per-function borrow inference (same pattern as imported non-generics above)
-    // because imported functions are independent compilation units.
+    // Uses per-function borrow inference, matching how imported non-generic
+    // functions are handled, because imported functions are independent
+    // compilation units.
     for (mono_fn, canon_idx, source_body_name) in imported_mono_fns {
         let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             mono_fn.mangled_name,
@@ -200,7 +201,7 @@ pub(crate) fn lower_and_infer_borrows(
                     .map(|te| te.idx)
             });
             for method in &impl_def.methods {
-                let Some((_, _, sig)) = sig_iter.next() else {
+                let Some(ori_types::ImplSig { sig, .. }) = sig_iter.next() else {
                     break;
                 };
                 if sig.is_generic() {
@@ -232,7 +233,7 @@ pub(crate) fn lower_and_infer_borrows(
                             if overridden.contains(&default.name) {
                                 continue;
                             }
-                            let Some((_, _, sig)) = sig_iter.next() else {
+                            let Some(ori_types::ImplSig { sig, .. }) = sig_iter.next() else {
                                 break;
                             };
                             if sig.is_generic() {
@@ -307,7 +308,7 @@ pub(crate) fn lower_and_infer_borrows(
     }
 
     // Borrow inference for local functions using the main pool's classifier.
-    // Imported function sigs are already computed above — if local functions
+    // Imported function sigs are already computed — if local functions
     // call imported functions but don't find their sigs in the call graph,
     // that's safe: unknown callees are treated conservatively (params stay
     // Borrowed), and RC emission uses the merged annotated_sigs map to insert

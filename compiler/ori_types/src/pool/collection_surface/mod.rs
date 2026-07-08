@@ -11,7 +11,7 @@
 //! one place while supporting both use cases.
 
 use crate::pool::Pool;
-use crate::{Idx, Tag};
+use crate::{FunctionSig, Idx, Tag};
 
 /// Walk a type and discover all collection types (List, Set) reachable
 /// through container wrappers and user-defined struct/enum fields.
@@ -27,6 +27,35 @@ where
     F: FnMut(Idx),
 {
     walk_recursive(pool, ty, on_collection, 0);
+}
+
+/// Collect collection type indices reachable from PUBLIC function signatures.
+///
+/// A public `@f (xs: [int]) -> [int]` makes `[int]`'s element layout an ABI
+/// surface — external callers construct lists with canonical element widths —
+/// so each reachable collection index joins `pub_type_indices` and integer
+/// narrowing exempts it. Shared by the AOT repr setup and the JIT pipeline.
+pub fn collect_public_collection_types(
+    pool: &Pool,
+    function_sigs: &[FunctionSig],
+    pub_type_indices: &mut Vec<Idx>,
+) {
+    let record = |indices: &mut Vec<Idx>, idx: Idx| {
+        if !indices.contains(&idx) {
+            indices.push(idx);
+        }
+    };
+    for sig in function_sigs {
+        if !sig.is_public {
+            continue;
+        }
+        for &param_ty in &sig.param_types {
+            walk_collection_types(pool, param_ty, &mut |idx| record(pub_type_indices, idx));
+        }
+        walk_collection_types(pool, sig.return_type, &mut |idx| {
+            record(pub_type_indices, idx);
+        });
+    }
 }
 
 fn walk_recursive<F>(pool: &Pool, ty: Idx, on_collection: &mut F, depth: u32)

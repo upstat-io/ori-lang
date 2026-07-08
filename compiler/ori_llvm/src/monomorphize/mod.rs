@@ -9,7 +9,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
 use ori_ir::{Name, StringInterner};
-use ori_types::{FunctionSig, Idx, MonoInstance, Pool, Tag};
+use ori_types::{FunctionSig, Idx, ImplSig, MonoInstance, Pool, Tag};
 
 mod mangle;
 pub use mangle::mangle_mono_name;
@@ -112,7 +112,7 @@ fn nominal_type_name(pool: &Pool, idx: Idx) -> Option<Name> {
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
-    impl_sigs: &[(Idx, Name, FunctionSig)],
+    impl_sigs: &[ImplSig],
     import_sigs: &[ImportSig],
     interner: &StringInterner,
     pool: &Pool,
@@ -127,15 +127,20 @@ pub fn collect_mono_functions(
     //
     // `shell_pool` is a dedicated interning context: shells are content-
     // addressed there, leaving the shared read-only `pool` untouched. The
-    // owning impl receiver type (`Box<T>`, threaded as the impl-sig triple's
-    // first element) carries the impl block's receiver pattern; its shell
-    // matches every concrete receiver's shell at lookup. Keying on the receiver
-    // — NOT `sig.param_types.first()` — is load-bearing for a no-`self`
-    // associated function, whose first param is a VALUE param, not the receiver.
+    // owning impl receiver type (`Box<T>`, `ImplSig::receiver`) carries the
+    // impl block's receiver pattern; its shell matches every concrete
+    // receiver's shell at lookup. Keying on the receiver — NOT
+    // `sig.param_types.first()` — is load-bearing for a no-`self` associated
+    // function, whose first param is a VALUE param, not the receiver.
     let mut shell_pool = Pool::new();
     let mut impl_sig_by_name: FxHashMap<(Name, Option<Idx>), &FunctionSig> =
         FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
-    for (receiver, name, sig) in impl_sigs {
+    for ImplSig {
+        receiver,
+        name,
+        sig,
+    } in impl_sigs
+    {
         let shell = Some(shell_pool.generic_shell(pool, *receiver));
         impl_sig_by_name.entry((*name, shell)).or_insert(sig);
     }

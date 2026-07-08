@@ -605,7 +605,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // struct emits RC cleanup for ONLY the fields NOT in
                 // `skip_fields` (the moved-out indices). Reuses the
                 // canonical `ori_arc::compute_drop_info` SSOT (already
-                // cross-crate-consumed at `element_fn_gen.rs:34` for
+                // cross-crate-consumed by `get_or_generate_drop_fn` for
                 // drop-fn generation) for the Idx → DropKind::Fields
                 // derivation. Delegates the per-field GEP+load+RcDec loop
                 // to [`Self::emit_drop_field_loop`] — the shared
@@ -699,9 +699,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // which is exactly what SetTag pre-drop needs.
                 //
                 // Variant-list derivation goes through `ori_arc::compute_drop_info`
-                // — the canonical Idx → DropKind mapping consumed by drop-fn
-                // generation at drop_gen.rs:84-95. Reusing the SSOT avoids
-                // parallel-derivation drift.
+                // — the canonical Idx → DropKind mapping consumed by
+                // `get_or_generate_drop_fn`'s drop-fn generation. Reusing the
+                // SSOT avoids parallel-derivation drift.
                 let base_ty = func.var_type(*var);
                 // RE-2 defense-in-depth: compute_drop_info returns None for
                 // scalars. The upstream burden_lower's `owned_vars_needing_rc`

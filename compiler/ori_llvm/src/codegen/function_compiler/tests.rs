@@ -12,7 +12,7 @@ use ori_arc::verify::VerifyError;
 use ori_arc::{AnnotatedSig, ArcClassifier, ArcFunction};
 use ori_ir::canon::CanId;
 use ori_ir::Name;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, ImplSig, Pool};
 use rustc_hash::FxHashMap;
 use std::mem::ManuallyDrop;
 
@@ -460,8 +460,16 @@ fn compile_impls_populates_method_functions_map() {
     );
 
     let impl_sigs = vec![
-        (point_idx, distance_name, sig_point),
-        (line_idx, distance_name, sig_line),
+        ImplSig {
+            receiver: point_idx,
+            name: distance_name,
+            sig: sig_point,
+        },
+        ImplSig {
+            receiver: line_idx,
+            name: distance_name,
+            sig: sig_line,
+        },
     ];
 
     // Create a minimal CanonResult for testing (methods have INVALID bodies,

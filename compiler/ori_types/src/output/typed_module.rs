@@ -97,6 +97,26 @@ pub struct FormatSpecTypes {
     pub format_type: Idx,
 }
 
+/// One impl method's owning receiver type, method name, and resolved signature.
+///
+/// Accumulated in `ModuleChecker::impl_sigs` during `check_impl_bodies`
+/// (`register_impl_sig`) and threaded — unchanged — through `ori_canon`
+/// desugaring (method-call param resolution), `ori_llvm` monomorphization
+/// (`collect_mono_functions`), and codegen impl-method compilation
+/// (`compile_impls`). `receiver` is the owning impl block's receiver type
+/// (e.g. `Box<T>` for `impl<T> Box<T>`); codegen keys mono-collection
+/// dispatch on it rather than on `sig.param_types.first()`, which is the
+/// first VALUE param — not the receiver — for a no-`self` associated function.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImplSig {
+    /// The impl block's receiver type.
+    pub receiver: Idx,
+    /// The method's name.
+    pub name: Name,
+    /// The method's resolved signature.
+    pub sig: FunctionSig,
+}
+
 /// Type-checked module.
 ///
 /// Contains all type information computed by the inference engine.
@@ -160,7 +180,7 @@ pub struct TypedModule {
     /// convention, sret, parameter passing) for impl methods (compiled
     /// separately from top-level functions) AND to key mono-collection dispatch
     /// on the owning receiver rather than the first value param.
-    pub impl_sigs: Vec<(Idx, Name, FunctionSig)>,
+    pub impl_sigs: Vec<ImplSig>,
 
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///

@@ -210,10 +210,10 @@ impl Lowerer<'_> {
     ) -> Option<Vec<(Name, Option<ExprId>)>> {
         let self_name = self.interner.intern("self");
         let by_receiver = receiver_ty.and_then(|recv| {
-            self.typed.impl_sigs.iter().find(|(_, name, sig)| {
-                *name == method
-                    && sig.param_names.first().copied() == Some(self_name)
-                    && sig.param_types.first().copied() == Some(recv)
+            self.typed.impl_sigs.iter().find(|entry| {
+                entry.name == method
+                    && entry.sig.param_names.first().copied() == Some(self_name)
+                    && entry.sig.param_types.first().copied() == Some(recv)
             })
         });
         by_receiver
@@ -221,9 +221,10 @@ impl Lowerer<'_> {
                 self.typed
                     .impl_sigs
                     .iter()
-                    .find(|(_, name, _)| *name == method)
+                    .find(|entry| entry.name == method)
             })
-            .map(|(_, _, sig)| {
+            .map(|entry| {
+                let sig = &entry.sig;
                 // A method's `self` receiver is param[0] in the signature, but the
                 // call's positional args exclude it (it is the separate receiver).
                 // Drop the leading `self` so positional alignment + omitted-default

@@ -143,7 +143,7 @@ ori_canon/src/
 ├── desugar/            # 7 sugar variant eliminators
 │   └── mod.rs          # CallNamed, Templates, Spreads → canonical form
 ├── patterns/           # Pattern matrix → decision tree compilation
-│   └── mod.rs          # Delegates to ori_arc::decision_tree::compile
+│   └── mod.rs          # Delegates to patterns::decision_tree::compile
 ├── const_fold/         # Compile-time constant folding
 │   └── mod.rs          # classify(), try_fold(), fold_binary(), fold_unary()
 ├── exhaustiveness/     # Pattern coverage analysis
@@ -323,7 +323,7 @@ This unification means there is exactly one code path for pattern compilation �
 
 **Opportunistic constant folding vs. dedicated pass.** Constants are folded inline during lowering via `try_fold()` rather than in a separate constant-folding pass. This means folding happens at most once per node (when the node is constructed), which is efficient but limits folding to single-step rewrites — `(1 + 2) + 3` folds to `3 + 3` then to `6` through recursive lowering, but cross-expression folding (propagating a constant across `let` bindings) is not performed. A dedicated constant propagation pass could catch more opportunities but would require an additional traversal.
 
-**Pattern compilation delegation.** The Maranget decision tree algorithm currently lives in `ori_arc::decision_tree::compile`, and `ori_canon::patterns` delegates to it. This is an architectural compromise — the algorithm logically belongs in `ori_canon`, but it was first implemented in `ori_arc` for the AIMS pipeline. Future work will move it to `ori_canon` as the single source of truth.
+**Pattern compilation ownership.** The Maranget decision tree compile/flatten algorithm lives in `ori_canon::patterns::decision_tree`, its logical home. `ori_arc::decision_tree` retains only the ARC IR emission side (`emit.rs`, `emit_switches/`), which consumes the compiled tree via the shared type definitions in `ori_ir::canon::tree`.
 
 ## Related Documents
 

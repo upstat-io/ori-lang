@@ -45,14 +45,14 @@ pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
     AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,
-    ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, MonoInstance,
-    MonoInstanceId, TypeCheckResult, TypedModule,
+    ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplSig,
+    MonoInstance, MonoInstanceId, TypeCheckResult, TypedModule,
 };
 pub use pool::{
-    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
-    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
-    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
-    VarState, VariantDescriptor, DEFAULT_RANK,
+    build_mono_body_type_map, collect_public_collection_types, extend_var_subst_with_roots,
+    extract_var_from_types, re_intern_sig, re_intern_sig_with_var_remap, re_intern_type,
+    re_intern_type_with_var_remap, substitute_in_pool, walk_collection_types, BodyTypeMapSink,
+    EnumVariant, Pool, TypeDescriptor, VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use provenance::{
     ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,

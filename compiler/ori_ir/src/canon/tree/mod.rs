@@ -7,8 +7,8 @@
 //! # Architecture
 //!
 //! The TYPE DEFINITIONS live here in `ori_ir` (shared crate). The compilation
-//! ALGORITHM lives in `ori_arc::decision_tree::compile`. The ARC IR emission
-//! logic stays in `ori_arc::decision_tree::emit`.
+//! ALGORITHM lives in `ori_canon::patterns::decision_tree::compile`. The ARC IR
+//! emission logic stays in `ori_arc::decision_tree::emit`.
 //!
 //! # References
 //!

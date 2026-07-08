@@ -1,8 +1,7 @@
-//! Pattern match decision trees.
+//! Pattern match decision trees — ARC IR emission.
 //!
-//! Compiles match expressions to efficient decision trees during AST-to-ARC-IR
-//! lowering, producing `Switch` terminators that map trivially to LLVM `switch`
-//! instructions.
+//! Emits a pre-compiled `DecisionTree` (built by `ori_canon`) as ARC IR
+//! `Switch` terminators that map trivially to LLVM `switch` instructions.
 //!
 //! # Algorithm
 //!

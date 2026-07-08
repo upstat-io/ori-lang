@@ -252,11 +252,11 @@ pub struct ModuleChecker<'a> {
     // Impl Method Signatures
     /// Accumulated impl method signatures for codegen.
     ///
-    /// Built during `check_impl_bodies` — each `(Idx, Name, FunctionSig)` triple
-    /// maps an impl method's owning receiver type + name to its resolved
-    /// signature. Codegen needs these to compute ABI (calling convention, sret,
-    /// parameter passing) AND to key mono-collection dispatch on the receiver.
-    impl_sigs: Vec<(Idx, Name, FunctionSig)>,
+    /// Built during `check_impl_bodies` — each [`crate::ImplSig`] maps an impl
+    /// method's owning receiver type + name to its resolved signature. Codegen
+    /// needs these to compute ABI (calling convention, sret, parameter
+    /// passing) AND to key mono-collection dispatch on the receiver.
+    impl_sigs: Vec<crate::ImplSig>,
     /// Trait impl method identities (for unconstrained function detection).
     /// Each entry is `(self_type_idx, method_name)` for disambiguation.
     trait_impl_fn_names: Vec<(Idx, Name)>,

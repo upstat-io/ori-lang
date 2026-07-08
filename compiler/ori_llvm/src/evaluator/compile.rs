@@ -12,7 +12,7 @@ use tracing::{debug, instrument};
 use ori_ir::ast::{Module, TestDef};
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, StringInterner};
-use ori_types::{FunctionSig, TypeEntry};
+use ori_types::{FunctionSig, ImplSig, TypeEntry};
 
 use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::function_compiler::MonoTargetMaps;
@@ -45,7 +45,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     /// - `interner`: String interner for name resolution
     /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
     /// - `user_types`: User-defined type entries from type checker
-    /// - `impl_sigs`: Impl signatures as (`Idx`, `Name`, `FunctionSig`) triples, where `Idx` is the owning impl receiver type
+    /// - `impl_sigs`: Impl method signatures ([`ImplSig`]), keyed by owning impl receiver type + method name
     /// - `imported_functions`: Individual imported functions to compile into
     ///   this JIT module so calls to them resolve correctly
     /// - `mono_instances`: Monomorphized generic function instances
@@ -69,7 +69,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
-        impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
+        impl_sigs: &[ImplSig],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
@@ -153,7 +153,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
-        impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
+        impl_sigs: &[ImplSig],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
@@ -189,24 +189,11 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .collect();
         // Mark collection wrapper types from public function signatures as
         // public, recursively walking into nested types.
-        for sig in function_sigs {
-            if sig.is_public {
-                for &param_ty in &sig.param_types {
-                    ori_types::walk_collection_types(self.pool, param_ty, &mut |idx| {
-                        if !pub_type_indices.contains(&idx) {
-                            pub_type_indices.push(idx);
-                        }
-                    });
-                }
-                ori_types::walk_collection_types(self.pool, sig.return_type, &mut |idx| {
-                    if !pub_type_indices.contains(&idx) {
-                        pub_type_indices.push(idx);
-                    }
-                });
-            }
-        }
-        // Collect unconstrained function names (pub + trait impl).
-        // Uses trait_impl_fn_names (not all impl_sigs) per
+        ori_types::collect_public_collection_types(self.pool, function_sigs, &mut pub_type_indices);
+        // Collect unconstrained function names (pub + trait impl). Uses
+        // trait_impl_fn_names, not all impl_sigs — only trait impl methods
+        // (callable via dynamic dispatch) are unconstrained; inherent methods
+        // have statically-known callers.
         let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
             function_sigs,
             trait_impl_fn_names,
@@ -223,7 +210,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             imported_collection_surfaces,
             &unconstrained_fn_names,
             // JIT also has analysis-only impl methods.
-            impl_sigs.iter().any(|(_, _, sig)| !sig.is_generic()),
+            impl_sigs.iter().any(|entry| !entry.sig.is_generic()),
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
@@ -241,7 +228,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         );
         mono_functions.extend(imported_mono_functions);
 
-        // PC-2 contract check (PC-2) — diagnostic localization for
+        // PC-2 contract check — diagnostic localization for
         // JIT pre-mono IR. Non-load-bearing: the primary seam in
         // process_arc_function owns record_codegen_error(); this site only
         // attributes diagnostics to the caller-pre-populated arc_cache.

@@ -35,7 +35,11 @@ impl ModuleChecker<'_> {
     /// shell, NOT on `sig.param_types.first()` (which is the first VALUE param,
     /// not the receiver, for a no-`self` associated function).
     pub fn register_impl_sig(&mut self, self_type: Idx, name: Name, sig: FunctionSig) {
-        self.impl_sigs.push((self_type, name, sig));
+        self.impl_sigs.push(crate::ImplSig {
+            receiver: self_type,
+            name,
+            sig,
+        });
     }
 
     /// Record a trait impl method name for unconstrained function detection.

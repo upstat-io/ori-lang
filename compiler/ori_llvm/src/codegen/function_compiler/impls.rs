@@ -6,7 +6,7 @@
 
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, Span, TraitDef, TraitItem};
-use ori_types::{FunctionSig, Idx};
+use ori_types::ImplSig;
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{trace, warn};
 
@@ -34,7 +34,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     pub fn compile_impls(
         &mut self,
         impls: &[ori_ir::ImplDef],
-        impl_sigs: &[(Idx, Name, FunctionSig)],
+        impl_sigs: &[ImplSig],
         canon: &CanonResult,
         traits: &[TraitDef],
     ) {
@@ -100,7 +100,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         type_name: Name,
         type_name_str: &str,
         trait_map: &FxHashMap<Name, &TraitDef>,
-        sig_iter: &mut impl Iterator<Item = &'sig (Idx, Name, FunctionSig)>,
+        sig_iter: &mut impl Iterator<Item = &'sig ImplSig>,
         canon: &CanonResult,
     ) {
         let Some(trait_path) = &impl_def.trait_path else {
@@ -138,17 +138,22 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// trait methods.
     fn compile_impl_method_from_sig<'sig>(
         &mut self,
-        sig_iter: &mut impl Iterator<Item = &'sig (Idx, Name, FunctionSig)>,
+        sig_iter: &mut impl Iterator<Item = &'sig ImplSig>,
         method_name: Name,
         method_span: Span,
         type_name: Name,
         type_name_str: &str,
         canon: &CanonResult,
     ) {
-        // The leading `Idx` is the owning impl receiver — the type-qualified
+        // `receiver` is the owning impl receiver — the type-qualified
         // dispatch key for a no-receiver associated call (`Widget.make()`),
         // which has no self param to source the key from.
-        let Some((owning_type_idx, sig_name, sig)) = sig_iter.next() else {
+        let Some(ImplSig {
+            receiver: owning_type_idx,
+            name: sig_name,
+            sig,
+        }) = sig_iter.next()
+        else {
             trace!(
                 name = %self.interner.lookup(method_name),
                 "no type signature for impl method — exhausted sig iterator"

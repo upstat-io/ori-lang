@@ -877,20 +877,11 @@ fn set_emits_struct_gep_and_store() {
 
 #[test]
 fn set_on_boxed_recursive_field_boxes_value_before_store() {
-    // Recursive struct `Node = { value: int, next: Node }` whose field 1 is a
-    // boxed recursive back-edge. An `ArcInstr::Set { base, field: 1, value }`
-    // mutates that field in place. The field slot holds an RC box pointer (per
-    // the boxing oracle), so the emitted IR MUST allocate a box (`ori_rc_alloc`),
-    // store `value` into it, then store the box pointer into the field slot —
-    // mirroring the Construct/Project box-and-load discipline. Reverting the fix
-    // (storing `value` directly) removes the `ori_rc_alloc` call: the negative
-    // assertion below pins the boxing.
-    //
-    // Reachability note: surface Ori does not yet emit `Set` on a recursive
-    // boxed field today — field assignment is unimplemented and AIMS reuse does
-    // not reconstruct recursive structs in place. This is a codegen-level pin on
-    // the emission path so the fix cannot silently regress when that path
-    // becomes reachable.
+    // INVARIANT: Set on a boxed recursive field (Node.next holds an RC box
+    // pointer per the boxing oracle) must allocate via `ori_rc_alloc`, store
+    // `value` into the box, then store the box pointer into the field slot —
+    // mirroring the Construct/Project box-and-load discipline. This test
+    // rejects a direct store of `value` into the field.
     use ori_arc::ir::{
         ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
     };
@@ -1283,7 +1274,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
 
     // Negative assertion: NO ori_rc_dec call lands for the scalar field
     // (RE-2 scalar exemption via emit_drop_rc_dec → extract_rc_data_ptrs
-    // empty-return short-circuit at drop_gen.rs:337-339).
+    // empty-return short-circuit).
     // The function may still contain other ori_rc_dec calls from drop
     // function emission for the struct itself (its return path); we
     // specifically check there's no rc_dec attributable to the
@@ -2771,7 +2762,7 @@ fn idx_to_type_tag_maps_dynamic_list_type() {
 
 // Recursive drop-fn codegen
 //
-// Cycle safety comes from the cache-before-body pattern at drop_gen.rs:69:
+// Cycle safety comes from the cache-before-body pattern in `generate_drop_fn`:
 // `drop_fn_cache.insert(ty, func_id)` runs BEFORE the body is generated, so
 // `emit_rc_dec` on a field of the same type hits the cache and the recursion
 // terminates structurally — no runtime type discriminants.
@@ -2786,9 +2777,8 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
     //
     // Construct the "recursive" Idx through `pool.named` so it is a
     // well-formed pool entry; the field-type self-reference in DropKind
-    // exercises the cache-before-body cycle-termination path at
-    // drop_gen.rs:69 + the recursive emit_rc_dec → get_or_generate_drop_fn
-    // chain.
+    // exercises `generate_drop_fn`'s cache-before-body cycle-termination path
+    // + the recursive emit_rc_dec → get_or_generate_drop_fn chain.
     let mut pool = Pool::new();
     let node_ty = pool.named(ori_ir::Name::from_raw(0x0DE_0001));
     let ctx = Context::create();
@@ -2853,18 +2843,14 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
 
 #[test]
 fn drop_augment_self_param_emits_no_default_dec_in_arc_ir() {
-    // Conformance pin for the AIMS RL-DROP self-recursion-inhibition guard as
-    // realized in codegen. A Drop-shaped struct with ONLY scalar fields (one
-    // `int`) but a user `@drop` impl takes the AUGMENT drop-body path
-    // (`own_drop_unwinds`, drop_gen.rs:193): the drop fn runs the user `@drop`
-    // (an `invoke` on Itanium), walks its scalar fields (no RC dec), then
-    // releases `data_ptr` ONLY via the runtime free path. It emits ZERO
-    // `ori_rc_dec` — a self-dec on `data_ptr` would re-enter the drop fn
-    // infinitely, and there are no RC-typed fields to dec.
-    //
-    // Paired non-vacuous negative pin: `recursive_node_drop_fn_emits_self_
-    // referencing_rc_dec` (above) DOES emit `ori_rc_dec` on a self-typed FIELD,
-    // so the "no ori_rc_dec" assertion here is meaningful, not vacuous.
+    // INVARIANT (AIMS RL-DROP self-recursion guard): a Drop-shaped struct with
+    // only scalar fields but a user `@drop` impl takes the AUGMENT drop-body
+    // path (`own_drop_unwinds` in `emit_drop_fields`) — it runs `@drop`, walks
+    // scalar fields (no RC dec), then frees `data_ptr` via the runtime free
+    // path only. It emits ZERO `ori_rc_dec`: a self-dec on `data_ptr` would
+    // re-enter the drop fn infinitely. Paired negative pin:
+    // `recursive_node_drop_fn_emits_self_referencing_rc_dec` DOES emit
+    // `ori_rc_dec` on a self-typed field, proving this assertion is meaningful.
     let mut pool = Pool::new();
     let guard_name = ori_ir::Name::from_raw(0x0D0_9A2D);
     let guard_ty = pool.named(guard_name);
@@ -3070,7 +3056,7 @@ fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
 
 #[test]
 fn drop_fn_cache_prevents_infinite_generation() {
-    // The cache-before-body pattern at drop_gen.rs:69 guarantees that any
+    // The cache-before-body pattern in `generate_drop_fn` guarantees that any
     // recursive descent through `emit_rc_dec → get_or_generate_drop_fn →
     // generate_drop_fn` terminates: the cache entry exists BEFORE body
     // emission, so the inner call returns the cached FunctionId.

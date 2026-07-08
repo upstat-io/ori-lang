@@ -57,7 +57,7 @@ pub(super) fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
-    impl_sigs: &[(ori_types::Idx, Name, FunctionSig)],
+    impl_sigs: &[ori_types::ImplSig],
     import_sigs: &[ori_llvm::monomorphize::ImportSig],
     imported: ImportedSurfaces<'_>,
     canon: &CanonResult,

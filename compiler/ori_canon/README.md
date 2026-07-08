@@ -13,13 +13,13 @@ The shared `DecisionTreePool` is consumed by BOTH `ori_eval` and `ori_arc` durin
 - `lower/` — typed IR → `CanExpr` lowering
 - `lower/expr.rs` — expression lowering (including index/field-assignment target handling)
 - `desugar/` — canonical-IR desugar set
-- `patterns/` — Maranget pattern compilation front; invokes decision-tree primitives from `ori_arc::decision_tree` (the one non-upstream pipeline edge — migration target)
+- `patterns/` — Maranget pattern compilation front; owns its compile/flatten decision-tree primitives at `patterns/decision_tree/`, sharing only the `ori_ir::canon::tree` type definitions with `ori_arc`'s ARC IR emission side
 
 ## Dependencies
 
 | Direction | Crates |
 |---|---|
-| Upstream | `ori_ir`, `ori_types`, `ori_arc` (for decision-tree primitives — non-upstream edge) |
+| Upstream | `ori_ir`, `ori_format`, `ori_types` |
 | Downstream | `ori_eval`, `ori_arc`, `ori_compiler`, `oric` |
 
 Note: `ori_llvm` does NOT depend on `ori_canon` — codegen consumes realized ARC IR, not `CanExpr`.

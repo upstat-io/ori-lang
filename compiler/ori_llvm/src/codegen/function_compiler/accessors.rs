@@ -84,7 +84,7 @@ impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
                     let ptr = self.builder.get_param(func_id, llvm_idx);
                     let ty = self.type_resolver.resolve(param.ty);
                     let ty_id = self.builder.register_type(ty);
-                    // IrBuilder::loadauto-decomposes struct types via
+                    // IrBuilder::load auto-decomposes struct types via
                     // per-field GEP+load+insert_value (FastISel safety).
                     values.push(self.builder.load(ty_id, ptr, &format!("param.{i}")));
                     llvm_idx += 1;
