@@ -242,9 +242,7 @@ pub(super) fn emit_rc_unified(
 /// the earlier locals its teardown may observe — the two-channel map teardown
 /// fires before the caller's own key/value copies release). Releases within
 /// one trailing run are a per-path permutation (RC-net neutral); only the
-/// user-`@drop`-observable order changes. An adjacent whole-var
-/// `BurdenDec v` + `RcDec v` marker pair moves as one unit. Spec: Annex E
-/// §AIMS RL-2 + RL-DROP.
+/// user-`@drop`-observable order changes. Spec: Annex E §AIMS RL-2 + RL-DROP.
 /// The released var of a scope-exit release op (whole-var or field-grain),
 /// `None` for every non-release instruction.
 fn release_var(instr: &ArcInstr) -> Option<ArcVarId> {
@@ -277,31 +275,21 @@ fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
         if body.len() - start < 2 {
             continue;
         }
-        // Group into units: a `BurdenDec v` immediately followed by `RcDec v`
-        // stays glued to its marker partner.
+        // One unit per release op; the sort is stable, so same-var release
+        // sequences keep their relative order.
         let tail: Vec<ArcInstr> = body.split_off(start);
-        let mut units: Vec<(u32, Vec<ArcInstr>)> = Vec::new();
-        let mut i = 0;
-        while i < tail.len() {
-            match (&tail[i], tail.get(i + 1)) {
-                (ArcInstr::BurdenDec { var: b }, Some(ArcInstr::RcDec { var: r, .. }))
-                    if b == r =>
-                {
-                    units.push((b.index() as u32, vec![tail[i].clone(), tail[i + 1].clone()]));
-                    i += 2;
-                }
-                _ => {
-                    let Some(var) = release_var(&tail[i]) else {
-                        unreachable!("trailing run contains only release ops")
-                    };
-                    units.push((var.index() as u32, vec![tail[i].clone()]));
-                    i += 1;
-                }
-            }
-        }
+        let mut units: Vec<(u32, ArcInstr)> = tail
+            .into_iter()
+            .map(|instr| {
+                let Some(var) = release_var(&instr) else {
+                    unreachable!("trailing run contains only release ops")
+                };
+                (var.index() as u32, instr)
+            })
+            .collect();
         units.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, instrs) in units {
-            body.extend(instrs);
+        for (_, instr) in units {
+            body.push(instr);
         }
     }
 }
