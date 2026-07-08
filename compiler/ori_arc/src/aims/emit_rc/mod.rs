@@ -183,9 +183,9 @@ fn has_whole_var_burden_dec_in_block(func: &ArcFunction, pred_block: usize, var:
 /// carries no burden, is an owned-transfer arg of `pred_block`'s terminator
 /// (already balanced at the transfer point), the predecessor already has an
 /// in-body whole-var `BurdenDec` (the walk's own dead-out release), OR the
-/// successor block already has a block-entry whole-var `BurdenDec` for `var`
-/// (the Phase-5 RL-4/RL-5 dead-at-entry releases land at the successor entry
-/// too — a second dec on the same edge double-frees). Spec: Annex E §AIMS RL-4.
+/// successor block already carries a whole-var `BurdenDec` for `var` (the
+/// Phase-5 RL-4/RL-5 dead-at-entry releases land in the successor's body —
+/// a second dec on the same edge double-frees). Spec: Annex E §AIMS RL-4.
 #[inline]
 pub(crate) fn release_burden_only_edge(
     func: &ArcFunction,

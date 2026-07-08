@@ -1,13 +1,14 @@
 //! Edge cleanup for inter-block RC operations — dispatch hub.
 //!
 //! Handles variables that are live in a predecessor but dead in a particular
-//! successor. For single-predecessor successors, prepends `RcDec` at the
-//! successor's entry. For multi-predecessor successors, inserts trampoline
+//! successor. For single-predecessor successors, appends `RcDec` at the
+//! successor's END (the RL-2 scope-exit position — a release may transitively
+//! run a user `@drop`). For multi-predecessor successors, inserts trampoline
 //! blocks. The per-terminator dead-set analysis lives in two sibling category
 //! modules: `branch` (Branch/Switch/Jump edges) and `invoke`
 //! (Invoke/InvokeIndirect edges + the Phase-6.98 unwind pair-net release). This
 //! file owns the shared `EdgeCleanupEnv` + same-alloc reps, the top-level
-//! `emit_edge_cleanup` dispatch, and the `apply_edge_decs` trampoline/prepend
+//! `emit_edge_cleanup` dispatch, and the `apply_edge_decs` trampoline/end-append
 //! emission.
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -240,8 +241,8 @@ pub(crate) fn emit_edge_cleanup(
     apply_edge_decs(func, &predecessors, edge_decs, burden_only);
 }
 
-/// Apply collected edge decs: prepend for single-pred successors, trampoline
-/// for multi-pred successors.
+/// Apply collected edge decs: append at the successor's END for single-pred
+/// successors (scope-exit position), trampoline for multi-pred successors.
 fn apply_edge_decs(
     func: &mut ArcFunction,
     predecessors: &[Vec<usize>],
