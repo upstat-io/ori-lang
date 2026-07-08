@@ -3018,7 +3018,9 @@ fn arg_pos_iter_consumes(
     contracts
         .get(&callee)
         .and_then(|c| c.params.get(pos))
-        .is_some_and(|p| p.iter_consumes)
+        // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return` — a
+        // ttr+iter-consume callee hands the arg back through its return.
+        .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
 }
 
 /// Phase 6.67 (probe): emit a keep-alive `BurdenInc` on every iter-element-view
@@ -11124,7 +11126,8 @@ fn fresh_collection_source_apply_dst(
 /// emits the conservative fresh-site inc — the M1 over-count under sole-emitter
 /// lowering. Spec: Annex E §AIMS RL-1.
 fn is_self_allocating_builtin_callee(callee: Name, interner: &ori_ir::StringInterner) -> bool {
-    let collect_set_protocol = interner.intern("__collect_set");
+    let collect_set_protocol =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     callee == collect_set_protocol
         || crate::borrow::all_cow_method_names(interner).contains(&callee)
         || collection_conversion_names(interner).contains(&callee)

@@ -376,7 +376,14 @@ fn iter_consumed_vars(
                 return;
             };
             for (pos, &arg) in args.iter().enumerate() {
-                if contract.params.get(pos).is_some_and(|p| p.iter_consumes) {
+                // RL-2 CONSUME is `iter_consumes ∧ ¬transfers_through_return`
+                // — a ttr+iter-consume callee hands the arg back through its
+                // return (the overlap keeps its own accounting).
+                if contract
+                    .params
+                    .get(pos)
+                    .is_some_and(|p| p.iter_consumes && !p.transfers_through_return)
+                {
                     out.insert(arg);
                 }
             }
