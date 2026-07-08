@@ -150,7 +150,7 @@ pub(super) fn emit_rc_unified(
     Vec<AllocEvent>,
     metrics::SynergyMetrics,
 ) {
-    use crate::aims::emit_rc::{coalesce_block_rc, collect_all_borrowed_defs, DeferredDec};
+    use crate::aims::emit_rc::{collect_all_borrowed_defs, DeferredDec};
 
     debug_assert!(
         !func.var_reprs.is_empty(),
@@ -167,10 +167,7 @@ pub(super) fn emit_rc_unified(
     if func.class_ledger_emission {
         lower_burden_ops_to_rc(func, pool, type_registry, &FxHashSet::default());
         trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
-        for block in &mut func.blocks {
-            coalesce_block_rc(&mut block.body);
-        }
-        trace_phase_snapshot("after_phase_3_coalesce", func, interner);
+        finalize_rc_emission(func, interner);
         return (
             count_rc_ops(func),
             Vec::new(),
@@ -219,13 +216,7 @@ pub(super) fn emit_rc_unified(
         type_registry,
     );
 
-    // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
-    for block in &mut func.blocks {
-        coalesce_block_rc(&mut block.body);
-    }
-    trace_phase_snapshot("after_phase_3_coalesce", func, interner);
-
-    order_return_block_scope_exit_decs(func);
+    finalize_rc_emission(func, interner);
 
     let rc_count = count_rc_ops(func);
     (
@@ -236,13 +227,27 @@ pub(super) fn emit_rc_unified(
     )
 }
 
-/// RL-2 scope-exit drop ordering on `Return` blocks: sort each Return block's
-/// trailing release run into REVERSE DECLARATION ORDER (descending `ArcVarId`),
-/// the value-semantics teardown order (a later-declared container drops before
-/// the earlier locals its teardown may observe — the two-channel map teardown
-/// fires before the caller's own key/value copies release). Releases within
-/// one trailing run are a per-path permutation (RC-net neutral); only the
-/// user-`@drop`-observable order changes. Spec: Annex E §AIMS RL-2 + RL-DROP.
+/// Shared RC-emission tail: Phase 3 coalescing peephole (merge adjacent RC
+/// ops per block) followed by RL-2 scope-exit drop-order correction on
+/// `Return` blocks ([`order_return_block_scope_exit_decs`]).
+///
+/// BOTH `emit_rc_unified` exit paths — the class-ledger replacement early
+/// return and the default burden-path walk — emit real `RcInc`/`RcDec`
+/// instructions subject to the SAME user-`@drop`-observable ordering hazard
+/// on `Return` blocks (Spec: Annex E §AIMS RL-2 + RL-DROP); routing both
+/// through one finalize step keeps them from drifting out of sync the way a
+/// duplicated inline tail would.
+fn finalize_rc_emission(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
+    use crate::aims::emit_rc::coalesce_block_rc;
+
+    for block in &mut func.blocks {
+        coalesce_block_rc(&mut block.body);
+    }
+    trace_phase_snapshot("after_phase_3_coalesce", func, interner);
+
+    order_return_block_scope_exit_decs(func);
+}
+
 /// The released var of a scope-exit release op (whole-var or field-grain),
 /// `None` for every non-release instruction.
 fn release_var(instr: &ArcInstr) -> Option<ArcVarId> {
@@ -258,38 +263,68 @@ fn release_var(instr: &ArcInstr) -> Option<ArcVarId> {
     }
 }
 
+/// RL-2 scope-exit drop ordering on `Return` blocks: sort each Return block's
+/// trailing release run into REVERSE DECLARATION ORDER (descending `ArcVarId`),
+/// the value-semantics teardown order (a later-declared container drops before
+/// the earlier locals its teardown may observe — the two-channel map teardown
+/// fires before the caller's own key/value copies release). Releases within
+/// one trailing run are a per-path permutation (RC-net neutral); only the
+/// user-`@drop`-observable order changes. Spec: Annex E §AIMS RL-2 + RL-DROP.
 fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
-    for block in &mut func.blocks {
-        if !matches!(block.terminator, crate::ir::ArcTerminator::Return { .. }) {
+    for block_idx in 0..func.blocks.len() {
+        if !matches!(
+            func.blocks[block_idx].terminator,
+            crate::ir::ArcTerminator::Return { .. }
+        ) {
             continue;
         }
-        let body = &mut block.body;
+        let body_len = func.blocks[block_idx].body.len();
         // The maximal trailing run of release ops — whole-var AND field-grain
         // (a partial/field/variant dec walks field payloads whose drop glue
         // may fire transitively, so it is order-bearing and must not truncate
         // the run).
-        let mut start = body.len();
-        while start > 0 && release_var(&body[start - 1]).is_some() {
+        let mut start = body_len;
+        while start > 0 && release_var(&func.blocks[block_idx].body[start - 1]).is_some() {
             start -= 1;
         }
-        if body.len() - start < 2 {
+        if body_len - start < 2 {
             continue;
         }
         // One unit per release op; the sort is stable, so same-var release
-        // sequences keep their relative order.
-        let tail: Vec<ArcInstr> = body.split_off(start);
-        let mut units: Vec<(usize, ArcInstr)> = tail
+        // sequences keep their relative order. `func.spans` is indexed
+        // `[block_index][instr_index]` in lockstep with `body` (per every
+        // other body-reordering pass in this crate — `block_merge::select`,
+        // `aims::emit_reuse::dynamic`, `tail_call::rewrite`); split + resort
+        // the span tail alongside the instruction tail so a reordered
+        // release's provenance stays attached to the reordered instruction
+        // instead of silently describing whichever instruction ends up at
+        // its old position.
+        let tail: Vec<ArcInstr> = func.blocks[block_idx].body.split_off(start);
+        let span_tail: Vec<Option<ori_ir::Span>> = func
+            .spans
+            .get_mut(block_idx)
+            .map(|spans| {
+                let at = start.min(spans.len());
+                spans.split_off(at)
+            })
+            .unwrap_or_default();
+        let mut units: Vec<(usize, ArcInstr, Option<ori_ir::Span>)> = tail
             .into_iter()
-            .map(|instr| {
+            .enumerate()
+            .map(|(i, instr)| {
                 let Some(var) = release_var(&instr) else {
                     unreachable!("trailing run contains only release ops")
                 };
-                (var.index(), instr)
+                let span = span_tail.get(i).copied().flatten();
+                (var.index(), instr, span)
             })
             .collect();
         units.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, instr) in units {
-            body.push(instr);
+        for (_, instr, span) in units {
+            func.blocks[block_idx].body.push(instr);
+            if let Some(spans) = func.spans.get_mut(block_idx) {
+                spans.push(span);
+            }
         }
     }
 }

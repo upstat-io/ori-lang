@@ -192,8 +192,7 @@ pub(crate) fn emit_edge_cleanup(
                                 edge_decs.push((block_idx, unwind.index(), var, strategy));
                             }
                             Some(succ) => {
-                                debug_assert!(
-                                    false,
+                                unreachable!(
                                     "merge-edge dec targets block {succ} which is neither \
                                      normal ({}) nor unwind ({}) of Invoke in block {block_idx}",
                                     normal.index(),
@@ -220,13 +219,11 @@ pub(crate) fn emit_edge_cleanup(
                         }
                     }
                     Some(succ) => {
-                        debug_assert!(
+                        assert!(
                             successors.iter().any(|s| s.index() == succ),
                             "merge-edge dec targets block {succ} which is not a successor of block {block_idx}",
                         );
-                        if successors.iter().any(|s| s.index() == succ) {
-                            edge_decs.push((block_idx, succ, var, strategy));
-                        }
+                        edge_decs.push((block_idx, succ, var, strategy));
                     }
                 }
             }
@@ -276,32 +273,38 @@ fn apply_edge_decs(
             .or_default()
             .push((var, strategy));
     }
+    // Deterministic iteration order (PHASE-29): `insert_trampoline` assigns each
+    // new trampoline block's id from `func.blocks.len()` at call time, so the
+    // ORDER trampolines are inserted in determines the emitted ArcFunction's
+    // block numbering. Iterating the hash map directly would key that ordering
+    // on FxHashMap bucket layout instead of the edge identity; sort by
+    // `(pred, succ)` first so the same input always produces the same block
+    // layout regardless of hash-map internals.
+    let mut sorted_groups: Vec<((usize, usize), Vec<EdgeDec>)> = edge_groups.into_iter().collect();
+    sorted_groups.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     let mut trampolines: Vec<(usize, usize, Vec<EdgeDec>)> = Vec::new();
 
-    for ((pred, succ), decs) in &edge_groups {
+    for ((pred, succ), decs) in &sorted_groups {
         if predecessors[*succ].len() == 1 {
             // Faithful release: `BurdenDec` paired per edge `RcDec` nets 0
             // across this CFG edge (RL-4); suppressed for an owned-transfer
             // arg of `pred`'s terminator (already balanced at the transfer).
-            // An aggregate dec (`AggregateFields` / `InlineEnum`) may run a
-            // user `@drop` (drop glue — a trait-impl fact ori_arc cannot see;
-            // codegen's `user_drop_method` is that SSOT), making the release
-            // OBSERVABLE: block-entry placement would fire the `@drop` before
-            // the successor's remaining statements and before the walk's own
-            // scope-exit decs, inverting the user-visible drop order.
-            // Aggregate decs land at the END of the successor body — the RL-2
-            // scope-exit position; the var is dead at entry, so the delay is
-            // unobservable for a glue-less aggregate and correct for `@drop`
-            // ordering. Non-aggregate strategies keep entry placement.
+            // ANY strategy's release may transitively run a user `@drop` —
+            // not just `AggregateFields`/`InlineEnum` (whose own field walk
+            // is inline): `FatPointer` (`[T]`/`{K:V}`/`Set<T>`) frees its
+            // buffer via `elem_dec_fn`, which invokes each Drop-typed
+            // element's `@drop`; `HeapPointer` calls the type's generated
+            // `_ori_drop$<type>` function, which walks fields exactly like
+            // `AggregateFields` when the payload is boxed; `Closure` drops a
+            // capture environment that may itself hold Drop-typed captures.
+            // Drop glue is a trait-impl fact `ori_arc` cannot see (codegen's
+            // `user_drop_method` is that SSOT), so no `RcStrategy` shape is a
+            // sound "never observable" proof. Every edge release therefore
+            // lands at the END of the successor body — the RL-2 scope-exit
+            // position; the var is dead at entry, so the delay is
+            // unobservable when no drop fires and correct when one does.
             // Spec: Annex E §AIMS RL-2 + RL-4 + RL-DROP.
-            let (glue_decs, plain_decs): (Vec<EdgeDec>, Vec<EdgeDec>) =
-                decs.iter().copied().partition(|&(_, strategy)| {
-                    matches!(
-                        strategy,
-                        RcStrategy::AggregateFields | RcStrategy::InlineEnum
-                    )
-                });
             let release = |func: &ArcFunction, var: ArcVarId, strategy: RcStrategy| {
                 if burden_only {
                     super::release_burden_only_edge(func, *pred, *succ, var)
@@ -309,19 +312,21 @@ fn apply_edge_decs(
                     super::release_with_burden_edge(func, *pred, var, strategy)
                 }
             };
-            let entry_instrs: Vec<ArcInstr> = plain_decs
+            let end_instrs: Vec<ArcInstr> = decs
                 .iter()
                 .flat_map(|&(var, strategy)| release(func, var, strategy))
                 .collect();
-            let end_instrs: Vec<ArcInstr> = glue_decs
-                .iter()
-                .flat_map(|&(var, strategy)| release(func, var, strategy))
-                .collect();
-            let body = &mut func.blocks[*succ].body;
-            let mut new_body = entry_instrs;
-            new_body.append(body);
-            new_body.extend(end_instrs);
-            *body = new_body;
+            let end_len = end_instrs.len();
+            func.blocks[*succ].body.extend(end_instrs);
+            // Keep `func.spans[*succ]` (indexed `[block_index][instr_index]`
+            // in lockstep with `body`, per every other body-mutating pass in
+            // this crate) aligned with the appended synthetic releases —
+            // `None` for the inserted decs (they have no source span,
+            // matching the field doc + every other synthetic-instr span
+            // site in this crate).
+            if let Some(spans) = func.spans.get_mut(*succ) {
+                spans.extend(std::iter::repeat_n(None, end_len));
+            }
         } else {
             trampolines.push((*pred, *succ, decs.clone()));
         }

@@ -175,6 +175,30 @@ fn carrier_block_of(
     None
 }
 
+/// Seed set: every `Project` dst whose SOURCE is a lineage member (a
+/// same-alloc view extracted from the closure). Members themselves are
+/// excluded — they are the borrowed receiver, not an extract. SSOT for the
+/// member-field-extract seed computation — consumed by [`has_live_project_extract`]
+/// (grows the seed transitively + checks cross-block liveness) and by the
+/// parent module's unconditional STRUCT-root decline (gate s1), which only
+/// needs non-emptiness.
+pub(super) fn collect_member_field_extract_seeds(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+) -> FxHashSet<ArcVarId> {
+    let mut extract: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if members.contains(value) && !members.contains(dst) {
+                    extract.insert(*dst);
+                }
+            }
+        }
+    }
+    extract
+}
+
 /// True iff a same-allocation `Project` extracted from a lineage member is LIVE
 /// across the carrier's release edges — read in a block OTHER than the carrier's
 /// own block. The extract's transitive flow (`Let { Var }` aliases + `Jump`-arg →
@@ -187,19 +211,7 @@ fn has_live_project_extract(
     members: &FxHashSet<ArcVarId>,
     carrier_block: usize,
 ) -> bool {
-    // Seed: every `Project` dst whose SOURCE is a lineage member (the extracted
-    // same-alloc view). Members themselves are excluded — they are the borrowed
-    // receiver, not an extract.
-    let mut extract: FxHashSet<ArcVarId> = FxHashSet::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Project { dst, value, .. } = instr {
-                if members.contains(value) && !members.contains(dst) {
-                    extract.insert(*dst);
-                }
-            }
-        }
-    }
+    let mut extract = collect_member_field_extract_seeds(func, members);
     if extract.is_empty() {
         return false;
     }

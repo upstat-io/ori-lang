@@ -20,10 +20,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
-use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::ir::{ArcFunction, ArcVarId};
 
 use super::{function_used_vars, ForwarderReleasePos};
-use death_point::{choose_death_point, DeathPoint, DeathPointModes};
+use death_point::{
+    choose_death_point, collect_member_field_extract_seeds, DeathPoint, DeathPointModes,
+};
 use roots::{
     closure_has_borrowed_invoke_arg, closure_member_iter_consumed_at_invoke,
     collect_borrowed_call_result_roots, collect_fresh_builtin_invoke_result_roots,
@@ -309,13 +311,11 @@ fn record_admitted_candidate(
 
 /// TRUE iff any `Project` extracts a field from a lineage member into a
 /// non-member dst — the same-alloc struct-field view gate (s1) declines on.
+/// Reuses the [`collect_member_field_extract_seeds`] SSOT (the same seed
+/// computation `death_point::has_live_project_extract` grows transitively
+/// for its liveness-gated decline); gate (s1) only needs non-emptiness.
 fn struct_root_has_field_extract(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
-    func.blocks.iter().any(|block| {
-        block.body.iter().any(|instr| {
-            matches!(instr, ArcInstr::Project { dst, value, .. }
-                if members.contains(value) && !members.contains(dst))
-        })
-    })
+    !collect_member_field_extract_seeds(func, members).is_empty()
 }
 
 /// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or

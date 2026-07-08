@@ -679,7 +679,7 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
     assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
     // Both payload fields of BOTH nodes (outer + boxed inner) must run their
     // user @drop — the heap drop-fn path previously skipped inline-payload @drop
-    // entirely. Each node walks its payload in reverse decl order (b before a).
+    // entirely.
     for tag in [
         "drop-outer-a",
         "drop-outer-b",
@@ -691,6 +691,26 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
             "every node payload field @drop must run via the heap drop-fn path; missing {tag}; stdout:\n{stdout}"
         );
     }
+    // ORDER pin (the name's actual claim): the recursive `next` field is
+    // declared LAST in `Link(a, b, next)`, so reverse-decl-order walks `next`
+    // FIRST — the whole boxed inner node (itself reverse-decl: b then a) drops
+    // in full before the outer node's own b/a fields.
+    let idx = |tag: &str| {
+        stdout
+            .find(tag)
+            .unwrap_or_else(|| panic!("missing {tag} in stdout:\n{stdout}"))
+    };
+    let (inner_b, inner_a, outer_b, outer_a) = (
+        idx("drop-inner-b"),
+        idx("drop-inner-a"),
+        idx("drop-outer-b"),
+        idx("drop-outer-a"),
+    );
+    assert!(
+        inner_b < inner_a && inner_a < outer_b && outer_b < outer_a,
+        "reverse-decl order across the recursive chain must be \
+         inner-b, inner-a, outer-b, outer-a; stdout:\n{stdout}"
+    );
 }
 
 /// Recoverable boxed-recursive enum `@drop` panic, reached through

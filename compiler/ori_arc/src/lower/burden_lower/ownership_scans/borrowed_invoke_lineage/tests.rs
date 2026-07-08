@@ -835,12 +835,14 @@ fn no_sink_live_across_carrier_is_last_invoke() {
     );
 }
 
+/// `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE` accessor: unset in the test env
+/// -> the whole scan (dead-param + no-sink modes) is active. (Behavioral toggle
+/// parity — the disabled path actually reproducing the pre-cure leak — is
+/// pinned at the AOT level in `borrowed_invoke_leak.rs`, not here: the accessor
+/// is a `LazyLock<bool>` read once per process, so flipping the env var mid-run
+/// inside this unit-test binary cannot observe a behavioral difference.)
 #[test]
-fn no_sink_disabled_toggle_skips_treatment() {
-    // The `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` toggle gates the whole
-    // scan (dead-param + no-sink modes). The accessor is the single switch
-    // `scan_helpers::apply_borrowed_invoke_collection_lineage` consults; unset in
-    // the test environment it returns false (treatment active).
+fn borrowed_invoke_lineage_release_toggle_unset_is_active() {
     assert!(
         !borrowed_invoke_lineage_release_disabled(),
         "the toggle is unset in the test env -> the no-sink treatment is active",

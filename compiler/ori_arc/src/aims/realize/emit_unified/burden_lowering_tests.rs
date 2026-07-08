@@ -5859,3 +5859,79 @@ fn borrowed_param_cow_push_dead_after_keeps_edge_release() {
         "dead-after borrowed-param COW receiver must keep the both-edge release"
     );
 }
+
+/// Semantic pin: [`super::order_return_block_scope_exit_decs`] sorts a
+/// `Return` block's trailing release run into DESCENDING `ArcVarId` order (the
+/// value-semantics teardown order) and keeps each release's span attached to
+/// the SAME reordered instruction — never to whichever slot it lands in.
+#[test]
+fn order_return_block_sorts_descending_var_and_keeps_spans_in_lockstep() {
+    let mut func = rc_pointer_func(
+        3,
+        vec![
+            ArcInstr::BurdenDec { var: v(0) },
+            ArcInstr::BurdenDec { var: v(2) },
+            ArcInstr::BurdenDec { var: v(1) },
+        ],
+    );
+    // One span per body instruction, keyed by its ORIGINAL position — var(0)'s
+    // release carries span (0,1), var(2)'s carries (10,11), var(1)'s (20,21).
+    func.spans = vec![vec![
+        Some(ori_ir::Span::new(0, 1)),
+        Some(ori_ir::Span::new(10, 11)),
+        Some(ori_ir::Span::new(20, 21)),
+    ]];
+
+    super::order_return_block_scope_exit_decs(&mut func);
+
+    let body = &func.blocks[0].body;
+    let vars: Vec<u32> = body
+        .iter()
+        .map(|i| match super::release_var(i) {
+            Some(var) => var.raw(),
+            None => panic!("every body instr is a release op"),
+        })
+        .collect();
+    assert_eq!(
+        vars,
+        vec![2, 1, 0],
+        "the trailing release run sorts into descending var order"
+    );
+
+    let spans = &func.spans[0];
+    assert_eq!(
+        spans,
+        &[
+            Some(ori_ir::Span::new(10, 11)),
+            Some(ori_ir::Span::new(20, 21)),
+            Some(ori_ir::Span::new(0, 1)),
+        ],
+        "each release's span travels WITH its reordered instruction, not with its old slot"
+    );
+}
+
+/// Semantic pin: the ordering pass is idempotent — running it a second time on
+/// its own output reproduces the same body (a non-idempotent reorder would be
+/// a bug per `tests.md §Negative Testing Protocol` idempotency testing).
+#[test]
+fn order_return_block_scope_exit_decs_is_idempotent() {
+    let mut func = rc_pointer_func(
+        3,
+        vec![
+            ArcInstr::BurdenDec { var: v(0) },
+            ArcInstr::BurdenDec { var: v(2) },
+            ArcInstr::BurdenDec { var: v(1) },
+        ],
+    );
+
+    super::order_return_block_scope_exit_decs(&mut func);
+    let once = func.blocks[0].body.clone();
+
+    super::order_return_block_scope_exit_decs(&mut func);
+    let twice = func.blocks[0].body.clone();
+
+    assert_eq!(
+        once, twice,
+        "running the ordering pass twice matches running it once"
+    );
+}

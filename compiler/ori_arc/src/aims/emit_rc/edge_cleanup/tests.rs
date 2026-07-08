@@ -316,3 +316,102 @@ fn classless_var_self_live_suppresses_only_when_include_var_self() {
          genuine release proved dead on this edge"
     );
 }
+
+/// A single-predecessor edge carrying BOTH a plain (`HeapPointer`) release and
+/// an aggregate (`AggregateFields`) release. [`super::apply_edge_decs`] MUST
+/// place BOTH releases at the successor's END (after the existing body), in
+/// `decs` order — no `RcStrategy` shape is a sound proof that a release can
+/// never transitively run a user `@drop` (a `HeapPointer` buffer's
+/// `elem_dec_fn`, or a boxed type's generated drop function, can invoke one
+/// exactly like an inline `AggregateFields`/`InlineEnum` field walk), so
+/// entry placement would risk firing a drop BEFORE the successor's own
+/// statements, inverting the user-visible drop order (Spec: Annex E §AIMS
+/// RL-2 + RL-4 + RL-DROP).
+#[test]
+fn apply_edge_decs_places_every_release_at_successor_end() {
+    use crate::ir::{ArcInstr, ArcValue, LitValue, RcAtomicity, RcStrategy};
+
+    let plain_var = v(0);
+    let aggregate_var = v(1);
+    let placeholder_dst = v(2);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![],
+        },
+    };
+    let placeholder = ArcInstr::Let {
+        dst: placeholder_dst,
+        ty: Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(7)),
+    };
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![placeholder.clone()],
+        terminator: ArcTerminator::Return {
+            value: placeholder_dst,
+        },
+    };
+    let mut func = ArcFunction {
+        name: Name::from_raw(1),
+        params: vec![],
+        return_type: Idx::INT,
+        blocks: vec![block0, block1],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::INT; 3],
+        var_reprs: vec![ValueRepr::RcPointer; 3],
+        var_rc_strategies: Vec::new(),
+        spans: vec![vec![], vec![Some(ori_ir::Span::new(5, 6))]],
+        ..Default::default()
+    };
+    let predecessors: Vec<Vec<usize>> = vec![vec![], vec![0]];
+    let edge_decs: Vec<(usize, usize, ArcVarId, RcStrategy)> = vec![
+        (0, 1, plain_var, RcStrategy::HeapPointer),
+        (0, 1, aggregate_var, RcStrategy::AggregateFields),
+    ];
+
+    super::apply_edge_decs(&mut func, &predecessors, edge_decs, false);
+
+    let body = &func.blocks[1].body;
+    assert_eq!(body.len(), 3, "the original placeholder + two end releases");
+    assert_eq!(
+        body[0], placeholder,
+        "the original body instruction is undisturbed at the front — both \
+         releases land after it"
+    );
+    assert!(
+        matches!(
+            &body[1],
+            ArcInstr::RcDec { var, strategy: RcStrategy::HeapPointer, atomicity }
+                if *var == plain_var && *atomicity == RcAtomicity::default_atomic()
+        ),
+        "the plain (HeapPointer) release lands at the successor's END, in \
+         `decs` order; body[1]={:?}",
+        body[1]
+    );
+    assert!(
+        matches!(
+            &body[2],
+            ArcInstr::RcDec { var, strategy: RcStrategy::AggregateFields, atomicity }
+                if *var == aggregate_var && *atomicity == RcAtomicity::default_atomic()
+        ),
+        "the aggregate (AggregateFields) release lands at the successor's END, \
+         after the original body; body[2]={:?}",
+        body[2]
+    );
+
+    // Span lockstep: the original placeholder keeps its span; both synthetic
+    // releases carry `None` (no source span for an inserted edge release).
+    let spans = &func.spans[1];
+    assert_eq!(
+        spans,
+        &[Some(ori_ir::Span::new(5, 6)), None, None],
+        "spans stay in lockstep with the reordered body — the placeholder's \
+         span travels with it, synthetic releases carry no span"
+    );
+}
