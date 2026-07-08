@@ -7,6 +7,12 @@
         Ok(v) -> v,
         Err(_) -> 0,
     };
-    let $f = (x: int) -> x + 1;
-    print(msg: `{e.message} {errs.len()} {eq} {v} {f(1)}`);
+    let $base = 10;
+    let $f = (x: int) -> x + base;
+    let $m = {"k": [1], "j": [2]};
+    let $s: Set<str> = ["a", "b"].iter().collect();
+    let $small = [1, 2, 3];
+    let $doubled = small.iter().map(f).collect();
+    let $joined = ["x", "y"].join(sep: ",");
+    print(msg: `{e.message} {errs.len()} {eq} {v} {f(1)} {m.len()} {s.len()} {doubled.len()} {joined}`);
 }

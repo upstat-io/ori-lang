@@ -86,8 +86,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .declare_function(&wrapper_name, &wrapper_param_types, ret_ty)
         };
-        self.builder.set_ccc(wrapper_func_id);
-        self.builder.set_internal_linkage(wrapper_func_id);
+        self.builder.set_module_local(wrapper_func_id);
         self.builder.add_uwtable_attribute(wrapper_func_id);
         if target_is_nounwind {
             self.builder.add_nounwind_attribute(wrapper_func_id);

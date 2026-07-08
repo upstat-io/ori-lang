@@ -261,6 +261,15 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .set_linkage(Linkage::Internal);
     }
 
+    /// Mark a synthesized module-local glue function: C calling convention +
+    /// internal linkage in one step. Every per-module glue creator (drop /
+    /// elem / eq / hash / partial / trampoline / catch thunks) uses this so
+    /// no glue symbol escapes its object file with external linkage.
+    pub fn set_module_local(&mut self, func_id: FunctionId) {
+        self.set_ccc(func_id);
+        self.set_internal_linkage(func_id);
+    }
+
     /// Declare an external function with `External` linkage.
     ///
     /// Used for runtime library functions (`ori_print`, `ori_panic`, etc.)

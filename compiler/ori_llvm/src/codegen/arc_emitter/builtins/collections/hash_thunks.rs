@@ -84,7 +84,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -163,7 +163,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
@@ -266,7 +266,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -344,7 +344,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);

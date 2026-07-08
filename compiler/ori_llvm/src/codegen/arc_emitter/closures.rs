@@ -220,7 +220,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Declare: void @_ori_partial_N_drop(ptr %data)
         let ptr_ty = self.builder.ptr_type();
         let func_id = self.builder.declare_void_function(&func_name, &[ptr_ty]);
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);

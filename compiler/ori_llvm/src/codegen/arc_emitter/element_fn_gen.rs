@@ -350,8 +350,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return func_id;
         }
 
-        self.builder.set_ccc(func_id);
-        self.builder.set_internal_linkage(func_id);
+        self.builder.set_module_local(func_id);
         // May-unwind element teardown: when the element type's drop tree reaches
         // a user `@drop` (foreign Ori exception), the element-dec thunk is NOT
         // `nounwind` — it threads the exception out so the codegen-emitted buffer
@@ -537,8 +536,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return func_id;
         }
 
-        self.builder.set_ccc(func_id);
-        self.builder.set_internal_linkage(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);

@@ -95,10 +95,14 @@ fn glue_symbols_are_module_local() {
         "_ori_Error_ctor",
         "_ori_drop$",
         "_ori_elem_dec$",
+        "_ori_elem_inc$",
         "_ori_eq_",
         "_ori_hash_",
         "_ori_partial_",
         "_ori_catch_thunk",
+        "_ori_tramp_",
+        "_ori_sext_widen_",
+        "_ori_join_to_str_",
     ];
     let mut audited = 0usize;
     for line in text.lines() {
@@ -118,8 +122,9 @@ fn glue_symbols_are_module_local() {
         }
     }
     assert!(
-        audited >= 3,
+        audited >= 8,
         "glue audit exercised too few families ({audited}); fixture must materialize \
-         Error ctor + drop glue + elem-dec at minimum\n{text}"
+         Error ctor + drop glue + elem-dec + eq/hash thunks + partial closure glue + \
+         trampoline/join helpers\n{text}"
     );
 }

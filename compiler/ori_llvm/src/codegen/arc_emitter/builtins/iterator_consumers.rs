@@ -615,7 +615,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self
             .builder
             .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty]);
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);
         for i in 0..3 {
