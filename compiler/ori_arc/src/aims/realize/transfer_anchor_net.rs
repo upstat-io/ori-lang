@@ -62,7 +62,7 @@ use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId, ValueRepr};
 
 use super::emit_unified::compute_jump_threaded_reps;
-use anchors::{collect_anchors, Anchor, AnchorKind};
+use anchors::{collect_anchors, Anchor, AnchorKind, CreditSite};
 use model::{build_lineage_model, FreshSiteInc, LineageModel};
 use verify::{block_in_cycle, classify_model, final_value_read_sinks, Change, NetVerdict, PlaceAt};
 use views::same_alloc_wrapper_type;
@@ -200,6 +200,7 @@ pub(crate) fn compute_transfer_anchor_credit_repairs(
                 let change = Change {
                     remove: Some((cand.block, cand.event_idx)),
                     place: None,
+                    extra_places: [None; 3],
                 };
                 classify_model(func, &preds, &model, change) == NetVerdict::Clean
             })
@@ -219,6 +220,19 @@ pub(crate) fn compute_transfer_anchor_credit_repairs(
             trace_verdict(func, interner, rep, verdict);
             repairs.push(repair);
             continue;
+        }
+
+        // Mode 2b — multi-path placement: the read sink covers only its own
+        // path; the transferred-in credit survives unread on sibling
+        // branch/switch arms (RL-4 dead edges). Complement the sink release
+        // with BlockFront releases at single-pred dead-frontier blocks,
+        // jointly verified all-Return-paths-0.
+        if rep_anchors.len() == 1 {
+            if let Some(multi) = try_multi_path_placement(func, &preds, &model, rep_anchors[0]) {
+                trace_verdict(func, interner, rep, "placed-multi-path-releases");
+                repairs.extend(multi);
+                continue;
+            }
         }
 
         // Mode 3 — combined removal + placement (wrapped reps only).
@@ -329,55 +343,169 @@ fn try_place_release(
     model: &LineageModel,
     base_remove: Option<(usize, usize)>,
 ) -> (&'static str, Option<CreditRepair>) {
-    let sinks = final_value_read_sinks(func, &model.read_blocks);
-    if sinks.len() != 1 {
-        return ("declined-sink-count", None);
-    }
-    let sink = sinks[0];
-    if block_in_cycle(func, sink) {
-        return ("declined-sink-in-cycle", None);
-    }
-    let read = &model.read_blocks[&sink];
-    let (change, repair) = if let Some(var) = read.terminator {
-        // Terminator borrowed-Invoke read: the value is read DURING the call —
-        // release on the (single-pred) normal successor (RL-4).
-        let crate::ir::ArcTerminator::Invoke { normal, .. } = &func.blocks[sink].terminator else {
-            return ("declined-terminator-shape", None);
-        };
-        let succ = normal.index();
-        if preds.get(succ).map(Vec::len) != Some(1) {
-            return ("declined-multi-pred-successor", None);
-        }
-        (
-            Change {
-                remove: base_remove,
-                place: Some((succ, PlaceAt::BlockFront)),
-            },
-            CreditRepair::PlaceDecBlockFront { block: succ, var },
-        )
-    } else if read.view_terminator {
-        // The sink's TERMINATOR reads a same-allocation VIEW: an end-of-body
-        // release would free the allocation the terminator is about to read.
-        return ("declined-view-terminator-read", None);
-    } else {
-        let Some(var) = read.last_body else {
-            // Only view reads in the sink block — no member SSA value to
-            // name as the release target.
-            return ("declined-view-only-sink", None);
-        };
-        (
-            Change {
-                remove: base_remove,
-                place: Some((sink, PlaceAt::EndOfBody)),
-            },
-            CreditRepair::PlaceDecEndOfBody { block: sink, var },
-        )
+    let (verdict, change, repair) = sink_placement_candidate(func, preds, model, base_remove);
+    let (Some(change), Some(repair)) = (change, repair) else {
+        return (verdict, None);
     };
     if classify_model(func, preds, model, change) == NetVerdict::Clean {
         ("placed-release", Some(repair))
     } else {
         ("declined-placement-unproven", None)
     }
+}
+
+/// The unique-sink placement candidate (unverified): the change + repair a
+/// caller then classifies, or a decline verdict.
+fn sink_placement_candidate(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    model: &LineageModel,
+    base_remove: Option<(usize, usize)>,
+) -> (&'static str, Option<Change>, Option<CreditRepair>) {
+    let sinks = final_value_read_sinks(func, &model.read_blocks);
+    if sinks.len() != 1 {
+        return ("declined-sink-count", None, None);
+    }
+    let sink = sinks[0];
+    if block_in_cycle(func, sink) {
+        return ("declined-sink-in-cycle", None, None);
+    }
+    let read = &model.read_blocks[&sink];
+    let (change, repair) = if let Some(var) = read.terminator {
+        // Terminator borrowed-Invoke read: the value is read DURING the call —
+        // release on the (single-pred) normal successor (RL-4).
+        let crate::ir::ArcTerminator::Invoke { normal, .. } = &func.blocks[sink].terminator else {
+            return ("declined-terminator-shape", None, None);
+        };
+        let succ = normal.index();
+        if preds.get(succ).map(Vec::len) != Some(1) {
+            return ("declined-multi-pred-successor", None, None);
+        }
+        (
+            Change {
+                remove: base_remove,
+                place: Some((succ, PlaceAt::BlockFront)),
+                extra_places: [None; 3],
+            },
+            CreditRepair::PlaceDecBlockFront { block: succ, var },
+        )
+    } else if read.view_terminator {
+        // The sink's TERMINATOR reads a same-allocation VIEW: an end-of-body
+        // release would free the allocation the terminator is about to read.
+        return ("declined-view-terminator-read", None, None);
+    } else {
+        // A member body-read anchors the release directly; a view-only sink
+        // anchors it on the admitted same-allocation VIEW instead (a
+        // whole-var dec on the view releases the shared allocation — the
+        // unified member+view ledger prices both at -1).
+        let Some(var) = read.last_body.or(read.last_body_view) else {
+            return ("declined-view-only-sink", None, None);
+        };
+        (
+            Change {
+                remove: base_remove,
+                place: Some((sink, PlaceAt::EndOfBody)),
+                extra_places: [None; 3],
+            },
+            CreditRepair::PlaceDecEndOfBody { block: sink, var },
+        )
+    };
+    ("candidate", Some(change), Some(repair))
+}
+
+/// Mode 2b: the unique read sink's release + `BlockFront` releases at
+/// single-pred DEAD-FRONTIER blocks (no read reachable, predecessor still
+/// reaches one) where the transferred-in credit would otherwise survive to a
+/// Return unread. The anchor dst names each frontier release (defined at the
+/// anchor terminator, so it dominates every block the credit reaches);
+/// dominance is verified against the anchor's normal successor. Jointly
+/// verified all-Return-paths-0 before any repair is emitted.
+fn try_multi_path_placement(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    model: &LineageModel,
+    anchor: &Anchor,
+) -> Option<Vec<CreditRepair>> {
+    let (_, change, sink_repair) = sink_placement_candidate(func, preds, model, None);
+    let (mut change, sink_repair) = (change?, sink_repair?);
+
+    // can_reach_read[b]: some read block is forward-reachable from b.
+    let n = func.blocks.len();
+    let mut can_reach_read = vec![false; n];
+    for &b in model.read_blocks.keys() {
+        can_reach_read[b] = true;
+    }
+    loop {
+        let mut grew = false;
+        for (b, block) in func.blocks.iter().enumerate() {
+            if can_reach_read[b] {
+                continue;
+            }
+            let reaches = crate::graph::successor_block_ids(&block.terminator)
+                .iter()
+                .any(|s| can_reach_read[s.index()]);
+            if reaches {
+                can_reach_read[b] = true;
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+
+    // Frontier releases require the Invoke-anchor shape: `dst` is bound at
+    // the NORMAL successor's entry, which then must dominate each frontier.
+    let CreditSite::BlockEntry {
+        block: anchor_normal,
+    } = anchor.credit
+    else {
+        return None;
+    };
+    let dom = crate::graph::DominatorTree::build(func);
+    let normal_id = crate::ir::ArcBlockId::new(u32::try_from(anchor_normal).ok()?);
+
+    let mut frontier: Vec<usize> = Vec::new();
+    for (b, block) in func.blocks.iter().enumerate() {
+        if can_reach_read[b]
+            || matches!(
+                block.terminator,
+                crate::ir::ArcTerminator::Resume | crate::ir::ArcTerminator::Unreachable
+            )
+        {
+            continue;
+        }
+        let [pred] = preds.get(b)?.as_slice() else {
+            continue;
+        };
+        if !can_reach_read[*pred] {
+            continue;
+        }
+        if !dom.dominates(
+            normal_id,
+            crate::ir::ArcBlockId::new(u32::try_from(b).ok()?),
+        ) {
+            continue;
+        }
+        frontier.push(b);
+    }
+    if frontier.is_empty() || frontier.len() > change.extra_places.len() {
+        return None;
+    }
+    for (slot, &b) in change.extra_places.iter_mut().zip(frontier.iter()) {
+        *slot = Some((b, PlaceAt::BlockFront));
+    }
+    if classify_model(func, preds, model, change) != NetVerdict::Clean {
+        return None;
+    }
+    let mut repairs = vec![sink_repair];
+    for &b in &frontier {
+        repairs.push(CreditRepair::PlaceDecBlockFront {
+            block: b,
+            var: anchor.dst,
+        });
+    }
+    Some(repairs)
 }
 
 fn trace_verdict(

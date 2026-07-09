@@ -128,7 +128,7 @@ pub(super) fn model_body_uses(
                 record_body_read(&mut model.read_blocks, b, *value);
             } else if views.contains(*value) {
                 model.events[b].body.push(READ_EVENT);
-                model.read_blocks.entry(b).or_default();
+                model.read_blocks.entry(b).or_default().last_body_view = Some(*value);
             }
             Some(())
         }
@@ -157,7 +157,7 @@ pub(super) fn model_body_uses(
                     if member {
                         record_body_read(&mut model.read_blocks, b, arg);
                     } else {
-                        model.read_blocks.entry(b).or_default();
+                        model.read_blocks.entry(b).or_default().last_body_view = Some(arg);
                     }
                 }
             }

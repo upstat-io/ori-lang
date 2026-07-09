@@ -86,6 +86,11 @@ pub(super) struct FreshSiteInc {
 pub(super) struct BlockReads {
     /// Last member value-read by a BODY instruction (the var read).
     pub(super) last_body: Option<ArcVarId>,
+    /// Last admitted same-allocation VIEW value-read by a BODY instruction.
+    /// A whole-var release on the view releases the shared allocation (the
+    /// unified member+view ledger admits views at +-1), so a view-only sink
+    /// can carry the lineage's placed release.
+    pub(super) last_body_view: Option<ArcVarId>,
     /// Member value-read at the block TERMINATOR (borrowed Invoke arg).
     pub(super) terminator: Option<ArcVarId>,
     /// A VIEW value-read at the block TERMINATOR.

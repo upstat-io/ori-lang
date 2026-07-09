@@ -20,6 +20,10 @@ pub(super) struct Change {
     pub(super) remove: Option<(usize, usize)>,
     /// A placed release at `(block, position)`.
     pub(super) place: Option<(usize, PlaceAt)>,
+    /// Additional placed releases (the Mode-2b multi-path complement:
+    /// dead-frontier `BlockFront` releases on paths the read sink never
+    /// covers). At most one placement per block across `place` + `extra`.
+    pub(super) extra_places: [Option<(usize, PlaceAt)>; 3],
 }
 
 /// Where a placed release lands inside its block.
@@ -39,10 +43,17 @@ impl Change {
 
     /// The placed release's position in `block`, if any.
     fn placed_at(self, block: usize) -> Option<PlaceAt> {
-        match self.place {
-            Some((b, at)) if b == block => Some(at),
-            _ => None,
+        if let Some((b, at)) = self.place {
+            if b == block {
+                return Some(at);
+            }
         }
+        for slot in self.extra_places.into_iter().flatten() {
+            if slot.0 == block {
+                return Some(slot.1);
+            }
+        }
+        None
     }
 }
 
