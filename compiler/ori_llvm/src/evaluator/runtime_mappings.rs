@@ -161,6 +161,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_replace" => runtime::ori_str_replace as *const () as usize,
         "ori_str_repeat" => runtime::ori_str_repeat as *const () as usize,
         "ori_str_substring" => runtime::ori_str_substring as *const () as usize,
+        "ori_str_index" => runtime::ori_str_index as *const () as usize,
         // Format (§3.16 Formattable trait)
         "ori_format_int" => runtime::format::ori_format_int as *const () as usize,
         "ori_format_float" => runtime::format::ori_format_float as *const () as usize,

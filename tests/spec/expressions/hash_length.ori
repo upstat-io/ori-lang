@@ -1,5 +1,5 @@
 // Spec: 09-properties-of-types.md § str .len() byte count; annex-c-built-in-functions.md § len
-// Regression: BUG-03-014 — `#`/`.len()` on str returned codepoint count, not byte count
+// Regression: `#`/`.len()` on str returned codepoint count, not byte count.
 //
 // `#` is grammar-restricted to index-bracket position (parsed as
 // ExprKind::HashLength only inside `[...]`) — there is no standalone `#expr`
@@ -47,7 +47,7 @@ use std.testing { assert_eq }
 // without panicking.
 // =============================================================================
 
-#fail("index out of bounds")
+#fail("out of bounds")
 @test_str_hash_index_multibyte_oob tests @str_hash_index_multibyte_oob () -> void = {
     let _ = str_hash_index_multibyte_oob();
     ()

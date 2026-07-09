@@ -169,7 +169,8 @@ pub(crate) fn intercepted_emission_invokes_unwind(
 ) -> bool {
     use ori_types::Tag;
     match method_name {
-        "updated" | "__index" => matches!(receiver_tag, Tag::List),
+        "updated" => matches!(receiver_tag, Tag::List),
+        "__index" => matches!(receiver_tag, Tag::List | Tag::Str),
         "unwrap" | "expect" => matches!(receiver_tag, Tag::Option | Tag::Result),
         "unwrap_err" | "expect_err" => matches!(receiver_tag, Tag::Result),
         _ => false,

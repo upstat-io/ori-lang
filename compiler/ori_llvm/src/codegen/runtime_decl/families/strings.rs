@@ -273,4 +273,11 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_str_index",
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[],
+        jit_allowed: true,
+    },
 ];

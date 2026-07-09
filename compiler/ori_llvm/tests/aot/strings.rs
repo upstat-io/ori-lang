@@ -332,7 +332,7 @@ fn test_str_chars() {
     assert_aot_success(include_str!("fixtures/strings/str_chars.ori"), "str_chars");
 }
 
-// ─── String indexing (BUG-04-152: str[i] via [...] failed to compile under LLVM) ───
+// ─── String indexing (str[i]) ───
 
 #[test]
 fn test_str_index_variable() {
@@ -344,10 +344,57 @@ fn test_str_index_variable() {
 
 #[test]
 fn test_str_index_oob_panics() {
-    let (exit_code, _, _) =
+    let (exit_code, _, stderr) =
         compile_and_run_capture(include_str!("fixtures/strings/str_index_oob_panics.ori"));
+    assert_ne!(
+        exit_code, -1,
+        "str_index_oob_panics must COMPILE (a compile failure is a different defect than \
+         the OOB-panic behavior this test pins):\n{stderr}"
+    );
     assert_ne!(
         exit_code, 0,
         "OOB string index should panic (non-zero exit)"
+    );
+}
+
+#[test]
+fn test_str_index_multibyte() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_multibyte.ori"),
+        "str_index_multibyte",
+    );
+}
+
+// ─── str[i] cross-feature interaction matrix (loop, closure, nested structure, COW) ───
+
+#[test]
+fn test_str_index_in_loop() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_in_loop.ori"),
+        "str_index_in_loop",
+    );
+}
+
+#[test]
+fn test_str_index_closure_capture() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_closure_capture.ori"),
+        "str_index_closure_capture",
+    );
+}
+
+#[test]
+fn test_str_index_nested_list() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_nested_list.ori"),
+        "str_index_nested_list",
+    );
+}
+
+#[test]
+fn test_str_index_after_clone() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_after_clone.ori"),
+        "str_index_after_clone",
     );
 }

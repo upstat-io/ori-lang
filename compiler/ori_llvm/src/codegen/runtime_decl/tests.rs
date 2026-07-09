@@ -374,6 +374,9 @@ fn all_non_unwinding_functions_have_nounwind() {
         // extern "C-unwind": panics on out-of-bounds keys (IndexSet.updated,
         // matching ori_list_get's list[key] contract).
         "ori_list_updated_cow",
+        // extern "C-unwind": panics on out-of-bounds codepoint index
+        // (str[i], matching ori_list_get's list[key] contract).
+        "ori_str_index",
         "ori_panic",
         "ori_panic_cstr",
         // extern "C-unwind": drop fn called directly so a user-@drop foreign

@@ -199,9 +199,7 @@ use std.testing { assert_eq, assert }
 // =============================================================================
 // String Indexing
 // =============================================================================
-//
-// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - returns char, should return str
-// Per spec, str[i] should return single-codepoint str, but evaluator returns char.
+// Spec: 14.1.2 str implements Index<int, str> — single codepoint, panics OOB.
 
 @test_str_index_first tests @str_index_first () -> void = {
     let s = "hello";
@@ -226,6 +224,17 @@ use std.testing { assert_eq, assert }
 }
 
 @str_index_middle () -> str = "hello"[2];
+
+#fail("out of bounds")
+@test_str_index_oob tests @str_index_oob () -> void = {
+    let _ = str_index_oob();
+    ()
+}
+
+@str_index_oob () -> str = {
+    let s = "hi";
+    s[5]
+}
 
 // =============================================================================
 // Nested Indexing

@@ -412,8 +412,8 @@ fn test_catch_index_oob_returns_err() {
 }
 
 /// Parity: str index OOB inside `catch` returns Err — the Invoke-terminator
-/// dispatch path (BUG-04-152 RCA sec 3.1: both emit_apply and emit_invoke
-/// route through try_emit_protocol).
+/// dispatch path (both `emit_apply` and `emit_invoke` route through
+/// `try_emit_protocol`).
 #[test]
 fn test_catch_str_index_oob_returns_err() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(

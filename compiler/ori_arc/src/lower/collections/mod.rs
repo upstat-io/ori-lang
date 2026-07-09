@@ -175,9 +175,20 @@ impl ArcLowerer<'_> {
         // Invoke carrier (Spec: Clause 17.2.3); a map index stays an `Apply`.
         let panics_on_oob = recv_ty == Idx::STR || self.pool.tag(recv_ty) == Tag::List;
         if panics_on_oob {
-            // Emit a Project to extract the length field (field 0 for both
-            // str {len, data} and list {len, cap, data})
-            let len_var = self.builder.emit_project(Idx::INT, recv, 0, Some(span));
+            let len_var = if recv_ty == Idx::STR {
+                // str's length is NOT a raw field-0 read: OriStr is an SSO/heap
+                // union where field 0 means "len" only for the heap variant —
+                // for SSO strings it is the first 8 inline bytes reinterpreted
+                // as an i64. Route through the SSO-aware `len` builtin method
+                // (dispatches to `ori_str_len` at codegen time) instead.
+                let len_fn = self.interner.intern("len");
+                self.builder
+                    .emit_apply(Idx::INT, len_fn, vec![recv], Some(span), None)
+            } else {
+                // Emit a Project to extract the length field (field 0 for
+                // list {len, cap, data})
+                self.builder.emit_project(Idx::INT, recv, 0, Some(span))
+            };
             self.hash_length = Some(len_var);
         }
 

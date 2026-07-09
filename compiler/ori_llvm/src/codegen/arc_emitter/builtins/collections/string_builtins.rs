@@ -90,6 +90,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[ptr, start, end], str_ty, "ori_str_substring")
     }
 
+    /// Emit `str[index]` — bounds-checked single-codepoint access, returns `str`.
+    ///
+    /// Calls `ori_str_index(*const OriStr, index) -> str` (sret-returned, since
+    /// `str`'s ABI size (24 bytes) exceeds the 16-byte direct-return threshold).
+    /// Panics on out-of-bounds (matches `emit_list_index`'s direct-return, no
+    /// `Option` wrapper — Spec: Clause 14.1.2).
+    pub(crate) fn emit_str_index(&mut self, receiver: ValueId, index: ValueId) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_str_index");
+        let ptr = self.str_to_ptr(receiver, "str_index.self");
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        // May-unwind sret callee: route through the invoke-aware sret call
+        // so an armed `catch(expr:)` unwind edge (per `intercepted_unwind`)
+        // is honored — `call_with_sret` always emits a plain `call`.
+        self.emit_rt_call_with_sret(func_id, &[ptr, index], str_ty, "ori_str_index")
+    }
+
     /// Emit `str.replace(from, to)` — `(str, str, str) -> str` runtime call.
     pub(crate) fn emit_str_replace(
         &mut self,

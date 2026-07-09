@@ -119,6 +119,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         TypeInfo::Map { key, value } => {
                             self.emit_map_get(recv, idx, *key, *value, Some(receiver_ty))
                         }
+                        TypeInfo::Str => self.emit_str_index(recv, idx),
                         _ => {
                             tracing::warn!(
                                 ?type_info,

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "hello";
+    let count = 0;
+    for i in 0..5 do {
+        if s[i] != " " then count = count + 1
+    };
+    if count == 5 then 0 else 1
+}
