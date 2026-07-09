@@ -116,6 +116,10 @@ inductive LedgerInstr
   | escapeUse (v : Nat) (u : TerminalUse)   -- RL-2 terminal use of v (12-kind table)
   | jumpArg (v : Nat) (p : Nat)             -- jump-arg edge transfer v -> block-param p
   | burdenDec (v : Nat)                     -- a PLACED release on v (the placement)
+  | holeFill (v : Nat) (hole : Nat)         -- TRMC ContextHole fill-at-recursive-call:
+                                            -- v's ref transfers INTO aggregate `hole`'s
+                                            -- interior (consume); the hole write carries
+                                            -- the clause-3 floor on `hole`'s class (K3)
 deriving Repr, DecidableEq
 
 /-- §T2 a CFG with per-block instruction lists and the TRMC region marker. -/
@@ -258,6 +262,16 @@ def deriveLedger (classOf : Nat → Nat) (c : Nat) : List LedgerInstr → List L
   | .burdenDec v :: rest =>
       if classOf v == c then .consume :: deriveLedger classOf c rest
       else deriveLedger classOf c rest
+  | .holeFill v hole :: rest =>
+      if classOf hole == c then
+        (if classOf v == c then
+          .mutate (sibReadCount classOf c hole rest) :: .consume
+            :: deriveLedger classOf c rest
+         else
+          .mutate (sibReadCount classOf c hole rest) :: deriveLedger classOf c rest)
+      else
+        if classOf v == c then .consume :: deriveLedger classOf c rest
+        else deriveLedger classOf c rest
 
 /-- §T2 the running-count delta of one event. -/
 def eventDelta : LedgerEvent → Int
@@ -630,6 +644,7 @@ def LedgerInstr.touchesClass (classOf : Nat → Nat) (c : Nat) : LedgerInstr →
   | .escapeUse v _ => classOf v == c
   | .jumpArg v p => classOf v == c || classOf p == c
   | .burdenDec v => classOf v == c
+  | .holeFill v hole => classOf v == c || classOf hole == c
 
 /-- §T2 a class no instruction touches derives the empty ledger. -/
 theorem deriveLedger_untouched (classOf : Nat → Nat) (c : Nat) :
@@ -671,6 +686,7 @@ theorem all_flatMap {α β : Type} (p : β → Bool) (f : α → List β) :
     case whose event reads the path suffix). -/
 def LedgerInstr.isMutate : LedgerInstr → Bool
   | .cowMutate _ => true
+  | .holeFill _ _ => true
   | _ => false
 
 /-- §T2 derivation distributes over concatenation when the left segment holds
@@ -690,6 +706,7 @@ theorem deriveLedger_append_mutate_free (classOf : Nat → Nat) (c : Nat) :
       have htail := ih hrest
       cases i with
       | cowMutate v => simp [LedgerInstr.isMutate] at hi
+      | holeFill v hole => simp [LedgerInstr.isMutate] at hi
       | construct v =>
           show deriveLedger classOf c (.construct v :: (rest ++ ys)) = _
           cases hv : classOf v == c <;> simp [deriveLedger, hv, htail]
@@ -1495,5 +1512,81 @@ theorem T2_compositional_placement_bundle :
    T2_K2_trmc_post_call_dec_rejected.2.1,
    T2_pre_read_release_rejected.2.1,
    T2_cow_early_sibling_release_rejected.1⟩
+
+/-! ## §T2 Part E — the TRMC ContextHole hole-fill obligation (K3)
+
+    `holeFill v hole` models the TRMC fill-at-recursive-call: `v`'s reference
+    transfers INTO aggregate `hole`'s interior (aggregate-owned thereafter —
+    the ConstructArg analogy; interior accounting is PV-6's concern), and the
+    unconditional in-place hole write carries the clause-3 live-sibling floor
+    on `hole`'s class. The kill criterion K3: a placed release of `v` AFTER
+    its hole-fill double-releases — clause 1 nets negative. The witnesses
+    below pin both directions on the COMPUTED classification. -/
+
+/-- §T2 (K3) the release-after-fill kill criterion: `construct v; holeFill
+    v hole; burdenDec v` derives [birth, consume, consume] for v's class —
+    the three clauses REJECT (net -1, the double free). -/
+theorem holeFill_release_after_fill_rejected :
+    threeClauses
+      (deriveLedger (fun v => v) 0
+        [.construct 0, .holeFill 0 1, .burdenDec 0]) = false := by
+  decide
+
+/-- §T2 (K3 dual) the fill IS the filled value's release: `construct v;
+    holeFill v hole` nets zero for v's class — the CURED placement plans NO
+    dec after the fill. -/
+theorem holeFill_is_the_release :
+    threeClauses
+      (deriveLedger (fun v => v) 0
+        [.construct 0, .holeFill 0 1]) = true := by
+  decide
+
+/-- §T2 the context class's ledger across a fill: birth, the floored hole
+    write, the onward transfer — balanced with the clause-3 floor satisfied
+    (TRMC unique-context makes the floor trivially satisfiable; the model
+    still checks it). -/
+theorem holeFill_context_write_floored :
+    threeClauses
+      (deriveLedger (fun v => v) 1
+        [.construct 1, .holeFill 0 1, .escapeUse 1 .Return]) = true := by
+  decide
+
+/-- §T2 the same-class self-referential fill (the linked-node chain — one
+    static birth site per PV-1): two births, the fill moves the new node into
+    the prior node's hole (mutate floor + consume), the chain head transfers
+    out carrying the interior reference. Balanced. -/
+theorem holeFill_same_class_chain_balanced :
+    threeClauses
+      (deriveLedger (fun _ => 0) 0
+        [.construct 0, .construct 1, .holeFill 1 0, .escapeUse 0 .Return]) = true := by
+  decide
+
+/-- §T2 (K3, same-class) releasing the filled node after the same-class fill
+    still double-frees. -/
+theorem holeFill_same_class_release_after_fill_rejected :
+    threeClauses
+      (deriveLedger (fun _ => 0) 0
+        [.construct 0, .construct 1, .holeFill 1 0, .burdenDec 1,
+         .escapeUse 0 .Return]) = false := by
+  decide
+
+/-- §T2 clause 2 stays live across a fill: a non-transferring terminal read
+    of the filled value AFTER its fill observes a drained count — rejected. -/
+theorem holeFill_read_after_fill_rejected :
+    threeClauses
+      (deriveLedger (fun v => v) 0
+        [.construct 0, .holeFill 0 1,
+         .escapeUse 0 .LastReadBeforeScopeExit]) = false := by
+  decide
+
+/-- §T2 clause 3 stays live for the fill write: a hole-fill into a context
+    whose class carries a live sibling read after the fill demands
+    count >= 2 — a single birth fails the floor. -/
+theorem holeFill_sibling_floor_enforced :
+    threeClauses
+      (deriveLedger (fun _ => 0) 0
+        [.construct 0, .holeFill 1 0,
+         .escapeUse 0 .LastReadBeforeScopeExit]) = false := by
+  decide
 
 end AimsProof

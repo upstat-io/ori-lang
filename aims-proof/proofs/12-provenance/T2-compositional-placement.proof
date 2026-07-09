@@ -110,6 +110,26 @@ Theorem RL-T2: Compositional placement soundness over the CFG ledger
          against a floor of 2 (the COW-corruption surface); the cured
          placement holding the sibling credit live across the mutate
          satisfies all three clauses.
+    (P7) Kill-criterion K3 - TRMC ContextHole hole-fill (release-after-fill).
+         The instruction alphabet carries `holeFill v hole` - the TRMC
+         fill-at-recursive-call: v's reference transfers INTO aggregate
+         `hole`'s interior (a consume on v's class - the ConstructArg
+         analogy; interior accounting is T6/PV-6's concern) and the
+         unconditional in-place hole write carries the clause-3
+         live-sibling floor on `hole`'s class (mutate event, suffix-derived
+         sibling count; TRMC unique-context makes the floor trivially
+         satisfiable - the model still checks it). The kill criterion: a
+         placed release of v AFTER its hole-fill double-releases - the
+         derived ledger [birth, consume, consume] nets -1, clause 1
+         REJECTS (cross-class and same-class both pinned). The CURED
+         placement plans NO dec after the fill - the fill IS v's release
+         ([birth, consume] nets 0). Clause 2 stays live (a terminal read of
+         the filled value after its fill observes a drained count -
+         rejected); clause 3 stays live for the fill write (a live sibling
+         read after the fill raises the floor to 2 - a single birth fails).
+         The same-class self-referential fill (the linked-node chain - one
+         static birth site per T1) balances: two births, mutate + consume
+         at the fill, one onward transfer.
 
     Machine-checked in the compiled Lean at
     aims-proof/lean/AimsProof/Ledger.lean:
@@ -132,6 +152,11 @@ Theorem RL-T2: Compositional placement soundness over the CFG ledger
         T2_K2_trmc_post_call_dec_rejected (P5)
       T2_pre_read_release_rejected, T2_cow_sibling_floor_enforced,
         T2_cow_early_sibling_release_rejected (P6)
+      holeFill_release_after_fill_rejected, holeFill_is_the_release,
+        holeFill_context_write_floored, holeFill_same_class_chain_balanced,
+        holeFill_same_class_release_after_fill_rejected,
+        holeFill_read_after_fill_rejected,
+        holeFill_sibling_floor_enforced (P7)
       T2_compositional_placement_bundle (conclusion bundle)
     Supporting decomposition lemmas: deriveLedger_untouched,
       threeClauses_untouched, all_flatMap, deriveLedger_append_mutate_free,
@@ -155,4 +180,4 @@ Theorem RL-T2: Compositional placement soundness over the CFG ledger
 
   Expected:
     status: unimplemented_engine_shape
-    reason: RL compositional-placement shape outside the rule-numbered RL verifier inventory (the RL dischargers serve numbered RL-1..RL-34 suffixes only). The authoritative machine-check is the compiled Lean AimsProof.Ledger (lake build clean): compositional_placement_sound discharges the three-clause placement invariant (per-class per-path net zero, read floor, dynamic-COW sibling floor) into balanced-and-safe on every CFG walk, with the K1 unwind-merge and K2 TRMC back-edge kill-criterion instantiations and the pre-read-release / past-merge-relocation / early-sibling-release / post-tail-call-dec rejections, over events derived from the committed RL-2 twelve-kind table and the T1 partition representatives.
+    reason: RL compositional-placement shape outside the rule-numbered RL verifier inventory (the RL dischargers serve numbered RL-1..RL-34 suffixes only). The authoritative machine-check is the compiled Lean AimsProof.Ledger (lake build clean): compositional_placement_sound discharges the three-clause placement invariant (per-class per-path net zero, read floor, dynamic-COW sibling floor) into balanced-and-safe on every CFG walk, with the K1 unwind-merge, K2 TRMC back-edge, and K3 TRMC hole-fill release-after-fill kill-criterion instantiations and the pre-read-release / past-merge-relocation / early-sibling-release / post-tail-call-dec rejections, over events derived from the committed RL-2 twelve-kind table and the T1 partition representatives.

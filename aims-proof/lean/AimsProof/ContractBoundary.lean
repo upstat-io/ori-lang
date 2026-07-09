@@ -857,6 +857,37 @@ theorem deriveLedger_congr (f g : Nat → Nat) (cf cg : Nat)
             = (if g v == cg then LedgerEvent.consume :: deriveLedger g cg rest
                 else deriveLedger g cg rest)
           rw [h v, ih]
+      | holeFill v hole =>
+          have hsib : sibReadCount f cf hole rest = sibReadCount g cg hole rest := by
+            unfold sibReadCount
+            have hfilter :
+                ((rest.filterMap LedgerInstr.readsValue).filter
+                    (fun w => !(w == hole) && f w == cf))
+                  = ((rest.filterMap LedgerInstr.readsValue).filter
+                    (fun w => !(w == hole) && g w == cg)) := by
+              apply List.filter_congr
+              intro w _
+              rw [h w]
+            rw [hfilter]
+          show (if f hole == cf then
+                  (if f v == cf then
+                    .mutate (sibReadCount f cf hole rest) :: .consume
+                      :: deriveLedger f cf rest
+                   else
+                    .mutate (sibReadCount f cf hole rest) :: deriveLedger f cf rest)
+                else
+                  if f v == cf then LedgerEvent.consume :: deriveLedger f cf rest
+                  else deriveLedger f cf rest)
+            = (if g hole == cg then
+                  (if g v == cg then
+                    .mutate (sibReadCount g cg hole rest) :: .consume
+                      :: deriveLedger g cg rest
+                   else
+                    .mutate (sibReadCount g cg hole rest) :: deriveLedger g cg rest)
+                else
+                  if g v == cg then LedgerEvent.consume :: deriveLedger g cg rest
+                  else deriveLedger g cg rest)
+          rw [h v, h hole, hsib, ih]
 
 /-- §T5 (P2) THE FRAME THEOREM. For EVERY class `c` distinct from both merge
     participants and EVERY instruction stream, the post-merge derived ledger
@@ -936,6 +967,7 @@ def instrNetAt (f : Nat → Nat) (c : Nat) : LedgerInstr → Int
       if f v == c then (if f p == c then 0 else -1)
       else if f p == c then 1 else 0
   | .burdenDec v => if f v == c then -1 else 0
+  | .holeFill v _ => if f v == c then -1 else 0
 
 /-- §T5 the derived net decomposes per instruction: cons an instruction, add
     its net contribution. -/
@@ -965,6 +997,9 @@ theorem ledgerNet_deriveLedger_cons (f : Nat → Nat) (c : Nat)
   | burdenDec v =>
       cases hv : f v == c <;>
         simp [deriveLedger, instrNetAt, hv, ledgerNet_cons, eventDelta] <;> omega
+  | holeFill v hole =>
+      cases hv : f v == c <;> cases hh : f hole == c <;>
+        simp [deriveLedger, instrNetAt, hv, hh, ledgerNet_cons, eventDelta] <;> omega
 
 /-- §T5 (P3) the per-instruction contribution is ADDITIVE under the merge:
     the merged class's contribution is the sum of the two prior classes'
@@ -1010,6 +1045,13 @@ theorem instrNetAt_merged_additive (classOf : Nat → Nat) (c1 c2 : Nat)
           | exact absurd ((beq_iff_eq.mp hv1).symm.trans (beq_iff_eq.mp hv2)) hne
           | exact absurd ((beq_iff_eq.mp hp1).symm.trans (beq_iff_eq.mp hp2)) hne
   | burdenDec v =>
+      simp only [instrNetAt]
+      rw [mergeClasses_merged_membership classOf c1 c2 v]
+      cases hv1 : classOf v == c1 <;> cases hv2 : classOf v == c2 <;>
+        first
+          | decide
+          | exact absurd ((beq_iff_eq.mp hv1).symm.trans (beq_iff_eq.mp hv2)) hne
+  | holeFill v hole =>
       simp only [instrNetAt]
       rw [mergeClasses_merged_membership classOf c1 c2 v]
       cases hv1 : classOf v == c1 <;> cases hv2 : classOf v == c2 <;>
@@ -1080,6 +1122,7 @@ def instrEventAt (f : Nat → Nat) (c : Nat) : LedgerInstr → Option LedgerEven
       if f v == c then (if f p == c then none else some .consume)
       else if f p == c then some .credit else none
   | .burdenDec v => if f v == c then some .consume else none
+  | .holeFill _ _ => none
 
 /-- §T5 the positional pair image: the event the instruction contributed to
     whichever prior class it touched (`c1` first; disjointness makes the
@@ -1113,6 +1156,7 @@ theorem deriveLedger_eq_filterMap (f : Nat → Nat) (c : Nat) :
       have htail := ih hrest
       cases i with
       | cowMutate v => simp [LedgerInstr.isMutate] at hi
+      | holeFill v hole => simp [LedgerInstr.isMutate] at hi
       | construct v =>
           cases hv : f v == c <;>
             simp [deriveLedger, instrEventAt, hv, htail]
@@ -1215,6 +1259,7 @@ theorem instrEventAt_merged_cases (classOf : Nat → Nat) (c1 c2 : Nat)
         first
           | decide
           | exact absurd ((beq_iff_eq.mp hv1).symm.trans (beq_iff_eq.mp hv2)) hne
+  | holeFill v hole => exact Or.inl ⟨rfl, Or.inl rfl⟩
 
 /-- §T5 (P4) BOUNDED IMPACT — the positional-interleave theorem. On a
     mutate-free stream with no jump-arg bridging the two merge participants,
@@ -1260,6 +1305,7 @@ theorem T5_merged_ledger_is_positional_interleave (classOf : Nat → Nat)
           cases hu : rl2_use_transfers_ownership u <;>
           simp [instrEventAt, hv2, hu] at he2
     | burdenDec v => cases hv2 : classOf v == c2 <;> simp [instrEventAt, hv2] at he2
+    | holeFill v hole => simp [instrEventAt] at he1
   · -- Mirrored bridging shape (source in c2, receiver in c1); same scheme.
     exfalso
     have hall := List.all_eq_true.mp hnobridge i hi
@@ -1285,6 +1331,7 @@ theorem T5_merged_ledger_is_positional_interleave (classOf : Nat → Nat)
           cases hu : rl2_use_transfers_ownership u <;>
           simp [instrEventAt, hv1, hu] at he1
     | burdenDec v => cases hv : classOf v == c1 <;> simp [instrEventAt, hv] at he1
+    | holeFill v hole => simp [instrEventAt] at he1
 
 /-- §T5 (P4) the BRIDGING-JUMP COLLAPSE — the one folding shape, stated
     honestly: a jump-arg handing off from the retired class to the absorbing
@@ -1381,6 +1428,7 @@ theorem deriveLedger_cons_eventAt (f : Nat → Nat) (c : Nat) (i : LedgerInstr)
           | none => deriveLedger f c rest) := by
   cases i with
   | cowMutate v => simp [LedgerInstr.isMutate] at hmut
+  | holeFill v hole => simp [LedgerInstr.isMutate] at hmut
   | construct v => cases hv : f v == c <;> simp [deriveLedger, instrEventAt, hv]
   | dup v => cases hv : f v == c <;> simp [deriveLedger, instrEventAt, hv]
   | projRead v => cases hv : f v == c <;> simp [deriveLedger, instrEventAt, hv]
