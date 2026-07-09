@@ -39,15 +39,15 @@ impl Idx {
     pub const BYTE: Self = Self(5);
     /// The unit type `()`.
     pub const UNIT: Self = Self(6);
-    /// The never type `never` (bottom type, no values).
+    /// The `Never` type (bottom type, no values).
     pub const NEVER: Self = Self(7);
     /// The error type (placeholder for type errors, propagates silently).
     pub const ERROR: Self = Self(8);
-    /// The `duration` type (time duration).
+    /// The `Duration` type (time duration).
     pub const DURATION: Self = Self(9);
-    /// The `size` type (memory size/count).
+    /// The `Size` type (memory size/count).
     pub const SIZE: Self = Self(10);
-    /// The `ordering` type (comparison result: Less, Equal, Greater).
+    /// The `Ordering` type (comparison result: Less, Equal, Greater).
     pub const ORDERING: Self = Self(11);
 
     // Reserved Range (12-63)
@@ -112,6 +112,12 @@ impl Idx {
     /// Returns `Some("int")`, `Some("bool")`, etc. for known primitives,
     /// or `None` for dynamic (non-primitive) types that require a Pool
     /// to render their names.
+    ///
+    /// Casing matches actual Ori surface syntax: lowercase for the five
+    /// keyword primitives (`int`/`float`/`bool`/`str`/`char`/`byte`/`()`),
+    /// capitalized for the non-keyword type names (`Never`/`Duration`/
+    /// `Size`/`Ordering`) — mirrors `ori_ir::TypeId::name()`, which shares
+    /// this index layout for the same primitive slots.
     #[inline]
     pub const fn name(self) -> Option<&'static str> {
         match self.0 {
@@ -122,11 +128,11 @@ impl Idx {
             4 => Some("char"),
             5 => Some("byte"),
             6 => Some("()"),
-            7 => Some("never"),
+            7 => Some("Never"),
             8 => Some("<error>"),
-            9 => Some("duration"),
-            10 => Some("size"),
-            11 => Some("ordering"),
+            9 => Some("Duration"),
+            10 => Some("Size"),
+            11 => Some("Ordering"),
             _ => None,
         }
     }
@@ -163,21 +169,13 @@ impl fmt::Debug for Idx {
 
 impl fmt::Display for Idx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::INT => write!(f, "int"),
-            Self::FLOAT => write!(f, "float"),
-            Self::BOOL => write!(f, "bool"),
-            Self::STR => write!(f, "str"),
-            Self::CHAR => write!(f, "char"),
-            Self::BYTE => write!(f, "byte"),
-            Self::UNIT => write!(f, "()"),
-            Self::NEVER => write!(f, "never"),
-            Self::ERROR => write!(f, "<error>"),
-            Self::DURATION => write!(f, "duration"),
-            Self::SIZE => write!(f, "size"),
-            Self::ORDERING => write!(f, "ordering"),
-            Self::NONE => write!(f, "<none>"),
-            _ => write!(f, "type#{}", self.0),
+        // Delegates to `name()` (the single canonical primitive-name table)
+        // instead of a parallel literal match; only the two non-primitive
+        // cases `name()` cannot classify are handled here.
+        match self.name() {
+            Some(name) => write!(f, "{name}"),
+            None if *self == Self::NONE => write!(f, "<none>"),
+            None => write!(f, "type#{}", self.0),
         }
     }
 }

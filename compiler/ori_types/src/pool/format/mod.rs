@@ -105,11 +105,11 @@ impl Pool {
             Tag::Char => buf.push_str("char"),
             Tag::Byte => buf.push_str("byte"),
             Tag::Unit => buf.push_str("()"),
-            Tag::Never => buf.push_str("never"),
+            Tag::Never => buf.push_str("Never"),
             Tag::Error => buf.push_str("<error>"),
-            Tag::Duration => buf.push_str("duration"),
-            Tag::Size => buf.push_str("size"),
-            Tag::Ordering => buf.push_str("ordering"),
+            Tag::Duration => buf.push_str("Duration"),
+            Tag::Size => buf.push_str("Size"),
+            Tag::Ordering => buf.push_str("Ordering"),
 
             // Simple containers
             Tag::List => {

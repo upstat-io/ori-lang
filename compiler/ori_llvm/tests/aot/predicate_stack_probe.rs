@@ -755,10 +755,10 @@ fn probe_list_int_sort_negative_no_extra_release() {
 // CHAINED COW-mutation results: `xs.push(a).push(b)` / `xs.concat(..).reverse()`
 // build a single fresh-local allocation transformed in place by each COW op. The
 // receiver of the SECOND mutation is itself a mutation RESULT (not a direct
-// `Construct`), so the dead-owned-collection candidate set previously excluded the
-// final result and leaked the buffer. The fresh-local-equivalence transitive
-// closure over a COW-mutator chain rooted at a fresh local Construct makes the
-// chain tail freeable at its borrowed-read scope-exit sink (RL-2 ApplyToBorrowedParam).
+// `Construct`), so the dead-owned-collection candidate set must admit the chain
+// tail or leak the buffer. The fresh-local-equivalence transitive closure over a
+// COW-mutator chain rooted at a fresh local Construct makes the chain tail
+// freeable at its borrowed-read scope-exit sink (RL-2 ApplyToBorrowedParam).
 
 #[test]
 fn probe_list_push_chain_result_freed_at_scope_exit() {
@@ -1988,7 +1988,7 @@ fn probe_flat_str_yield_not_keepalive_negative() {
     assert_burden_path_self_sufficient(src, "flat_str_yield_not_keepalive_negative");
 }
 
-// --- Accessor-result payload retention (Spec: Annex E §AIMS RL-2 / RL-4) ---
+// Accessor-result payload retention (Spec: Annex E §AIMS RL-2 / RL-4)
 //
 // `@unwrap` / `@unwrap_err` / `@first` / `@last` / `@get` extract an OWNED heap
 // payload out of a wrapper and RETAIN it (codegen `inc_value_rc` on the extracted
@@ -2025,8 +2025,8 @@ fn probe_option_unwrap_heap_str_different_size_literal_no_double_free() {
     // NOT reused by the literal alloc -> the latent UAF surfaces as a hard
     // double-free at the clean floor (the same-size variant only passes by
     // allocator slot reuse). The comparison is intentionally false; the program
-    // still returns 0 so the probe asserts a clean exit. Proves the fix is robust
-    // (not re-masked by a different allocator coincidence).
+    // still returns 0 so the probe asserts a clean exit, confirming the fix is
+    // not re-masked by a different allocator coincidence.
     let src = r#"
 @make () -> Option<str> = Some("hello world this is a long heap string");
 
@@ -3278,7 +3278,7 @@ fn probe_loop_reassigned_list_borrow_read_no_double_free_negative() {
     assert_burden_path_self_sufficient(src, "loop_reassigned_list_borrow_read_negative");
 }
 
-// --- Transfer-through-return forwarder RESULT freeing (RL-2 ScopeExit) ---
+// Transfer-through-return forwarder RESULT freeing (RL-2 ScopeExit)
 // A fresh-owned collection passed `[own]` into a `transfers_through_return ∧
 // ReturnAliasShape::Direct` forwarder (`@id<T>(x: T) -> T = x`) is returned
 // unchanged: the caller's result IS the SAME allocation as the transferred owned
@@ -5127,7 +5127,7 @@ fn probe_transfer_through_return_param_borrowed_does_not_leak_negative() {
 /// proves the cure is LOAD-BEARING — without the re-balance the same program is
 /// broken, so the positive (re-balance ON) pin is not passing by accident.
 fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
-    let (exit, _stdout, _stderr) = compile_and_run_with_build_env(
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
@@ -5137,7 +5137,7 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
     assert!(
         exit != -1,
         "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
-         no double-free verdict exists\nbuild stderr:\n{_stderr}"
+         no double-free verdict exists\nbuild stderr:\n{stderr}"
     );
     assert!(
         exit != 0,
@@ -5407,9 +5407,8 @@ fn probe_construct_fed_dead_param_conditional_body_no_uaf() {
     // use (the param is dead at the merge, all body uses precede it), so the str
     // backing is released exactly once with no use-after-free. Stripping the
     // lineage incs WITHOUT relocating the release to the post-body dead param would
-    // convert the previously-masked UAF into a live UAF (exit 139) — this pin proves
-    // the relocation avoids it (exit 0, no double-free). Spec: Annex E §AIMS RL-2 +
-    // RL-5.
+    // surface a live UAF (exit 139) — this pin proves the relocation avoids it
+    // (exit 0, no double-free). Spec: Annex E §AIMS RL-2 + RL-5.
     let src = r#"
 @main () -> int = {
     let opt = Some("this string exceeds SSO threshold by being very long indeed");

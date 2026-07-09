@@ -10,8 +10,11 @@ fn format_primitives() {
     assert_eq!(pool.format_type(Idx::STR), "str");
     assert_eq!(pool.format_type(Idx::CHAR), "char");
     assert_eq!(pool.format_type(Idx::UNIT), "()");
-    assert_eq!(pool.format_type(Idx::NEVER), "never");
+    assert_eq!(pool.format_type(Idx::NEVER), "Never");
     assert_eq!(pool.format_type(Idx::ERROR), "<error>");
+    assert_eq!(pool.format_type(Idx::DURATION), "Duration");
+    assert_eq!(pool.format_type(Idx::SIZE), "Size");
+    assert_eq!(pool.format_type(Idx::ORDERING), "Ordering");
 }
 
 #[test]
