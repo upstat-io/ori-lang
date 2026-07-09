@@ -31,7 +31,13 @@ fn toggle_disables_sole_carrier_claim_inner_survives_crashes_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         include_str!("fixtures/aims_burden_alias/inner_survives_result_destructure.ori"),
-        &[("ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM", "1")],
+        &[
+            ("ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM", "1"),
+            // Isolate the sole-carrier bisection axis: the borrowed-Invoke-arg
+            // dec relocation independently re-sequences the early release this
+            // pin asserts, so it is disabled here.
+            ("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION", "1"),
+        ],
     );
     assert_ne!(
         exit, 0,

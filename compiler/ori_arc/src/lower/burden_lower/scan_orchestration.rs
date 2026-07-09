@@ -24,6 +24,10 @@ use super::emit::{emit_burden_ops_for_blocks, BurdenAnalysisCtx};
 use super::moved_fields::{
     compute_full_move_vars, compute_partial_move_vars, populate_moved_out_fields,
 };
+use super::ownership_scans::borrowed_invoke_arg_relocation::{
+    compute_relocated_borrowed_invoke_arg_decs, BorrowedInvokeRelocationInputs,
+};
+use super::ownership_scans::ForwarderReleasePos;
 use super::ownership_scans::{
     compute_borrowed_store_dup_args, compute_borrowed_terminator_invoke_args,
     compute_branch_exclusive_edge_releases, compute_collection_literal_dead_source_suppression,
@@ -636,7 +640,37 @@ pub(crate) fn emit_burden_ops<'a>(
     // pure borrow-read co-owner not fed to another sharing-view). Empty under
     // `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1`. SSOT:
     // `compute_sharing_view_surplus_inc_dsts`.
-    let sharing_view_surplus_inc_dsts = compute_sharing_view_surplus_inc_dsts(func, interner);
+    // RL-2 borrowed-`Invoke`-arg release relocation on the burden-sole path.
+    // SSOT: `compute_relocated_borrowed_invoke_arg_decs` (this scan owns the
+    // gates + both-edge placement + fresh-root inc suppression). Computed
+    // BEFORE the sharing-view scan, which consults the relocated set.
+    // Env: ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION — restores the
+    // pre-terminator placement for bisection, debug-only
+    let relocation = compute_relocated_borrowed_invoke_arg_decs(
+        func,
+        &BorrowedInvokeRelocationInputs {
+            last_uses_at: &last_uses_at,
+            terminator_transfer_per_block: &terminator_transfer_per_block,
+            full_move_vars: &full_move_vars,
+            transfer_via_move_alias: &transfer_via_move_alias,
+            genuine_dup_call_arg_aliases: &genuine_dup_call_arg_aliases,
+            transfer_through_return_param_vars: &transfer_through_return_param_vars,
+            partial_move_vars: &partial_move_vars,
+            live_out_per_block: &live_out_per_block,
+        },
+        predicate_stack_rc_disabled,
+    );
+    let relocated_borrowed_invoke_args = relocation.relocated_by_block;
+    for (block_idx, var) in relocation.entry_releases {
+        forwarder_result_releases
+            .entry((block_idx, ForwarderReleasePos::BlockEntry))
+            .or_default()
+            .push(var);
+    }
+    inc_suppressed_vars.extend(relocation.suppressed_fresh_root_incs);
+
+    let sharing_view_surplus_inc_dsts =
+        compute_sharing_view_surplus_inc_dsts(func, interner, &relocated_borrowed_invoke_args);
 
     // RL-1 terminal-concat surplus incs: a FRESH local consumed EXACTLY ONCE as a
     // `Binary(Add)` concat operand is move-once-linear (the concat helper borrows
@@ -800,6 +834,7 @@ pub(crate) fn emit_burden_ops<'a>(
         dup_alias_dsts: &dup_alias_dsts,
         transfer_via_move_alias: &transfer_via_move_alias,
         live_out_per_block: &live_out_per_block,
+        relocated_borrowed_invoke_args: &relocated_borrowed_invoke_args,
         contracts,
         predicate_stack_rc_disabled,
         list_concat_transfer_vars: &list_concat_transfer_vars,

@@ -48,6 +48,11 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // edge / dead-at-entry cleanup on the dying CFG edge, never an unconditional
     // dec in a block the value outlives.
     pub(super) live_out_per_block: &'a [FxHashSet<ArcVarId>],
+    // Per-block borrowed-`Invoke`-arg vars whose terminal-read release was
+    // RELOCATED to the normal successor's entry (probe path; the pre-terminator
+    // dec would free the arg BEFORE the call reads it — PV-2 clause 2). The set
+    // doubles as the terminator-dec suppression set for its block.
+    pub(super) relocated_borrowed_invoke_args: &'a FxHashMap<usize, FxHashSet<ArcVarId>>,
     pub(super) contracts: &'a FxHashMap<Name, MemoryContract>,
     // Probe flag (`ORI_DISABLE_PREDICATE_STACK_RC=1`). When set, the predicate
     // stack RC emitter is off and the burden path is the sole real-RC emitter:
@@ -323,11 +328,18 @@ pub(super) fn emit_burden_ops_for_blocks(
         // When the predicate stack is disabled (probe), the burden walk is the
         // sole RC emitter: it MUST emit the borrowed-Invoke-arg scope-exit dec
         // itself (the predicate stack's `release_with_burden_edge` is off).
-        // Passing an empty borrowed-arg set un-suppresses those decs. On the
-        // default path the predicate stack co-emits, so suppression stays.
-        let empty_borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
+        // A RELOCATED arg's release lands at the normal successor's entry
+        // (`compute_relocated_borrowed_invoke_arg_decs` — a pre-terminator dec
+        // frees the arg BEFORE the call reads it), so it stays suppressed
+        // here; a non-relocated arg (multi-pred successor / partial-move)
+        // keeps the legacy pre-terminator dec. On the default path the
+        // predicate stack co-emits, so full suppression stays.
         let terminator_borrowed_args = if analysis.predicate_stack_rc_disabled {
-            empty_borrowed
+            analysis
+                .relocated_borrowed_invoke_args
+                .get(&block_idx)
+                .cloned()
+                .unwrap_or_default()
         } else {
             invoke_terminator_borrowed_args(&block.terminator)
         };
@@ -359,7 +371,7 @@ pub(super) fn emit_burden_ops_for_blocks(
 /// Non-Invoke terminators (Return/Jump/Branch) return empty — their owned
 /// transfers are handled by `terminator_transfer_vars`, and their non-arg
 /// last-uses are genuine scope-exit releases the burden walk owns.
-fn invoke_terminator_borrowed_args(term: &ArcTerminator) -> FxHashSet<ArcVarId> {
+pub(super) fn invoke_terminator_borrowed_args(term: &ArcTerminator) -> FxHashSet<ArcVarId> {
     let mut borrowed: FxHashSet<ArcVarId> = FxHashSet::default();
     if matches!(
         term,

@@ -274,8 +274,9 @@ fn assert_class_ledger_cures_legacy_defect(source: &str, label: &str) {
 
 /// Adversarial family row: an owned aggregate param branch-stored into a
 /// collection literal in the callee. The class-ledger planner's funded-dup
-/// CONSUME family accounts the store correctly (green); the legacy scan
-/// leaks the payload on every path.
+/// CONSUME family accounts the store correctly; the legacy scan's payload
+/// leak is cured by the borrowed-Invoke-arg dec relocation, so both legs run
+/// clean and the row asserts toggle parity.
 #[test]
 fn skeleton_branch_stored_owned_param_collection_ledger_green() {
     let src = r#"
@@ -288,7 +289,7 @@ fn skeleton_branch_stored_owned_param_collection_ledger_green() {
     if kept.length() == 1 then 0 else 1
 }
 "#;
-    assert_class_ledger_cures_legacy_defect(src, "branch_stored_owned_param_collection");
+    assert_class_ledger_toggle_parity(src, "branch_stored_owned_param_collection");
 }
 
 /// Adversarial family row: a struct with a heap field through a NESTED

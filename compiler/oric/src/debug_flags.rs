@@ -512,6 +512,18 @@ flags! {
     /// Usage: `ORI_DISABLE_TRMC_CONTEXT_LEDGER=1 ORI_CLASS_LEDGER_EMITTER=1 ori build file.ori`
     ORI_DISABLE_TRMC_CONTEXT_LEDGER
 
+    /// Restore the pre-terminator placement of a borrowed-`Invoke`-arg
+    /// terminal-read release on the burden-sole path (default: the release
+    /// RELOCATES to the single-pred normal successor's entry — a dec emitted
+    /// before the terminator frees the borrowed arg BEFORE the call reads it,
+    /// a use-after-free the read floor rejects). `=1` restores the
+    /// pre-relocation placement for bisection.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects a
+    /// borrowed-Invoke-arg UAF / release-placement change to the relocation.
+    /// Usage: `ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION=1 ori build file.ori`
+    ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION
+
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
     /// is its proven global final use — successor-reachability proof, loop

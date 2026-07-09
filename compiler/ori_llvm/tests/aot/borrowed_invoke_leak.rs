@@ -165,7 +165,13 @@ fn toggle_disables_release_recursive_tree_crashes_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         include_str!("fixtures/borrowed_invoke_leak/recursive_tree_no_sink.ori"),
-        &[("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1"),
+            // Isolate the lineage-release bisection axis: the borrowed-Invoke-arg
+            // dec relocation independently covers this shape, so it is disabled
+            // here.
+            ("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION", "1"),
+        ],
     );
     assert_ne!(
         exit, 0,
@@ -286,7 +292,13 @@ fn toggle_disables_no_sink_release_pin1_leaks_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         include_str!("fixtures/borrowed_invoke_leak/single_param_eq.ori"),
-        &[("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1"),
+            // Isolate the lineage-release bisection axis: the borrowed-Invoke-arg
+            // dec relocation independently covers this shape, so it is disabled
+            // here.
+            ("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION", "1"),
+        ],
     );
     assert_eq!(
         exit, 2,

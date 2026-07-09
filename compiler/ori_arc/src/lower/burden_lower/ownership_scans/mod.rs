@@ -9,6 +9,7 @@
 //! Shared instr-level helpers live here.
 
 mod borrowed;
+pub(in crate::lower::burden_lower) mod borrowed_invoke_arg_relocation;
 mod borrowed_invoke_lineage;
 mod branch_release;
 mod call_arg_dup;

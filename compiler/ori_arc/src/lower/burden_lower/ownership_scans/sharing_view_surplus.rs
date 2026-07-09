@@ -1,7 +1,7 @@
 //! RL-1 surplus-inc suppression for seamless-slice RESULTS whose lineage is a
 //! read-only in-place co-owner. Spec: Annex E §AIMS RL-1 + RL-2.
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
 
@@ -31,10 +31,14 @@ use super::borrowed_invoke_lineage::borrow_read_only_closure_vetted;
 ///     receiver; its keep-alive inc funds the chain).
 ///  3. The RECEIVER (the slice source, arg 0's root) SURVIVES the slice call and is
 ///     independently read downstream (its own borrow-read use forward-reachable from
-///     the slice site). This is the load-bearing discriminator: when the receiver
-///     dies AT the slice (its inline dec precedes/co-locates the call, no later
-///     read), the result's FRESH-site inc is the buffer's sole forward carrier and
-///     is LOAD-BEARING — those shapes MUST keep the inc (the over-fire boundary).
+///     the slice site), OR the receiver's terminal-read release was RELOCATED past
+///     the consuming `Invoke` (`relocated_borrowed_invoke_args`) — the relocated
+///     dec releases the birth ref AFTER the call, so the runtime self-inc alone
+///     carries the view and the FRESH-site inc is surplus. When the receiver dies
+///     AT the slice with a NON-relocated inline dec (legacy pre-terminator
+///     placement), the result's FRESH-site inc is the buffer's sole forward
+///     carrier and is LOAD-BEARING — those shapes MUST keep the inc (the
+///     over-fire boundary).
 ///
 /// Empty when `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1` (the burden path
 /// falls back to the conservative `MaybeShared` FRESH-site inc — the pre-cure
@@ -43,6 +47,7 @@ use super::borrowed_invoke_lineage::borrow_read_only_closure_vetted;
 pub(in crate::lower::burden_lower) fn compute_sharing_view_surplus_inc_dsts(
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,
+    relocated_borrowed_invoke_args: &FxHashMap<usize, FxHashSet<ArcVarId>>,
 ) -> FxHashSet<ArcVarId> {
     if std::env::var("ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS").as_deref() == Ok("1") {
         return FxHashSet::default();
@@ -56,6 +61,11 @@ pub(in crate::lower::burden_lower) fn compute_sharing_view_surplus_inc_dsts(
             Some(ValueRepr::RcPointer | ValueRepr::FatValue)
         )
     };
+
+    let relocated_vars: FxHashSet<ArcVarId> = relocated_borrowed_invoke_args
+        .values()
+        .flat_map(|vars| vars.iter().copied())
+        .collect();
 
     let mut consider = |dst: ArcVarId, callee: &Name, args: &[ArcVarId]| {
         if !sharing_names.contains(callee) {
@@ -71,12 +81,24 @@ pub(in crate::lower::burden_lower) fn compute_sharing_view_surplus_inc_dsts(
         if borrow_read_only_closure_vetted(func, dst).is_none() {
             return;
         }
+        // A result whose OWN terminal-read release was relocated past its
+        // consuming `Invoke` needs neither chain-funding (gate 2) nor a
+        // surviving receiver (gate 3): the runtime self-inc is its single
+        // funded ref and the relocated dec is its single release — the
+        // FRESH-result inc is surplus unconditionally.
+        let dst_relocated = relocated_vars.contains(&dst);
         // (2) result not fed to another sharing-view (chained slice).
-        if result_feeds_sharing_view(func, &sharing_names, dst) {
+        if !dst_relocated && result_feeds_sharing_view(func, &sharing_names, dst) {
             return;
         }
-        // (3) the receiver source survives the slice + is read downstream.
-        if !receiver_survives_and_read_downstream(func, &sharing_names, recv) {
+        // (3) the receiver source survives the slice + is read downstream, OR
+        // its terminal-read release was relocated past the consuming Invoke
+        // (the relocated dec releases the birth ref after the call, leaving
+        // the runtime self-inc as the view's sole funding).
+        if !dst_relocated
+            && !receiver_survives_and_read_downstream(func, &sharing_names, recv)
+            && !receiver_family_relocated(func, recv, &relocated_vars)
+        {
             return;
         }
         dsts.insert(dst);
@@ -277,4 +299,44 @@ fn receiver_survives_and_read_downstream(
         }
     }
     false
+}
+
+/// True iff the slice RECEIVER (or a whole-var Let alias in its family) had its
+/// terminal-read release RELOCATED to a consuming `Invoke`'s normal-successor
+/// entry. Relocation only fires when the Invoke is the var's execution-final
+/// read, so a relocated family member's birth ref is released AFTER every read
+/// — the runtime self-inc alone funds the slice view.
+fn receiver_family_relocated(
+    func: &ArcFunction,
+    recv: ArcVarId,
+    relocated_vars: &FxHashSet<ArcVarId>,
+) -> bool {
+    if relocated_vars.is_empty() {
+        return false;
+    }
+    let mut family: FxHashSet<ArcVarId> = FxHashSet::default();
+    family.insert(recv);
+    loop {
+        let mut grew = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if (family.contains(dst) && family.insert(*src))
+                        || (family.contains(src) && family.insert(*dst))
+                    {
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    family.iter().any(|v| relocated_vars.contains(v))
 }
