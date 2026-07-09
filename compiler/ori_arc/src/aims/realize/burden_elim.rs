@@ -65,6 +65,7 @@
 mod tests;
 
 mod census;
+mod class_grain;
 mod compact;
 mod lineage_rebalance;
 mod loop_carried;
@@ -290,6 +291,16 @@ fn eliminate_whole_function(
     alias_dsts
         .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
     mark_whole_var_removals(&balances, &rebalanced_vars, &alias_dsts, &mut remove);
+    // Class-grain whole-pair elision (RL-22/23/25 with T3 sibling-liveness
+    // evidence): additive removal-only over the pairs the per-var pass kept.
+    class_grain::mark_class_grain_whole_pair_removals(
+        func,
+        state_map,
+        &balances,
+        &rebalanced_vars,
+        &alias_dsts,
+        &mut remove,
+    );
     if *FORCE_OVERELIMINATE {
         force_overeliminate_releases(func, &mut remove);
     }

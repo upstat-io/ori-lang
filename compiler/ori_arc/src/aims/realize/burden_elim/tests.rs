@@ -1993,3 +1993,131 @@ fn construct_rooted_store_in_loop_with_reread_keeps_split() {
         "a back-edge re-reached store block is not terminal; split preserved; census = {c:?}"
     );
 }
+
+// S07 class-grain whole-pair elision (T3 sibling-liveness) pins.
+
+/// Run elimination with a MANUAL two-var partition: `union_them` unions the
+/// whole-var nodes of `%0` and `%1` into one allocation class (the
+/// forwarder/extract same-allocation shape); `false` leaves them distinct
+/// births. Exit states seed BOTH vars (Many, Unrestricted) so the per-var
+/// DP-2/DP-3 pass KEEPS every op and the class-grain pass owns the verdict.
+fn run_elim_class_grain(func: &mut ArcFunction, union_them: bool) {
+    let mut state_map = AimsStateMap::new(func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[
+            (
+                v(0),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+            (
+                v(1),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+        ],
+    );
+    let mut partition = compute_birth_site_partition(func, &state_map);
+    if union_them {
+        use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+        let a = partition.register_node(v(0), FieldPath::whole_var());
+        let b = partition.register_node(v(1), FieldPath::whole_var());
+        partition.union_tier1(a, b);
+    }
+    state_map.set_birth_site_partition(partition);
+    let same_alloc_reps: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    let contracts: FxHashMap<Name, crate::aims::contract::MemoryContract> = FxHashMap::default();
+    let interner = ori_ir::StringInterner::new();
+    eliminate_burden_ops(func, &state_map, &same_alloc_reps, &contracts, &interner);
+}
+
+/// The T3 bracket: sibling `%0` born (Construct) before the `%1` pair, with
+/// `%0`'s kept release after it. Same class -> the `%1` keep-alive pair is
+/// elided WHOLE (both inc AND dec); `%0`'s release survives as the class's
+/// single release (`keep_alive_redundancy_sound_iff_whole_pair`).
+#[test]
+fn class_grain_pair_elided_with_live_same_class_sibling() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, true);
+    // Whole pair on %1 gone; %0's release kept. Never an inc-only split.
+    assert_eq!(census(&func), [0, 1, 0, 0, 0]);
+}
+
+/// Class-boundary negative pin (the attempt-287 290-UAF class one grain
+/// coarser): the SAME positional bracket over two DISTINCT allocations (the
+/// partition holds them in different classes) elides NOTHING — a
+/// mis-classified "sibling" never supplies T3 evidence.
+#[test]
+fn class_grain_distinct_allocation_bracket_not_elided() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, false);
+    assert_eq!(census(&func), [1, 2, 0, 0, 0]);
+}
+
+/// MUTATE exclusion: the same-class bracket with a COW mutation on a class
+/// member keeps every pair — COW load-bearing incs are never elided (DP-5 /
+/// DP-9 count sibling references at the mutation site).
+#[test]
+fn class_grain_mutate_feeding_class_keeps_pair() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::Set {
+            base: v(0),
+            field: 0,
+            value: v(1),
+        },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, true);
+    assert_eq!(census(&func), [1, 2, 0, 0, 0]);
+}
+
+/// No release-after-span, no evidence: the sibling's dec BEFORE the pair
+/// supplies no dominating bracket; the pair is kept whole (never split).
+#[test]
+fn class_grain_sibling_release_before_span_keeps_pair_whole() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, true);
+    assert_eq!(census(&func), [1, 2, 0, 0, 0]);
+}

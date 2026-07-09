@@ -93,15 +93,15 @@ mod collection_length {
     fn string_unicode() {
         // Unicode string: "hello" in Greek
         let s = Value::string("γεια");
-        // 4 characters (not 8 bytes)
-        assert_eq!(get_collection_length(&s).unwrap(), 4);
+        // 8 bytes (not 4 codepoints) — # is byte count per spec
+        assert_eq!(get_collection_length(&s).unwrap(), 8);
     }
 
     #[test]
     fn string_emoji() {
         let s = Value::string("😀😁😂");
-        // 3 emoji characters
-        assert_eq!(get_collection_length(&s).unwrap(), 3);
+        // 12 bytes (not 3 codepoints) — # is byte count per spec
+        assert_eq!(get_collection_length(&s).unwrap(), 12);
     }
 
     #[test]

@@ -1,0 +1,59 @@
+// Spec: 09-properties-of-types.md § str .len() byte count; annex-c-built-in-functions.md § len
+// Regression: BUG-03-014 — `#`/`.len()` on str returned codepoint count, not byte count
+//
+// `#` is grammar-restricted to index-bracket position (parsed as
+// ExprKind::HashLength only inside `[...]`) — there is no standalone `#expr`
+// surface syntax, so `#`'s resolved value is pinned here via its observable
+// effect on indexing, not via a direct length assertion. The exact byte-count
+// value is pinned separately in the Rust unit tests
+// (`oric/src/eval/tests/expr_tests.rs` `collection_length::string_unicode` /
+// `string_emoji`).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// .len() on str — byte count (multi-byte UTF-8; already spec-correct, unchanged
+// by this fix — regression guard)
+// =============================================================================
+
+@test_str_len_multibyte tests @str_len_multibyte () -> void = {
+    assert_eq(actual: str_len_multibyte(), expected: 6)
+}
+
+@str_len_multibyte () -> int = "héllo".len();
+
+// =============================================================================
+// s[# - 1] on an ASCII string — unaffected pre/post fix (byte count ==
+// codepoint count for ASCII)
+// =============================================================================
+
+@test_str_hash_index_ascii tests @str_hash_index_ascii () -> void = {
+    assert_eq(actual: str_hash_index_ascii(), expected: "o")
+}
+
+@str_hash_index_ascii () -> str = {
+    let s = "hello";
+    s[# - 1]
+}
+
+// =============================================================================
+// s[# - 1] on a multi-byte string — post-fix interaction pin. `#` now
+// resolves to UTF-8 byte count (6 for "héllo"), seeded into codepoint-position
+// indexing (spec Clause 14.1.2, a distinct operation from `#`/length): byte
+// count exceeds codepoint count (5) for this string, so `s[# - 1]` = `s[5]`
+// is out of bounds (valid codepoint indices are 0..=4). This is spec-compliant
+// composition, not a defect this fix introduces — before the fix, `#` returned
+// the codepoint count (5) and `s[# - 1]` = `s[4]` returned the last codepoint
+// without panicking.
+// =============================================================================
+
+#fail("index out of bounds")
+@test_str_hash_index_multibyte_oob tests @str_hash_index_multibyte_oob () -> void = {
+    let _ = str_hash_index_multibyte_oob();
+    ()
+}
+
+@str_hash_index_multibyte_oob () -> str = {
+    let s = "héllo";
+    s[# - 1]
+}

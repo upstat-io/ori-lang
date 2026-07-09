@@ -227,6 +227,16 @@ flags! {
     /// Usage: `ORI_DISABLE_LINEAGE_REBALANCE=1 ori build file.ori`
     ORI_DISABLE_LINEAGE_REBALANCE
 
+    /// Decline the Phase-6 class-grain whole-pair elision (RL-22/23/25 with
+    /// T3 sibling-liveness evidence) in
+    /// `ori_arc::aims::realize::burden_elim::class_grain`, restoring the
+    /// per-var-only disposition (every kept keep-alive pair survives).
+    ///
+    /// Diagnostic bisection only: attributes a class-grain-elision regression
+    /// vs the per-var DP-2/DP-3 path; default (unset) keeps the pass active.
+    /// Usage: `ORI_DISABLE_CLASS_GRAIN_PAIR_ELISION=1 ori build file.ori`
+    ORI_DISABLE_CLASS_GRAIN_PAIR_ELISION
+
     /// Revert the Phase-6 lineage-rebalance single-release selection to
     /// terminal-net-only placement. Default: the kept whole-var release is
     /// rejected when a borrow-read of the rep is forward-reachable from its

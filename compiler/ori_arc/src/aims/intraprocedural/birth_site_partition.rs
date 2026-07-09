@@ -85,7 +85,7 @@ pub(crate) struct NodeIdx(u32);
 ///
 /// Class-level facts (known birth site, COW taint) are authoritative at the
 /// class root and re-rooted on every union.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct BirthSitePartition {
     /// Intern table: node key -> dense node index.
     nodes: FxHashMap<(ArcVarId, FieldPath), NodeIdx>,
