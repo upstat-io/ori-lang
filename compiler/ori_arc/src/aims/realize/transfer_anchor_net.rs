@@ -583,3 +583,9 @@ fn uf_union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId
 
 #[cfg(test)]
 mod tests;
+
+/// Public wrapper over the verify-module cycle test for sibling realize
+/// passes (a block re-reached through a CFG back-edge).
+pub(super) fn block_in_cycle_pub(func: &ArcFunction, block: usize) -> bool {
+    block_in_cycle(func, block)
+}

@@ -93,6 +93,7 @@ pub(super) use loop_carried_dead_param::{
     compute_loop_carried_dead_collection_param_lineage, compute_loop_closure_dead_param_lineage,
 };
 pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
+pub(crate) use move_alias::compute_iter_consume_funding_incs;
 pub(in crate::lower::burden_lower) use move_alias::TransferEvidence;
 pub(super) use move_alias::{
     compute_iter_consume_transfer_args, compute_multi_borrow_view_alias_surplus,

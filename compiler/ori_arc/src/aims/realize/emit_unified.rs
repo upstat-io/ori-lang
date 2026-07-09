@@ -1065,12 +1065,20 @@ fn lower_and_diagnose_burden_path(
     // Jump-arg→block-param SSA rename when unthreaded → left unbalanced → leak).
     let conversion_source_reps =
         compute_conversion_source_reps(func, pool, same_alloc_reps, interner);
+    // RL-1 iter-consume funding incs (SSOT scan): net-neutral in every static
+    // lineage verdict — the callee's iter-drop is the matched release.
+    let funding_neutral: FxHashSet<ArcVarId> =
+        crate::lower::burden_lower::compute_iter_consume_funding_incs(func, contracts)
+            .into_values()
+            .flatten()
+            .collect();
     let elidable_fresh_incs = compute_elidable_fresh_self_alloc_incs(
         func,
         same_alloc_reps,
         interner,
         contracts,
         &conversion_source_reps,
+        &funding_neutral,
     );
     lower_burden_ops_to_rc(func, pool, type_registry, &elidable_fresh_incs);
     trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
@@ -4917,6 +4925,14 @@ fn suppress_single_borrowed_invoke_iter_consume_source(
             continue;
         }
         let u = uses[0];
+        // (b2) the consuming call block is NOT in a CFG cycle: a call site
+        // re-reached through a back-edge consumes ONE reference PER
+        // ITERATION (the callee's iter-drop fires each pass), so the
+        // single-release model under-funds a loop-carried source — those
+        // lineages keep their per-call RL-1 funding incs instead.
+        if super::transfer_anchor_net::block_in_cycle_pub(func, u.block) {
+            continue;
+        }
         // (c) + (d): the iter-consuming call is the source's SOLE genuine consumer —
         // no genuine read downstream (a returned / re-read source keeps its
         // accounting). Pure Jump→param→burden-op plumbing does NOT count as a read,
@@ -9187,6 +9203,7 @@ fn compute_elidable_fresh_self_alloc_incs(
     same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
     interner: &ori_ir::StringInterner,
     contracts: &FxHashMap<Name, MemoryContract>,
+    funding_neutral: &FxHashSet<ArcVarId>,
     // Conversion-source lineage reps (`m.keys()`/`s.split()`/`@to_list` SOURCES,
     // computed by the caller where `pool` is available) — the Cure B (Decision 10)
     // phi-threading eligibility extension: these loop-carried conversion sources
@@ -9210,8 +9227,13 @@ fn compute_elidable_fresh_self_alloc_incs(
     // lineage back to 0. A net != 1 means the fresh inc is balancing a
     // COW-consume / move-alias dec (e.g. `length_one`: net 0 with all incs →
     // eliding drops to −1, a double-free) → keep.
-    let lineage_net =
-        compute_lineage_alloc_aware_net(func, same_alloc_reps, interner, conversion_source_reps);
+    let lineage_net = compute_lineage_alloc_aware_net(
+        func,
+        same_alloc_reps,
+        interner,
+        conversion_source_reps,
+        funding_neutral,
+    );
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
 
@@ -9283,6 +9305,7 @@ fn compute_elidable_fresh_self_alloc_incs(
                 contracts,
                 &dup_funded_reps,
                 list_take_name,
+                funding_neutral,
             ),
             compute_dup_funded_cow_cleared_reps(
                 func,
@@ -9395,6 +9418,11 @@ fn compute_lineage_block_deltas(
     interner: &ori_ir::StringInterner,
     list_take_name: ori_ir::Name,
     belongs: &impl Fn(ArcVarId) -> bool,
+    // RL-1 per-call funding incs for surviving iter-consumed borrowed args:
+    // net-NEUTRAL (the callee's `ori_iter_drop` is the matched release, a
+    // -1 the static in-function net cannot see) — skipped from the tally so
+    // the lineage net stays the elision verdict for the OTHER incs.
+    funding_neutral: &FxHashSet<ArcVarId>,
 ) -> (Vec<i64>, Vec<bool>) {
     let n = func.blocks.len();
     let mut delta: Vec<i64> = vec![0; n];
@@ -9407,7 +9435,8 @@ fn compute_lineage_block_deltas(
                     alloc_in_block[b] = true;
                 }
             }
-            if matches!(instr, ArcInstr::BurdenInc { var } if belongs(*var)) {
+            if matches!(instr, ArcInstr::BurdenInc { var } if belongs(*var) && !funding_neutral.contains(var))
+            {
                 delta[b] += 1;
             } else if crate::aims::verify::burden_delta::whole_var_dec_target(instr)
                 .is_some_and(belongs)
@@ -9475,6 +9504,8 @@ pub(super) fn compute_lineage_alloc_aware_net(
     // Cure B (Decision 10): conversion-source lineage reps eligible for
     // phi-threaded attribution (alongside `ori_list_take` for_yield results).
     conversion_source_reps: &FxHashSet<ArcVarId>,
+    // Net-neutral RL-1 iter-consume funding incs (callee-released).
+    funding_neutral: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, i64> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let preds = crate::graph::compute_predecessors(func);
@@ -9569,7 +9600,7 @@ pub(super) fn compute_lineage_alloc_aware_net(
             }
         };
         let (delta, alloc_in_block) =
-            compute_lineage_block_deltas(func, interner, list_take_name, &belongs);
+            compute_lineage_block_deltas(func, interner, list_take_name, &belongs, funding_neutral);
         if let Some(n) = agreed_alloc_reachable_terminal_net(func, &preds, &delta, &alloc_in_block)
         {
             result.insert(rep, n);
@@ -9792,6 +9823,7 @@ fn compute_dup_funded_debited_net(
     contracts: &FxHashMap<Name, MemoryContract>,
     dup_funded_reps: &FxHashSet<ArcVarId>,
     list_take_name: ori_ir::Name,
+    funding_neutral: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, i64> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let preds = crate::graph::compute_predecessors(func);
@@ -9799,7 +9831,7 @@ fn compute_dup_funded_debited_net(
     for &rep in dup_funded_reps {
         let belongs = |var: ArcVarId| rep_of(var) == rep;
         let (mut delta, alloc_in_block) =
-            compute_lineage_block_deltas(func, interner, list_take_name, &belongs);
+            compute_lineage_block_deltas(func, interner, list_take_name, &belongs, funding_neutral);
         let debits = compute_lineage_handoff_debits(func, contracts, interner, &belongs);
         for (d, debit) in delta.iter_mut().zip(debits) {
             *d += debit;

@@ -268,6 +268,14 @@ fn eliminate_whole_function(
     );
 
     let balances = classify_burden_ops(func, state_map);
+    // RL-1 per-call funding incs for surviving iter-consumed borrowed args
+    // are UNPAIRED by design (the callee's `ori_iter_drop` is the matched
+    // release) — never elidable. SSOT scan re-derived here.
+    let funding_protected: FxHashSet<ArcVarId> =
+        crate::lower::burden_lower::compute_iter_consume_funding_incs(func, contracts)
+            .into_values()
+            .flatten()
+            .collect();
     let mut alias_dsts = collect_pair_atomic_alias_dsts(func);
     // RL-1 owned-call-arg duplication aliases are pair-atomic regardless of
     // root kind: their kept alias-site inc is inc-ONLY (the dec was
@@ -290,7 +298,13 @@ fn eliminate_whole_function(
     // Spec: Annex E §AIMS RL-1.
     alias_dsts
         .extend(crate::lower::burden_lower::compute_funded_store_dup_aliases(func, contracts));
-    mark_whole_var_removals(&balances, &rebalanced_vars, &alias_dsts, &mut remove);
+    mark_whole_var_removals(
+        &balances,
+        &rebalanced_vars,
+        &alias_dsts,
+        &funding_protected,
+        &mut remove,
+    );
     // Class-grain whole-pair elision (RL-22/23/25 with T3 sibling-liveness
     // evidence): additive removal-only over the pairs the per-var pass kept.
     class_grain::mark_class_grain_whole_pair_removals(
@@ -475,10 +489,16 @@ fn mark_whole_var_removals(
     balances: &FxHashMap<ArcVarId, WholeVarBalance>,
     rebalanced_vars: &FxHashSet<ArcVarId>,
     alias_dsts: &FxHashSet<ArcVarId>,
+    funding_protected: &FxHashSet<ArcVarId>,
     remove: &mut [Vec<bool>],
 ) {
     let pair_coupling_active = !genuine_dup_pair_coupling_disabled();
     for (var, balance) in balances {
+        // Unpaired iter-consume funding incs: the callee's release is the
+        // pair — eliding the inc re-opens the per-iteration double-free.
+        if funding_protected.contains(var) {
+            continue;
+        }
         // Vars whose same-alloc lineage was re-balanced as a unit own their
         // removals — skip the per-var DP-2/DP-3 pass for them (it would
         // re-strip incs whose paired decs the lineage pass kept as the one

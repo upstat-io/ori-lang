@@ -488,6 +488,7 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
         &reps,
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert_eq!(
         net.get(&v(0)).copied(),
@@ -675,6 +676,7 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
         &reps,
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert_eq!(
         net.get(&v(0)).copied(),
@@ -809,8 +811,13 @@ fn elide_fresh_inc_for_invoke_terminator_self_alloc_result() {
     let interner = ori_ir::StringInterner::new();
     let func = invoke_insert_result_func(&interner);
     let reps = identity_reps(5);
-    let net =
-        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(1)).copied(),
         Some(1),
@@ -963,8 +970,13 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
     let reps: FxHashMap<ArcVarId, ArcVarId> = [(v(0), v(0)), (v(1), v(0)), (v(2), v(0))]
         .into_iter()
         .collect();
-    let net =
-        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(1),
@@ -1016,8 +1028,13 @@ fn keep_fresh_inc_for_single_use_list_take_result() {
         ],
     );
     let reps = identity_reps(2);
-    let net =
-        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(0),
@@ -1112,8 +1129,13 @@ fn keep_fresh_inc_for_jump_threaded_list_take_result() {
     let reps: FxHashMap<ArcVarId, ArcVarId> = [(v(0), v(0)), (v(2), v(2)), (v(3), v(2))]
         .into_iter()
         .collect();
-    let net =
-        compute_lineage_alloc_aware_net(&func, &reps, &interner, &rustc_hash::FxHashSet::default());
+    let net = compute_lineage_alloc_aware_net(
+        &func,
+        &reps,
+        &interner,
+        &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
+    );
     assert_eq!(
         net.get(&v(0)).copied(),
         Some(0),

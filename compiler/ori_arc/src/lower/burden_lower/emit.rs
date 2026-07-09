@@ -77,6 +77,11 @@ pub(super) struct BurdenAnalysisCtx<'a> {
     // freeing `BurdenDec` for COW-MUTATOR receivers (body after-call OR
     // normal+unwind successor edges, RL-4). Probe-only: empty on the default path.
     pub(super) cow_inc_borrowed_aliases: &'a FxHashSet<ArcVarId>,
+    /// RL-1 per-call funding incs for surviving iter-consumed borrowed args,
+    /// keyed by call block — emitted before the terminator, UNPAIRED (the
+    /// callee's `ori_iter_drop` is the matched release; never tallied into
+    /// `inc_counts`).
+    pub(super) iter_consume_funding_incs: &'a FxHashMap<usize, Vec<ArcVarId>>,
     // COW-MUTATOR builtin names = `all_cow_method_names` MINUS `iter`. Step 2
     // releases a COW-inc'd receiver only when its consuming call is a COW
     // MUTATOR (the result is FRESH, nothing else holds the original). An `iter`
@@ -316,6 +321,14 @@ pub(super) fn emit_burden_ops_for_blocks(
             &block.terminator,
             analysis.cow_inc_borrowed_aliases,
         );
+        // RL-1 per-call funding for surviving iter-consumed borrowed args:
+        // one UNPAIRED inc per admitted arg (the callee's iter-drop is the
+        // matched release) — never tallied into `inc_counts`.
+        if let Some(funding) = analysis.iter_consume_funding_incs.get(&block_idx) {
+            for &var in funding {
+                new_body.push(ArcInstr::BurdenInc { var });
+            }
+        }
         for emitted in &new_body[before_term_incs..] {
             if let ArcInstr::BurdenInc { var } = emitted {
                 // Tally only the non-COW terminator incs (the COW-inc set is

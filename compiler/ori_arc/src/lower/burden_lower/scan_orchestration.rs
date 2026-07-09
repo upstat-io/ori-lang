@@ -33,7 +33,8 @@ use super::ownership_scans::{
     compute_branch_exclusive_edge_releases, compute_collection_literal_dead_source_suppression,
     compute_cow_terminal_concat_inc_dsts, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_fresh_call_result_borrowed_arg_inc_dsts,
-    compute_genuine_dup_move_aliases, compute_iter_consume_transfer_args, compute_live_out_owned,
+    compute_genuine_dup_move_aliases, compute_iter_consume_funding_incs,
+    compute_iter_consume_transfer_args, compute_live_out_owned,
     compute_loop_invariant_dead_local_releases, compute_multi_borrow_view_alias_surplus,
     compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
     compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
@@ -438,6 +439,9 @@ pub(crate) fn emit_burden_ops<'a>(
     // hand-off + the rebind borrow-co-use gate). SSOT:
     // `compute_iter_consume_transfer_args`.
     let iter_consume_transfer_args = compute_iter_consume_transfer_args(func, contracts);
+    // RL-1 per-call funding incs for surviving iter-consumed borrowed args.
+    // SSOT: `compute_iter_consume_funding_incs`.
+    let iter_consume_funding_incs = compute_iter_consume_funding_incs(func, contracts);
     let mut transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
@@ -847,6 +851,7 @@ pub(crate) fn emit_burden_ops<'a>(
         predicate_stack_rc_disabled,
         list_concat_transfer_vars: &list_concat_transfer_vars,
         cow_inc_borrowed_aliases: &cow_inc_borrowed_aliases,
+        iter_consume_funding_incs: &iter_consume_funding_incs,
         cow_mutator_names: &cow_mutator_names,
         transfer_through_return_results: &transfer_through_return_results,
         transfer_through_return_param_vars: &transfer_through_return_param_vars,

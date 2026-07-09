@@ -16,7 +16,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::aims::emit_rc::block_id;
 use crate::aims::intraprocedural::state_map::ApplyAliasSource;
 use crate::graph::DominatorTree;
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::{instr_transfer_vars, successor_reachable_blocks};
 
@@ -476,6 +476,94 @@ pub(in crate::lower::burden_lower) fn compute_iter_consume_transfer_args(
         } = &block.terminator
         {
             admit(callee, args);
+        }
+    }
+    out
+}
+
+/// RL-1 per-call funding for an iter-consumed borrowed arg whose lineage
+/// SURVIVES the call: the callee's `ori_iter_drop` releases one reference per
+/// call (`RL2_iter_consuming_no_caller_dec`), so a caller whose lineage is
+/// read again afterwards (a loop back-edge re-reach, a later borrow) owes one
+/// unpaired `BurdenInc` per call site — the RL-1 duplication the callee
+/// consumes. A lineage DEAD after the call is the sole-release case and gets
+/// no inc (an extra inc leaks). Keyed by call block; emitted before the
+/// terminator, excluded from the terminator-dec pairing tally.
+pub(crate) fn compute_iter_consume_funding_incs(
+    func: &ArcFunction,
+    contracts: &FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+) -> FxHashMap<usize, Vec<ArcVarId>> {
+    let mut out: FxHashMap<usize, Vec<ArcVarId>> = FxHashMap::default();
+    // Alias-chain roots (Let{Var} closure) for lineage-survival checks.
+    let mut root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                let r = root.get(src).copied().unwrap_or(*src);
+                root.insert(*dst, r);
+            }
+        }
+    }
+    let root_of = |v: ArcVarId| root.get(&v).copied().unwrap_or(v);
+    let mut reach_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            normal,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+        // ONLY call sites inside a CFG cycle: a back-edge-re-reached call
+        // consumes one reference PER ITERATION — the shape no static
+        // in-function ledger prices. An acyclic site's single consumption is
+        // already funded by the lineage's fresh-site / dup-alias incs; a
+        // funding inc there double-funds (net +1 leak).
+        let succs: Vec<usize> = crate::graph::successor_block_ids(&block.terminator)
+            .into_iter()
+            .map(crate::ir::ArcBlockId::index)
+            .collect();
+        let in_cycle = crate::graph::forward_reachable(func, &succs).contains(&block_idx);
+        if !in_cycle {
+            continue;
+        }
+        let Some(c) = contracts.get(callee) else {
+            continue;
+        };
+        for (pos, &arg) in args.iter().enumerate() {
+            if !c.params.get(pos).is_some_and(|p| p.iter_consumes) {
+                continue;
+            }
+            if block.terminator.is_owned_position(pos) {
+                // An [own]-annotated arg goes through the transfer machinery.
+                continue;
+            }
+            let r = root_of(arg);
+            // Lineage survival: any member (same root) read in a block
+            // forward-reachable from the call's successors — the loop
+            // back-edge re-reach counts.
+            let reachable = reach_cache
+                .entry(block_idx)
+                .or_insert_with(|| crate::graph::forward_reachable(func, &[normal.index()]));
+            let survives = func.blocks.iter().enumerate().any(|(b, blk)| {
+                if !reachable.contains(&b) {
+                    return false;
+                }
+                blk.body
+                    .iter()
+                    .any(|i| i.used_vars().iter().any(|&v| root_of(v) == r))
+                    || blk.terminator.used_vars().iter().any(|&v| root_of(v) == r)
+            });
+            if survives {
+                out.entry(block_idx).or_default().push(arg);
+            }
         }
     }
     out
