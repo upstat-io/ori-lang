@@ -35,17 +35,26 @@ const MAX_SELECT_EDGES: usize = 8;
 
 /// Check whether a `CanExpr` is simple enough to lower without creating
 /// new basic blocks — i.e. literals and variable references.
+///
+/// An `Ident` qualifies ONLY when its type is SCALAR: a `Select` between two
+/// owned RC-bearing values makes the non-selected operand's ownership
+/// runtime-conditional with no CFG edge to release it on (the RL-4 edge
+/// machinery needs branch form), so RC-bearing arms take the standard
+/// branch + merge lowering instead.
 fn is_simple_body(lowerer: &crate::lower::ArcLowerer<'_>, body: ori_ir::canon::CanId) -> bool {
-    matches!(
-        lowerer.arena.kind(body),
+    match lowerer.arena.kind(body) {
         CanExpr::Int(_)
-            | CanExpr::Bool(_)
-            | CanExpr::Float(_)
-            | CanExpr::Char(_)
-            | CanExpr::Str(_)
-            | CanExpr::Unit
-            | CanExpr::Ident(_)
-    )
+        | CanExpr::Bool(_)
+        | CanExpr::Float(_)
+        | CanExpr::Char(_)
+        | CanExpr::Unit => true,
+        CanExpr::Str(_) | CanExpr::Ident(_) => {
+            use crate::classify::ArcClassification;
+            let ty = lowerer.expr_type(body);
+            crate::classify::ArcClassifier::new(lowerer.pool).is_scalar(ty)
+        }
+        _ => false,
+    }
 }
 
 /// Check whether a switch is eligible for select chain optimization.
