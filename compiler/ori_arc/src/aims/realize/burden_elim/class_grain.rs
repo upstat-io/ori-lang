@@ -64,7 +64,28 @@ pub(super) fn mark_class_grain_whole_pair_removals(
     rebalanced_vars: &FxHashSet<ArcVarId>,
     remove: &mut [Vec<bool>],
 ) {
-    if *CLASS_GRAIN_PAIR_ELISION_DISABLED {
+    mark_class_grain_whole_pair_removals_gated(
+        *CLASS_GRAIN_PAIR_ELISION_DISABLED,
+        func,
+        state_map,
+        balances,
+        rebalanced_vars,
+        remove,
+    );
+}
+
+/// Toggle seam: `disabled = true` declines the whole pass (the
+/// `ORI_DISABLE_CLASS_GRAIN_PAIR_ELISION=1` disposition), unit-pinned
+/// independent of the process-cached `LazyLock` read.
+pub(super) fn mark_class_grain_whole_pair_removals_gated(
+    disabled: bool,
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    balances: &FxHashMap<ArcVarId, WholeVarBalance>,
+    rebalanced_vars: &FxHashSet<ArcVarId>,
+    remove: &mut [Vec<bool>],
+) {
+    if disabled {
         return;
     }
     let Some(partition) = state_map.birth_site_partition() else {
@@ -90,10 +111,12 @@ pub(super) fn mark_class_grain_whole_pair_removals(
     let mut mutate_tainted: FxHashSet<_> = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
+            // Reuse recycling is tainted via its paired `Reset { var }` (the
+            // recycled allocation); the Reset token itself is SCALAR (TF-10a)
+            // and never carries a partition node.
             let base = match instr {
                 ArcInstr::Set { base, .. } | ArcInstr::SetTag { base, .. } => *base,
                 ArcInstr::IsShared { var, .. } | ArcInstr::Reset { var, .. } => *var,
-                ArcInstr::Reuse { token, .. } => *token,
                 ArcInstr::CollectionReuse { old_var, .. } => *old_var,
                 _ => continue,
             };
@@ -137,6 +160,21 @@ pub(super) fn mark_class_grain_whole_pair_removals(
                     .any(|instr| instr.defined_var() == Some(*sib));
             if !born_before {
                 return false;
+            }
+            // +1-establishment (T3's dominating-inc): an allocation-born
+            // sibling (empty inc_sites — birth IS the +1) qualifies by
+            // definition-position alone; an ALIAS sibling's +1 is its kept
+            // dup inc, which must land strictly BEFORE the span in this
+            // block — a mid-span or post-span funding inc leaves the class
+            // count uncovered at span entry.
+            if !sib_bal.inc_sites.is_empty() {
+                let funded_before_span = sib_bal
+                    .inc_sites
+                    .iter()
+                    .any(|&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i]);
+                if !funded_before_span {
+                    return false;
+                }
             }
             // T3's live-across-the-span premise: the sibling holds the
             // interior count >= 1 for the WHOLE span — any kept release

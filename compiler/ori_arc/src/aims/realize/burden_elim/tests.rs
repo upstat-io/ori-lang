@@ -2018,10 +2018,14 @@ fn run_elim_class_grain(func: &mut ArcFunction, union_them: bool) {
         ],
     );
     let mut partition = compute_birth_site_partition(func, &state_map);
+    // Register BOTH whole-var nodes unconditionally so the distinct-class
+    // case exercises the same-rep comparison (an unregistered var would
+    // decline at the class-unknown gate instead, leaving the SAME-CLASS-ONLY
+    // boundary unpinned); union only when the test wants one class.
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+    let a = partition.register_node(v(0), FieldPath::whole_var());
+    let b = partition.register_node(v(1), FieldPath::whole_var());
     if union_them {
-        use crate::aims::intraprocedural::birth_site_partition::FieldPath;
-        let a = partition.register_node(v(0), FieldPath::whole_var());
-        let b = partition.register_node(v(1), FieldPath::whole_var());
         partition.union_tier1(a, b);
     }
     state_map.set_birth_site_partition(partition);
@@ -2100,6 +2104,106 @@ fn class_grain_mutate_feeding_class_keeps_pair() {
     let mut func = one_block_func(2, body);
     run_elim_class_grain(&mut func, true);
     assert_eq!(census(&func), [1, 2, 0, 0, 0]);
+}
+
+/// Ablation toggle disposition: `disabled = true` (the
+/// `ORI_DISABLE_CLASS_GRAIN_PAIR_ELISION=1` reading) declines the pass —
+/// the per-var-only disposition survives verbatim on the exact shape the
+/// enabled pass elides.
+#[test]
+fn class_grain_toggle_disabled_keeps_pair() {
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let func = one_block_func(2, body);
+    let mut state_map = AimsStateMap::new(&func);
+    seed_exit_state(
+        &mut state_map,
+        block_id(0),
+        &[
+            (
+                v(0),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+            (
+                v(1),
+                owned_state(Cardinality::Many, Consumption::Unrestricted),
+            ),
+        ],
+    );
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let a = partition.register_node(v(0), FieldPath::whole_var());
+    let b = partition.register_node(v(1), FieldPath::whole_var());
+    partition.union_tier1(a, b);
+    state_map.set_birth_site_partition(partition);
+    let mut balances: FxHashMap<ArcVarId, super::WholeVarBalance> = FxHashMap::default();
+    let e0 = balances
+        .entry(v(0))
+        .or_insert_with(super::WholeVarBalance::seed);
+    e0.dec_sites.push((0, 3));
+    let e1 = balances
+        .entry(v(1))
+        .or_insert_with(super::WholeVarBalance::seed);
+    e1.inc_sites.push((0, 1));
+    e1.dec_sites.push((0, 2));
+    let rebalanced: rustc_hash::FxHashSet<ArcVarId> = rustc_hash::FxHashSet::default();
+    let mut remove = vec![vec![false; func.blocks[0].body.len()]];
+    super::class_grain::mark_class_grain_whole_pair_removals_gated(
+        true,
+        &func,
+        &state_map,
+        &balances,
+        &rebalanced,
+        &mut remove,
+    );
+    assert!(
+        remove.iter().flatten().all(|r| !r),
+        "disabled toggle must decline every class-grain removal"
+    );
+    super::class_grain::mark_class_grain_whole_pair_removals_gated(
+        false,
+        &func,
+        &state_map,
+        &balances,
+        &rebalanced,
+        &mut remove,
+    );
+    assert!(
+        remove[0][1] && remove[0][2],
+        "enabled pass must elide the pair on the identical shape"
+    );
+}
+
+/// Alias-sibling +1-establishment: a sibling whose only funding inc lands
+/// INSIDE the pair's span supplies no dominating evidence — at span entry
+/// the class count is uncovered; the pair is kept whole.
+#[test]
+fn class_grain_alias_sibling_funded_mid_span_keeps_pair() {
+    let body = vec![
+        ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Var(v(2)),
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(3, body);
+    run_elim_class_grain(&mut func, true);
+    // %0 is a Let-Var alias: its dup inc (site 2) is INSIDE the %1 pair's
+    // span (sites 1..3) — no evidence; every op survives.
+    assert_eq!(census(&func), [2, 2, 0, 0, 0]);
 }
 
 /// T3 live-across-the-span premise: a sibling releasing INSIDE the pair's
