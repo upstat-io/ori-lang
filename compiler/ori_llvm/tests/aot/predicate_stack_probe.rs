@@ -5146,19 +5146,29 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
 // release DISABLED the forwarder-identity allocation reaching the dead merge-block
 // params is never released, so the burden-only run leaks / crashes. Proves the
 // dead-param release is the cure, not an incidental pass.
+//
+// Composed ablation mask: match-merge mutable-param pruning is an INDEPENDENT
+// layered cure for the same leak class — at default it prunes never-reassigned
+// bindings from the merge signature, dissolving the dead-param shape before the
+// RL-5 scan runs. `ORI_DISABLE_MATCH_PARAM_PRUNING=1` restores the unpruned
+// shape where the RL-5 release is the sole source, isolating the layer under
+// test (same composed-ablation practice as the dual-cure pins in
+// burden_match_release.rs).
 fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
             ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
         ],
     );
     assert!(
         exit != 0 || stderr.to_lowercase().contains("leak"),
         "[{label}] expected a leak / crash with the dead-forwarder-param release DISABLED \
-         (the Phase-5 RL-5 dec is the cure) but the program exited 0 with no leak — the \
-         positive pin may be passing for an unrelated reason"
+         on the unpruned shape (the Phase-5 RL-5 dec is the sole release there) but the \
+         program exited 0 with no leak — the positive pin may be passing for an unrelated \
+         reason"
     );
 }
 
@@ -5262,8 +5272,39 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_option");
-    // NEGATIVE half: the same program leaks with the Phase-5 dead-forwarder-param
-    // release DISABLED — the release is the cure, not an incidental pass.
+    // Matrix cell 2 backstop: pruning ON (default) + RL-5 release OFF stays clean —
+    // merge-param pruning alone dissolves this program's dead-param shape at
+    // lowering, an independent layered cure over the same leak class.
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
+        src,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
+        ],
+    );
+    assert!(
+        exit == 0 && !stderr.to_lowercase().contains("leak"),
+        "[aggregate_transfer_forwarder_option] pruning alone must cure the pruned-default \
+         shape with the RL-5 release disabled\nexit={exit} stderr:\n{stderr}"
+    );
+    // Matrix cell 3 paired positive: pruning OFF + RL-5 release ON stays clean —
+    // the RL-5 dead-at-entry release alone cures the unpruned shape (the
+    // should-work partner of the composed-ablation mutation-verify below).
+    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
+        src,
+        &[
+            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+        ],
+    );
+    assert!(
+        exit == 0 && !stderr.to_lowercase().contains("leak"),
+        "[aggregate_transfer_forwarder_option] the RL-5 release alone must cure the \
+         unpruned shape\nexit={exit} stderr:\n{stderr}"
+    );
+    // NEGATIVE half (matrix cell 4): the same program leaks with the Phase-5
+    // dead-forwarder-param release DISABLED on the unpruned shape — the release
+    // is the cure, not an incidental pass.
     assert_leak_without_dead_forwarder_param_release(src, "aggregate_transfer_forwarder_option");
 }
 

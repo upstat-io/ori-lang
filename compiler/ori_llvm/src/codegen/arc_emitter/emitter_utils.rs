@@ -115,6 +115,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(callee, args, name)
     }
 
+    /// Build an invoke-aware call to an sret-returning runtime function.
+    ///
+    /// The sret twin of [`Self::emit_rt_call`] — mirrors
+    /// [`crate::codegen::ir_builder::IrBuilder::call_with_sret`]'s alloca +
+    /// prepend + call + load bookkeeping, but routes the underlying call
+    /// through `emit_rt_call` so a may-unwind sret callee (e.g.
+    /// `ori_str_index`) correctly emits `invoke` when `intercepted_unwind`
+    /// is armed, instead of always emitting a plain `call`.
+    pub(super) fn emit_rt_call_with_sret(
+        &mut self,
+        callee: crate::codegen::value_id::FunctionId,
+        args: &[crate::codegen::value_id::ValueId],
+        sret_type: crate::codegen::value_id::LLVMTypeId,
+        name: &str,
+    ) -> Option<crate::codegen::value_id::ValueId> {
+        let sret_ptr = self.builder.create_entry_alloca(
+            self.current_function,
+            &format!("{name}.sret"),
+            sret_type,
+        );
+        let mut full_args = Vec::with_capacity(args.len() + 1);
+        full_args.push(sret_ptr);
+        full_args.extend_from_slice(args);
+        self.emit_rt_call(callee, &full_args, name);
+        Some(self.builder.load(sret_type, sret_ptr, name))
+    }
+
     /// Branch to `target`, exiting the current catchpad via `catchret` trampoline.
     ///
     /// Emits `catchret pad → trampoline → br target`. Only valid for catchpads;
