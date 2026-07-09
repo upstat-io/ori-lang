@@ -5142,19 +5142,16 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
     );
 }
 
-// Mutation-verify for the Phase-5 RL-5 dead-forwarder-param release: with the
-// release DISABLED the forwarder-identity allocation reaching the dead merge-block
-// params is never released, so the burden-only run leaks / crashes. Proves the
-// dead-param release is the cure, not an incidental pass.
-//
-// Composed ablation mask: match-merge mutable-param pruning is an INDEPENDENT
-// layered cure for the same leak class — at default it prunes never-reassigned
-// bindings from the merge signature, dissolving the dead-param shape before the
-// RL-5 scan runs. `ORI_DISABLE_MATCH_PARAM_PRUNING=1` restores the unpruned
-// shape where the RL-5 release is the sole source, isolating the layer under
-// test (same composed-ablation practice as the dual-cure pins in
-// burden_match_release.rs).
-fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
+// Mutation-verify for the Phase-5 RL-5 dead-forwarder-param release on the
+// UNPRUNED shape: both cures over the dead-merge-param leak class are ablated
+// together — match-merge mutable-param pruning (the default lowering-time cure
+// that dissolves never-reassigned bindings from the merge signature) AND the
+// RL-5 dead-forwarder-param release (the Phase-5 cure for whatever dead-param
+// shape survives). With pruning disabled the dead params exist and the RL-5
+// dec is their sole release, so ablating it too must leak / crash. Proves the
+// dead-param release is the cure, not an incidental pass (same composed
+// dual-cure ablation practice as the burden_match_release.rs pins).
+fn assert_leak_with_pruning_and_dead_forwarder_release_disabled(source: &str, label: &str) {
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
         &[
@@ -5162,6 +5159,11 @@ fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
             ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
             ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
         ],
+    );
+    assert!(
+        exit != -1,
+        "[{label}] build FAILED under the composed ablation mask — the mutation pin never \
+         ran, so no leak verdict exists\nbuild stderr:\n{stderr}"
     );
     assert!(
         exit != 0 || stderr.to_lowercase().contains("leak"),
@@ -5248,16 +5250,19 @@ type Box<T> = { value: T };
 
 #[test]
 fn probe_aggregate_transfer_forwarder_option_no_double_free() {
-    // POSITIVE PIN (the forwarder dead-block-param under-emission cure): an
-    // owned-transfer forwarder (`@id<T>(x: T) -> T = x`) over a SUM-type Aggregate
-    // (`Option<[int]>`) whose payload carries the heap [int]. The forwarder identity
-    // (`%4` source = `%7` result) reaches the post-match merge/return block as TWO
-    // DEAD block-params (`Cardinality = Absent`) via `Jump bb(.., %4, %7)` on every
-    // arm. The Jump-arg -> Owned-param handoff (RL-4 exemption) defers the source's
-    // release to the dead successor params, which the Phase-5 walk never released ->
-    // the [int] buffer leaks. The cure emits EXACTLY ONE RL-5 dead-at-entry release
-    // (`RL5_dead_at_entry_cleanup`), deduped by forwarder identity so the two params
-    // sharing ONE RC=1 allocation get one dec, not two (two would double-free).
+    // POSITIVE PIN (the forwarder dead-block-param leak class, TWO layered cures):
+    // an owned-transfer forwarder (`@id<T>(x: T) -> T = x`) over a SUM-type
+    // Aggregate (`Option<[int]>`) whose payload carries the heap [int]. On the
+    // UNPRUNED shape the forwarder identity (`%4` source = `%7` result) reaches the
+    // post-match merge/return block as TWO DEAD block-params (`Cardinality =
+    // Absent`) via `Jump bb(.., %4, %7)`; the Jump-arg -> Owned-param handoff (RL-4
+    // exemption) defers the source's release to those dead params -> the [int]
+    // buffer leaks unless the Phase-5 RL-5 dead-at-entry release
+    // (`RL5_dead_at_entry_cleanup`) fires, deduped by forwarder identity (one dec
+    // per allocation, two would double-free). At DEFAULT, match-merge mutable-param
+    // pruning removes the never-reassigned bindings from the merge signature
+    // first, dissolving the dead-param shape before the RL-5 scan runs — the four
+    // assertions below pin every cell of that pruning x RL-5 matrix.
     // Spec: Annex E §AIMS RL-5 + RL-4 + RL-34.
     let src = r#"
 @id <T> (x: T) -> T = x;
@@ -5305,7 +5310,10 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
     // NEGATIVE half (matrix cell 4): the same program leaks with the Phase-5
     // dead-forwarder-param release DISABLED on the unpruned shape — the release
     // is the cure, not an incidental pass.
-    assert_leak_without_dead_forwarder_param_release(src, "aggregate_transfer_forwarder_option");
+    assert_leak_with_pruning_and_dead_forwarder_release_disabled(
+        src,
+        "aggregate_transfer_forwarder_option",
+    );
 }
 
 #[test]
