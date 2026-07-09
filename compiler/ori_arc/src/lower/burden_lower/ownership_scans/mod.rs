@@ -25,7 +25,6 @@ mod fresh_call_result_borrowed_arg;
 mod iter_consume_dead_thread;
 mod lazy_iter_closure_borrow;
 mod live_extract;
-mod live_extract_site;
 mod live_out;
 mod loop_carried_dead_param;
 mod loop_invariant_dead_local;
@@ -108,9 +107,9 @@ pub(super) use walk::{
     group_last_uses_filtered,
 };
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, PrimOp, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, PrimOp, ValueRepr};
 
 /// Snapshot vars consumed at an owned position by `instr`, used to suppress
 /// `BurdenDec` at transfer points per AIMS RL-2. `Set.value` is added
@@ -251,28 +250,100 @@ fn successor_reachable_blocks_with_cut(
 }
 
 /// Forward-reachable block set from `start`'s SUCCESSORS (`start` itself is
-/// included only when a cycle re-reaches it).
+/// included only when a cycle re-reaches it). The uncut case of
+/// [`successor_reachable_blocks_with_cut`].
 fn successor_reachable_blocks(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = func
-        .blocks
-        .get(start)
-        .map(|b| {
-            crate::graph::successor_block_ids(&b.terminator)
-                .into_iter()
-                .map(crate::ir::ArcBlockId::index)
-                .collect()
+    successor_reachable_blocks_with_cut(func, start, None)
+}
+
+/// Pairwise-overlap flags over `candidates`' member sets: `true` at index `i`
+/// iff `members_of(candidates[i])` shares a var with some OTHER candidate's
+/// member set. Shared control-flow skeleton behind every closure/lineage
+/// overlap-decline gate (`catch_recover_release`, `borrowed_invoke_lineage`,
+/// `closure_extract_borrow_view`, `multi_exit_borrow_view`, `live_extract`,
+/// `iter_consume_dead_thread`, `lazy_iter_closure_borrow`): an overlapping
+/// candidate declines; a pairwise-disjoint candidate is admitted.
+pub(super) fn compute_pairwise_overlap_flags<T>(
+    candidates: &[T],
+    members_of: impl Fn(&T) -> &FxHashSet<ArcVarId>,
+) -> Vec<bool> {
+    candidates
+        .iter()
+        .map(|c| {
+            candidates
+                .iter()
+                .filter(|o| !std::ptr::eq(*o, c))
+                .any(|o| !members_of(c).is_disjoint(members_of(o)))
         })
-        .unwrap_or_default();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
+        .collect()
+}
+
+/// Execution-final read-site resolution over a same-alloc closure's
+/// `members`: collect every candidate use of a member — EXCLUDING the
+/// closure's own edges per `is_closure_own_edge` (alias hops, borrow-view
+/// projections, keep-alive churn, and whatever else the caller's closure
+/// vetting treats as non-genuine) — then pick the unique candidate every
+/// OTHER candidate reaches (block INDEX order is not execution order, so
+/// reachability, not textual position, decides "final"). Shared release-site
+/// core behind `catch_recover_release::site::catch_recover_final_read_site` and
+/// `live_extract::site::choose_release_site`; callers keep their own soundness
+/// gate (single-pred `BlockEntry`, no CFG cycle, every normal exit passes
+/// through the site) — this resolves ONLY which candidate is execution-final,
+/// never whether the site is sound.
+pub(super) fn compute_execution_final_read_site(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    is_closure_own_edge: impl Fn(&ArcInstr) -> bool,
+) -> Option<(usize, ForwarderReleasePos, ArcVarId)> {
+    // Candidate reads: (block, pos, read var, in-block order; -1 = entry).
+    let mut candidates: Vec<(usize, ForwarderReleasePos, ArcVarId, isize)> = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if is_closure_own_edge(instr) {
+                continue;
+            }
+            if let Some(&used) = instr.used_vars().iter().find(|v| members.contains(v)) {
+                let order = isize::try_from(instr_idx).unwrap_or(isize::MAX);
+                candidates.push((
+                    block_idx,
+                    ForwarderReleasePos::AfterInstr(instr_idx),
+                    used,
+                    order,
+                ));
+            }
         }
-        if let Some(block) = func.blocks.get(b) {
-            for s in crate::graph::successor_block_ids(&block.terminator) {
-                stack.push(s.index());
+        let term = &block.terminator;
+        if let ArcTerminator::Invoke { normal, .. } = term {
+            for (pos, &v) in term.used_vars().iter().enumerate() {
+                if members.contains(&v) && !term.is_owned_position(pos) {
+                    candidates.push((normal.index(), ForwarderReleasePos::BlockEntry, v, -1));
+                }
             }
         }
     }
-    visited
+    // Pick the unique candidate every other candidate reaches (execution-final).
+    let mut reachable: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    let mut reaches = |from: usize, to: usize| -> bool {
+        reachable
+            .entry(from)
+            .or_insert_with(|| successor_reachable_blocks(func, from))
+            .contains(&to)
+    };
+    'outer: for cand in &candidates {
+        for other in &candidates {
+            if std::ptr::eq(cand, other) {
+                continue;
+            }
+            let after_other = if other.0 == cand.0 {
+                cand.3 >= other.3
+            } else {
+                reaches(other.0, cand.0)
+            };
+            if !after_other {
+                continue 'outer;
+            }
+        }
+        return Some((cand.0, cand.1, cand.2));
+    }
+    None
 }

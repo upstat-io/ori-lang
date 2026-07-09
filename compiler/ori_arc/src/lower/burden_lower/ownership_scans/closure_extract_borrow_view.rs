@@ -13,6 +13,8 @@ use ori_ir::Name;
 use crate::aims::contract::{MemoryContract, ReturnAliasShape};
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, ValueRepr};
 
+use super::compute_pairwise_overlap_flags;
+
 /// Result of [`compute_closure_extract_borrow_view_lineage`]: the same-alloc
 /// borrow-view result lineage to suppress (every surplus per-result dec). The
 /// canonical release is the closure env's OWN scope-exit dec, whose drop cascade
@@ -72,7 +74,7 @@ struct Web {
 ///      BORROWED arg (`@contains` / any borrowed call/invoke arg). Any owned-
 ///      position consume / store / capture / `Project` / `Select` / `Return` /
 ///      `Jump`/`Branch`/`Switch` terminator use / owned call arg declines (the
-///      fresh-sum live-extract over-fire boundary, dead-ends #174/#175): an
+///      fresh-sum live-extract over-fire boundary): an
 ///      owned-position escape means the result holds its OWN ref and suppressing
 ///      its dec leaks / double-frees.
 ///  (e) at least one borrow-read exists.
@@ -137,14 +139,7 @@ pub(in crate::lower::burden_lower) fn compute_closure_extract_borrow_view_lineag
     }
 
     // Gate (f): decline EVERY web whose lineage overlaps another's.
-    let overlapping: Vec<bool> = webs
-        .iter()
-        .map(|w| {
-            webs.iter()
-                .filter(|o| !std::ptr::eq(*o, w))
-                .any(|o| !w.members.is_disjoint(&o.members))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&webs, |w| &w.members);
     for (web, overlaps) in webs.into_iter().zip(overlapping) {
         if overlaps {
             continue;

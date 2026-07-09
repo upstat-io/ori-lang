@@ -18,6 +18,8 @@ use oric::query::{
 use oric::reporting::typeck::TypeErrorRenderer;
 use oric::{CompilerDb, Db, SourceFile};
 
+#[cfg(feature = "llvm")]
+mod backend;
 pub mod build;
 pub mod build_options;
 mod check;

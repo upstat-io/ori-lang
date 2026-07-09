@@ -19,6 +19,9 @@ path = "src/main.rs"
 [features]
 default = ["llvm"]
 llvm = ["dep:ori_llvm", "dep:ori_arc", "dep:ori_repr"]  # Requires LLVM 21 installed; always on
+# Gates the backend-boundary plan's north-star conformance test — a trivial
+# outside-crate CodegenBackend, proving zero further oric driver changes.
+backend_stub_conformance = []
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -84,6 +87,11 @@ ori_rt = { path = "../ori_rt" }
 ori_format.workspace = true
 ori_lexer_core.workspace = true
 ori_test_harness = { path = "../ori_test_harness" }
+
+[[test]]
+name = "backend_stub_conformance"
+path = "tests/backend_stub_conformance.rs"
+required-features = ["llvm", "backend_stub_conformance"]
 
 [[bench]]
 name = "type_check"

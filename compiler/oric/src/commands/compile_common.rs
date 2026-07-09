@@ -26,6 +26,8 @@ use ori_ir::canon::CanonResult;
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
+use ori_repr::RealizedProgram;
+#[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
 #[cfg(feature = "llvm")]
 use oric::ir::Name;
@@ -33,6 +35,9 @@ use oric::ir::Name;
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db, SourceFile};
+
+#[cfg(feature = "llvm")]
+use super::backend::{BackendChoice, LlvmBackend};
 
 /// Information about an imported function for codegen.
 #[cfg(feature = "llvm")]
@@ -130,23 +135,27 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    super::codegen_pipeline::run_codegen_pipeline(
-        context,
-        db,
-        parse_result,
+    let program = RealizedProgram {
         type_result,
-        merged_pool,
+        pool: merged_pool,
         canon,
         source_path,
         module_name,
-        "", // No symbol prefix for single-file compilation
-        &[],
-        imported,
+        symbol_prefix: "", // No symbol prefix for single-file compilation
         target_triple,
         narrowing_policy,
-        &[], // Single-file: no imported type metadata
-        &[], // Single-file: no imported collection surfaces
-    )
+        imported_type_metadata: &[], // Single-file: no imported type metadata
+        imported_collection_surfaces: &[], // Single-file: no imported collection surfaces
+    };
+    let backend = BackendChoice::Llvm(LlvmBackend {
+        context,
+        db,
+        parse_result,
+        import_sigs: &[],
+        imported,
+    });
+
+    backend.compile(&program).map_err(|e| e.0)
 }
 
 /// Compile source to LLVM IR with explicit module name and import
@@ -206,21 +215,25 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         })
         .collect();
 
-    super::codegen_pipeline::run_codegen_pipeline(
-        context,
-        db,
-        parse_result,
-        type_result,
+    let program = RealizedProgram {
         pool,
+        type_result,
         canon,
         source_path,
         module_name,
-        module_name, // Multi-file: symbol prefix matches module name
-        &import_sigs,
-        imported,
+        symbol_prefix: module_name, // Multi-file: symbol prefix matches module name
         target_triple,
         narrowing_policy,
         imported_type_metadata,
         imported_collection_surfaces,
-    )
+    };
+    let backend = BackendChoice::Llvm(LlvmBackend {
+        context,
+        db,
+        parse_result,
+        import_sigs: &import_sigs,
+        imported,
+    });
+
+    backend.compile(&program).map_err(|e| e.0)
 }

@@ -11,26 +11,36 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueR
 
 use super::live_extract::{collect_fresh_sum_roots, is_niche_family_sum};
 
+/// Which iter-consume predicate [`collect_iter_consumed_positions`] applies to
+/// a user-callee param — see the two variant docs for the concrete callers
+/// each mode serves.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum IterConsumeScope {
+    /// The canonical RL-2 CONSUME predicate (`ParamContract::is_rl2_consume`):
+    /// `iter_consumes ∧ ¬transfers_through_return`. A ttr+iter-consume callee
+    /// hands the arg back through its own return, so that overlap keeps its
+    /// own accounting (`dup_inc::compute_ttr_iter_consume_dup_aliases`) and
+    /// must not double-count as a plain consume here. Used by
+    /// [`iter_consumed_vars`].
+    Rl2ConsumeOnly,
+    /// The bare `iter_consumes` signal, ADMITTING the ttr-overlap itself —
+    /// `compute_ttr_iter_consume_dup_aliases` is specifically looking for
+    /// THIS function's own ttr-param aliases that are ALSO iter-consumed, so
+    /// excluding the overlap would empty out the exact case it targets.
+    IncludingTtrOverlap,
+}
+
 /// The set of vars consumed at an iter-consuming OWNED position — `@iter [own]`
 /// (the inline for-loop's iterator owns + frees the buffer via `ori_iter_drop`)
 /// OR a user-callee arg at an `iter_consumes` contract param — the shared
 /// skeleton behind both [`iter_consumed_vars`] and
 /// `dup_inc::compute_ttr_iter_consume_dup_aliases`'s own scan. Mirrors
 /// the Phase-6.66c `record_iter_consume_uses` SSOT.
-///
-/// `exclude_ttr_overlap`: when `true`, a user-callee param additionally
-/// requires `!p.transfers_through_return` (RL-2 CONSUME is `iter_consumes ∧
-/// ¬transfers_through_return` — a ttr+iter-consume callee hands the arg back
-/// through its own return, so the overlap keeps its own accounting and must
-/// not double-count as a plain consume). `false` admits the overlap itself —
-/// `compute_ttr_iter_consume_dup_aliases` is specifically looking for THIS
-/// function's own ttr-param aliases that are ALSO iter-consumed, so the
-/// exclusion would empty out the exact case it targets.
 pub(super) fn collect_iter_consumed_positions(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
-    exclude_ttr_overlap: bool,
+    scope: IterConsumeScope,
 ) -> FxHashSet<ArcVarId> {
     let iter_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
@@ -41,8 +51,9 @@ pub(super) fn collect_iter_consumed_positions(
                 return;
             };
             for (pos, &arg) in args.iter().enumerate() {
-                let consumes = contract.params.get(pos).is_some_and(|p| {
-                    p.iter_consumes && (!exclude_ttr_overlap || !p.transfers_through_return)
+                let consumes = contract.params.get(pos).is_some_and(|p| match scope {
+                    IterConsumeScope::Rl2ConsumeOnly => p.is_rl2_consume(),
+                    IterConsumeScope::IncludingTtrOverlap => p.iter_consumes,
                 });
                 if consumes {
                     out.insert(arg);
@@ -90,7 +101,7 @@ fn iter_consumed_vars(
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> FxHashSet<ArcVarId> {
-    collect_iter_consumed_positions(func, contracts, interner, true)
+    collect_iter_consumed_positions(func, contracts, interner, IterConsumeScope::Rl2ConsumeOnly)
 }
 
 /// RL-1 + RL-2 surplus dup-alias-inc suppression for a fresh niche-family

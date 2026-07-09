@@ -22,11 +22,10 @@
 //! from `owned_vars_needing_rc` — eliding the orphan inc + the symmetric per-thread
 //! pairs. The `@iter`'s `ori_iter_drop` is the single release of the rc=1 buffer.
 //!
-//! Foreclosed-and-avoided (dead-ends #163/#164/#180/#181/#185): a FORWARD-only
-//! threaded-rep scan SEPARATES the loop-carried thread from the `@iter` rep
-//! (the thread crosses the back-edge) — this scan follows Jump-args across ALL
-//! edges (forward AND back) via `compute_param_edge_args`. It does NOT relax the
-//! `@iter` COW-taint (#181's over-fire surface) — it is a pure inc-elision of a
+//! A FORWARD-only threaded-rep scan would SEPARATE the loop-carried thread from
+//! the `@iter` rep (the thread crosses the back-edge) — this scan instead follows
+//! Jump-args across ALL edges (forward AND back) via `compute_param_edge_args`.
+//! It does NOT relax the `@iter` COW-taint — it is a pure inc-elision of a
 //! proven-dead-thread lineage, touching no COW / release surface.
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -35,6 +34,8 @@ use ori_ir::Name;
 
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
+
+use super::compute_pairwise_overlap_flags;
 
 /// RL-1 + RL-2 dead-thread orphaned-inc elision. Returns the same-alloc lineage
 /// vars to remove from `owned_vars_needing_rc` (eliding the orphan FRESH-site inc
@@ -108,15 +109,7 @@ pub(in crate::lower::burden_lower) fn compute_iter_consume_dead_thread_orphan_in
     }
 
     // Gate (e): decline EVERY lineage overlapping another's.
-    let overlapping: Vec<bool> = admitted_lineages
-        .iter()
-        .map(|l| {
-            admitted_lineages
-                .iter()
-                .filter(|o| !std::ptr::eq(*o, l))
-                .any(|o| !l.is_disjoint(o))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&admitted_lineages, |l| l);
     for (lineage, overlaps) in admitted_lineages.into_iter().zip(overlapping) {
         if overlaps {
             tracing::trace!(
@@ -140,8 +133,8 @@ pub(in crate::lower::burden_lower) fn compute_iter_consume_dead_thread_orphan_in
 
 /// Gate (b) support: every var consumed at an `@iter [own]` arg (`Apply @iter` /
 /// `Invoke @iter` terminator) OR a user-callee `iter_consumes` param. The
-/// `Invoke @iter` terminator form is the inline for-loop's iterator (dead-end
-/// #164: it is a TERMINATOR, not an `ArcInstr::Apply`).
+/// `Invoke @iter` terminator form is the inline for-loop's iterator — a
+/// TERMINATOR, not an `ArcInstr::Apply`.
 fn collect_iter_consumed_vars(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,

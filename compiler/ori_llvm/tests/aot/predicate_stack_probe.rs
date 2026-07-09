@@ -1087,8 +1087,9 @@ fn probe_set_str_passed_to_iter_consuming_fn_no_double_free() {
     assert_burden_path_self_sufficient(src, "set_str_passed_to_iter_consuming_fn");
 }
 
-// BUG-04-239 matrix: generic fn with a by-value `Set<T>` param consumed by the
-// NAMED `.iter()` form double-freed the set buffer under AOT. `emit_set_iter`
+// Generic-Set-param iterator-consumption matrix: a generic fn with a by-value
+// `Set<T>` param consumed by the NAMED `.iter()` form double-freed the set
+// buffer under AOT. `emit_set_iter`
 // hand-emitted an unconditional `ori_set_buffer_rc_dec` on the borrowed param
 // buffer (no matching inc — borrow inference gave the callee no RC transfer),
 // freeing the caller's still-owned set. The cure gates that dec on the realized
@@ -1099,8 +1100,8 @@ fn probe_set_str_passed_to_iter_consuming_fn_no_double_free() {
 // balances the dec) and owned-local (gate fires, freed once) cells clamp from
 // the other sides so the fix threads precisely between them.
 
-/// Regression: BUG-04-239 — generic by-value `Set<int>` param + named `.iter()`
-/// double-freed the borrowed set buffer (THE failing pin; pre-fix aborts -134).
+/// Regression: generic by-value `Set<int>` param + named `.iter()` double-freed
+/// the borrowed set buffer (THE failing pin; pre-fix aborts -134).
 #[test]
 fn probe_generic_set_int_param_named_iter_count_no_double_free() {
     let src = r#"
@@ -1115,8 +1116,8 @@ fn probe_generic_set_int_param_named_iter_count_no_double_free() {
     assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_count");
 }
 
-/// Regression: BUG-04-239 — generic by-value `Set<str>` param (heap elements) +
-/// named `.iter()`. Heap-elem variant: `elem_inc_fn`/`elem_dec_fn` element
+/// Regression: generic by-value `Set<str>` param (heap elements) + named
+/// `.iter()`. Heap-elem variant: `elem_inc_fn`/`elem_dec_fn` element
 /// refcounts must net zero while the source set buffer is freed exactly once.
 #[test]
 fn probe_generic_set_str_param_named_iter_count_no_double_free() {
@@ -1135,8 +1136,8 @@ fn probe_generic_set_str_param_named_iter_count_no_double_free() {
     assert_burden_path_self_sufficient(src, "generic_set_str_param_named_iter_count");
 }
 
-/// Regression: BUG-04-239 — generic by-value `Set<int>` param + named `.iter()`
-/// feeding a DISTINCT iterator consumer (`.fold`, not `.count`). The cure gates
+/// Regression: generic by-value `Set<int>` param + named `.iter()` feeding a
+/// DISTINCT iterator consumer (`.fold`, not `.count`). The cure gates
 /// the dec at the iter SOURCE (`emit_set_iter`), so it is consumer-agnostic; this
 /// cell pins that — a fix special-cased to the `.count` codepath would leave this
 /// genuine `.fold` consumer double-freeing the borrowed set buffer. (Generic `T`
@@ -1156,7 +1157,7 @@ fn probe_generic_set_int_param_named_iter_fold_no_double_free() {
     assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_fold");
 }
 
-/// Clamp (BUG-04-239): generic by-value `Set<int>` param consumed by AUTO-iter
+/// Clamp (generic-Set-param iterator-consumption): generic by-value `Set<int>` param consumed by AUTO-iter
 /// (`for x in c`) is balanced — `emit_auto_iter` inc's the receiver before the
 /// set-buffer dec, so the dec stays correct (`owns_data=true`). Must stay green
 /// pre- AND post-fix (the auto-iter call site passes `receiver_owned = true`).
@@ -1180,7 +1181,7 @@ fn probe_generic_set_int_param_auto_iter_balanced() {
     assert_burden_path_self_sufficient(src, "generic_set_int_param_auto_iter");
 }
 
-/// Clamp (BUG-04-239): non-generic owned `Set<int>` local consumed by named
+/// Clamp (generic-Set-param iterator-consumption): non-generic owned `Set<int>` local consumed by named
 /// `.iter()`. Owned receiver → the cure's gate FIRES the set-buffer dec → freed
 /// exactly once (no leak). Must stay green pre- AND post-fix.
 #[test]
@@ -1195,7 +1196,7 @@ fn probe_owned_set_int_local_named_iter_count_freed_once() {
     assert_burden_path_self_sufficient(src, "owned_set_int_local_named_iter_count");
 }
 
-/// Clamp (BUG-04-239): non-generic owned `Set<str>` local (heap elements)
+/// Clamp (generic-Set-param iterator-consumption): non-generic owned `Set<str>` local (heap elements)
 /// consumed by named `.iter()`. Owned + heap clamp: gate fires, set buffer +
 /// every element freed exactly once. Must stay green pre- AND post-fix.
 #[test]
@@ -1213,7 +1214,7 @@ fn probe_owned_set_str_local_named_iter_count_freed_once() {
     assert_burden_path_self_sufficient(src, "owned_set_str_local_named_iter_count");
 }
 
-/// Clamp (BUG-04-239): owned `Set<int>` consumed by named `.iter()` AND RETURNED
+/// Clamp (generic-Set-param iterator-consumption): owned `Set<int>` consumed by named `.iter()` AND RETURNED
 /// (escapes after iteration). The receiver is `[own]` (transfers through Return),
 /// so AIMS keeps it live across the iter via a keep-alive inc (RC 2); the cure's
 /// gate fires the set-buffer dec, leaving RC 1 for the caller's surviving ref —
@@ -2134,6 +2135,53 @@ fn probe_list_contains_borrowed_read_no_payload_negative() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "list_contains_borrowed_read_no_payload_negative");
+}
+
+/// Retain-aliasing closure growth (gate d) DECLINES when an accessor-retain
+/// member (`val.unwrap()`) feeds a FURTHER borrowed read whose result is
+/// NEITHER a tracked closure member NOR provably scalar — here
+/// `.substring(..)`, a sharing-view producer returning a co-owning view of
+/// the SAME str backing buffer. An unvetted closure would place the
+/// unwrap()-result's release without accounting for the untracked substring
+/// view's own read (use-after-free / double-free). The decline is correct;
+/// BUG-04-269 is a gap in the fallback placement path, not in this vet.
+#[test]
+#[ignore = "BUG-04-269: branchy map-index unwrap()+substring() double-frees; \
+            retain_aliasing's scalar-decline gate correctly declines admission \
+            on this shape (prevents an unsound placement) but no other pass \
+            covers it, so the pre-existing double-free stays live"]
+fn probe_retain_aliasing_untracked_sharing_view_declines_no_uaf() {
+    let src = r#"
+@main () -> int = {
+    let m = {1: "hello world this is a long string exceeding SSO threshold here", 2: "another long string that also exceeds SSO threshold here too"};
+    let val = m[1];
+    if val.is_some() && val.unwrap().substring(start: 0, end: 5) == "hello" then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "retain_aliasing_untracked_sharing_view_declines");
+}
+
+/// Same scalar-decline gate as
+/// [`probe_retain_aliasing_untracked_sharing_view_declines_no_uaf`], on a
+/// list-`.first()` root instead of a map `__index` root; BUG-04-269 is a
+/// map-root-only fallback-placement gap, so this list-root variant isolates
+/// the vet's decline behavior clean of that confound. `f.unwrap()` is a
+/// tracked accessor-retain member; `.substring(..)` on it is neither a
+/// member nor provably scalar, so gate (d) must decline retain-aliasing
+/// admission and let the base walk place the releases.
+#[test]
+fn probe_retain_aliasing_untracked_sharing_view_declines_list_root_no_uaf() {
+    let src = r#"
+@main () -> int = {
+    let items = ["hello world this is a long string exceeding SSO threshold here", "another long heap string here"];
+    let f = items.first();
+    if f.is_some() && f.unwrap().substring(start: 0, end: 5) == "hello" then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(
+        src,
+        "retain_aliasing_untracked_sharing_view_declines_list_root",
+    );
 }
 
 // No-use dead-owned-collection scope-exit cleanup dec (RL-2 unused-owned).

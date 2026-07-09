@@ -133,8 +133,8 @@ fn group_lineage_ops(
 /// - the rep has ≥1 fresh self-alloc member (it is a real allocation lineage);
 /// - NO member's burden ops sit in a loop block — `same_alloc_reps` EXCLUDES the
 ///   Jump-phi back-edge by design, so a loop-carried value's release attributes
-///   to a different rep and the per-path net mis-computes (the known blind spot
-///   per the M-series dead-ends); loop-carried lineages defer to a later pass;
+///   to a different rep and the per-path net mis-computes (a known blind spot);
+///   loop-carried lineages defer to a later pass;
 /// - eliding all incs + keeping exactly one dec yields a per-path terminal net
 ///   of 0 on every alloc-reachable terminal (else removal alone cannot balance
 ///   it — the missing release must be edge-emitted, out of scope here).

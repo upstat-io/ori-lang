@@ -478,8 +478,7 @@ fn collect_set_chain_dead_thread_suppresses_orphan_inc() {
 /// param %19 is GENUINELY READ at an owned position (the collected Set survives
 /// downstream — stored / returned / re-consumed), the lineage is NOT
 /// dead-threaded -> gate (c)/(d) declines (the funding inc is load-bearing).
-/// Guards against eliding a collect result that genuinely survives (dead-end
-/// #191 surface for the collect-builtin family).
+/// Guards against eliding a collect result that genuinely survives.
 #[test]
 fn collect_set_chain_live_thread_declines() {
     let interner = StringInterner::new();

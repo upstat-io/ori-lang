@@ -22,7 +22,7 @@ use ori_ir::Name;
 use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcVarId};
 
-use super::{function_used_vars, ForwarderReleasePos};
+use super::{compute_pairwise_overlap_flags, function_used_vars, ForwarderReleasePos};
 use death_point::{
     choose_death_point, collect_member_field_extract_seeds, DeathPoint, DeathPointModes,
 };
@@ -213,15 +213,7 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
     }
 
     // Gate (f): decline EVERY candidate whose closure overlaps another's.
-    let overlapping: Vec<bool> = candidates
-        .iter()
-        .map(|c| {
-            candidates
-                .iter()
-                .filter(|o| !std::ptr::eq(*o, c))
-                .any(|o| !c.members.is_disjoint(&o.members))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&candidates, |c| &c.members);
     for (cand, overlaps) in candidates.into_iter().zip(overlapping) {
         if overlaps {
             tracing::trace!(

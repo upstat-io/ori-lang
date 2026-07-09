@@ -12,7 +12,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
 use super::forwarder::collect_ttr_param_aliases;
 use super::successor_reachable_blocks;
-use super::sum_payload_iter_consume::collect_iter_consumed_positions;
+use super::sum_payload_iter_consume::{collect_iter_consumed_positions, IterConsumeScope};
 
 /// Compute function-wide use counts and the duplication-alias dst set, and
 /// extend `inc_suppressed_vars` with dead FRESH values per AIMS RL-2.
@@ -291,13 +291,18 @@ pub(in crate::lower::burden_lower) fn compute_ttr_iter_consume_dup_aliases(
     let Some((_, alias_to_src)) = collect_ttr_param_aliases(func, contracts) else {
         return FxHashSet::default();
     };
-    // `exclude_ttr_overlap = false`: this scan targets the ttr-param /
-    // iter-consume OVERLAP itself (a THIS-function ttr param whose alias is
-    // ALSO iter-consumed), so a user-callee param carrying its OWN
+    // `IncludingTtrOverlap`: this scan targets the ttr-param / iter-consume
+    // OVERLAP itself (a THIS-function ttr param whose alias is ALSO
+    // iter-consumed), so a user-callee param carrying its OWN
     // `transfers_through_return` must stay admitted here — unlike
-    // `sum_payload_iter_consume::iter_consumed_vars`, which excludes it to
-    // isolate the pure-consume case.
-    let iter_consumed = collect_iter_consumed_positions(func, contracts, interner, false);
+    // `sum_payload_iter_consume::iter_consumed_vars`, which excludes it (via
+    // `Rl2ConsumeOnly`) to isolate the pure-consume case.
+    let iter_consumed = collect_iter_consumed_positions(
+        func,
+        contracts,
+        interner,
+        IterConsumeScope::IncludingTtrOverlap,
+    );
     if iter_consumed.is_empty() {
         return FxHashSet::default();
     }

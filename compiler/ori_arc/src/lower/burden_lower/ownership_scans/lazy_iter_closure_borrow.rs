@@ -27,8 +27,8 @@
 //! EXACTLY ONE whole-var `BurdenDec` at the lazy-iterator chain's terminal
 //! consumer's normal-successor entry — after the consumer ran the closure for the
 //! last time (`RL2_release_exactly_once`: the closure's single birth reference is
-//! released exactly once, net 0). Dead-end #154 confirms the runtime never owns
-//! the env; the release is the CALLER's obligation deferred past the chain.
+//! released exactly once, net 0). The runtime never owns the env; the release
+//! is the CALLER's obligation deferred past the chain.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -36,7 +36,7 @@ use ori_ir::{Name, StringInterner};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
-use super::ForwarderReleasePos;
+use super::{compute_pairwise_overlap_flags, ForwarderReleasePos};
 
 /// Result of [`compute_lazy_iter_closure_borrow_lineage`]: the same-alloc closure
 /// lineage to suppress (kills the early borrowed-arg dec the base walk emits) plus
@@ -165,15 +165,7 @@ pub(in crate::lower::burden_lower) fn compute_lazy_iter_closure_borrow_lineage(
     }
 
     // Gate (f): decline EVERY candidate whose lineage overlaps another's.
-    let overlapping: Vec<bool> = candidates
-        .iter()
-        .map(|c| {
-            candidates
-                .iter()
-                .filter(|o| !std::ptr::eq(*o, c))
-                .any(|o| !c.members.is_disjoint(&o.members))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&candidates, |c| &c.members);
     for (cand, overlaps) in candidates.into_iter().zip(overlapping) {
         if overlaps {
             tracing::trace!(

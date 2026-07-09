@@ -744,8 +744,8 @@ pub(crate) fn emit_burden_ops<'a>(
     // and NEVER read (`let root = [1]; for .. { xs = xs.push(..) }; xs[k]` —
     // `root` dead). The loop back-edge fractures the union-find lineage so the
     // construct-fed scan declines it; this self-contained scan (decoupled from
-    // the keystone same-alloc union per the reverted broad-union dead-end) emits
-    // ONE RL-5 dead-at-entry dec at the lineage's terminal dead block-param.
+    // the keystone same-alloc union) emits ONE RL-5 dead-at-entry dec at the
+    // lineage's terminal dead block-param.
     // DISJOINT root kind from the scans above (purely-dead loop-invariant
     // Construct, threaded-only, never read); the contains-gated push keeps the
     // merge idempotent. Empty when

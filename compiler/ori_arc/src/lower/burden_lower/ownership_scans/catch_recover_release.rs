@@ -4,13 +4,16 @@
 //! path. Shape, over-emission mechanism, cure, and admission gates are
 //! documented on [`compute_catch_recover_release_lineage`].
 
+mod site;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::graph::compute_predecessors;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
 
 use super::super::is_provably_scalar_repr;
-use super::{successor_reachable_blocks, ForwarderReleasePos};
+use super::{compute_pairwise_overlap_flags, ForwarderReleasePos};
+use site::{catch_recover_final_read_site, lineage_has_normal_path_release};
 
 /// Result of [`compute_catch_recover_release_lineage`]: the same-alloc closure to
 /// suppress + the single placed normal-path release.
@@ -169,15 +172,7 @@ pub(in crate::lower::burden_lower) fn compute_catch_recover_release_lineage(
     }
 
     // Gate (f): decline EVERY candidate whose closure overlaps another's.
-    let overlapping: Vec<bool> = candidates
-        .iter()
-        .map(|c| {
-            candidates
-                .iter()
-                .filter(|o| !std::ptr::eq(*o, c))
-                .any(|o| !c.members.is_disjoint(&o.members))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&candidates, |c| &c.members);
     for (cand, overlaps) in candidates.into_iter().zip(overlapping) {
         if overlaps {
             tracing::trace!(
@@ -426,250 +421,6 @@ fn catch_recover_member_uses_all_borrow_reads(
         }
     }
     true
-}
-
-/// Gate (d): true iff any existing `BurdenDec` on a closure member is
-/// forward-reachable to a `Return`-terminated normal exit — i.e. the lineage
-/// ALREADY has a normal-path release and must NOT receive another (double-free).
-/// Only an unwind-only release (every dec reaches only `Resume` / `Unreachable`)
-/// is the MISSING-release shape this scan cures.
-fn lineage_has_normal_path_release(func: &ArcFunction, members: &FxHashSet<ArcVarId>) -> bool {
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        let has_member_dec = block
-            .body
-            .iter()
-            .any(|instr| matches!(instr, ArcInstr::BurdenDec { var } if members.contains(var)));
-        if !has_member_dec {
-            continue;
-        }
-        // The dec's block reaches a normal-exit Return (itself or via successors)?
-        if block_reaches_return(func, block_idx) {
-            return true;
-        }
-    }
-    false
-}
-
-/// True iff `start` is `Return`-terminated OR a `Return`-terminated block is
-/// forward-reachable from it (the dec releases on a path that ends at a normal
-/// exit).
-fn block_reaches_return(func: &ArcFunction, start: usize) -> bool {
-    if matches!(
-        func.blocks.get(start).map(|b| &b.terminator),
-        Some(ArcTerminator::Return { .. })
-    ) {
-        return true;
-    }
-    successor_reachable_blocks(func, start).iter().any(|&b| {
-        matches!(
-            func.blocks.get(b).map(|b| &b.terminator),
-            Some(ArcTerminator::Return { .. })
-        )
-    })
-}
-
-/// Gate (e): the execution-final GENUINE borrow-read site for the single placed
-/// release. Collects every GENUINE read of a member — a borrowed `Apply`/`Invoke`
-/// arg or a scalar-result borrowed call, EXCLUDING the closure's own edges
-/// (`Let { Var }` hops, niche-payload `Project` views, the `Construct` wrap,
-/// `Jump` threading, and the keep-alive `BurdenInc`/`BurdenDec` churn) — then
-/// picks the unique read every other genuine read reaches. Returns
-/// `(block_idx, pos, read_var)`; the dec targets `read_var` (the member holding
-/// the allocation at the site). Validates the site is single-pred (for a
-/// `BlockEntry` site), not in a CFG cycle, and that every normal-exit `Return`
-/// reachable from the root passes through it.
-fn catch_recover_final_read_site(
-    func: &ArcFunction,
-    members: &FxHashSet<ArcVarId>,
-    root: ArcVarId,
-    preds: &[Vec<usize>],
-) -> Option<(usize, ForwarderReleasePos, ArcVarId)> {
-    // Candidate GENUINE reads: (block, pos, read var, in-block order; -1 = entry).
-    let mut candidates: Vec<(usize, ForwarderReleasePos, ArcVarId, isize)> = Vec::new();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            // Skip the closure's own edges + keep-alive churn — NOT genuine reads.
-            match instr {
-                ArcInstr::Let {
-                    value: ArcValue::Var(_),
-                    ..
-                }
-                | ArcInstr::Project { .. }
-                | ArcInstr::BurdenInc { .. }
-                | ArcInstr::BurdenDec { .. } => continue,
-                ArcInstr::Construct {
-                    ctor: CtorKind::EnumVariant { .. },
-                    dst,
-                    ..
-                } if members.contains(dst) => continue,
-                _ => {}
-            }
-            if let Some(&used) = instr.used_vars().iter().find(|v| members.contains(v)) {
-                let order = isize::try_from(instr_idx).unwrap_or(isize::MAX);
-                candidates.push((
-                    block_idx,
-                    ForwarderReleasePos::AfterInstr(instr_idx),
-                    used,
-                    order,
-                ));
-            }
-        }
-        let term = &block.terminator;
-        if let ArcTerminator::Invoke { normal, .. } = term {
-            for (pos, &v) in term.used_vars().iter().enumerate() {
-                if members.contains(&v) && !term.is_owned_position(pos) {
-                    candidates.push((normal.index(), ForwarderReleasePos::BlockEntry, v, -1));
-                }
-            }
-        }
-    }
-    // Pick the unique genuine read that every other genuine read reaches
-    // (execution-final). Block INDEX order is not execution order, so use CFG
-    // forward-reachability.
-    let mut reachable: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
-    let mut reaches = |from: usize, to: usize| -> bool {
-        reachable
-            .entry(from)
-            .or_insert_with(|| successor_reachable_blocks(func, from))
-            .contains(&to)
-    };
-    let mut chosen: Option<(usize, ForwarderReleasePos, ArcVarId)> = None;
-    'outer: for cand in &candidates {
-        for other in &candidates {
-            if std::ptr::eq(cand, other) {
-                continue;
-            }
-            let after_other = if other.0 == cand.0 {
-                cand.3 >= other.3
-            } else {
-                reaches(other.0, cand.0)
-            };
-            if !after_other {
-                continue 'outer;
-            }
-        }
-        chosen = Some((cand.0, cand.1, cand.2));
-        break;
-    }
-    let (site_block, site_pos, dec_var) = chosen?;
-    catch_recover_site_sound(func, members, root, site_block, site_pos, preds)
-        .then_some((site_block, site_pos, dec_var))
-}
-
-/// Gate (e) site-soundness: the placed release site is execution-final, covers
-/// every normal exit, is not in a CFG cycle (no re-reached double-free), and a
-/// `BlockEntry` site is single-pred so the predecessor's terminator read
-/// dominates the dec.
-fn catch_recover_site_sound(
-    func: &ArcFunction,
-    members: &FxHashSet<ArcVarId>,
-    root: ArcVarId,
-    site_block: usize,
-    site_pos: ForwarderReleasePos,
-    preds: &[Vec<usize>],
-) -> bool {
-    // (e1) the site must not sit in a CFG cycle (a re-reached dec double-frees).
-    if successor_reachable_blocks(func, site_block).contains(&site_block) {
-        return false;
-    }
-    // (e2) a BlockEntry site must have a single predecessor so the var read at the
-    // predecessor's terminator dominates the dec.
-    if site_pos == ForwarderReleasePos::BlockEntry && preds.get(site_block).map(Vec::len) != Some(1)
-    {
-        return false;
-    }
-    // (e3) the site must be forward-reachable from every GENUINE-read block
-    // (execution-final). Loop-carried keep-alive churn is NOT a genuine read; the
-    // genuine-read set is the body `Apply`/`Invoke`-borrow uses (excluding the
-    // closure's own edges), so the loop body's keep-alive ops do not constrain the
-    // site.
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        let block_genuine_reads_member = block_has_genuine_member_read(block, members);
-        if block_genuine_reads_member
-            && block_idx != site_block
-            && !successor_reachable_blocks(func, block_idx).contains(&site_block)
-        {
-            return false;
-        }
-    }
-    // (e4) every normal exit (`Return`-terminated block) reachable from the root's
-    // definition passes through the site — a bypassing normal path would never
-    // release the allocation. Unwind exits (`Resume`) are exempt (status-quo leak
-    // on unwind, identical to today's behavior).
-    let def_block = catch_recover_root_def_block(func, root);
-    let mut stack: Vec<usize> = vec![def_block];
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    while let Some(b) = stack.pop() {
-        if b == site_block || !visited.insert(b) {
-            continue;
-        }
-        let Some(block) = func.blocks.get(b) else {
-            continue;
-        };
-        if matches!(block.terminator, ArcTerminator::Return { .. }) {
-            return false;
-        }
-        for s in crate::graph::successor_block_ids(&block.terminator) {
-            stack.push(s.index());
-        }
-    }
-    true
-}
-
-/// True iff `block` carries a GENUINE borrow-read of a member — a body
-/// `Apply`/`Invoke` borrow or a borrowed terminator-`Invoke` arg — EXCLUDING the
-/// closure's own edges (`Let { Var }` hops, `Project` views, the `Construct`
-/// wrap, `Jump` threading) and the keep-alive `BurdenInc`/`BurdenDec` churn.
-fn block_has_genuine_member_read(
-    block: &crate::ir::ArcBlock,
-    members: &FxHashSet<ArcVarId>,
-) -> bool {
-    for instr in &block.body {
-        match instr {
-            ArcInstr::Let {
-                value: ArcValue::Var(_),
-                ..
-            }
-            | ArcInstr::Project { .. }
-            | ArcInstr::BurdenInc { .. }
-            | ArcInstr::BurdenDec { .. }
-            | ArcInstr::Construct { .. } => continue,
-            _ => {}
-        }
-        if instr.used_vars().iter().any(|v| members.contains(v)) {
-            return true;
-        }
-    }
-    if let ArcTerminator::Invoke { .. } = &block.terminator {
-        let term = &block.terminator;
-        for (pos, v) in term.used_vars().iter().enumerate() {
-            if members.contains(v) && !term.is_owned_position(pos) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// The block where `root`'s value becomes live: the defining block for a body
-/// `Apply`; the NORMAL successor for a terminator `Invoke` (the result binds on
-/// the normal edge). Falls back to the entry block.
-fn catch_recover_root_def_block(func: &ArcFunction, root: ArcVarId) -> usize {
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for instr in &block.body {
-            if let ArcInstr::Apply { dst, .. } = instr {
-                if *dst == root {
-                    return block_idx;
-                }
-            }
-        }
-        if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
-            if *dst == root {
-                return normal.index();
-            }
-        }
-    }
-    func.entry.index()
 }
 
 #[cfg(test)]

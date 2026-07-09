@@ -8573,7 +8573,8 @@ fn compute_fresh_owned_collection_reps(
     let fresh_str_names = fresh_str_producing_method_names(interner);
     // `__collect_set` (protocol sibling of `@collect`/`@collect_set`) yields a
     // FRESH set buffer; admitted by exact protocol name only, never via
-    // `is_self_allocating_builtin_callee` (preserves the COW receiver-origin gate). Spec: Annex E §AIMS RL-2.
+    // `is_self_allocating_builtin_callee` (preserves the COW receiver-origin
+    // gate). Spec: Annex E §AIMS RL-2.
     let collect_set_protocol =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name());
     let mut reps: FxHashSet<ArcVarId> = FxHashSet::default();

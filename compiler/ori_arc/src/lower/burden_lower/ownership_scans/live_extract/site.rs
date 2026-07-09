@@ -2,11 +2,13 @@
 //! (`live_extract.rs` gate (f)): execution-ordered site selection +
 //! site-soundness vetting for the single placed `BurdenDec`.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
-use super::{successor_reachable_blocks, ForwarderReleasePos};
+use super::super::{
+    compute_execution_final_read_site, successor_reachable_blocks, ForwarderReleasePos,
+};
 
 /// Execution-ordered release-site selection for the (branching) live-extract
 /// closure: collect every terminal READ of a member — excluding HOPS, where
@@ -22,66 +24,21 @@ pub(super) fn choose_release_site(
     func: &ArcFunction,
     members: &FxHashSet<ArcVarId>,
 ) -> Option<(usize, ForwarderReleasePos, ArcVarId)> {
-    // Candidate reads: (block, pos, read var, in-block order; -1 = entry).
-    let mut candidates: Vec<(usize, ForwarderReleasePos, ArcVarId, isize)> = Vec::new();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            match instr {
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } if members.contains(src) && members.contains(dst) => continue,
-                ArcInstr::Project { dst, value, .. }
-                    if members.contains(value) && members.contains(dst) =>
-                {
-                    continue;
-                }
-                _ => {}
-            }
-            if let Some(&used) = instr.used_vars().iter().find(|v| members.contains(v)) {
-                let order = isize::try_from(instr_idx).unwrap_or(isize::MAX);
-                candidates.push((
-                    block_idx,
-                    ForwarderReleasePos::AfterInstr(instr_idx),
-                    used,
-                    order,
-                ));
-            }
-        }
-        let term = &block.terminator;
-        if let ArcTerminator::Invoke { normal, .. } = term {
-            for (pos, &v) in term.used_vars().iter().enumerate() {
-                if members.contains(&v) && !term.is_owned_position(pos) {
-                    candidates.push((normal.index(), ForwarderReleasePos::BlockEntry, v, -1));
-                }
-            }
-        }
-    }
-    let mut reachable: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
-    let mut reaches = |from: usize, to: usize| -> bool {
-        reachable
-            .entry(from)
-            .or_insert_with(|| successor_reachable_blocks(func, from))
-            .contains(&to)
+    let is_closure_own_edge = |instr: &ArcInstr| {
+        matches!(
+            instr,
+            ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } if members.contains(src) && members.contains(dst)
+        ) || matches!(
+            instr,
+            ArcInstr::Project { dst, value, .. }
+                if members.contains(value) && members.contains(dst)
+        )
     };
-    'outer: for cand in &candidates {
-        for other in &candidates {
-            if std::ptr::eq(cand, other) {
-                continue;
-            }
-            let after_other = if other.0 == cand.0 {
-                cand.3 >= other.3
-            } else {
-                reaches(other.0, cand.0)
-            };
-            if !after_other {
-                continue 'outer;
-            }
-        }
-        return Some((cand.0, cand.1, cand.2));
-    }
-    None
+    compute_execution_final_read_site(func, members, is_closure_own_edge)
 }
 
 /// Gate (f): the placed release site is execution-final and covers every

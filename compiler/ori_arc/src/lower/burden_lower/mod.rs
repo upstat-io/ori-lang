@@ -234,10 +234,9 @@ static LAZY_ITER_CLOSURE_BORROW_RELEASE_DISABLED: LazyLock<bool> = LazyLock::new
 /// `RL1_duplication_balanced` move-once nets 0). With the toggle set, the orphan
 /// inc returns — the buffer's rc never reaches 0 (the `@iter` consume suppresses
 /// the scope-exit dec), a +1 leak (exit 2). Follows Jump-args across ALL edges
-/// (forward + back) via `compute_param_edge_args` — the back-edge inclusion the
-/// foreclosed forward-only scans (dead-ends #163/#164/#185) lacked; does NOT
-/// relax the `@iter` COW-taint (#181's over-fire surface). Spec: Annex E §AIMS
-/// RL-1 + RL-2.
+/// (forward + back) via `compute_param_edge_args` — a forward-only scan would
+/// have missed the back-edge inclusion; does NOT relax the `@iter` COW-taint.
+/// Spec: Annex E §AIMS RL-1 + RL-2.
 static ITER_CONSUME_DEAD_THREAD_ORPHAN_INC_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("ORI_DISABLE_ITER_CONSUME_DEAD_THREAD_ORPHAN_INC").as_deref() == Ok("1")
 });

@@ -365,14 +365,14 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // The base walk emits the spurious dup-alias keep-alive incs + an INLINE
     // source dec BEFORE the accessor-retain call reads the payload → use-after-
     // free + double-free (exit -134: coll_map_index_int_str / set_str_union /
-    // catch-cohort). The single-site fresh-sum live-extract scan is FORECLOSED
-    // (ledger 212): the allocation is live on the BYPASS branch that reaches
+    // catch-cohort). The single-site fresh-sum live-extract scan does not apply
+    // here: the allocation is live on the BYPASS branch that reaches
     // Return WITHOUT passing the reader's site. The cure removes the whole same-
     // alloc closure (root + Let-Var aliases + niche-payload Projects + accessor-
     // retain results) from `owned_vars_needing_rc` and places a per-path release
     // for EACH retained reference (the niche-sum root for the `@__index` self-inc
-    // + each accessor-retain result for its `@unwrap`/`@get` self-inc — ledger
-    // 214/216): RL-2 after the final borrow-read on each READING path (a body
+    // + each accessor-retain result for its `@unwrap`/`@get` self-inc): RL-2
+    // after the final borrow-read on each READING path (a body
     // read, or a terminator-`Invoke` read released at its normal successor), RL-4
     // edge dec on each BYPASS edge — exactly-once-per-path-per-reference. Runs
     // AFTER the fresh-sum live-extract scan so a root that scan claimed (its
@@ -466,8 +466,8 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // is elidable (RL1_duplication_balanced move-once nets 0). Removes the whole
     // same-alloc dead-thread lineage from owned_vars_needing_rc. Follows Jump-args
     // across ALL edges (forward + back) via compute_param_edge_args — the
-    // back-edge inclusion the foreclosed forward-only scans (#163/#164/#185)
-    // lacked; does NOT relax the @iter COW-taint (#181's over-fire). SSOT:
+    // back-edge inclusion a forward-only scan would have missed; does NOT relax
+    // the @iter COW-taint. SSOT:
     // `compute_iter_consume_dead_thread_orphan_inc`. Spec: Annex E §AIMS RL-1 +
     // RL-2.
     apply_iter_consume_dead_thread_orphan_inc(

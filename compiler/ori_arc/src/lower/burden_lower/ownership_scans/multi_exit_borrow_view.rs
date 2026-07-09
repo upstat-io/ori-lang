@@ -13,7 +13,7 @@ use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::Uniqueness;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
-use super::ForwarderReleasePos;
+use super::{compute_pairwise_overlap_flags, ForwarderReleasePos};
 
 /// Result of [`compute_multi_exit_borrow_view_lineage`]: the same-alloc closure
 /// to suppress (kills every borrow-view inc + the spurious pre-use source dec)
@@ -143,15 +143,7 @@ pub(in crate::lower::burden_lower) fn compute_multi_exit_borrow_view_lineage(
     }
 
     // Gate (e): decline EVERY candidate whose closure overlaps another's.
-    let overlapping: Vec<bool> = candidates
-        .iter()
-        .map(|c| {
-            candidates
-                .iter()
-                .filter(|o| !std::ptr::eq(*o, c))
-                .any(|o| !c.members.is_disjoint(&o.members))
-        })
-        .collect();
+    let overlapping = compute_pairwise_overlap_flags(&candidates, |c| &c.members);
     for (cand, overlaps) in candidates.into_iter().zip(overlapping) {
         if overlaps {
             tracing::trace!(

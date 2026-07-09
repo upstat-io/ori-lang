@@ -11,9 +11,9 @@
 //! ops are balanced keep-alive pairs, no terminal release).
 //!
 //! This self-contained scan recognizes the shape directly (decoupled from the
-//! keystone `compute_genuine_same_alloc_reps` per the reverted broad-union
-//! dead-end) and emits ONE RL-5 dead-at-entry `BurdenDec` at the lineage's
-//! terminal dead block-param. Per `AimsProof.Realization::RL5_dead_at_entry_cleanup`
+//! keystone `compute_genuine_same_alloc_reps`) and emits ONE RL-5 dead-at-entry
+//! `BurdenDec` at the lineage's terminal dead block-param. Per
+//! `AimsProof.Realization::RL5_dead_at_entry_cleanup`
 //! the dead Owned non-scalar param entered with a live RC=1 reference that is
 //! never used; `RL5_cleanup_balanced` proves `[inc, dec]` nets 0.
 
