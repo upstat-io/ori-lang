@@ -298,7 +298,6 @@ fn eliminate_whole_function(
         state_map,
         &balances,
         &rebalanced_vars,
-        &alias_dsts,
         &mut remove,
     );
     if *FORCE_OVERELIMINATE {

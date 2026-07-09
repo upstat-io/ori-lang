@@ -2102,6 +2102,80 @@ fn class_grain_mutate_feeding_class_keeps_pair() {
     assert_eq!(census(&func), [1, 2, 0, 0, 0]);
 }
 
+/// T3 live-across-the-span premise: a sibling releasing INSIDE the pair's
+/// span (multi-release sibling) supplies no evidence even though another
+/// kept release lands after the span — the interior count may hit zero
+/// mid-span; the pair is kept whole.
+#[test]
+fn class_grain_sibling_release_within_span_keeps_pair_whole() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, true);
+    assert_eq!(census(&func), [1, 3, 0, 0, 0]);
+}
+
+/// Whole-pair-only admission: a bracket whose release set contains a
+/// `BurdenDecPartial` slice drop sits outside the T3 whole-var proof and is
+/// never admitted — every op survives.
+#[test]
+fn class_grain_partial_dec_bracket_not_admitted() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDecPartial {
+            var: v(1),
+            skip_fields: vec![],
+        },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(2, body);
+    run_elim_class_grain(&mut func, true);
+    assert_eq!(census(&func), [1, 1, 1, 0, 0]);
+}
+
+/// MUTATE exclusion covers buffer recycling: a `CollectionReuse` consuming a
+/// class member taints the whole class; the pair is kept.
+#[test]
+fn class_grain_collection_reuse_taints_class_keeps_pair() {
+    let body = vec![
+        ArcInstr::Construct {
+            dst: v(0),
+            ty: ty(0),
+            ctor: CtorKind::Tuple,
+            args: vec![],
+        },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::CollectionReuse {
+            dst: v(2),
+            old_var: v(0),
+            ty: ty(0),
+            ctor: CtorKind::ListLiteral,
+            args: vec![],
+        },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(3, body);
+    run_elim_class_grain(&mut func, true);
+    assert_eq!(census(&func), [1, 2, 0, 0, 0]);
+}
+
 /// No release-after-span, no evidence: the sibling's dec BEFORE the pair
 /// supplies no dominating bracket; the pair is kept whole (never split).
 #[test]

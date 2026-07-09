@@ -52,7 +52,7 @@ use super::WholeVarBalance;
 static CLASS_GRAIN_PAIR_ELISION_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_CLASS_GRAIN_PAIR_ELISION").as_deref() == Ok("1"));
 
-/// Mark class-grain whole-pair removals; returns the elided vars.
+/// Mark class-grain whole-pair removals.
 ///
 /// Runs AFTER `mark_whole_var_removals` (consumes its keep verdicts; touches
 /// only pairs every one of whose sites is still un-removed) and BEFORE
@@ -62,14 +62,13 @@ pub(super) fn mark_class_grain_whole_pair_removals(
     state_map: &AimsStateMap,
     balances: &FxHashMap<ArcVarId, WholeVarBalance>,
     rebalanced_vars: &FxHashSet<ArcVarId>,
-    alias_dsts: &FxHashSet<ArcVarId>,
     remove: &mut [Vec<bool>],
-) -> FxHashSet<ArcVarId> {
+) {
     if *CLASS_GRAIN_PAIR_ELISION_DISABLED {
-        return FxHashSet::default();
+        return;
     }
     let Some(partition) = state_map.birth_site_partition() else {
-        return FxHashSet::default();
+        return;
     };
     // rep_of/same_rep path-compress (&mut); the side table on the state map is
     // read-only after Step 4b (PL-5), so resolve reps on a local clone.
@@ -95,6 +94,7 @@ pub(super) fn mark_class_grain_whole_pair_removals(
                 ArcInstr::Set { base, .. } | ArcInstr::SetTag { base, .. } => *base,
                 ArcInstr::IsShared { var, .. } | ArcInstr::Reset { var, .. } => *var,
                 ArcInstr::Reuse { token, .. } => *token,
+                ArcInstr::CollectionReuse { old_var, .. } => *old_var,
                 _ => continue,
             };
             if let Some(&node) = whole_node.get(&base) {
@@ -104,12 +104,12 @@ pub(super) fn mark_class_grain_whole_pair_removals(
     }
 
     let candidates = collect_candidates(
+        func,
         &mut partition,
         &whole_node,
         &mutate_tainted,
         balances,
         rebalanced_vars,
-        alias_dsts,
         remove,
     );
     // Sibling evidence: a NON-candidate same-class var defined before the
@@ -118,7 +118,6 @@ pub(super) fn mark_class_grain_whole_pair_removals(
     // — no mutual justification.
     let params: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let candidate_vars: FxHashSet<ArcVarId> = candidates.keys().copied().collect();
-    let mut elided: FxHashSet<ArcVarId> = FxHashSet::default();
     for (var, cand) in &candidates {
         let block = &func.blocks[cand.block];
         let evidence = balances.iter().any(|(sib, sib_bal)| {
@@ -139,11 +138,26 @@ pub(super) fn mark_class_grain_whole_pair_removals(
             if !born_before {
                 return false;
             }
-            // Kept release after the span, same block.
-            sib_bal
-                .dec_sites
-                .iter()
-                .any(|&(b, i)| b == cand.block && i > cand.last_site && !remove[b][i])
+            // T3's live-across-the-span premise: the sibling holds the
+            // interior count >= 1 for the WHOLE span — any kept release
+            // landing inside the span (a multi-release sibling) breaks it,
+            // so the evidence demands: no kept dec within the span, and a
+            // kept plain whole-var dec strictly after it (same block; a
+            // single basic block executes straight-line, so no other
+            // block's dec can interleave).
+            let released_within_span = sib_bal.dec_sites.iter().any(|&(b, i)| {
+                b == cand.block && i >= cand.first_site && i <= cand.last_site && !remove[b][i]
+            });
+            if released_within_span {
+                return false;
+            }
+            sib_bal.dec_sites.iter().any(|&site| {
+                let (b, i) = site;
+                b == cand.block
+                    && i > cand.last_site
+                    && !remove[b][i]
+                    && is_plain_burden_dec(func, site)
+            })
         });
         if evidence {
             let balance = &balances[var];
@@ -155,10 +169,17 @@ pub(super) fn mark_class_grain_whole_pair_removals(
                 ?var,
                 "class-grain whole-pair elided (T3 sibling-liveness evidence)"
             );
-            elided.insert(*var);
         }
     }
-    elided
+}
+
+/// A site is a plain whole-var `BurdenDec` — NOT a `BurdenDecPartial` /
+/// `BurdenDecVariant` slice drop (T3 reasons over whole-var releases only).
+fn is_plain_burden_dec(func: &ArcFunction, (block, idx): (usize, usize)) -> bool {
+    matches!(
+        func.blocks[block].body.get(idx),
+        Some(ArcInstr::BurdenDec { .. })
+    )
 }
 
 /// A kept whole-var pair eligible for class-grain elision: single-block span
@@ -171,15 +192,15 @@ struct Candidate {
 }
 
 /// Collect candidate pairs: kept (un-removed) whole-var inc+dec brackets,
-/// single block, non-alias, non-rebalanced, class-known, class not
-/// mutate-tainted.
+/// single block, plain-`BurdenDec`-only, non-rebalanced, class-known, class
+/// not mutate-tainted.
 fn collect_candidates(
+    func: &ArcFunction,
     partition: &mut BirthSitePartition,
     whole_node: &FxHashMap<ArcVarId, NodeIdx>,
     mutate_tainted: &FxHashSet<NodeIdx>,
     balances: &FxHashMap<ArcVarId, WholeVarBalance>,
     rebalanced_vars: &FxHashSet<ArcVarId>,
-    alias_dsts: &FxHashSet<ArcVarId>,
     remove: &[Vec<bool>],
 ) -> FxHashMap<ArcVarId, Candidate> {
     let mut candidates: FxHashMap<ArcVarId, Candidate> = FxHashMap::default();
@@ -195,8 +216,19 @@ fn collect_candidates(
         // cross-var release) has empty dec_sites and is excluded by the
         // pair-completeness gate below, never elided (RL-1
         // `RL1_duplication_balanced`).
-        let _ = alias_dsts;
         if balance.inc_sites.is_empty() || balance.dec_sites.is_empty() {
+            continue;
+        }
+        // T3 is a WHOLE-VAR pair theorem: dec_sites upstream folds
+        // `BurdenDecPartial`/`BurdenDecVariant` alongside plain `BurdenDec`;
+        // a partial/variant drop releases only a slice of the allocation, so
+        // a bracket containing one is outside the whole-pair proof and never
+        // admitted.
+        if balance
+            .dec_sites
+            .iter()
+            .any(|&site| !is_plain_burden_dec(func, site))
+        {
             continue;
         }
         let sites: Vec<_> = balance
